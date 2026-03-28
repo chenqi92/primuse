@@ -6,6 +6,8 @@ struct PrimuseApp: App {
     @State private var sourcesStore: SourcesStore
     @State private var sourceManager: SourceManager
     @State private var playerService: AudioPlayerService
+    @State private var scraperSettingsStore: ScraperSettingsStore
+    @State private var scraperService: MusicScraperService
     @State private var musicLibrary = MusicLibrary()
 
     init() {
@@ -15,10 +17,14 @@ struct PrimuseApp: App {
         let manager = SourceManager(sourcesProvider: {
             await MainActor.run { store.sources }
         })
+        let scraperSettings = ScraperSettingsStore()
+        let scraperService = MusicScraperService(sourceManager: manager)
 
         _sourcesStore = State(initialValue: store)
         _sourceManager = State(initialValue: manager)
         _playerService = State(initialValue: AudioPlayerService(sourceManager: manager))
+        _scraperSettingsStore = State(initialValue: scraperSettings)
+        _scraperService = State(initialValue: scraperService)
     }
 
     var body: some Scene {
@@ -30,6 +36,8 @@ struct PrimuseApp: App {
                 .environment(musicLibrary)
                 .environment(sourcesStore)
                 .environment(sourceManager)
+                .environment(scraperSettingsStore)
+                .environment(scraperService)
         }
     }
 }

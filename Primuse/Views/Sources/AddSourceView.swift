@@ -36,6 +36,7 @@ struct AddSourceView: View {
     @FocusState private var focusedField: SourceFormField?
 
     private var isEditing: Bool { editingSource != nil }
+    private var supportsAPIKeyAuth: Bool { [.jellyfin, .emby].contains(sourceType) }
 
     var body: some View {
         NavigationStack {
@@ -71,19 +72,25 @@ struct AddSourceView: View {
 
                 if sourceType.requiresCredentials {
                     Section("credentials") {
-                        if sourceType == .sftp {
+                        if sourceType == .sftp || supportsAPIKeyAuth {
                             Picker("auth_method", selection: $authType) {
                                 Text("password").tag(SourceAuthType.password)
-                                Text("ssh_key").tag(SourceAuthType.sshKey)
+                                if supportsAPIKeyAuth {
+                                    Text("api_key").tag(SourceAuthType.apiKey)
+                                } else {
+                                    Text("ssh_key").tag(SourceAuthType.sshKey)
+                                }
                             }
                             .pickerStyle(.segmented)
                         }
-                        TextField("username", text: $username)
-                            .focused($focusedField, equals: .username)
-                            .autocorrectionDisabled()
-                            .textInputAutocapitalization(.never)
-                            .submitLabel(.next)
-                            .onSubmit { focusedField = .password }
+                        if authType != .apiKey {
+                            TextField("username", text: $username)
+                                .focused($focusedField, equals: .username)
+                                .autocorrectionDisabled()
+                                .textInputAutocapitalization(.never)
+                                .submitLabel(.next)
+                                .onSubmit { focusedField = .password }
+                        }
                         if authType == .sshKey && sourceType == .sftp {
                             ZStack(alignment: .topLeading) {
                                 TextEditor(text: $sshKey)
@@ -99,7 +106,7 @@ struct AddSourceView: View {
                                 }
                             }
                         } else {
-                            SecureField("password", text: $password)
+                            SecureField(authType == .apiKey ? "api_key" : "password", text: $password)
                                 .focused($focusedField, equals: .password)
                                 .submitLabel(.done)
                                 .onSubmit { focusedField = nil }
@@ -167,6 +174,17 @@ struct AddSourceView: View {
                     .autocorrectionDisabled().submitLabel(.next)
                     .onSubmit { focusedField = .username }
             }
+        case .jellyfin, .emby, .plex:
+            Section("server_config") {
+                TextField("base_path_hint", text: $basePath)
+                    .focused($focusedField, equals: .basePath)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .submitLabel(.next)
+                    .onSubmit {
+                        focusedField = authType == .apiKey ? .password : .username
+                    }
+            }
         case .ftp:
             Section("ftp_config") {
                 Picker("encryption", selection: $ftpEncryption) {
@@ -221,7 +239,7 @@ struct AddSourceView: View {
             id: editingSource?.id ?? UUID().uuidString,
             name: name, type: sourceType,
             host: sourceType.requiresHost ? host : nil, port: Int(port), useSsl: useSsl,
-            username: sourceType.requiresCredentials ? username : nil,
+            username: sourceType.requiresCredentials && authType != .apiKey ? username : nil,
             basePath: basePath.isEmpty ? nil : basePath,
             shareName: shareName.isEmpty ? nil : shareName,
             exportPath: exportPath.isEmpty ? nil : exportPath,

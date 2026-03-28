@@ -15,7 +15,11 @@ struct AlbumDetailView: View {
             VStack(spacing: 20) {
                 // Album header
                 VStack(spacing: 12) {
-                    CoverArtView(data: nil, size: 220, cornerRadius: 14)
+                    StoredCoverArtView(
+                        fileName: songs.first?.coverArtFileName,
+                        size: 220,
+                        cornerRadius: 14
+                    )
 
                     Text(album.title)
                         .font(.title2)

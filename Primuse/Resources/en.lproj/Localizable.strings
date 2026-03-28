@@ -85,6 +85,7 @@
 "initial_path" = "Initial Path";
 "username" = "Username";
 "password" = "Password";
+"api_key" = "API Key";
 "auth_method" = "Auth Method";
 "ssh_key" = "SSH Key";
 "ssh_key_placeholder" = "Paste PEM private key here...";
@@ -102,6 +103,7 @@
 "otp_hint" = "Enter the 6-digit code from your authenticator app";
 "smb_config" = "SMB Settings";
 "webdav_config" = "WebDAV Settings";
+"server_config" = "Server Settings";
 "ftp_config" = "FTP Settings";
 "sftp_config" = "SFTP Settings";
 "nfs_config" = "NFS Settings";
@@ -180,3 +182,18 @@
 "new_playlist" = "New Playlist";
 "playlist_name" = "Playlist Name";
 "create" = "Create";
+"remove_from_playlist" = "Remove from Playlist";
+
+// MARK: - Scraping
+"metadata_scraping" = "Metadata & Scraping";
+"scraper_sources" = "Scraper Sources";
+"musicbrainz_metadata" = "MusicBrainz Metadata";
+"musicbrainz_cover" = "MusicBrainz Cover Art";
+"lrclib_lyrics" = "LRCLIB Lyrics";
+"only_fill_missing" = "Only Fill Missing Fields";
+"scrape_actions" = "Scrape Actions";
+"scrape_missing_metadata" = "Scrape Missing Metadata";
+"rescrape_library" = "Re-scrape Library";
+"scrape_description" = "Fill in missing titles, artists, albums, covers, and lyrics for songs already in your library.";
+"updated_count" = "updated";
+"failed_count" = "failed";

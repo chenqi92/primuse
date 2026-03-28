@@ -25,7 +25,7 @@ struct NowPlayingView: View {
                 Spacer().frame(height: 20)
 
                 // Album Artwork with animation
-                ArtworkView(data: nil, cornerRadius: 14)
+                StoredArtworkView(fileName: player.currentSong?.coverArtFileName, cornerRadius: 14)
                     .padding(.horizontal, 44)
                     .scaleEffect(player.isPlaying ? 1.0 : 0.88)
                     .shadow(color: .black.opacity(0.3), radius: 20, y: 10)

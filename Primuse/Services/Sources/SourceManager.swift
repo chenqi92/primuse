@@ -24,6 +24,17 @@ final class SourceManager {
 
         let connector: any MusicSourceConnector
         switch source.type {
+        case .synology:
+            connector = SynologySource(
+                sourceID: source.id,
+                host: source.host ?? "",
+                port: source.port ?? 5001,
+                useSsl: source.useSsl,
+                username: source.username ?? "",
+                password: KeychainService.getPassword(for: source.id) ?? "",
+                rememberDevice: source.rememberDevice,
+                deviceId: source.deviceId
+            )
         case .local:
             connector = LocalFileSource(
                 sourceID: source.id,
@@ -46,6 +57,18 @@ final class SourceManager {
                 basePath: source.basePath,
                 username: source.username ?? "",
                 password: KeychainService.getPassword(for: source.id) ?? ""
+            )
+        case .jellyfin, .emby:
+            connector = MediaServerSource(
+                sourceID: source.id,
+                kind: MediaServerSource.Kind(sourceType: source.type)!,
+                host: source.host ?? "",
+                port: source.port,
+                useSsl: source.useSsl,
+                basePath: source.basePath,
+                username: source.username ?? "",
+                secret: KeychainService.getPassword(for: source.id) ?? "",
+                authType: source.authType
             )
         default:
             // For unsupported types, fall back to a local source placeholder

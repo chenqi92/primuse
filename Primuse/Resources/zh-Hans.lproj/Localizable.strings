@@ -85,6 +85,7 @@
 "initial_path" = "初始路径";
 "username" = "用户名";
 "password" = "密码";
+"api_key" = "API Key";
 "auth_method" = "认证方式";
 "ssh_key" = "SSH 密钥";
 "ssh_key_placeholder" = "粘贴 PEM 格式私钥...";
@@ -102,6 +103,7 @@
 "otp_hint" = "请输入验证器应用中的 6 位数字验证码";
 "smb_config" = "SMB 设置";
 "webdav_config" = "WebDAV 设置";
+"server_config" = "服务器设置";
 "ftp_config" = "FTP 设置";
 "sftp_config" = "SFTP 设置";
 "nfs_config" = "NFS 设置";
@@ -180,3 +182,18 @@
 "new_playlist" = "新建播放列表";
 "playlist_name" = "播放列表名称";
 "create" = "创建";
+"remove_from_playlist" = "从播放列表中移除";
+
+// MARK: - 刮削
+"metadata_scraping" = "元数据与刮削";
+"scraper_sources" = "刮削源";
+"musicbrainz_metadata" = "MusicBrainz 元数据";
+"musicbrainz_cover" = "MusicBrainz 封面";
+"lrclib_lyrics" = "LRCLIB 歌词";
+"only_fill_missing" = "仅补全缺失字段";
+"scrape_actions" = "刮削操作";
+"scrape_missing_metadata" = "刮削缺失元数据";
+"rescrape_library" = "重新刮削整个资料库";
+"scrape_description" = "为当前资料库中已有歌曲补全缺失的标题、艺术家、专辑、封面和歌词。";
+"updated_count" = "项已更新";
+"failed_count" = "项失败";

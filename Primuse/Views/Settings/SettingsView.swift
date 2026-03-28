@@ -41,6 +41,12 @@ struct SettingsView: View {
                     } label: {
                         Label("clear_cache", systemImage: "trash")
                     }
+
+                    NavigationLink {
+                        MetadataScrapingView()
+                    } label: {
+                        Label("metadata_scraping", systemImage: "wand.and.stars")
+                    }
                 }
 
                 Section("about") {
@@ -67,18 +73,95 @@ struct SettingsView: View {
             }
             .navigationTitle("settings_title")
             .toolbarTitleDisplayMode(.inlineLarge)
+            .task {
+                await refreshCacheSize()
+            }
             .confirmationDialog("clear_cache_confirm", isPresented: $showClearCacheAlert) {
                 Button("clear", role: .destructive) {
-                    clearCache()
+                    Task {
+                        await clearCache()
+                    }
                 }
                 Button("cancel", role: .cancel) {}
             }
         }
     }
 
-    private func clearCache() {
-        // Will be connected to cache manager
-        cacheSize = "0 MB"
+    private func clearCache() async {
+        await MetadataAssetStore.shared.clearAll()
+        try? await ImageCache.shared.clearDiskCache()
+        await refreshCacheSize()
+    }
+
+    private func refreshCacheSize() async {
+        let imageCacheSize = (try? await ImageCache.shared.diskCacheSize()) ?? 0
+        let metadataCacheSize = await MetadataAssetStore.shared.cacheSize()
+        cacheSize = formatByteCount(imageCacheSize + metadataCacheSize)
+    }
+
+    private func formatByteCount(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
+    }
+}
+
+struct MetadataScrapingView: View {
+    @Environment(MusicLibrary.self) private var library
+    @Environment(MusicScraperService.self) private var scraperService
+    @Environment(ScraperSettingsStore.self) private var scraperSettings
+
+    var body: some View {
+        @Bindable var settings = scraperSettings
+
+        Form {
+            Section("scraper_sources") {
+                Toggle("musicbrainz_metadata", isOn: $settings.musicBrainzMetadataEnabled)
+                Toggle("musicbrainz_cover", isOn: $settings.musicBrainzCoverEnabled)
+                Toggle("lrclib_lyrics", isOn: $settings.lrclibLyricsEnabled)
+                Toggle("only_fill_missing", isOn: $settings.onlyFillMissingFields)
+            }
+
+            Section {
+                if scraperService.isScraping {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ProgressView(value: scraperService.progress)
+                        Text(scraperService.currentSongTitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+
+                        HStack(spacing: 12) {
+                            Text("\(scraperService.processedCount)/\(scraperService.totalCount)")
+                            Text("·")
+                            Text("\(scraperService.updatedCount) \(String(localized: "updated_count"))")
+                            Text("·")
+                            Text("\(scraperService.failedCount) \(String(localized: "failed_count"))")
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+
+                        Button("cancel", role: .cancel) {
+                            scraperService.cancel()
+                        }
+                    }
+                } else {
+                    Button("scrape_missing_metadata") {
+                        scraperService.scrapeMissingMetadata(in: library)
+                    }
+
+                    Button("rescrape_library") {
+                        scraperService.rescrapeLibrary(in: library)
+                    }
+                }
+            } header: {
+                Text("scrape_actions")
+            } footer: {
+                Text("scrape_description")
+            }
+        }
+        .navigationTitle("metadata_scraping")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

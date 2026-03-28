@@ -9,6 +9,11 @@ struct RemoteFileItem: Sendable {
     let modifiedDate: Date?
 }
 
+struct ConnectorScannedSong: Sendable {
+    let song: Song
+    let displayName: String
+}
+
 protocol MusicSourceConnector: Sendable {
     var sourceID: String { get }
     func connect() async throws
@@ -17,4 +22,8 @@ protocol MusicSourceConnector: Sendable {
     func localURL(for path: String) async throws -> URL
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error>
     func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error>
+}
+
+protocol SongScanningConnector: MusicSourceConnector {
+    func scanSongs(from path: String) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error>
 }

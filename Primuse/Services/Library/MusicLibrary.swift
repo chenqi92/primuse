@@ -10,6 +10,7 @@ final class MusicLibrary {
     private(set) var albums: [Album] = []
     private(set) var artists: [Artist] = []
     private(set) var playlists: [Playlist] = []
+    private var playlistSongIDs: [String: [String]] = [:]
 
     private let snapshotURL: URL
     private let encoder = JSONEncoder()
@@ -39,6 +40,7 @@ final class MusicLibrary {
         songs.removeAll { sourceIDs.contains($0.sourceID) }
         songs.append(contentsOf: newSongs)
 
+        cleanPlaylistEntries()
         rebuildIndex()
         persistSnapshot()
     }
@@ -46,6 +48,7 @@ final class MusicLibrary {
     /// Remove all songs for a given source
     func removeSongsForSource(_ sourceID: String) {
         songs.removeAll { $0.sourceID == sourceID }
+        cleanPlaylistEntries()
         rebuildIndex()
         persistSnapshot()
     }
@@ -68,6 +71,74 @@ final class MusicLibrary {
 
     func songs(forArtist artistID: String) -> [Song] {
         songs.filter { $0.artistID == artistID }
+    }
+
+    func playlist(id: String) -> Playlist? {
+        playlists.first(where: { $0.id == id })
+    }
+
+    func songs(forPlaylist playlistID: String) -> [Song] {
+        let songLookup = Dictionary(uniqueKeysWithValues: songs.map { ($0.id, $0) })
+        return (playlistSongIDs[playlistID] ?? []).compactMap { songLookup[$0] }
+    }
+
+    func contains(songID: String, inPlaylist playlistID: String) -> Bool {
+        playlistSongIDs[playlistID]?.contains(songID) == true
+    }
+
+    func createPlaylist(name: String) -> Playlist {
+        let playlist = Playlist(name: name)
+        playlists.append(playlist)
+        playlistSongIDs[playlist.id] = []
+        sortPlaylists()
+        persistSnapshot()
+        return playlist
+    }
+
+    func deletePlaylist(id: String) {
+        playlists.removeAll { $0.id == id }
+        playlistSongIDs[id] = nil
+        persistSnapshot()
+    }
+
+    func add(songID: String, toPlaylist playlistID: String) {
+        guard songs.contains(where: { $0.id == songID }),
+              let existingIndex = playlists.firstIndex(where: { $0.id == playlistID }) else {
+            return
+        }
+
+        var entries = playlistSongIDs[playlistID] ?? []
+        guard entries.contains(songID) == false else { return }
+
+        entries.append(songID)
+        playlistSongIDs[playlistID] = entries
+
+        playlists[existingIndex].updatedAt = Date()
+        playlists[existingIndex].coverArtPath = songs.first(where: { $0.id == entries.first })?.coverArtFileName
+        sortPlaylists()
+        persistSnapshot()
+    }
+
+    func remove(songID: String, fromPlaylist playlistID: String) {
+        guard let existingIndex = playlists.firstIndex(where: { $0.id == playlistID }) else { return }
+
+        var entries = playlistSongIDs[playlistID] ?? []
+        entries.removeAll { $0 == songID }
+        playlistSongIDs[playlistID] = entries
+
+        playlists[existingIndex].updatedAt = Date()
+        playlists[existingIndex].coverArtPath = songs.first(where: { $0.id == entries.first })?.coverArtFileName
+        sortPlaylists()
+        persistSnapshot()
+    }
+
+    func replaceSong(_ updatedSong: Song) {
+        guard let index = songs.firstIndex(where: { $0.id == updatedSong.id }) else { return }
+        songs[index] = updatedSong
+        rebuildIndex()
+        cleanPlaylistEntries()
+        refreshPlaylistArtworkReferences()
+        persistSnapshot()
     }
 
     // MARK: - Index Rebuild
@@ -134,13 +205,34 @@ final class MusicLibrary {
 
         songs = snapshot.songs
         playlists = snapshot.playlists
+        playlistSongIDs = snapshot.playlistSongIDs ?? [:]
+        cleanPlaylistEntries()
         rebuildIndex()
     }
 
     private func persistSnapshot() {
-        let snapshot = Snapshot(songs: songs, playlists: playlists)
+        let snapshot = Snapshot(songs: songs, playlists: playlists, playlistSongIDs: playlistSongIDs)
         guard let data = try? encoder.encode(snapshot) else { return }
         try? data.write(to: snapshotURL, options: .atomic)
+    }
+
+    private func sortPlaylists() {
+        playlists.sort { $0.updatedAt > $1.updatedAt }
+    }
+
+    private func refreshPlaylistArtworkReferences() {
+        for index in playlists.indices {
+            let firstSongID = playlistSongIDs[playlists[index].id]?.first
+            playlists[index].coverArtPath = songs.first(where: { $0.id == firstSongID })?.coverArtFileName
+        }
+        sortPlaylists()
+    }
+
+    private func cleanPlaylistEntries() {
+        let validSongIDs = Set(songs.map(\.id))
+        for playlistID in playlistSongIDs.keys {
+            playlistSongIDs[playlistID] = (playlistSongIDs[playlistID] ?? []).filter { validSongIDs.contains($0) }
+        }
     }
 
     private func hashID(_ input: String) -> String {
@@ -151,5 +243,6 @@ final class MusicLibrary {
     private struct Snapshot: Codable {
         var songs: [Song]
         var playlists: [Playlist]
+        var playlistSongIDs: [String: [String]]?
     }
 }

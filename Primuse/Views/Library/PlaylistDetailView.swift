@@ -3,17 +3,29 @@ import PrimuseKit
 
 struct PlaylistDetailView: View {
     @Environment(AudioPlayerService.self) private var player
+    @Environment(MusicLibrary.self) private var library
     let playlist: Playlist
-    @State private var songs: [Song] = []
+
+    private var currentPlaylist: Playlist? {
+        library.playlist(id: playlist.id)
+    }
+
+    private var songs: [Song] {
+        library.songs(forPlaylist: playlist.id)
+    }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
                 // Playlist header
                 VStack(spacing: 8) {
-                    CoverArtView(data: nil, size: 180, cornerRadius: 14)
+                    StoredCoverArtView(
+                        fileName: currentPlaylist?.coverArtPath,
+                        size: 180,
+                        cornerRadius: 14
+                    )
 
-                    Text(playlist.name)
+                    Text(currentPlaylist?.name ?? playlist.name)
                         .font(.title2)
                         .fontWeight(.bold)
 
@@ -49,11 +61,19 @@ struct PlaylistDetailView: View {
                     ForEach(songs) { song in
                         SongRowView(
                             song: song,
-                            isPlaying: player.currentSong?.id == song.id
+                            isPlaying: player.currentSong?.id == song.id,
+                            showsPlaylistActions: false
                         )
                         .padding(.horizontal)
                         .padding(.vertical, 8)
                         .onTapGesture { playSong(song) }
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                library.remove(songID: song.id, fromPlaylist: playlist.id)
+                            } label: {
+                                Label("remove_from_playlist", systemImage: "trash")
+                            }
+                        }
 
                         Divider().padding(.leading, 50)
                     }

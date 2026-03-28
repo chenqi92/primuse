@@ -186,6 +186,26 @@ actor SynologyAPI {
 
     // MARK: - Download file (partial, for metadata extraction)
 
+    func downloadFile(path: String) async throws -> Data {
+        guard let sid else { throw SynologyError.notLoggedIn }
+
+        var components = URLComponents(string: "\(baseURL)/webapi/entry.cgi")!
+        components.queryItems = [
+            URLQueryItem(name: "api", value: "SYNO.FileStation.Download"),
+            URLQueryItem(name: "version", value: "2"),
+            URLQueryItem(name: "method", value: "download"),
+            URLQueryItem(name: "path", value: path),
+            URLQueryItem(name: "mode", value: "download"),
+            URLQueryItem(name: "_sid", value: sid),
+        ]
+        guard let url = components.url else { throw SynologyError.invalidURL }
+
+        let config = URLSessionConfiguration.default
+        let session = URLSession(configuration: config, delegate: InsecureURLSessionDelegate(), delegateQueue: nil)
+        let (data, _) = try await session.data(from: url)
+        return data
+    }
+
     func downloadFileHead(path: String, maxBytes: Int = 4 * 1024 * 1024) async throws -> Data {
         guard let sid else { throw SynologyError.notLoggedIn }
 

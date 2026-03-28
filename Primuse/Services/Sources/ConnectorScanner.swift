@@ -27,6 +27,35 @@ actor ConnectorScanner {
                     var allSongs: [Song] = []
                     var scannedCount = 0
 
+                    if let songConnector = connector as? any SongScanningConnector {
+                        for directory in directories {
+                            let stream = try await songConnector.scanSongs(from: directory)
+
+                            for try await scannedSong in stream {
+                                scannedCount += 1
+                                allSongs.append(scannedSong.song)
+
+                                continuation.yield(
+                                    ScanUpdate(
+                                        scannedCount: scannedCount,
+                                        currentFile: scannedSong.displayName,
+                                        songs: allSongs
+                                    )
+                                )
+                            }
+                        }
+
+                        continuation.yield(
+                            ScanUpdate(
+                                scannedCount: scannedCount,
+                                currentFile: "",
+                                songs: allSongs
+                            )
+                        )
+                        continuation.finish()
+                        return
+                    }
+
                     for directory in directories {
                         let stream = try await connector.scanAudioFiles(from: directory)
 
@@ -41,8 +70,9 @@ actor ConnectorScanner {
                             )
 
                             let localURL = try await connector.localURL(for: item.path)
-                            let metadata = await metadataService.loadMetadata(for: localURL)
-                            allSongs.append(buildSong(from: item, metadata: metadata))
+                            let songID = hash("\(sourceID):\(item.path)")
+                            let metadata = await metadataService.loadMetadata(for: localURL, cacheKey: songID)
+                            allSongs.append(buildSong(from: item, metadata: metadata, songID: songID))
 
                             if scannedCount % 3 == 0 {
                                 continuation.yield(
@@ -73,7 +103,8 @@ actor ConnectorScanner {
 
     private func buildSong(
         from item: RemoteFileItem,
-        metadata: MetadataService.SongMetadata
+        metadata: MetadataService.SongMetadata,
+        songID: String
     ) -> Song {
         let artistID = metadata.artist.map { hash("\($0.lowercased())") }
         let albumID: String? = if let artist = metadata.artist, let album = metadata.albumTitle {
@@ -85,7 +116,7 @@ actor ConnectorScanner {
         let format = AudioFormat.from(fileExtension: (item.name as NSString).pathExtension) ?? .mp3
 
         return Song(
-            id: hash("\(sourceID):\(item.path)"),
+            id: songID,
             title: metadata.title,
             albumID: albumID,
             artistID: artistID,

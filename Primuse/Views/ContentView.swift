@@ -51,10 +51,14 @@ struct ContentView: View {
 #Preview {
     let store = SourcesStore()
     let manager = SourceManager(sourcesProvider: { await MainActor.run { store.sources } })
+    let scraperSettings = ScraperSettingsStore()
+    let scraperService = MusicScraperService(sourceManager: manager)
 
     ContentView()
         .environment(AudioPlayerService(sourceManager: manager))
         .environment(MusicLibrary())
         .environment(store)
         .environment(manager)
+        .environment(scraperSettings)
+        .environment(scraperService)
 }

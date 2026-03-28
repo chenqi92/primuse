@@ -3,6 +3,7 @@ import PrimuseKit
 
 actor MetadataService {
     private let onlineService = OnlineMetadataService()
+    private let assetStore = MetadataAssetStore.shared
 
     struct SongMetadata {
         var title: String
@@ -23,7 +24,7 @@ actor MetadataService {
     }
 
     /// Load metadata with priority: sidecar → embedded → online
-    func loadMetadata(for url: URL) async -> SongMetadata {
+    func loadMetadata(for url: URL, cacheKey: String? = nil) async -> SongMetadata {
         // 1. Read embedded metadata
         let embedded = await FileMetadataReader.read(from: url)
 
@@ -60,14 +61,50 @@ actor MetadataService {
             await fetchOnlineMetadata(for: &result)
         }
 
+        if let cacheKey {
+            if let coverArtData = result.coverArtData {
+                result.coverArtFileName = await assetStore.storeCover(coverArtData, for: cacheKey)
+            }
+            if let lyrics = result.lyrics {
+                result.lyricsFileName = await assetStore.storeLyrics(lyrics, for: cacheKey)
+            }
+        }
+
         return result
     }
 
     private func fetchOnlineMetadata(for result: inout SongMetadata) async {
-        guard let artist = result.artist else { return }
+        let settings = ScraperSettings.load()
+        var matchedRecording: OnlineMetadataService.MusicBrainzRecording?
+
+        if settings.musicBrainzMetadataEnabled {
+            matchedRecording = try? await onlineService.searchRecording(
+                title: result.title,
+                artist: result.artist,
+                album: result.albumTitle
+            )
+
+            if let recording = matchedRecording {
+                if result.artist == nil {
+                    result.artist = recording.primaryArtistName
+                }
+                if result.albumTitle == nil {
+                    result.albumTitle = recording.releases?.first?.title
+                }
+                if result.year == nil {
+                    result.year = recording.releaseYear
+                }
+                if result.genre == nil || result.genre?.isEmpty == true {
+                    result.genre = recording.tags?
+                        .compactMap(\.name)
+                        .prefix(3)
+                        .joined(separator: ", ")
+                }
+            }
+        }
 
         // Fetch lyrics from LRCLIB
-        if result.lyrics == nil {
+        if settings.lrclibLyricsEnabled, result.lyrics == nil, let artist = result.artist {
             result.lyrics = try? await onlineService.fetchLyrics(
                 title: result.title,
                 artist: artist,
@@ -77,8 +114,11 @@ actor MetadataService {
         }
 
         // Fetch cover art from MusicBrainz + Cover Art Archive
-        if result.coverArtData == nil, let album = result.albumTitle {
-            if let release = try? await onlineService.searchMusicBrainz(artist: artist, album: album) {
+        if settings.musicBrainzCoverEnabled, result.coverArtData == nil {
+            if let releaseID = matchedRecording?.releases?.first?.id {
+                result.coverArtData = try? await onlineService.fetchCoverArt(releaseID: releaseID)
+            } else if let album = result.albumTitle, let artist = result.artist,
+                      let release = try? await onlineService.searchMusicBrainz(artist: artist, album: album) {
                 result.coverArtData = try? await onlineService.fetchCoverArt(releaseID: release.id)
             }
         }

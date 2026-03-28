@@ -70,7 +70,7 @@ struct LibraryView: View {
                 case .albums: AlbumGridView(albums: albums).navigationTitle(section.title)
                 case .artists: ArtistListView(artists: artists).navigationTitle(section.title)
                 case .songs: SongListView(songs: songs).navigationTitle(section.title)
-                case .playlists: PlaylistListView(playlists: playlists).navigationTitle(section.title)
+                case .playlists: PlaylistListView().navigationTitle(section.title)
                 }
             }
             .navigationDestination(for: Album.self) { AlbumDetailView(album: $0) }

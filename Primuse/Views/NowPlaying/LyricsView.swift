@@ -47,6 +47,9 @@ struct LyricsView: View {
             }
             .navigationTitle("lyrics_title")
             .navigationBarTitleDisplayMode(.inline)
+            .task(id: player.currentSong?.id) {
+                await loadLyrics()
+            }
             .onReceive(Timer.publish(every: 0.3, on: .main, in: .common).autoconnect()) { _ in
                 updateCurrentLine()
             }
@@ -63,5 +66,15 @@ struct LyricsView: View {
                 break
             }
         }
+    }
+
+    private func loadLyrics() async {
+        guard let song = player.currentSong else {
+            lyrics = []
+            return
+        }
+
+        lyrics = await MetadataAssetStore.shared.lyrics(named: song.lyricsFileName) ?? []
+        currentLineIndex = 0
     }
 }

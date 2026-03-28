@@ -39,6 +39,38 @@ actor OnlineMetadataService {
         let releases: [MusicBrainzRelease]?
     }
 
+    struct MusicBrainzTag: Codable {
+        let name: String?
+    }
+
+    struct MusicBrainzRecording: Codable {
+        let id: String
+        let title: String?
+        let artistCredit: [ArtistCredit]?
+        let releases: [MusicBrainzRelease]?
+        let tags: [MusicBrainzTag]?
+
+        enum CodingKeys: String, CodingKey {
+            case id, title, releases, tags
+            case artistCredit = "artist-credit"
+        }
+
+        var primaryArtistName: String? {
+            artistCredit?
+                .compactMap { $0.name ?? $0.artist?.name }
+                .first
+        }
+
+        var releaseYear: Int? {
+            guard let date = releases?.first?.date ?? nil else { return nil }
+            return Int(String(date.prefix(4)))
+        }
+    }
+
+    struct MBRecordingSearchResult: Codable {
+        let recordings: [MusicBrainzRecording]?
+    }
+
     func searchMusicBrainz(artist: String, album: String) async throws -> MusicBrainzRelease? {
         let query = "artist:\(artist) AND release:\(album)"
             .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
@@ -50,6 +82,27 @@ actor OnlineMetadataService {
         let (data, _) = try await session.data(from: url)
         let result = try JSONDecoder().decode(MBSearchResult.self, from: data)
         return result.releases?.first
+    }
+
+    func searchRecording(title: String, artist: String?, album: String?) async throws -> MusicBrainzRecording? {
+        var queryParts = ["recording:\(title)"]
+        if let artist, !artist.isEmpty {
+            queryParts.append("artist:\(artist)")
+        }
+        if let album, !album.isEmpty {
+            queryParts.append("release:\(album)")
+        }
+
+        let query = queryParts.joined(separator: " AND ")
+            .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+
+        guard let url = URL(string: "https://musicbrainz.org/ws/2/recording/?query=\(query)&fmt=json&limit=1") else {
+            return nil
+        }
+
+        let (data, _) = try await session.data(from: url)
+        let result = try JSONDecoder().decode(MBRecordingSearchResult.self, from: data)
+        return result.recordings?.first
     }
 
     /// Fetches cover art from Cover Art Archive
