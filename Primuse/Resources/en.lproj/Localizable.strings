@@ -1,0 +1,182 @@
+// MARK: - Tabs
+"library_title" = "Library";
+"sources_title" = "Sources";
+"settings_title" = "Settings";
+"search_title" = "Search";
+"search_prompt" = "Songs, artists, albums";
+
+// MARK: - Greetings
+"greeting_morning" = "Good Morning";
+"greeting_afternoon" = "Good Afternoon";
+"greeting_evening" = "Good Evening";
+"greeting_night" = "Late Night";
+
+// MARK: - Library
+"tab_albums" = "Albums";
+"recently_added" = "Recently Added";
+"see_all" = "See All";
+"welcome_title" = "Welcome to Primuse";
+"welcome_desc" = "Add a music source — your NAS, WebDAV, or local files — to start listening";
+"tab_artists" = "Artists";
+"tab_songs" = "Songs";
+"tab_playlists" = "Playlists";
+"no_albums" = "No Albums";
+"no_albums_desc" = "Add a music source to get started";
+"no_artists" = "No Artists";
+"no_artists_desc" = "Add a music source to get started";
+"no_songs" = "No Songs";
+"no_songs_desc" = "Add a music source to get started";
+"no_playlists" = "No Playlists";
+"no_playlists_desc" = "Create a playlist to organize your music";
+"albums_count" = "albums";
+"songs_count" = "songs";
+"albums_section" = "Albums";
+"all_songs_section" = "All Songs";
+"play_all" = "Play All";
+"shuffle" = "Shuffle";
+"unknown_title" = "Unknown Title";
+"unknown_artist" = "Unknown Artist";
+
+// MARK: - Sort
+"sort_by" = "Sort By";
+"sort_title" = "Title";
+"sort_artist" = "Artist";
+"sort_album" = "Album";
+"sort_date_added" = "Date Added";
+"sort_format" = "Format";
+
+// MARK: - Now Playing
+"now_playing" = "Now Playing";
+"lyrics_title" = "Lyrics";
+"no_lyrics" = "No lyrics available";
+"queue_title" = "Queue";
+"queue_empty" = "Queue Empty";
+"queue_empty_desc" = "Add songs to the queue";
+"up_next" = "Up Next";
+
+// MARK: - Search
+"recent_searches" = "Recent Searches";
+"browse" = "Browse";
+"browse_genres" = "Genres";
+"browse_formats" = "Formats";
+"browse_lossless" = "Lossless";
+"songs_section" = "Songs";
+
+// MARK: - Sources
+"no_sources" = "No Music Sources";
+"no_sources_desc" = "Add a NAS, WebDAV, or local folder to start scanning music";
+"scanning" = "Scanning";
+"scan_in_progress" = "Scanning music files...";
+"add_source" = "Add Source";
+"select_source_type" = "Select Source Type";
+"source_info" = "Source Info";
+"source_type" = "Source Type";
+"connection_info" = "Connection";
+"credentials" = "Credentials";
+"source_name" = "Name";
+"host_address" = "Host Address";
+"port" = "Port";
+"port_optional" = "Port (optional)";
+"use_ssl" = "Use SSL/TLS";
+"share_path" = "Share Path";
+"share_name" = "Share Name";
+"base_path" = "Base Path";
+"export_path" = "Export Path";
+"initial_path" = "Initial Path";
+"username" = "Username";
+"password" = "Password";
+"auth_method" = "Auth Method";
+"ssh_key" = "SSH Key";
+"ssh_key_placeholder" = "Paste PEM private key here...";
+"test_connection" = "Test Connection";
+"save" = "Save";
+"cancel" = "Cancel";
+"empty_directory" = "Empty Directory";
+"no_files_found" = "No files found";
+"advanced" = "Advanced";
+"auto_connect" = "Auto Connect";
+"remember_device" = "Remember Device";
+"two_factor_auth" = "Two-Factor Auth";
+"2fa_hint" = "If 2FA is enabled, you'll be prompted for OTP code when connecting";
+"enter_otp" = "Enter OTP Code";
+"otp_hint" = "Enter the 6-digit code from your authenticator app";
+"smb_config" = "SMB Settings";
+"webdav_config" = "WebDAV Settings";
+"ftp_config" = "FTP Settings";
+"sftp_config" = "SFTP Settings";
+"nfs_config" = "NFS Settings";
+"encryption" = "Encryption";
+"nfs_version" = "NFS Version";
+"cat_nas" = "NAS";
+"cat_protocol" = "Protocol";
+"cat_media_server" = "Media Server";
+"cat_local" = "Local";
+"edit_source" = "Edit Source";
+"edit" = "Edit";
+"delete" = "Delete";
+"scan" = "Scan";
+"password_edit_hint" = "Leave empty to keep current password";
+"select_directories" = "Select Directories";
+"scan_directories" = "Scan Directories";
+"scan_directories_hint" = "Connect and select directories to scan for music files";
+"directories_selected" = "directories selected";
+"clear_all" = "Clear All";
+"done" = "Done";
+"base_path_hint" = "Base Path (e.g. /dav)";
+"songs_found" = "songs found";
+"connect_browse" = "Connect & Browse";
+"connect_browse_hint" = "Connect to this source then select which directories to scan for music";
+"connect_select_dirs" = "Connect & Select Directories";
+"reconnect_browse" = "Reconnect & Browse";
+"verify" = "Verify";
+"modify_directories" = "Modify Directories";
+"loading_directories" = "Loading directories...";
+"no_subdirectories" = "No Subdirectories";
+"no_subdirectories_desc" = "This directory has no subdirectories";
+"current_directory" = "This Directory";
+"no_dirs_selected" = "No directories selected";
+"connecting_title" = "Connecting";
+"connecting_to" = "Connecting to";
+"connection_failed" = "Connection Failed";
+"retry" = "Retry";
+"manage_dirs" = "Manage Directories";
+"save_then_connect_hint" = "Save first, then tap the source to connect and select music directories";
+"shared_folders" = "Shared Folders";
+"remember_device_otp" = "Remember this device";
+"scan_complete" = "Scan complete";
+"remember_device_desc" = "Skip OTP verification on next login";
+"scan_needs_connect" = "Please connect first (OTP required)";
+"search_empty_library" = "No Music Yet";
+"search_empty_library_desc" = "Add a music source and scan to start searching";
+
+// MARK: - Settings
+"playback" = "Playback";
+"equalizer" = "Equalizer";
+"playback_settings" = "Playback Settings";
+"audio_output" = "Audio Output";
+"library" = "Library";
+"cache_size" = "Cache Size";
+"clear_cache" = "Clear Cache";
+"clear_cache_confirm" = "Clear all cached files?";
+"clear" = "Clear";
+"about" = "About";
+"version" = "Version";
+"build" = "Build";
+"licenses" = "Open Source Licenses";
+"open_source" = "Open Source Libraries";
+"gapless_playback" = "Gapless Playback";
+"crossfade" = "Crossfade";
+"crossfade_duration" = "Crossfade Duration";
+"seconds" = "seconds";
+"replay_gain" = "ReplayGain";
+"current_output" = "Current Output";
+"audio_output_hint" = "Use Control Center or AirPlay to change audio output";
+
+// MARK: - Equalizer
+"eq_enabled" = "Equalizer";
+"eq_reset" = "Reset";
+
+// MARK: - Playlists
+"new_playlist" = "New Playlist";
+"playlist_name" = "Playlist Name";
+"create" = "Create";

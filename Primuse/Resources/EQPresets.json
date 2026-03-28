@@ -1,0 +1,62 @@
+[
+  {
+    "id": "flat",
+    "name": "Flat",
+    "bands": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "isBuiltIn": true
+  },
+  {
+    "id": "bass",
+    "name": "Bass",
+    "bands": [6, 5, 4, 3, 1, 0, 0, 0, 0, 0],
+    "isBuiltIn": true
+  },
+  {
+    "id": "treble",
+    "name": "Treble",
+    "bands": [0, 0, 0, 0, 0, 1, 3, 4, 5, 6],
+    "isBuiltIn": true
+  },
+  {
+    "id": "vocal",
+    "name": "Vocal",
+    "bands": [-2, -1, 0, 2, 4, 4, 3, 1, 0, -1],
+    "isBuiltIn": true
+  },
+  {
+    "id": "jazz",
+    "name": "Jazz",
+    "bands": [4, 3, 1, 2, -2, -2, 0, 1, 3, 4],
+    "isBuiltIn": true
+  },
+  {
+    "id": "rock",
+    "name": "Rock",
+    "bands": [5, 4, 3, 1, -1, -1, 0, 2, 4, 5],
+    "isBuiltIn": true
+  },
+  {
+    "id": "dance",
+    "name": "Dance",
+    "bands": [6, 5, 2, 0, 0, -2, -1, 0, 4, 5],
+    "isBuiltIn": true
+  },
+  {
+    "id": "classical",
+    "name": "Classical",
+    "bands": [5, 4, 3, 2, -1, -1, 0, 2, 3, 4],
+    "isBuiltIn": true
+  },
+  {
+    "id": "hiphop",
+    "name": "Hip-Hop",
+    "bands": [5, 4, 1, 3, -1, -1, 1, 0, 2, 3],
+    "isBuiltIn": true
+  },
+  {
+    "id": "latenight",
+    "name": "Late Night",
+    "bands": [3, 2, 1, 0, -1, 0, 1, 2, 3, 3],
+    "isBuiltIn": true
+  }
+]

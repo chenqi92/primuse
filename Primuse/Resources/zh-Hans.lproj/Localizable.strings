@@ -1,0 +1,182 @@
+// MARK: - 标签栏
+"library_title" = "资料库";
+"sources_title" = "音乐源";
+"settings_title" = "设置";
+"search_title" = "搜索";
+"search_prompt" = "歌曲、艺术家、专辑";
+
+// MARK: - 问候语
+"greeting_morning" = "早上好";
+"greeting_afternoon" = "下午好";
+"greeting_evening" = "晚上好";
+"greeting_night" = "夜深了";
+
+// MARK: - 资料库
+"tab_albums" = "专辑";
+"recently_added" = "最近添加";
+"see_all" = "查看全部";
+"welcome_title" = "欢迎使用猿音";
+"welcome_desc" = "添加音乐源 — NAS、WebDAV 或本地文件夹 — 开始聆听";
+"tab_artists" = "艺术家";
+"tab_songs" = "歌曲";
+"tab_playlists" = "播放列表";
+"no_albums" = "没有专辑";
+"no_albums_desc" = "添加音乐源以开始使用";
+"no_artists" = "没有艺术家";
+"no_artists_desc" = "添加音乐源以开始使用";
+"no_songs" = "没有歌曲";
+"no_songs_desc" = "添加音乐源以开始使用";
+"no_playlists" = "没有播放列表";
+"no_playlists_desc" = "创建播放列表来整理你的音乐";
+"albums_count" = "张专辑";
+"songs_count" = "首歌曲";
+"albums_section" = "专辑";
+"all_songs_section" = "所有歌曲";
+"play_all" = "播放全部";
+"shuffle" = "随机播放";
+"unknown_title" = "未知标题";
+"unknown_artist" = "未知艺术家";
+
+// MARK: - 排序
+"sort_by" = "排序方式";
+"sort_title" = "标题";
+"sort_artist" = "艺术家";
+"sort_album" = "专辑";
+"sort_date_added" = "添加日期";
+"sort_format" = "格式";
+
+// MARK: - 正在播放
+"now_playing" = "正在播放";
+"lyrics_title" = "歌词";
+"no_lyrics" = "暂无歌词";
+"queue_title" = "播放队列";
+"queue_empty" = "队列为空";
+"queue_empty_desc" = "添加歌曲到队列";
+"up_next" = "接下来播放";
+
+// MARK: - 搜索
+"recent_searches" = "最近搜索";
+"browse" = "浏览";
+"browse_genres" = "风格";
+"browse_formats" = "格式";
+"browse_lossless" = "无损";
+"songs_section" = "歌曲";
+
+// MARK: - 音乐源
+"no_sources" = "没有音乐源";
+"no_sources_desc" = "添加 NAS、WebDAV 或本地文件夹开始扫描音乐";
+"scanning" = "扫描中";
+"scan_in_progress" = "正在扫描音乐文件...";
+"add_source" = "添加音乐源";
+"select_source_type" = "选择音乐源类型";
+"source_info" = "源信息";
+"source_type" = "源类型";
+"connection_info" = "连接信息";
+"credentials" = "凭据";
+"source_name" = "名称";
+"host_address" = "主机地址";
+"port" = "端口";
+"port_optional" = "端口（可选）";
+"use_ssl" = "使用 SSL/TLS";
+"share_path" = "共享路径";
+"share_name" = "共享名称";
+"base_path" = "基础路径";
+"export_path" = "导出路径";
+"initial_path" = "初始路径";
+"username" = "用户名";
+"password" = "密码";
+"auth_method" = "认证方式";
+"ssh_key" = "SSH 密钥";
+"ssh_key_placeholder" = "粘贴 PEM 格式私钥...";
+"test_connection" = "测试连接";
+"save" = "保存";
+"cancel" = "取消";
+"empty_directory" = "空目录";
+"no_files_found" = "未找到文件";
+"advanced" = "高级";
+"auto_connect" = "自动连接";
+"remember_device" = "记住设备";
+"two_factor_auth" = "两步验证";
+"2fa_hint" = "若已启用两步验证，连接时会要求输入 OTP 验证码";
+"enter_otp" = "输入验证码";
+"otp_hint" = "请输入验证器应用中的 6 位数字验证码";
+"smb_config" = "SMB 设置";
+"webdav_config" = "WebDAV 设置";
+"ftp_config" = "FTP 设置";
+"sftp_config" = "SFTP 设置";
+"nfs_config" = "NFS 设置";
+"encryption" = "加密方式";
+"nfs_version" = "NFS 版本";
+"cat_nas" = "NAS 设备";
+"cat_protocol" = "网络协议";
+"cat_media_server" = "媒体服务器";
+"cat_local" = "本地";
+"edit_source" = "编辑音乐源";
+"edit" = "编辑";
+"delete" = "删除";
+"scan" = "扫描";
+"password_edit_hint" = "留空则保持当前密码不变";
+"select_directories" = "选择目录";
+"scan_directories" = "扫描目录";
+"scan_directories_hint" = "连接后选择要扫描音乐文件的目录";
+"directories_selected" = "个目录已选择";
+"clear_all" = "清除全部";
+"done" = "完成";
+"base_path_hint" = "基础路径（如 /dav）";
+"songs_found" = "首歌曲已找到";
+"connect_browse" = "连接并浏览";
+"connect_browse_hint" = "连接到此音乐源，然后选择要扫描音乐的目录";
+"connect_select_dirs" = "连接并选择目录";
+"reconnect_browse" = "重新连接并浏览";
+"verify" = "验证";
+"modify_directories" = "修改目录";
+"loading_directories" = "正在加载目录...";
+"no_subdirectories" = "没有子目录";
+"no_subdirectories_desc" = "该目录下没有子目录";
+"current_directory" = "当前目录";
+"no_dirs_selected" = "未选择任何目录";
+"connecting_title" = "正在连接";
+"connecting_to" = "正在连接到";
+"connection_failed" = "连接失败";
+"retry" = "重试";
+"manage_dirs" = "管理目录";
+"save_then_connect_hint" = "保存后，点击该音乐源即可连接并选择音乐目录";
+"shared_folders" = "共享文件夹";
+"remember_device_otp" = "记住此设备（下次跳过验证）";
+"scan_complete" = "扫描完成";
+"remember_device_desc" = "下次登录时跳过验证码";
+"scan_needs_connect" = "请先连接（需要验证码）";
+"search_empty_library" = "还没有音乐";
+"search_empty_library_desc" = "添加音乐源并扫描后即可搜索";
+
+// MARK: - 设置
+"playback" = "播放";
+"equalizer" = "均衡器";
+"playback_settings" = "播放设置";
+"audio_output" = "音频输出";
+"library" = "资料库";
+"cache_size" = "缓存大小";
+"clear_cache" = "清除缓存";
+"clear_cache_confirm" = "确定要清除所有缓存文件吗？";
+"clear" = "清除";
+"about" = "关于";
+"version" = "版本";
+"build" = "构建";
+"licenses" = "开源许可";
+"open_source" = "开源库";
+"gapless_playback" = "无缝播放";
+"crossfade" = "淡入淡出";
+"crossfade_duration" = "淡入淡出时长";
+"seconds" = "秒";
+"replay_gain" = "回放增益";
+"current_output" = "当前输出";
+"audio_output_hint" = "使用控制中心或隔空播放来更改音频输出";
+
+// MARK: - 均衡器
+"eq_enabled" = "均衡器";
+"eq_reset" = "重置";
+
+// MARK: - 播放列表
+"new_playlist" = "新建播放列表";
+"playlist_name" = "播放列表名称";
+"create" = "创建";

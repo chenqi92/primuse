@@ -1,0 +1,122 @@
+name: Primuse
+options:
+  bundleIdPrefix: com.kkape
+  deploymentTarget:
+    iOS: "18.0"
+  xcodeVersion: "16.0"
+  defaultConfig: Debug
+  groupSortPosition: top
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: "2U97K3U27A"
+    CODE_SIGN_STYLE: Automatic
+
+packages:
+  GRDB:
+    url: https://github.com/groue/GRDB.swift.git
+    from: "7.0.0"
+  AMSMB2:
+    url: https://github.com/amosavian/AMSMB2.git
+    from: "4.0.0"
+  FilesProvider:
+    url: https://github.com/amosavian/FileProvider.git
+    from: "0.26.0"
+
+targets:
+  Primuse:
+    type: application
+    platform: iOS
+    sources:
+      - path: Primuse
+        excludes:
+          - "**/.DS_Store"
+    resources:
+      - path: Primuse/Resources
+    dependencies:
+      - package: GRDB
+      - package: AMSMB2
+      - package: FilesProvider
+        product: FilesProvider
+      - target: PrimuseKit
+      - target: PrimuseWidgetExtension
+      - target: PrimuseActivityExtension
+    settings:
+      base:
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_UIBackgroundModes: "audio"
+        INFOPLIST_KEY_NSSupportsLiveActivities: YES
+        INFOPLIST_KEY_CFBundleDisplayName: "猿音"
+        INFOPLIST_KEY_CFBundleName: "Primuse"
+        INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.music"
+        GENERATE_INFOPLIST_FILE: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        SWIFT_EMIT_LOC_STRINGS: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.kkape.primuse
+        CODE_SIGN_ENTITLEMENTS: Config/Primuse.entitlements
+
+  PrimuseKit:
+    type: framework
+    platform: iOS
+    sources:
+      - path: PrimuseKit/Sources/PrimuseKit
+    dependencies:
+      - package: GRDB
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.kkape.primuse.kit
+        GENERATE_INFOPLIST_FILE: YES
+        SKIP_INSTALL: YES
+
+  PrimuseWidgetExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: PrimuseWidgetExtension
+    dependencies:
+      - target: PrimuseKit
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
+    info:
+      path: PrimuseWidgetExtension/Info.plist
+      properties:
+        CFBundleDisplayName: "猿音小组件"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.kkape.primuse.widget
+        SKIP_INSTALL: YES
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        CODE_SIGN_ENTITLEMENTS: Config/PrimuseWidgetExtension.entitlements
+
+  PrimuseActivityExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: PrimuseActivityExtension
+    dependencies:
+      - target: PrimuseKit
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
+      - sdk: ActivityKit.framework
+    info:
+      path: PrimuseActivityExtension/Info.plist
+      properties:
+        CFBundleDisplayName: "猿音实时活动"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+        NSSupportsLiveActivities: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.kkape.primuse.activity
+        SKIP_INSTALL: YES
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        CODE_SIGN_ENTITLEMENTS: Config/PrimuseActivityExtension.entitlements
