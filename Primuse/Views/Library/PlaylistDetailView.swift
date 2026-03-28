@@ -66,16 +66,12 @@ struct PlaylistDetailView: View {
     private func playAll() {
         guard let first = songs.first else { return }
         player.setQueue(songs, startAt: 0)
-        if let url = URL(string: first.filePath) {
-            Task { await player.play(song: first, from: url) }
-        }
+        Task { await player.play(song: first) }
     }
 
     private func playSong(_ song: Song) {
         guard let index = songs.firstIndex(where: { $0.id == song.id }) else { return }
         player.setQueue(songs, startAt: index)
-        if let url = URL(string: song.filePath) {
-            Task { await player.play(song: song, from: url) }
-        }
+        Task { await player.play(song: song) }
     }
 }

@@ -49,7 +49,12 @@ struct ContentView: View {
 }
 
 #Preview {
+    let store = SourcesStore()
+    let manager = SourceManager(sourcesProvider: { await MainActor.run { store.sources } })
+
     ContentView()
-        .environment(AudioPlayerService())
+        .environment(AudioPlayerService(sourceManager: manager))
         .environment(MusicLibrary())
+        .environment(store)
+        .environment(manager)
 }

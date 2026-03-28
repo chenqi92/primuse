@@ -6,15 +6,24 @@ actor WebDAVSource: MusicSourceConnector {
     let sourceID: String
     private let host: String
     private let port: Int?
+    private let basePath: String?
     private let username: String
     private let password: String
     private var provider: WebDAVFileProvider?
     private let cacheDirectory: URL
 
-    init(sourceID: String, host: String, port: Int? = nil, username: String, password: String) {
+    init(
+        sourceID: String,
+        host: String,
+        port: Int? = nil,
+        basePath: String? = nil,
+        username: String,
+        password: String
+    ) {
         self.sourceID = sourceID
         self.host = host
         self.port = port
+        self.basePath = basePath
         self.username = username
         self.password = password
 
@@ -24,6 +33,10 @@ actor WebDAVSource: MusicSourceConnector {
     }
 
     func connect() async throws {
+        if provider != nil {
+            return
+        }
+
         var urlString = host
         if !urlString.hasPrefix("http") {
             urlString = "https://\(urlString)"
@@ -41,13 +54,18 @@ actor WebDAVSource: MusicSourceConnector {
             throw SourceError.connectionFailed("Invalid WebDAV URL")
         }
 
+        var components = URLComponents(url: serverURL, resolvingAgainstBaseURL: false)
+        if let basePath, !basePath.isEmpty {
+            components?.path = normalizedBasePath(basePath)
+        }
+
         let credential = URLCredential(
             user: username,
             password: password,
             persistence: .forSession
         )
 
-        provider = WebDAVFileProvider(baseURL: serverURL, credential: credential)
+        provider = WebDAVFileProvider(baseURL: components?.url ?? serverURL, credential: credential)
 
         // Test connection
         _ = try await listFiles(at: "/")
@@ -157,5 +175,9 @@ actor WebDAVSource: MusicSourceConnector {
                 }
             }
         }
+    }
+
+    private func normalizedBasePath(_ path: String) -> String {
+        path.hasPrefix("/") ? path : "/\(path)"
     }
 }

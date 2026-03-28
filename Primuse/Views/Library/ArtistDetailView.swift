@@ -2,9 +2,18 @@ import SwiftUI
 import PrimuseKit
 
 struct ArtistDetailView: View {
+    @Environment(MusicLibrary.self) private var library
     let artist: Artist
-    @State private var albums: [Album] = []
-    @State private var songs: [Song] = []
+
+    private var albums: [Album] {
+        library.albums.filter {
+            $0.artistID == artist.id || $0.artistName == artist.name
+        }
+    }
+
+    private var songs: [Song] {
+        library.songs(forArtist: artist.id)
+    }
 
     private let columns = [
         GridItem(.adaptive(minimum: 150), spacing: 16)

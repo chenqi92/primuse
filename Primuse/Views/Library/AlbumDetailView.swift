@@ -3,8 +3,12 @@ import PrimuseKit
 
 struct AlbumDetailView: View {
     @Environment(AudioPlayerService.self) private var player
+    @Environment(MusicLibrary.self) private var library
     let album: Album
-    @State private var songs: [Song] = []
+
+    private var songs: [Song] {
+        library.songs(forAlbum: album.id)
+    }
 
     var body: some View {
         ScrollView {
@@ -81,9 +85,7 @@ struct AlbumDetailView: View {
     private func playAll() {
         guard let first = songs.first else { return }
         player.setQueue(songs, startAt: 0)
-        if let url = URL(string: first.filePath) {
-            Task { await player.play(song: first, from: url) }
-        }
+        Task { await player.play(song: first) }
     }
 
     private func shuffleAll() {
@@ -94,9 +96,7 @@ struct AlbumDetailView: View {
     private func playSong(_ song: Song) {
         guard let index = songs.firstIndex(where: { $0.id == song.id }) else { return }
         player.setQueue(songs, startAt: index)
-        if let url = URL(string: song.filePath) {
-            Task { await player.play(song: song, from: url) }
-        }
+        Task { await player.play(song: song) }
     }
 
     private func formatDuration(_ duration: TimeInterval) -> String {

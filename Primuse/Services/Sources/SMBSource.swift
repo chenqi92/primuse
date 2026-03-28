@@ -26,6 +26,10 @@ actor SMBSource: MusicSourceConnector {
     }
 
     func connect() async throws {
+        if client != nil {
+            return
+        }
+
         guard let serverURL = URL(string: "smb://\(host):\(port)") else {
             throw SourceError.connectionFailed("Invalid SMB URL")
         }
@@ -103,7 +107,6 @@ actor SMBSource: MusicSourceConnector {
     func localURL(for path: String) async throws -> URL {
         guard let client else { throw SourceError.connectionFailed("Not connected") }
 
-        let fileName = (path as NSString).lastPathComponent
         let localURL = cacheDirectory.appendingPathComponent(
             path.replacingOccurrences(of: "/", with: "_")
         )

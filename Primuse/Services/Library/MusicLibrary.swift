@@ -11,9 +11,26 @@ final class MusicLibrary {
     private(set) var artists: [Artist] = []
     private(set) var playlists: [Playlist] = []
 
+    private let snapshotURL: URL
+    private let encoder = JSONEncoder()
+    private let decoder = JSONDecoder()
+
     var songCount: Int { songs.count }
     var albumCount: Int { albums.count }
     var artistCount: Int { artists.count }
+
+    init(fileManager: FileManager = .default) {
+        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let directory = appSupport.appendingPathComponent("Primuse", isDirectory: true)
+        try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        snapshotURL = directory.appendingPathComponent("library-cache.json")
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = .iso8601
+
+        loadSnapshot()
+    }
 
     /// Add songs from a scan result and rebuild albums/artists
     func addSongs(_ newSongs: [Song]) {
@@ -23,12 +40,14 @@ final class MusicLibrary {
         songs.append(contentsOf: newSongs)
 
         rebuildIndex()
+        persistSnapshot()
     }
 
     /// Remove all songs for a given source
     func removeSongsForSource(_ sourceID: String) {
         songs.removeAll { $0.sourceID == sourceID }
         rebuildIndex()
+        persistSnapshot()
     }
 
     /// Search songs by query
@@ -107,8 +126,30 @@ final class MusicLibrary {
         }
     }
 
+    private func loadSnapshot() {
+        guard let data = try? Data(contentsOf: snapshotURL),
+              let snapshot = try? decoder.decode(Snapshot.self, from: data) else {
+            return
+        }
+
+        songs = snapshot.songs
+        playlists = snapshot.playlists
+        rebuildIndex()
+    }
+
+    private func persistSnapshot() {
+        let snapshot = Snapshot(songs: songs, playlists: playlists)
+        guard let data = try? encoder.encode(snapshot) else { return }
+        try? data.write(to: snapshotURL, options: .atomic)
+    }
+
     private func hashID(_ input: String) -> String {
         let hash = SHA256.hash(data: Data(input.utf8))
         return hash.prefix(16).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private struct Snapshot: Codable {
+        var songs: [Song]
+        var playlists: [Playlist]
     }
 }

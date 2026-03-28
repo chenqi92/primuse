@@ -1,6 +1,7 @@
 import Foundation
 import PrimuseKit
 
+@MainActor
 @Observable
 final class LibraryService {
     private let database: LibraryDatabase

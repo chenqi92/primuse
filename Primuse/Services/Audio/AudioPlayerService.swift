@@ -8,6 +8,7 @@ import PrimuseKit
 final class AudioPlayerService {
     let audioEngine: AudioEngine
     let equalizerService: EqualizerService
+    private let sourceManager: SourceManager?
 
     private(set) var currentSong: Song?
     private(set) var isPlaying = false
@@ -25,13 +26,24 @@ final class AudioPlayerService {
     private let nativeDecoder = NativeAudioDecoder()
     private var decodingTask: Task<Void, Never>?
 
-    init() {
+    init(sourceManager: SourceManager? = nil) {
+        self.sourceManager = sourceManager
         audioEngine = AudioEngine()
         equalizerService = EqualizerService(audioEngine: audioEngine)
         setupRemoteCommands()
     }
 
     // MARK: - Playback Control
+
+    func play(song: Song) async {
+        do {
+            let url = try await resolvedURL(for: song)
+            await play(song: song, from: url)
+        } catch {
+            print("Playback URL resolution error: \(error)")
+            isLoading = false
+        }
+    }
 
     func play(song: Song, from url: URL) async {
         stop()
@@ -133,11 +145,7 @@ final class AudioPlayerService {
             currentIndex = (currentIndex + 1) % queue.count
         }
         let song = queue[currentIndex]
-        // Source resolution will be handled by SourceManager
-        // For now, assume local file
-        if let url = URL(string: song.filePath) {
-            await play(song: song, from: url)
-        }
+        await play(song: song)
     }
 
     func previous() async {
@@ -149,9 +157,7 @@ final class AudioPlayerService {
         }
         currentIndex = currentIndex > 0 ? currentIndex - 1 : queue.count - 1
         let song = queue[currentIndex]
-        if let url = URL(string: song.filePath) {
-            await play(song: song, from: url)
-        }
+        await play(song: song)
     }
 
     func seek(to time: TimeInterval) {
@@ -188,8 +194,8 @@ final class AudioPlayerService {
     private func handleTrackEnd() async {
         switch repeatMode {
         case .one:
-            if let song = currentSong, let url = URL(string: song.filePath) {
-                await play(song: song, from: url)
+            if let song = currentSong {
+                await play(song: song)
             }
         case .all:
             await next()
@@ -200,6 +206,24 @@ final class AudioPlayerService {
                 stop()
             }
         }
+    }
+
+    private func resolvedURL(for song: Song) async throws -> URL {
+        if let sourceManager {
+            do {
+                return try await sourceManager.resolveURL(for: song)
+            } catch {
+                if song.filePath.hasPrefix("/") {
+                    return URL(fileURLWithPath: song.filePath)
+                }
+                throw error
+            }
+        }
+
+        if let remoteURL = URL(string: song.filePath), remoteURL.scheme != nil {
+            return remoteURL
+        }
+        return URL(fileURLWithPath: song.filePath)
     }
 
     // MARK: - Now Playing Info

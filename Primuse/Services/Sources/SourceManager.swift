@@ -1,13 +1,20 @@
 import Foundation
 import PrimuseKit
 
+@MainActor
 @Observable
 final class SourceManager {
     private var connectors: [String: any MusicSourceConnector] = [:]
-    private let database: LibraryDatabase
+    private let sourcesProvider: @Sendable () async throws -> [MusicSource]
 
     init(database: LibraryDatabase) {
-        self.database = database
+        self.sourcesProvider = {
+            try await database.allSources()
+        }
+    }
+
+    init(sourcesProvider: @escaping @Sendable () async throws -> [MusicSource]) {
+        self.sourcesProvider = sourcesProvider
     }
 
     func connector(for source: MusicSource) -> any MusicSourceConnector {
@@ -36,6 +43,7 @@ final class SourceManager {
                 sourceID: source.id,
                 host: source.host ?? "",
                 port: source.port,
+                basePath: source.basePath,
                 username: source.username ?? "",
                 password: KeychainService.getPassword(for: source.id) ?? ""
             )
@@ -52,13 +60,23 @@ final class SourceManager {
     }
 
     func resolveURL(for song: Song) async throws -> URL {
-        let sources = try await database.allSources()
+        let sources = try await sourcesProvider()
         guard let source = sources.first(where: { $0.id == song.sourceID }) else {
             throw SourceError.fileNotFound("Source not found for song: \(song.title)")
         }
 
         let conn = connector(for: source)
+        try await conn.connect()
         return try await conn.localURL(for: song.filePath)
+    }
+
+    func refreshConnector(for sourceID: String) async {
+        guard let connector = connectors.removeValue(forKey: sourceID) else { return }
+        await connector.disconnect()
+    }
+
+    func removeConnector(for sourceID: String) async {
+        await refreshConnector(for: sourceID)
     }
 
     func disconnectAll() async {

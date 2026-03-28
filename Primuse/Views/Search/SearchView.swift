@@ -126,9 +126,7 @@ struct SearchView: View {
     private func playSong(_ song: Song) {
         guard let index = searchResults.firstIndex(where: { $0.id == song.id }) else { return }
         player.setQueue(searchResults, startAt: index)
-        if let url = URL(string: song.filePath) {
-            Task { await player.play(song: song, from: url) }
-        }
+        Task { await player.play(song: song) }
         if !recentSearches.contains(searchText) {
             recentSearches.insert(searchText, at: 0)
             if recentSearches.count > 10 { recentSearches.removeLast() }

@@ -74,8 +74,6 @@ struct SongListView: View {
     private func playSong(_ song: Song) {
         guard let index = sortedSongs.firstIndex(where: { $0.id == song.id }) else { return }
         player.setQueue(sortedSongs, startAt: index)
-        if let url = URL(string: song.filePath) {
-            Task { await player.play(song: song, from: url) }
-        }
+        Task { await player.play(song: song) }
     }
 }

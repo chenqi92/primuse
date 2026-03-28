@@ -2,8 +2,9 @@ import SwiftUI
 import PrimuseKit
 
 struct SourcesView: View {
+    @Environment(SourceManager.self) private var sourceManager
+    @Environment(SourcesStore.self) private var sourceStore
     @Environment(MusicLibrary.self) private var library
-    @State private var sources: [MusicSource] = []
     @State private var showAddSource = false
     @State private var editingSource: MusicSource?
     @State private var connectingSource: MusicSource?
@@ -32,28 +33,17 @@ struct SourcesView: View {
                 }
             }
             .sheet(isPresented: $showAddSource) {
-                SourceTypeSelectionView { source in sources.append(source) }
+                SourceTypeSelectionView { source in sourceStore.add(source) }
             }
             .sheet(item: $editingSource) { source in
                 AddSourceView(sourceType: source.type, editingSource: source) { updated in
                     updateSource(updated.id) { $0 = updated }
                     synologyAPIs[updated.id] = nil
+                    Task { await sourceManager.refreshConnector(for: updated.id) }
                 }
             }
             .sheet(item: $connectingSource) { source in
-                ConnectionFlowView(
-                    source: source,
-                    selectedDirectories: Binding(
-                        get: { decodeDirs(currentSource(for: source).extraConfig) },
-                        set: { newDirs in updateSource(source.id) { $0.extraConfig = encodeDirs(newDirs) } }
-                    ),
-                    onDeviceIdSaved: { did in
-                        updateSource(source.id) { $0.deviceId = did }
-                    },
-                    onSessionReady: { api in
-                        synologyAPIs[source.id] = api
-                    }
-                )
+                connectionSheet(for: source)
             }
         }
     }
@@ -174,8 +164,13 @@ struct SourcesView: View {
             switch source.type {
             case .synology:
                 await scanSynology(source: source, directories: dirs)
+            case .smb, .webdav:
+                await scanConnectorSource(source: source, directories: dirs)
             default:
-                scanStates[source.id]?.isScanning = false
+                scanStates[source.id] = ScanState(
+                    isScanning: false,
+                    currentFile: String(localized: "scan_needs_connect")
+                )
             }
         }
     }
@@ -236,14 +231,29 @@ struct SourcesView: View {
                 lastSongs = update.songs
             }
 
-            library.addSongs(lastSongs)
+            completeScan(sourceID: source.id, songs: lastSongs)
+        } catch {
+            scanStates[source.id] = ScanState(
+                isScanning: false,
+                currentFile: error.localizedDescription
+            )
+        }
+    }
 
-            if let idx = sources.firstIndex(where: { $0.id == source.id }) {
-                sources[idx].songCount = lastSongs.count
+    private func scanConnectorSource(source: MusicSource, directories: [String]) async {
+        let connector = sourceManager.connector(for: source)
+        let scanner = ConnectorScanner(connector: connector, sourceID: source.id)
+        let stream = await scanner.scan(directories: directories)
+
+        do {
+            var lastSongs: [Song] = []
+            for try await update in stream {
+                scanStates[source.id]?.scannedCount = update.scannedCount
+                scanStates[source.id]?.currentFile = update.currentFile
+                lastSongs = update.songs
             }
 
-            scanStates[source.id]?.isScanning = false
-            scanStates[source.id]?.currentFile = "\(lastSongs.count) \(String(localized: "songs_found"))"
+            completeScan(sourceID: source.id, songs: lastSongs)
         } catch {
             scanStates[source.id] = ScanState(
                 isScanning: false,
@@ -253,6 +263,42 @@ struct SourcesView: View {
     }
 
     // MARK: - Helpers
+
+    private var sources: [MusicSource] {
+        sourceStore.sources
+    }
+
+    @ViewBuilder
+    private func connectionSheet(for source: MusicSource) -> some View {
+        let selectedDirectories = Binding(
+            get: { decodeDirs(currentSource(for: source).extraConfig) },
+            set: { newDirs in updateSource(source.id) { $0.extraConfig = encodeDirs(newDirs) } }
+        )
+
+        switch source.type {
+        case .synology:
+            ConnectionFlowView(
+                source: source,
+                selectedDirectories: selectedDirectories,
+                onDeviceIdSaved: { did in
+                    updateSource(source.id) { $0.deviceId = did }
+                },
+                onSessionReady: { api in
+                    synologyAPIs[source.id] = api
+                }
+            )
+        case .smb:
+            SMBBrowserView(source: source, selectedDirectories: selectedDirectories)
+        case .webdav:
+            WebDAVBrowserView(source: source, selectedDirectories: selectedDirectories)
+        default:
+            ContentUnavailableView(
+                "connection_failed",
+                systemImage: "externaldrive.badge.exclamationmark",
+                description: Text("save_then_connect_hint")
+            )
+        }
+    }
 
     private var groupedSources: [(SourceCategory, [MusicSource])] {
         let grouped = Dictionary(grouping: sources) { $0.type.category }
@@ -264,17 +310,27 @@ struct SourcesView: View {
 
     private func deleteSource(_ source: MusicSource) {
         library.removeSongsForSource(source.id)
-        sources.removeAll { $0.id == source.id }
+        sourceStore.remove(id: source.id)
         synologyAPIs[source.id] = nil
+        Task { await sourceManager.removeConnector(for: source.id) }
     }
 
     private func currentSource(for source: MusicSource) -> MusicSource {
-        sources.first(where: { $0.id == source.id }) ?? source
+        sourceStore.source(id: source.id) ?? source
     }
 
     private func updateSource(_ sourceID: String, mutate: (inout MusicSource) -> Void) {
-        guard let idx = sources.firstIndex(where: { $0.id == sourceID }) else { return }
-        mutate(&sources[idx])
+        sourceStore.update(sourceID, mutate: mutate)
+    }
+
+    private func completeScan(sourceID: String, songs: [Song]) {
+        library.addSongs(songs)
+        updateSource(sourceID) {
+            $0.songCount = songs.count
+            $0.lastScannedAt = Date()
+        }
+        scanStates[sourceID]?.isScanning = false
+        scanStates[sourceID]?.currentFile = "\(songs.count) \(String(localized: "songs_found"))"
     }
 
     private func decodeDirs(_ config: String?) -> [String] {
