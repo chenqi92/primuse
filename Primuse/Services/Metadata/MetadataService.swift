@@ -2,7 +2,7 @@ import Foundation
 import PrimuseKit
 
 actor MetadataService {
-    private let onlineService = OnlineMetadataService()
+    private let scraperManager = ScraperManager()
     private let assetStore = MetadataAssetStore.shared
 
     struct SongMetadata {
@@ -57,8 +57,17 @@ actor MetadataService {
         }
 
         // 3. Try online sources as fallback
-        if result.coverArtData == nil || result.lyrics == nil {
-            await fetchOnlineMetadata(for: &result)
+        let needsMetadata = result.artist == nil || result.albumTitle == nil || result.year == nil
+        let needsCover = result.coverArtData == nil
+        let needsLyrics = result.lyrics == nil
+
+        if needsMetadata || needsCover || needsLyrics {
+            await fetchOnlineMetadata(
+                for: &result,
+                needsMetadata: needsMetadata,
+                needsCover: needsCover,
+                needsLyrics: needsLyrics
+            )
         }
 
         if let cacheKey {
@@ -73,54 +82,47 @@ actor MetadataService {
         return result
     }
 
-    private func fetchOnlineMetadata(for result: inout SongMetadata) async {
+    private func fetchOnlineMetadata(
+        for result: inout SongMetadata,
+        needsMetadata: Bool,
+        needsCover: Bool,
+        needsLyrics: Bool
+    ) async {
         let settings = ScraperSettings.load()
-        var matchedRecording: OnlineMetadataService.MusicBrainzRecording?
 
-        if settings.musicBrainzMetadataEnabled {
-            matchedRecording = try? await onlineService.searchRecording(
-                title: result.title,
-                artist: result.artist,
-                album: result.albumTitle
-            )
+        let scrapeResult = await scraperManager.scrapeMetadata(
+            title: result.title,
+            artist: result.artist,
+            album: result.albumTitle,
+            duration: result.duration,
+            needs: ScraperManager.ScrapeNeeds(
+                metadata: needsMetadata,
+                cover: needsCover,
+                lyrics: needsLyrics
+            ),
+            settings: settings
+        )
 
-            if let recording = matchedRecording {
-                if result.artist == nil {
-                    result.artist = recording.primaryArtistName
-                }
-                if result.albumTitle == nil {
-                    result.albumTitle = recording.releases?.first?.title
-                }
-                if result.year == nil {
-                    result.year = recording.releaseYear
-                }
-                if result.genre == nil || result.genre?.isEmpty == true {
-                    result.genre = recording.tags?
-                        .compactMap(\.name)
-                        .prefix(3)
-                        .joined(separator: ", ")
-                }
+        // Apply metadata from detail
+        if let detail = scrapeResult.detail {
+            if result.artist == nil { result.artist = detail.artist }
+            if result.albumTitle == nil { result.albumTitle = detail.album }
+            if result.year == nil { result.year = detail.year }
+            if result.genre == nil || result.genre?.isEmpty == true {
+                result.genre = detail.genres?.prefix(3).joined(separator: ", ")
             }
+            if result.trackNumber == nil { result.trackNumber = detail.trackNumber }
+            if result.discNumber == nil { result.discNumber = detail.discNumber }
         }
 
-        // Fetch lyrics from LRCLIB
-        if settings.lrclibLyricsEnabled, result.lyrics == nil, let artist = result.artist {
-            result.lyrics = try? await onlineService.fetchLyrics(
-                title: result.title,
-                artist: artist,
-                album: result.albumTitle,
-                duration: result.duration
-            )
+        // Apply cover data
+        if let coverData = scrapeResult.coverData {
+            result.coverArtData = coverData
         }
 
-        // Fetch cover art from MusicBrainz + Cover Art Archive
-        if settings.musicBrainzCoverEnabled, result.coverArtData == nil {
-            if let releaseID = matchedRecording?.releases?.first?.id {
-                result.coverArtData = try? await onlineService.fetchCoverArt(releaseID: releaseID)
-            } else if let album = result.albumTitle, let artist = result.artist,
-                      let release = try? await onlineService.searchMusicBrainz(artist: artist, album: album) {
-                result.coverArtData = try? await onlineService.fetchCoverArt(releaseID: release.id)
-            }
+        // Apply lyrics
+        if let lyrics = scrapeResult.lyrics {
+            result.lyrics = lyrics
         }
     }
 }

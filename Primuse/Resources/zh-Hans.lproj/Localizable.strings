@@ -160,6 +160,16 @@
 "played" = "已播放";
 "scrape_song_success" = "当前歌曲元数据已刷新。";
 "scrape_song_failed" = "当前歌曲元数据刷新失败。";
+"scrape_options" = "刮削内容";
+"scrape_metadata_toggle" = "元数据（标题、艺术家、专辑）";
+"scrape_cover_toggle" = "封面";
+"scrape_lyrics_toggle" = "歌词";
+"scrape_sources_header" = "刮削源";
+"start_scrape" = "开始";
+"scrape_no_changes" = "未找到新数据";
+"metadata" = "元数据";
+"cover" = "封面";
+"lyrics_word" = "歌词";
 
 // MARK: - 设置
 "playback" = "播放";
@@ -197,13 +207,25 @@
 // MARK: - 刮削
 "metadata_scraping" = "元数据与刮削";
 "scraper_sources" = "刮削源";
-"musicbrainz_metadata" = "MusicBrainz 元数据";
-"musicbrainz_cover" = "MusicBrainz 封面";
-"lrclib_lyrics" = "LRCLIB 歌词";
+"scraper_sources_footer" = "拖拽调整顺序。刮削时按从上到下的顺序依次尝试，找到结果即停止。";
+"scraper_options" = "选项";
 "only_fill_missing" = "仅补全缺失字段";
+"reset_scraper_defaults" = "恢复默认设置";
 "scrape_actions" = "刮削操作";
 "scrape_missing_metadata" = "刮削缺失元数据";
 "rescrape_library" = "重新刮削整个资料库";
 "scrape_description" = "为当前资料库中已有歌曲补全缺失的标题、艺术家、专辑、封面和歌词。";
 "updated_count" = "项已更新";
 "failed_count" = "项失败";
+"cookie_config" = "Cookie 配置";
+"cookie_placeholder" = "粘贴 Cookie";
+"cookie_config_message" = "可选：提供 Cookie 可改善访问效果。留空则使用匿名访问。";
+
+// MARK: - 刮削源描述
+"scraper_source_b_desc" = "国内音乐平台，歌词库丰富";
+"scraper_source_e_desc" = "国内音乐平台，支持歌词和封面";
+"scraper_source_d_desc" = "区域音乐来源，无损音源丰富";
+"scraper_qq_desc" = "国内音乐平台，支持歌词和封面";
+"scraper_source_a_desc" = "国内音乐平台，支持歌词和封面";
+"scraper_musicbrainz_desc" = "开放音乐数据库，支持元数据和封面";
+"scraper_lrclib_desc" = "开放同步歌词数据库";

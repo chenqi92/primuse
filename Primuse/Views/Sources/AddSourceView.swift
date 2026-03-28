@@ -37,6 +37,31 @@ struct AddSourceView: View {
 
     private var isEditing: Bool { editingSource != nil }
     private var supportsAPIKeyAuth: Bool { [.jellyfin, .emby, .plex].contains(sourceType) }
+    private var canSave: Bool {
+        if name.isEmpty || (sourceType.requiresHost && host.isEmpty) {
+            return false
+        }
+
+        guard sourceType.requiresCredentials else {
+            return true
+        }
+
+        let hasStoredSecret: Bool
+        if let editingSource, editingSource.authType == authType {
+            hasStoredSecret = (KeychainService.getPassword(for: editingSource.id)?.isEmpty == false)
+        } else {
+            hasStoredSecret = false
+        }
+
+        switch authType {
+        case .sshKey:
+            return sshKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false || hasStoredSecret
+        case .password, .apiKey, .cookie, .oauth:
+            return password.isEmpty == false || hasStoredSecret
+        case .none:
+            return true
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -141,7 +166,7 @@ struct AddSourceView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("save") { saveSource() }
-                        .disabled(name.isEmpty || (sourceType.requiresHost && host.isEmpty))
+                        .disabled(canSave == false)
                         .fontWeight(.semibold)
                 }
                 ToolbarItemGroup(placement: .keyboard) {
@@ -232,6 +257,8 @@ struct AddSourceView: View {
             useSsl = sourceType.defaultSSL
             if sourceType == .plex {
                 authType = .apiKey
+            } else if [.local, .nfs, .upnp].contains(sourceType) {
+                authType = .none
             }
         }
         isInitialized = true
@@ -253,7 +280,19 @@ struct AddSourceView: View {
             deviceId: editingSource?.deviceId,
             extraConfig: editingSource?.extraConfig
         )
-        if !password.isEmpty { KeychainService.setPassword(password, for: source.id) }
+        switch authType {
+        case .sshKey:
+            let trimmedKey = sshKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmedKey.isEmpty == false {
+                KeychainService.setPassword(trimmedKey, for: source.id)
+            }
+        case .password, .apiKey, .cookie, .oauth:
+            if password.isEmpty == false {
+                KeychainService.setPassword(password, for: source.id)
+            }
+        case .none:
+            break
+        }
         onSave(source)
         dismiss()
     }

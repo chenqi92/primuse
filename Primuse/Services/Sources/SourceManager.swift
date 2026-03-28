@@ -68,6 +68,26 @@ final class SourceManager {
                 password: KeychainService.getPassword(for: source.id) ?? "",
                 encryption: source.ftpEncryption ?? .none
             )
+        case .sftp:
+            connector = SFTPSource(
+                sourceID: source.id,
+                host: source.host ?? "",
+                port: source.port,
+                basePath: source.basePath,
+                username: source.username ?? "",
+                secret: KeychainService.getPassword(for: source.id) ?? "",
+                authType: source.authType
+            )
+        case .nfs:
+            connector = NFSSource(
+                sourceID: source.id,
+                host: source.host ?? "",
+                port: source.port,
+                exportPath: source.exportPath,
+                nfsVersion: source.nfsVersion ?? .auto
+            )
+        case .upnp:
+            connector = UPnPSource(sourceID: source.id)
         case .jellyfin, .emby, .plex:
             connector = MediaServerSource(
                 sourceID: source.id,
@@ -79,6 +99,33 @@ final class SourceManager {
                 username: source.username ?? "",
                 secret: KeychainService.getPassword(for: source.id) ?? "",
                 authType: source.authType
+            )
+        case .qnap:
+            connector = QnapSource(
+                sourceID: source.id,
+                host: source.host ?? "",
+                port: source.port ?? 8080,
+                useSsl: source.useSsl,
+                username: source.username ?? "",
+                password: KeychainService.getPassword(for: source.id) ?? ""
+            )
+        case .ugreen:
+            connector = UgreenSource(
+                sourceID: source.id,
+                host: source.host ?? "",
+                port: source.port ?? 9999,
+                useSsl: source.useSsl,
+                username: source.username ?? "",
+                password: KeychainService.getPassword(for: source.id) ?? ""
+            )
+        case .fnos:
+            connector = FnOSSource(
+                sourceID: source.id,
+                host: source.host ?? "",
+                port: source.port ?? 5666,
+                useSsl: source.useSsl,
+                username: source.username ?? "",
+                password: KeychainService.getPassword(for: source.id) ?? ""
             )
         default:
             connector = UnsupportedSourceConnector(

@@ -117,15 +117,66 @@ struct MetadataScrapingView: View {
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(ScraperSettingsStore.self) private var scraperSettings
 
+    @State private var editingCookieSourceId: String?
+    @State private var cookieText = ""
+
     var body: some View {
         @Bindable var settings = scraperSettings
 
         Form {
-            Section("scraper_sources") {
-                Toggle("musicbrainz_metadata", isOn: $settings.musicBrainzMetadataEnabled)
-                Toggle("musicbrainz_cover", isOn: $settings.musicBrainzCoverEnabled)
-                Toggle("lrclib_lyrics", isOn: $settings.lrclibLyricsEnabled)
+            Section {
+                ForEach(settings.sources) { source in
+                    HStack(spacing: 12) {
+                        Image(systemName: source.type.iconName)
+                            .font(.title3)
+                            .foregroundStyle(source.isEnabled ? source.type.themeColor : .secondary)
+                            .frame(width: 28)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(source.type.displayName)
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                            Text(source.type.localizedDescription)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+
+                        Spacer()
+
+                        if source.type.supportsCookie {
+                            Button {
+                                editingCookieSourceId = source.id
+                                cookieText = source.cookie ?? ""
+                            } label: {
+                                Image(systemName: "key")
+                                    .font(.caption)
+                                    .foregroundStyle(source.cookie?.isEmpty == false ? Color.green : Color.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        Toggle("", isOn: Binding(
+                            get: { source.isEnabled },
+                            set: { _ in scraperSettings.toggleSource(id: source.id) }
+                        ))
+                        .labelsHidden()
+                    }
+                }
+                .onMove { scraperSettings.reorderSources(fromOffsets: $0, toOffset: $1) }
+            } header: {
+                Text("scraper_sources")
+            } footer: {
+                Text("scraper_sources_footer")
+            }
+
+            Section("scraper_options") {
                 Toggle("only_fill_missing", isOn: $settings.onlyFillMissingFields)
+
+                Button("reset_scraper_defaults") {
+                    scraperSettings.resetToDefaults()
+                }
+                .foregroundStyle(.red)
             }
 
             Section {
@@ -168,6 +219,24 @@ struct MetadataScrapingView: View {
         }
         .navigationTitle("metadata_scraping")
         .navigationBarTitleDisplayMode(.inline)
+        .environment(\.editMode, .constant(.active))
+        .alert("cookie_config", isPresented: Binding(
+            get: { editingCookieSourceId != nil },
+            set: { if !$0 { editingCookieSourceId = nil } }
+        )) {
+            TextField("cookie_placeholder", text: $cookieText)
+            Button("save") {
+                if let id = editingCookieSourceId {
+                    scraperSettings.updateCookie(id: id, cookie: cookieText.isEmpty ? nil : cookieText)
+                }
+                editingCookieSourceId = nil
+            }
+            Button("cancel", role: .cancel) {
+                editingCookieSourceId = nil
+            }
+        } message: {
+            Text("cookie_config_message")
+        }
     }
 }
 

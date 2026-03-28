@@ -62,6 +62,9 @@ actor SynologyScanner {
     ) async throws {
         let items = try await api.listDirectory(path: path)
 
+        // Build a set of filenames for sidecar lookup (.lrc files)
+        let allNames = Set(items.map(\.name))
+
         for item in items {
             if item.isDirectory {
                 try await scanDirectory(
@@ -72,12 +75,38 @@ actor SynologyScanner {
                 let ext = (item.name as NSString).pathExtension.lowercased()
                 guard PrimuseConstants.supportedAudioExtensions.contains(ext) else { continue }
 
+                // Check for sidecar .lrc file (same name, .lrc extension)
+                let baseName = (item.name as NSString).deletingPathExtension
+                let lrcName = baseName + ".lrc"
+                let hasLrc = allNames.contains(lrcName) || allNames.contains(baseName + ".LRC")
+
                 count += 1
                 continuation.yield(ScanUpdate(
                     scannedCount: count, currentFile: item.name, songs: allSongs
                 ))
 
-                let song = await extractSongMetadata(item: item, ext: ext)
+                var song = await extractSongMetadata(item: item, ext: ext)
+
+                // If sidecar .lrc exists, download and parse it
+                if hasLrc {
+                    let lrcPath = (item.path as NSString).deletingLastPathComponent + "/" + lrcName
+                    if let lyricsFileName = await downloadAndParseLrc(path: lrcPath, songID: song.id) {
+                        song = Song(
+                            id: song.id, title: song.title, albumID: song.albumID, artistID: song.artistID,
+                            albumTitle: song.albumTitle, artistName: song.artistName,
+                            trackNumber: song.trackNumber, discNumber: song.discNumber,
+                            duration: song.duration, fileFormat: song.fileFormat,
+                            filePath: song.filePath, sourceID: song.sourceID,
+                            fileSize: song.fileSize, bitRate: song.bitRate,
+                            sampleRate: song.sampleRate, bitDepth: song.bitDepth,
+                            genre: song.genre, year: song.year,
+                            dateAdded: song.dateAdded,
+                            coverArtFileName: song.coverArtFileName,
+                            lyricsFileName: lyricsFileName
+                        )
+                    }
+                }
+
                 allSongs.append(song)
 
                 // Yield with updated songs every 3 files
@@ -245,6 +274,59 @@ actor SynologyScanner {
             dateAdded: Date(),
             coverArtFileName: coverArtFileName
         )
+    }
+
+    /// Download .lrc file from NAS, parse it, store to MetadataAssetStore
+    private func downloadAndParseLrc(path: String, songID: String) async -> String? {
+        do {
+            let data = try await api.downloadFileHead(path: path, maxBytes: 512 * 1024) // .lrc files are small
+            guard let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .ascii) else {
+                return nil
+            }
+
+            // Parse LRC format: [mm:ss.xx]text
+            var lines: [LyricLine] = []
+            for raw in text.components(separatedBy: .newlines) {
+                let line = raw.trimmingCharacters(in: .whitespaces)
+                guard line.hasPrefix("[") else { continue }
+
+                // Extract all timestamps and text
+                var timestamps: [TimeInterval] = []
+                var remaining = line[line.startIndex...]
+
+                while remaining.hasPrefix("[") {
+                    guard let closeBracket = remaining.firstIndex(of: "]") else { break }
+                    let tag = remaining[remaining.index(after: remaining.startIndex)..<closeBracket]
+
+                    // Parse mm:ss.xx or mm:ss
+                    let parts = tag.split(separator: ":")
+                    if parts.count == 2,
+                       let minutes = Double(parts[0]),
+                       let seconds = Double(parts[1].replacingOccurrences(of: ",", with: ".")) {
+                        timestamps.append(minutes * 60 + seconds)
+                    }
+
+                    remaining = remaining[remaining.index(after: closeBracket)...]
+                }
+
+                let text = String(remaining).trimmingCharacters(in: .whitespaces)
+                guard !text.isEmpty else { continue }
+
+                for ts in timestamps {
+                    lines.append(LyricLine(timestamp: ts, text: text))
+                }
+            }
+
+            guard !lines.isEmpty else { return nil }
+
+            // Sort by timestamp
+            lines.sort { $0.timestamp < $1.timestamp }
+
+            // Store to MetadataAssetStore
+            return await MetadataAssetStore.shared.storeLyrics(lines, for: songID)
+        } catch {
+            return nil
+        }
     }
 
     private func parseFilename(_ name: String) -> (title: String, artist: String?) {

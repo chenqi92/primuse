@@ -164,7 +164,7 @@ struct SourcesView: View {
             switch source.type {
             case .synology:
                 await scanSynology(source: source, directories: dirs)
-            case .smb, .webdav, .ftp, .jellyfin, .emby, .plex:
+            case .smb, .webdav, .ftp, .sftp, .nfs, .upnp, .jellyfin, .emby, .plex:
                 await scanConnectorSource(source: source, directories: dirs)
             default:
                 scanStates[source.id] = ScanState(
@@ -306,6 +306,12 @@ struct SourcesView: View {
             WebDAVBrowserView(source: source, selectedDirectories: selectedDirectories)
         case .ftp:
             FTPBrowserView(source: source, selectedDirectories: selectedDirectories)
+        case .sftp:
+            SFTPBrowserView(source: source, selectedDirectories: selectedDirectories)
+        case .nfs:
+            NFSBrowserView(source: source, selectedDirectories: selectedDirectories)
+        case .upnp:
+            UPnPBrowserView(source: source, selectedDirectories: selectedDirectories)
         case .jellyfin, .emby, .plex:
             MediaServerBrowserView(source: source, selectedDirectories: selectedDirectories)
         default:

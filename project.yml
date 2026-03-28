@@ -15,6 +15,7 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     DEVELOPMENT_TEAM: "2U97K3U27A"
     CODE_SIGN_STYLE: Automatic
+    CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION: YES
 
 packages:
   GRDB:
@@ -26,6 +27,18 @@ packages:
   FilesProvider:
     url: https://github.com/amosavian/FileProvider.git
     from: "0.26.0"
+  Citadel:
+    url: https://github.com/orlandos-nl/Citadel.git
+    revision: 69d80d39ca3b0bac5f04551a97af5dd7a827f887
+  SwiftCrypto:
+    url: https://github.com/apple/swift-crypto.git
+    from: "3.12.3"
+  SwiftNIO:
+    url: https://github.com/apple/swift-nio.git
+    from: "2.74.0"
+  NFSKit:
+    url: https://github.com/alexiscn/NFSKit.git
+    revision: ec63d055b9ee08d609d3c6cb32f42c07edc7bdf7
 
 targets:
   Primuse:
@@ -42,6 +55,15 @@ targets:
       - package: AMSMB2
       - package: FilesProvider
         product: FilesProvider
+      - package: Citadel
+        product: Citadel
+      - package: SwiftCrypto
+        product: Crypto
+      - package: SwiftNIO
+        product: NIOCore
+      - package: NFSKit
+        product: NFSKit
+      - sdk: AppIntents.framework
       - target: PrimuseKit
       - target: PrimuseWidgetExtension
       - target: PrimuseActivityExtension
@@ -51,6 +73,15 @@ targets:
         UIBackgroundModes:
           - audio
         NSSupportsLiveActivities: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         CFBundleDisplayName: "猿音"
         CFBundleName: "Primuse"
         LSApplicationCategoryType: "public.app-category.music"
@@ -70,6 +101,7 @@ targets:
       - path: PrimuseKit/Sources/PrimuseKit
     dependencies:
       - package: GRDB
+      - sdk: AppIntents.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.kkape.primuse.kit

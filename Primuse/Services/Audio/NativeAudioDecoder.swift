@@ -2,6 +2,14 @@ import AVFoundation
 import Foundation
 import PrimuseKit
 
+private final class AudioBufferBox: @unchecked Sendable {
+    let buffer: AVAudioPCMBuffer
+
+    init(_ buffer: AVAudioPCMBuffer) {
+        self.buffer = buffer
+    }
+}
+
 final class NativeAudioDecoder: AudioDecoder {
     private let supportedExtensions: Set<String> = ["mp3", "aac", "m4a", "alac", "flac", "wav", "aiff", "aif"]
     private let bufferFrameCount: AVAudioFrameCount = 8192
@@ -69,6 +77,7 @@ final class NativeAudioDecoder: AudioDecoder {
                             }
 
                             try file.read(into: inputBuffer, frameCount: framesToRead)
+                            let inputBufferBox = AudioBufferBox(inputBuffer)
 
                             let outputFrameCapacity = AVAudioFrameCount(
                                 Double(framesToRead) * outputFormat.sampleRate / sourceFormat.sampleRate
@@ -85,7 +94,7 @@ final class NativeAudioDecoder: AudioDecoder {
                             var error: NSError?
                             converter.convert(to: outputBuffer, error: &error) { _, outStatus in
                                 outStatus.pointee = .haveData
-                                return inputBuffer
+                                return inputBufferBox.buffer
                             }
 
                             if let error {

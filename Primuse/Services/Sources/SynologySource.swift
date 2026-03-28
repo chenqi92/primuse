@@ -57,7 +57,6 @@ actor SynologySource: MusicSourceConnector {
 
     /// Download full file to cache for playback. Supports offline playback after first download.
     func localURL(for path: String) async throws -> URL {
-        let ext = (path as NSString).pathExtension
         let sanitized = path.replacingOccurrences(of: "/", with: "_")
         let fileURL = cacheDirectory.appendingPathComponent(sanitized)
 
@@ -72,7 +71,6 @@ actor SynologySource: MusicSourceConnector {
         guard let sid = await api.sid else { throw SynologyError.notLoggedIn }
 
         // Build download URL
-        let scheme = await api.isLoggedIn ? "https" : "http" // simplified
         let baseURL = await api.baseURLString
         var components = URLComponents(string: "\(baseURL)/webapi/entry.cgi")!
         components.queryItems = [

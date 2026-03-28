@@ -160,6 +160,16 @@
 "played" = "Played";
 "scrape_song_success" = "Metadata refreshed for the current song.";
 "scrape_song_failed" = "Unable to refresh metadata for this song.";
+"scrape_options" = "What to Scrape";
+"scrape_metadata_toggle" = "Metadata (title, artist, album)";
+"scrape_cover_toggle" = "Cover Art";
+"scrape_lyrics_toggle" = "Lyrics";
+"scrape_sources_header" = "Sources";
+"start_scrape" = "Start";
+"scrape_no_changes" = "No new data found";
+"metadata" = "Metadata";
+"cover" = "Cover";
+"lyrics_word" = "Lyrics";
 
 // MARK: - Settings
 "playback" = "Playback";
@@ -197,13 +207,25 @@
 // MARK: - Scraping
 "metadata_scraping" = "Metadata & Scraping";
 "scraper_sources" = "Scraper Sources";
-"musicbrainz_metadata" = "MusicBrainz Metadata";
-"musicbrainz_cover" = "MusicBrainz Cover Art";
-"lrclib_lyrics" = "LRCLIB Lyrics";
+"scraper_sources_footer" = "Drag to reorder. Sources are tried from top to bottom until a match is found.";
+"scraper_options" = "Options";
 "only_fill_missing" = "Only Fill Missing Fields";
+"reset_scraper_defaults" = "Reset to Defaults";
 "scrape_actions" = "Scrape Actions";
 "scrape_missing_metadata" = "Scrape Missing Metadata";
 "rescrape_library" = "Re-scrape Library";
 "scrape_description" = "Fill in missing titles, artists, albums, covers, and lyrics for songs already in your library.";
 "updated_count" = "updated";
 "failed_count" = "failed";
+"cookie_config" = "Cookie Configuration";
+"cookie_placeholder" = "Paste cookie here";
+"cookie_config_message" = "Optional: provide a cookie to improve access. Leave empty for anonymous access.";
+
+// MARK: - Scraper Source Descriptions
+"scraper_source_b_desc" = "Chinese music platform, rich lyrics database";
+"scraper_source_e_desc" = "Chinese music platform, lyrics and covers";
+"scraper_source_d_desc" = "Regional music source, lossless audio focus";
+"scraper_qq_desc" = "Chinese music platform, lyrics and covers";
+"scraper_source_a_desc" = "Chinese music platform, lyrics and covers";
+"scraper_musicbrainz_desc" = "Open music database, metadata and covers";
+"scraper_lrclib_desc" = "Open synced lyrics database";
