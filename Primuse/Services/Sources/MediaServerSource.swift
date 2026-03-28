@@ -6,6 +6,7 @@ actor MediaServerSource: SongScanningConnector {
     enum Kind: Sendable {
         case jellyfin
         case emby
+        case plex
     }
 
     let sourceID: String
@@ -21,6 +22,7 @@ actor MediaServerSource: SongScanningConnector {
 
     private var accessToken: String?
     private var userID: String?
+    private var plexItems: [String: PlexAudioItem] = [:]
 
     init(
         sourceID: String,
@@ -63,6 +65,17 @@ actor MediaServerSource: SongScanningConnector {
             return
         }
 
+        if kind == .plex {
+            guard secret.isEmpty == false else {
+                throw SourceError.authenticationFailed
+            }
+
+            accessToken = secret
+            _ = try await fetchPlexServerInfo()
+            userID = "plex"
+            return
+        }
+
         switch authType {
         case .apiKey:
             accessToken = secret
@@ -92,6 +105,7 @@ actor MediaServerSource: SongScanningConnector {
     func disconnect() async {
         accessToken = nil
         userID = nil
+        plexItems.removeAll()
     }
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
@@ -118,8 +132,7 @@ actor MediaServerSource: SongScanningConnector {
     func localURL(for path: String) async throws -> URL {
         try await connect()
 
-        guard let itemID = itemID(from: path),
-              let accessToken else {
+        guard let itemID = itemID(from: path) else {
             throw SourceError.fileNotFound(path)
         }
 
@@ -129,13 +142,22 @@ actor MediaServerSource: SongScanningConnector {
             return fileURL
         }
 
-        let remoteURL = buildURL(
-            path: "/Videos/\(itemID)/stream",
-            queryItems: [
-                URLQueryItem(name: "Static", value: "true"),
-                URLQueryItem(name: "api_key", value: accessToken)
-            ]
-        )
+        let remoteURL: URL
+        switch kind {
+        case .plex:
+            remoteURL = try await plexPlaybackURL(for: itemID)
+        case .jellyfin, .emby:
+            guard let accessToken else {
+                throw SourceError.authenticationFailed
+            }
+            remoteURL = buildURL(
+                path: "/Videos/\(itemID)/stream",
+                queryItems: [
+                    URLQueryItem(name: "Static", value: "true"),
+                    URLQueryItem(name: "api_key", value: accessToken)
+                ]
+            )
+        }
 
         let (data, response) = try await session.data(from: remoteURL)
         try validate(response)
@@ -203,31 +225,63 @@ actor MediaServerSource: SongScanningConnector {
                     var startIndex = 0
                     let pageSize = 200
 
-                    while true {
-                        let result = try await fetchAudioItems(
-                            parentID: libraryID,
-                            startIndex: startIndex,
-                            limit: pageSize
-                        )
-
-                        if result.items.isEmpty {
-                            break
-                        }
-
-                        for item in result.items {
-                            let song = buildSong(from: item)
-                            continuation.yield(
-                                ConnectorScannedSong(
-                                    song: song,
-                                    displayName: item.name
-                                )
+                    switch kind {
+                    case .plex:
+                        while true {
+                            let result = try await fetchPlexTracks(
+                                sectionID: libraryID,
+                                startIndex: startIndex,
+                                limit: pageSize
                             )
+
+                            if result.items.isEmpty {
+                                break
+                            }
+
+                            for item in result.items {
+                                plexItems[item.ratingKey] = item
+                                let song = buildSong(from: item)
+                                continuation.yield(
+                                    ConnectorScannedSong(
+                                        song: song,
+                                        displayName: item.title
+                                    )
+                                )
+                            }
+
+                            startIndex += result.items.count
+
+                            if result.items.count < pageSize {
+                                break
+                            }
                         }
+                    case .jellyfin, .emby:
+                        while true {
+                            let result = try await fetchAudioItems(
+                                parentID: libraryID,
+                                startIndex: startIndex,
+                                limit: pageSize
+                            )
 
-                        startIndex += result.items.count
+                            if result.items.isEmpty {
+                                break
+                            }
 
-                        if result.items.count < pageSize {
-                            break
+                            for item in result.items {
+                                let song = buildSong(from: item)
+                                continuation.yield(
+                                    ConnectorScannedSong(
+                                        song: song,
+                                        displayName: item.name
+                                    )
+                                )
+                            }
+
+                            startIndex += result.items.count
+
+                            if result.items.count < pageSize {
+                                break
+                            }
                         }
                     }
 
@@ -240,6 +294,19 @@ actor MediaServerSource: SongScanningConnector {
     }
 
     private func fetchLibraries() async throws -> [Library] {
+        if kind == .plex {
+            let data = try await performRequest(path: "/library/sections")
+            let response = try decoder.decode(PlexLibraryResponse.self, from: data)
+            return response.mediaContainer.directories.map {
+                Library(
+                    id: $0.key,
+                    name: $0.title,
+                    collectionType: $0.type,
+                    childCount: nil
+                )
+            }
+        }
+
         guard let userID else { throw SourceError.authenticationFailed }
         let data = try await performRequest(path: "/Users/\(userID)/Views")
         let response = try decoder.decode(LibraryResponse.self, from: data)
@@ -348,6 +415,18 @@ actor MediaServerSource: SongScanningConnector {
                 headers["X-Emby-Token"] = accessToken
             }
             return headers
+        case .plex:
+            var headers: [String: String] = [
+                "X-Plex-Client-Identifier": deviceID,
+                "X-Plex-Product": "Primuse",
+                "X-Plex-Version": "1.0.0",
+                "X-Plex-Platform": "iOS",
+                "X-Plex-Device": "iPhone"
+            ]
+            if requiresAuth, let accessToken {
+                headers["X-Plex-Token"] = accessToken
+            }
+            return headers
         }
     }
 
@@ -406,7 +485,10 @@ actor MediaServerSource: SongScanningConnector {
     }
 
     private func preferredLibraries(from libraries: [Library]) -> [Library] {
-        let musicLibraries = libraries.filter { $0.collectionType?.lowercased() == "music" }
+        let musicLibraries = libraries.filter {
+            guard let kind = $0.collectionType?.lowercased() else { return false }
+            return kind == "music" || kind == "artist"
+        }
         return musicLibraries.isEmpty ? libraries : musicLibraries
     }
 
@@ -472,6 +554,33 @@ actor MediaServerSource: SongScanningConnector {
         )
     }
 
+    private func buildSong(from item: PlexAudioItem) -> Song {
+        let part = item.media?.first?.parts?.first
+        let audioStream = part?.streams?.first(where: { $0.streamType == 2 }) ?? part?.streams?.first
+        let fileExtension = plexAudioFileExtension(for: item)
+        let format = AudioFormat.from(fileExtension: fileExtension) ?? .mp3
+        let relativePath = "/items/\(item.ratingKey).\(fileExtension)"
+
+        return Song(
+            id: hash("\(sourceID):\(relativePath)"),
+            title: item.title,
+            albumTitle: item.parentTitle,
+            artistName: item.grandparentTitle,
+            trackNumber: item.index,
+            discNumber: item.parentIndex,
+            duration: Double(item.duration ?? 0) / 1000,
+            fileFormat: format,
+            filePath: relativePath,
+            sourceID: sourceID,
+            fileSize: Int64(part?.size ?? 0),
+            bitRate: item.media?.first?.bitrate,
+            sampleRate: audioStream?.samplingRate,
+            genre: item.genres?.joined(separator: ", "),
+            year: item.year,
+            coverArtFileName: coverArtURL(for: item)?.absoluteString
+        )
+    }
+
     private func coverArtURL(for item: AudioItem) -> URL? {
         guard let accessToken else { return nil }
 
@@ -499,6 +608,14 @@ actor MediaServerSource: SongScanningConnector {
         return nil
     }
 
+    private func coverArtURL(for item: PlexAudioItem) -> URL? {
+        guard let thumb = item.thumb, let accessToken else { return nil }
+        return buildURL(
+            path: thumb,
+            queryItems: [URLQueryItem(name: "X-Plex-Token", value: accessToken)]
+        )
+    }
+
     private func audioFileExtension(for item: AudioItem) -> String {
         if let path = item.mediaSources?.first?.path ?? item.path {
             let ext = URL(fileURLWithPath: path).pathExtension.lowercased()
@@ -516,6 +633,75 @@ actor MediaServerSource: SongScanningConnector {
         }
 
         return "mp3"
+    }
+
+    private func plexAudioFileExtension(for item: PlexAudioItem) -> String {
+        if let file = item.media?.first?.parts?.first?.file {
+            let ext = URL(fileURLWithPath: file).pathExtension.lowercased()
+            if ext.isEmpty == false {
+                return ext
+            }
+        }
+
+        if let container = item.media?.first?.container?.lowercased(), container.isEmpty == false {
+            return container
+        }
+
+        return "mp3"
+    }
+
+    private func fetchPlexServerInfo() async throws -> PlexServerInfoPayload {
+        let data = try await performRequest(path: "/")
+        let response = try decoder.decode(PlexServerInfoResponse.self, from: data)
+        return response.mediaContainer
+    }
+
+    private func fetchPlexTracks(
+        sectionID: String,
+        startIndex: Int,
+        limit: Int
+    ) async throws -> PlexTrackResponse {
+        let data = try await performRequest(
+            path: "/library/sections/\(sectionID)/all",
+            queryItems: [
+                URLQueryItem(name: "type", value: "10"),
+                URLQueryItem(name: "sort", value: "titleSort:asc"),
+                URLQueryItem(name: "X-Plex-Container-Start", value: String(startIndex)),
+                URLQueryItem(name: "X-Plex-Container-Size", value: String(limit))
+            ]
+        )
+        return try decoder.decode(PlexTrackResponse.self, from: data)
+    }
+
+    private func fetchPlexTrack(ratingKey: String) async throws -> PlexAudioItem {
+        let data = try await performRequest(path: "/library/metadata/\(ratingKey)")
+        let response = try decoder.decode(PlexTrackResponse.self, from: data)
+        guard let item = response.mediaContainer.metadata.first else {
+            throw SourceError.fileNotFound(ratingKey)
+        }
+        plexItems[ratingKey] = item
+        return item
+    }
+
+    private func plexPlaybackURL(for ratingKey: String) async throws -> URL {
+        guard let accessToken else {
+            throw SourceError.authenticationFailed
+        }
+
+        let item: PlexAudioItem
+        if let cachedItem = plexItems[ratingKey] {
+            item = cachedItem
+        } else {
+            item = try await fetchPlexTrack(ratingKey: ratingKey)
+        }
+        guard let partKey = item.media?.first?.parts?.first?.key else {
+            throw SourceError.fileNotFound(ratingKey)
+        }
+
+        return buildURL(
+            path: partKey,
+            queryItems: [URLQueryItem(name: "X-Plex-Token", value: accessToken)]
+        )
     }
 
     private func hash(_ value: String) -> String {
@@ -581,6 +767,8 @@ extension MediaServerSource.Kind {
             self = .jellyfin
         case .emby:
             self = .emby
+        case .plex:
+            self = .plex
         default:
             return nil
         }
@@ -700,5 +888,148 @@ private struct AudioMediaSource: Decodable {
         case size = "Size"
         case container = "Container"
         case path = "Path"
+    }
+}
+
+private struct PlexServerInfoResponse: Decodable {
+    let mediaContainer: PlexServerInfoPayload
+
+    enum CodingKeys: String, CodingKey {
+        case mediaContainer = "MediaContainer"
+    }
+}
+
+private struct PlexServerInfoPayload: Decodable {
+    let friendlyName: String?
+    let machineIdentifier: String?
+    let version: String?
+}
+
+private struct PlexLibraryResponse: Decodable {
+    let mediaContainer: PlexLibraryContainer
+
+    enum CodingKeys: String, CodingKey {
+        case mediaContainer = "MediaContainer"
+    }
+}
+
+private struct PlexLibraryContainer: Decodable {
+    let directories: [PlexLibraryDirectory]
+
+    enum CodingKeys: String, CodingKey {
+        case directories = "Directory"
+    }
+}
+
+private struct PlexLibraryDirectory: Decodable {
+    let key: String
+    let title: String
+    let type: String
+
+    enum CodingKeys: String, CodingKey {
+        case key
+        case title
+        case type
+    }
+}
+
+private struct PlexTrackResponse: Decodable {
+    let mediaContainer: PlexTrackContainer
+
+    enum CodingKeys: String, CodingKey {
+        case mediaContainer = "MediaContainer"
+    }
+
+    var items: [PlexAudioItem] { mediaContainer.metadata }
+}
+
+private struct PlexTrackContainer: Decodable {
+    let metadata: [PlexAudioItem]
+
+    enum CodingKeys: String, CodingKey {
+        case metadata = "Metadata"
+    }
+}
+
+private struct PlexAudioItem: Decodable {
+    let ratingKey: String
+    let title: String
+    let parentTitle: String?
+    let grandparentTitle: String?
+    let index: Int?
+    let parentIndex: Int?
+    let year: Int?
+    let duration: Int?
+    let thumb: String?
+    let genres: [String]?
+    let media: [PlexMedia]?
+
+    enum CodingKeys: String, CodingKey {
+        case ratingKey
+        case title
+        case parentTitle
+        case grandparentTitle
+        case index
+        case parentIndex
+        case year
+        case duration
+        case thumb
+        case media = "Media"
+        case genre = "Genre"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        ratingKey = try container.decode(String.self, forKey: .ratingKey)
+        title = try container.decode(String.self, forKey: .title)
+        parentTitle = try container.decodeIfPresent(String.self, forKey: .parentTitle)
+        grandparentTitle = try container.decodeIfPresent(String.self, forKey: .grandparentTitle)
+        index = try container.decodeIfPresent(Int.self, forKey: .index)
+        parentIndex = try container.decodeIfPresent(Int.self, forKey: .parentIndex)
+        year = try container.decodeIfPresent(Int.self, forKey: .year)
+        duration = try container.decodeIfPresent(Int.self, forKey: .duration)
+        thumb = try container.decodeIfPresent(String.self, forKey: .thumb)
+        media = try container.decodeIfPresent([PlexMedia].self, forKey: .media)
+        genres = try container.decodeIfPresent([PlexGenre].self, forKey: .genre)?.map(\.tag)
+    }
+}
+
+private struct PlexGenre: Decodable {
+    let tag: String
+}
+
+private struct PlexMedia: Decodable {
+    let bitrate: Int?
+    let container: String?
+    let parts: [PlexPart]?
+
+    enum CodingKeys: String, CodingKey {
+        case bitrate
+        case container
+        case parts = "Part"
+    }
+}
+
+private struct PlexPart: Decodable {
+    let key: String?
+    let file: String?
+    let size: Int?
+    let streams: [PlexStream]?
+
+    enum CodingKeys: String, CodingKey {
+        case key
+        case file
+        case size
+        case streams = "Stream"
+    }
+}
+
+private struct PlexStream: Decodable {
+    let streamType: Int
+    let samplingRate: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case streamType
+        case samplingRate
     }
 }

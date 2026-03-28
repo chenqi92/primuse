@@ -164,7 +164,7 @@ struct SourcesView: View {
             switch source.type {
             case .synology:
                 await scanSynology(source: source, directories: dirs)
-            case .smb, .webdav, .jellyfin, .emby:
+            case .smb, .webdav, .ftp, .jellyfin, .emby, .plex:
                 await scanConnectorSource(source: source, directories: dirs)
             default:
                 scanStates[source.id] = ScanState(
@@ -304,7 +304,9 @@ struct SourcesView: View {
             SMBBrowserView(source: source, selectedDirectories: selectedDirectories)
         case .webdav:
             WebDAVBrowserView(source: source, selectedDirectories: selectedDirectories)
-        case .jellyfin, .emby:
+        case .ftp:
+            FTPBrowserView(source: source, selectedDirectories: selectedDirectories)
+        case .jellyfin, .emby, .plex:
             MediaServerBrowserView(source: source, selectedDirectories: selectedDirectories)
         default:
             ContentUnavailableView(

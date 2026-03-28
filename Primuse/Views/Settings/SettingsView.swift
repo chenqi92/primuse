@@ -29,6 +29,18 @@ struct SettingsView: View {
                 }
 
                 Section("library") {
+                    NavigationLink {
+                        SourcesView()
+                    } label: {
+                        Label("manage_sources", systemImage: "externaldrive.connected.to.line.below")
+                    }
+
+                    NavigationLink {
+                        MetadataScrapingView()
+                    } label: {
+                        Label("metadata_scraping", systemImage: "wand.and.stars")
+                    }
+
                     HStack {
                         Label("cache_size", systemImage: "internaldrive")
                         Spacer()
@@ -40,12 +52,6 @@ struct SettingsView: View {
                         showClearCacheAlert = true
                     } label: {
                         Label("clear_cache", systemImage: "trash")
-                    }
-
-                    NavigationLink {
-                        MetadataScrapingView()
-                    } label: {
-                        Label("metadata_scraping", systemImage: "wand.and.stars")
                     }
                 }
 

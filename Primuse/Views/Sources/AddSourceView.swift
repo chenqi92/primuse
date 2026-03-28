@@ -36,7 +36,7 @@ struct AddSourceView: View {
     @FocusState private var focusedField: SourceFormField?
 
     private var isEditing: Bool { editingSource != nil }
-    private var supportsAPIKeyAuth: Bool { [.jellyfin, .emby].contains(sourceType) }
+    private var supportsAPIKeyAuth: Bool { [.jellyfin, .emby, .plex].contains(sourceType) }
 
     var body: some View {
         NavigationStack {
@@ -230,6 +230,9 @@ struct AddSourceView: View {
             name = sourceType.displayName
             port = "\(sourceType.defaultPort)"
             useSsl = sourceType.defaultSSL
+            if sourceType == .plex {
+                authType = .apiKey
+            }
         }
         isInitialized = true
     }

@@ -33,7 +33,6 @@ enum LibrarySection: String, CaseIterable, Hashable {
 }
 
 struct LibraryView: View {
-    var switchToSourcesTab: (() -> Void)?
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
 
@@ -80,14 +79,18 @@ struct LibraryView: View {
                             GridItem(.flexible(), spacing: 12)
                         ], spacing: 14) {
                             ForEach(recentItems) { item in
-                                RecentItemCard(item: item)
-                                    .onTapGesture {
-                                        if let song = songs.first(where: { $0.id == item.id }) {
+                                if let song = item.song {
+                                    RecentItemCard(item: item)
+                                        .contentShape(Rectangle())
+                                        .onTapGesture {
                                             playSong(song)
-                                        } else if let album = albums.first(where: { $0.id == item.id }) {
-                                            // Navigate to album — handled by navigationDestination
                                         }
+                                } else if let album = item.album {
+                                    NavigationLink(value: album) {
+                                        RecentItemCard(item: item)
                                     }
+                                    .buttonStyle(.plain)
+                                }
                             }
                         }
                         .padding(.vertical, 4)
@@ -120,10 +123,10 @@ struct LibraryView: View {
                                 .foregroundStyle(.secondary)
                                 .multilineTextAlignment(.center)
 
-                            Button {
-                                switchToSourcesTab?()
+                            NavigationLink {
+                                SourcesView()
                             } label: {
-                                Text("add_source").fontWeight(.medium)
+                                Text("manage_sources").fontWeight(.medium)
                             }
                             .buttonStyle(.borderedProminent)
                         }
@@ -153,12 +156,27 @@ struct LibraryView: View {
 
     private var recentItems: [RecentItem] {
         if !albums.isEmpty {
-            return albums.prefix(6).map {
-                RecentItem(id: $0.id, title: $0.title, subtitle: $0.artistName ?? "", song: nil)
+            return albums.prefix(6).map { album in
+                let cover = library.songs(forAlbum: album.id).first?.coverArtFileName
+                return RecentItem(
+                    id: album.id,
+                    title: album.title,
+                    subtitle: album.artistName ?? "",
+                    coverFileName: cover,
+                    song: nil,
+                    album: album
+                )
             }
         }
-        return songs.prefix(6).map {
-            RecentItem(id: $0.id, title: $0.title, subtitle: $0.artistName ?? "", song: $0)
+        return songs.prefix(6).map { song in
+            RecentItem(
+                id: song.id,
+                title: song.title,
+                subtitle: song.artistName ?? "",
+                coverFileName: song.coverArtFileName,
+                song: song,
+                album: nil
+            )
         }
     }
 
@@ -185,7 +203,9 @@ struct RecentItem: Identifiable {
     let id: String
     let title: String
     let subtitle: String
+    let coverFileName: String?
     let song: Song?
+    let album: Album?
 }
 
 struct RecentItemCard: View {
@@ -193,16 +213,9 @@ struct RecentItemCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(cardGradient)
-                    .aspectRatio(1, contentMode: .fit)
-                    .shadow(color: .black.opacity(0.08), radius: 4, y: 2)
-
-                Image(systemName: "music.note")
-                    .font(.title2)
-                    .foregroundStyle(.white.opacity(0.8))
-            }
+            CachedArtworkView(coverFileName: item.coverFileName, cornerRadius: 8)
+                .aspectRatio(1, contentMode: .fit)
+                .shadow(color: .black.opacity(0.08), radius: 4, y: 2)
 
             Text(item.title)
                 .font(.caption)
@@ -213,18 +226,6 @@ struct RecentItemCard: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }
-    }
-
-    private var cardGradient: LinearGradient {
-        let hash = abs(item.title.hashValue)
-        let hue = Double(hash % 360) / 360.0
-        return LinearGradient(
-            colors: [
-                Color(hue: hue, saturation: 0.45, brightness: 0.75),
-                Color(hue: (hue + 0.08).truncatingRemainder(dividingBy: 1), saturation: 0.55, brightness: 0.55)
-            ],
-            startPoint: .topLeading, endPoint: .bottomTrailing
-        )
     }
 }
 

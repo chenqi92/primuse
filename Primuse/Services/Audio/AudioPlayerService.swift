@@ -9,6 +9,7 @@ final class AudioPlayerService {
     let audioEngine: AudioEngine
     let equalizerService: EqualizerService
     private let sourceManager: SourceManager?
+    private let library: MusicLibrary?
 
     private(set) var currentSong: Song?
     private(set) var isPlaying = false
@@ -26,8 +27,9 @@ final class AudioPlayerService {
     private var decodingTask: Task<Void, Never>?
     private var playbackMonitorTask: Task<Void, Never>?
 
-    init(sourceManager: SourceManager? = nil) {
+    init(sourceManager: SourceManager? = nil, library: MusicLibrary? = nil) {
         self.sourceManager = sourceManager
+        self.library = library
         audioEngine = AudioEngine()
         equalizerService = EqualizerService(audioEngine: audioEngine)
         setupRemoteCommands()
@@ -103,6 +105,7 @@ final class AudioPlayerService {
             }
 
             isPlaying = true
+            library?.recordPlayback(of: song.id)
             isLoading = false
             startTimeUpdater()
             startPlaybackMonitor()
@@ -175,6 +178,18 @@ final class AudioPlayerService {
         currentIndex = min(index, songs.count - 1)
     }
 
+    func syncSongMetadata(_ updatedSong: Song) {
+        if currentSong?.id == updatedSong.id {
+            currentSong = updatedSong
+            updateNowPlayingInfo()
+            updatePlaybackState()
+        }
+
+        if let queueIndex = queue.firstIndex(where: { $0.id == updatedSong.id }) {
+            queue[queueIndex] = updatedSong
+        }
+    }
+
     // MARK: - Playback Monitor (detect when playback truly finishes)
 
     private func startPlaybackMonitor() {
@@ -218,9 +233,11 @@ final class AudioPlayerService {
     private func startTimeUpdater() {
         stopTimeUpdater()
         displayLink = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            if let time = self.audioEngine.currentTime {
-                self.currentTime = time
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if let time = self.audioEngine.currentTime {
+                    self.currentTime = time
+                }
             }
         }
     }

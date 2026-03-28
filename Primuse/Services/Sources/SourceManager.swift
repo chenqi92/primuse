@@ -58,7 +58,17 @@ final class SourceManager {
                 username: source.username ?? "",
                 password: KeychainService.getPassword(for: source.id) ?? ""
             )
-        case .jellyfin, .emby:
+        case .ftp:
+            connector = FTPSource(
+                sourceID: source.id,
+                host: source.host ?? "",
+                port: source.port,
+                basePath: source.basePath,
+                username: source.username ?? "",
+                password: KeychainService.getPassword(for: source.id) ?? "",
+                encryption: source.ftpEncryption ?? .none
+            )
+        case .jellyfin, .emby, .plex:
             connector = MediaServerSource(
                 sourceID: source.id,
                 kind: MediaServerSource.Kind(sourceType: source.type)!,
@@ -71,10 +81,9 @@ final class SourceManager {
                 authType: source.authType
             )
         default:
-            // For unsupported types, fall back to a local source placeholder
-            connector = LocalFileSource(
+            connector = UnsupportedSourceConnector(
                 sourceID: source.id,
-                basePath: URL(fileURLWithPath: "/")
+                sourceType: source.type
             )
         }
 

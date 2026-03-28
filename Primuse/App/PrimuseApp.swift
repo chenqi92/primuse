@@ -8,7 +8,7 @@ struct PrimuseApp: App {
     @State private var playerService: AudioPlayerService
     @State private var scraperSettingsStore: ScraperSettingsStore
     @State private var scraperService: MusicScraperService
-    @State private var musicLibrary = MusicLibrary()
+    @State private var musicLibrary: MusicLibrary
 
     init() {
         AudioSessionManager.shared.configureForPlayback()
@@ -19,12 +19,14 @@ struct PrimuseApp: App {
         })
         let scraperSettings = ScraperSettingsStore()
         let scraperService = MusicScraperService(sourceManager: manager)
+        let library = MusicLibrary()
 
         _sourcesStore = State(initialValue: store)
         _sourceManager = State(initialValue: manager)
-        _playerService = State(initialValue: AudioPlayerService(sourceManager: manager))
+        _playerService = State(initialValue: AudioPlayerService(sourceManager: manager, library: library))
         _scraperSettingsStore = State(initialValue: scraperSettings)
         _scraperService = State(initialValue: scraperService)
+        _musicLibrary = State(initialValue: library)
     }
 
     var body: some Scene {

@@ -11,6 +11,7 @@ final class MusicLibrary {
     private(set) var artists: [Artist] = []
     private(set) var playlists: [Playlist] = []
     private var playlistSongIDs: [String: [String]] = [:]
+    private var recentPlaybackSongIDs: [String] = []
 
     private let snapshotURL: URL
     private let encoder = JSONEncoder()
@@ -41,6 +42,7 @@ final class MusicLibrary {
         songs.append(contentsOf: newSongs)
 
         cleanPlaylistEntries()
+        cleanPlaybackHistoryEntries()
         rebuildIndex()
         persistSnapshot()
     }
@@ -49,6 +51,7 @@ final class MusicLibrary {
     func removeSongsForSource(_ sourceID: String) {
         songs.removeAll { $0.sourceID == sourceID }
         cleanPlaylistEntries()
+        cleanPlaybackHistoryEntries()
         rebuildIndex()
         persistSnapshot()
     }
@@ -82,8 +85,26 @@ final class MusicLibrary {
         return (playlistSongIDs[playlistID] ?? []).compactMap { songLookup[$0] }
     }
 
+    func recentlyPlayedSongs(limit: Int = 6) -> [Song] {
+        let songLookup = Dictionary(uniqueKeysWithValues: songs.map { ($0.id, $0) })
+        return Array(recentPlaybackSongIDs.prefix(limit).compactMap { songLookup[$0] })
+    }
+
     func contains(songID: String, inPlaylist playlistID: String) -> Bool {
         playlistSongIDs[playlistID]?.contains(songID) == true
+    }
+
+    func recordPlayback(of songID: String) {
+        guard songs.contains(where: { $0.id == songID }) else { return }
+
+        recentPlaybackSongIDs.removeAll { $0 == songID }
+        recentPlaybackSongIDs.insert(songID, at: 0)
+
+        if recentPlaybackSongIDs.count > 100 {
+            recentPlaybackSongIDs.removeLast(recentPlaybackSongIDs.count - 100)
+        }
+
+        persistSnapshot()
     }
 
     func createPlaylist(name: String) -> Playlist {
@@ -137,6 +158,7 @@ final class MusicLibrary {
         songs[index] = updatedSong
         rebuildIndex()
         cleanPlaylistEntries()
+        cleanPlaybackHistoryEntries()
         refreshPlaylistArtworkReferences()
         persistSnapshot()
     }
@@ -206,12 +228,19 @@ final class MusicLibrary {
         songs = snapshot.songs
         playlists = snapshot.playlists
         playlistSongIDs = snapshot.playlistSongIDs ?? [:]
+        recentPlaybackSongIDs = snapshot.recentPlaybackSongIDs ?? []
         cleanPlaylistEntries()
+        cleanPlaybackHistoryEntries()
         rebuildIndex()
     }
 
     private func persistSnapshot() {
-        let snapshot = Snapshot(songs: songs, playlists: playlists, playlistSongIDs: playlistSongIDs)
+        let snapshot = Snapshot(
+            songs: songs,
+            playlists: playlists,
+            playlistSongIDs: playlistSongIDs,
+            recentPlaybackSongIDs: recentPlaybackSongIDs
+        )
         guard let data = try? encoder.encode(snapshot) else { return }
         try? data.write(to: snapshotURL, options: .atomic)
     }
@@ -235,6 +264,11 @@ final class MusicLibrary {
         }
     }
 
+    private func cleanPlaybackHistoryEntries() {
+        let validSongIDs = Set(songs.map(\.id))
+        recentPlaybackSongIDs = recentPlaybackSongIDs.filter { validSongIDs.contains($0) }
+    }
+
     private func hashID(_ input: String) -> String {
         let hash = SHA256.hash(data: Data(input.utf8))
         return hash.prefix(16).map { String(format: "%02x", $0) }.joined()
@@ -244,5 +278,6 @@ final class MusicLibrary {
         var songs: [Song]
         var playlists: [Playlist]
         var playlistSongIDs: [String: [String]]?
+        var recentPlaybackSongIDs: [String]?
     }
 }

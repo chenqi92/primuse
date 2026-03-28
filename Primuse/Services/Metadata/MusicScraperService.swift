@@ -33,6 +33,14 @@ final class MusicScraperService {
         startScraping(in: library, forceRescrape: true)
     }
 
+    func scrapeSingle(song: Song, in library: MusicLibrary) async throws -> Song {
+        let updatedSong = try await processedSong(song, forceRescrape: true) ?? song
+        if updatedSong != song {
+            library.replaceSong(updatedSong)
+        }
+        return updatedSong
+    }
+
     func cancel() {
         scrapingTask?.cancel()
         scrapingTask = nil
@@ -65,22 +73,11 @@ final class MusicScraperService {
                 currentSongTitle = song.title
 
                 do {
-                    let fileURL = try await sourceManager.resolveURL(for: song)
-                    let placeholderTitle = fileURL.deletingPathExtension().lastPathComponent
-
-                    guard forceRescrape || needsScrape(song: song, placeholderTitle: placeholderTitle) else {
+                    guard let updatedSong = try await processedSong(song, forceRescrape: forceRescrape) else {
                         processedCount += 1
                         skippedCount += 1
                         continue
                     }
-
-                    let metadata = await metadataService.loadMetadata(for: fileURL, cacheKey: song.id)
-                    let updatedSong = mergedSong(
-                        song,
-                        with: metadata,
-                        placeholderTitle: placeholderTitle,
-                        forceRescrape: forceRescrape
-                    )
 
                     processedCount += 1
 
@@ -96,6 +93,23 @@ final class MusicScraperService {
                 }
             }
         }
+    }
+
+    private func processedSong(_ song: Song, forceRescrape: Bool) async throws -> Song? {
+        let fileURL = try await sourceManager.resolveURL(for: song)
+        let placeholderTitle = fileURL.deletingPathExtension().lastPathComponent
+
+        guard forceRescrape || needsScrape(song: song, placeholderTitle: placeholderTitle) else {
+            return nil
+        }
+
+        let metadata = await metadataService.loadMetadata(for: fileURL, cacheKey: song.id)
+        return mergedSong(
+            song,
+            with: metadata,
+            placeholderTitle: placeholderTitle,
+            forceRescrape: forceRescrape
+        )
     }
 
     private func needsScrape(song: Song, placeholderTitle: String) -> Bool {

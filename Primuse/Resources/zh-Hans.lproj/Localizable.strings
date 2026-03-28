@@ -152,6 +152,14 @@
 "search_empty_library_desc" = "添加音乐源并扫描后即可搜索";
 "scrape_song" = "刮削元数据";
 "tap_to_scrape" = "点击菜单刮削歌词";
+"home_title" = "首页";
+"home_empty_desc" = "在设置中添加音乐源，开始构建你的音乐库";
+"manage_sources" = "音乐源管理";
+"recently_played" = "最近播放";
+"for_you" = "为你推荐";
+"played" = "已播放";
+"scrape_song_success" = "当前歌曲元数据已刷新。";
+"scrape_song_failed" = "当前歌曲元数据刷新失败。";
 
 // MARK: - 设置
 "playback" = "播放";

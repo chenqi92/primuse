@@ -87,6 +87,7 @@
 		BCD118DDD7CB7A8F1DCC6BED /* WebDAVSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4999BBD97AF63761839AA42 /* WebDAVSource.swift */; };
 		BD0D1C7E9179D8C0B8F13FBF /* EQPresets.json in Resources */ = {isa = PBXBuildFile; fileRef = 82BEE71CAE2A1F50A90AB53C /* EQPresets.json */; };
 		BDB78390A6DA6FB657E48B0E /* LibraryDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = F246393058D148228F7BA7B9 /* LibraryDatabase.swift */; };
+		BE77E1812F27C8479B2F9EC9 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56FB421EEBD96C4651F28FD5 /* HomeView.swift */; };
 		BF1658CCB669A554E8DF831D /* SynologyScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A221B7D8D5901440E56C3F6 /* SynologyScanner.swift */; };
 		C067C2586AAA10F3F398296C /* SharedConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 136A0C5EFAF6D7C7056C69A4 /* SharedConstants.swift */; };
 		C17A3B3D7E8B0D1508A0022B /* PlaybackActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D37C22CEB6AB4DC03BCF5FA /* PlaybackActivityAttributes.swift */; };
@@ -222,6 +223,7 @@
 		4F953DC4532B85C7AD604EF9 /* AudioPlayerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayerService.swift; sourceTree = "<group>"; };
 		552EC251CB491F214F263601 /* SynologyAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyAPI.swift; sourceTree = "<group>"; };
 		564355C7C182D7C30114AC27 /* PlaylistDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistDetailView.swift; sourceTree = "<group>"; };
+		56FB421EEBD96C4651F28FD5 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		5A2105927D98B1DF9885EB81 /* MusicLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicLibrary.swift; sourceTree = "<group>"; };
 		5A65207E9AE0A7B6C259E92C /* NowPlayingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingView.swift; sourceTree = "<group>"; };
 		5D2741FA5052447F5E1B27A4 /* QueueView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueView.swift; sourceTree = "<group>"; };
@@ -378,6 +380,14 @@
 				637B2519A8207FCB3ABC3E34 /* WebDAVBrowserView.swift */,
 			);
 			path = Sources;
+			sourceTree = "<group>";
+		};
+		1B6CFCE745665A1E8B7ADC6A /* Home */ = {
+			isa = PBXGroup;
+			children = (
+				56FB421EEBD96C4651F28FD5 /* HomeView.swift */,
+			);
+			path = Home;
 			sourceTree = "<group>";
 		};
 		227B30DE534574B04EF07610 /* Sources */ = {
@@ -553,6 +563,7 @@
 			isa = PBXGroup;
 			children = (
 				D266C9107D16C6BF97A76480 /* Components */,
+				1B6CFCE745665A1E8B7ADC6A /* Home */,
 				A6BF6074222C37544F76B8C9 /* Library */,
 				55EE8F663A4A56310A3966B9 /* NowPlaying */,
 				4B45BC6D46110A17D2A6E54E /* Search */,
@@ -891,6 +902,7 @@
 				88744C4DE23E697ACA4B7337 /* FFmpegAudioDecoder.swift in Sources */,
 				1AB7C4D50C43A24D7A9E3F53 /* FileFormatRouter.swift in Sources */,
 				83FBC7E697D9FB957F5CFFE7 /* FileMetadataReader.swift in Sources */,
+				BE77E1812F27C8479B2F9EC9 /* HomeView.swift in Sources */,
 				3DB35BA7BA5DF8173F45CA98 /* ImageCache.swift in Sources */,
 				075FDC9F6218D8AD5DD8A4D9 /* KeychainService.swift in Sources */,
 				BDB78390A6DA6FB657E48B0E /* LibraryDatabase.swift in Sources */,

@@ -152,6 +152,14 @@
 "search_empty_library_desc" = "Add a music source and scan to start searching";
 "scrape_song" = "Scrape Metadata";
 "tap_to_scrape" = "Tap menu to scrape lyrics";
+"home_title" = "Home";
+"home_empty_desc" = "Add a music source in Settings to start building your library";
+"manage_sources" = "Manage Sources";
+"recently_played" = "Recently Played";
+"for_you" = "For You";
+"played" = "Played";
+"scrape_song_success" = "Metadata refreshed for the current song.";
+"scrape_song_failed" = "Unable to refresh metadata for this song.";
 
 // MARK: - Settings
 "playback" = "Playback";
