@@ -45,17 +45,18 @@ targets:
       - target: PrimuseKit
       - target: PrimuseWidgetExtension
       - target: PrimuseActivityExtension
+    info:
+      path: Primuse/Info.plist
+      properties:
+        UIBackgroundModes:
+          - audio
+        NSSupportsLiveActivities: true
+        CFBundleDisplayName: "猿音"
+        CFBundleName: "Primuse"
+        LSApplicationCategoryType: "public.app-category.music"
+        UILaunchScreen: {}
     settings:
       base:
-        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
-        INFOPLIST_KEY_UIBackgroundModes: "audio"
-        INFOPLIST_KEY_NSSupportsLiveActivities: YES
-        INFOPLIST_KEY_CFBundleDisplayName: "猿音"
-        INFOPLIST_KEY_CFBundleName: "Primuse"
-        INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.music"
-        GENERATE_INFOPLIST_FILE: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SWIFT_EMIT_LOC_STRINGS: YES

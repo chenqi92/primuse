@@ -2,12 +2,14 @@ import AVFoundation
 import CryptoKit
 import Foundation
 import PrimuseKit
+import UIKit
 
 /// Scans a Synology NAS for audio files and extracts metadata
 actor SynologyScanner {
     private let api: SynologyAPI
     private let sourceID: String
     private let tempDir: URL
+    private let coverCacheDir: URL
 
     init(api: SynologyAPI, sourceID: String) {
         self.api = api
@@ -15,6 +17,12 @@ actor SynologyScanner {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("primuse_scan_\(sourceID)")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         self.tempDir = dir
+
+        // Cover art cache (persistent across app restarts)
+        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("primuse_covers")
+        try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        self.coverCacheDir = cacheDir
     }
 
     struct ScanUpdate: Sendable {
@@ -102,6 +110,7 @@ actor SynologyScanner {
         var sampleRate: Int?
         var bitRate: Int?
         var bitDepth: Int?
+        var coverArtFileName: String?
 
         // Try to download file header and parse with AVFoundation
         do {
@@ -111,7 +120,8 @@ actor SynologyScanner {
                 return makeSong(id: songID, title: title, artist: artist, album: album,
                                trackNumber: trackNumber, duration: duration, format: format,
                                path: item.path, size: item.size, year: year, genre: genre,
-                               sampleRate: sampleRate, bitRate: bitRate, bitDepth: bitDepth)
+                               sampleRate: sampleRate, bitRate: bitRate, bitDepth: bitDepth,
+                               coverArtFileName: nil)
             }
 
             let data = try await api.downloadFileHead(path: item.path, maxBytes: readSize)
@@ -132,11 +142,6 @@ actor SynologyScanner {
                 }
             }
 
-            // If duration is 0 and we only downloaded partial, estimate from bitrate
-            if duration == 0 && item.size > Int64(readSize) {
-                // Will try to get from metadata
-            }
-
             // Metadata tags
             if let items = try? await asset.load(.metadata) {
                 for meta in items {
@@ -150,6 +155,18 @@ actor SynologyScanner {
                         if let v = value as? String, !v.isEmpty { artist = v }
                     case AVMetadataKey.commonKeyAlbumName.rawValue:
                         if let v = value as? String, !v.isEmpty { album = v }
+                    case AVMetadataKey.commonKeyArtwork.rawValue:
+                        // Extract cover art and save to cache
+                        if let artData = value as? Data, !artData.isEmpty {
+                            let artFileName = "\(songID)_cover.jpg"
+                            let artURL = coverCacheDir.appendingPathComponent(artFileName)
+                            // Compress to JPEG if needed
+                            if let image = UIImage(data: artData),
+                               let jpegData = image.jpegData(compressionQuality: 0.8) {
+                                try? jpegData.write(to: artURL)
+                                coverArtFileName = artFileName
+                            }
+                        }
                     default: break
                     }
                 }
@@ -202,14 +219,16 @@ actor SynologyScanner {
         return makeSong(id: songID, title: title, artist: artist, album: album,
                         trackNumber: trackNumber, duration: duration, format: format,
                         path: item.path, size: item.size, year: year, genre: genre,
-                        sampleRate: sampleRate, bitRate: bitRate, bitDepth: bitDepth)
+                        sampleRate: sampleRate, bitRate: bitRate, bitDepth: bitDepth,
+                        coverArtFileName: coverArtFileName)
     }
 
     private func makeSong(
         id: String, title: String, artist: String?, album: String?,
         trackNumber: Int?, duration: TimeInterval, format: AudioFormat,
         path: String, size: Int64, year: Int?, genre: String?,
-        sampleRate: Int?, bitRate: Int?, bitDepth: Int?
+        sampleRate: Int?, bitRate: Int?, bitDepth: Int?,
+        coverArtFileName: String?
     ) -> Song {
         let artistID = artist.map { generateID(sourceID: "", path: $0.lowercased()) }
         let albumID: String? = if let a = album, let ar = artist {
@@ -223,7 +242,8 @@ actor SynologyScanner {
             fileFormat: format, filePath: path, sourceID: sourceID,
             fileSize: size, bitRate: bitRate, sampleRate: sampleRate,
             bitDepth: bitDepth, genre: genre, year: year,
-            dateAdded: Date()
+            dateAdded: Date(),
+            coverArtFileName: coverArtFileName
         )
     }
 

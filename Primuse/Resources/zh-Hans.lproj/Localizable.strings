@@ -150,6 +150,8 @@
 "scan_needs_connect" = "请先连接（需要验证码）";
 "search_empty_library" = "还没有音乐";
 "search_empty_library_desc" = "添加音乐源并扫描后即可搜索";
+"scrape_song" = "刮削元数据";
+"tap_to_scrape" = "点击菜单刮削歌词";
 
 // MARK: - 设置
 "playback" = "播放";

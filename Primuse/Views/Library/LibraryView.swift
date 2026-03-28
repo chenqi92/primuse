@@ -132,6 +132,7 @@ struct LibraryView: View {
                     }
                 }
             }
+            .listSectionSpacing(.compact)
             .navigationTitle("library_title")
             .toolbarTitleDisplayMode(.inlineLarge)
             .navigationDestination(for: LibrarySection.self) { section in

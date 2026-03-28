@@ -20,7 +20,7 @@ struct MiniPlayerView: View {
             HStack(spacing: 12) {
                 // Cover art with play indicator
                 ZStack(alignment: .bottomTrailing) {
-                    CoverArtView(data: nil, size: 44, cornerRadius: 8)
+                    CachedArtworkView(coverFileName: player.currentSong?.coverArtFileName, size: 44, cornerRadius: 8)
 
                     if player.isPlaying {
                         Image(systemName: "waveform")

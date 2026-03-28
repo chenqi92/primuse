@@ -21,10 +21,10 @@ final class AudioPlayerService {
     var shuffleEnabled = false
     var repeatMode: RepeatMode = .off
 
-    private var currentFile: AVAudioFile?
     private var displayLink: Timer?
     private let nativeDecoder = NativeAudioDecoder()
     private var decodingTask: Task<Void, Never>?
+    private var playbackMonitorTask: Task<Void, Never>?
 
     init(sourceManager: SourceManager? = nil) {
         self.sourceManager = sourceManager
@@ -42,6 +42,8 @@ final class AudioPlayerService {
         } catch {
             print("Playback URL resolution error: \(error)")
             isLoading = false
+            // Skip to next on error
+            await next()
         }
     }
 
@@ -51,63 +53,65 @@ final class AudioPlayerService {
         currentSong = song
         duration = song.duration
 
+        // Check if native decoder can handle this format
+        guard nativeDecoder.canDecode(url: url) else {
+            print("Unsupported format: \(url.pathExtension)")
+            isLoading = false
+            // Skip unsupported formats
+            if currentIndex < queue.count - 1 {
+                await next()
+            }
+            return
+        }
+
         do {
+            try audioEngine.setUp()
+            guard let outputFormat = audioEngine.outputFormat else {
+                throw AudioDecoderError.decodingFailed("Audio engine not ready")
+            }
+
             try audioEngine.start()
 
-            if nativeDecoder.canDecode(url: url) {
-                try await playNative(url: url)
-            } else {
-                // FFmpeg path - will be implemented in Phase 4
-                try await playWithFFmpeg(url: url)
+            // Get accurate duration from file BEFORE starting playback
+            if let info = try? await nativeDecoder.fileInfo(for: url) {
+                duration = info.duration
+            }
+
+            // Decode and schedule all buffers
+            let stream = nativeDecoder.decode(from: url, outputFormat: outputFormat)
+
+            decodingTask = Task {
+                do {
+                    var bufferCount = 0
+                    for try await buffer in stream {
+                        guard !Task.isCancelled else { return }
+                        audioEngine.scheduleBuffer(buffer)
+                        bufferCount += 1
+
+                        // Start playback after first buffer
+                        if bufferCount == 1 {
+                            audioEngine.play()
+                        }
+                    }
+                    // All buffers scheduled — DON'T call handleTrackEnd here!
+                    // Instead, monitor when playback actually finishes
+                } catch {
+                    if !Task.isCancelled {
+                        print("Decoding error: \(error)")
+                    }
+                }
             }
 
             isPlaying = true
             isLoading = false
             startTimeUpdater()
+            startPlaybackMonitor()
             updateNowPlayingInfo()
             updatePlaybackState()
         } catch {
             print("Playback error: \(error)")
             isLoading = false
         }
-    }
-
-    private func playNative(url: URL) async throws {
-        try audioEngine.setUp()
-        guard let outputFormat = audioEngine.outputFormat else {
-            throw AudioDecoderError.decodingFailed("Audio engine not ready")
-        }
-        let stream = nativeDecoder.decode(from: url, outputFormat: outputFormat)
-
-        decodingTask = Task {
-            do {
-                var started = false
-                for try await buffer in stream {
-                    audioEngine.scheduleBuffer(buffer)
-                    // Start playback after first buffer is scheduled
-                    if !started {
-                        audioEngine.play()
-                        started = true
-                    }
-                }
-                // Track finished - handle next
-                await handleTrackEnd()
-            } catch {
-                print("Decoding error: \(error)")
-            }
-        }
-
-        audioEngine.play()
-
-        // Get accurate duration from file
-        if let info = try? await nativeDecoder.fileInfo(for: url) {
-            duration = info.duration
-        }
-    }
-
-    private func playWithFFmpeg(url: URL) async throws {
-        // Placeholder - FFmpeg decoder will be implemented in Phase 4
-        throw AudioDecoderError.unsupportedFormat(url.pathExtension)
     }
 
     func pause() {
@@ -127,16 +131,14 @@ final class AudioPlayerService {
     }
 
     func togglePlayPause() {
-        if isPlaying {
-            pause()
-        } else {
-            resume()
-        }
+        if isPlaying { pause() } else { resume() }
     }
 
     func stop() {
         decodingTask?.cancel()
         decodingTask = nil
+        playbackMonitorTask?.cancel()
+        playbackMonitorTask = nil
         audioEngine.stopPlayback()
         isPlaying = false
         currentTime = 0
@@ -150,32 +152,65 @@ final class AudioPlayerService {
         } else {
             currentIndex = (currentIndex + 1) % queue.count
         }
-        let song = queue[currentIndex]
-        await play(song: song)
+        await play(song: queue[currentIndex])
     }
 
     func previous() async {
         guard !queue.isEmpty else { return }
         if currentTime > 3 {
-            // Restart current track
             seek(to: 0)
             return
         }
         currentIndex = currentIndex > 0 ? currentIndex - 1 : queue.count - 1
-        let song = queue[currentIndex]
-        await play(song: song)
+        await play(song: queue[currentIndex])
     }
 
     func seek(to time: TimeInterval) {
         currentTime = time
-        // Seeking with buffer-based playback requires restarting the stream
-        // from the desired position - simplified for now
         updateNowPlayingInfo()
     }
 
     func setQueue(_ songs: [Song], startAt index: Int = 0) {
         queue = songs
         currentIndex = min(index, songs.count - 1)
+    }
+
+    // MARK: - Playback Monitor (detect when playback truly finishes)
+
+    private func startPlaybackMonitor() {
+        playbackMonitorTask?.cancel()
+        playbackMonitorTask = Task {
+            // Wait for decoding to finish first
+            while decodingTask != nil && !decodingTask!.isCancelled {
+                if decodingTask!.isCancelled { return }
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+
+            // Now wait for the audio engine to finish playing all scheduled buffers
+            // Check periodically if playback position has stopped advancing
+            var lastTime: TimeInterval = -1
+            var staleCount = 0
+
+            while !Task.isCancelled && isPlaying {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { return }
+
+                let current = audioEngine.currentTime ?? 0
+
+                // If time stopped advancing and we're near the end
+                if abs(current - lastTime) < 0.1 && current > 0 {
+                    staleCount += 1
+                    if staleCount >= 2 {
+                        // Playback truly finished
+                        await handleTrackEnd()
+                        return
+                    }
+                } else {
+                    staleCount = 0
+                }
+                lastTime = current
+            }
+        }
     }
 
     // MARK: - Time Updates
@@ -195,14 +230,12 @@ final class AudioPlayerService {
         displayLink = nil
     }
 
-    // MARK: - Track End Handling
+    // MARK: - Track End
 
     private func handleTrackEnd() async {
         switch repeatMode {
         case .one:
-            if let song = currentSong {
-                await play(song: song)
-            }
+            if let song = currentSong { await play(song: song) }
         case .all:
             await next()
         case .off:
@@ -213,6 +246,8 @@ final class AudioPlayerService {
             }
         }
     }
+
+    // MARK: - URL Resolution
 
     private func resolvedURL(for song: Song) async throws -> URL {
         if let sourceManager {
@@ -225,7 +260,6 @@ final class AudioPlayerService {
                 throw error
             }
         }
-
         if let remoteURL = URL(string: song.filePath), remoteURL.scheme != nil {
             return remoteURL
         }
@@ -256,38 +290,18 @@ final class AudioPlayerService {
 
     private func setupRemoteCommands() {
         let center = MPRemoteCommandCenter.shared()
-
-        center.playCommand.addTarget { [weak self] _ in
-            self?.resume()
-            return .success
-        }
-
-        center.pauseCommand.addTarget { [weak self] _ in
-            self?.pause()
-            return .success
-        }
-
-        center.togglePlayPauseCommand.addTarget { [weak self] _ in
-            self?.togglePlayPause()
-            return .success
-        }
-
+        center.playCommand.addTarget { [weak self] _ in self?.resume(); return .success }
+        center.pauseCommand.addTarget { [weak self] _ in self?.pause(); return .success }
+        center.togglePlayPauseCommand.addTarget { [weak self] _ in self?.togglePlayPause(); return .success }
         center.nextTrackCommand.addTarget { [weak self] _ in
-            Task { await self?.next() }
-            return .success
+            Task { await self?.next() }; return .success
         }
-
         center.previousTrackCommand.addTarget { [weak self] _ in
-            Task { await self?.previous() }
-            return .success
+            Task { await self?.previous() }; return .success
         }
-
         center.changePlaybackPositionCommand.addTarget { [weak self] event in
-            guard let event = event as? MPChangePlaybackPositionCommandEvent else {
-                return .commandFailed
-            }
-            self?.seek(to: event.positionTime)
-            return .success
+            guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
+            self?.seek(to: event.positionTime); return .success
         }
     }
 

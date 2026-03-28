@@ -150,6 +150,8 @@
 "scan_needs_connect" = "Please connect first (OTP required)";
 "search_empty_library" = "No Music Yet";
 "search_empty_library_desc" = "Add a music source and scan to start searching";
+"scrape_song" = "Scrape Metadata";
+"tap_to_scrape" = "Tap menu to scrape lyrics";
 
 // MARK: - Settings
 "playback" = "Playback";

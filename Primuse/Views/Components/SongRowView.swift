@@ -13,21 +13,18 @@ struct SongRowView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            // Track number or playing indicator
+            // Playing indicator
             Group {
                 if isPlaying {
                     Image(systemName: "waveform")
                         .symbolEffect(.variableColor.iterative)
                         .foregroundStyle(.tint)
-                } else if let trackNumber = song.trackNumber {
-                    Text("\(trackNumber)")
-                        .foregroundStyle(.secondary)
                 } else {
                     Image(systemName: "music.note")
                         .foregroundStyle(.secondary)
                 }
             }
-            .frame(width: 24)
+            .frame(width: 20)
             .font(.caption)
 
             // Song info
@@ -53,15 +50,14 @@ struct SongRowView: View {
 
             Spacer()
 
-            // Format badge
-            if song.fileFormat.isLossless {
-                Text(song.fileFormat.displayName)
-                    .font(.system(size: 9, weight: .medium))
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 2)
-                    .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 3))
-            }
+            // Format badge (all formats)
+            Text(song.fileFormat.displayName)
+                .font(.system(size: 9, weight: .medium))
+                .padding(.horizontal, 4)
+                .padding(.vertical, 2)
+                .foregroundStyle(song.fileFormat.isLossless ? Color.blue : Color.secondary)
+                .background(song.fileFormat.isLossless ? Color.blue.opacity(0.1) : Color.gray.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 3))
 
             // Duration
             Text(formatDuration(song.duration))

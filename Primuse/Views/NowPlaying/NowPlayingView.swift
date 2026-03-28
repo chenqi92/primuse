@@ -10,215 +10,154 @@ struct NowPlayingView: View {
     @State private var showQueue = false
 
     var body: some View {
-        ZStack {
-            backgroundGradient.ignoresSafeArea()
+        GeometryReader { geo in
+            ZStack {
+                // Background — dark gradient (Apple Music style)
+                Color.black.ignoresSafeArea()
+                LinearGradient(
+                    colors: [Color.purple.opacity(0.35), Color.black],
+                    startPoint: .top, endPoint: .center
+                )
+                .ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                // Drag indicator
-                Capsule()
-                    .fill(.white.opacity(0.4))
-                    .frame(width: 36, height: 5)
-                    .padding(.top, 8)
+                VStack(spacing: 0) {
+                    // Top bar
+                    topBar
 
-                Spacer().frame(height: 16)
+                    Spacer().frame(height: 12)
 
-                // Artwork / Lyrics toggle area
-                ZStack {
-                    if showLyrics {
-                        lyricsContentView
-                            .transition(.opacity)
-                    } else {
-                        artworkView
-                            .transition(.opacity)
-                    }
-                }
-                .animation(.easeInOut(duration: 0.3), value: showLyrics)
-                .onTapGesture {
-                    withAnimation { showLyrics.toggle() }
-                }
-
-                Spacer().frame(height: 20)
-
-                // Song Info
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(player.currentSong?.title ?? String(localized: "unknown_title"))
-                            .font(.title3).fontWeight(.bold).lineLimit(1)
-                        Text(player.currentSong?.artistName ?? String(localized: "unknown_artist"))
-                            .font(.body).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                    Spacer()
-                    Menu {
-                        Button { showQueue = true } label: {
-                            Label("queue_title", systemImage: "list.bullet")
+                    // Artwork / Lyrics toggle
+                    ZStack {
+                        if showLyrics {
+                            lyricsContentView(height: geo.size.width - 60)
+                                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                        } else {
+                            CachedArtworkView(
+                                coverFileName: player.currentSong?.coverArtFileName,
+                                cornerRadius: 12
+                            )
+                            .padding(.horizontal, 30)
+                            .scaleEffect(player.isPlaying ? 1.0 : 0.9)
+                            .shadow(color: .black.opacity(0.5), radius: 30, y: 15)
+                            .animation(.spring(response: 0.5, dampingFraction: 0.7), value: player.isPlaying)
+                            .transition(.opacity.combined(with: .scale(scale: 0.95)))
                         }
-                        if let song = player.currentSong {
-                            Section {
-                                Label(song.fileFormat.displayName, systemImage: "waveform")
-                                if let sr = song.sampleRate {
-                                    Label("\(sr)Hz", systemImage: "dial.low")
-                                }
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle.fill")
-                            .font(.title2)
-                            .symbolRenderingMode(.hierarchical)
-                            .foregroundStyle(.secondary)
                     }
-                }
-                .padding(.horizontal, 30)
+                    .animation(.easeInOut(duration: 0.3), value: showLyrics)
+                    .onTapGesture { withAnimation { showLyrics.toggle() } }
 
-                Spacer().frame(height: 16)
+                    Spacer().frame(height: 24)
 
-                // Progress slider
-                VStack(spacing: 6) {
-                    Slider(
-                        value: Binding(
-                            get: { player.currentTime },
-                            set: { player.seek(to: $0) }
-                        ),
-                        in: 0...max(player.duration, 0.1)
-                    )
-                    .tint(.primary)
+                    // Song info
+                    songInfoBar
 
-                    HStack {
-                        Text(formatTime(player.currentTime))
-                        Spacer()
-                        Text("-\(formatTime(max(0, player.duration - player.currentTime)))")
-                    }
-                    .font(.caption2).foregroundStyle(.secondary).monospacedDigit()
-                }
-                .padding(.horizontal, 30)
+                    Spacer().frame(height: 16)
 
-                Spacer().frame(height: 20)
+                    // Progress
+                    progressBar
 
-                // Playback Controls
-                playbackControls
+                    Spacer().frame(height: 20)
 
-                Spacer().frame(height: 20)
+                    // Controls
+                    playbackControls
 
-                // Volume
-                HStack(spacing: 10) {
-                    Image(systemName: "speaker.fill").font(.caption).foregroundStyle(.secondary)
-                    Slider(value: Binding(
-                        get: { Double(player.audioEngine.volume) },
-                        set: { player.audioEngine.volume = Float($0) }
-                    ), in: 0...1)
-                    .tint(.secondary.opacity(0.6))
-                    Image(systemName: "speaker.wave.3.fill").font(.caption).foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 30)
+                    Spacer().frame(height: 20)
 
-                Spacer().frame(height: 16)
-
-                // Bottom bar
-                HStack {
-                    // Lyrics toggle indicator
-                    Button {
-                        withAnimation { showLyrics.toggle() }
-                    } label: {
-                        Image(systemName: showLyrics ? "text.quote" : "quote.bubble")
-                            .font(.body)
-                            .foregroundStyle(showLyrics ? Color.accentColor : .secondary)
-                    }
+                    // Volume
+                    volumeBar
 
                     Spacer()
-                    AirPlayButton().frame(width: 28, height: 28)
-                    Spacer()
 
-                    Button { showQueue = true } label: {
-                        Image(systemName: "list.bullet")
-                            .font(.body).foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.horizontal, 50)
-                .padding(.bottom, 12)
+                    // Bottom actions
+                    bottomBar
 
-                // Format badge
-                if let song = player.currentSong {
-                    HStack(spacing: 6) {
-                        if song.fileFormat.isLossless {
-                            Image(systemName: "waveform").font(.system(size: 9))
-                        }
-                        Text(song.fileFormat.displayName)
-                        if let sr = song.sampleRate {
-                            Text("·"); Text("\(sr / 1000)kHz")
-                        }
-                        if let bd = song.bitDepth, bd > 0 {
-                            Text("·"); Text("\(bd)bit")
-                        }
-                    }
-                    .font(.caption2).foregroundStyle(.tertiary)
-                    .padding(.bottom, 8)
+                    // Format info
+                    formatBadge
                 }
+                .padding(.horizontal, 4)
             }
         }
+        .foregroundStyle(.white)
         .presentationDragIndicator(.hidden)
-        .sheet(isPresented: $showQueue) {
-            QueueView()
-        }
+        .sheet(isPresented: $showQueue) { QueueView() }
     }
 
-    // MARK: - Artwork
+    // MARK: - Top Bar
 
-    private var artworkView: some View {
-        ArtworkView(data: nil, cornerRadius: 14)
-            .padding(.horizontal, 44)
-            .scaleEffect(player.isPlaying ? 1.0 : 0.88)
-            .shadow(color: .black.opacity(0.3), radius: 20, y: 10)
-            .animation(.spring(response: 0.5, dampingFraction: 0.7), value: player.isPlaying)
-    }
-
-    // MARK: - Inline Lyrics (replaces artwork when tapped)
-
-    private var lyricsContentView: some View {
-        ScrollView {
-            VStack(spacing: 12) {
-                // Show lyrics or no-lyrics placeholder
-                let lyrics = loadLyrics()
-                if lyrics.isEmpty {
-                    VStack(spacing: 8) {
-                        Image(systemName: "text.quote")
-                            .font(.title)
-                            .foregroundStyle(.tertiary)
-                        Text("no_lyrics")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 200)
-                } else {
-                    ForEach(lyrics) { line in
-                        Text(line.text)
-                            .font(.body)
-                            .fontWeight(isCurrentLine(line) ? .bold : .regular)
-                            .foregroundStyle(isCurrentLine(line) ? .primary : .secondary)
-                            .multilineTextAlignment(.center)
-                            .onTapGesture {
-                                player.seek(to: line.timestamp)
-                            }
-                    }
-                }
+    private var topBar: some View {
+        HStack {
+            Button { dismiss() } label: {
+                Image(systemName: "chevron.down")
+                    .font(.title3)
+                    .foregroundStyle(.white.opacity(0.7))
             }
-            .padding(.horizontal, 30)
-            .padding(.vertical, 20)
+            Spacer()
+            VStack(spacing: 1) {
+                Text(player.currentSong?.albumTitle ?? "")
+                    .font(.caption2)
+                    .fontWeight(.semibold)
+                    .lineLimit(1)
+                    .foregroundStyle(.white.opacity(0.6))
+            }
+            Spacer()
+            Menu {
+                Button { showQueue = true } label: { Label("queue_title", systemImage: "list.bullet") }
+                // Scrape current song
+                Button {
+                    // TODO: trigger scrape for current song
+                } label: { Label("scrape_song", systemImage: "wand.and.stars") }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.title3)
+                    .foregroundStyle(.white.opacity(0.7))
+            }
         }
-        .frame(maxHeight: UIScreen.main.bounds.width - 88) // Same height as artwork
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-        .padding(.horizontal, 44)
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
     }
 
-    private func loadLyrics() -> [LyricLine] {
-        // TODO: load from sidecar or cached lyrics
-        return []
+    // MARK: - Song Info
+
+    private var songInfoBar: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(player.currentSong?.title ?? "")
+                    .font(.title3)
+                    .fontWeight(.bold)
+                    .lineLimit(1)
+                Text(player.currentSong?.artistName ?? "")
+                    .font(.body)
+                    .foregroundStyle(.white.opacity(0.6))
+                    .lineLimit(1)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 26)
     }
 
-    private func isCurrentLine(_ line: LyricLine) -> Bool {
-        guard let nextIndex = loadLyrics().firstIndex(where: { $0.timestamp > player.currentTime }) else {
-            return false
+    // MARK: - Progress
+
+    private var progressBar: some View {
+        VStack(spacing: 6) {
+            Slider(
+                value: Binding(
+                    get: { player.currentTime },
+                    set: { player.seek(to: $0) }
+                ),
+                in: 0...max(player.duration, 0.1)
+            )
+            .tint(.white)
+
+            HStack {
+                Text(formatTime(player.currentTime))
+                Spacer()
+                Text("-\(formatTime(max(0, player.duration - player.currentTime)))")
+            }
+            .font(.caption2)
+            .foregroundStyle(.white.opacity(0.5))
+            .monospacedDigit()
         }
-        let currentIndex = max(0, nextIndex - 1)
-        return loadLyrics()[currentIndex].id == line.id
+        .padding(.horizontal, 26)
     }
 
     // MARK: - Playback Controls
@@ -226,37 +165,42 @@ struct NowPlayingView: View {
     private var playbackControls: some View {
         HStack(spacing: 0) {
             Spacer()
+
             Button { player.shuffleEnabled.toggle() } label: {
-                Image(systemName: "shuffle").font(.body)
-                    .foregroundStyle(player.shuffleEnabled ? Color.accentColor : Color.secondary)
+                Image(systemName: "shuffle")
+                    .font(.body)
+                    .foregroundStyle(player.shuffleEnabled ? .white : .white.opacity(0.4))
             }
             .frame(width: 44, height: 44)
 
             Spacer()
 
             Button { Task { await player.previous() } } label: {
-                Image(systemName: "backward.fill").font(.title2)
+                Image(systemName: "backward.fill")
+                    .font(.title)
+                    .foregroundStyle(.white)
             }
-            .frame(width: 56, height: 56)
+            .frame(width: 60, height: 60)
 
             Spacer()
 
             Button {
                 withAnimation(.spring(response: 0.3)) { player.togglePlayPause() }
             } label: {
-                ZStack {
-                    Circle().fill(.primary).frame(width: 68, height: 68)
-                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.title).foregroundStyle(Color(.systemBackground))
-                }
+                Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                    .font(.system(size: 64))
+                    .foregroundStyle(.white)
+                    .contentTransition(.symbolEffect(.replace))
             }
 
             Spacer()
 
             Button { Task { await player.next() } } label: {
-                Image(systemName: "forward.fill").font(.title2)
+                Image(systemName: "forward.fill")
+                    .font(.title)
+                    .foregroundStyle(.white)
             }
-            .frame(width: 56, height: 56)
+            .frame(width: 60, height: 60)
 
             Spacer()
 
@@ -267,32 +211,99 @@ struct NowPlayingView: View {
                 case .one: player.repeatMode = .off
                 }
             } label: {
-                Image(systemName: repeatIcon).font(.body)
-                    .foregroundStyle(player.repeatMode != .off ? Color.accentColor : Color.secondary)
+                Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat")
+                    .font(.body)
+                    .foregroundStyle(player.repeatMode != .off ? .white : .white.opacity(0.4))
             }
             .frame(width: 44, height: 44)
 
             Spacer()
         }
-        .padding(.horizontal, 10)
+    }
+
+    // MARK: - Volume
+
+    private var volumeBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "speaker.fill")
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(0.4))
+            Slider(value: Binding(
+                get: { Double(player.audioEngine.volume) },
+                set: { player.audioEngine.volume = Float($0) }
+            ), in: 0...1)
+            .tint(.white.opacity(0.5))
+            Image(systemName: "speaker.wave.3.fill")
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(0.4))
+        }
+        .padding(.horizontal, 26)
+    }
+
+    // MARK: - Bottom
+
+    private var bottomBar: some View {
+        HStack {
+            Button { withAnimation { showLyrics.toggle() } } label: {
+                Image(systemName: showLyrics ? "text.quote" : "quote.bubble")
+                    .foregroundStyle(showLyrics ? .white : .white.opacity(0.5))
+            }
+            Spacer()
+            AirPlayButton().frame(width: 28, height: 28)
+            Spacer()
+            Button { showQueue = true } label: {
+                Image(systemName: "list.bullet")
+                    .foregroundStyle(.white.opacity(0.5))
+            }
+        }
+        .font(.body)
+        .padding(.horizontal, 46)
+        .padding(.bottom, 8)
+    }
+
+    private var formatBadge: some View {
+        Group {
+            if let song = player.currentSong {
+                HStack(spacing: 4) {
+                    Text(song.fileFormat.displayName)
+                    if let sr = song.sampleRate {
+                        Text("·"); Text("\(sr / 1000)kHz")
+                    }
+                    if let bd = song.bitDepth, bd > 0 {
+                        Text("·"); Text("\(bd)bit")
+                    }
+                }
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(0.3))
+                .padding(.bottom, 8)
+            }
+        }
+    }
+
+    // MARK: - Inline Lyrics
+
+    private func lyricsContentView(height: CGFloat) -> some View {
+        ScrollView {
+            VStack(spacing: 14) {
+                Text("no_lyrics")
+                    .font(.title3)
+                    .foregroundStyle(.white.opacity(0.3))
+                    .padding(.top, 60)
+                Text("tap_to_scrape")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.2))
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .frame(height: height)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(.white.opacity(0.05))
+        )
+        .padding(.horizontal, 30)
     }
 
     // MARK: - Helpers
-
-    private var backgroundGradient: some View {
-        LinearGradient(
-            colors: [Color(.systemBackground), Color(.systemBackground).opacity(0.95), Color.purple.opacity(0.08)],
-            startPoint: .top, endPoint: .bottom
-        )
-    }
-
-    private var repeatIcon: String {
-        switch player.repeatMode {
-        case .off: return "repeat"
-        case .all: return "repeat"
-        case .one: return "repeat.1"
-        }
-    }
 
     private func formatTime(_ time: TimeInterval) -> String {
         let t = max(0, time)
@@ -305,8 +316,8 @@ struct NowPlayingView: View {
 struct AirPlayButton: UIViewRepresentable {
     func makeUIView(context: Context) -> UIView {
         let v = AVRoutePickerView()
-        v.tintColor = .secondaryLabel
-        v.activeTintColor = .systemBlue
+        v.tintColor = UIColor.white.withAlphaComponent(0.5)
+        v.activeTintColor = .white
         return v
     }
     func updateUIView(_ uiView: UIView, context: Context) {}
