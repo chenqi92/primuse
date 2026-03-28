@@ -45,22 +45,91 @@ struct LibraryView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 0) {
-                    // Apple Music style category list
-                    categorySectionList
-                        .padding(.top, 4)
-
-                    if hasContent {
-                        // Recently Added (2-column grid like Apple Music)
-                        recentlyAddedSection
-                            .padding(.top, 16)
-                    } else {
-                        emptyStateView
-                            .padding(.top, 32)
+            List {
+                // Category navigation
+                Section {
+                    ForEach(LibrarySection.allCases, id: \.self) { section in
+                        NavigationLink(value: section) {
+                            Label {
+                                Text(section.title)
+                            } icon: {
+                                Image(systemName: section.icon)
+                                    .foregroundStyle(section.color)
+                            }
+                        }
                     }
+                }
 
-                    Spacer(minLength: 100)
+                if hasContent {
+                    // Recently added
+                    Section {
+                        NavigationLink(value: LibrarySection.songs) {
+                            HStack {
+                                Text("recently_added")
+                                    .font(.headline)
+                                Spacer()
+                                Text("see_all")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+
+                        // 2-column grid of recent songs/albums
+                        LazyVGrid(columns: [
+                            GridItem(.flexible(), spacing: 12),
+                            GridItem(.flexible(), spacing: 12)
+                        ], spacing: 14) {
+                            ForEach(recentItems) { item in
+                                RecentItemCard(item: item)
+                                    .onTapGesture {
+                                        if let song = songs.first(where: { $0.id == item.id }) {
+                                            playSong(song)
+                                        } else if let album = albums.first(where: { $0.id == item.id }) {
+                                            // Navigate to album — handled by navigationDestination
+                                        }
+                                    }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+
+                    // Stats
+                    Section {
+                        HStack {
+                            statLabel("\(songs.count)", String(localized: "tab_songs"))
+                            Divider().frame(height: 20)
+                            statLabel("\(albums.count)", String(localized: "tab_albums"))
+                            Divider().frame(height: 20)
+                            statLabel("\(artists.count)", String(localized: "tab_artists"))
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                } else {
+                    // Empty state
+                    Section {
+                        VStack(spacing: 16) {
+                            Image(systemName: "waveform.and.music.note")
+                                .font(.system(size: 40))
+                                .foregroundStyle(.tertiary)
+
+                            Text("welcome_title")
+                                .font(.headline)
+                            Text("welcome_desc")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+
+                            Button {
+                                switchToSourcesTab?()
+                            } label: {
+                                Text("add_source").fontWeight(.medium)
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 20)
+                    }
                 }
             }
             .navigationTitle("library_title")
@@ -79,130 +148,28 @@ struct LibraryView: View {
         }
     }
 
-    // MARK: - Category List (Apple Music style — full-width rows with icons)
-
-    private var categorySectionList: some View {
-        VStack(spacing: 0) {
-            ForEach(LibrarySection.allCases, id: \.self) { section in
-                NavigationLink(value: section) {
-                    HStack(spacing: 12) {
-                        Image(systemName: section.icon)
-                            .font(.title3)
-                            .foregroundStyle(section.color)
-                            .frame(width: 28)
-
-                        Text(section.title)
-                            .font(.body)
-                            .foregroundStyle(.primary)
-
-                        Spacer()
-
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.tertiary)
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 12)
-                }
-                .buttonStyle(.plain)
-
-                if section != LibrarySection.allCases.last {
-                    Divider()
-                        .padding(.leading, 60)
-                }
-            }
-        }
-    }
-
-    // MARK: - Recently Added (2-column grid, Apple Music style)
-
-    private var recentlyAddedSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            // Section header
-            HStack {
-                Text("recently_added")
-                    .font(.title3)
-                    .fontWeight(.bold)
-                Spacer()
-                NavigationLink(value: LibrarySection.songs) {
-                    Text("see_all")
-                        .font(.subheadline)
-                        .foregroundStyle(.tint)
-                }
-            }
-            .padding(.horizontal, 20)
-
-            // 2-column grid
-            LazyVGrid(
-                columns: [
-                    GridItem(.flexible(), spacing: 14),
-                    GridItem(.flexible(), spacing: 14)
-                ],
-                spacing: 20
-            ) {
-                ForEach(recentItems) { item in
-                    RecentItemCard(item: item)
-                        .onTapGesture {
-                            if let song = item.song { playSong(song) }
-                        }
-                }
-            }
-            .padding(.horizontal, 20)
-        }
-    }
+    // MARK: - Recent Items
 
     private var recentItems: [RecentItem] {
-        // Group by album, show album covers if available, else songs
         if !albums.isEmpty {
-            return albums.prefix(8).map { album in
-                RecentItem(
-                    id: album.id,
-                    title: album.title,
-                    subtitle: album.artistName ?? "",
-                    song: nil
-                )
+            return albums.prefix(6).map {
+                RecentItem(id: $0.id, title: $0.title, subtitle: $0.artistName ?? "", song: nil)
             }
         }
-        return songs.prefix(8).map { song in
-            RecentItem(
-                id: song.id,
-                title: song.title,
-                subtitle: song.artistName ?? "",
-                song: song
-            )
+        return songs.prefix(6).map {
+            RecentItem(id: $0.id, title: $0.title, subtitle: $0.artistName ?? "", song: $0)
         }
     }
 
-    // MARK: - Empty State
+    // MARK: - Helpers
 
-    private var emptyStateView: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "music.note.house.fill")
-                .font(.system(size: 48))
-                .foregroundStyle(.tertiary)
-
-            VStack(spacing: 6) {
-                Text("welcome_title")
-                    .font(.headline)
-                Text("welcome_desc")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 48)
-            }
-
-            Button {
-                switchToSourcesTab?()
-            } label: {
-                Text("add_source")
-                    .fontWeight(.medium)
-            }
-            .buttonStyle(.borderedProminent)
+    private func statLabel(_ value: String, _ label: String) -> some View {
+        VStack(spacing: 2) {
+            Text(value).font(.headline).monospacedDigit()
+            Text(label).font(.caption2).foregroundStyle(.secondary)
         }
+        .frame(maxWidth: .infinity)
     }
-
-    // MARK: - Play
 
     private func playSong(_ song: Song) {
         guard let index = songs.firstIndex(where: { $0.id == song.id }) else { return }
@@ -211,7 +178,7 @@ struct LibraryView: View {
     }
 }
 
-// MARK: - Recent Item Model
+// MARK: - Recent Item
 
 struct RecentItem: Identifiable {
     let id: String
@@ -220,25 +187,20 @@ struct RecentItem: Identifiable {
     let song: Song?
 }
 
-// MARK: - Recent Item Card (album art style)
-
 struct RecentItemCard: View {
     let item: RecentItem
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // Album artwork placeholder with generated gradient
             ZStack {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(cardGradient)
                     .aspectRatio(1, contentMode: .fit)
                     .shadow(color: .black.opacity(0.08), radius: 4, y: 2)
 
-                VStack(spacing: 4) {
-                    Image(systemName: "music.note")
-                        .font(.title)
-                        .foregroundStyle(.white.opacity(0.9))
-                }
+                Image(systemName: "music.note")
+                    .font(.title2)
+                    .foregroundStyle(.white.opacity(0.8))
             }
 
             Text(item.title)
@@ -255,14 +217,12 @@ struct RecentItemCard: View {
     private var cardGradient: LinearGradient {
         let hash = abs(item.title.hashValue)
         let hue = Double(hash % 360) / 360.0
-        let hue2 = (hue + 0.08).truncatingRemainder(dividingBy: 1.0)
         return LinearGradient(
             colors: [
                 Color(hue: hue, saturation: 0.45, brightness: 0.75),
-                Color(hue: hue2, saturation: 0.55, brightness: 0.55),
+                Color(hue: (hue + 0.08).truncatingRemainder(dividingBy: 1), saturation: 0.55, brightness: 0.55)
             ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
+            startPoint: .topLeading, endPoint: .bottomTrailing
         )
     }
 }

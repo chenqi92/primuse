@@ -81,8 +81,14 @@ final class AudioPlayerService {
 
         decodingTask = Task {
             do {
+                var started = false
                 for try await buffer in stream {
                     audioEngine.scheduleBuffer(buffer)
+                    // Start playback after first buffer is scheduled
+                    if !started {
+                        audioEngine.play()
+                        started = true
+                    }
                 }
                 // Track finished - handle next
                 await handleTrackEnd()

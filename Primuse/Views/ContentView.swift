@@ -32,7 +32,7 @@ struct ContentView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 14))
                     .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
                     .padding(.horizontal, 8)
-                    .padding(.bottom, 2)
+                    .padding(.bottom, 52) // Above tab bar
                     .onTapGesture { showNowPlaying = true }
                     .gesture(
                         DragGesture(minimumDistance: 10)

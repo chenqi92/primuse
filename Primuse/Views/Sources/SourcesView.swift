@@ -225,10 +225,17 @@ struct SourcesView: View {
 
         do {
             var lastSongs: [Song] = []
+            var lastIncrementalUpdate = 0
             for try await update in stream {
                 scanStates[source.id]?.scannedCount = update.scannedCount
                 scanStates[source.id]?.currentFile = update.currentFile
                 lastSongs = update.songs
+
+                // Incremental library update every 10 songs
+                if update.scannedCount - lastIncrementalUpdate >= 10 {
+                    library.addSongs(lastSongs)
+                    lastIncrementalUpdate = update.scannedCount
+                }
             }
 
             completeScan(sourceID: source.id, songs: lastSongs)
@@ -247,10 +254,16 @@ struct SourcesView: View {
 
         do {
             var lastSongs: [Song] = []
+            var lastIncrementalUpdate = 0
             for try await update in stream {
                 scanStates[source.id]?.scannedCount = update.scannedCount
                 scanStates[source.id]?.currentFile = update.currentFile
                 lastSongs = update.songs
+
+                if update.scannedCount - lastIncrementalUpdate >= 10 {
+                    library.addSongs(lastSongs)
+                    lastIncrementalUpdate = update.scannedCount
+                }
             }
 
             completeScan(sourceID: source.id, songs: lastSongs)

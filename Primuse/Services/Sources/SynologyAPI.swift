@@ -6,10 +6,12 @@ actor SynologyAPI {
     private let useSsl: Bool
     private(set) var sid: String?
 
-    private var baseURL: String {
+    var baseURLString: String {
         let scheme = useSsl ? "https" : "http"
         return "\(scheme)://\(host):\(port)"
     }
+
+    private var baseURL: String { baseURLString }
 
     var isLoggedIn: Bool { sid != nil }
 

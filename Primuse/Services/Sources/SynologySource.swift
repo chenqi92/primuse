@@ -12,14 +12,9 @@ actor SynologySource: MusicSourceConnector {
     private let cacheDirectory: URL
 
     init(
-        sourceID: String,
-        host: String,
-        port: Int,
-        useSsl: Bool,
-        username: String,
-        password: String,
-        rememberDevice: Bool,
-        deviceId: String?
+        sourceID: String, host: String, port: Int, useSsl: Bool,
+        username: String, password: String,
+        rememberDevice: Bool, deviceId: String?
     ) {
         self.sourceID = sourceID
         self.api = SynologyAPI(host: host, port: port, useSsl: useSsl)
@@ -28,26 +23,24 @@ actor SynologySource: MusicSourceConnector {
         self.rememberDevice = rememberDevice
         self.deviceId = deviceId
 
-        let cacheDir = FileManager.default.temporaryDirectory.appendingPathComponent("primuse_synology_cache_\(sourceID)")
+        // Use Caches directory (survives app restarts, system can purge when low on storage)
+        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("primuse_audio_cache/\(sourceID)")
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
         self.cacheDirectory = cacheDir
     }
 
     func connect() async throws {
         guard await api.isLoggedIn == false else { return }
-
         let result = await api.login(
-            account: username,
-            password: password,
+            account: username, password: password,
             deviceName: rememberDevice ? "Primuse-iOS" : nil,
             deviceId: deviceId
         )
-
-        if result.success == false {
-            if result.needs2FA {
-                throw SourceError.authenticationFailed
-            }
-            throw SourceError.connectionFailed(result.errorMessage ?? "Synology login failed")
+        guard result.success else {
+            throw result.needs2FA
+                ? SourceError.authenticationFailed
+                : SourceError.connectionFailed(result.errorMessage ?? "Login failed")
         }
     }
 
@@ -58,28 +51,56 @@ actor SynologySource: MusicSourceConnector {
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
         try await connect()
         return try await api.listDirectory(path: path).map {
-            RemoteFileItem(
-                name: $0.name,
-                path: $0.path,
-                isDirectory: $0.isDirectory,
-                size: $0.size,
-                modifiedDate: nil
-            )
+            RemoteFileItem(name: $0.name, path: $0.path, isDirectory: $0.isDirectory, size: $0.size, modifiedDate: nil)
         }
     }
 
+    /// Download full file to cache for playback. Supports offline playback after first download.
     func localURL(for path: String) async throws -> URL {
-        try await connect()
-
+        let ext = (path as NSString).pathExtension
         let sanitized = path.replacingOccurrences(of: "/", with: "_")
         let fileURL = cacheDirectory.appendingPathComponent(sanitized)
 
+        // Already cached — return immediately (works offline)
         if FileManager.default.fileExists(atPath: fileURL.path) {
             return fileURL
         }
 
-        let data = try await api.downloadFile(path: path)
-        try data.write(to: fileURL, options: .atomic)
+        // Must be online to download
+        try await connect()
+
+        guard let sid = await api.sid else { throw SynologyError.notLoggedIn }
+
+        // Build download URL
+        let scheme = await api.isLoggedIn ? "https" : "http" // simplified
+        let baseURL = await api.baseURLString
+        var components = URLComponents(string: "\(baseURL)/webapi/entry.cgi")!
+        components.queryItems = [
+            URLQueryItem(name: "api", value: "SYNO.FileStation.Download"),
+            URLQueryItem(name: "version", value: "2"),
+            URLQueryItem(name: "method", value: "download"),
+            URLQueryItem(name: "path", value: path),
+            URLQueryItem(name: "mode", value: "download"),
+            URLQueryItem(name: "_sid", value: sid),
+        ]
+        guard let url = components.url else { throw SynologyError.invalidURL }
+
+        // Download to temp file first, then move to cache
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 300 // 5 min for large files
+        config.timeoutIntervalForResource = 600 // 10 min total
+        let session = URLSession(configuration: config, delegate: InsecureURLSessionDelegate(), delegateQueue: nil)
+
+        let (tempURL, response) = try await session.download(from: url)
+
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw SynologyError.httpError((response as? HTTPURLResponse)?.statusCode ?? 0)
+        }
+
+        // Move to cache
+        try? FileManager.default.removeItem(at: fileURL)
+        try FileManager.default.moveItem(at: tempURL, to: fileURL)
+
         return fileURL
     }
 
@@ -90,9 +111,8 @@ actor SynologySource: MusicSourceConnector {
                 do {
                     let handle = try FileHandle(forReadingFrom: localURL)
                     defer { handle.closeFile() }
-                    let chunkSize = 64 * 1024
                     while true {
-                        let data = handle.readData(ofLength: chunkSize)
+                        let data = handle.readData(ofLength: 64 * 1024)
                         if data.isEmpty { break }
                         continuation.yield(data)
                     }
@@ -132,5 +152,22 @@ actor SynologySource: MusicSourceConnector {
                 }
             }
         }
+    }
+
+    /// Cache size for this source
+    func cacheSize() -> Int64 {
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(at: cacheDirectory, includingPropertiesForKeys: [.fileSizeKey]) else {
+            return 0
+        }
+        return files.reduce(0) { total, url in
+            total + Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        }
+    }
+
+    /// Clear cached files
+    func clearCache() {
+        try? FileManager.default.removeItem(at: cacheDirectory)
+        try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
     }
 }
