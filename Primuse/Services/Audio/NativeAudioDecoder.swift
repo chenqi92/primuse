@@ -49,10 +49,12 @@ final class NativeAudioDecoder: AudioDecoder {
                         )
                     }
                     let sourceFormat = file.processingFormat
+                    plog("🎵 NativeDecoder: file=\(url.lastPathComponent) sourceFormat=sr\(sourceFormat.sampleRate)/ch\(sourceFormat.channelCount) length=\(file.length) outputFormat=sr\(outputFormat.sampleRate)/ch\(outputFormat.channelCount)")
 
                     // If formats match, read directly
                     if sourceFormat.sampleRate == outputFormat.sampleRate &&
                        sourceFormat.channelCount == outputFormat.channelCount {
+                        plog("🎵 NativeDecoder: direct read (formats match)")
                         while file.framePosition < file.length {
                             let remainingFrames = AVAudioFrameCount(file.length - file.framePosition)
                             let framesToRead = min(bufferFrameCount, remainingFrames)

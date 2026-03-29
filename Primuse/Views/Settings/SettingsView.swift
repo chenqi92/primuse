@@ -4,6 +4,7 @@ import PrimuseKit
 struct SettingsView: View {
     @State private var cacheSize: String = "0 MB"
     @State private var showClearCacheAlert = false
+    @Environment(SourceManager.self) private var sourceManager
 
     var body: some View {
         NavigationStack {
@@ -35,18 +36,17 @@ struct SettingsView: View {
                         Label("metadata_scraping", systemImage: "wand.and.stars")
                     }
 
-                    HStack {
-                        Label("cache_size", systemImage: "internaldrive")
-                        Spacer()
-                        Text(cacheSize)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Button(role: .destructive) {
+                    Button {
                         showClearCacheAlert = true
                     } label: {
-                        Label("clear_cache", systemImage: "trash")
+                        HStack {
+                            Label("cache_size", systemImage: "internaldrive")
+                            Spacer()
+                            Text(cacheSize)
+                                .foregroundStyle(.secondary)
+                        }
                     }
+                    .tint(.primary)
                 }
 
                 Section("about") {
@@ -90,13 +90,15 @@ struct SettingsView: View {
     private func clearCache() async {
         await MetadataAssetStore.shared.clearAll()
         try? await ImageCache.shared.clearDiskCache()
+        sourceManager.clearAudioCache()
         await refreshCacheSize()
     }
 
     private func refreshCacheSize() async {
         let imageCacheSize = (try? await ImageCache.shared.diskCacheSize()) ?? 0
         let metadataCacheSize = await MetadataAssetStore.shared.cacheSize()
-        cacheSize = formatByteCount(imageCacheSize + metadataCacheSize)
+        let audioCacheSize = sourceManager.audioCacheSize()
+        cacheSize = formatByteCount(imageCacheSize + metadataCacheSize + audioCacheSize)
     }
 
     private func formatByteCount(_ bytes: Int64) -> String {
@@ -278,6 +280,12 @@ struct PlaybackSettingsView: View {
                 }
             } footer: {
                 Text("replay_gain_desc")
+            }
+
+            Section {
+                Toggle("audio_cache_enabled", isOn: $settings.audioCacheEnabled)
+            } footer: {
+                Text("audio_cache_desc")
             }
         }
         .navigationTitle("playback_settings")

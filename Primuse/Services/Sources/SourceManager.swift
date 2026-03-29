@@ -168,7 +168,82 @@ final class SourceManager {
 
         let conn = connector(for: source)
         try await conn.connect()
+
+        // Priority 1: Cached local file (instant playback)
+        if let cached = cachedURL(for: song) {
+            return cached
+        }
+        // Priority 2: Streaming URL (StreamingDownloadDecoder handles SSL)
+        if let streamURL = try await conn.streamingURL(for: song.filePath) {
+            return streamURL
+        }
+        // Priority 3: Download to local
         return try await conn.localURL(for: song.filePath)
+    }
+
+    // MARK: - Audio Cache
+
+    private static let audioCacheDirName = "primuse_audio_cache"
+
+    private func audioCacheDirectory(for sourceID: String) -> URL {
+        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+            .appendingPathComponent(Self.audioCacheDirName)
+            .appendingPathComponent(sourceID)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    func cachedURL(for song: Song) -> URL? {
+        let sanitized = song.filePath.replacingOccurrences(of: "/", with: "_")
+        let fileURL = audioCacheDirectory(for: song.sourceID).appendingPathComponent(sanitized)
+        return FileManager.default.fileExists(atPath: fileURL.path) ? fileURL : nil
+    }
+
+    func cacheURL(for song: Song) -> URL {
+        let sanitized = song.filePath.replacingOccurrences(of: "/", with: "_")
+        return audioCacheDirectory(for: song.sourceID).appendingPathComponent(sanitized)
+    }
+
+    func audioCacheSize() -> Int64 {
+        let basePath = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+            .appendingPathComponent(Self.audioCacheDirName)
+        guard let enumerator = FileManager.default.enumerator(
+            at: basePath, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles]
+        ) else { return 0 }
+        var total: Int64 = 0
+        for case let fileURL as URL in enumerator {
+            if let size = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize {
+                total += Int64(size)
+            }
+        }
+        return total
+    }
+
+    func clearAudioCache() {
+        let basePath = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+            .appendingPathComponent(Self.audioCacheDirName)
+        try? FileManager.default.removeItem(at: basePath)
+    }
+
+    /// Background-cache a song file (generalized for all sources).
+    func cacheInBackground(song: Song) {
+        guard cachedURL(for: song) == nil else { return }
+        Task {
+            guard let sources = try? await sourcesProvider(),
+                  let source = sources.first(where: { $0.id == song.sourceID }) else { return }
+            let conn = connector(for: source)
+            try? await conn.connect()
+            guard let streamURL = try? await conn.streamingURL(for: song.filePath) else { return }
+            let config = URLSessionConfiguration.default
+            config.timeoutIntervalForRequest = 300
+            let session = URLSession(configuration: config, delegate: InsecureURLSessionDelegate(), delegateQueue: nil)
+            guard let (tempURL, response) = try? await session.download(from: streamURL),
+                  let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return }
+            let target = cacheURL(for: song)
+            try? FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? FileManager.default.removeItem(at: target)
+            try? FileManager.default.moveItem(at: tempURL, to: target)
+        }
     }
 
     /// Get the connector for a song's source (for file writing)

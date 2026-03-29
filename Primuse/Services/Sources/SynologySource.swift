@@ -102,6 +102,51 @@ actor SynologySource: MusicSourceConnector {
         return fileURL
     }
 
+    func streamingURL(for path: String) async throws -> URL? {
+        try await connect()
+        guard let sid = await api.sid else { throw SynologyError.notLoggedIn }
+
+        let baseURL = await api.baseURLString
+        var components = URLComponents(string: "\(baseURL)/webapi/entry.cgi")!
+        components.queryItems = [
+            URLQueryItem(name: "api", value: "SYNO.FileStation.Download"),
+            URLQueryItem(name: "version", value: "2"),
+            URLQueryItem(name: "method", value: "download"),
+            URLQueryItem(name: "path", value: path),
+            URLQueryItem(name: "mode", value: "download"),
+            URLQueryItem(name: "_sid", value: sid),
+        ]
+        return components.url
+    }
+
+    /// Returns the local cache URL if the file is already cached, nil otherwise.
+    nonisolated func cachedURL(for path: String) -> URL? {
+        let sanitized = path.replacingOccurrences(of: "/", with: "_")
+        let fileURL = cacheDirectory.appendingPathComponent(sanitized)
+        return FileManager.default.fileExists(atPath: fileURL.path) ? fileURL : nil
+    }
+
+    /// Download file to cache in background (for offline support).
+    func cacheFile(for path: String) async throws {
+        // Skip if already cached
+        let sanitized = path.replacingOccurrences(of: "/", with: "_")
+        let fileURL = cacheDirectory.appendingPathComponent(sanitized)
+        guard !FileManager.default.fileExists(atPath: fileURL.path) else { return }
+
+        guard let url = try await streamingURL(for: path) else { return }
+
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 300
+        config.timeoutIntervalForResource = 600
+        let session = URLSession(configuration: config, delegate: InsecureURLSessionDelegate(), delegateQueue: nil)
+
+        let (tempURL, response) = try await session.download(from: url)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return }
+
+        try? FileManager.default.removeItem(at: fileURL)
+        try FileManager.default.moveItem(at: tempURL, to: fileURL)
+    }
+
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
         let localURL = try await localURL(for: path)
         return AsyncThrowingStream { continuation in

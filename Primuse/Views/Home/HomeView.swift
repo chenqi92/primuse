@@ -3,7 +3,6 @@ import PrimuseKit
 
 struct HomeView: View {
     var switchToSettingsTab: (() -> Void)?
-    var expandPlayer: (() -> Void)?
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
 
@@ -40,61 +39,84 @@ struct HomeView: View {
 
     // MARK: - Content
 
+    @State private var spotlightAlbums: [Album] = []
+
     private var contentView: some View {
         VStack(alignment: .leading, spacing: 24) {
-            // Now playing compact card (if playing)
-            if player.currentSong != nil {
-                nowPlayingCompactCard
+            // Album spotlight carousel
+            if !spotlightAlbums.isEmpty {
+                spotlightCarousel
             }
 
             // Recently played
             recentlyPlayedSection
 
-            // Albums
+            // Recently added albums
             if !library.albums.isEmpty {
-                albumsSection
+                recentlyAddedAlbumsSection
             }
 
             // Artists
             if !library.artists.isEmpty {
                 artistsSection
             }
-
+        }
+        .onAppear {
+            if spotlightAlbums.isEmpty {
+                spotlightAlbums = Array(library.albums.shuffled().prefix(min(library.albums.count, 20)))
+            }
         }
     }
 
-    // MARK: - Now Playing Compact Card
+    // MARK: - Album Spotlight Carousel
 
-    private var nowPlayingCompactCard: some View {
-        Button { expandPlayer?() } label: {
-            HStack(spacing: 12) {
-                CachedArtworkView(coverFileName: player.currentSong?.coverArtFileName, size: 56, cornerRadius: 10)
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("now_playing").font(.caption2).fontWeight(.medium)
-                        .foregroundStyle(.secondary).textCase(.uppercase)
-                    Text(player.currentSong?.title ?? "").font(.subheadline).fontWeight(.semibold).lineLimit(1)
-                    Text(player.currentSong?.artistName ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                }
-
-                Spacer()
-
-                Button { player.togglePlayPause() } label: {
-                    Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                        .font(.system(size: 38))
-                        .contentTransition(.symbolEffect(.replace))
-                }
-
-                Button { Task { await player.next() } } label: {
-                    Image(systemName: "forward.fill").font(.body).foregroundStyle(.secondary)
+    private var spotlightCarousel: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            LazyHStack(spacing: 12) {
+                ForEach(spotlightAlbums) { album in
+                    spotlightCard(album: album)
                 }
             }
+            .padding(.horizontal, 16)
+        }
+    }
+
+    private func spotlightCard(album: Album) -> some View {
+        let cardWidth: CGFloat = UIScreen.main.bounds.width - 64
+
+        return Button { playAlbum(album) } label: {
+            HStack(spacing: 14) {
+                CachedArtworkView(
+                    coverFileName: library.songs(forAlbum: album.id).first?.coverArtFileName,
+                    size: 120, cornerRadius: 12
+                )
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Spacer()
+                    Text(album.title)
+                        .font(.headline).fontWeight(.bold)
+                        .lineLimit(2)
+                    Text(album.artistName ?? "")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    HStack(spacing: 4) {
+                        Image(systemName: "music.note")
+                            .font(.caption2)
+                        Text("\(album.songCount)")
+                            .font(.caption)
+                    }
+                    .foregroundStyle(.tertiary)
+                    Spacer()
+                }
+                Spacer(minLength: 0)
+            }
             .padding(12)
-            .background(.regularMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .frame(width: cardWidth, height: 144)
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, 16)
     }
 
     // MARK: - Recently Played
@@ -123,15 +145,15 @@ struct HomeView: View {
         return Array(library.songs.sorted { $0.dateAdded > $1.dateAdded }.prefix(6))
     }
 
-    // MARK: - Albums
+    // MARK: - Recently Added Albums
 
-    private var albumsSection: some View {
+    private var recentlyAddedAlbumsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("for_you").font(.title3).fontWeight(.bold).padding(.horizontal, 20)
+            Text("recently_added").font(.title3).fontWeight(.bold).padding(.horizontal, 20)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 14) {
-                    ForEach(library.albums.prefix(10)) { album in
+                    ForEach(library.recentlyAddedAlbums(limit: 10)) { album in
                         VStack(alignment: .leading, spacing: 6) {
                             CachedArtworkView(
                                 coverFileName: library.songs(forAlbum: album.id).first?.coverArtFileName,
@@ -209,8 +231,24 @@ struct HomeView: View {
     }
 
     private func playSong(_ song: Song) {
-        guard let index = library.songs.firstIndex(where: { $0.id == song.id }) else { return }
-        player.setQueue(library.songs, startAt: index)
+        // Prefer album context so the user can listen to the full album
+        if let albumID = song.albumID {
+            let albumSongs = library.songs(forAlbum: albumID)
+            if albumSongs.count > 1,
+               let index = albumSongs.firstIndex(where: { $0.id == song.id }) {
+                player.setQueue(albumSongs, startAt: index)
+                Task { await player.play(song: song) }
+                return
+            }
+        }
+
+        // Fall back to recent play history as queue
+        let recent = library.recentlyPlayedSongs(limit: 100)
+        if recent.count > 1, let index = recent.firstIndex(where: { $0.id == song.id }) {
+            player.setQueue(recent, startAt: index)
+        } else {
+            player.setQueue([song], startAt: 0)
+        }
         Task { await player.play(song: song) }
     }
 }

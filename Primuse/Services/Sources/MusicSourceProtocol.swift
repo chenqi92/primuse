@@ -23,6 +23,10 @@ protocol MusicSourceConnector: Sendable {
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error>
     func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error>
 
+    /// Returns a remote HTTP(S) URL that can be streamed directly by AVFoundation.
+    /// Sources that support streaming (e.g. Synology) return the URL; others return nil.
+    func streamingURL(for path: String) async throws -> URL?
+
     /// Write data to a remote path. Used by sidecar file writing (cover art, lyrics).
     func writeFile(data: Data, to path: String) async throws
 
@@ -31,6 +35,8 @@ protocol MusicSourceConnector: Sendable {
 }
 
 extension MusicSourceConnector {
+    func streamingURL(for path: String) async throws -> URL? { nil }
+
     func countAudioFiles(in path: String) async throws -> Int {
         var count = 0
         let stream = try await scanAudioFiles(from: path)

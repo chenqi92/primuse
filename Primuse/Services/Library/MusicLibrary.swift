@@ -76,6 +76,15 @@ final class MusicLibrary {
         songs.filter { $0.artistID == artistID }
     }
 
+    func recentlyAddedAlbums(limit: Int = 10) -> [Album] {
+        let albumLatestDate = Dictionary(grouping: songs) { $0.albumID ?? "" }
+            .mapValues { $0.map(\.dateAdded).max() ?? .distantPast }
+        return albums
+            .sorted { (albumLatestDate[$0.id] ?? .distantPast) > (albumLatestDate[$1.id] ?? .distantPast) }
+            .prefix(limit)
+            .map { $0 }
+    }
+
     func playlist(id: String) -> Playlist? {
         playlists.first(where: { $0.id == id })
     }

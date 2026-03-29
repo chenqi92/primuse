@@ -226,6 +226,7 @@ struct NowPlayingView: View {
             if let song = player.currentSong {
                 ScrapeOptionsView(song: song) { u in
                     player.syncSongMetadata(u)
+                    player.forceRefreshNowPlayingArtwork()
                     Task { await loadLyrics() }
                 }
                 .presentationDetents([.medium, .large])
@@ -411,7 +412,7 @@ struct NowPlayingView: View {
         isScrapingCurrentSong = true; defer { isScrapingCurrentSong = false }
         do {
             let (u, _, _) = try await scraperService.scrapeSingle(song: song, in: library)
-            player.syncSongMetadata(u); await loadLyrics()
+            player.syncSongMetadata(u); player.forceRefreshNowPlayingArtwork(); await loadLyrics()
             if !lyrics.isEmpty { showLyrics = true }
             scrapeAlertMessage = String(localized: "scrape_song_success")
         } catch { scrapeAlertMessage = String(localized: "scrape_song_failed") }

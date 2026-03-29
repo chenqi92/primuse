@@ -9,7 +9,6 @@ actor SynologyScanner {
     private let api: SynologyAPI
     private let sourceID: String
     private let tempDir: URL
-    private let coverCacheDir: URL
 
     init(api: SynologyAPI, sourceID: String) {
         self.api = api
@@ -17,12 +16,6 @@ actor SynologyScanner {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("primuse_scan_\(sourceID)")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         self.tempDir = dir
-
-        // Cover art cache (persistent across app restarts)
-        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("primuse_covers")
-        try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
-        self.coverCacheDir = cacheDir
     }
 
     struct ScanUpdate: Sendable {
@@ -213,15 +206,12 @@ actor SynologyScanner {
                     case AVMetadataKey.commonKeyAlbumName.rawValue:
                         if let v = value as? String, !v.isEmpty { album = v }
                     case AVMetadataKey.commonKeyArtwork.rawValue:
-                        // Extract cover art and save to cache
+                        // Extract cover art and save via MetadataAssetStore
                         if let artData = value as? Data, !artData.isEmpty {
-                            let artFileName = "\(songID)_cover.jpg"
-                            let artURL = coverCacheDir.appendingPathComponent(artFileName)
-                            // Compress to JPEG if needed
                             if let image = UIImage(data: artData),
                                let jpegData = image.jpegData(compressionQuality: 0.8) {
-                                try? jpegData.write(to: artURL)
-                                coverArtFileName = artFileName
+                                MetadataAssetStore.shared.storeCoverSync(jpegData, for: songID)
+                                coverArtFileName = MetadataAssetStore.shared.expectedCoverFileName(for: songID)
                             }
                         }
                     default: break

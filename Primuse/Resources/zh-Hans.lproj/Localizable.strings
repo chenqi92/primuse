@@ -126,6 +126,7 @@
 "done" = "完成";
 "base_path_hint" = "基础路径（如 /dav）";
 "songs_found" = "首歌曲已找到";
+"files_scanned" = "个文件已扫描";
 "connect_browse" = "连接并浏览";
 "connect_browse_hint" = "连接到此音乐源，然后选择要扫描音乐的目录";
 "connect_select_dirs" = "连接并选择目录";
@@ -217,6 +218,8 @@
 "rg_mode" = "模式";
 "rg_mode_track" = "单曲";
 "rg_mode_album" = "专辑";
+"audio_cache_enabled" = "音频缓存";
+"audio_cache_desc" = "启用后，播放过的歌曲将被缓存到本地，下次播放时无需重新下载。关闭后不保留缓存文件。";
 
 // MARK: - 均衡器
 "eq_enabled" = "均衡器";

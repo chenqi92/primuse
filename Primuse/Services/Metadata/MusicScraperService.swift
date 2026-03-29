@@ -35,9 +35,9 @@ final class MusicScraperService {
 
     /// Scrape single song — never overwrites existing cover/lyrics with nil
     /// dryRun: if true, returns updated song without writing to library
-    func scrapeSingle(song: Song, in library: MusicLibrary, dryRun: Bool = false) async throws -> Song {
-        guard let result = try await processedSongWithAssets(song, forceRescrape: true) else {
-            return song
+    func scrapeSingle(song: Song, in library: MusicLibrary, dryRun: Bool = false) async throws -> (Song, Data?, [LyricLine]?) {
+        guard let result = try await processedSongWithAssets(song, forceRescrape: true, storeAssets: !dryRun) else {
+            return (song, nil, nil)
         }
         var updatedSong = result.song
 
@@ -100,7 +100,7 @@ final class MusicScraperService {
                 }
             }
         }
-        return updatedSong
+        return (updatedSong, result.coverData, result.lyricsLines)
     }
 
     func cancel() {
@@ -163,7 +163,7 @@ final class MusicScraperService {
         let lyricsLines: [LyricLine]?
     }
 
-    private func processedSongWithAssets(_ song: Song, forceRescrape: Bool) async throws -> ProcessedResult? {
+    private func processedSongWithAssets(_ song: Song, forceRescrape: Bool, storeAssets: Bool = true) async throws -> ProcessedResult? {
         let fileURL = try await sourceManager.resolveURL(for: song)
         let placeholderTitle = fileURL.deletingPathExtension().lastPathComponent
 
@@ -171,7 +171,7 @@ final class MusicScraperService {
             return nil
         }
 
-        let metadata = await metadataService.loadMetadata(for: fileURL, cacheKey: song.id)
+        let metadata = await metadataService.loadMetadata(for: fileURL, cacheKey: storeAssets ? song.id : nil)
         let merged = mergedSong(
             song,
             with: metadata,

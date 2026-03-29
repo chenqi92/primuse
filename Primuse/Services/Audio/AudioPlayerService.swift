@@ -45,7 +45,9 @@ final class AudioPlayerService {
     private var displayLink: Timer?
     private let nativeDecoder = NativeAudioDecoder()
     private let assetReaderDecoder = AssetReaderDecoder()
+    private let streamingDecoder = StreamingDownloadDecoder()
     private var decodingTask: Task<Void, Never>?
+    private var prefetchTask: Task<Void, Never>?
     private var crossfadeDecodingTask: Task<Void, Never>?
     private var crossfadeTimer: Timer?
     private var crossfadeTriggered = false
@@ -93,7 +95,7 @@ final class AudioPlayerService {
         // Invalidate any pending operations immediately
         let id = UUID()
         playID = id
-        print("▶️ play(song: \(song.title)) playID=\(id.uuidString.prefix(8))")
+        plog("▶️ play(song: \(song.title)) playID=\(id.uuidString.prefix(8))")
 
         // Stop current playback
         decodingTask?.cancel()
@@ -109,7 +111,7 @@ final class AudioPlayerService {
         duration = song.duration
         isLoading = true
         isPlaying = false
-        print("▶️ currentSong set to: \(song.title)")
+        plog("▶️ currentSong set to: \(song.title)")
 
         do {
             let url = try await resolvedURL(for: song)
@@ -118,7 +120,7 @@ final class AudioPlayerService {
             await playFromURL(song: song, url: url, playID: id)
         } catch {
             guard playID == id else { return }
-            print("Playback URL resolution error: \(error)")
+            plog("Playback URL resolution error: \(error)")
             isLoading = false
             await next()
         }
@@ -135,7 +137,9 @@ final class AudioPlayerService {
     }
 
     private func playFromURL(song: Song, url: URL, playID id: UUID) async {
-        print("▶️ playFromURL(song: \(song.title)) playID=\(id.uuidString.prefix(8))")
+        plog("▶️ playFromURL(song: \(song.title)) playID=\(id.uuidString.prefix(8))")
+        plog("▶️   URL: \(url.absoluteString.prefix(120))")
+        plog("▶️   scheme=\(url.scheme ?? "nil") isFileURL=\(url.isFileURL) ext=\(url.pathExtension) format=\(song.fileFormat) duration=\(song.duration)")
         currentSong = song
         duration = song.duration
         isLoading = true
@@ -146,7 +150,7 @@ final class AudioPlayerService {
         let isRemoteURL = url.scheme == "http" || url.scheme == "https"
 
         guard isRemoteURL || nativeDecoder.canDecode(url: url) else {
-            print("Unsupported format: \(url.pathExtension)")
+            plog("Unsupported format: \(url.pathExtension)")
             isLoading = false
             if currentIndex < queue.count - 1 { await next() }
             return
@@ -163,10 +167,12 @@ final class AudioPlayerService {
             // Reset volume immediately; apply ReplayGain asynchronously after playback starts
             audioEngine.resetPlayerVolume()
 
-            // Remote URLs must use AVAssetReader (AVAudioFile requires local files)
+            // Remote URLs: use StreamingDownloadDecoder (handles self-signed HTTPS via URLSession)
             if isRemoteURL {
-                print("▶️ Using streaming decoder for remote URL")
-                await playWithFallbackDecoder(song: song, url: url, outputFormat: outputFormat, playID: id)
+                plog("▶️ Using StreamingDownloadDecoder for remote URL: \(url.scheme ?? "")://...")
+                plog("▶️   outputFormat: sr=\(outputFormat.sampleRate) ch=\(outputFormat.channelCount)")
+                let cacheURL = playbackSettings.audioCacheEnabled ? sourceManager?.cacheURL(for: song) : nil
+                await playWithStreamingDownload(song: song, url: url, outputFormat: outputFormat, playID: id, cacheURL: cacheURL)
                 return
             }
 
@@ -188,12 +194,13 @@ final class AudioPlayerService {
             } catch {
                 // Native decode failed on first buffer — try fallback decoder
                 guard !Task.isCancelled, playID == id else { return }
-                print("⚠️ Native decode failed for '\(song.title)': \(error.localizedDescription)")
+                plog("⚠️ Native decode failed for '\(song.title)': \(error.localizedDescription)")
                 await playWithFallbackDecoder(song: song, url: url, outputFormat: outputFormat, playID: id)
                 return
             }
 
             // Schedule first buffer BEFORE play — playerNode has data ready
+            plog("▶️ NativeDecoder firstBuffer: frames=\(firstBuffer.frameLength) format=sr\(firstBuffer.format.sampleRate)/ch\(firstBuffer.format.channelCount)")
             audioEngine.scheduleBuffer(firstBuffer)
             audioEngine.play()
 
@@ -226,8 +233,13 @@ final class AudioPlayerService {
                 }
             }
 
-            // Background-cache file for offline playback
-            sourceManager?.cacheInBackground(song: song)
+            // Background-cache file for offline playback (if enabled)
+            if playbackSettings.audioCacheEnabled {
+                sourceManager?.cacheInBackground(song: song)
+            }
+
+            // Prefetch next song
+            prefetchNextSong()
 
             // Decode remaining buffers in background task (hold-last for completion callback)
             decodingTask = Task { [id, iteratorBox] in
@@ -244,7 +256,7 @@ final class AudioPlayerService {
                     }
                 } catch {
                     if !Task.isCancelled {
-                        print("⚠️ Decode error mid-stream for '\(song.title)': \(error.localizedDescription)")
+                        plog("⚠️ Decode error mid-stream for '\(song.title)': \(error.localizedDescription)")
                     }
                 }
 
@@ -255,7 +267,7 @@ final class AudioPlayerService {
                 }
             }
         } catch {
-            print("⚠️ Playback error for '\(song.title)': \(error.localizedDescription)")
+            plog("⚠️ Playback error for '\(song.title)': \(error.localizedDescription)")
             isLoading = false
             // Auto skip to next on decode failure
             if currentIndex < queue.count - 1 {
@@ -264,16 +276,104 @@ final class AudioPlayerService {
         }
     }
 
+    /// Streaming playback using URLSession download + progressive decode.
+    /// Handles self-signed HTTPS certificates that AVAssetReader cannot.
+    private func playWithStreamingDownload(
+        song: Song, url: URL, outputFormat: AVAudioFormat,
+        playID id: UUID, cacheURL: URL?
+    ) async {
+        let stream = streamingDecoder.decode(from: url, outputFormat: outputFormat, cacheFileURL: cacheURL)
+        let iteratorBox = BufferIteratorBox(stream.makeAsyncIterator())
+
+        do {
+            guard let firstBuffer = try await iteratorBox.next() else {
+                plog("⚠️ StreamingDownload: empty stream for '\(song.title)'")
+                isLoading = false
+                if currentIndex < queue.count - 1 { await next() }
+                return
+            }
+            guard playID == id else { return }
+
+            plog("🌊 StreamingDownload firstBuffer: frames=\(firstBuffer.frameLength) sr=\(firstBuffer.format.sampleRate)")
+            audioEngine.scheduleBuffer(firstBuffer)
+            audioEngine.play()
+
+            // Fetch duration asynchronously if needed
+            if duration <= 0 {
+                Task {
+                    if let info = try? await self.nativeDecoder.fileInfo(for: url) {
+                        guard self.playID == id else { return }
+                        self.duration = info.duration
+                        self.updateNowPlayingInfo()
+                    }
+                }
+            }
+
+            // Transition state — audio is playing
+            isPlaying = true
+            isLoading = false
+            library?.recordPlayback(of: song.id)
+            startTimeUpdater()
+            updateNowPlayingInfo()
+            updateNowPlayingArtworkIfNeeded()
+            updatePlaybackState()
+
+            // Prefetch next song while current one plays
+            prefetchNextSong()
+
+            // Decode remaining buffers
+            decodingTask = Task { [id, iteratorBox] in
+                var lastBuffer: AVAudioPCMBuffer?
+                do {
+                    while let buffer = try await iteratorBox.next() {
+                        guard !Task.isCancelled, self.playID == id else { return }
+                        if let prev = lastBuffer { self.audioEngine.scheduleBuffer(prev) }
+                        lastBuffer = buffer
+                    }
+                } catch {
+                    if !Task.isCancelled {
+                        plog("⚠️ StreamingDownload decode error: \(error.localizedDescription)")
+                    }
+                }
+                if let finalBuffer = lastBuffer {
+                    guard !Task.isCancelled, self.playID == id else { return }
+                    self.scheduleLastBuffer(finalBuffer, playID: id)
+                }
+            }
+        } catch {
+            plog("⚠️ StreamingDownload failed for '\(song.title)': \(error.localizedDescription)")
+            // Fallback to AssetReader decoder (for non-SSL failures)
+            plog("↳ Trying AssetReader fallback...")
+            await playWithFallbackDecoder(song: song, url: url, outputFormat: outputFormat, playID: id)
+        }
+    }
+
+    /// Prefetch the next song in the queue to local cache for instant playback.
+    private func prefetchNextSong() {
+        prefetchTask?.cancel()
+        let nextIdx = currentIndex + 1
+        guard nextIdx < queue.count else { return }
+        let nextSong = queue[nextIdx]
+
+        // Already cached? Nothing to do.
+        if sourceManager?.cachedURL(for: nextSong) != nil { return }
+
+        prefetchTask = Task {
+            plog("⏩ Prefetching next song: \(nextSong.title)")
+            sourceManager?.cacheInBackground(song: nextSong)
+        }
+    }
+
     /// Fallback playback using AVAssetReader when native decoder fails.
     private func playWithFallbackDecoder(song: Song, url: URL, outputFormat: AVAudioFormat, playID id: UUID) async {
         guard assetReaderDecoder.canDecode(url: url) else {
-            print("⚠️ No decoder available for '\(song.title)'")
+            plog("⚠️ No decoder available for '\(song.title)'")
             isLoading = false
             if currentIndex < queue.count - 1 { await next() }
             return
         }
 
-        print("↳ Retrying '\(song.title)' with AVAssetReader fallback...")
+        plog("↳ AVAssetReader fallback for '\(song.title)' url=\(url.scheme ?? "")://... ext=\(url.pathExtension)")
 
         let fallbackStream = assetReaderDecoder.decode(from: url, outputFormat: outputFormat)
         let iteratorBox = BufferIteratorBox(fallbackStream.makeAsyncIterator())
@@ -286,6 +386,16 @@ final class AudioPlayerService {
             }
             guard playID == id else { return }
 
+            plog("↳ AssetReader firstBuffer: frames=\(firstBuffer.frameLength) format=sr\(firstBuffer.format.sampleRate)/ch\(firstBuffer.format.channelCount)")
+            // Check if buffer has actual audio data (not all zeros)
+            if let channelData = firstBuffer.floatChannelData?[0] {
+                let frameCount = Int(firstBuffer.frameLength)
+                var maxSample: Float = 0
+                for i in 0..<min(frameCount, 1000) {
+                    maxSample = max(maxSample, abs(channelData[i]))
+                }
+                plog("↳ AssetReader firstBuffer maxSample=\(maxSample) (0 = silence/broken)")
+            }
             audioEngine.scheduleBuffer(firstBuffer)
             audioEngine.play()
 
@@ -336,7 +446,7 @@ final class AudioPlayerService {
                     }
                 } catch {
                     if !Task.isCancelled {
-                        print("⚠️ AssetReader fallback decode error: \(error.localizedDescription)")
+                        plog("⚠️ AssetReader fallback decode error: \(error.localizedDescription)")
                     }
                 }
 
@@ -346,7 +456,7 @@ final class AudioPlayerService {
                 }
             }
         } catch {
-            print("⚠️ AssetReader fallback also failed: \(error.localizedDescription)")
+            plog("⚠️ AssetReader fallback also failed: \(error.localizedDescription)")
             isLoading = false
             if currentIndex < queue.count - 1 { await next() }
         }
@@ -524,7 +634,7 @@ final class AudioPlayerService {
                             lastBuffer = buffer
                         }
                     } catch {
-                        if !Task.isCancelled { print("Seek decode error: \(error)") }
+                        if !Task.isCancelled { plog("Seek decode error: \(error)") }
                     }
 
                     if let finalBuffer = lastBuffer {
@@ -533,7 +643,7 @@ final class AudioPlayerService {
                     }
                 }
             } catch {
-                print("Seek error: \(error)")
+                plog("Seek error: \(error)")
             }
         }
     }
@@ -561,7 +671,7 @@ final class AudioPlayerService {
     /// buffer to chain the next preload — no recursion.
     private func gaplessPreloadNext(id: UUID) async {
         guard self.playID == id else {
-            print("🔄 gaplessPreload: ABORTED (playID mismatch)")
+            plog("🔄 gaplessPreload: ABORTED (playID mismatch)")
             return
         }
         guard let nextSong = nextSongInQueue() else {
@@ -589,7 +699,7 @@ final class AudioPlayerService {
 
             // Update state for the new track
             advanceToNextIndex()
-            print("🔄 gaplessPreload: currentSong → \(nextSong.title)")
+            plog("🔄 gaplessPreload: currentSong → \(nextSong.title)")
             currentSong = nextSong
             duration = nextSong.duration
             currentTime = 0
@@ -642,7 +752,7 @@ final class AudioPlayerService {
                 }
             }
         } catch {
-            print("Gapless preload error: \(error)")
+            plog("Gapless preload error: \(error)")
             scheduleEndDetection(id: id)
         }
     }
@@ -701,7 +811,7 @@ final class AudioPlayerService {
                         self.audioEngine.scheduleCrossfadeBuffer(buffer)
                     }
                 } catch {
-                    if !Task.isCancelled { print("Crossfade decode error: \(error)") }
+                    if !Task.isCancelled { plog("Crossfade decode error: \(error)") }
                 }
             }
 
@@ -714,7 +824,7 @@ final class AudioPlayerService {
                 )
             }
         } catch {
-            print("Crossfade start error: \(error)")
+            plog("Crossfade start error: \(error)")
             crossfadeTriggered = false
         }
     }
@@ -765,7 +875,7 @@ final class AudioPlayerService {
         let newID = UUID()
         playID = newID
         advanceToNextIndex()
-        print("🔄 completeCrossfade: currentSong → \(nextSong.title)")
+        plog("🔄 completeCrossfade: currentSong → \(nextSong.title)")
         currentSong = nextSong
         currentTime = 0
         crossfadeTriggered = false
@@ -831,7 +941,7 @@ final class AudioPlayerService {
     // MARK: - Track End
 
     private func handleTrackEnd() async {
-        print("⏭️ handleTrackEnd() currentSong=\(currentSong?.title ?? "nil") playID=\(playID?.uuidString.prefix(8) ?? "nil")")
+        plog("⏭️ handleTrackEnd() currentSong=\(currentSong?.title ?? "nil") playID=\(playID?.uuidString.prefix(8) ?? "nil")")
         switch repeatMode {
         case .one:
             if let song = currentSong { await play(song: song) }
@@ -891,8 +1001,11 @@ final class AudioPlayerService {
     private func resolvedURL(for song: Song) async throws -> URL {
         if let sourceManager {
             do {
-                return try await sourceManager.resolveURL(for: song)
+                let url = try await sourceManager.resolveURL(for: song)
+                plog("🔗 resolvedURL for '\(song.title)': \(url.isFileURL ? "LOCAL" : url.scheme?.uppercased() ?? "?") → \(url.absoluteString.prefix(120))")
+                return url
             } catch {
+                plog("🔗 resolveURL failed for '\(song.title)': \(error), filePath=\(song.filePath.prefix(80))")
                 if song.filePath.hasPrefix("/") {
                     return URL(fileURLWithPath: song.filePath)
                 }
@@ -900,8 +1013,10 @@ final class AudioPlayerService {
             }
         }
         if let remoteURL = URL(string: song.filePath), remoteURL.scheme != nil {
+            plog("🔗 resolvedURL for '\(song.title)': direct remote → \(remoteURL.absoluteString.prefix(80))")
             return remoteURL
         }
+        plog("🔗 resolvedURL for '\(song.title)': file path → \(song.filePath.prefix(80))")
         return URL(fileURLWithPath: song.filePath)
     }
 
@@ -938,24 +1053,11 @@ final class AudioPlayerService {
 
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self else { return }
-            let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-                .appendingPathComponent("primuse_covers")
-            let artworkDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-                .appendingPathComponent("Primuse/MetadataAssets/artwork")
+            let artworkDir = MetadataAssetStore.shared.artworkDirectoryURL
+            let url = artworkDir.appendingPathComponent(coverFileName)
 
-            var image: UIImage?
-            let primaryURL = cacheDir.appendingPathComponent(coverFileName)
-            if let data = try? Data(contentsOf: primaryURL) {
-                image = UIImage(data: data)
-            }
-            if image == nil {
-                let fallbackURL = artworkDir.appendingPathComponent(coverFileName)
-                if let data = try? Data(contentsOf: fallbackURL) {
-                    image = UIImage(data: data)
-                }
-            }
-
-            guard let loadedImage = image else { return }
+            guard let data = try? Data(contentsOf: url),
+                  let loadedImage = UIImage(data: data) else { return }
 
             // Create artwork outside MainActor so the requestHandler closure
             // doesn't inherit @MainActor isolation (MediaPlayer calls it on a background queue).
@@ -967,6 +1069,13 @@ final class AudioPlayerService {
                 MPNowPlayingInfoCenter.default().nowPlayingInfo = info
             }
         }
+    }
+
+    /// Force refresh NowPlaying artwork (e.g. after scraping updated the cover file).
+    /// Resets lastArtworkFileName so the guard check passes.
+    func forceRefreshNowPlayingArtwork() {
+        lastArtworkFileName = nil
+        updateNowPlayingArtworkIfNeeded()
     }
 
     func updateNowPlayingArtwork(_ image: UIImage) {

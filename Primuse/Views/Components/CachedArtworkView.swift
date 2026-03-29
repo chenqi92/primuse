@@ -9,20 +9,8 @@ struct CachedArtworkView: View {
 
     @State private var image: UIImage?
 
-    private static let cacheDir: URL = {
-        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("primuse_covers")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
-    }()
-
-    /// Fallback: online scrape stores covers here via MetadataAssetStore
-    private static let artworkDir: URL = {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("Primuse/MetadataAssets/artwork")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
-    }()
+    /// Single artwork directory — everything stored via MetadataAssetStore
+    private static let artworkDir: URL = MetadataAssetStore.shared.artworkDirectoryURL
 
     var body: some View {
         Group {
@@ -64,15 +52,8 @@ struct CachedArtworkView: View {
             image = nil
             return
         }
-        // Try primary cache (NAS scan covers)
-        let primaryURL = Self.cacheDir.appendingPathComponent(coverFileName)
-        if let data = try? Data(contentsOf: primaryURL), let img = UIImage(data: data) {
-            image = img
-            return
-        }
-        // Fallback: MetadataAssetStore (online scrape covers)
-        let fallbackURL = Self.artworkDir.appendingPathComponent(coverFileName)
-        if let data = try? Data(contentsOf: fallbackURL), let img = UIImage(data: data) {
+        let url = Self.artworkDir.appendingPathComponent(coverFileName)
+        if let data = try? Data(contentsOf: url), let img = UIImage(data: data) {
             image = img
             return
         }

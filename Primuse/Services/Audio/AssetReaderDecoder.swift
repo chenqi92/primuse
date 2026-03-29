@@ -12,6 +12,8 @@ final class AssetReaderDecoder: Sendable {
     private let bufferFrameCount: AVAudioFrameCount = 8192
 
     func canDecode(url: URL) -> Bool {
+        // Remote URLs: let AVFoundation handle format detection
+        if url.scheme == "http" || url.scheme == "https" { return true }
         let ext = url.pathExtension.lowercased()
         // AVAssetReader supports all formats that AVFoundation/CoreMedia can handle
         return ["mp3", "aac", "m4a", "alac", "flac", "wav", "aiff", "aif", "m4b", "caf"].contains(ext)
@@ -75,12 +77,23 @@ final class AssetReaderDecoder: Sendable {
                     reader.add(output)
 
                     guard reader.startReading() else {
-                        continuation.finish(throwing: AudioDecoderError.decodingFailed(
-                            reader.error?.localizedDescription ?? "Failed to start reading"
-                        ))
+                        let errMsg = reader.error?.localizedDescription ?? "Failed to start reading"
+                        plog("⚠️ AssetReader FAILED to start: \(errMsg) url=\(url.absoluteString.prefix(100))")
+                        continuation.finish(throwing: AudioDecoderError.decodingFailed(errMsg))
                         return
                     }
+                    plog("📖 AssetReader started: url=\(url.lastPathComponent) tracks=\(tracks.count)")
+                    // Log source audio format
+                    if let descs = try? await audioTrack.load(.formatDescriptions) {
+                        for desc in descs {
+                            if let basic = CMAudioFormatDescriptionGetStreamBasicDescription(desc)?.pointee {
+                                plog("📖 AssetReader source format: sr=\(basic.mSampleRate) ch=\(basic.mChannelsPerFrame) bitsPerCh=\(basic.mBitsPerChannel) formatID=\(basic.mFormatID)")
+                            }
+                        }
+                    }
 
+                    var bufferCount = 0
+                    var totalFrames: Int64 = 0
                     while reader.status == .reading {
                         guard !Task.isCancelled else {
                             reader.cancelReading()
@@ -92,14 +105,17 @@ final class AssetReaderDecoder: Sendable {
                         }
 
                         if let pcmBuffer = createPCMBuffer(from: sampleBuffer, format: outputFormat) {
+                            bufferCount += 1
+                            totalFrames += Int64(pcmBuffer.frameLength)
                             continuation.yield(AudioBufferBox(pcmBuffer).buffer)
                         }
                     }
+                    plog("📖 AssetReader done: status=\(reader.status.rawValue) buffers=\(bufferCount) totalFrames=\(totalFrames)")
 
                     if reader.status == .failed {
-                        continuation.finish(throwing: AudioDecoderError.decodingFailed(
-                            reader.error?.localizedDescription ?? "Reader failed"
-                        ))
+                        let errMsg = reader.error?.localizedDescription ?? "Reader failed"
+                        plog("⚠️ AssetReader FAILED: \(errMsg)")
+                        continuation.finish(throwing: AudioDecoderError.decodingFailed(errMsg))
                     } else {
                         continuation.finish()
                     }

@@ -13,21 +13,9 @@ final class LiveActivityManager {
         FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier)
     }()
 
-    // MARK: - Cover directories (same as CachedArtworkView)
+    // MARK: - Cover directory (via MetadataAssetStore)
 
-    private static let cacheDir: URL = {
-        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("primuse_covers")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
-    }()
-
-    private static let artworkDir: URL = {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("Primuse/MetadataAssets/artwork")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
-    }()
+    private static let artworkDir: URL = MetadataAssetStore.shared.artworkDirectoryURL
 
     // MARK: - Public API
 
@@ -104,20 +92,10 @@ final class LiveActivityManager {
             return nil
         }
 
-        // Find the source cover file (same logic as CachedArtworkView)
-        let primaryURL = Self.cacheDir.appendingPathComponent(coverFileName)
-        let artworkURL = Self.artworkDir.appendingPathComponent(coverFileName)
+        // Find the source cover file
+        let sourceURL = Self.artworkDir.appendingPathComponent(coverFileName)
 
-        let sourceURL: URL?
-        if FileManager.default.fileExists(atPath: primaryURL.path) {
-            sourceURL = primaryURL
-        } else if FileManager.default.fileExists(atPath: artworkURL.path) {
-            sourceURL = artworkURL
-        } else {
-            sourceURL = nil
-        }
-
-        guard let sourceURL,
+        guard FileManager.default.fileExists(atPath: sourceURL.path),
               let data = try? Data(contentsOf: sourceURL),
               let originalImage = UIImage(data: data) else {
             return nil

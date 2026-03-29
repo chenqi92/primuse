@@ -126,6 +126,7 @@
 "done" = "Done";
 "base_path_hint" = "Base Path (e.g. /dav)";
 "songs_found" = "songs found";
+"files_scanned" = "files scanned";
 "connect_browse" = "Connect & Browse";
 "connect_browse_hint" = "Connect to this source then select which directories to scan for music";
 "connect_select_dirs" = "Connect & Select Directories";
@@ -217,6 +218,8 @@
 "rg_mode" = "Mode";
 "rg_mode_track" = "Track";
 "rg_mode_album" = "Album";
+"audio_cache_enabled" = "Audio Cache";
+"audio_cache_desc" = "When enabled, played songs are cached locally for faster playback next time. When disabled, temporary files are removed after playback.";
 
 // MARK: - Equalizer
 "eq_enabled" = "Equalizer";

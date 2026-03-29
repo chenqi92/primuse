@@ -60,6 +60,7 @@
 		511CE77407C10F2DD2A84F0A /* PrimuseKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B1E36F2FECF46E724081F983 /* PrimuseKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		517E15C731F3D032AE11F6C9 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88A168D4C0759AC51316AAB9 /* Constants.swift */; };
 		51A139BDA91C3D1378607A22 /* UgreenAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = CACF669ECDE8745A546EE459 /* UgreenAPI.swift */; };
+		51D0E75113BD5B877CE4B83F /* FileLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9F569D02D3E6102A0C0E1CF /* FileLogger.swift */; };
 		54051F580B31F92D4D4673AD /* MediaServerBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DAC7AD4DE8847836AD78A51 /* MediaServerBrowserView.swift */; };
 		54462943A793EB8154002506 /* NIOCore in Frameworks */ = {isa = PBXBuildFile; productRef = C911C661F7CED78FBD5F2FCC /* NIOCore */; };
 		570266111E119CB28993C949 /* StoredCoverArtView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9B1688ED9374813585EC4C6 /* StoredCoverArtView.swift */; };
@@ -116,6 +117,7 @@
 		B4A627384B3D168B7BF384F0 /* PrimuseKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B1E36F2FECF46E724081F983 /* PrimuseKit.framework */; };
 		B5A618167288EAE3A5B85F8B /* source_dScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F203BCB1761D09BF4865D8D /* source_dScraper.swift */; };
 		B5F0628AAE0C7C40B2803778 /* CloudTokenManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C28F9B371297DF55837BAB92 /* CloudTokenManager.swift */; };
+		B6335813F1208FBA370C8787 /* StreamingDownloadDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF7F66F30F1802BA29DEB696 /* StreamingDownloadDecoder.swift */; };
 		B8450463C38E1DD352D751F7 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A04A9461976D9D58E02D5BA /* ContentView.swift */; };
 		B861A10458A66BAE39CCE232 /* AliyunDriveSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3CFC2BB314F0A2BB166E280 /* AliyunDriveSource.swift */; };
 		B8A6BB7771D620FCE3D4D649 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A41F54083A82815533AA0C36 /* SwiftUI.framework */; };
@@ -345,6 +347,7 @@
 		BFF0DF0592D356324C4E9A4C /* SMBBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SMBBrowserView.swift; sourceTree = "<group>"; };
 		C28F9B371297DF55837BAB92 /* CloudTokenManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTokenManager.swift; sourceTree = "<group>"; };
 		C54818EBAB874DF0A7E5C6DE /* AudioSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioSessionManager.swift; sourceTree = "<group>"; };
+		C9F569D02D3E6102A0C0E1CF /* FileLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileLogger.swift; sourceTree = "<group>"; };
 		CA179334735B8A7FCFC9F055 /* QnapSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QnapSource.swift; sourceTree = "<group>"; };
 		CA3A196D13D6AB09FFF51545 /* LibraryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryService.swift; sourceTree = "<group>"; };
 		CACF669ECDE8745A546EE459 /* UgreenAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UgreenAPI.swift; sourceTree = "<group>"; };
@@ -374,6 +377,7 @@
 		FAE228964342BBAAB23DCAD8 /* MusicScraperService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicScraperService.swift; sourceTree = "<group>"; };
 		FC0B19BA1149E4C3F22F6BF9 /* PrimuseWidgetExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = PrimuseWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		FDA720A839678F244BF3C85A /* PlaylistListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistListView.swift; sourceTree = "<group>"; };
+		FF7F66F30F1802BA29DEB696 /* StreamingDownloadDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingDownloadDecoder.swift; sourceTree = "<group>"; };
 		FF9694CD231B4175BED85BEA /* ScraperResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScraperResult.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -440,6 +444,7 @@
 				E083139645350B81D8E8C645 /* FFmpegAudioDecoder.swift */,
 				3B638BB94F0E6542668978B3 /* NativeAudioDecoder.swift */,
 				80BF155F8BD6EBFBBAA9B83A /* PlaybackSettingsStore.swift */,
+				FF7F66F30F1802BA29DEB696 /* StreamingDownloadDecoder.swift */,
 			);
 			path = Audio;
 			sourceTree = "<group>";
@@ -542,6 +547,7 @@
 				842B78D19D0E7D0D75E453B4 /* Extensions */,
 				88A168D4C0759AC51316AAB9 /* Constants.swift */,
 				111D15C431BBFAC41E4D37B1 /* FileFormatRouter.swift */,
+				C9F569D02D3E6102A0C0E1CF /* FileLogger.swift */,
 				92713492CA49F4357602CCA3 /* ImageCache.swift */,
 				A620EA0CD2EEF9F08E3A131D /* KeychainService.swift */,
 			);
@@ -1073,6 +1079,7 @@
 				BF2086269B199A1CD7296700 /* FTPBrowserView.swift in Sources */,
 				94BE0B791A310003362CC3C5 /* FTPSource.swift in Sources */,
 				1AB7C4D50C43A24D7A9E3F53 /* FileFormatRouter.swift in Sources */,
+				51D0E75113BD5B877CE4B83F /* FileLogger.swift in Sources */,
 				83FBC7E697D9FB957F5CFFE7 /* FileMetadataReader.swift in Sources */,
 				B3895BA1B582C6438B5DFC3B /* FnOSAPI.swift in Sources */,
 				D2F2F3E1AC1C81D339E70E7A /* FnOSSource.swift in Sources */,
@@ -1140,6 +1147,7 @@
 				42786BA198C03F835DBF49EC /* SourcesStore.swift in Sources */,
 				389FD71E5AB9C4E87852B1FB /* SourcesView.swift in Sources */,
 				570266111E119CB28993C949 /* StoredCoverArtView.swift in Sources */,
+				B6335813F1208FBA370C8787 /* StreamingDownloadDecoder.swift in Sources */,
 				48AD291EAE5EB38148B61BDA /* SynologyAPI.swift in Sources */,
 				BF1658CCB669A554E8DF831D /* SynologyScanner.swift in Sources */,
 				996C1B4150BF531114D218FD /* SynologySource.swift in Sources */,

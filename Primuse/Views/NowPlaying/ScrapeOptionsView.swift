@@ -312,13 +312,11 @@ struct ScrapeOptionsView: View {
         let albumChanged = p.scrapedAlbum != nil && p.scrapedAlbum != song.albumTitle
         let yearChanged = p.scrapedYear != nil && p.scrapedYear != song.year
         let genreChanged = p.scrapedGenre != nil && p.scrapedGenre != song.genre
-        let coverChanged = p.hasCover && p.updatedSong.coverArtFileName != song.coverArtFileName
-        let lyricsChanged = p.hasLyrics && p.updatedSong.lyricsFileName != song.lyricsFileName
 
         return (titleChanged && applyTitle) || (artistChanged && applyArtist) ||
                (albumChanged && applyAlbum) || (yearChanged && applyYear) ||
-               (genreChanged && applyGenre) || (coverChanged && applyCover) ||
-               (lyricsChanged && applyLyrics)
+               (genreChanged && applyGenre) || (p.hasCover && applyCover) ||
+               (p.hasLyrics && applyLyrics)
     }
 
     // MARK: - Manual Search

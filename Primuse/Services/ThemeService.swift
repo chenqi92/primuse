@@ -21,21 +21,9 @@ final class ThemeService {
     nonisolated(unsafe) static let defaultAccent = Color(red: 0.392, green: 0.318, blue: 0.976)       // #6451F9
     nonisolated(unsafe) static let defaultDarkAccent = Color(red: 0.22, green: 0.15, blue: 0.56)
 
-    // MARK: - Cover directories (mirrors CachedArtworkView)
+    // MARK: - Cover directory (via MetadataAssetStore)
 
-    private static let cacheDir: URL = {
-        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("primuse_covers")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
-    }()
-
-    private static let artworkDir: URL = {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("Primuse/MetadataAssets/artwork")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
-    }()
+    private static let artworkDir: URL = MetadataAssetStore.shared.artworkDirectoryURL
 
     // MARK: - Public API
 
@@ -45,20 +33,9 @@ final class ThemeService {
             return
         }
 
-        // Resolve image file
-        let primaryURL = Self.cacheDir.appendingPathComponent(fileName)
-        let artworkURL = Self.artworkDir.appendingPathComponent(fileName)
+        let fileURL = Self.artworkDir.appendingPathComponent(fileName)
 
-        let fileURL: URL?
-        if FileManager.default.fileExists(atPath: primaryURL.path) {
-            fileURL = primaryURL
-        } else if FileManager.default.fileExists(atPath: artworkURL.path) {
-            fileURL = artworkURL
-        } else {
-            fileURL = nil
-        }
-
-        guard let fileURL,
+        guard FileManager.default.fileExists(atPath: fileURL.path),
               let data = try? Data(contentsOf: fileURL),
               let image = UIImage(data: data) else {
             resetToDefault()
@@ -164,9 +141,9 @@ final class ThemeService {
 
         let accent = Color(hue: avgH, saturation: accentS, brightness: accentB)
 
-        // Dark variant: reduce brightness for background gradients
-        let darkB = accentB * 0.4
-        let dark = Color(hue: avgH, saturation: accentS * 0.8, brightness: darkB)
+        // Dark variant: visible but subdued for background gradients
+        let darkB = accentB * 0.65
+        let dark = Color(hue: avgH, saturation: accentS, brightness: darkB)
 
         return ColorResult(accent: accent, dark: dark)
     }
