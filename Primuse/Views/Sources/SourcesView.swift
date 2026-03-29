@@ -5,24 +5,10 @@ struct SourcesView: View {
     @Environment(SourceManager.self) private var sourceManager
     @Environment(SourcesStore.self) private var sourceStore
     @Environment(MusicLibrary.self) private var library
+    @Environment(ScanService.self) private var scanService
     @State private var showAddSource = false
     @State private var editingSource: MusicSource?
     @State private var connectingSource: MusicSource?
-    @State private var scanStates: [String: ScanState] = [:]
-    // Keep Synology API sessions alive for scanning
-    @State private var synologyAPIs: [String: SynologyAPI] = [:]
-
-    struct ScanState: Equatable {
-        var isScanning: Bool = false
-        var currentFile: String = ""
-        var scannedCount: Int = 0
-        var totalCount: Int = 0
-
-        var progress: Double {
-            guard totalCount > 0 else { return 0 }
-            return Double(scannedCount) / Double(totalCount)
-        }
-    }
 
     var body: some View {
         NavigationStack {
@@ -43,7 +29,7 @@ struct SourcesView: View {
             .sheet(item: $editingSource) { source in
                 AddSourceView(sourceType: source.type, editingSource: source) { updated in
                     updateSource(updated.id) { $0 = updated }
-                    synologyAPIs[updated.id] = nil
+                    scanService.removeSynologyAPI(for: updated.id)
                     Task { await sourceManager.refreshConnector(for: updated.id) }
                 }
             }
@@ -57,8 +43,12 @@ struct SourcesView: View {
         ContentUnavailableView {
             Label("no_sources", systemImage: "externaldrive.badge.plus")
         } description: { Text("no_sources_desc") } actions: {
-            Button { showAddSource = true } label: { Text("add_source") }
-                .buttonStyle(.borderedProminent)
+            Button { showAddSource = true } label: {
+                Label("add_source", systemImage: "plus.circle.fill")
+                    .font(.body).fontWeight(.semibold)
+                    .frame(maxWidth: 240).padding(.vertical, 4)
+            }
+            .buttonStyle(.borderedProminent)
         }
     }
 
@@ -74,7 +64,7 @@ struct SourcesView: View {
 
     private func sourceCard(_ source: MusicSource) -> some View {
         let dirs = decodeDirs(source.extraConfig)
-        let scanning = scanStates[source.id]
+        let scanning = scanService.scanStates[source.id]
 
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
@@ -138,25 +128,40 @@ struct SourcesView: View {
             }
 
             HStack(spacing: 10) {
-                Button { connectingSource = source } label: {
-                    Label(
-                        dirs.isEmpty ? String(localized: "connect_select_dirs") : String(localized: "manage_dirs"),
-                        systemImage: dirs.isEmpty ? "link" : "folder.badge.gear"
-                    )
-                    .font(.caption).fontWeight(.medium)
-                    .frame(maxWidth: .infinity).padding(.vertical, 7)
-                }
-                .buttonStyle(.bordered)
-                .tint(dirs.isEmpty ? .accentColor : .secondary)
-
-                if !dirs.isEmpty {
-                    Button { scanSource(source) } label: {
+                if source.type.isMediaServer {
+                    // Media servers scan all libraries directly — no directory selection needed
+                    Button {
+                        scanService.scanSource(source, sourceManager: sourceManager, library: library, sourceStore: sourceStore)
+                    } label: {
                         Label("scan", systemImage: "waveform.badge.magnifyingglass")
                             .font(.caption).fontWeight(.medium)
                             .frame(maxWidth: .infinity).padding(.vertical, 7)
                     }
                     .buttonStyle(.bordered).tint(.green)
                     .disabled(scanning?.isScanning == true)
+                } else {
+                    Button { connectingSource = source } label: {
+                        Label(
+                            dirs.isEmpty ? String(localized: "connect_select_dirs") : String(localized: "manage_dirs"),
+                            systemImage: dirs.isEmpty ? "link" : "folder.badge.gear"
+                        )
+                        .font(.caption).fontWeight(.medium)
+                        .frame(maxWidth: .infinity).padding(.vertical, 7)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(dirs.isEmpty ? .accentColor : .secondary)
+
+                    if !dirs.isEmpty {
+                        Button {
+                            scanService.scanSource(source, sourceManager: sourceManager, library: library, sourceStore: sourceStore)
+                        } label: {
+                            Label("scan", systemImage: "waveform.badge.magnifyingglass")
+                                .font(.caption).fontWeight(.medium)
+                                .frame(maxWidth: .infinity).padding(.vertical, 7)
+                        }
+                        .buttonStyle(.bordered).tint(.green)
+                        .disabled(scanning?.isScanning == true)
+                    }
                 }
             }
         }
@@ -164,131 +169,6 @@ struct SourcesView: View {
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) { deleteSource(source) } label: { Label("delete", systemImage: "trash") }
             Button { editingSource = source } label: { Label("edit", systemImage: "pencil") }.tint(.orange)
-        }
-    }
-
-    // MARK: - Real Scan
-
-    private func scanSource(_ source: MusicSource) {
-        let dirs = decodeDirs(source.extraConfig)
-        guard !dirs.isEmpty else { return }
-
-        scanStates[source.id] = ScanState(isScanning: true)
-
-        Task {
-            switch source.type {
-            case .synology:
-                await scanSynology(source: source, directories: dirs)
-            case .smb, .webdav, .ftp, .sftp, .nfs, .upnp, .jellyfin, .emby, .plex:
-                await scanConnectorSource(source: source, directories: dirs)
-            default:
-                scanStates[source.id] = ScanState(
-                    isScanning: false,
-                    currentFile: String(localized: "scan_needs_connect")
-                )
-            }
-        }
-    }
-
-    private func scanSynology(source: MusicSource, directories: [String]) async {
-        let api: SynologyAPI
-        if let existing = synologyAPIs[source.id] {
-            api = existing
-        } else {
-            let created = SynologyAPI(
-                host: source.host ?? "",
-                port: source.port ?? 5001,
-                useSsl: source.useSsl
-            )
-            synologyAPIs[source.id] = created
-            api = created
-        }
-
-        if await api.isLoggedIn == false {
-            let password = KeychainService.getPassword(for: source.id) ?? ""
-            let loginResult = await api.login(
-                account: source.username ?? "",
-                password: password,
-                deviceName: source.rememberDevice ? "Primuse-iOS" : nil,
-                deviceId: source.deviceId
-            )
-
-            if loginResult.needs2FA {
-                scanStates[source.id] = ScanState(
-                    isScanning: false,
-                    currentFile: String(localized: "scan_needs_connect")
-                )
-                connectingSource = source
-                return
-            }
-
-            guard loginResult.success else {
-                scanStates[source.id] = ScanState(
-                    isScanning: false,
-                    currentFile: loginResult.errorMessage ?? "Login failed"
-                )
-                return
-            }
-
-            if let did = loginResult.deviceId {
-                updateSource(source.id) { $0.deviceId = did }
-            }
-        }
-
-        let scanner = SynologyScanner(api: api, sourceID: source.id)
-        let stream = await scanner.scan(directories: directories)
-
-        do {
-            var lastSongs: [Song] = []
-            var lastIncrementalUpdate = 0
-            for try await update in stream {
-                scanStates[source.id]?.scannedCount = update.scannedCount
-                scanStates[source.id]?.totalCount = update.totalCount
-                scanStates[source.id]?.currentFile = update.currentFile
-                lastSongs = update.songs
-
-                // Incremental library update every 10 songs
-                if update.scannedCount - lastIncrementalUpdate >= 10 {
-                    library.addSongs(lastSongs)
-                    lastIncrementalUpdate = update.scannedCount
-                }
-            }
-
-            completeScan(sourceID: source.id, songs: lastSongs)
-        } catch {
-            scanStates[source.id] = ScanState(
-                isScanning: false,
-                currentFile: error.localizedDescription
-            )
-        }
-    }
-
-    private func scanConnectorSource(source: MusicSource, directories: [String]) async {
-        let connector = sourceManager.connector(for: source)
-        let scanner = ConnectorScanner(connector: connector, sourceID: source.id)
-        let stream = await scanner.scan(directories: directories)
-
-        do {
-            var lastSongs: [Song] = []
-            var lastIncrementalUpdate = 0
-            for try await update in stream {
-                scanStates[source.id]?.scannedCount = update.scannedCount
-                scanStates[source.id]?.totalCount = update.totalCount
-                scanStates[source.id]?.currentFile = update.currentFile
-                lastSongs = update.songs
-
-                if update.scannedCount - lastIncrementalUpdate >= 10 {
-                    library.addSongs(lastSongs)
-                    lastIncrementalUpdate = update.scannedCount
-                }
-            }
-
-            completeScan(sourceID: source.id, songs: lastSongs)
-        } catch {
-            scanStates[source.id] = ScanState(
-                isScanning: false,
-                currentFile: error.localizedDescription
-            )
         }
     }
 
@@ -314,7 +194,7 @@ struct SourcesView: View {
                     updateSource(source.id) { $0.deviceId = did }
                 },
                 onSessionReady: { api in
-                    synologyAPIs[source.id] = api
+                    scanService.synologyAPIs[source.id] = api
                 }
             )
         case .smb:
@@ -329,8 +209,6 @@ struct SourcesView: View {
             NFSBrowserView(source: source, selectedDirectories: selectedDirectories)
         case .upnp:
             UPnPBrowserView(source: source, selectedDirectories: selectedDirectories)
-        case .jellyfin, .emby, .plex:
-            MediaServerBrowserView(source: source, selectedDirectories: selectedDirectories)
         default:
             ContentUnavailableView(
                 "connection_failed",
@@ -351,7 +229,7 @@ struct SourcesView: View {
     private func deleteSource(_ source: MusicSource) {
         library.removeSongsForSource(source.id)
         sourceStore.remove(id: source.id)
-        synologyAPIs[source.id] = nil
+        scanService.removeSynologyAPI(for: source.id)
         Task { await sourceManager.removeConnector(for: source.id) }
     }
 
@@ -361,17 +239,6 @@ struct SourcesView: View {
 
     private func updateSource(_ sourceID: String, mutate: (inout MusicSource) -> Void) {
         sourceStore.update(sourceID, mutate: mutate)
-    }
-
-    private func completeScan(sourceID: String, songs: [Song]) {
-        library.addSongs(songs)
-        updateSource(sourceID) {
-            $0.songCount = songs.count
-            $0.lastScannedAt = Date()
-        }
-        scanStates[sourceID]?.isScanning = false
-        scanStates[sourceID]?.scannedCount = songs.count
-        scanStates[sourceID]?.currentFile = "\(songs.count) \(String(localized: "songs_found"))"
     }
 
     private func decodeDirs(_ config: String?) -> [String] {

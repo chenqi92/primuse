@@ -289,6 +289,17 @@ final class AudioEngine {
         }
     }
 
+    /// Returns diagnostic info about the engine state for debugging playback issues.
+    func diagnosticInfo() -> String {
+        let engRunning = engine?.isRunning ?? false
+        let playerPlaying = playerNode?.isPlaying ?? false
+        let playerVol = playerNode?.volume ?? -1
+        let crossVol = crossfadePlayerNode?.volume ?? -1
+        let mainVol = engine?.mainMixerNode.outputVolume ?? -1
+        let hasTime = (playerNode?.lastRenderTime) != nil
+        return "eng=\(engRunning) player=\(playerPlaying) pVol=\(playerVol) cVol=\(crossVol) mainVol=\(mainVol) hasRenderTime=\(hasTime)"
+    }
+
     func scheduleBufferStream(_ stream: AsyncThrowingStream<AVAudioPCMBuffer, Error>) async throws {
         guard let playerNode else { return }
         for try await buffer in stream {

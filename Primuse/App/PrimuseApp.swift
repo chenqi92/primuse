@@ -11,6 +11,7 @@ struct PrimuseApp: App {
     @State private var musicLibrary: MusicLibrary
     @State private var playbackSettingsStore: PlaybackSettingsStore
     @State private var themeService = ThemeService()
+    @State private var scanService = ScanService()
 
     init() {
         AudioSessionManager.shared.configureForPlayback()
@@ -48,8 +49,12 @@ struct PrimuseApp: App {
                 .environment(scraperSettingsStore)
                 .environment(scraperService)
                 .environment(playbackSettingsStore)
-                .onChange(of: playerService.currentSong?.coverArtFileName) { _, newCover in
-                    themeService.updateFromCoverArt(fileName: newCover)
+                .environment(scanService)
+                .onChange(of: playerService.currentSong?.id) { _, _ in
+                    themeService.updateFromCoverArt(
+                        fileName: playerService.currentSong?.coverArtFileName,
+                        songID: playerService.currentSong?.id
+                    )
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
                     musicLibrary.persistNow()

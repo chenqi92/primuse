@@ -82,8 +82,22 @@ actor SynologyScanner {
     ) async throws {
         let items = try await api.listDirectory(path: path)
 
-        // Build a set of filenames for sidecar lookup (.lrc files)
+        // Build a set of filenames for sidecar detection
         let allNames = Set(items.map(\.name))
+        let coverNames = PrimuseConstants.folderCoverNames  // cover.jpg, folder.jpg, etc.
+
+        // Detect folder-level cover sidecar (e.g., cover.jpg in this directory)
+        let coverExts = ["jpg", "jpeg", "png", "webp"]
+        var folderCoverPath: String?
+        outer: for name in coverNames {
+            for ext in coverExts {
+                let fileName = "\(name).\(ext)"
+                if allNames.contains(fileName) {
+                    folderCoverPath = (path as NSString).appendingPathComponent(fileName)
+                    break outer
+                }
+            }
+        }
 
         for item in items {
             if item.isDirectory {
@@ -96,10 +110,32 @@ actor SynologyScanner {
                 let ext = (item.name as NSString).pathExtension.lowercased()
                 guard PrimuseConstants.supportedAudioExtensions.contains(ext) else { continue }
 
-                // Check for sidecar .lrc file (same name, .lrc extension)
+                // Detect sidecar files by name (no download needed)
                 let baseName = (item.name as NSString).deletingPathExtension
+                let parentDir = (item.path as NSString).deletingLastPathComponent
+
+                // Lyrics sidecar: song.lrc
                 let lrcName = baseName + ".lrc"
                 let hasLrc = allNames.contains(lrcName) || allNames.contains(baseName + ".LRC")
+                let lyricsRef = hasLrc ? (parentDir as NSString).appendingPathComponent(lrcName) : nil
+
+                // Cover sidecar: song.jpg → song-cover.jpg → folder-level cover.jpg
+                var coverRef: String?
+                for coverExt in ["jpg", "jpeg", "png", "webp"] {
+                    // Priority 1: same-name (song.jpg)
+                    let songCover = baseName + ".\(coverExt)"
+                    if allNames.contains(songCover) {
+                        coverRef = (parentDir as NSString).appendingPathComponent(songCover)
+                        break
+                    }
+                    // Priority 2: name-cover pattern (song-cover.jpg)
+                    let nameCover = baseName + "-cover.\(coverExt)"
+                    if allNames.contains(nameCover) {
+                        coverRef = (parentDir as NSString).appendingPathComponent(nameCover)
+                        break
+                    }
+                }
+                if coverRef == nil { coverRef = folderCoverPath }
 
                 count += 1
                 continuation.yield(ScanUpdate(
@@ -108,25 +144,20 @@ actor SynologyScanner {
 
                 var song = await extractSongMetadata(item: item, ext: ext)
 
-                // If sidecar .lrc exists, download and parse it
-                if hasLrc {
-                    let lrcPath = (item.path as NSString).deletingLastPathComponent + "/" + lrcName
-                    if let lyricsFileName = await downloadAndParseLrc(path: lrcPath, songID: song.id) {
-                        song = Song(
-                            id: song.id, title: song.title, albumID: song.albumID, artistID: song.artistID,
-                            albumTitle: song.albumTitle, artistName: song.artistName,
-                            trackNumber: song.trackNumber, discNumber: song.discNumber,
-                            duration: song.duration, fileFormat: song.fileFormat,
-                            filePath: song.filePath, sourceID: song.sourceID,
-                            fileSize: song.fileSize, bitRate: song.bitRate,
-                            sampleRate: song.sampleRate, bitDepth: song.bitDepth,
-                            genre: song.genre, year: song.year,
-                            dateAdded: song.dateAdded,
-                            coverArtFileName: song.coverArtFileName,
-                            lyricsFileName: lyricsFileName
-                        )
-                    }
-                }
+                // Set source-side sidecar references (not local cache filenames)
+                song = Song(
+                    id: song.id, title: song.title, albumID: song.albumID, artistID: song.artistID,
+                    albumTitle: song.albumTitle, artistName: song.artistName,
+                    trackNumber: song.trackNumber, discNumber: song.discNumber,
+                    duration: song.duration, fileFormat: song.fileFormat,
+                    filePath: song.filePath, sourceID: song.sourceID,
+                    fileSize: song.fileSize, bitRate: song.bitRate,
+                    sampleRate: song.sampleRate, bitDepth: song.bitDepth,
+                    genre: song.genre, year: song.year,
+                    dateAdded: song.dateAdded,
+                    coverArtFileName: coverRef,
+                    lyricsFileName: lyricsRef
+                )
 
                 allSongs.append(song)
 
@@ -150,9 +181,12 @@ actor SynologyScanner {
         // Defaults from filename
         let (parsedTitle, parsedArtist) = parseFilename((item.name as NSString).deletingPathExtension)
 
+        // Don't use generic folder names as album title
+        let genericFolders: Set<String> = ["music", "音乐", "Music", "songs", "Songs", "audio", "Audio", "media", "Media", "downloads", "Downloads"]
+
         var title = parsedTitle
         var artist = parsedArtist
-        var album: String? = albumFromPath
+        var album: String? = genericFolders.contains(albumFromPath) ? nil : albumFromPath
         var trackNumber: Int?
         var duration: TimeInterval = 0
         var year: Int?
@@ -206,14 +240,9 @@ actor SynologyScanner {
                     case AVMetadataKey.commonKeyAlbumName.rawValue:
                         if let v = value as? String, !v.isEmpty { album = v }
                     case AVMetadataKey.commonKeyArtwork.rawValue:
-                        // Extract cover art and save via MetadataAssetStore
-                        if let artData = value as? Data, !artData.isEmpty {
-                            if let image = UIImage(data: artData),
-                               let jpegData = image.jpegData(compressionQuality: 0.8) {
-                                MetadataAssetStore.shared.storeCoverSync(jpegData, for: songID)
-                                coverArtFileName = MetadataAssetStore.shared.expectedCoverFileName(for: songID)
-                            }
-                        }
+                        // Embedded cover art detected — coverArtFileName stays nil
+                        // (cover will be extracted on-demand at display time via CachedArtworkView)
+                        break
                     default: break
                     }
                 }

@@ -2,8 +2,6 @@ import SwiftUI
 import PrimuseKit
 
 struct SettingsView: View {
-    @Environment(SourceManager.self) private var sourceManager
-
     var body: some View {
         NavigationStack {
             List {
@@ -32,6 +30,12 @@ struct SettingsView: View {
                         MetadataScrapingView()
                     } label: {
                         Label("metadata_scraping", systemImage: "wand.and.stars")
+                    }
+
+                    NavigationLink {
+                        StorageManagementView()
+                    } label: {
+                        Label("storage_management", systemImage: "internaldrive")
                     }
                 }
 
@@ -206,9 +210,6 @@ struct MetadataScrapingView: View {
 
 struct PlaybackSettingsView: View {
     @Environment(PlaybackSettingsStore.self) private var playbackSettings
-    @Environment(SourceManager.self) private var sourceManager
-    @State private var cacheSize: String = "0 MB"
-    @State private var isClearing = false
 
     var body: some View {
         @Bindable var settings = playbackSettings
@@ -254,55 +255,129 @@ struct PlaybackSettingsView: View {
                 Text("replay_gain_desc")
             }
 
-            Section {
-                Toggle("audio_cache_enabled", isOn: $settings.audioCacheEnabled)
-
-                HStack {
-                    Text("cache_size")
-                    Spacer()
-                    Text(cacheSize)
-                        .foregroundStyle(.secondary)
-                }
-
-                Button(role: .destructive) {
-                    isClearing = true
-                    Task {
-                        await clearCache()
-                        isClearing = false
-                    }
-                } label: {
-                    HStack {
-                        Label("clear_cache", systemImage: "trash")
-                        if isClearing {
-                            Spacer()
-                            ProgressView()
-                        }
-                    }
-                }
-                .disabled(isClearing)
-            } footer: {
-                Text("audio_cache_desc")
-            }
         }
         .navigationTitle("playback_settings")
         .navigationBarTitleDisplayMode(.inline)
-        .task { await refreshCacheSize() }
+    }
+}
+
+// MARK: - Storage Management
+
+struct StorageManagementView: View {
+    @Environment(SourceManager.self) private var sourceManager
+    @Environment(PlaybackSettingsStore.self) private var playbackSettings
+    @State private var audioCacheSize: String = "..."
+    @State private var imageCacheSize: String = "..."
+    @State private var metadataSize: String = "..."
+    @State private var isClearingAudio = false
+    @State private var isClearingImages = false
+    @State private var isClearingMetadata = false
+
+    var body: some View {
+        @Bindable var settings = playbackSettings
+
+        List {
+            Section {
+                Toggle("audio_cache_enabled", isOn: $settings.audioCacheEnabled)
+
+                storageRow(
+                    icon: "waveform",
+                    title: "audio_cache",
+                    size: audioCacheSize,
+                    isClearing: isClearingAudio
+                ) {
+                    isClearingAudio = true
+                    Task {
+                        sourceManager.clearAudioCache()
+                        await refreshSizes()
+                        isClearingAudio = false
+                    }
+                }
+
+                storageRow(
+                    icon: "photo",
+                    title: "image_cache",
+                    size: imageCacheSize,
+                    isClearing: isClearingImages
+                ) {
+                    isClearingImages = true
+                    Task {
+                        try? await ImageCache.shared.clearDiskCache()
+                        CachedArtworkView.clearMemoryCache()
+                        await refreshSizes()
+                        isClearingImages = false
+                    }
+                }
+            } header: {
+                Text("cache")
+            } footer: {
+                Text("cache_clear_footer")
+            }
+
+            Section {
+                storageRow(
+                    icon: "music.note.list",
+                    title: "cover_art_lyrics",
+                    size: metadataSize,
+                    isClearing: isClearingMetadata
+                ) {
+                    isClearingMetadata = true
+                    Task {
+                        await MetadataAssetStore.shared.clearAll()
+                        CachedArtworkView.clearMemoryCache()
+                        await refreshSizes()
+                        isClearingMetadata = false
+                    }
+                }
+            } header: {
+                Text("persistent_data")
+            } footer: {
+                Text("metadata_clear_footer")
+            }
+        }
+        .navigationTitle("storage_management")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await refreshSizes() }
     }
 
-    private func clearCache() async {
-        await MetadataAssetStore.shared.clearAll()
-        try? await ImageCache.shared.clearDiskCache()
-        sourceManager.clearAudioCache()
-        await refreshCacheSize()
+    private func storageRow(
+        icon: String,
+        title: LocalizedStringKey,
+        size: String,
+        isClearing: Bool,
+        onClear: @escaping () -> Void
+    ) -> some View {
+        HStack {
+            Label(title, systemImage: icon)
+            Spacer()
+            if isClearing {
+                ProgressView()
+            } else {
+                Text(size)
+                    .foregroundStyle(.secondary)
+            }
+            Button(role: .destructive) { onClear() } label: {
+                Image(systemName: "trash")
+                    .font(.caption)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(isClearing)
+        }
     }
 
-    private func refreshCacheSize() async {
-        let imageCacheSize = (try? await ImageCache.shared.diskCacheSize()) ?? 0
-        let metadataCacheSize = await MetadataAssetStore.shared.cacheSize()
-        let audioCacheSize = sourceManager.audioCacheSize()
+    private func refreshSizes() async {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
-        cacheSize = formatter.string(fromByteCount: imageCacheSize + metadataCacheSize + audioCacheSize)
+
+        let audio = Int64(sourceManager.audioCacheSize())
+        audioCacheSize = formatter.string(fromByteCount: audio)
+
+        let images = (try? await ImageCache.shared.diskCacheSize()) ?? 0
+        imageCacheSize = formatter.string(fromByteCount: images)
+
+        let metadata = await MetadataAssetStore.shared.cacheSize()
+        metadataSize = formatter.string(fromByteCount: metadata)
     }
 }
 

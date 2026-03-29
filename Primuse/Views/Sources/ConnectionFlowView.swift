@@ -366,8 +366,14 @@ struct RealDirectoryBrowserView: View {
                         .font(.subheadline).fontWeight(.medium)
                         .foregroundStyle(Color.accentColor)
                     Spacer()
-                    Button("clear_all") { withAnimation { selectedDirectories.removeAll() } }
-                        .font(.caption)
+                    Button(role: .destructive) {
+                        withAnimation { selectedDirectories.removeAll() }
+                    } label: {
+                        Label("clear_all", systemImage: "xmark.circle")
+                            .font(.caption).fontWeight(.medium)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
                 Spacer()
             }

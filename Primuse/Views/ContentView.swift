@@ -176,7 +176,9 @@ struct NowPlayingAccessory: View {
                 CachedArtworkView(
                     coverFileName: player.currentSong?.coverArtFileName,
                     size: isInline ? 32 : 40,
-                    cornerRadius: isInline ? 6 : 8
+                    cornerRadius: isInline ? 6 : 8,
+                    sourceID: player.currentSong?.sourceID,
+                    filePath: player.currentSong?.filePath
                 )
                 .padding(.trailing, isInline ? 10 : 10)
 

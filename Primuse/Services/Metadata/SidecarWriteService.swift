@@ -32,9 +32,8 @@ actor SidecarWriteService {
         let songBaseName = (song.filePath as NSString).lastPathComponent
         let baseNameNoExt = (songBaseName as NSString).deletingPathExtension
 
-        // 1. Write cover.jpg to album directory
+        // 1. Write <basename>-cover.jpg next to audio file
         if let coverData, !coverData.isEmpty {
-            // Compress to reasonable JPEG if needed
             let jpegData: Data
             if let image = UIImage(data: coverData),
                let compressed = image.jpegData(compressionQuality: 0.85) {
@@ -43,14 +42,15 @@ actor SidecarWriteService {
                 jpegData = coverData
             }
 
-            let coverPath = (songDir as NSString).appendingPathComponent("cover.jpg")
+            let coverFileName = "\(baseNameNoExt)-cover.jpg"
+            let coverPath = (songDir as NSString).appendingPathComponent(coverFileName)
             do {
                 try await connector.writeFile(data: jpegData, to: coverPath)
                 result.coverWritten = true
-                NSLog("📁 Sidecar: cover.jpg written to \(songDir)")
+                NSLog("📁 Sidecar: \(coverFileName) written to \(songDir)")
             } catch {
                 result.errors.append("Cover: \(error.localizedDescription)")
-                NSLog("⚠️ Sidecar: Failed to write cover.jpg: \(error)")
+                NSLog("⚠️ Sidecar: Failed to write \(coverFileName): \(error)")
             }
         }
 

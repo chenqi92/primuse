@@ -106,6 +106,10 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         }
     }
 
+    public var isMediaServer: Bool {
+        self == .jellyfin || self == .emby || self == .plex
+    }
+
     public var category: SourceCategory {
         switch self {
         case .synology, .qnap, .ugreen, .fnos: return .nas

@@ -224,14 +224,23 @@ struct HomeView: View {
     }
 
     private func playAlbum(_ album: Album) {
-        let albumSongs = library.songs(forAlbum: album.id)
-        guard let first = albumSongs.first else { return }
-        player.setQueue(albumSongs, startAt: 0)
-        Task { await player.play(song: first) }
+        // Build queue from all spotlight albums, starting at the tapped album
+        var allSongs: [Song] = []
+        var startIndex = 0
+        for spotlight in spotlightAlbums {
+            let songs = library.songs(forAlbum: spotlight.id)
+            if spotlight.id == album.id {
+                startIndex = allSongs.count
+            }
+            allSongs.append(contentsOf: songs)
+        }
+        guard !allSongs.isEmpty else { return }
+        player.setQueue(allSongs, startAt: startIndex)
+        Task { await player.play(song: allSongs[startIndex]) }
     }
 
     private func playSong(_ song: Song) {
-        // Prefer album context so the user can listen to the full album
+        // Always play the exact song the user tapped, with nearby songs as queue context
         if let albumID = song.albumID {
             let albumSongs = library.songs(forAlbum: albumID)
             if albumSongs.count > 1,
@@ -241,14 +250,8 @@ struct HomeView: View {
                 return
             }
         }
-
-        // Fall back to recent play history as queue
-        let recent = library.recentlyPlayedSongs(limit: 100)
-        if recent.count > 1, let index = recent.firstIndex(where: { $0.id == song.id }) {
-            player.setQueue(recent, startAt: index)
-        } else {
-            player.setQueue([song], startAt: 0)
-        }
+        // Single song or no album context
+        player.setQueue([song], startAt: 0)
         Task { await player.play(song: song) }
     }
 }
@@ -259,7 +262,7 @@ struct RecentPlayCard: View {
     let song: Song
     var body: some View {
         HStack(spacing: 10) {
-            CachedArtworkView(coverFileName: song.coverArtFileName, size: 48, cornerRadius: 6)
+            CachedArtworkView(coverFileName: song.coverArtFileName, size: 48, cornerRadius: 6, sourceID: song.sourceID, filePath: song.filePath)
             VStack(alignment: .leading, spacing: 2) {
                 Text(song.title).font(.caption).fontWeight(.medium).lineLimit(1)
                 Text(song.artistName ?? "").font(.caption2).foregroundStyle(.secondary).lineLimit(1)

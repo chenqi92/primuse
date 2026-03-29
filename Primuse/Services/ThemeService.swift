@@ -27,30 +27,48 @@ final class ThemeService {
 
     // MARK: - Public API
 
-    func updateFromCoverArt(fileName: String?) {
-        guard let fileName, !fileName.isEmpty else {
+    func updateFromCoverArt(fileName: String?, songID: String? = nil) {
+        guard (fileName != nil && !fileName!.isEmpty) || songID != nil else {
             resetToDefault()
             return
         }
 
-        let fileURL = Self.artworkDir.appendingPathComponent(fileName)
-
-        guard FileManager.default.fileExists(atPath: fileURL.path),
-              let data = try? Data(contentsOf: fileURL),
-              let image = UIImage(data: data) else {
+        // Try songID-based cache first, then legacy filename
+        let image: UIImage?
+        if let songID {
+            let hashedName = MetadataAssetStore.shared.expectedCoverFileName(for: songID)
+            let url = Self.artworkDir.appendingPathComponent(hashedName)
+            image = (try? Data(contentsOf: url)).flatMap { UIImage(data: $0) }
+        } else {
+            image = nil
+        }
+        let resolvedImage: UIImage
+        if let image {
+            resolvedImage = image
+        } else if let fileName, !fileName.isEmpty,
+                  !fileName.contains("/"), !fileName.contains("://") {
+            // Legacy: direct filename in artworkDir
+            let fileURL = Self.artworkDir.appendingPathComponent(fileName)
+            guard let data = try? Data(contentsOf: fileURL),
+                  let loaded = UIImage(data: data) else {
+                resetToDefault()
+                return
+            }
+            resolvedImage = loaded
+        } else {
             resetToDefault()
             return
         }
 
         // Extract on background, apply on main
         Task.detached(priority: .userInitiated) { [weak self] in
-            let result = Self.extractDominantColor(from: image)
+            let result = Self.extractDominantColor(from: resolvedImage)
             await MainActor.run {
                 guard let self else { return }
                 withAnimation(.easeInOut(duration: 0.6)) {
                     self.accentColor = result.accent
                     self.darkAccent = result.dark
-                    self.colorID = fileName
+                    self.colorID = songID ?? fileName ?? "default"
                 }
             }
         }

@@ -309,3 +309,15 @@
 
 // MARK: - Gapless
 "gapless_not_available" = "无缝播放功能暂不可用。";
+
+// MARK: - Metadata
+"clear_metadata" = "清除封面与歌词";
+"clear_metadata_confirm" = "将删除所有已缓存的封面和歌词。需要时会从音乐源重新获取。";
+"storage_management" = "存储管理";
+"audio_cache" = "音频缓存";
+"image_cache" = "图片缓存";
+"cover_art_lyrics" = "封面与歌词";
+"cache" = "缓存";
+"persistent_data" = "持久化数据";
+"cache_clear_footer" = "缓存可安全清除。音频将在播放时重新加载，图片将按需重新下载。";
+"metadata_clear_footer" = "封面与歌词为持久化存储。清除后需要重新扫描或从音乐源重新获取。";

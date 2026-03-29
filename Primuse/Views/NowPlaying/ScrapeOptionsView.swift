@@ -596,6 +596,8 @@ struct ScrapeOptionsView: View {
             coverFileName = MetadataAssetStore.shared.expectedCoverFileName(for: song.id)
             // Store synchronously for immediate availability
             MetadataAssetStore.shared.storeCoverSync(data, for: song.id)
+            // Invalidate memory cache so UI picks up the new cover
+            CachedArtworkView.invalidateCache(for: coverFileName!)
         }
 
         if preview.hasLyrics && applyLyrics, let lines = preview.lyricsLines {

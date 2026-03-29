@@ -16,6 +16,8 @@
 		09AED938D1C5CFDD279BCB08 /* UPnPSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A7C2D0F07C125A333AC1046 /* UPnPSource.swift */; };
 		0A176E7239A1CEA25561D8F8 /* CachedArtworkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 128F97B910573229B86FAD8A /* CachedArtworkView.swift */; };
 		0A29AD1261453B6735CB9962 /* MusicLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2105927D98B1DF9885EB81 /* MusicLibrary.swift */; };
+		A4F3E2D1C0B9A8F7E6D5C4B3 /* AudioCacheManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3C4D5E6F7A8B9C0D1E2F3A4 /* AudioCacheManager.swift */; };
+		C1D2E3F4A5B6C7D8E9F0A1B2 /* ScanService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2E3F4A5B6C7D8E9F0A1B2C3 /* ScanService.swift */; };
 		0DE424D06481AD17229FF9F0 /* LRCLIBScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AE8A78DAC80BEED65803A6B /* LRCLIBScraper.swift */; };
 		0E6463926D749078CF6E3C2F /* LyricsParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3853774B80EC7B89FE6982B /* LyricsParser.swift */; };
 		0EF9A2707BC3958302910C83 /* Crypto in Frameworks */ = {isa = PBXBuildFile; productRef = 732C3E4918F41BB73857AAE7 /* Crypto */; };
@@ -270,6 +272,7 @@
 		363F869C6171BAEF3E787B3A /* ArtworkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkView.swift; sourceTree = "<group>"; };
 		38FB8C7B3EA4A58B80265EDC /* Playlist.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Playlist.swift; sourceTree = "<group>"; };
 		39F6AE35FC2EC095FBF1EA0E /* AudioEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioEngine.swift; sourceTree = "<group>"; };
+		B3C4D5E6F7A8B9C0D1E2F3A4 /* AudioCacheManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCacheManager.swift; sourceTree = "<group>"; };
 		3A04A9461976D9D58E02D5BA /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		3A0BB7D64F2BBD76A56CD9C5 /* PlaybackState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackState.swift; sourceTree = "<group>"; };
 		3A648FD6CF121358D543D0AB /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
@@ -351,6 +354,7 @@
 		C54818EBAB874DF0A7E5C6DE /* AudioSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioSessionManager.swift; sourceTree = "<group>"; };
 		C9F569D02D3E6102A0C0E1CF /* FileLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileLogger.swift; sourceTree = "<group>"; };
 		CA179334735B8A7FCFC9F055 /* QnapSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QnapSource.swift; sourceTree = "<group>"; };
+		D2E3F4A5B6C7D8E9F0A1B2C3 /* ScanService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanService.swift; sourceTree = "<group>"; };
 		CA3A196D13D6AB09FFF51545 /* LibraryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryService.swift; sourceTree = "<group>"; };
 		CACF669ECDE8745A546EE459 /* UgreenAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UgreenAPI.swift; sourceTree = "<group>"; };
 		CAE5ECFCA4B6AB18CC72F7DB /* Album.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Album.swift; sourceTree = "<group>"; };
@@ -438,6 +442,7 @@
 			isa = PBXGroup;
 			children = (
 				23F224C180F61FD6AD00DD7B /* AssetReaderDecoder.swift */,
+				B3C4D5E6F7A8B9C0D1E2F3A4 /* AudioCacheManager.swift */,
 				DF62F5046D29F993786AE489 /* AudioDecoderProtocol.swift */,
 				39F6AE35FC2EC095FBF1EA0E /* AudioEngine.swift */,
 				4F953DC4532B85C7AD604EF9 /* AudioPlayerService.swift */,
@@ -669,6 +674,7 @@
 				6D84632D6A2887E8E174E87C /* LibraryScanner.swift */,
 				CA3A196D13D6AB09FFF51545 /* LibraryService.swift */,
 				5A2105927D98B1DF9885EB81 /* MusicLibrary.swift */,
+				D2E3F4A5B6C7D8E9F0A1B2C3 /* ScanService.swift */,
 			);
 			path = Library;
 			sourceTree = "<group>";
@@ -1063,6 +1069,7 @@
 				F3E8C3E3C7DA98A5BA56ABB9 /* ArtistListView.swift in Sources */,
 				1794D1037671E0C9091F0E5E /* ArtworkView.swift in Sources */,
 				748DEA1522A12D44B1085058 /* AssetReaderDecoder.swift in Sources */,
+				A4F3E2D1C0B9A8F7E6D5C4B3 /* AudioCacheManager.swift in Sources */,
 				FFD2B29D7B89BDA769B2D069 /* AudioDecoderProtocol.swift in Sources */,
 				84ECB1EB9771EBDA278129BC /* AudioEngine.swift in Sources */,
 				597C9FC6DA3A3EF903307FC9 /* AudioPlayerService.swift in Sources */,
@@ -1111,6 +1118,7 @@
 				05932B0B3C4B3CAD469D869A /* MiniPlayerView.swift in Sources */,
 				8A77CEB41659883181CEBEA5 /* MusicBrainzScraper.swift in Sources */,
 				0A29AD1261453B6735CB9962 /* MusicLibrary.swift in Sources */,
+				C1D2E3F4A5B6C7D8E9F0A1B2 /* ScanService.swift in Sources */,
 				6AE046838D6546471C6E2457 /* MusicScraperFactory.swift in Sources */,
 				42D3D23AAADAC9B441E04D87 /* MusicScraperProtocol.swift in Sources */,
 				F0C26F653605E21534860B2F /* MusicScraperService.swift in Sources */,

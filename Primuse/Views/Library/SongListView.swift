@@ -31,13 +31,15 @@ struct SongListView: View {
         } else {
             List {
                 ForEach(cachedSortedSongs) { song in
-                    SongRowView(
-                        song: song,
-                        isPlaying: player.currentSong?.id == song.id
-                    )
-                    .onTapGesture {
+                    Button {
                         playSong(song)
+                    } label: {
+                        SongRowView(
+                            song: song,
+                            isPlaying: player.currentSong?.id == song.id
+                        )
                     }
+                    .buttonStyle(.plain)
                 }
             }
             .listStyle(.plain)

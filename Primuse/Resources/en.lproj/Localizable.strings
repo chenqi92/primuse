@@ -309,3 +309,15 @@
 
 // MARK: - Gapless
 "gapless_not_available" = "Gapless playback is not yet available.";
+
+// MARK: - Metadata
+"clear_metadata" = "Clear Cover Art & Lyrics";
+"clear_metadata_confirm" = "This will delete all cached cover art and lyrics. They will be re-fetched from your music sources when needed.";
+"storage_management" = "Storage";
+"audio_cache" = "Audio Cache";
+"image_cache" = "Image Cache";
+"cover_art_lyrics" = "Cover Art & Lyrics";
+"cache" = "Cache";
+"persistent_data" = "Persistent Data";
+"cache_clear_footer" = "Cache can be safely cleared. Audio will be re-streamed and images re-downloaded as needed.";
+"metadata_clear_footer" = "Cover art and lyrics are stored persistently. Clearing will require re-scanning or re-fetching from your music sources.";

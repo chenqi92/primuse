@@ -7,6 +7,7 @@ struct NowPlayingView: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(MusicScraperService.self) private var scraperService
+    @Environment(SourceManager.self) private var sourceManager
     @State private var showLyrics = false
     @State private var showQueue = false
     @State private var lyrics: [LyricLine] = []
@@ -67,7 +68,9 @@ struct NowPlayingView: View {
                             HStack(spacing: 10) {
                                 CachedArtworkView(
                                     coverFileName: player.currentSong?.coverArtFileName,
-                                    size: 44, cornerRadius: 6
+                                    size: 44, cornerRadius: 6,
+                                    sourceID: player.currentSong?.sourceID,
+                                    filePath: player.currentSong?.filePath
                                 )
 
                                 VStack(alignment: .leading, spacing: 2) {
@@ -104,7 +107,9 @@ struct NowPlayingView: View {
                         // Artwork
                         CachedArtworkView(
                             coverFileName: player.currentSong?.coverArtFileName,
-                            size: artSize, cornerRadius: 12
+                            size: artSize, cornerRadius: 12,
+                            sourceID: player.currentSong?.sourceID,
+                            filePath: player.currentSong?.filePath
                         )
                         .scaleEffect(player.isPlaying ? 1.0 : 0.9)
                         .shadow(color: .black.opacity(0.3), radius: 20, y: 8)
@@ -383,8 +388,54 @@ struct NowPlayingView: View {
 
     private func loadLyrics() async {
         guard let song = player.currentSong else { lyrics = []; return }
-        lyrics = await MetadataAssetStore.shared.lyrics(named: song.lyricsFileName) ?? []
-        currentLineIndex = 0
+
+        // Tier 1: Local cache only (no network — never block the connector during playback)
+        if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) {
+            lyrics = cached; currentLineIndex = 0; return
+        }
+        if let cached = await MetadataAssetStore.shared.lyrics(named: song.lyricsFileName) {
+            await MetadataAssetStore.shared.cacheLyrics(cached, forSongID: song.id)
+            lyrics = cached; currentLineIndex = 0; return
+        }
+
+        // Tier 2: Check local audio cache for sidecar .lrc (filesystem only, zero network)
+        if let cachedAudioURL = sourceManager.cachedURL(for: song),
+           let lrcURL = SidecarMetadataLoader.findLyrics(for: cachedAudioURL),
+           let parsed = try? LyricsParser.parse(from: lrcURL), !parsed.isEmpty {
+            await MetadataAssetStore.shared.cacheLyrics(parsed, forSongID: song.id)
+            lyrics = parsed; currentLineIndex = 0; return
+        }
+
+        // Tier 3: Fetch .lrc from source using an independent connector (parallel with playback)
+        lyrics = []; currentLineIndex = 0
+        let capturedSourceManager = sourceManager
+
+        Task {
+            do {
+                // auxiliaryConnector creates a separate connection — won't block playback
+                let connector = try await capturedSourceManager.auxiliaryConnector(for: song)
+                let songDir = (song.filePath as NSString).deletingLastPathComponent
+                let baseName = ((song.filePath as NSString).lastPathComponent as NSString).deletingPathExtension
+                let lrcPath: String
+                if let ref = song.lyricsFileName, ref.contains("/") {
+                    lrcPath = ref
+                } else {
+                    lrcPath = (songDir as NSString).appendingPathComponent("\(baseName).lrc")
+                }
+
+                let lrcLocalURL = try await connector.localURL(for: lrcPath)
+                let parsed = try LyricsParser.parse(from: lrcLocalURL)
+                guard !parsed.isEmpty else { return }
+
+                await MetadataAssetStore.shared.cacheLyrics(parsed, forSongID: song.id)
+                // Update UI if still on the same song
+                if player.currentSong?.id == song.id {
+                    lyrics = parsed; currentLineIndex = 0
+                }
+            } catch {
+                // No .lrc file — not an error
+            }
+        }
     }
 
 

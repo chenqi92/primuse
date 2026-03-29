@@ -238,8 +238,11 @@ final class AudioPlayerService {
 
             // Schedule first buffer BEFORE play — playerNode has data ready
             plog("▶️ NativeDecoder firstBuffer: frames=\(firstBuffer.frameLength) format=sr\(firstBuffer.format.sampleRate)/ch\(firstBuffer.format.channelCount)")
+            plog("▶️ Engine state: outputFormat=sr\(outputFormat.sampleRate)/ch\(outputFormat.channelCount) mainVol=\(audioEngine.volume)")
+            plog("▶️ Engine diagnostics: \(audioEngine.diagnosticInfo())")
             audioEngine.scheduleBuffer(firstBuffer)
             audioEngine.play()
+            plog("▶️ After play(): \(audioEngine.diagnosticInfo())")
 
             // Fetch duration asynchronously if not already known
             if duration <= 0 {
@@ -333,9 +336,11 @@ final class AudioPlayerService {
             guard playID == id else { return }
 
             plog("🌊 StreamingDownload firstBuffer: frames=\(firstBuffer.frameLength) sr=\(firstBuffer.format.sampleRate)")
+            plog("🌊 Engine diagnostics before play: \(audioEngine.diagnosticInfo())")
             activeDecoderKind = .streaming
             audioEngine.scheduleBuffer(firstBuffer)
             audioEngine.play()
+            plog("🌊 Engine diagnostics after play: \(audioEngine.diagnosticInfo())")
 
             // Fetch duration asynchronously if needed
             if duration <= 0 {
@@ -1120,23 +1125,35 @@ final class AudioPlayerService {
 
     /// Call ONLY when song changes — loads cover art and sets MPMediaItemPropertyArtwork
     private func updateNowPlayingArtworkIfNeeded() {
-        let coverFileName = currentSong?.coverArtFileName
-        guard coverFileName != lastArtworkFileName else { return }
-        lastArtworkFileName = coverFileName
+        let songID = currentSong?.id
+        guard songID != lastArtworkFileName else { return }
+        lastArtworkFileName = songID
 
-        guard let coverFileName, !coverFileName.isEmpty else { return }
+        guard let songID else { return }
+        let coverRef = currentSong?.coverArtFileName
 
         Task.detached(priority: .userInitiated) { [weak self] in
-            guard let self else { return }
-            let artworkDir = MetadataAssetStore.shared.artworkDirectoryURL
-            let url = artworkDir.appendingPathComponent(coverFileName)
+            guard self != nil else { return }
+            let store = MetadataAssetStore.shared
+            let artworkDir = store.artworkDirectoryURL
 
-            guard let data = try? Data(contentsOf: url),
-                  let loadedImage = UIImage(data: data) else { return }
+            // Try songID-based cache first
+            var loadedImage: UIImage?
+            let hashedName = store.expectedCoverFileName(for: songID)
+            if let data = try? Data(contentsOf: artworkDir.appendingPathComponent(hashedName)) {
+                loadedImage = UIImage(data: data)
+            }
 
-            // Create artwork outside MainActor so the requestHandler closure
-            // doesn't inherit @MainActor isolation (MediaPlayer calls it on a background queue).
-            let artwork = Self.makeArtwork(from: loadedImage)
+            // Fallback: legacy filename
+            if loadedImage == nil, let coverRef, !coverRef.isEmpty,
+               !coverRef.contains("/"), !coverRef.contains("://") {
+                if let data = try? Data(contentsOf: artworkDir.appendingPathComponent(coverRef)) {
+                    loadedImage = UIImage(data: data)
+                }
+            }
+
+            guard let image = loadedImage else { return }
+            let artwork = Self.makeArtwork(from: image)
 
             await MainActor.run {
                 var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]

@@ -184,13 +184,15 @@ final class MusicLibrary {
 
         albums = albumGroups.map { key, songs in
             let parts = key.split(separator: "\0", maxSplits: 1)
-            let artistName = parts.count > 0 ? String(parts[0]) : nil
+            let artistName = parts.count > 0 ? String(parts[0]) : "Unknown"
             let albumTitle = parts.count > 1 ? String(parts[1]) : "Unknown"
-            let id = hashID("\(artistName ?? ""):\(albumTitle)")
+            let id = hashID("\(artistName):\(albumTitle)")
 
+            let artistID = hashID(artistName.lowercased())
             return Album(
                 id: id,
                 title: albumTitle,
+                artistID: artistID,
                 artistName: artistName,
                 year: songs.first?.year,
                 genre: songs.first?.genre,

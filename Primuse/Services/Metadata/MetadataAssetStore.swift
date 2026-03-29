@@ -15,8 +15,8 @@ actor MetadataAssetStore {
     nonisolated let lyricsDirectoryURL: URL
 
     private init(fileManager: FileManager = .default) {
-        let caches = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first!
-        let rootDirectory = caches.appendingPathComponent("primuse_metadata", isDirectory: true)
+        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let rootDirectory = appSupport.appendingPathComponent("Primuse/MetadataAssets", isDirectory: true)
         artworkDirectory = rootDirectory.appendingPathComponent("artwork", isDirectory: true)
         lyricsDirectory = rootDirectory.appendingPathComponent("lyrics", isDirectory: true)
         artworkDirectoryURL = artworkDirectory
@@ -24,6 +24,30 @@ actor MetadataAssetStore {
 
         try? fileManager.createDirectory(at: artworkDirectory, withIntermediateDirectories: true)
         try? fileManager.createDirectory(at: lyricsDirectory, withIntermediateDirectories: true)
+
+        // One-time migration from old Caches location
+        let oldRoot = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("primuse_metadata", isDirectory: true)
+        migrateIfNeeded(from: oldRoot, fileManager: fileManager)
+    }
+
+    /// Migrate files from old Caches path to new Application Support path.
+    private nonisolated func migrateIfNeeded(from oldRoot: URL, fileManager: FileManager) {
+        guard fileManager.fileExists(atPath: oldRoot.path) else { return }
+        let oldArtwork = oldRoot.appendingPathComponent("artwork")
+        let oldLyrics = oldRoot.appendingPathComponent("lyrics")
+
+        for (src, dst) in [(oldArtwork, artworkDirectory), (oldLyrics, lyricsDirectory)] {
+            guard let files = try? fileManager.contentsOfDirectory(at: src, includingPropertiesForKeys: nil) else { continue }
+            for file in files {
+                let target = dst.appendingPathComponent(file.lastPathComponent)
+                if !fileManager.fileExists(atPath: target.path) {
+                    try? fileManager.moveItem(at: file, to: target)
+                }
+            }
+        }
+        // Remove old directory after migration
+        try? fileManager.removeItem(at: oldRoot)
     }
 
     func storeCover(_ data: Data, for key: String) -> String? {
@@ -60,6 +84,47 @@ actor MetadataAssetStore {
             return nil
         }
         return try? decoder.decode([LyricLine].self, from: data)
+    }
+
+    // MARK: - Song ID-based cache (new architecture: source ref + local cache)
+
+    /// Cache cover art data using song ID as the cache key.
+    func cacheCover(_ data: Data, forSongID songID: String) {
+        let fileName = hashedFileName(for: songID, pathExtension: "jpg")
+        let fileURL = artworkDirectory.appendingPathComponent(fileName)
+        try? data.write(to: fileURL, options: .atomic)
+    }
+
+    /// Read cached cover art by song ID.
+    func cachedCoverData(forSongID songID: String) -> Data? {
+        let fileName = hashedFileName(for: songID, pathExtension: "jpg")
+        return try? Data(contentsOf: artworkDirectory.appendingPathComponent(fileName))
+    }
+
+    /// Cache lyrics using song ID as the cache key.
+    func cacheLyrics(_ lines: [LyricLine], forSongID songID: String) {
+        guard let data = try? encoder.encode(lines) else { return }
+        let fileName = hashedFileName(for: songID, pathExtension: "json")
+        let fileURL = lyricsDirectory.appendingPathComponent(fileName)
+        try? data.write(to: fileURL, options: .atomic)
+    }
+
+    /// Read cached lyrics by song ID.
+    func cachedLyrics(forSongID songID: String) -> [LyricLine]? {
+        let fileName = hashedFileName(for: songID, pathExtension: "json")
+        guard let data = try? Data(contentsOf: lyricsDirectory.appendingPathComponent(fileName)) else { return nil }
+        return try? decoder.decode([LyricLine].self, from: data)
+    }
+
+    /// Remove cached cover art for a specific song (e.g., after scraping updates it).
+    func invalidateCoverCache(forSongID songID: String) {
+        let fileName = hashedFileName(for: songID, pathExtension: "jpg")
+        try? FileManager.default.removeItem(at: artworkDirectory.appendingPathComponent(fileName))
+    }
+
+    /// Check if a reference is an old-style local hashed filename (for migration).
+    nonisolated func isLegacyLocalRef(_ ref: String) -> Bool {
+        !ref.contains("/") && !ref.contains("://") && ref.hasSuffix(".jpg") || ref.hasSuffix(".json")
     }
 
     func clearAll() {

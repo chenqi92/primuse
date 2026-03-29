@@ -82,8 +82,11 @@ actor ConnectorScanner {
 
                             let localURL = try await connector.localURL(for: item.path)
                             let songID = hash("\(sourceID):\(item.path)")
-                            let metadata = await metadataService.loadMetadata(for: localURL, cacheKey: songID)
-                            allSongs.append(buildSong(from: item, metadata: metadata, songID: songID))
+                            // Lightweight scan: extract metadata but don't pre-cache cover/lyrics to disk
+                            let metadata = await metadataService.loadMetadata(for: localURL, cacheKey: nil)
+                            // Detect sidecar references on source
+                            let sidecarRefs = detectSidecarRefs(for: item, localURL: localURL)
+                            allSongs.append(buildSong(from: item, metadata: metadata, songID: songID, sidecarRefs: sidecarRefs))
 
                             if scannedCount % 3 == 0 {
                                 continuation.yield(
@@ -114,10 +117,35 @@ actor ConnectorScanner {
         }
     }
 
+    private struct SidecarRefs {
+        var coverPath: String?   // e.g. /Music/Album/cover.jpg
+        var lyricsPath: String?  // e.g. /Music/Album/song.lrc
+    }
+
+    /// Detect sidecar files (cover art, lyrics) by checking the local file's directory.
+    private func detectSidecarRefs(for item: RemoteFileItem, localURL: URL) -> SidecarRefs {
+        var refs = SidecarRefs()
+
+        // Cover art sidecar
+        if let coverURL = SidecarMetadataLoader.findCoverArt(for: localURL) {
+            let parentDir = (item.path as NSString).deletingLastPathComponent
+            refs.coverPath = (parentDir as NSString).appendingPathComponent(coverURL.lastPathComponent)
+        }
+
+        // Lyrics sidecar
+        if let lyricsURL = SidecarMetadataLoader.findLyrics(for: localURL) {
+            let parentDir = (item.path as NSString).deletingLastPathComponent
+            refs.lyricsPath = (parentDir as NSString).appendingPathComponent(lyricsURL.lastPathComponent)
+        }
+
+        return refs
+    }
+
     private func buildSong(
         from item: RemoteFileItem,
         metadata: MetadataService.SongMetadata,
-        songID: String
+        songID: String,
+        sidecarRefs: SidecarRefs = SidecarRefs()
     ) -> Song {
         let artistID = metadata.artist.map { hash("\($0.lowercased())") }
         let albumID: String? = if let artist = metadata.artist, let album = metadata.albumTitle {
@@ -127,6 +155,10 @@ actor ConnectorScanner {
         }
 
         let format = AudioFormat.from(fileExtension: (item.name as NSString).pathExtension) ?? .mp3
+
+        // Source-side references: sidecar path > nil (embedded handled at display time)
+        let coverRef = sidecarRefs.coverPath
+        let lyricsRef = sidecarRefs.lyricsPath
 
         return Song(
             id: songID,
@@ -149,8 +181,8 @@ actor ConnectorScanner {
             year: metadata.year,
             lastModified: item.modifiedDate,
             dateAdded: Date(),
-            coverArtFileName: metadata.coverArtFileName,
-            lyricsFileName: metadata.lyricsFileName
+            coverArtFileName: coverRef,
+            lyricsFileName: lyricsRef
         )
     }
 

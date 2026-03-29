@@ -9,7 +9,7 @@ enum SidecarMetadataLoader {
         let directory = audioURL.deletingLastPathComponent()
         let baseName = audioURL.deletingPathExtension().lastPathComponent
 
-        // Check same-name covers first
+        // Priority 1: same-name covers (song.jpg, song.png)
         for ext in PrimuseConstants.supportedCoverExtensions {
             let coverURL = directory.appendingPathComponent("\(baseName).\(ext)")
             if FileManager.default.fileExists(atPath: coverURL.path) {
@@ -17,7 +17,15 @@ enum SidecarMetadataLoader {
             }
         }
 
-        // Check folder-level covers
+        // Priority 2: name-cover pattern (song-cover.jpg) — common in foobar2000/MusicBee
+        for ext in PrimuseConstants.supportedCoverExtensions {
+            let coverURL = directory.appendingPathComponent("\(baseName)-cover.\(ext)")
+            if FileManager.default.fileExists(atPath: coverURL.path) {
+                return coverURL
+            }
+        }
+
+        // Priority 3: folder-level covers (cover.jpg, folder.jpg, album.jpg)
         for name in PrimuseConstants.folderCoverNames {
             for ext in PrimuseConstants.supportedCoverExtensions {
                 let coverURL = directory.appendingPathComponent("\(name).\(ext)")

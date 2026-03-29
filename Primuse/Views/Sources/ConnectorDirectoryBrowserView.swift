@@ -159,10 +159,14 @@ struct ConnectorDirectoryBrowserView: View {
 
                     Spacer()
 
-                    Button("clear_all") {
+                    Button(role: .destructive) {
                         withAnimation { selectedDirectories.removeAll() }
+                    } label: {
+                        Label("clear_all", systemImage: "xmark.circle")
+                            .font(.caption).fontWeight(.medium)
                     }
-                    .font(.caption)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
 
                 Spacer()

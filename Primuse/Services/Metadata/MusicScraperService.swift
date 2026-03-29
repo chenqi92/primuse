@@ -78,12 +78,13 @@ final class MusicScraperService {
         if !dryRun && updatedSong != song {
             library.replaceSong(updatedSong)
 
-            // Write sidecar files to source (cover.jpg, .lrc) — fire and forget
+            // Write sidecar files to source (cover.jpg, .lrc) and update Song refs
             let coverData = result.coverData
             let lyricsLines = result.lyricsLines
             if coverData != nil || lyricsLines != nil {
                 let songForWrite = updatedSong
                 let sourceManager = self.sourceManager
+                let songID = updatedSong.id
                 Task { @MainActor in
                     do {
                         let connector = try await sourceManager.connectorForSong(songForWrite)
@@ -91,6 +92,30 @@ final class MusicScraperService {
                             for: songForWrite, using: connector,
                             coverData: coverData, lyricsLines: lyricsLines
                         )
+
+                        // Update Song refs to point to sidecar paths on source
+                        let songDir = (songForWrite.filePath as NSString).deletingLastPathComponent
+                        let baseNameNoExt = ((songForWrite.filePath as NSString).lastPathComponent as NSString).deletingPathExtension
+                        var needsUpdate = false
+                        var refSong = songForWrite
+
+                        if writeResult.coverWritten {
+                            let coverPath = (songDir as NSString).appendingPathComponent("\(baseNameNoExt)-cover.jpg")
+                            refSong.coverArtFileName = coverPath
+                            // Invalidate local cache so next display fetches from source
+                            await MetadataAssetStore.shared.invalidateCoverCache(forSongID: songID)
+                            needsUpdate = true
+                        }
+                        if writeResult.lyricsWritten {
+                            let lrcPath = (songDir as NSString).appendingPathComponent("\(baseNameNoExt).lrc")
+                            refSong.lyricsFileName = lrcPath
+                            needsUpdate = true
+                        }
+
+                        if needsUpdate {
+                            library.replaceSong(refSong)
+                        }
+
                         if !writeResult.errors.isEmpty {
                             NSLog("⚠️ Sidecar write errors: \(writeResult.errors)")
                         }
