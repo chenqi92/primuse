@@ -7,6 +7,7 @@ public enum SourceCategory: String, Codable, Sendable, CaseIterable {
     case nas
     case `protocol`
     case mediaServer
+    case cloudDrive
     case local
 
     public var displayName: String {
@@ -14,6 +15,7 @@ public enum SourceCategory: String, Codable, Sendable, CaseIterable {
         case .nas: return "NAS"
         case .protocol: return "Protocol"
         case .mediaServer: return "Media Server"
+        case .cloudDrive: return "Cloud Drive"
         case .local: return "Local"
         }
     }
@@ -37,11 +39,19 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     case sftp
     case nfs
     case upnp
+    case s3
 
     // Media Servers
     case jellyfin
     case emby
     case plex
+
+    // Cloud Drives
+    case baiduPan
+    case aliyunDrive
+    case googleDrive
+    case oneDrive
+    case dropbox
 
     // Local
     case local
@@ -61,6 +71,12 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .jellyfin: return "Jellyfin"
         case .emby: return "Emby"
         case .plex: return "Plex"
+        case .s3: return "S3"
+        case .baiduPan: return "百度网盘"
+        case .aliyunDrive: return "阿里云盘"
+        case .googleDrive: return "Google Drive"
+        case .oneDrive: return "OneDrive"
+        case .dropbox: return "Dropbox"
         case .local: return "Local"
         }
     }
@@ -80,6 +96,12 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .jellyfin: return "play.rectangle.on.rectangle"
         case .emby: return "play.rectangle.on.rectangle"
         case .plex: return "play.rectangle.on.rectangle"
+        case .s3: return "cloud"
+        case .baiduPan: return "cloud.fill"
+        case .aliyunDrive: return "cloud.fill"
+        case .googleDrive: return "cloud.fill"
+        case .oneDrive: return "cloud.fill"
+        case .dropbox: return "cloud.fill"
         case .local: return "iphone"
         }
     }
@@ -87,8 +109,9 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     public var category: SourceCategory {
         switch self {
         case .synology, .qnap, .ugreen, .fnos: return .nas
-        case .webdav, .smb, .ftp, .sftp, .nfs, .upnp: return .protocol
+        case .webdav, .smb, .ftp, .sftp, .nfs, .upnp, .s3: return .protocol
         case .jellyfin, .emby, .plex: return .mediaServer
+        case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox: return .cloudDrive
         case .local: return .local
         }
     }
@@ -108,27 +131,41 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .jellyfin: return 8096
         case .emby: return 8096
         case .plex: return 32400
+        case .s3: return 443
+        case .baiduPan: return 0
+        case .aliyunDrive: return 0
+        case .googleDrive: return 0
+        case .oneDrive: return 0
+        case .dropbox: return 0
         case .local: return 0
         }
     }
 
     public var defaultSSL: Bool {
         switch self {
-        case .synology, .webdav: return true
+        case .synology, .webdav, .s3, .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox: return true
         default: return false
         }
     }
 
     public var requiresHost: Bool {
         switch self {
-        case .local, .upnp: return false
+        case .local, .upnp, .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox: return false
         default: return true
         }
     }
 
+    public var isCloudDrive: Bool {
+        category == .cloudDrive
+    }
+
+    public var requiresOAuth: Bool {
+        isCloudDrive
+    }
+
     public var requiresCredentials: Bool {
         switch self {
-        case .local, .upnp, .nfs: return false
+        case .local, .upnp, .nfs, .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox: return false
         default: return true
         }
     }
@@ -155,6 +192,12 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .jellyfin: return "Open Source"
         case .emby: return "Media Server"
         case .plex: return "Plex Media"
+        case .s3: return "AWS S3 / MinIO / R2"
+        case .baiduPan: return "百度网盘 OAuth"
+        case .aliyunDrive: return "阿里云盘 PDS"
+        case .googleDrive: return "Google OAuth"
+        case .oneDrive: return "Microsoft Graph"
+        case .dropbox: return "Dropbox API v2"
         case .local: return "iPhone Storage"
         }
     }

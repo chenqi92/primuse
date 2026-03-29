@@ -23,6 +23,9 @@ protocol MusicSourceConnector: Sendable {
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error>
     func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error>
 
+    /// Write data to a remote path. Used by sidecar file writing (cover art, lyrics).
+    func writeFile(data: Data, to path: String) async throws
+
     /// Count audio files in a directory (recursive). Default implementation uses scanAudioFiles.
     func countAudioFiles(in path: String) async throws -> Int
 }
@@ -33,6 +36,10 @@ extension MusicSourceConnector {
         let stream = try await scanAudioFiles(from: path)
         for try await _ in stream { count += 1 }
         return count
+    }
+
+    func writeFile(data: Data, to path: String) async throws {
+        throw SourceError.connectionFailed("This source does not support file writing")
     }
 }
 

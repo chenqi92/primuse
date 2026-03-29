@@ -53,6 +53,7 @@ targets:
     dependencies:
       - package: GRDB
       - package: AMSMB2
+        embed: true
       - package: FilesProvider
         product: FilesProvider
       - package: Citadel
@@ -99,6 +100,18 @@ targets:
               NSExceptionAllowsInsecureHTTPLoads: true
               NSExceptionRequiresForwardSecrecy: false
               NSExceptionMinimumTLSVersion: TLSv1.0
+        NSLocalNetworkUsageDescription: "猿音需要访问本地网络以发现和连接您的 NAS 设备、媒体服务器及其他音乐源。"
+        NSBonjourServices:
+          - "_smb._tcp."
+          - "_webdav._tcp."
+          - "_webdavs._tcp."
+          - "_ftp._tcp."
+          - "_sftp-ssh._tcp."
+          - "_nfs._tcp."
+          - "_diskstation._tcp."
+          - "_synology-dsm._tcp."
+          - "_http._tcp."
+          - "_https._tcp."
     settings:
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

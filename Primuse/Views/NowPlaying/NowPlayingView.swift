@@ -14,7 +14,7 @@ struct NowPlayingView: View {
     @State private var isScrapingCurrentSong = false
     @State private var scrapeAlertMessage: String?
     @State private var showScrapeOptions = false
-    @State private var dominantColor: Color = Color(red: 0.15, green: 0.1, blue: 0.2)
+    @Environment(ThemeService.self) private var theme
 
     var body: some View {
         GeometryReader { geo in
@@ -179,10 +179,10 @@ struct NowPlayingView: View {
 
     private var backgroundGradient: some View {
         LinearGradient(
-            colors: [dominantColor, dominantColor.opacity(0.6), .black],
+            colors: [theme.darkAccent, theme.darkAccent.opacity(0.6), .black],
             startPoint: .top, endPoint: .bottom
         )
-        .animation(.easeInOut(duration: 0.5), value: dominantColor.description)
+        .animation(.easeInOut(duration: 0.5), value: theme.colorID)
     }
 
     // MARK: - Full Lyrics (Apple Music style: large text, no frame constraint)
@@ -247,65 +247,9 @@ struct NowPlayingView: View {
         guard let song = player.currentSong else { lyrics = []; return }
         lyrics = await MetadataAssetStore.shared.lyrics(named: song.lyricsFileName) ?? []
         currentLineIndex = 0
-        extractCoverColor(from: song.coverArtFileName)
     }
 
-    private func extractCoverColor(from fileName: String?) {
-        guard let fileName, !fileName.isEmpty else {
-            dominantColor = Color(red: 0.15, green: 0.1, blue: 0.2)
-            return
-        }
 
-        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("primuse_covers")
-        let url = cacheDir.appendingPathComponent(fileName)
-
-        // Also check MetadataAssets/artwork
-        let artworkDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("Primuse/MetadataAssets/artwork")
-        let artworkUrl = artworkDir.appendingPathComponent(fileName)
-
-        let fileURL = FileManager.default.fileExists(atPath: url.path) ? url
-            : FileManager.default.fileExists(atPath: artworkUrl.path) ? artworkUrl : nil
-
-        guard let fileURL, let data = try? Data(contentsOf: fileURL),
-              let image = UIImage(data: data) else {
-            dominantColor = Color(red: 0.15, green: 0.1, blue: 0.2)
-            return
-        }
-
-        // Downsample to 1x1 pixel to get average color
-        let size = CGSize(width: 4, height: 4)
-        UIGraphicsBeginImageContextWithOptions(size, true, 1)
-        image.draw(in: CGRect(origin: .zero, size: size))
-        let smallImage = UIGraphicsGetImageFromCurrentImageContext()
-        UIGraphicsEndImageContext()
-
-        guard let cgImage = smallImage?.cgImage,
-              let dataProvider = cgImage.dataProvider,
-              let pixelData = dataProvider.data else {
-            dominantColor = Color(red: 0.15, green: 0.1, blue: 0.2)
-            return
-        }
-
-        let data2: UnsafePointer<UInt8> = CFDataGetBytePtr(pixelData)
-        // Sample the center pixel area
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
-        let sampleCount = 16 // 4x4
-        for i in 0..<sampleCount {
-            let offset = i * 4
-            r += CGFloat(data2[offset])
-            g += CGFloat(data2[offset + 1])
-            b += CGFloat(data2[offset + 2])
-        }
-        r /= CGFloat(sampleCount) * 255.0
-        g /= CGFloat(sampleCount) * 255.0
-        b /= CGFloat(sampleCount) * 255.0
-
-        // Darken slightly for better readability with white text
-        let darken: CGFloat = 0.6
-        dominantColor = Color(red: r * darken, green: g * darken, blue: b * darken)
-    }
 
     private func updateCurrentLine() {
         guard !lyrics.isEmpty else { return }

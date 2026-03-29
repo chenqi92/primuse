@@ -168,4 +168,11 @@ actor SynologySource: MusicSourceConnector {
         try? FileManager.default.removeItem(at: cacheDirectory)
         try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
     }
+
+    func writeFile(data: Data, to path: String) async throws {
+        try await connect()
+        let directory = (path as NSString).deletingLastPathComponent
+        let fileName = (path as NSString).lastPathComponent
+        try await api.uploadFile(data: data, toDirectory: directory, fileName: fileName)
+    }
 }

@@ -183,7 +183,7 @@ private struct NFSDirectoryBrowserView: View {
                         subtitle: nil,
                         path: item.path,
                         icon: currentPath == "/" ? "externaldrive.fill" : "folder.fill",
-                        iconColor: currentPath == "/" ? .purple : .blue,
+                        iconColor: currentPath == "/" ? .accentColor : .blue,
                         isNavigable: true,
                         selectedDirectories: $selectedDirectories,
                         onNavigate: { enterDirectory(item) }

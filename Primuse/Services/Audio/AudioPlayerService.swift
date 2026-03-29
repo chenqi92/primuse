@@ -308,6 +308,12 @@ final class AudioPlayerService {
         guard let song = currentSong else { return }
         let savedDuration = duration
 
+        // Invalidate old playID BEFORE stop() so any pending completion
+        // callbacks (triggered by AVAudioPlayerNode.stop()) will fail
+        // their guard check and won't trigger handleTrackEnd() → next().
+        let id = UUID()
+        playID = id
+
         Task {
             let wasPlaying = isPlaying
             stop()
@@ -318,6 +324,7 @@ final class AudioPlayerService {
 
             do {
                 let url = try await resolvedURL(for: song)
+                guard playID == id else { return }
                 try audioEngine.setUp()
                 guard let outputFormat = audioEngine.outputFormat else { return }
                 try audioEngine.start()
@@ -330,8 +337,6 @@ final class AudioPlayerService {
                 let stream = nativeDecoder.decode(from: url, outputFormat: outputFormat)
                 let seekSamples = Int64(time * outputFormat.sampleRate)
                 var samplesSkipped: Int64 = 0
-                let id = UUID()
-                playID = id
 
                 // Set sample time offset so currentTime calculation accounts for seek position
                 audioEngine.sampleTimeOffset = -seekSamples

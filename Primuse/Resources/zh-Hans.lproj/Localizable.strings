@@ -188,6 +188,8 @@
 "year" = "年份";
 "genre" = "风格";
 "search_query" = "搜索关键词";
+"unchanged" = "与本地一致";
+"title" = "标题";
 
 // MARK: - 设置
 "playback" = "播放";
@@ -251,3 +253,12 @@
 "scraper_source_a_desc" = "国内音乐平台，支持歌词和封面";
 "scraper_musicbrainz_desc" = "开放音乐数据库，支持元数据和封面";
 "scraper_lrclib_desc" = "开放同步歌词数据库";
+
+// Network Discovery
+"discovered_devices" = "发现的设备";
+"discovering_devices" = "正在扫描局域网设备...";
+"rescan" = "重新扫描";
+
+// Cloud Drive
+"cloud_oauth_config" = "云盘授权";
+"cloud_oauth_hint" = "请在对应云盘开放平台注册应用获取 Client ID。保存后进入 OAuth 登录授权。";

@@ -10,10 +10,10 @@ struct PrimuseApp: App {
     @State private var scraperService: MusicScraperService
     @State private var musicLibrary: MusicLibrary
     @State private var playbackSettingsStore: PlaybackSettingsStore
+    @State private var themeService = ThemeService()
 
     init() {
         AudioSessionManager.shared.configureForPlayback()
-
 
         let store = SourcesStore()
         let manager = SourceManager(sourcesProvider: {
@@ -26,7 +26,8 @@ struct PrimuseApp: App {
 
         _sourcesStore = State(initialValue: store)
         _sourceManager = State(initialValue: manager)
-        _playerService = State(initialValue: AudioPlayerService(sourceManager: manager, library: library, playbackSettings: playbackSettings))
+        let player = AudioPlayerService(sourceManager: manager, library: library, playbackSettings: playbackSettings)
+        _playerService = State(initialValue: player)
         _scraperSettingsStore = State(initialValue: scraperSettings)
         _scraperService = State(initialValue: scraperService)
         _musicLibrary = State(initialValue: library)
@@ -36,6 +37,8 @@ struct PrimuseApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .tint(themeService.accentColor)
+                .environment(themeService)
                 .environment(playerService)
                 .environment(playerService.audioEngine)
                 .environment(playerService.equalizerService)
@@ -45,6 +48,9 @@ struct PrimuseApp: App {
                 .environment(scraperSettingsStore)
                 .environment(scraperService)
                 .environment(playbackSettingsStore)
+                .onChange(of: playerService.currentSong?.coverArtFileName) { _, newCover in
+                    themeService.updateFromCoverArt(fileName: newCover)
+                }
         }
     }
 }

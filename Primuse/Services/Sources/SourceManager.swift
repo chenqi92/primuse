@@ -127,6 +127,28 @@ final class SourceManager {
                 username: source.username ?? "",
                 password: KeychainService.getPassword(for: source.id) ?? ""
             )
+        case .baiduPan:
+            connector = BaiduPanSource(sourceID: source.id)
+        case .aliyunDrive:
+            connector = AliyunDriveSource(sourceID: source.id)
+        case .googleDrive:
+            connector = GoogleDriveSource(sourceID: source.id)
+        case .oneDrive:
+            connector = OneDriveSource(sourceID: source.id)
+        case .dropbox:
+            connector = DropboxSource(sourceID: source.id)
+        case .s3:
+            // S3 uses host=endpoint, basePath=bucket, extraConfig=JSON{region}
+            let extraJson = (try? JSONSerialization.jsonObject(with: Data((source.extraConfig ?? "{}").utf8))) as? [String: String] ?? [:]
+            connector = S3Source(
+                sourceID: source.id,
+                endpoint: source.host ?? "s3.amazonaws.com",
+                region: extraJson["region"] ?? "us-east-1",
+                bucket: source.basePath ?? "",
+                accessKey: source.username ?? "",
+                secretKey: KeychainService.getPassword(for: source.id) ?? "",
+                useSsl: source.useSsl
+            )
         default:
             connector = UnsupportedSourceConnector(
                 sourceID: source.id,
@@ -147,6 +169,17 @@ final class SourceManager {
         let conn = connector(for: source)
         try await conn.connect()
         return try await conn.localURL(for: song.filePath)
+    }
+
+    /// Get the connector for a song's source (for file writing)
+    func connectorForSong(_ song: Song) async throws -> any MusicSourceConnector {
+        let sources = try await sourcesProvider()
+        guard let source = sources.first(where: { $0.id == song.sourceID }) else {
+            throw SourceError.fileNotFound("Source not found for song: \(song.title)")
+        }
+        let conn = connector(for: source)
+        try await conn.connect()
+        return conn
     }
 
     func refreshConnector(for sourceID: String) async {

@@ -36,9 +36,10 @@ final class MusicScraperService {
     /// Scrape single song — never overwrites existing cover/lyrics with nil
     /// dryRun: if true, returns updated song without writing to library
     func scrapeSingle(song: Song, in library: MusicLibrary, dryRun: Bool = false) async throws -> Song {
-        guard var updatedSong = try await processedSong(song, forceRescrape: true) else {
+        guard let result = try await processedSongWithAssets(song, forceRescrape: true) else {
             return song
         }
+        var updatedSong = result.song
 
         // NEVER overwrite existing cover or lyrics with nil
         if updatedSong.coverArtFileName == nil && song.coverArtFileName != nil {
@@ -76,6 +77,28 @@ final class MusicScraperService {
 
         if !dryRun && updatedSong != song {
             library.replaceSong(updatedSong)
+
+            // Write sidecar files to source (cover.jpg, .lrc) — fire and forget
+            let coverData = result.coverData
+            let lyricsLines = result.lyricsLines
+            if coverData != nil || lyricsLines != nil {
+                let songForWrite = updatedSong
+                let sourceManager = self.sourceManager
+                Task { @MainActor in
+                    do {
+                        let connector = try await sourceManager.connectorForSong(songForWrite)
+                        let writeResult = await SidecarWriteService.shared.writeSidecars(
+                            for: songForWrite, using: connector,
+                            coverData: coverData, lyricsLines: lyricsLines
+                        )
+                        if !writeResult.errors.isEmpty {
+                            NSLog("⚠️ Sidecar write errors: \(writeResult.errors)")
+                        }
+                    } catch {
+                        NSLog("⚠️ Sidecar write skipped: \(error.localizedDescription)")
+                    }
+                }
+            }
         }
         return updatedSong
     }
@@ -134,7 +157,13 @@ final class MusicScraperService {
         }
     }
 
-    private func processedSong(_ song: Song, forceRescrape: Bool) async throws -> Song? {
+    private struct ProcessedResult {
+        let song: Song
+        let coverData: Data?
+        let lyricsLines: [LyricLine]?
+    }
+
+    private func processedSongWithAssets(_ song: Song, forceRescrape: Bool) async throws -> ProcessedResult? {
         let fileURL = try await sourceManager.resolveURL(for: song)
         let placeholderTitle = fileURL.deletingPathExtension().lastPathComponent
 
@@ -143,12 +172,20 @@ final class MusicScraperService {
         }
 
         let metadata = await metadataService.loadMetadata(for: fileURL, cacheKey: song.id)
-        return mergedSong(
+        let merged = mergedSong(
             song,
             with: metadata,
             placeholderTitle: placeholderTitle,
             forceRescrape: forceRescrape
         )
+        return ProcessedResult(song: merged, coverData: metadata.coverArtData, lyricsLines: metadata.lyrics)
+    }
+
+    private func processedSong(_ song: Song, forceRescrape: Bool) async throws -> Song? {
+        guard let result = try await processedSongWithAssets(song, forceRescrape: forceRescrape) else {
+            return nil
+        }
+        return result.song
     }
 
     private func needsScrape(song: Song, placeholderTitle: String) -> Bool {

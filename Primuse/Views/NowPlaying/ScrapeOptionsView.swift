@@ -39,13 +39,14 @@ struct ScrapeOptionsView: View {
         var updatedSong: Song
         var coverData: Data?
         var lyricsCount: Int
-        var titleChanged: Bool
-        var artistChanged: Bool
-        var albumChanged: Bool
-        var yearChanged: Bool
-        var genreChanged: Bool
-        var coverChanged: Bool
-        var lyricsChanged: Bool
+        // Scraped values (always show these)
+        var scrapedTitle: String?
+        var scrapedArtist: String?
+        var scrapedAlbum: String?
+        var scrapedYear: Int?
+        var scrapedGenre: String?
+        var hasCover: Bool
+        var hasLyrics: Bool
     }
 
     struct SearchResultItem: Identifiable {
@@ -63,11 +64,6 @@ struct ScrapeOptionsView: View {
             guard let ms = durationMs else { return nil }
             let s = ms / 1000
             return String(format: "%d:%02d", s / 60, s % 60)
-        }
-
-        var matchScore: String {
-            // Simple duration match indicator
-            return durationText ?? ""
         }
     }
 
@@ -154,120 +150,162 @@ struct ScrapeOptionsView: View {
     private var previewView: some View {
         Form {
             if let preview = previewResult {
-                // Select which changes to apply
+                // Always show all scraped fields
                 Section("select_changes") {
-                    if preview.titleChanged {
-                        Toggle(isOn: $applyTitle) {
-                            changeRow("title", old: song.title, new: preview.updatedSong.title)
-                        }
-                    }
-                    if preview.artistChanged {
-                        Toggle(isOn: $applyArtist) {
-                            changeRow("artist", old: song.artistName ?? "-", new: preview.updatedSong.artistName ?? "-")
-                        }
-                    }
-                    if preview.albumChanged {
-                        Toggle(isOn: $applyAlbum) {
-                            changeRow("album", old: song.albumTitle ?? "-", new: preview.updatedSong.albumTitle ?? "-")
-                        }
-                    }
-                    if preview.yearChanged {
-                        Toggle(isOn: $applyYear) {
-                            changeRow("year", old: song.year.map { "\($0)" } ?? "-", new: preview.updatedSong.year.map { "\($0)" } ?? "-")
-                        }
-                    }
-                    if preview.genreChanged {
-                        Toggle(isOn: $applyGenre) {
-                            changeRow("genre", old: song.genre ?? "-", new: preview.updatedSong.genre ?? "-")
-                        }
-                    }
-                    if preview.coverChanged {
+                    // Title
+                    fieldToggle(
+                        isOn: $applyTitle,
+                        label: "title",
+                        localValue: song.title,
+                        scrapedValue: preview.scrapedTitle,
+                        isChanged: preview.scrapedTitle != nil && preview.scrapedTitle != song.title
+                    )
+
+                    // Artist
+                    fieldToggle(
+                        isOn: $applyArtist,
+                        label: "artist",
+                        localValue: song.artistName ?? "-",
+                        scrapedValue: preview.scrapedArtist,
+                        isChanged: preview.scrapedArtist != nil && preview.scrapedArtist != song.artistName
+                    )
+
+                    // Album
+                    fieldToggle(
+                        isOn: $applyAlbum,
+                        label: "album",
+                        localValue: song.albumTitle ?? "-",
+                        scrapedValue: preview.scrapedAlbum,
+                        isChanged: preview.scrapedAlbum != nil && preview.scrapedAlbum != song.albumTitle
+                    )
+
+                    // Year
+                    fieldToggle(
+                        isOn: $applyYear,
+                        label: "year",
+                        localValue: song.year.map { "\($0)" } ?? "-",
+                        scrapedValue: preview.scrapedYear.map { "\($0)" },
+                        isChanged: preview.scrapedYear != nil && preview.scrapedYear != song.year
+                    )
+
+                    // Genre
+                    fieldToggle(
+                        isOn: $applyGenre,
+                        label: "genre",
+                        localValue: song.genre ?? "-",
+                        scrapedValue: preview.scrapedGenre,
+                        isChanged: preview.scrapedGenre != nil && preview.scrapedGenre != song.genre
+                    )
+
+                    // Cover
+                    if preview.hasCover {
                         Toggle(isOn: $applyCover) {
-                            HStack {
+                            HStack(spacing: 6) {
                                 Text("cover").font(.caption).foregroundStyle(.secondary).frame(width: 45, alignment: .leading)
-                                Image(systemName: song.coverArtFileName != nil ? "checkmark" : "xmark")
-                                    .font(.caption2).foregroundStyle(.secondary)
-                                Image(systemName: "arrow.right").font(.caption2).foregroundStyle(.tertiary)
-                                Image(systemName: "checkmark").font(.caption2).foregroundStyle(.green)
-                            }
-                        }
-                    }
-                    if preview.lyricsChanged {
-                        Toggle(isOn: $applyLyrics) {
-                            HStack {
-                                Text("lyrics_word").font(.caption).foregroundStyle(.secondary).frame(width: 45, alignment: .leading)
-                                Image(systemName: song.lyricsFileName != nil ? "checkmark" : "xmark")
-                                    .font(.caption2).foregroundStyle(.secondary)
-                                Image(systemName: "arrow.right").font(.caption2).foregroundStyle(.tertiary)
-                                Text("✓ (\(preview.lyricsCount))").font(.caption2).foregroundStyle(.green)
+                                statusBadge(hasLocal: song.coverArtFileName != nil, hasScraped: true,
+                                            isChanged: preview.updatedSong.coverArtFileName != song.coverArtFileName)
                             }
                         }
                     }
 
-                    if !hasAnyChange(preview) {
+                    // Lyrics
+                    if preview.hasLyrics {
+                        Toggle(isOn: $applyLyrics) {
+                            HStack(spacing: 6) {
+                                Text("lyrics_word").font(.caption).foregroundStyle(.secondary).frame(width: 45, alignment: .leading)
+                                statusBadge(hasLocal: song.lyricsFileName != nil, hasScraped: true,
+                                            isChanged: preview.updatedSong.lyricsFileName != song.lyricsFileName)
+                                if preview.lyricsCount > 0 {
+                                    Text("(\(preview.lyricsCount))").font(.caption2).foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+
+                    if !hasAnyScrapeResult(preview) {
                         Label(String(localized: "scrape_no_changes"), systemImage: "info.circle")
                             .font(.subheadline).foregroundStyle(.secondary)
                     }
                 }
 
                 Section {
-                    Button {
-                        applySelectedChanges()
-                    } label: {
-                        Label("apply_changes", systemImage: "checkmark")
-                            .fontWeight(.semibold)
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!hasAnySelectedChange)
-
                     Button { mode = .options } label: { Text("back_to_options") }
                 }
             }
         }
-    }
-
-    private func changeRow(_ label: LocalizedStringKey, old: String, new: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(label).font(.caption).foregroundStyle(.secondary)
-            HStack(spacing: 4) {
-                Text(old).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                Image(systemName: "arrow.right").font(.system(size: 8)).foregroundStyle(.tertiary)
-                Text(new).font(.caption2).fontWeight(.medium).foregroundStyle(old != new ? Color.accentColor : .primary).lineLimit(1)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("apply_changes") {
+                    applySelectedChanges()
+                }
+                .fontWeight(.semibold)
+                .disabled(!hasAnySelectedChange)
             }
         }
     }
 
-    private func hasAnyChange(_ p: ScrapePreview) -> Bool {
-        p.titleChanged || p.artistChanged || p.albumChanged || p.yearChanged || p.genreChanged || p.coverChanged || p.lyricsChanged
+    @ViewBuilder
+    private func fieldToggle(isOn: Binding<Bool>, label: LocalizedStringKey, localValue: String, scrapedValue: String?, isChanged: Bool) -> some View {
+        if let scraped = scrapedValue {
+            Toggle(isOn: isOn) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(label).font(.caption).foregroundStyle(.secondary)
+                    if isChanged {
+                        HStack(spacing: 4) {
+                            Text(localValue).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                            Image(systemName: "arrow.right").font(.system(size: 8)).foregroundStyle(.tertiary)
+                            Text(scraped).font(.caption2).fontWeight(.medium).foregroundStyle(Color.accentColor).lineLimit(1)
+                        }
+                    } else {
+                        Text(scraped).font(.caption2).foregroundStyle(.primary).lineLimit(1)
+                    }
+                }
+            }
+            .tint(isChanged ? .accentColor : .secondary)
+        }
+    }
+
+    @ViewBuilder
+    private func statusBadge(hasLocal: Bool, hasScraped: Bool, isChanged: Bool) -> some View {
+        if isChanged {
+            HStack(spacing: 3) {
+                Image(systemName: hasLocal ? "checkmark" : "xmark")
+                    .font(.caption2).foregroundStyle(.secondary)
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 8)).foregroundStyle(.tertiary)
+                Image(systemName: "checkmark")
+                    .font(.caption2).foregroundStyle(.green)
+            }
+        } else {
+            Text(String(localized: "unchanged")).font(.caption2).foregroundStyle(.tertiary)
+        }
+    }
+
+    private func hasAnyScrapeResult(_ p: ScrapePreview) -> Bool {
+        p.scrapedTitle != nil || p.scrapedArtist != nil || p.scrapedAlbum != nil ||
+        p.scrapedYear != nil || p.scrapedGenre != nil || p.hasCover || p.hasLyrics
     }
 
     private var hasAnySelectedChange: Bool {
         guard let p = previewResult else { return false }
-        return (p.titleChanged && applyTitle) || (p.artistChanged && applyArtist) ||
-               (p.albumChanged && applyAlbum) || (p.yearChanged && applyYear) ||
-               (p.genreChanged && applyGenre) || (p.coverChanged && applyCover) ||
-               (p.lyricsChanged && applyLyrics)
+        let titleChanged = p.scrapedTitle != nil && p.scrapedTitle != song.title
+        let artistChanged = p.scrapedArtist != nil && p.scrapedArtist != song.artistName
+        let albumChanged = p.scrapedAlbum != nil && p.scrapedAlbum != song.albumTitle
+        let yearChanged = p.scrapedYear != nil && p.scrapedYear != song.year
+        let genreChanged = p.scrapedGenre != nil && p.scrapedGenre != song.genre
+        let coverChanged = p.hasCover && p.updatedSong.coverArtFileName != song.coverArtFileName
+        let lyricsChanged = p.hasLyrics && p.updatedSong.lyricsFileName != song.lyricsFileName
+
+        return (titleChanged && applyTitle) || (artistChanged && applyArtist) ||
+               (albumChanged && applyAlbum) || (yearChanged && applyYear) ||
+               (genreChanged && applyGenre) || (coverChanged && applyCover) ||
+               (lyricsChanged && applyLyrics)
     }
 
-    // MARK: - Manual Search (multiple results)
+    // MARK: - Manual Search
 
     private var manualSearchView: some View {
         List {
-            // Editable search field
-            Section {
-                HStack {
-                    TextField("search_query", text: $manualSearchQuery)
-                        .textFieldStyle(.roundedBorder)
-                    Button {
-                        Task { await performManualSearch() }
-                    } label: {
-                        Image(systemName: "magnifyingglass")
-                    }
-                    .disabled(manualSearchQuery.trimmingCharacters(in: .whitespaces).isEmpty || isSearching)
-                }
-            }
-
             if searchResults.isEmpty && !isSearching {
                 ContentUnavailableView("no_results", systemImage: "magnifyingglass",
                     description: Text("no_scrape_results_desc"))
@@ -300,18 +338,19 @@ struct ScrapeOptionsView: View {
                     }
                 }
             }
-
-            Section {
-                Button {
-                    mode = .options
-                } label: {
-                    Text("back_to_options")
-                }
-            }
+        }
+        .searchable(text: $manualSearchQuery, prompt: Text("search_query"))
+        .onSubmit(of: .search) {
+            Task { await performManualSearch() }
         }
         .overlay {
             if isSearching {
                 ProgressView("searching").padding()
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("back_to_options") { mode = .options }
             }
         }
     }
@@ -330,18 +369,23 @@ struct ScrapeOptionsView: View {
 
             previewResult = ScrapePreview(
                 updatedSong: updated, coverData: nil, lyricsCount: lyricsCount,
-                titleChanged: updated.title != song.title,
-                artistChanged: updated.artistName != song.artistName,
-                albumChanged: updated.albumTitle != song.albumTitle,
-                yearChanged: updated.year != song.year && updated.year != nil,
-                genreChanged: updated.genre != song.genre && updated.genre != nil,
-                coverChanged: updated.coverArtFileName != song.coverArtFileName && updated.coverArtFileName != nil,
-                lyricsChanged: updated.lyricsFileName != song.lyricsFileName && updated.lyricsFileName != nil
+                scrapedTitle: updated.title != song.title ? updated.title : updated.title,
+                scrapedArtist: updated.artistName,
+                scrapedAlbum: updated.albumTitle,
+                scrapedYear: updated.year,
+                scrapedGenre: updated.genre,
+                hasCover: updated.coverArtFileName != nil && updated.coverArtFileName != song.coverArtFileName,
+                hasLyrics: updated.lyricsFileName != nil && updated.lyricsFileName != song.lyricsFileName
             )
 
-            // Default all toggles to on
-            applyTitle = true; applyArtist = true; applyAlbum = true
-            applyYear = true; applyGenre = true; applyCover = true; applyLyrics = true
+            // Default all toggles to on for changed fields, off for unchanged
+            applyTitle = updated.title != song.title
+            applyArtist = updated.artistName != song.artistName
+            applyAlbum = updated.albumTitle != song.albumTitle
+            applyYear = updated.year != song.year && updated.year != nil
+            applyGenre = updated.genre != song.genre && updated.genre != nil
+            applyCover = true
+            applyLyrics = true
 
             mode = .preview
         } catch {
@@ -371,7 +415,7 @@ struct ScrapeOptionsView: View {
             do {
                 let scraper = MusicScraperFactory.create(for: config)
                 let result = try await scraper.search(
-                    query: manualSearchQuery, artist: nil, album: nil, limit: 10
+                    query: manualSearchQuery, artist: nil, album: nil, limit: 30
                 )
                 for item in result.items {
                     searchResults.append(SearchResultItem(
@@ -406,8 +450,6 @@ struct ScrapeOptionsView: View {
     }
 
     private func selectManualResult(_ item: SearchResultItem) async {
-        // TODO: fetch detail for selected item and show preview
-        // For now, apply the basic metadata
         mode = .options
         isScraping = true
 
@@ -441,15 +483,19 @@ struct ScrapeOptionsView: View {
 
             previewResult = ScrapePreview(
                 updatedSong: updated, coverData: nil, lyricsCount: 0,
-                titleChanged: updated.title != song.title,
-                artistChanged: updated.artistName != song.artistName,
-                albumChanged: updated.albumTitle != song.albumTitle,
-                yearChanged: updated.year != song.year && updated.year != nil,
-                genreChanged: updated.genre != song.genre && updated.genre != nil,
-                coverChanged: false, lyricsChanged: false
+                scrapedTitle: updated.title,
+                scrapedArtist: updated.artistName,
+                scrapedAlbum: updated.albumTitle,
+                scrapedYear: updated.year,
+                scrapedGenre: updated.genre,
+                hasCover: false, hasLyrics: false
             )
-            applyTitle = true; applyArtist = true; applyAlbum = true
-            applyYear = true; applyGenre = true; applyCover = true; applyLyrics = true
+            applyTitle = updated.title != song.title
+            applyArtist = updated.artistName != song.artistName
+            applyAlbum = updated.albumTitle != song.albumTitle
+            applyYear = updated.year != song.year && updated.year != nil
+            applyGenre = updated.genre != song.genre && updated.genre != nil
+            applyCover = true; applyLyrics = true
             mode = .preview
         } catch {
             isScraping = false
@@ -461,13 +507,21 @@ struct ScrapeOptionsView: View {
         guard let preview = previewResult else { return }
         let u = preview.updatedSong
 
+        let titleChanged = preview.scrapedTitle != nil && preview.scrapedTitle != song.title
+        let artistChanged = preview.scrapedArtist != nil && preview.scrapedArtist != song.artistName
+        let albumChanged = preview.scrapedAlbum != nil && preview.scrapedAlbum != song.albumTitle
+        let yearChanged = preview.scrapedYear != nil && preview.scrapedYear != song.year
+        let genreChanged = preview.scrapedGenre != nil && preview.scrapedGenre != song.genre
+        let coverChanged = preview.hasCover && u.coverArtFileName != song.coverArtFileName
+        let lyricsChanged = preview.hasLyrics && u.lyricsFileName != song.lyricsFileName
+
         // Build final song with only selected changes applied
         let final = Song(
             id: song.id,
-            title: (preview.titleChanged && applyTitle) ? u.title : song.title,
+            title: (titleChanged && applyTitle) ? u.title : song.title,
             albumID: song.albumID, artistID: song.artistID,
-            albumTitle: (preview.albumChanged && applyAlbum) ? u.albumTitle : song.albumTitle,
-            artistName: (preview.artistChanged && applyArtist) ? u.artistName : song.artistName,
+            albumTitle: (albumChanged && applyAlbum) ? u.albumTitle : song.albumTitle,
+            artistName: (artistChanged && applyArtist) ? u.artistName : song.artistName,
             trackNumber: u.trackNumber ?? song.trackNumber,
             discNumber: u.discNumber ?? song.discNumber,
             duration: u.duration > 0 ? u.duration : song.duration,
@@ -477,11 +531,11 @@ struct ScrapeOptionsView: View {
             bitRate: u.bitRate ?? song.bitRate,
             sampleRate: u.sampleRate ?? song.sampleRate,
             bitDepth: u.bitDepth ?? song.bitDepth,
-            genre: (preview.genreChanged && applyGenre) ? u.genre : song.genre,
-            year: (preview.yearChanged && applyYear) ? u.year : song.year,
+            genre: (genreChanged && applyGenre) ? u.genre : song.genre,
+            year: (yearChanged && applyYear) ? u.year : song.year,
             dateAdded: song.dateAdded,
-            coverArtFileName: (preview.coverChanged && applyCover) ? u.coverArtFileName : song.coverArtFileName,
-            lyricsFileName: (preview.lyricsChanged && applyLyrics) ? u.lyricsFileName : song.lyricsFileName
+            coverArtFileName: (coverChanged && applyCover) ? u.coverArtFileName : song.coverArtFileName,
+            lyricsFileName: (lyricsChanged && applyLyrics) ? u.lyricsFileName : song.lyricsFileName
         )
 
         library.replaceSong(final)
@@ -490,16 +544,6 @@ struct ScrapeOptionsView: View {
     }
 
     // MARK: - Helpers
-
-    private func compareRow(_ label: LocalizedStringKey, old: String?, new: String?) -> some View {
-        HStack {
-            Text(label).font(.caption).foregroundStyle(.secondary).frame(width: 50, alignment: .leading)
-            Text(old ?? "-").font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            Image(systemName: "arrow.right").font(.caption2).foregroundStyle(.tertiary)
-            Text(new ?? "-").font(.caption).fontWeight(old != new ? .semibold : .regular)
-                .foregroundStyle(old != new ? Color.accentColor : .primary).lineLimit(1)
-        }
-    }
 
     private func formatDuration(_ t: TimeInterval) -> String {
         String(format: "%d:%02d", Int(t) / 60, Int(t) % 60)

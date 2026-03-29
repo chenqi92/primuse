@@ -150,7 +150,7 @@ private struct UPnPDirectoryBrowserView: View {
                         subtitle: nil,
                         path: item.path,
                         icon: currentPath == "/" ? "music.note.house.fill" : "folder.fill",
-                        iconColor: currentPath == "/" ? .purple : .blue,
+                        iconColor: currentPath == "/" ? .accentColor : .blue,
                         isNavigable: true,
                         selectedDirectories: $selectedDirectories,
                         onNavigate: { enterDirectory(item) }

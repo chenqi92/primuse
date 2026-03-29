@@ -181,4 +181,24 @@ actor SMBSource: MusicSourceConnector {
             }
         }
     }
+
+    func writeFile(data: Data, to path: String) async throws {
+        guard let client else { throw SourceError.connectionFailed("Not connected") }
+
+        // Write data to temp file first
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("smb_upload_\(UUID().uuidString)")
+        try data.write(to: tempURL)
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            client.uploadItem(at: tempURL, toPath: path, progress: { _ in return true }) { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume()
+                }
+            }
+        }
+    }
 }

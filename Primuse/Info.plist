@@ -52,6 +52,21 @@
 			</dict>
 		</dict>
 	</dict>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_smb._tcp.</string>
+		<string>_webdav._tcp.</string>
+		<string>_webdavs._tcp.</string>
+		<string>_ftp._tcp.</string>
+		<string>_sftp-ssh._tcp.</string>
+		<string>_nfs._tcp.</string>
+		<string>_diskstation._tcp.</string>
+		<string>_synology-dsm._tcp.</string>
+		<string>_http._tcp.</string>
+		<string>_https._tcp.</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>猿音需要访问本地网络以发现和连接您的 NAS 设备、媒体服务器及其他音乐源。</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>UIBackgroundModes</key>

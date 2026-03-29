@@ -31,7 +31,7 @@ actor ScraperManager {
                     NSLog("🔍 Scraping metadata from \(config.type.displayName) for '\(cleanedTitle)'")
                     let scraper = getScraper(for: config)
                     let searchResult = try await scraper.search(
-                        query: cleanedTitle, artist: artist, album: nil, limit: 5
+                        query: cleanedTitle, artist: artist, album: nil, limit: 15
                     )
                     NSLog("🔍 \(config.type.displayName) returned \(searchResult.items.count) results")
                     if let best = searchResult.items.first {
@@ -61,7 +61,7 @@ actor ScraperManager {
 
                     // Otherwise search and get cover
                     let searchResult = try await scraper.search(
-                        query: cleanedTitle, artist: artist, album: nil, limit: 5
+                        query: cleanedTitle, artist: artist, album: nil, limit: 15
                     )
                     if let best = searchResult.items.first {
                         let covers = try await scraper.getCoverArt(externalId: best.externalId)
@@ -95,7 +95,7 @@ actor ScraperManager {
                     } else {
                         // Standard search → getLyrics flow
                         let searchResult = try await scraper.search(
-                            query: cleanedTitle, artist: artist, album: nil, limit: 5
+                            query: cleanedTitle, artist: artist, album: nil, limit: 15
                         )
                         if let best = searchResult.items.first {
                             if let lyricsResult = try await scraper.getLyrics(externalId: best.externalId),

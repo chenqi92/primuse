@@ -14,6 +14,7 @@ struct AddSourceView: View {
     @Environment(\.dismiss) private var dismiss
     let sourceType: MusicSourceType
     var editingSource: MusicSource?
+    var prefillDevice: DiscoveredDevice?
     var onSave: (MusicSource) -> Void
 
     @State private var name = ""
@@ -237,6 +238,39 @@ struct AddSourceView: View {
                     ForEach(NFSVersion.allCases, id: \.self) { Text($0.displayName).tag($0) }
                 }
             }
+        case .s3:
+            Section("S3") {
+                TextField("Endpoint", text: $host, prompt: Text("s3.amazonaws.com"))
+                    .focused($focusedField, equals: .host)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                TextField("Region", text: $basePath, prompt: Text("us-east-1"))
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                TextField("Bucket", text: $shareName)
+                    .focused($focusedField, equals: .shareName)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                TextField("Access Key", text: $username)
+                    .focused($focusedField, equals: .username)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                SecureField("Secret Key", text: $password)
+                    .focused($focusedField, equals: .password)
+                Toggle("use_ssl", isOn: $useSsl)
+            }
+        case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox:
+            Section("cloud_oauth_config") {
+                TextField("Client ID / App Key", text: $username)
+                    .focused($focusedField, equals: .username)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                SecureField("Client Secret (optional)", text: $password)
+                    .focused($focusedField, equals: .password)
+                Label("cloud_oauth_hint", systemImage: "info.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         default: EmptyView()
         }
     }
@@ -251,6 +285,16 @@ struct AddSourceView: View {
             shareName = s.shareName ?? ""; exportPath = s.exportPath ?? ""
             authType = s.authType; autoConnect = s.autoConnect; rememberDevice = s.rememberDevice
             ftpEncryption = s.ftpEncryption ?? .none; nfsVersion = s.nfsVersion ?? .auto
+        } else if let device = prefillDevice {
+            name = device.name
+            host = device.host
+            port = "\(device.port)"
+            useSsl = sourceType.defaultSSL
+            if sourceType == .plex {
+                authType = .apiKey
+            } else if [.local, .nfs, .upnp].contains(sourceType) {
+                authType = .none
+            }
         } else {
             name = sourceType.displayName
             port = "\(sourceType.defaultPort)"
@@ -265,34 +309,71 @@ struct AddSourceView: View {
     }
 
     private func saveSource() {
+        // S3 special mapping: host=endpoint, basePath=bucket, shareName→basePath, extraConfig={region}
+        let finalHost: String?
+        let finalBasePath: String?
+        let finalShareName: String?
+        let finalUsername: String?
+        var extraConfig = editingSource?.extraConfig
+
+        if sourceType == .s3 {
+            finalHost = host.isEmpty ? "s3.amazonaws.com" : host
+            finalBasePath = shareName  // bucket name
+            finalShareName = nil
+            finalUsername = username    // access key
+            let region = basePath.isEmpty ? "us-east-1" : basePath
+            extraConfig = "{\"region\":\"\(region)\"}"
+        } else if sourceType.isCloudDrive {
+            finalHost = nil
+            finalBasePath = basePath.isEmpty ? nil : basePath
+            finalShareName = nil
+            finalUsername = username.isEmpty ? nil : username  // client_id
+        } else {
+            finalHost = sourceType.requiresHost ? host : nil
+            finalBasePath = basePath.isEmpty ? nil : basePath
+            finalShareName = shareName.isEmpty ? nil : shareName
+            finalUsername = sourceType.requiresCredentials && authType != .apiKey ? username : nil
+        }
+
         let source = MusicSource(
             id: editingSource?.id ?? UUID().uuidString,
             name: name, type: sourceType,
-            host: sourceType.requiresHost ? host : nil, port: Int(port), useSsl: useSsl,
-            username: sourceType.requiresCredentials && authType != .apiKey ? username : nil,
-            basePath: basePath.isEmpty ? nil : basePath,
-            shareName: shareName.isEmpty ? nil : shareName,
+            host: finalHost, port: Int(port), useSsl: useSsl,
+            username: finalUsername,
+            basePath: finalBasePath,
+            shareName: finalShareName,
             exportPath: exportPath.isEmpty ? nil : exportPath,
-            authType: authType,
+            authType: sourceType.isCloudDrive ? .oauth : authType,
             ftpEncryption: sourceType == .ftp ? ftpEncryption : nil,
             nfsVersion: sourceType == .nfs ? nfsVersion : nil,
             autoConnect: autoConnect, rememberDevice: rememberDevice,
             deviceId: editingSource?.deviceId,
-            extraConfig: editingSource?.extraConfig
+            extraConfig: extraConfig
         )
-        switch authType {
-        case .sshKey:
-            let trimmedKey = sshKey.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmedKey.isEmpty == false {
-                KeychainService.setPassword(trimmedKey, for: source.id)
+
+        // Save credentials
+        if sourceType.isCloudDrive {
+            // Store client_id + client_secret via CloudTokenManager
+            if !username.isEmpty {
+                let tm = CloudTokenManager(sourceID: source.id)
+                Task {
+                    await tm.saveAppCredentials(.init(
+                        clientId: username,
+                        clientSecret: password.isEmpty ? nil : password
+                    ))
+                }
             }
-        case .password, .apiKey, .cookie, .oauth:
-            if password.isEmpty == false {
+        } else if sourceType == .s3 || authType == .password || authType == .apiKey || authType == .cookie || authType == .oauth {
+            if !password.isEmpty {
                 KeychainService.setPassword(password, for: source.id)
             }
-        case .none:
-            break
+        } else if authType == .sshKey {
+            let trimmedKey = sshKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedKey.isEmpty {
+                KeychainService.setPassword(trimmedKey, for: source.id)
+            }
         }
+
         onSave(source)
         dismiss()
     }

@@ -16,6 +16,14 @@ struct CachedArtworkView: View {
         return dir
     }()
 
+    /// Fallback: online scrape stores covers here via MetadataAssetStore
+    private static let artworkDir: URL = {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("Primuse/MetadataAssets/artwork")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+
     var body: some View {
         Group {
             if let image {
@@ -56,12 +64,19 @@ struct CachedArtworkView: View {
             image = nil
             return
         }
-        let url = Self.cacheDir.appendingPathComponent(coverFileName)
-        if let data = try? Data(contentsOf: url), let img = UIImage(data: data) {
+        // Try primary cache (NAS scan covers)
+        let primaryURL = Self.cacheDir.appendingPathComponent(coverFileName)
+        if let data = try? Data(contentsOf: primaryURL), let img = UIImage(data: data) {
             image = img
-        } else {
-            image = nil
+            return
         }
+        // Fallback: MetadataAssetStore (online scrape covers)
+        let fallbackURL = Self.artworkDir.appendingPathComponent(coverFileName)
+        if let data = try? Data(contentsOf: fallbackURL), let img = UIImage(data: data) {
+            image = img
+            return
+        }
+        image = nil
     }
 }
 

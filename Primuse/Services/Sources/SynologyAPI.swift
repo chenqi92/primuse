@@ -247,6 +247,62 @@ actor SynologyAPI {
         return components.url
     }
 
+    // MARK: - Upload file (for sidecar writing)
+
+    func uploadFile(data: Data, toDirectory directory: String, fileName: String) async throws {
+        guard let sid else { throw SynologyError.notLoggedIn }
+
+        let boundary = "Boundary-\(UUID().uuidString)"
+        var components = URLComponents(string: "\(baseURL)/webapi/entry.cgi")!
+        components.queryItems = [
+            URLQueryItem(name: "_sid", value: sid),
+        ]
+        guard let url = components.url else { throw SynologyError.invalidURL }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 60
+
+        // Build multipart body
+        var body = Data()
+        let params: [(String, String)] = [
+            ("api", "SYNO.FileStation.Upload"),
+            ("version", "2"),
+            ("method", "upload"),
+            ("path", directory),
+            ("create_parents", "true"),
+            ("overwrite", "true"),
+        ]
+        for (key, value) in params {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n".data(using: .utf8)!)
+            body.append("\(value)\r\n".data(using: .utf8)!)
+        }
+        // File part
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(fileName)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: application/octet-stream\r\n\r\n".data(using: .utf8)!)
+        body.append(data)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+
+        request.httpBody = body
+
+        let config = URLSessionConfiguration.default
+        let session = URLSession(configuration: config, delegate: InsecureURLSessionDelegate(), delegateQueue: nil)
+        let (responseData, response) = try await session.data(for: request)
+
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw SynologyError.httpError((response as? HTTPURLResponse)?.statusCode ?? 0)
+        }
+
+        let json = try JSONSerialization.jsonObject(with: responseData) as? [String: Any] ?? [:]
+        guard json["success"] as? Bool == true else {
+            let err = json["error"] as? [String: Any]
+            throw SynologyError.apiError("Upload failed: \(synologyErrorMessage(code: intValue(err?["code"])))")
+        }
+    }
+
     // MARK: - HTTP
 
     private func request(path: String, params: [String: String]) async throws -> Data {

@@ -115,7 +115,7 @@ private struct MediaServerLibraryBrowserView: View {
                         subtitle: nil,
                         path: item.path,
                         icon: "music.note.house.fill",
-                        iconColor: .purple,
+                        iconColor: .accentColor,
                         isNavigable: false,
                         selectedDirectories: $selectedDirectories
                     )
