@@ -262,3 +262,24 @@
 // Cloud Drive
 "cloud_oauth_config" = "云盘授权";
 "cloud_oauth_hint" = "请在对应云盘开放平台注册应用获取 Client ID。保存后进入 OAuth 登录授权。";
+
+// MARK: - 播放器更多功能
+"add_to_playlist" = "添加到播放列表";
+"playlists_title" = "播放列表";
+"sleep_timer" = "睡眠定时器";
+"sleep_timer_active" = "定时器已开启";
+"cancel_timer" = "取消定时器";
+"minutes" = "分钟";
+"song_info" = "歌曲信息";
+"share" = "分享";
+"title_label" = "标题";
+"artist_label" = "艺术家";
+"album_label" = "专辑";
+"genre_label" = "风格";
+"year_label" = "年份";
+"track_label" = "曲目";
+"technical_info" = "技术信息";
+"format_label" = "格式";
+"sample_rate_label" = "采样率";
+"bit_depth_label" = "位深";
+"duration_label" = "时长";

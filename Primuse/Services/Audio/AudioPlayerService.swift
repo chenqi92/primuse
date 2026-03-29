@@ -3,6 +3,26 @@ import Foundation
 import MediaPlayer
 import PrimuseKit
 
+/// Mutable counter that can be captured by @Sendable closures (e.g. Timer callbacks wrapped in Task).
+private final class StepCounter: @unchecked Sendable {
+    var value = 0
+}
+
+/// Sendable wrapper for AsyncThrowingStream.Iterator to safely transfer across isolation boundaries.
+/// The iterator is accessed sequentially: once on MainActor for the first buffer,
+/// then exclusively by the decodingTask. Never accessed concurrently.
+private final class BufferIteratorBox: @unchecked Sendable {
+    private var iterator: AsyncThrowingStream<AVAudioPCMBuffer, Error>.AsyncIterator
+
+    init(_ iterator: AsyncThrowingStream<AVAudioPCMBuffer, Error>.AsyncIterator) {
+        self.iterator = iterator
+    }
+
+    func next() async throws -> AVAudioPCMBuffer? {
+        try await iterator.next()
+    }
+}
+
 @MainActor
 @Observable
 final class AudioPlayerService {
@@ -94,6 +114,7 @@ final class AudioPlayerService {
         currentSong = song
         duration = song.duration
         isLoading = true
+        isPlaying = false
         audioEngine.sampleTimeOffset = 0
         crossfadeTriggered = false
 
@@ -120,125 +141,186 @@ final class AudioPlayerService {
                 audioEngine.resetPlayerVolume()
             }
 
-            // Try native decoder first; if it fails on first buffer, fallback to AVAssetReader
+            // Try native decoder first
             let stream = nativeDecoder.decode(from: url, outputFormat: outputFormat)
+            let iteratorBox = BufferIteratorBox(stream.makeAsyncIterator())
 
-            decodingTask = Task { [id] in
-                do {
-                    var bufferCount = 0
-                    var lastBuffer: AVAudioPCMBuffer?
+            // Await first buffer — ensures we have audio data before calling play()
+            let firstBuffer: AVAudioPCMBuffer
+            do {
+                guard let buffer = try await iteratorBox.next() else {
+                    // Empty stream — skip to next
+                    isLoading = false
+                    if currentIndex < queue.count - 1 { await next() }
+                    return
+                }
+                guard playID == id else { return }
+                firstBuffer = buffer
+            } catch {
+                // Native decode failed on first buffer — try fallback decoder
+                guard !Task.isCancelled, playID == id else { return }
+                print("⚠️ Native decode failed for '\(song.title)': \(error.localizedDescription)")
+                await playWithFallbackDecoder(song: song, url: url, outputFormat: outputFormat, playID: id)
+                return
+            }
 
-                    for try await buffer in stream {
-                        guard !Task.isCancelled, self.playID == id else { return }
+            // Schedule first buffer BEFORE play — playerNode has data ready
+            audioEngine.scheduleBuffer(firstBuffer)
+            audioEngine.play()
 
-                        // Schedule previous buffer (not the last one yet)
-                        if let prev = lastBuffer {
-                            audioEngine.scheduleBuffer(prev)
-                        }
-                        lastBuffer = buffer
-                        bufferCount += 1
-
-                        if bufferCount == 1 {
-                            audioEngine.play()
-                            // Duration from scan is already set via song.duration
-                            // Only fetch if scan didn't extract it
-                            if self.duration <= 0 {
-                                Task {
-                                    if let info = try? await nativeDecoder.fileInfo(for: url) {
-                                        self.duration = info.duration
-                                        self.updateNowPlayingInfo()
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Schedule the LAST buffer with completion callback for track-end detection
-                    if let finalBuffer = lastBuffer {
-                        guard !Task.isCancelled, self.playID == id else { return }
-
-                        let settings = playbackSettings.snapshot()
-
-                        if false && settings.gaplessEnabled && !settings.crossfadeEnabled {
-                            // Gapless: DISABLED — causes currentSong to show wrong track
-                            // TODO: fix gapless to defer currentSong update until buffer actually plays
-                            audioEngine.scheduleBuffer(finalBuffer)
-                            await self.gaplessPreloadNext(id: id)
-                        } else if !settings.crossfadeEnabled {
-                            // No gapless, no crossfade: use completion callback
-                            audioEngine.scheduleBuffer(
-                                finalBuffer,
-                                completionCallbackType: .dataPlayedBack
-                            ) { [weak self] _ in
-                                Task { @MainActor [weak self] in
-                                    guard let self, self.playID == id else { return }
-                                    await self.handleTrackEnd()
-                                }
-                            }
-                        } else {
-                            // Crossfade mode: just schedule, crossfade is triggered by time updater
-                            audioEngine.scheduleBuffer(
-                                finalBuffer,
-                                completionCallbackType: .dataPlayedBack
-                            ) { [weak self] _ in
-                                Task { @MainActor [weak self] in
-                                    guard let self, self.playID == id else { return }
-                                    // Only handle track end if crossfade wasn't triggered
-                                    if !self.crossfadeTriggered {
-                                        await self.handleTrackEnd()
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } catch {
-                    if !Task.isCancelled {
-                        print("⚠️ Native decode failed for '\(song.title)': \(error.localizedDescription)")
-                        // Fallback: try AVAssetReader (handles more MP3 variants)
-                        if self.assetReaderDecoder.canDecode(url: url) {
-                            print("↳ Retrying with AVAssetReader fallback...")
-                            let fallbackStream = self.assetReaderDecoder.decode(from: url, outputFormat: outputFormat)
-                            do {
-                                var started = false
-                                for try await buffer in fallbackStream {
-                                    guard !Task.isCancelled, self.playID == id else { return }
-                                    self.audioEngine.scheduleBuffer(buffer)
-                                    if !started {
-                                        self.audioEngine.play()
-                                        started = true
-                                        // Get duration from AssetReader
-                                        if self.duration <= 0 {
-                                            Task {
-                                                if let info = await self.assetReaderDecoder.fileInfo(for: url) {
-                                                    self.duration = info.duration
-                                                    self.updateNowPlayingInfo()
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            } catch {
-                                if !Task.isCancelled {
-                                    print("⚠️ AssetReader fallback also failed: \(error.localizedDescription)")
-                                }
-                            }
-                        }
+            // Fetch duration asynchronously if not already known
+            if duration <= 0 {
+                Task {
+                    if let info = try? await nativeDecoder.fileInfo(for: url) {
+                        guard self.playID == id else { return }
+                        self.duration = info.duration
+                        self.updateNowPlayingInfo()
                     }
                 }
             }
 
+            // NOW transition state — audio is actually playing
             isPlaying = true
-            library?.recordPlayback(of: song.id)
             isLoading = false
+            library?.recordPlayback(of: song.id)
             startTimeUpdater()
             updateNowPlayingInfo()
+            updateNowPlayingArtworkIfNeeded()
             updatePlaybackState()
+
+            // Decode remaining buffers in background task (hold-last for completion callback)
+            decodingTask = Task { [id, iteratorBox] in
+                var lastBuffer: AVAudioPCMBuffer?
+
+                do {
+                    while let buffer = try await iteratorBox.next() {
+                        guard !Task.isCancelled, self.playID == id else { return }
+
+                        if let prev = lastBuffer {
+                            self.audioEngine.scheduleBuffer(prev)
+                        }
+                        lastBuffer = buffer
+                    }
+                } catch {
+                    if !Task.isCancelled {
+                        print("⚠️ Decode error mid-stream for '\(song.title)': \(error.localizedDescription)")
+                    }
+                }
+
+                // Schedule the final buffer with track-end detection
+                if let finalBuffer = lastBuffer {
+                    guard !Task.isCancelled, self.playID == id else { return }
+                    self.scheduleLastBuffer(finalBuffer, playID: id)
+                }
+            }
         } catch {
             print("⚠️ Playback error for '\(song.title)': \(error.localizedDescription)")
             isLoading = false
             // Auto skip to next on decode failure
             if currentIndex < queue.count - 1 {
                 await next()
+            }
+        }
+    }
+
+    /// Fallback playback using AVAssetReader when native decoder fails.
+    private func playWithFallbackDecoder(song: Song, url: URL, outputFormat: AVAudioFormat, playID id: UUID) async {
+        guard assetReaderDecoder.canDecode(url: url) else {
+            print("⚠️ No decoder available for '\(song.title)'")
+            isLoading = false
+            if currentIndex < queue.count - 1 { await next() }
+            return
+        }
+
+        print("↳ Retrying '\(song.title)' with AVAssetReader fallback...")
+
+        let fallbackStream = assetReaderDecoder.decode(from: url, outputFormat: outputFormat)
+        let iteratorBox = BufferIteratorBox(fallbackStream.makeAsyncIterator())
+
+        do {
+            guard let firstBuffer = try await iteratorBox.next() else {
+                isLoading = false
+                if currentIndex < queue.count - 1 { await next() }
+                return
+            }
+            guard playID == id else { return }
+
+            audioEngine.scheduleBuffer(firstBuffer)
+            audioEngine.play()
+
+            // Fetch duration asynchronously
+            if duration <= 0 {
+                Task {
+                    if let info = await self.assetReaderDecoder.fileInfo(for: url) {
+                        guard self.playID == id else { return }
+                        self.duration = info.duration
+                        self.updateNowPlayingInfo()
+                    }
+                }
+            }
+
+            // Transition state after audio starts
+            isPlaying = true
+            isLoading = false
+            library?.recordPlayback(of: song.id)
+            startTimeUpdater()
+            updateNowPlayingInfo()
+            updateNowPlayingArtworkIfNeeded()
+            updatePlaybackState()
+
+            // Decode remaining buffers with track-end detection
+            decodingTask = Task { [id, iteratorBox] in
+                var lastBuffer: AVAudioPCMBuffer?
+
+                do {
+                    while let buffer = try await iteratorBox.next() {
+                        guard !Task.isCancelled, self.playID == id else { return }
+
+                        if let prev = lastBuffer {
+                            self.audioEngine.scheduleBuffer(prev)
+                        }
+                        lastBuffer = buffer
+                    }
+                } catch {
+                    if !Task.isCancelled {
+                        print("⚠️ AssetReader fallback decode error: \(error.localizedDescription)")
+                    }
+                }
+
+                if let finalBuffer = lastBuffer {
+                    guard !Task.isCancelled, self.playID == id else { return }
+                    self.scheduleLastBuffer(finalBuffer, playID: id)
+                }
+            }
+        } catch {
+            print("⚠️ AssetReader fallback also failed: \(error.localizedDescription)")
+            isLoading = false
+            if currentIndex < queue.count - 1 { await next() }
+        }
+    }
+
+    /// Schedule the final buffer of a track with the appropriate completion callback
+    /// for track-end detection, respecting gapless and crossfade settings.
+    private func scheduleLastBuffer(_ buffer: AVAudioPCMBuffer, playID id: UUID) {
+        let settings = playbackSettings.snapshot()
+
+        if false && settings.gaplessEnabled && !settings.crossfadeEnabled {
+            // Gapless: DISABLED — causes currentSong to show wrong track
+            // TODO: fix gapless to defer currentSong update until buffer actually plays
+            audioEngine.scheduleBuffer(buffer)
+            Task { await self.gaplessPreloadNext(id: id) }
+        } else {
+            // Standard and crossfade modes both use completion callback
+            audioEngine.scheduleBuffer(
+                buffer,
+                completionCallbackType: .dataPlayedBack
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self, self.playID == id else { return }
+                    // In crossfade mode, only handle track end if crossfade wasn't triggered
+                    if settings.crossfadeEnabled && self.crossfadeTriggered { return }
+                    await self.handleTrackEnd()
+                }
             }
         }
     }
@@ -307,21 +389,29 @@ final class AudioPlayerService {
 
         guard let song = currentSong else { return }
         let savedDuration = duration
+        let wasPlaying = isPlaying
 
-        // Invalidate old playID BEFORE stop() so any pending completion
+        // Invalidate old playID BEFORE stopPlayback() so any pending completion
         // callbacks (triggered by AVAudioPlayerNode.stop()) will fail
         // their guard check and won't trigger handleTrackEnd() → next().
         let id = UUID()
         playID = id
 
-        Task {
-            let wasPlaying = isPlaying
-            stop()
-            currentSong = song
-            currentTime = time
-            duration = savedDuration
-            seekTimeOffset = time
+        // Stop only the playerNode, not the full pipeline — preserve Live Activity,
+        // currentSong, and other state that stop() would tear down.
+        decodingTask?.cancel()
+        decodingTask = nil
+        crossfadeDecodingTask?.cancel()
+        crossfadeDecodingTask = nil
+        audioEngine.stopPlayback()
+        stopTimeUpdater()
 
+        // Restore state that stopPlayback clears
+        currentSong = song
+        currentTime = time
+        duration = savedDuration
+
+        Task {
             do {
                 let url = try await resolvedURL(for: song)
                 guard playID == id else { return }
@@ -341,32 +431,53 @@ final class AudioPlayerService {
                 // Set sample time offset so currentTime calculation accounts for seek position
                 audioEngine.sampleTimeOffset = -seekSamples
 
-                decodingTask = Task { [id] in
-                    do {
-                        var started = false
-                        for try await buffer in stream {
-                            guard !Task.isCancelled, self.playID == id else { return }
+                // Skip buffers until seek position, then schedule first playable buffer before play()
+                let iteratorBox = BufferIteratorBox(stream.makeAsyncIterator())
+                var firstPlayableBuffer: AVAudioPCMBuffer?
 
-                            let bufferSamples = Int64(buffer.frameLength)
-                            if samplesSkipped + bufferSamples <= seekSamples {
-                                samplesSkipped += bufferSamples
-                                continue
-                            }
-
-                            audioEngine.scheduleBuffer(buffer)
-                            if !started {
-                                if wasPlaying { audioEngine.play() }
-                                started = true
-                            }
-                        }
-                    } catch {
-                        if !Task.isCancelled { print("Seek decode error: \(error)") }
+                while let buffer = try await iteratorBox.next() {
+                    guard playID == id else { return }
+                    let bufferSamples = Int64(buffer.frameLength)
+                    if samplesSkipped + bufferSamples <= seekSamples {
+                        samplesSkipped += bufferSamples
+                        continue
                     }
+                    firstPlayableBuffer = buffer
+                    break
                 }
+
+                guard let firstBuffer = firstPlayableBuffer else { return }
+                guard playID == id else { return }
+
+                audioEngine.scheduleBuffer(firstBuffer)
+                if wasPlaying { audioEngine.play() }
 
                 if wasPlaying {
                     isPlaying = true
                     startTimeUpdater()
+                }
+
+                // Decode remaining buffers with track-end detection
+                decodingTask = Task { [id, iteratorBox] in
+                    var lastBuffer: AVAudioPCMBuffer?
+
+                    do {
+                        while let buffer = try await iteratorBox.next() {
+                            guard !Task.isCancelled, self.playID == id else { return }
+
+                            if let prev = lastBuffer {
+                                self.audioEngine.scheduleBuffer(prev)
+                            }
+                            lastBuffer = buffer
+                        }
+                    } catch {
+                        if !Task.isCancelled { print("Seek decode error: \(error)") }
+                    }
+
+                    if let finalBuffer = lastBuffer {
+                        guard !Task.isCancelled, self.playID == id else { return }
+                        self.scheduleLastBuffer(finalBuffer, playID: id)
+                    }
                 }
             } catch {
                 print("Seek error: \(error)")
@@ -522,20 +633,19 @@ final class AudioPlayerService {
             // Note: ReplayGain for crossfade node would need per-node volume tracking
             // For now, apply after swap
 
-            // Decode into crossfade node
+            // Decode into crossfade node — schedule first buffer before play
             let stream = nativeDecoder.decode(from: nextURL, outputFormat: outputFormat)
+            let iteratorBox = BufferIteratorBox(stream.makeAsyncIterator())
 
-            crossfadeDecodingTask = Task {
+            guard let firstBuffer = try await iteratorBox.next() else { return }
+            audioEngine.scheduleCrossfadeBuffer(firstBuffer)
+            audioEngine.playCrossfadeNode()
+
+            crossfadeDecodingTask = Task { [iteratorBox] in
                 do {
-                    var started = false
-                    for try await buffer in stream {
+                    while let buffer = try await iteratorBox.next() {
                         guard !Task.isCancelled else { return }
-                        audioEngine.scheduleCrossfadeBuffer(buffer)
-
-                        if !started {
-                            audioEngine.playCrossfadeNode()
-                            started = true
-                        }
+                        self.audioEngine.scheduleCrossfadeBuffer(buffer)
                     }
                 } catch {
                     if !Task.isCancelled { print("Crossfade decode error: \(error)") }
@@ -558,27 +668,29 @@ final class AudioPlayerService {
 
     private func startCrossfadeRamp(duration: Double, nextSong: Song, nextURL: URL) {
         let totalSteps = max(1, Int(duration / 0.05))
-        var currentStep = 0
+        let stepCounter = StepCounter()
         let rampPlayID = playID
 
         crossfadeTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
-            guard let self, self.playID == rampPlayID else {
-                self?.crossfadeTimer?.invalidate()
-                self?.crossfadeTimer = nil
-                return
-            }
-            currentStep += 1
-            let progress = Float(currentStep) / Float(totalSteps)
+            Task { @MainActor [weak self] in
+                guard let self, self.playID == rampPlayID else {
+                    self?.crossfadeTimer?.invalidate()
+                    self?.crossfadeTimer = nil
+                    return
+                }
+                stepCounter.value += 1
+                let progress = Float(stepCounter.value) / Float(totalSteps)
 
-            if progress >= 1.0 {
-                self.crossfadeTimer?.invalidate()
-                self.crossfadeTimer = nil
-                self.completeCrossfade(nextSong: nextSong, nextURL: nextURL)
-            } else {
-                self.audioEngine.setCrossfadeVolumes(
-                    primary: 1.0 - progress,
-                    crossfade: progress
-                )
+                if progress >= 1.0 {
+                    self.crossfadeTimer?.invalidate()
+                    self.crossfadeTimer = nil
+                    self.completeCrossfade(nextSong: nextSong, nextURL: nextURL)
+                } else {
+                    self.audioEngine.setCrossfadeVolumes(
+                        primary: 1.0 - progress,
+                        crossfade: progress
+                    )
+                }
             }
         }
     }
@@ -742,7 +854,11 @@ final class AudioPlayerService {
 
     // MARK: - Now Playing Info
 
+    /// Tracks which cover we last loaded to avoid redundant disk reads
+    private var lastArtworkFileName: String?
+
     private func updateNowPlayingInfo() {
+        // Create fresh info but preserve existing artwork
         var info = [String: Any]()
         info[MPMediaItemPropertyTitle] = currentSong?.title ?? ""
         info[MPMediaItemPropertyArtist] = currentSong?.artistName ?? ""
@@ -750,14 +866,70 @@ final class AudioPlayerService {
         info[MPMediaItemPropertyPlaybackDuration] = duration
         info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTime
         info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
+
+        // Carry over existing artwork (set separately by updateNowPlayingArtworkIfNeeded)
+        if let existingArtwork = MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtwork] {
+            info[MPMediaItemPropertyArtwork] = existingArtwork
+        }
+
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
     }
 
+    /// Call ONLY when song changes — loads cover art and sets MPMediaItemPropertyArtwork
+    private func updateNowPlayingArtworkIfNeeded() {
+        let coverFileName = currentSong?.coverArtFileName
+        guard coverFileName != lastArtworkFileName else { return }
+        lastArtworkFileName = coverFileName
+
+        guard let coverFileName, !coverFileName.isEmpty else { return }
+
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self else { return }
+            let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+                .appendingPathComponent("primuse_covers")
+            let artworkDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+                .appendingPathComponent("Primuse/MetadataAssets/artwork")
+
+            var image: UIImage?
+            let primaryURL = cacheDir.appendingPathComponent(coverFileName)
+            if let data = try? Data(contentsOf: primaryURL) {
+                image = UIImage(data: data)
+            }
+            if image == nil {
+                let fallbackURL = artworkDir.appendingPathComponent(coverFileName)
+                if let data = try? Data(contentsOf: fallbackURL) {
+                    image = UIImage(data: data)
+                }
+            }
+
+            guard let loadedImage = image else { return }
+
+            // Create artwork outside MainActor so the requestHandler closure
+            // doesn't inherit @MainActor isolation (MediaPlayer calls it on a background queue).
+            let artwork = Self.makeArtwork(from: loadedImage)
+
+            await MainActor.run {
+                var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
+                info[MPMediaItemPropertyArtwork] = artwork
+                MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+            }
+        }
+    }
+
     func updateNowPlayingArtwork(_ image: UIImage) {
-        let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+        lastArtworkFileName = currentSong?.coverArtFileName
+        let artwork = Self.makeArtwork(from: image)
         var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
         info[MPMediaItemPropertyArtwork] = artwork
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+
+    /// Creates MPMediaItemArtwork with a non-isolated requestHandler closure.
+    /// Must be nonisolated so the closure doesn't inherit @MainActor isolation —
+    /// MediaPlayer calls the handler on a background dispatch queue.
+    nonisolated private static func makeArtwork(from image: UIImage) -> MPMediaItemArtwork {
+        nonisolated(unsafe) let safeImage = image
+        return MPMediaItemArtwork(boundsSize: image.size) { _ in safeImage }
     }
 
     // MARK: - Remote Commands

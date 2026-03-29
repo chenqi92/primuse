@@ -220,7 +220,6 @@
 			dstSubfolderSpec = 13;
 			files = (
 				C83D3E3D402A2494B21343D9 /* PrimuseWidgetExtension.appex in Embed Foundation Extensions */,
-				A66A3850F3D0EDA1863A81BC /* PrimuseActivityExtension.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -854,7 +853,6 @@
 			);
 			dependencies = (
 				C85F3B46B4DA8166FBF68F4D /* PBXTargetDependency */,
-				595F81CDF3FDCC15C23E2EF6 /* PBXTargetDependency */,
 				AFB4789CAF63B29A33145B89 /* PBXTargetDependency */,
 			);
 			name = Primuse;

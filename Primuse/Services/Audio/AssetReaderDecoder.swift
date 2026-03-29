@@ -1,6 +1,11 @@
 import AVFoundation
 import Foundation
 
+private final class AudioBufferBox: @unchecked Sendable {
+    let buffer: AVAudioPCMBuffer
+    init(_ buffer: AVAudioPCMBuffer) { self.buffer = buffer }
+}
+
 /// Fallback decoder using AVAssetReader — handles more MP3 variants and formats
 /// that AVAudioFile rejects (VBR, non-standard headers, etc.)
 final class AssetReaderDecoder: Sendable {
@@ -87,8 +92,7 @@ final class AssetReaderDecoder: Sendable {
                         }
 
                         if let pcmBuffer = createPCMBuffer(from: sampleBuffer, format: outputFormat) {
-                            nonisolated(unsafe) let buf = pcmBuffer
-                            continuation.yield(buf)
+                            continuation.yield(AudioBufferBox(pcmBuffer).buffer)
                         }
                     }
 

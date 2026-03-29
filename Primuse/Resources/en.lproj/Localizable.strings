@@ -262,3 +262,24 @@
 // Cloud Drive
 "cloud_oauth_config" = "Cloud Auth";
 "cloud_oauth_hint" = "Register an app on the cloud provider's developer platform to get a Client ID. After saving, you'll be redirected to OAuth login.";
+
+// MARK: - Player More Features
+"add_to_playlist" = "Add to Playlist";
+"playlists_title" = "Playlists";
+"sleep_timer" = "Sleep Timer";
+"sleep_timer_active" = "Timer Active";
+"cancel_timer" = "Cancel Timer";
+"minutes" = "min";
+"song_info" = "Song Info";
+"share" = "Share";
+"title_label" = "Title";
+"artist_label" = "Artist";
+"album_label" = "Album";
+"genre_label" = "Genre";
+"year_label" = "Year";
+"track_label" = "Track";
+"technical_info" = "Technical Info";
+"format_label" = "Format";
+"sample_rate_label" = "Sample Rate";
+"bit_depth_label" = "Bit Depth";
+"duration_label" = "Duration";
