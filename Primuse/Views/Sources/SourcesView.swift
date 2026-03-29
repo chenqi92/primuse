@@ -14,9 +14,14 @@ struct SourcesView: View {
 
     struct ScanState: Equatable {
         var isScanning: Bool = false
-        var progress: Double = 0
         var currentFile: String = ""
         var scannedCount: Int = 0
+        var totalCount: Int = 0
+
+        var progress: Double {
+            guard totalCount > 0 else { return 0 }
+            return Double(scannedCount) / Double(totalCount)
+        }
     }
 
     var body: some View {
@@ -112,11 +117,20 @@ struct SourcesView: View {
 
             if let scan = scanning, scan.isScanning {
                 VStack(alignment: .leading, spacing: 4) {
-                    ProgressView(value: min(scan.progress, 1.0)).tint(.accentColor)
+                    if scan.totalCount > 0 {
+                        ProgressView(value: min(scan.progress, 1.0)).tint(.accentColor)
+                    } else {
+                        ProgressView().tint(.accentColor)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                     HStack {
                         Text(scan.currentFile).lineLimit(1)
                         Spacer()
-                        Text("\(scan.scannedCount) \(String(localized: "songs_found"))").monospacedDigit()
+                        if scan.totalCount > 0 {
+                            Text("\(scan.scannedCount)/\(scan.totalCount)").monospacedDigit()
+                        } else {
+                            Text("\(scan.scannedCount) \(String(localized: "songs_found"))").monospacedDigit()
+                        }
                     }
                     .font(.caption2).foregroundStyle(.secondary)
                 }
@@ -228,6 +242,7 @@ struct SourcesView: View {
             var lastIncrementalUpdate = 0
             for try await update in stream {
                 scanStates[source.id]?.scannedCount = update.scannedCount
+                scanStates[source.id]?.totalCount = update.totalCount
                 scanStates[source.id]?.currentFile = update.currentFile
                 lastSongs = update.songs
 
@@ -257,6 +272,7 @@ struct SourcesView: View {
             var lastIncrementalUpdate = 0
             for try await update in stream {
                 scanStates[source.id]?.scannedCount = update.scannedCount
+                scanStates[source.id]?.totalCount = update.totalCount
                 scanStates[source.id]?.currentFile = update.currentFile
                 lastSongs = update.songs
 

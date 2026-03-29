@@ -21,19 +21,25 @@ actor ScraperManager {
         var result = ScrapeResult(errors: [])
         let enabledSources = settings.enabledSources
 
+        // Clean title for better search results (remove brackets, numbering etc.)
+        let cleanedTitle = source_bScraper.cleanTitle(title)
+
         // Scrape metadata from first successful source
         if needs.metadata {
             for config in enabledSources where config.type.supportsMetadata {
                 do {
+                    NSLog("🔍 Scraping metadata from \(config.type.displayName) for '\(cleanedTitle)'")
                     let scraper = getScraper(for: config)
                     let searchResult = try await scraper.search(
-                        query: title, artist: artist, album: album, limit: 5
+                        query: cleanedTitle, artist: artist, album: nil, limit: 5
                     )
+                    NSLog("🔍 \(config.type.displayName) returned \(searchResult.items.count) results")
                     if let best = searchResult.items.first {
                         result.detail = try await scraper.getDetail(externalId: best.externalId)
                         if result.detail != nil { break }
                     }
                 } catch {
+                    NSLog("🔍 \(config.type.displayName) FAILED: \(error.localizedDescription)")
                     result.errors.append("[\(config.type.displayName)] metadata: \(error.localizedDescription)")
                 }
             }
@@ -55,7 +61,7 @@ actor ScraperManager {
 
                     // Otherwise search and get cover
                     let searchResult = try await scraper.search(
-                        query: title, artist: artist, album: album, limit: 5
+                        query: cleanedTitle, artist: artist, album: nil, limit: 5
                     )
                     if let best = searchResult.items.first {
                         let covers = try await scraper.getCoverArt(externalId: best.externalId)
@@ -81,7 +87,7 @@ actor ScraperManager {
                         // LRCLIB uses direct lookup, not search
                         let lrclibScraper = scraper as! LRCLIBScraper
                         if let lyricsResult = try await lrclibScraper.fetchLyrics(
-                            title: title, artist: artist, album: album, duration: duration
+                            title: cleanedTitle, artist: artist, album: album, duration: duration
                         ), lyricsResult.hasLyrics {
                             result.lyrics = parseLyrics(lyricsResult)
                             if result.lyrics != nil { break }
@@ -89,7 +95,7 @@ actor ScraperManager {
                     } else {
                         // Standard search → getLyrics flow
                         let searchResult = try await scraper.search(
-                            query: title, artist: artist, album: album, limit: 5
+                            query: cleanedTitle, artist: artist, album: nil, limit: 5
                         )
                         if let best = searchResult.items.first {
                             if let lyricsResult = try await scraper.getLyrics(externalId: best.externalId),

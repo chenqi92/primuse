@@ -17,6 +17,10 @@ enum FileMetadataReader {
         var sampleRate: Int?
         var bitRate: Int?
         var bitDepth: Int?
+        var replayGainTrackGain: Double?
+        var replayGainTrackPeak: Double?
+        var replayGainAlbumGain: Double?
+        var replayGainAlbumPeak: Double?
     }
 
     /// Reads metadata from an audio file using AVFoundation
@@ -74,6 +78,24 @@ enum FileMetadataReader {
                     }
                 case .id3MetadataContentType:
                     metadata.genre = value as? String
+                case .id3MetadataUserText:
+                    // TXXX frames: ReplayGain tags stored in extraAttributes[.info]
+                    if let extras = try? await item.load(.extraAttributes),
+                       let desc = extras[.info] as? String {
+                        let stringValue = try? await item.load(.stringValue)
+                        switch desc.lowercased() {
+                        case "replaygain_track_gain":
+                            metadata.replayGainTrackGain = parseReplayGainDB(stringValue)
+                        case "replaygain_track_peak":
+                            metadata.replayGainTrackPeak = Double(stringValue ?? "")
+                        case "replaygain_album_gain":
+                            metadata.replayGainAlbumGain = parseReplayGainDB(stringValue)
+                        case "replaygain_album_peak":
+                            metadata.replayGainAlbumPeak = Double(stringValue ?? "")
+                        default:
+                            break
+                        }
+                    }
                 default:
                     break
                 }
@@ -107,5 +129,15 @@ enum FileMetadataReader {
         }
 
         return metadata
+    }
+
+    /// Parse ReplayGain dB string like "-7.43 dB" or "+3.21 dB" to Double
+    private static func parseReplayGainDB(_ value: String?) -> Double? {
+        guard let value else { return nil }
+        let cleaned = value
+            .replacingOccurrences(of: " dB", with: "", options: .caseInsensitive)
+            .replacingOccurrences(of: "dB", with: "", options: .caseInsensitive)
+            .trimmingCharacters(in: .whitespaces)
+        return Double(cleaned)
     }
 }

@@ -20,12 +20,6 @@ struct SettingsView: View {
                     } label: {
                         Label("playback_settings", systemImage: "play.circle")
                     }
-
-                    NavigationLink {
-                        AudioOutputView()
-                    } label: {
-                        Label("audio_output", systemImage: "hifispeaker")
-                    }
                 }
 
                 Section("library") {
@@ -241,58 +235,52 @@ struct MetadataScrapingView: View {
 }
 
 struct PlaybackSettingsView: View {
-    @State private var gaplessPlayback = true
-    @State private var crossfade = false
-    @State private var crossfadeDuration: Double = 3.0
-    @State private var replayGain = false
+    @Environment(PlaybackSettingsStore.self) private var playbackSettings
 
     var body: some View {
-        Form {
-            Section("playback") {
-                Toggle("gapless_playback", isOn: $gaplessPlayback)
-                Toggle("crossfade", isOn: $crossfade)
+        @Bindable var settings = playbackSettings
 
-                if crossfade {
+        Form {
+            Section {
+                Toggle("gapless_playback", isOn: $settings.gaplessEnabled)
+            } footer: {
+                Text("gapless_desc")
+            }
+
+            Section {
+                Toggle("crossfade", isOn: $settings.crossfadeEnabled)
+
+                if settings.crossfadeEnabled {
                     VStack(alignment: .leading) {
                         Text("crossfade_duration")
                             .font(.caption)
-                        Slider(value: $crossfadeDuration, in: 1...12, step: 1) {
-                            Text("\(Int(crossfadeDuration))s")
+                        Slider(value: $settings.crossfadeDuration, in: 1...12, step: 1) {
+                            Text("\(Int(settings.crossfadeDuration))s")
                         }
-                        Text("\(Int(crossfadeDuration)) \(String(localized: "seconds"))")
+                        Text("\(Int(settings.crossfadeDuration)) \(String(localized: "seconds"))")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
                 }
-
-                Toggle("replay_gain", isOn: $replayGain)
-            }
-        }
-        .navigationTitle("playback_settings")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-}
-
-struct AudioOutputView: View {
-    var body: some View {
-        List {
-            Section("current_output") {
-                HStack {
-                    Image(systemName: "speaker.wave.2")
-                    Text("iPhone Speaker")
-                    Spacer()
-                    Image(systemName: "checkmark")
-                        .foregroundStyle(.tint)
-                }
+            } footer: {
+                Text("crossfade_desc")
             }
 
             Section {
-                Text("audio_output_hint")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Toggle("replay_gain", isOn: $settings.replayGainEnabled)
+
+                if settings.replayGainEnabled {
+                    Picker("rg_mode", selection: $settings.replayGainMode) {
+                        ForEach(ReplayGainMode.allCases, id: \.self) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+                }
+            } footer: {
+                Text("replay_gain_desc")
             }
         }
-        .navigationTitle("audio_output")
+        .navigationTitle("playback_settings")
         .navigationBarTitleDisplayMode(.inline)
     }
 }

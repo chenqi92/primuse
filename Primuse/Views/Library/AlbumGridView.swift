@@ -26,9 +26,6 @@ struct AlbumGridView: View {
                 }
                 .padding()
             }
-            .navigationDestination(for: Album.self) { album in
-                AlbumDetailView(album: album)
-            }
         }
     }
 }

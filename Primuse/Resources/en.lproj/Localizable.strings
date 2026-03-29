@@ -170,6 +170,24 @@
 "metadata" = "Metadata";
 "cover" = "Cover";
 "lyrics_word" = "Lyrics";
+"auto_scrape" = "Auto Scrape";
+"manual_scrape" = "Manual Search";
+"scrape_preview" = "Scrape Results";
+"scrape_compare" = "Compare";
+"apply_changes" = "Apply Changes";
+"back_to_options" = "Back";
+"title_changed" = "Title updated";
+"artist_changed" = "Artist updated";
+"album_changed" = "Album updated";
+"cover_found" = "Cover art found";
+"lyrics_found" = "Lyrics found";
+"no_results" = "No Results";
+"no_scrape_results_desc" = "Try different search terms or sources";
+"searching" = "Searching...";
+"select_changes" = "Select Changes to Apply";
+"year" = "Year";
+"genre" = "Genre";
+"search_query" = "Search query";
 
 // MARK: - Settings
 "playback" = "Playback";
@@ -187,12 +205,16 @@
 "licenses" = "Open Source Licenses";
 "open_source" = "Open Source Libraries";
 "gapless_playback" = "Gapless Playback";
+"gapless_desc" = "Seamlessly transition between tracks without any silence gap.";
 "crossfade" = "Crossfade";
 "crossfade_duration" = "Crossfade Duration";
+"crossfade_desc" = "Smoothly blend the end of one track into the beginning of the next.";
 "seconds" = "seconds";
 "replay_gain" = "ReplayGain";
-"current_output" = "Current Output";
-"audio_output_hint" = "Use Control Center or AirPlay to change audio output";
+"replay_gain_desc" = "Automatically adjust volume based on ReplayGain tags embedded in audio files.";
+"rg_mode" = "Mode";
+"rg_mode_track" = "Track";
+"rg_mode_album" = "Album";
 
 // MARK: - Equalizer
 "eq_enabled" = "Equalizer";

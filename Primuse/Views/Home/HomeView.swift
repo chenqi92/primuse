@@ -23,13 +23,6 @@ struct HomeView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    // Greeting
-                    Text(greeting)
-                        .font(.title2)
-                        .fontWeight(.bold)
-                        .padding(.horizontal, 20)
-                        .padding(.top, 4)
-
                     if hasContent {
                         contentView
                     } else {
@@ -67,8 +60,6 @@ struct HomeView: View {
                 artistsSection
             }
 
-            // Stats
-            statsSection
         }
     }
 
@@ -141,20 +132,18 @@ struct HomeView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 14) {
                     ForEach(library.albums.prefix(10)) { album in
-                        NavigationLink(value: album) {
-                            VStack(alignment: .leading, spacing: 6) {
-                                CachedArtworkView(
-                                    coverFileName: library.songs(forAlbum: album.id).first?.coverArtFileName,
-                                    size: 140, cornerRadius: 8
-                                )
-                                .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
-                                Text(album.title).font(.caption).fontWeight(.medium).lineLimit(1)
-                                    .frame(width: 140, alignment: .leading)
-                                Text(album.artistName ?? "").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                                    .frame(width: 140, alignment: .leading)
-                            }
+                        VStack(alignment: .leading, spacing: 6) {
+                            CachedArtworkView(
+                                coverFileName: library.songs(forAlbum: album.id).first?.coverArtFileName,
+                                size: 140, cornerRadius: 8
+                            )
+                            .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
+                            Text(album.title).font(.caption).fontWeight(.medium).lineLimit(1)
+                                .frame(width: 140, alignment: .leading)
+                            Text(album.artistName ?? "").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                                .frame(width: 140, alignment: .leading)
                         }
-                        .buttonStyle(.plain)
+                        .onTapGesture { playAlbum(album) }
                     }
                 }
                 .padding(.horizontal, 20)
@@ -191,28 +180,7 @@ struct HomeView: View {
         }
     }
 
-    // MARK: - Stats
 
-    private var statsSection: some View {
-        HStack(spacing: 0) {
-            statItem("\(library.songCount)", String(localized: "tab_songs"))
-            Divider().frame(height: 20)
-            statItem("\(library.albumCount)", String(localized: "tab_albums"))
-            Divider().frame(height: 20)
-            statItem("\(library.artistCount)", String(localized: "tab_artists"))
-        }
-        .padding(.vertical, 10)
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .padding(.horizontal, 20)
-    }
-
-    private func statItem(_ value: String, _ label: String) -> some View {
-        VStack(spacing: 2) {
-            Text(value).font(.headline).monospacedDigit()
-            Text(label).font(.caption2).foregroundStyle(.secondary)
-        }.frame(maxWidth: .infinity)
-    }
 
     // MARK: - Empty
 
@@ -231,6 +199,13 @@ struct HomeView: View {
             }.buttonStyle(.borderedProminent).padding(.horizontal, 40)
             Spacer()
         }.frame(maxWidth: .infinity)
+    }
+
+    private func playAlbum(_ album: Album) {
+        let albumSongs = library.songs(forAlbum: album.id)
+        guard let first = albumSongs.first else { return }
+        player.setQueue(albumSongs, startAt: 0)
+        Task { await player.play(song: first) }
     }
 
     private func playSong(_ song: Song) {

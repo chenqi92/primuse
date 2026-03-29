@@ -36,7 +36,18 @@ final class NativeAudioDecoder: AudioDecoder {
         AsyncThrowingStream { continuation in
             Task {
                 do {
-                    let file = try AVAudioFile(forReading: url)
+                    // Try opening with default format first, fallback to explicit common format
+                    let file: AVAudioFile
+                    do {
+                        file = try AVAudioFile(forReading: url)
+                    } catch {
+                        // Fallback: try opening with explicit PCM format
+                        file = try AVAudioFile(
+                            forReading: url,
+                            commonFormat: .pcmFormatFloat32,
+                            interleaved: false
+                        )
+                    }
                     let sourceFormat = file.processingFormat
 
                     // If formats match, read directly

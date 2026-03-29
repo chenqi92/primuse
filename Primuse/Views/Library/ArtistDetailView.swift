@@ -77,8 +77,5 @@ struct ArtistDetailView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(for: Album.self) { album in
-            AlbumDetailView(album: album)
-        }
     }
 }

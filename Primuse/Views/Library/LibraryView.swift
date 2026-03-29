@@ -35,6 +35,7 @@ enum LibrarySection: String, CaseIterable, Hashable {
 struct LibraryView: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
+    @State private var navigationPath = NavigationPath()
 
     private var songs: [Song] { library.songs }
     private var albums: [Album] { library.albums }
@@ -43,7 +44,7 @@ struct LibraryView: View {
     private var hasContent: Bool { !songs.isEmpty }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             List {
                 // Category navigation
                 Section {
@@ -73,24 +74,21 @@ struct LibraryView: View {
                             }
                         }
 
-                        // 2-column grid of recent songs/albums
+                        // 2-column grid of recent songs/albums (no NavigationLink to avoid arrows)
                         LazyVGrid(columns: [
                             GridItem(.flexible(), spacing: 12),
                             GridItem(.flexible(), spacing: 12)
                         ], spacing: 14) {
                             ForEach(recentItems) { item in
-                                if let song = item.song {
-                                    RecentItemCard(item: item)
-                                        .contentShape(Rectangle())
-                                        .onTapGesture {
+                                RecentItemCard(item: item)
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        if let song = item.song {
                                             playSong(song)
+                                        } else if let album = item.album {
+                                            playAlbum(album)
                                         }
-                                } else if let album = item.album {
-                                    NavigationLink(value: album) {
-                                        RecentItemCard(item: item)
                                     }
-                                    .buttonStyle(.plain)
-                                }
                             }
                         }
                         .padding(.vertical, 4)
@@ -188,6 +186,13 @@ struct LibraryView: View {
             Text(label).font(.caption2).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private func playAlbum(_ album: Album) {
+        let albumSongs = library.songs(forAlbum: album.id)
+        guard let first = albumSongs.first else { return }
+        player.setQueue(albumSongs, startAt: 0)
+        Task { await player.play(song: first) }
     }
 
     private func playSong(_ song: Song) {

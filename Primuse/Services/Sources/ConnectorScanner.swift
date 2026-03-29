@@ -14,6 +14,7 @@ actor ConnectorScanner {
 
     struct ScanUpdate: Sendable {
         var scannedCount: Int
+        var totalCount: Int
         var currentFile: String
         var songs: [Song]
     }
@@ -24,6 +25,13 @@ actor ConnectorScanner {
                 do {
                     try await connector.connect()
 
+                    // Phase 1: Count total audio files
+                    var totalCount = 0
+                    for directory in directories {
+                        totalCount += (try? await connector.countAudioFiles(in: directory)) ?? 0
+                    }
+
+                    // Phase 2: Scan and extract metadata
                     var allSongs: [Song] = []
                     var scannedCount = 0
 
@@ -38,6 +46,7 @@ actor ConnectorScanner {
                                 continuation.yield(
                                     ScanUpdate(
                                         scannedCount: scannedCount,
+                                        totalCount: totalCount,
                                         currentFile: scannedSong.displayName,
                                         songs: allSongs
                                     )
@@ -48,6 +57,7 @@ actor ConnectorScanner {
                         continuation.yield(
                             ScanUpdate(
                                 scannedCount: scannedCount,
+                                totalCount: totalCount,
                                 currentFile: "",
                                 songs: allSongs
                             )
@@ -64,6 +74,7 @@ actor ConnectorScanner {
                             continuation.yield(
                                 ScanUpdate(
                                     scannedCount: scannedCount,
+                                    totalCount: totalCount,
                                     currentFile: item.name,
                                     songs: allSongs
                                 )
@@ -78,6 +89,7 @@ actor ConnectorScanner {
                                 continuation.yield(
                                     ScanUpdate(
                                         scannedCount: scannedCount,
+                                        totalCount: totalCount,
                                         currentFile: item.name,
                                         songs: allSongs
                                     )
@@ -89,6 +101,7 @@ actor ConnectorScanner {
                     continuation.yield(
                         ScanUpdate(
                             scannedCount: scannedCount,
+                            totalCount: totalCount,
                             currentFile: "",
                             songs: allSongs
                         )

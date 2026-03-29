@@ -21,36 +21,41 @@ struct QueueView: View {
                         }
                     }
 
-                    // Up Next
-                    let upNext = Array(player.queue.enumerated()).filter { $0.offset > player.currentIndex }
-                    if !upNext.isEmpty {
+                    // Up Next (draggable)
+                    let upNextIndices = (player.currentIndex + 1)..<player.queue.count
+                    if !upNextIndices.isEmpty {
                         Section("up_next") {
-                            ForEach(upNext, id: \.element.id) { index, song in
+                            ForEach(Array(upNextIndices), id: \.self) { index in
+                                let song = player.queue[index]
                                 SongRowView(song: song, isPlaying: false, showsPlaylistActions: false)
                                     .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        playAt(index: index)
-                                    }
+                                    .onTapGesture { playAt(index: index) }
+                            }
+                            .onMove { source, destination in
+                                // Adjust indices relative to queue (not section)
+                                let adjustedSource = IndexSet(source.map { $0 + player.currentIndex + 1 })
+                                let adjustedDest = destination + player.currentIndex + 1
+                                player.queue.move(fromOffsets: adjustedSource, toOffset: adjustedDest)
                             }
                         }
                     }
 
                     // Previously played
-                    let played = Array(player.queue.enumerated()).filter { $0.offset < player.currentIndex }
-                    if !played.isEmpty {
+                    let playedIndices = 0..<player.currentIndex
+                    if !playedIndices.isEmpty {
                         Section("played") {
-                            ForEach(played, id: \.element.id) { index, song in
+                            ForEach(Array(playedIndices), id: \.self) { index in
+                                let song = player.queue[index]
                                 SongRowView(song: song, isPlaying: false, showsPlaylistActions: false)
                                     .opacity(0.6)
                                     .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        playAt(index: index)
-                                    }
+                                    .onTapGesture { playAt(index: index) }
                             }
                         }
                     }
                 }
             }
+            .environment(\.editMode, .constant(.active)) // Enable drag handles
             .navigationTitle("queue_title")
             .navigationBarTitleDisplayMode(.inline)
         }

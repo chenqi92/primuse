@@ -33,9 +33,48 @@ final class MusicScraperService {
         startScraping(in: library, forceRescrape: true)
     }
 
-    func scrapeSingle(song: Song, in library: MusicLibrary) async throws -> Song {
-        let updatedSong = try await processedSong(song, forceRescrape: true) ?? song
-        if updatedSong != song {
+    /// Scrape single song — never overwrites existing cover/lyrics with nil
+    /// dryRun: if true, returns updated song without writing to library
+    func scrapeSingle(song: Song, in library: MusicLibrary, dryRun: Bool = false) async throws -> Song {
+        guard var updatedSong = try await processedSong(song, forceRescrape: true) else {
+            return song
+        }
+
+        // NEVER overwrite existing cover or lyrics with nil
+        if updatedSong.coverArtFileName == nil && song.coverArtFileName != nil {
+            updatedSong = Song(
+                id: updatedSong.id, title: updatedSong.title,
+                albumID: updatedSong.albumID, artistID: updatedSong.artistID,
+                albumTitle: updatedSong.albumTitle, artistName: updatedSong.artistName,
+                trackNumber: updatedSong.trackNumber, discNumber: updatedSong.discNumber,
+                duration: updatedSong.duration, fileFormat: updatedSong.fileFormat,
+                filePath: updatedSong.filePath, sourceID: updatedSong.sourceID,
+                fileSize: updatedSong.fileSize, bitRate: updatedSong.bitRate,
+                sampleRate: updatedSong.sampleRate, bitDepth: updatedSong.bitDepth,
+                genre: updatedSong.genre, year: updatedSong.year,
+                dateAdded: updatedSong.dateAdded,
+                coverArtFileName: song.coverArtFileName,
+                lyricsFileName: updatedSong.lyricsFileName ?? song.lyricsFileName
+            )
+        }
+        if updatedSong.lyricsFileName == nil && song.lyricsFileName != nil {
+            updatedSong = Song(
+                id: updatedSong.id, title: updatedSong.title,
+                albumID: updatedSong.albumID, artistID: updatedSong.artistID,
+                albumTitle: updatedSong.albumTitle, artistName: updatedSong.artistName,
+                trackNumber: updatedSong.trackNumber, discNumber: updatedSong.discNumber,
+                duration: updatedSong.duration, fileFormat: updatedSong.fileFormat,
+                filePath: updatedSong.filePath, sourceID: updatedSong.sourceID,
+                fileSize: updatedSong.fileSize, bitRate: updatedSong.bitRate,
+                sampleRate: updatedSong.sampleRate, bitDepth: updatedSong.bitDepth,
+                genre: updatedSong.genre, year: updatedSong.year,
+                dateAdded: updatedSong.dateAdded,
+                coverArtFileName: updatedSong.coverArtFileName,
+                lyricsFileName: song.lyricsFileName
+            )
+        }
+
+        if !dryRun && updatedSong != song {
             library.replaceSong(updatedSong)
         }
         return updatedSong

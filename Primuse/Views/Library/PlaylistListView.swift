@@ -51,9 +51,6 @@ struct PlaylistListView: View {
                     .onDelete(perform: deletePlaylists)
                 }
                 .listStyle(.plain)
-                .navigationDestination(for: Playlist.self) { playlist in
-                    PlaylistDetailView(playlist: playlist)
-                }
             }
         }
         .toolbar {

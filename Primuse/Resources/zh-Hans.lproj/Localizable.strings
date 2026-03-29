@@ -170,6 +170,24 @@
 "metadata" = "元数据";
 "cover" = "封面";
 "lyrics_word" = "歌词";
+"auto_scrape" = "自动刮削";
+"manual_scrape" = "手动搜索";
+"scrape_preview" = "刮削结果";
+"scrape_compare" = "对比";
+"apply_changes" = "应用更改";
+"back_to_options" = "返回";
+"title_changed" = "标题已更新";
+"artist_changed" = "艺术家已更新";
+"album_changed" = "专辑已更新";
+"cover_found" = "找到封面";
+"lyrics_found" = "找到歌词";
+"no_results" = "没有结果";
+"no_scrape_results_desc" = "尝试不同的搜索词或来源";
+"searching" = "搜索中...";
+"select_changes" = "选择要应用的更改";
+"year" = "年份";
+"genre" = "风格";
+"search_query" = "搜索关键词";
 
 // MARK: - 设置
 "playback" = "播放";
@@ -187,12 +205,16 @@
 "licenses" = "开源许可";
 "open_source" = "开源库";
 "gapless_playback" = "无缝播放";
+"gapless_desc" = "曲目之间无缝衔接，消除静音间隙。";
 "crossfade" = "淡入淡出";
 "crossfade_duration" = "淡入淡出时长";
+"crossfade_desc" = "当前曲目结束时，平滑过渡到下一首。";
 "seconds" = "秒";
 "replay_gain" = "回放增益";
-"current_output" = "当前输出";
-"audio_output_hint" = "使用控制中心或隔空播放来更改音频输出";
+"replay_gain_desc" = "根据音频文件中嵌入的 ReplayGain 标签自动调整音量。";
+"rg_mode" = "模式";
+"rg_mode_track" = "单曲";
+"rg_mode_album" = "专辑";
 
 // MARK: - 均衡器
 "eq_enabled" = "均衡器";

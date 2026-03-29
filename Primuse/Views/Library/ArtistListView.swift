@@ -29,9 +29,6 @@ struct ArtistListView: View {
                 }
             }
             .listStyle(.plain)
-            .navigationDestination(for: Artist.self) { artist in
-                ArtistDetailView(artist: artist)
-            }
         }
     }
 }

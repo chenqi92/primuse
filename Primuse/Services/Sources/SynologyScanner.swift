@@ -27,6 +27,7 @@ actor SynologyScanner {
 
     struct ScanUpdate: Sendable {
         var scannedCount: Int
+        var totalCount: Int
         var currentFile: String
         var songs: [Song]
     }
@@ -34,6 +35,13 @@ actor SynologyScanner {
     func scan(directories: [String]) -> AsyncThrowingStream<ScanUpdate, Error> {
         AsyncThrowingStream { continuation in
             Task {
+                // Phase 1: Count total audio files
+                var totalCount = 0
+                for dir in directories {
+                    totalCount += await countAudioFiles(in: dir)
+                }
+
+                // Phase 2: Scan and extract metadata
                 var allSongs: [Song] = []
                 var count = 0
 
@@ -41,7 +49,8 @@ actor SynologyScanner {
                     do {
                         try await scanDirectory(
                             path: dir, allSongs: &allSongs,
-                            count: &count, continuation: continuation
+                            count: &count, totalCount: totalCount,
+                            continuation: continuation
                         )
                     } catch {
                         continuation.finish(throwing: error)
@@ -49,15 +58,33 @@ actor SynologyScanner {
                     }
                 }
 
-                continuation.yield(ScanUpdate(scannedCount: count, currentFile: "", songs: allSongs))
+                continuation.yield(ScanUpdate(scannedCount: count, totalCount: totalCount, currentFile: "", songs: allSongs))
                 continuation.finish()
                 cleanup()
             }
         }
     }
 
+    /// Recursively count audio files without downloading metadata
+    private func countAudioFiles(in path: String) async -> Int {
+        guard let items = try? await api.listDirectory(path: path) else { return 0 }
+        var count = 0
+        for item in items {
+            if item.isDirectory {
+                count += await countAudioFiles(in: item.path)
+            } else {
+                let ext = (item.name as NSString).pathExtension.lowercased()
+                if PrimuseConstants.supportedAudioExtensions.contains(ext) {
+                    count += 1
+                }
+            }
+        }
+        return count
+    }
+
     private func scanDirectory(
         path: String, allSongs: inout [Song], count: inout Int,
+        totalCount: Int,
         continuation: AsyncThrowingStream<ScanUpdate, Error>.Continuation
     ) async throws {
         let items = try await api.listDirectory(path: path)
@@ -69,7 +96,8 @@ actor SynologyScanner {
             if item.isDirectory {
                 try await scanDirectory(
                     path: item.path, allSongs: &allSongs,
-                    count: &count, continuation: continuation
+                    count: &count, totalCount: totalCount,
+                    continuation: continuation
                 )
             } else {
                 let ext = (item.name as NSString).pathExtension.lowercased()
@@ -82,7 +110,7 @@ actor SynologyScanner {
 
                 count += 1
                 continuation.yield(ScanUpdate(
-                    scannedCount: count, currentFile: item.name, songs: allSongs
+                    scannedCount: count, totalCount: totalCount, currentFile: item.name, songs: allSongs
                 ))
 
                 var song = await extractSongMetadata(item: item, ext: ext)
@@ -112,7 +140,7 @@ actor SynologyScanner {
                 // Yield with updated songs every 3 files
                 if count % 3 == 0 {
                     continuation.yield(ScanUpdate(
-                        scannedCount: count, currentFile: item.name, songs: allSongs
+                        scannedCount: count, totalCount: totalCount, currentFile: item.name, songs: allSongs
                     ))
                 }
             }
@@ -236,13 +264,23 @@ actor SynologyScanner {
                 }
             }
 
-            // Estimate duration from file size and bitrate for partial downloads
+            // Estimate duration from file size and bitrate
             if duration == 0, let br = bitRate, br > 0 {
                 duration = Double(item.size) * 8.0 / Double(br * 1000)
             }
 
+            // Last resort: estimate from file size assuming common bitrate
+            if duration == 0 && item.size > 0 {
+                let assumedBitrate: Double = ext == "flac" ? 900_000 : 192_000 // bps
+                duration = Double(item.size) * 8.0 / assumedBitrate
+            }
+
         } catch {
-            // Metadata extraction failed, use filename-based defaults
+            // Metadata extraction failed — still estimate duration from file size
+            if duration == 0 && item.size > 0 {
+                let assumedBitrate: Double = ext == "flac" ? 900_000 : 192_000
+                duration = Double(item.size) * 8.0 / assumedBitrate
+            }
         }
 
         return makeSong(id: songID, title: title, artist: artist, album: album,
