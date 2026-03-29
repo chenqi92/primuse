@@ -46,6 +46,25 @@ struct ContentView: View {
                 player.stop(); player.queue = []; showNowPlaying = false
             }
         }
+        // SSL trust prompt
+        .alert(
+            String(localized: "ssl_trust_title"),
+            isPresented: Binding(
+                get: { SSLTrustStore.shared.pendingTrustRequest != nil },
+                set: { if !$0 { SSLTrustStore.shared.resolveTrustRequest(approved: false) } }
+            )
+        ) {
+            Button(String(localized: "trust_domain"), role: .destructive) {
+                SSLTrustStore.shared.resolveTrustRequest(approved: true)
+            }
+            Button(String(localized: "dont_trust"), role: .cancel) {
+                SSLTrustStore.shared.resolveTrustRequest(approved: false)
+            }
+        } message: {
+            if let domain = SSLTrustStore.shared.pendingTrustRequest?.domain {
+                Text("ssl_trust_message \(domain)")
+            }
+        }
     }
 }
 

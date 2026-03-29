@@ -19,8 +19,8 @@ struct NowPlayingView: View {
     @State private var showSleepTimer = false
     @Environment(ThemeService.self) private var theme
 
-    /// Whether the current song is in ANY playlist
-    private var isLiked: Bool {
+    /// Whether the current song is in any playlist (not a dedicated "favorites" concept)
+    private var isInAnyPlaylist: Bool {
         guard let songID = player.currentSong?.id else { return false }
         return library.playlists.contains { library.contains(songID: songID, inPlaylist: $0.id) }
     }
@@ -50,6 +50,16 @@ struct NowPlayingView: View {
                         .padding(.top, topSafeArea + 6)
                         .padding(.bottom, 10)
 
+                    // Playback error toast
+                    if let error = player.lastPlaybackError {
+                        Text(error)
+                            .font(.caption).fontWeight(.medium)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 16).padding(.vertical, 8)
+                            .background(.red.opacity(0.8), in: Capsule())
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+
                     if showLyrics {
                         // LYRICS MODE: compact header at top
                         HStack(spacing: 10) {
@@ -74,9 +84,9 @@ struct NowPlayingView: View {
                             Spacer()
 
                             Button { showAddToPlaylist = true } label: {
-                                Image(systemName: isLiked ? "heart.fill" : "heart")
+                                Image(systemName: isInAnyPlaylist ? "heart.fill" : "heart")
                                     .font(.title3)
-                                    .foregroundStyle(isLiked ? .red : .white.opacity(0.6))
+                                    .foregroundStyle(isInAnyPlaylist ? .red : .white.opacity(0.6))
                                     .contentTransition(.symbolEffect(.replace))
                             }
 
@@ -120,9 +130,9 @@ struct NowPlayingView: View {
                             Button {
                                 showAddToPlaylist = true
                             } label: {
-                                Image(systemName: isLiked ? "heart.fill" : "heart")
+                                Image(systemName: isInAnyPlaylist ? "heart.fill" : "heart")
                                     .font(.title2)
-                                    .foregroundStyle(isLiked ? .red : .white.opacity(0.6))
+                                    .foregroundStyle(isInAnyPlaylist ? .red : .white.opacity(0.6))
                                     .contentTransition(.symbolEffect(.replace))
                             }
                             .padding(.trailing, 4)
@@ -247,12 +257,12 @@ struct NowPlayingView: View {
             }
         }
         .confirmationDialog(String(localized: "sleep_timer"), isPresented: $showSleepTimer) {
-            Button("15 " + String(localized: "minutes")) { scheduleSleep(minutes: 15) }
-            Button("30 " + String(localized: "minutes")) { scheduleSleep(minutes: 30) }
-            Button("45 " + String(localized: "minutes")) { scheduleSleep(minutes: 45) }
-            Button("60 " + String(localized: "minutes")) { scheduleSleep(minutes: 60) }
-            if sleepTimer != nil {
-                Button(String(localized: "cancel_timer"), role: .destructive) { cancelSleep() }
+            Button("15 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 15) }
+            Button("30 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 30) }
+            Button("45 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 45) }
+            Button("60 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 60) }
+            if player.isSleepTimerActive {
+                Button(String(localized: "cancel_timer"), role: .destructive) { player.cancelSleep() }
             }
             Button(String(localized: "cancel"), role: .cancel) {}
         }
@@ -278,7 +288,7 @@ struct NowPlayingView: View {
 
             Button { showSleepTimer = true } label: {
                 Label(
-                    sleepTimer != nil ? String(localized: "sleep_timer_active") : String(localized: "sleep_timer"),
+                    player.isSleepTimerActive ? String(localized: "sleep_timer_active") : String(localized: "sleep_timer"),
                     systemImage: "moon.zzz"
                 )
             }
@@ -360,26 +370,6 @@ struct NowPlayingView: View {
                 }
             }
         }
-        .onTapGesture { withAnimation(.easeInOut(duration: 0.3)) { showLyrics = false } }
-    }
-
-    // MARK: - Sleep Timer
-
-    @State private var sleepTimer: Timer?
-
-    private func scheduleSleep(minutes: Int) {
-        sleepTimer?.invalidate()
-        sleepTimer = Timer.scheduledTimer(withTimeInterval: TimeInterval(minutes * 60), repeats: false) { _ in
-            Task { @MainActor in
-                player.pause()
-                sleepTimer = nil
-            }
-        }
-    }
-
-    private func cancelSleep() {
-        sleepTimer?.invalidate()
-        sleepTimer = nil
     }
 
     // MARK: - Helpers

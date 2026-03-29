@@ -51,6 +51,7 @@
 		42786BA198C03F835DBF49EC /* SourcesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E43D86A7277FFD6BA412DECF /* SourcesStore.swift */; };
 		42D3D23AAADAC9B441E04D87 /* MusicScraperProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9081DDAD5B33D4D005479E15 /* MusicScraperProtocol.swift */; };
 		462E50063C5075D907ABD7B6 /* SFTPSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D64868ED9B01B2808EEFF51 /* SFTPSource.swift */; };
+		F2E1D0C9B8A7F6E5D4C3B2A1 /* SSLTrustStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6A7B8C9D0E1F2 /* SSLTrustStore.swift */; };
 		46ECE921B62C7BD398BEAA1A /* SMBSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEF1C4D090D0F65114B8F0D5 /* SMBSource.swift */; };
 		48AD291EAE5EB38148B61BDA /* SynologyAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 552EC251CB491F214F263601 /* SynologyAPI.swift */; };
 		4D9FDCB6AB92B02FFCFD83D4 /* SourceTypeSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C50B958D5A7FEF1F9E8AD24 /* SourceTypeSelectionView.swift */; };
@@ -329,6 +330,7 @@
 		992934DD86AE09796F7BC1A3 /* MusicBrainzScraper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicBrainzScraper.swift; sourceTree = "<group>"; };
 		9AA5AE882AD3B192D6A6764E /* PlaybackLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackLiveActivity.swift; sourceTree = "<group>"; };
 		9D64868ED9B01B2808EEFF51 /* SFTPSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPSource.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6A7B8C9D0E1F2 /* SSLTrustStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSLTrustStore.swift; sourceTree = "<group>"; };
 		9FAE44430F4A7E3D1D09B2A7 /* source_eScraper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = source_eScraper.swift; sourceTree = "<group>"; };
 		A40F791353852EF9291CCFBB /* PrimuseActivityExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PrimuseActivityExtension.entitlements; sourceTree = "<group>"; };
 		A41F54083A82815533AA0C36 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
@@ -516,6 +518,7 @@
 				CA179334735B8A7FCFC9F055 /* QnapSource.swift */,
 				2FD2BBC1EC1BECCE0D1EEF17 /* S3Source.swift */,
 				9D64868ED9B01B2808EEFF51 /* SFTPSource.swift */,
+				A1B2C3D4E5F6A7B8C9D0E1F2 /* SSLTrustStore.swift */,
 				BEF1C4D090D0F65114B8F0D5 /* SMBSource.swift */,
 				2749C2730EE3A6AB4EEFE3FE /* SourceManager.swift */,
 				E43D86A7277FFD6BA412DECF /* SourcesStore.swift */,
@@ -875,6 +878,7 @@
 				732C3E4918F41BB73857AAE7 /* Crypto */,
 				C911C661F7CED78FBD5F2FCC /* NIOCore */,
 				4554180DADE700DF4BA63BA0 /* NFSKit */,
+				AB12CD34EF56789012345678 /* SFBAudioEngine */,
 			);
 			productName = Primuse;
 			productReference = D895718972388CC203A15AC1 /* Primuse.app */;
@@ -964,6 +968,7 @@
 				21EA0EB8036EED38290BD521 /* XCRemoteSwiftPackageReference "NFSKit" */,
 				47E64858A997CBFB17040255 /* XCRemoteSwiftPackageReference "swift-crypto" */,
 				2978E46D4F61457C5F4EFF1E /* XCRemoteSwiftPackageReference "swift-nio" */,
+				DE78AB90CD1234567890ABCD /* XCRemoteSwiftPackageReference "SFBAudioEngine" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = DA6172165DA187F653F86AF1 /* Products */;
@@ -1128,6 +1133,7 @@
 				19C85ED05C09AB735883A8E5 /* S3Source.swift in Sources */,
 				EFAB156F0158347B9BF9C7CD /* SFTPBrowserView.swift in Sources */,
 				462E50063C5075D907ABD7B6 /* SFTPSource.swift in Sources */,
+				F2E1D0C9B8A7F6E5D4C3B2A1 /* SSLTrustStore.swift in Sources */,
 				8F0445DECEC9F9E78038D931 /* SMBBrowserView.swift in Sources */,
 				46ECE921B62C7BD398BEAA1A /* SMBSource.swift in Sources */,
 				F42267DB1E4B85832BE4E52D /* ScrapeOptionsView.swift in Sources */,
@@ -1599,6 +1605,14 @@
 				minimumVersion = 0.26.0;
 			};
 		};
+		DE78AB90CD1234567890ABCD /* XCRemoteSwiftPackageReference "SFBAudioEngine" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sbooth/SFBAudioEngine.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.12.1;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1646,6 +1660,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 5D1F5170FF958C6D23501EA2 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
 			productName = GRDB;
+		};
+		AB12CD34EF56789012345678 /* SFBAudioEngine */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = DE78AB90CD1234567890ABCD /* XCRemoteSwiftPackageReference "SFBAudioEngine" */;
+			productName = SFBAudioEngine;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

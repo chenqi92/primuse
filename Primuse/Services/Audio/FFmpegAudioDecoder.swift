@@ -13,7 +13,7 @@ import PrimuseKit
 /// - avcodec_find_decoder / avcodec_open2 for codec initialization
 /// - av_read_frame / avcodec_send_packet / avcodec_receive_frame for decoding
 /// - swr_alloc_set_opts2 / swr_convert for resampling to Float32 PCM
-final class FFmpegAudioDecoder: AudioDecoder {
+final class FFmpegAudioDecoder: PrimuseAudioDecoder {
     private let supportedExtensions: Set<String> = ["ape", "dsf", "dff", "ogg", "opus", "wma", "wv"]
 
     func canDecode(url: URL) -> Bool {

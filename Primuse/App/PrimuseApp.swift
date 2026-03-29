@@ -51,6 +51,9 @@ struct PrimuseApp: App {
                 .onChange(of: playerService.currentSong?.coverArtFileName) { _, newCover in
                     themeService.updateFromCoverArt(fileName: newCover)
                 }
+                .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
+                    musicLibrary.persistNow()
+                }
         }
     }
 }

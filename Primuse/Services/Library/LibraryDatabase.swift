@@ -309,7 +309,9 @@ actor LibraryDatabase {
 
     func search(query: String) throws -> [Song] {
         try dbPool.read { db in
-            let searchTerm = query + "*"
+            // Escape FTS5 special characters: wrap in quotes for literal matching
+            let escaped = query.replacingOccurrences(of: "\"", with: "\"\"")
+            let searchTerm = "\"\(escaped)\"*"
             return try Song.fetchAll(db, sql: """
                 SELECT songs.* FROM songs
                 JOIN songsFts ON songsFts.rowid = songs.rowid

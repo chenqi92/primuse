@@ -204,16 +204,25 @@ final class SourceManager {
         return audioCacheDirectory(for: song.sourceID).appendingPathComponent(sanitized)
     }
 
+    private static var smbCacheDir: URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("primuse_smb_cache")
+    }
+
     func audioCacheSize() -> Int64 {
-        let basePath = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-            .appendingPathComponent(Self.audioCacheDirName)
-        guard let enumerator = FileManager.default.enumerator(
-            at: basePath, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles]
-        ) else { return 0 }
         var total: Int64 = 0
-        for case let fileURL as URL in enumerator {
-            if let size = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize {
-                total += Int64(size)
+        let dirs = [
+            FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+                .appendingPathComponent(Self.audioCacheDirName),
+            Self.smbCacheDir,
+        ]
+        for basePath in dirs {
+            guard let enumerator = FileManager.default.enumerator(
+                at: basePath, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles]
+            ) else { continue }
+            for case let fileURL as URL in enumerator {
+                if let size = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize {
+                    total += Int64(size)
+                }
             }
         }
         return total
@@ -223,6 +232,7 @@ final class SourceManager {
         let basePath = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
             .appendingPathComponent(Self.audioCacheDirName)
         try? FileManager.default.removeItem(at: basePath)
+        try? FileManager.default.removeItem(at: Self.smbCacheDir)
     }
 
     /// Background-cache a song file (generalized for all sources).
@@ -236,7 +246,7 @@ final class SourceManager {
             guard let streamURL = try? await conn.streamingURL(for: song.filePath) else { return }
             let config = URLSessionConfiguration.default
             config.timeoutIntervalForRequest = 300
-            let session = URLSession(configuration: config, delegate: InsecureURLSessionDelegate(), delegateQueue: nil)
+            let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
             guard let (tempURL, response) = try? await session.download(from: streamURL),
                   let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return }
             let target = cacheURL(for: song)

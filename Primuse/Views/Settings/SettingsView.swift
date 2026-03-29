@@ -2,8 +2,6 @@ import SwiftUI
 import PrimuseKit
 
 struct SettingsView: View {
-    @State private var cacheSize: String = "0 MB"
-    @State private var showClearCacheAlert = false
     @Environment(SourceManager.self) private var sourceManager
 
     var body: some View {
@@ -35,18 +33,19 @@ struct SettingsView: View {
                     } label: {
                         Label("metadata_scraping", systemImage: "wand.and.stars")
                     }
+                }
 
-                    Button {
-                        showClearCacheAlert = true
+                Section("security") {
+                    NavigationLink {
+                        TrustedDomainsView()
                     } label: {
                         HStack {
-                            Label("cache_size", systemImage: "internaldrive")
+                            Label("trusted_domains", systemImage: "lock.shield")
                             Spacer()
-                            Text(cacheSize)
+                            Text("\(SSLTrustStore.shared.trustedDomains.count)")
                                 .foregroundStyle(.secondary)
                         }
                     }
-                    .tint(.primary)
                 }
 
                 Section("about") {
@@ -73,38 +72,7 @@ struct SettingsView: View {
             }
             .navigationTitle("settings_title")
             .toolbarTitleDisplayMode(.inlineLarge)
-            .task {
-                await refreshCacheSize()
-            }
-            .confirmationDialog("clear_cache_confirm", isPresented: $showClearCacheAlert) {
-                Button("clear", role: .destructive) {
-                    Task {
-                        await clearCache()
-                    }
-                }
-                Button("cancel", role: .cancel) {}
-            }
         }
-    }
-
-    private func clearCache() async {
-        await MetadataAssetStore.shared.clearAll()
-        try? await ImageCache.shared.clearDiskCache()
-        sourceManager.clearAudioCache()
-        await refreshCacheSize()
-    }
-
-    private func refreshCacheSize() async {
-        let imageCacheSize = (try? await ImageCache.shared.diskCacheSize()) ?? 0
-        let metadataCacheSize = await MetadataAssetStore.shared.cacheSize()
-        let audioCacheSize = sourceManager.audioCacheSize()
-        cacheSize = formatByteCount(imageCacheSize + metadataCacheSize + audioCacheSize)
-    }
-
-    private func formatByteCount(_ bytes: Int64) -> String {
-        let formatter = ByteCountFormatter()
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: bytes)
     }
 }
 
@@ -238,6 +206,9 @@ struct MetadataScrapingView: View {
 
 struct PlaybackSettingsView: View {
     @Environment(PlaybackSettingsStore.self) private var playbackSettings
+    @Environment(SourceManager.self) private var sourceManager
+    @State private var cacheSize: String = "0 MB"
+    @State private var isClearing = false
 
     var body: some View {
         @Bindable var settings = playbackSettings
@@ -245,8 +216,9 @@ struct PlaybackSettingsView: View {
         Form {
             Section {
                 Toggle("gapless_playback", isOn: $settings.gaplessEnabled)
+                    .disabled(true)
             } footer: {
-                Text("gapless_desc")
+                Text("gapless_not_available")
             }
 
             Section {
@@ -284,12 +256,110 @@ struct PlaybackSettingsView: View {
 
             Section {
                 Toggle("audio_cache_enabled", isOn: $settings.audioCacheEnabled)
+
+                HStack {
+                    Text("cache_size")
+                    Spacer()
+                    Text(cacheSize)
+                        .foregroundStyle(.secondary)
+                }
+
+                Button(role: .destructive) {
+                    isClearing = true
+                    Task {
+                        await clearCache()
+                        isClearing = false
+                    }
+                } label: {
+                    HStack {
+                        Label("clear_cache", systemImage: "trash")
+                        if isClearing {
+                            Spacer()
+                            ProgressView()
+                        }
+                    }
+                }
+                .disabled(isClearing)
             } footer: {
                 Text("audio_cache_desc")
             }
         }
         .navigationTitle("playback_settings")
         .navigationBarTitleDisplayMode(.inline)
+        .task { await refreshCacheSize() }
+    }
+
+    private func clearCache() async {
+        await MetadataAssetStore.shared.clearAll()
+        try? await ImageCache.shared.clearDiskCache()
+        sourceManager.clearAudioCache()
+        await refreshCacheSize()
+    }
+
+    private func refreshCacheSize() async {
+        let imageCacheSize = (try? await ImageCache.shared.diskCacheSize()) ?? 0
+        let metadataCacheSize = await MetadataAssetStore.shared.cacheSize()
+        let audioCacheSize = sourceManager.audioCacheSize()
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        cacheSize = formatter.string(fromByteCount: imageCacheSize + metadataCacheSize + audioCacheSize)
+    }
+}
+
+// MARK: - Trusted Domains
+
+struct TrustedDomainsView: View {
+    @State private var newDomain = ""
+    @State private var showAddAlert = false
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(SSLTrustStore.shared.trustedDomains, id: \.self) { domain in
+                    Text(domain)
+                }
+                .onDelete { indexSet in
+                    let domains = SSLTrustStore.shared.trustedDomains
+                    for index in indexSet {
+                        SSLTrustStore.shared.untrust(domain: domains[index])
+                    }
+                }
+
+                if SSLTrustStore.shared.trustedDomains.isEmpty {
+                    Text("no_trusted_domains")
+                        .foregroundStyle(.secondary)
+                }
+            } footer: {
+                Text("trusted_domains_footer")
+            }
+        }
+        .navigationTitle("trusted_domains")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    newDomain = ""
+                    showAddAlert = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+            }
+        }
+        .alert("add_trusted_domain", isPresented: $showAddAlert) {
+            TextField("domain_placeholder", text: $newDomain)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            Button("add") {
+                let domain = newDomain.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                if !domain.isEmpty {
+                    SSLTrustStore.shared.trust(domain: domain)
+                }
+                newDomain = ""
+            }
+            Button("cancel", role: .cancel) { newDomain = "" }
+        } message: {
+            Text("add_trusted_domain_message")
+        }
     }
 }
 
@@ -297,10 +367,18 @@ struct LicensesView: View {
     var body: some View {
         List {
             Section("open_source") {
+                licenseRow("SFBAudioEngine", "MIT License")
                 licenseRow("GRDB.swift", "MIT License")
                 licenseRow("AMSMB2", "LGPL 2.1")
                 licenseRow("FileProvider", "MIT License")
-                licenseRow("FFmpeg", "LGPL 2.1")
+                licenseRow("FLAC", "BSD License")
+                licenseRow("mpg123", "LGPL 2.1")
+                licenseRow("libsndfile", "LGPL 2.1")
+                licenseRow("libogg / libvorbis", "BSD License")
+                licenseRow("libopus", "BSD License")
+                licenseRow("WavPack", "BSD License")
+                licenseRow("Monkey's Audio", "BSD License")
+                licenseRow("True Audio (libtta)", "LGPL 2.1")
             }
         }
         .navigationTitle("licenses")

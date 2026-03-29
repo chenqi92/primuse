@@ -1,6 +1,7 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 import Foundation
 import PrimuseKit
+import SFBAudioEngine
 
 private final class AudioBufferBox: @unchecked Sendable {
     let buffer: AVAudioPCMBuffer
@@ -10,24 +11,29 @@ private final class AudioBufferBox: @unchecked Sendable {
     }
 }
 
-final class NativeAudioDecoder: AudioDecoder {
-    private let supportedExtensions: Set<String> = ["mp3", "aac", "m4a", "alac", "flac", "wav", "aiff", "aif"]
+final class NativeAudioDecoder: PrimuseAudioDecoder {
     private let bufferFrameCount: AVAudioFrameCount = 8192
 
     func canDecode(url: URL) -> Bool {
-        supportedExtensions.contains(url.pathExtension.lowercased())
+        // SFBAudioEngine supports a huge range of formats
+        let ext = url.pathExtension.lowercased()
+        return SFBAudioEngine.AudioDecoder.handlesPaths(withExtension: ext)
     }
 
     func fileInfo(for url: URL) async throws -> AudioFileInfo {
-        let file = try AVAudioFile(forReading: url)
-        let format = file.processingFormat
-        let duration = Double(file.length) / format.sampleRate
+        // Try SFBAudioEngine first for broader format support
+        let decoder = try SFBAudioEngine.AudioDecoder(url: url)
+        try decoder.open()
+        let format = decoder.processingFormat
+        let totalFrames = decoder.length
+        let duration = totalFrames > 0 ? Double(totalFrames) / format.sampleRate : 0
+        try? decoder.close()
 
         return AudioFileInfo(
             duration: duration,
             sampleRate: format.sampleRate,
             channelCount: Int(format.channelCount),
-            bitDepth: Int(file.fileFormat.settings[AVLinearPCMBitDepthKey] as? Int ?? 0),
+            bitDepth: Int(format.settings[AVLinearPCMBitDepthKey] as? Int ?? 0),
             format: url.pathExtension.uppercased()
         )
     }
@@ -36,27 +42,20 @@ final class NativeAudioDecoder: AudioDecoder {
         AsyncThrowingStream { continuation in
             Task {
                 do {
-                    // Try opening with default format first, fallback to explicit common format
-                    let file: AVAudioFile
-                    do {
-                        file = try AVAudioFile(forReading: url)
-                    } catch {
-                        // Fallback: try opening with explicit PCM format
-                        file = try AVAudioFile(
-                            forReading: url,
-                            commonFormat: .pcmFormatFloat32,
-                            interleaved: false
-                        )
-                    }
-                    let sourceFormat = file.processingFormat
-                    plog("🎵 NativeDecoder: file=\(url.lastPathComponent) sourceFormat=sr\(sourceFormat.sampleRate)/ch\(sourceFormat.channelCount) length=\(file.length) outputFormat=sr\(outputFormat.sampleRate)/ch\(outputFormat.channelCount)")
+                    let decoder = try SFBAudioEngine.AudioDecoder(url: url)
+                    try decoder.open()
+
+                    let sourceFormat = decoder.processingFormat
+                    let totalFrames = decoder.length
+
+                    plog("🎵 SFBDecoder: file=\(url.lastPathComponent) sourceFormat=sr\(sourceFormat.sampleRate)/ch\(sourceFormat.channelCount) length=\(totalFrames) outputFormat=sr\(outputFormat.sampleRate)/ch\(outputFormat.channelCount)")
 
                     // If formats match, read directly
                     if sourceFormat.sampleRate == outputFormat.sampleRate &&
                        sourceFormat.channelCount == outputFormat.channelCount {
-                        plog("🎵 NativeDecoder: direct read (formats match)")
-                        while file.framePosition < file.length {
-                            let remainingFrames = AVAudioFrameCount(file.length - file.framePosition)
+                        plog("🎵 SFBDecoder: direct read (formats match)")
+                        while decoder.position < totalFrames {
+                            let remainingFrames = AVAudioFrameCount(totalFrames - decoder.position)
                             let framesToRead = min(bufferFrameCount, remainingFrames)
 
                             guard let buffer = AVAudioPCMBuffer(
@@ -67,8 +66,10 @@ final class NativeAudioDecoder: AudioDecoder {
                                 return
                             }
 
-                            try file.read(into: buffer, frameCount: framesToRead)
-                            continuation.yield(buffer)
+                            try decoder.decode(into: buffer, length: framesToRead)
+                            if buffer.frameLength > 0 {
+                                continuation.yield(buffer)
+                            }
                         }
                     } else {
                         // Need format conversion
@@ -77,8 +78,8 @@ final class NativeAudioDecoder: AudioDecoder {
                             return
                         }
 
-                        while file.framePosition < file.length {
-                            let remainingFrames = AVAudioFrameCount(file.length - file.framePosition)
+                        while decoder.position < totalFrames {
+                            let remainingFrames = AVAudioFrameCount(totalFrames - decoder.position)
                             let framesToRead = min(bufferFrameCount, remainingFrames)
 
                             guard let inputBuffer = AVAudioPCMBuffer(
@@ -89,11 +90,12 @@ final class NativeAudioDecoder: AudioDecoder {
                                 return
                             }
 
-                            try file.read(into: inputBuffer, frameCount: framesToRead)
+                            try decoder.decode(into: inputBuffer, length: framesToRead)
+                            guard inputBuffer.frameLength > 0 else { break }
                             let inputBufferBox = AudioBufferBox(inputBuffer)
 
                             let outputFrameCapacity = AVAudioFrameCount(
-                                Double(framesToRead) * outputFormat.sampleRate / sourceFormat.sampleRate
+                                Double(inputBuffer.frameLength) * outputFormat.sampleRate / sourceFormat.sampleRate
                             ) + 1
 
                             guard let outputBuffer = AVAudioPCMBuffer(
@@ -121,6 +123,7 @@ final class NativeAudioDecoder: AudioDecoder {
                         }
                     }
 
+                    try? decoder.close()
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)

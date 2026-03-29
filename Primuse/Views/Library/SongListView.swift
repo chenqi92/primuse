@@ -5,6 +5,7 @@ struct SongListView: View {
     @Environment(AudioPlayerService.self) private var player
     let songs: [Song]
     @State private var sortOrder: SongSortOrder = .title
+    @State private var cachedSortedSongs: [Song] = []
 
     enum SongSortOrder: String, CaseIterable {
         case title, artist, album, dateAdded, format
@@ -29,7 +30,7 @@ struct SongListView: View {
             )
         } else {
             List {
-                ForEach(sortedSongs) { song in
+                ForEach(cachedSortedSongs) { song in
                     SongRowView(
                         song: song,
                         isPlaying: player.currentSong?.id == song.id
@@ -53,27 +54,29 @@ struct SongListView: View {
                     }
                 }
             }
+            .onAppear { recomputeSorted() }
+            .onChange(of: sortOrder) { _, _ in recomputeSorted() }
         }
     }
 
-    private var sortedSongs: [Song] {
+    private func recomputeSorted() {
         switch sortOrder {
         case .title:
-            return songs.sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
+            cachedSortedSongs = songs.sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
         case .artist:
-            return songs.sorted { ($0.artistName ?? "").localizedCompare($1.artistName ?? "") == .orderedAscending }
+            cachedSortedSongs = songs.sorted { ($0.artistName ?? "").localizedCompare($1.artistName ?? "") == .orderedAscending }
         case .album:
-            return songs.sorted { ($0.albumTitle ?? "").localizedCompare($1.albumTitle ?? "") == .orderedAscending }
+            cachedSortedSongs = songs.sorted { ($0.albumTitle ?? "").localizedCompare($1.albumTitle ?? "") == .orderedAscending }
         case .dateAdded:
-            return songs.sorted { $0.dateAdded > $1.dateAdded }
+            cachedSortedSongs = songs.sorted { $0.dateAdded > $1.dateAdded }
         case .format:
-            return songs.sorted { $0.fileFormat.displayName < $1.fileFormat.displayName }
+            cachedSortedSongs = songs.sorted { $0.fileFormat.displayName < $1.fileFormat.displayName }
         }
     }
 
     private func playSong(_ song: Song) {
-        guard let index = sortedSongs.firstIndex(where: { $0.id == song.id }) else { return }
-        player.setQueue(sortedSongs, startAt: index)
+        guard let index = cachedSortedSongs.firstIndex(where: { $0.id == song.id }) else { return }
+        player.setQueue(cachedSortedSongs, startAt: index)
         Task { await player.play(song: song) }
     }
 }

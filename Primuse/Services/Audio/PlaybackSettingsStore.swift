@@ -20,6 +20,7 @@ struct PlaybackSettings: Codable, Sendable {
     var crossfadeDuration: Double = 3.0
     var replayGainEnabled: Bool = false
     var replayGainMode: ReplayGainMode = .track
+    var audioCacheEnabled: Bool = true
 
     static func load(defaults: UserDefaults = .standard) -> PlaybackSettings {
         guard let data = defaults.data(forKey: defaultsKey),
@@ -43,6 +44,7 @@ final class PlaybackSettingsStore {
     var crossfadeDuration: Double { didSet { persist() } }
     var replayGainEnabled: Bool { didSet { persist() } }
     var replayGainMode: ReplayGainMode { didSet { persist() } }
+    var audioCacheEnabled: Bool { didSet { persist() } }
 
     private let defaults: UserDefaults
 
@@ -54,6 +56,7 @@ final class PlaybackSettingsStore {
         self.crossfadeDuration = s.crossfadeDuration
         self.replayGainEnabled = s.replayGainEnabled
         self.replayGainMode = s.replayGainMode
+        self.audioCacheEnabled = s.audioCacheEnabled
     }
 
     func snapshot() -> PlaybackSettings {
@@ -62,7 +65,8 @@ final class PlaybackSettingsStore {
             crossfadeEnabled: crossfadeEnabled,
             crossfadeDuration: crossfadeDuration,
             replayGainEnabled: replayGainEnabled,
-            replayGainMode: replayGainMode
+            replayGainMode: replayGainMode,
+            audioCacheEnabled: audioCacheEnabled
         )
     }
 

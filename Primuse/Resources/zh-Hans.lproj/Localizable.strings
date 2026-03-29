@@ -286,3 +286,26 @@
 "sample_rate_label" = "采样率";
 "bit_depth_label" = "位深";
 "duration_label" = "时长";
+
+// MARK: - SSL Trust
+"trusted_domains" = "受信任的域名";
+"no_trusted_domains" = "没有受信任的域名";
+"trusted_domains_footer" = "这些域名将跳过 SSL 证书验证。左滑可移除。";
+"ssl_trust_title" = "SSL 证书验证失败";
+"ssl_trust_message %@" = "域名「%@」的 SSL 证书无法验证。是否信任此域名？信任后将跳过该域名的证书验证。";
+"trust_domain" = "信任";
+"dont_trust" = "不信任";
+"add_trusted_domain" = "添加受信域名";
+"add_trusted_domain_message" = "输入域名（如 nas.example.com）。将跳过该域名的 SSL 证书验证。";
+"domain_placeholder" = "域名";
+"add" = "添加";
+"security" = "安全";
+"clear_cache" = "清除缓存";
+
+// MARK: - Playback Errors
+"playback_error_connection" = "无法连接到来源";
+"playback_error_decode" = "无法播放此曲目";
+"playback_error_format" = "不支持的音频格式";
+
+// MARK: - Gapless
+"gapless_not_available" = "无缝播放功能暂不可用。";

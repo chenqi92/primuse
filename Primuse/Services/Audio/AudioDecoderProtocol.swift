@@ -10,7 +10,7 @@ struct AudioFileInfo: Sendable {
     var format: String
 }
 
-protocol AudioDecoder: Sendable {
+protocol PrimuseAudioDecoder: Sendable {
     func canDecode(url: URL) -> Bool
     func fileInfo(for url: URL) async throws -> AudioFileInfo
     func decode(from url: URL, outputFormat: AVAudioFormat) -> AsyncThrowingStream<AVAudioPCMBuffer, Error>

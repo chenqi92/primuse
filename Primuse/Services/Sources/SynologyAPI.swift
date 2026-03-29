@@ -203,7 +203,7 @@ actor SynologyAPI {
         guard let url = components.url else { throw SynologyError.invalidURL }
 
         let config = URLSessionConfiguration.default
-        let session = URLSession(configuration: config, delegate: InsecureURLSessionDelegate(), delegateQueue: nil)
+        let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
         let (data, _) = try await session.data(from: url)
         return data
     }
@@ -227,7 +227,7 @@ actor SynologyAPI {
         request.timeoutInterval = 30
 
         let config = URLSessionConfiguration.default
-        let session = URLSession(configuration: config, delegate: InsecureURLSessionDelegate(), delegateQueue: nil)
+        let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
         let (data, _) = try await session.data(for: request)
         return data
     }
@@ -289,7 +289,7 @@ actor SynologyAPI {
         request.httpBody = body
 
         let config = URLSessionConfiguration.default
-        let session = URLSession(configuration: config, delegate: InsecureURLSessionDelegate(), delegateQueue: nil)
+        let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
         let (responseData, response) = try await session.data(for: request)
 
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
@@ -312,7 +312,7 @@ actor SynologyAPI {
 
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 15
-        let session = URLSession(configuration: config, delegate: InsecureURLSessionDelegate(), delegateQueue: nil)
+        let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
         let (data, response) = try await session.data(from: url)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw SynologyError.httpError((response as? HTTPURLResponse)?.statusCode ?? 0)
@@ -364,16 +364,5 @@ enum SynologyError: Error, LocalizedError {
         case .httpError(let c): return "HTTP 错误 \(c)"
         case .apiError(let m): return m
         }
-    }
-}
-
-final class InsecureURLSessionDelegate: NSObject, URLSessionDelegate, Sendable {
-    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge) async
-        -> (URLSession.AuthChallengeDisposition, URLCredential?) {
-        if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
-           let trust = challenge.protectionSpace.serverTrust {
-            return (.useCredential, URLCredential(trust: trust))
-        }
-        return (.performDefaultHandling, nil)
     }
 }

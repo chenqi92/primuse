@@ -18,7 +18,7 @@ final class SourcesStore {
         self.storeURL = directory.appendingPathComponent("sources.json")
         self.sources = []
 
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.outputFormatting = [.sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         decoder.dateDecodingStrategy = .iso8601
 

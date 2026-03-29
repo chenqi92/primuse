@@ -286,3 +286,26 @@
 "sample_rate_label" = "Sample Rate";
 "bit_depth_label" = "Bit Depth";
 "duration_label" = "Duration";
+
+// MARK: - SSL Trust
+"trusted_domains" = "Trusted Domains";
+"no_trusted_domains" = "No trusted domains";
+"trusted_domains_footer" = "SSL certificate verification is skipped for these domains. Swipe to remove.";
+"ssl_trust_title" = "SSL Certificate Error";
+"ssl_trust_message %@" = "SSL certificate verification failed for \"%@\". Do you want to trust this domain? Certificate verification will be skipped for future connections.";
+"trust_domain" = "Trust";
+"dont_trust" = "Don't Trust";
+"add_trusted_domain" = "Add Trusted Domain";
+"add_trusted_domain_message" = "Enter a domain name (e.g. nas.example.com). SSL certificate verification will be skipped for this domain.";
+"domain_placeholder" = "Domain";
+"add" = "Add";
+"security" = "Security";
+"clear_cache" = "Clear Cache";
+
+// MARK: - Playback Errors
+"playback_error_connection" = "Cannot connect to source";
+"playback_error_decode" = "Cannot play this track";
+"playback_error_format" = "Unsupported audio format";
+
+// MARK: - Gapless
+"gapless_not_available" = "Gapless playback is not yet available.";

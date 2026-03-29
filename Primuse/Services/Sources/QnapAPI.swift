@@ -128,7 +128,7 @@ actor QnapAPI {
     private func session() -> URLSession {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
-        return URLSession(configuration: config, delegate: InsecureURLSessionDelegate(), delegateQueue: nil)
+        return URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
     }
 
     private func qnapError(_ code: Int) -> String {

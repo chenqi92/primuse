@@ -284,8 +284,7 @@ final class AudioEngine {
 
     /// Restore saved volume on setup
     func restoreVolume() {
-        let saved = UserDefaults.standard.float(forKey: Self.volumeKey)
-        if saved > 0 {
+        if let saved = UserDefaults.standard.object(forKey: Self.volumeKey) as? Float {
             engine?.mainMixerNode.outputVolume = saved
         }
     }

@@ -87,7 +87,7 @@ actor SynologySource: MusicSourceConnector {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 300 // 5 min for large files
         config.timeoutIntervalForResource = 600 // 10 min total
-        let session = URLSession(configuration: config, delegate: InsecureURLSessionDelegate(), delegateQueue: nil)
+        let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
 
         let (tempURL, response) = try await session.download(from: url)
 
@@ -138,7 +138,7 @@ actor SynologySource: MusicSourceConnector {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 300
         config.timeoutIntervalForResource = 600
-        let session = URLSession(configuration: config, delegate: InsecureURLSessionDelegate(), delegateQueue: nil)
+        let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
 
         let (tempURL, response) = try await session.download(from: url)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return }

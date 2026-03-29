@@ -27,7 +27,7 @@ final class MusicLibrary {
         try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
 
         snapshotURL = directory.appendingPathComponent("library-cache.json")
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.outputFormatting = [.sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         decoder.dateDecodingStrategy = .iso8601
 
@@ -179,11 +179,11 @@ final class MusicLibrary {
         let albumGroups = Dictionary(grouping: songs) { song -> String in
             let artist = song.artistName ?? "Unknown"
             let album = song.albumTitle ?? "Unknown"
-            return "\(artist)|\(album)"
+            return "\(artist)\0\(album)"
         }
 
         albums = albumGroups.map { key, songs in
-            let parts = key.split(separator: "|", maxSplits: 1)
+            let parts = key.split(separator: "\0", maxSplits: 1)
             let artistName = parts.count > 0 ? String(parts[0]) : nil
             let albumTitle = parts.count > 1 ? String(parts[1]) : "Unknown"
             let id = hashID("\(artistName ?? ""):\(albumTitle)")
@@ -243,7 +243,19 @@ final class MusicLibrary {
         rebuildIndex()
     }
 
+    private var persistTask: Task<Void, Never>?
+
     private func persistSnapshot() {
+        persistTask?.cancel()
+        persistTask = Task {
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            persistNow()
+        }
+    }
+
+    /// Write library snapshot to disk immediately (e.g. on app backgrounding).
+    func persistNow() {
         let snapshot = Snapshot(
             songs: songs,
             playlists: playlists,

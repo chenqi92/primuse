@@ -9,8 +9,15 @@ private final class StepCounter: @unchecked Sendable {
 }
 
 /// Sendable wrapper for AsyncThrowingStream.Iterator to safely transfer across isolation boundaries.
-/// The iterator is accessed sequentially: once on MainActor for the first buffer,
-/// then exclusively by the decodingTask. Never accessed concurrently.
+///
+/// **Safety contract:** The iterator is accessed sequentially — never concurrently:
+/// 1. Created on MainActor in one of the `play*` methods.
+/// 2. First buffer awaited on MainActor (still single-threaded).
+/// 3. Ownership is then transferred exclusively to a single `decodingTask` via capture.
+/// 4. No other code path calls `next()` on the same instance.
+///
+/// If this invariant changes (e.g. multiple consumers), replace `@unchecked Sendable`
+/// with an actor wrapper or protect `iterator` with `os_unfair_lock`.
 private final class BufferIteratorBox: @unchecked Sendable {
     private var iterator: AsyncThrowingStream<AVAudioPCMBuffer, Error>.AsyncIterator
 
@@ -36,11 +43,27 @@ final class AudioPlayerService {
     private(set) var currentTime: TimeInterval = 0
     private(set) var duration: TimeInterval = 0
     private(set) var isLoading = false
+    private(set) var lastPlaybackError: String?
 
     var queue: [Song] = []
     var currentIndex: Int = 0
-    var shuffleEnabled = false
+    var shuffleEnabled = false {
+        didSet { rebuildShuffleOrder() }
+    }
     var repeatMode: RepeatMode = .off
+
+    // MARK: - Shuffle Order
+    private var shuffledIndices: [Int] = []
+    private var shufflePosition: Int = 0
+
+    // MARK: - Decoder Tracking (for seek)
+    private enum DecoderKind { case native, streaming, assetReader }
+    private var activeDecoderKind: DecoderKind = .native
+
+    // MARK: - Sleep Timer
+    private(set) var sleepTimerEndDate: Date?
+    private var sleepTimerTask: Task<Void, Never>?
+    var isSleepTimerActive: Bool { sleepTimerEndDate != nil }
 
     private var displayLink: Timer?
     private let nativeDecoder = NativeAudioDecoder()
@@ -52,6 +75,8 @@ final class AudioPlayerService {
     private var crossfadeTimer: Timer?
     private var crossfadeTriggered = false
     private var playID: UUID?
+
+    private var errorDismissTask: Task<Void, Never>?
 
     let playbackSettings: PlaybackSettingsStore
 
@@ -89,6 +114,16 @@ final class AudioPlayerService {
         }
     }
 
+    private func showPlaybackError(_ message: String) {
+        lastPlaybackError = message
+        errorDismissTask?.cancel()
+        errorDismissTask = Task {
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled else { return }
+            self.lastPlaybackError = nil
+        }
+    }
+
     // MARK: - Playback Control
 
     func play(song: Song) async {
@@ -121,6 +156,7 @@ final class AudioPlayerService {
         } catch {
             guard playID == id else { return }
             plog("Playback URL resolution error: \(error)")
+            showPlaybackError(String(localized: "playback_error_connection"))
             isLoading = false
             await next()
         }
@@ -146,6 +182,7 @@ final class AudioPlayerService {
         isPlaying = false
         audioEngine.sampleTimeOffset = 0
         crossfadeTriggered = false
+        activeDecoderKind = .native
 
         let isRemoteURL = url.scheme == "http" || url.scheme == "https"
 
@@ -268,6 +305,7 @@ final class AudioPlayerService {
             }
         } catch {
             plog("⚠️ Playback error for '\(song.title)': \(error.localizedDescription)")
+            showPlaybackError(String(localized: "playback_error_decode"))
             isLoading = false
             // Auto skip to next on decode failure
             if currentIndex < queue.count - 1 {
@@ -295,6 +333,7 @@ final class AudioPlayerService {
             guard playID == id else { return }
 
             plog("🌊 StreamingDownload firstBuffer: frames=\(firstBuffer.frameLength) sr=\(firstBuffer.format.sampleRate)")
+            activeDecoderKind = .streaming
             audioEngine.scheduleBuffer(firstBuffer)
             audioEngine.play()
 
@@ -368,6 +407,7 @@ final class AudioPlayerService {
     private func playWithFallbackDecoder(song: Song, url: URL, outputFormat: AVAudioFormat, playID id: UUID) async {
         guard assetReaderDecoder.canDecode(url: url) else {
             plog("⚠️ No decoder available for '\(song.title)'")
+            showPlaybackError(String(localized: "playback_error_format"))
             isLoading = false
             if currentIndex < queue.count - 1 { await next() }
             return
@@ -387,6 +427,7 @@ final class AudioPlayerService {
             guard playID == id else { return }
 
             plog("↳ AssetReader firstBuffer: frames=\(firstBuffer.frameLength) format=sr\(firstBuffer.format.sampleRate)/ch\(firstBuffer.format.channelCount)")
+            activeDecoderKind = .assetReader
             // Check if buffer has actual audio data (not all zeros)
             if let channelData = firstBuffer.floatChannelData?[0] {
                 let frameCount = Int(firstBuffer.frameLength)
@@ -467,23 +508,16 @@ final class AudioPlayerService {
     private func scheduleLastBuffer(_ buffer: AVAudioPCMBuffer, playID id: UUID) {
         let settings = playbackSettings.snapshot()
 
-        if false && settings.gaplessEnabled && !settings.crossfadeEnabled {
-            // Gapless: DISABLED — causes currentSong to show wrong track
-            // TODO: fix gapless to defer currentSong update until buffer actually plays
-            audioEngine.scheduleBuffer(buffer)
-            Task { await self.gaplessPreloadNext(id: id) }
-        } else {
-            // Standard and crossfade modes both use completion callback
-            audioEngine.scheduleBuffer(
-                buffer,
-                completionCallbackType: .dataPlayedBack
-            ) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    guard let self, self.playID == id else { return }
-                    // In crossfade mode, only handle track end if crossfade wasn't triggered
-                    if settings.crossfadeEnabled && self.crossfadeTriggered { return }
-                    await self.handleTrackEnd()
-                }
+        // Standard and crossfade modes both use completion callback for track-end detection
+        audioEngine.scheduleBuffer(
+            buffer,
+            completionCallbackType: .dataPlayedBack
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.playID == id else { return }
+                // In crossfade mode, only handle track end if crossfade wasn't triggered
+                if settings.crossfadeEnabled && self.crossfadeTriggered { return }
+                await self.handleTrackEnd()
             }
         }
     }
@@ -526,11 +560,7 @@ final class AudioPlayerService {
 
     func next() async {
         guard !queue.isEmpty else { return }
-        if shuffleEnabled {
-            currentIndex = Int.random(in: 0..<queue.count)
-        } else {
-            currentIndex = (currentIndex + 1) % queue.count
-        }
+        advanceToNextIndex()
         await play(song: queue[currentIndex])
     }
 
@@ -540,7 +570,12 @@ final class AudioPlayerService {
             seek(to: 0)
             return
         }
-        currentIndex = currentIndex > 0 ? currentIndex - 1 : queue.count - 1
+        if shuffleEnabled {
+            shufflePosition = max(0, shufflePosition - 1)
+            currentIndex = shuffledIndices.isEmpty ? 0 : shuffledIndices[shufflePosition]
+        } else {
+            currentIndex = currentIndex > 0 ? currentIndex - 1 : queue.count - 1
+        }
         await play(song: queue[currentIndex])
     }
 
@@ -548,9 +583,10 @@ final class AudioPlayerService {
 
     func seek(to time: TimeInterval) {
         currentTime = time
+        isLoading = true
         updateNowPlayingInfo()
 
-        guard let song = currentSong else { return }
+        guard let song = currentSong else { isLoading = false; return }
         let savedDuration = duration
         let wasPlaying = isPlaying
 
@@ -587,7 +623,21 @@ final class AudioPlayerService {
                     await applyReplayGain(for: url, mode: settings.replayGainMode)
                 }
 
-                let stream = nativeDecoder.decode(from: url, outputFormat: outputFormat)
+                // Use the same decoder that was used for initial playback.
+                // For streaming, prefer the cached local file if available.
+                let seekURL: URL
+                if activeDecoderKind == .streaming, let cached = sourceManager?.cachedURL(for: song) {
+                    seekURL = cached
+                } else {
+                    seekURL = url
+                }
+                let stream: AsyncThrowingStream<AVAudioPCMBuffer, Error>
+                switch activeDecoderKind {
+                case .native, .streaming:
+                    stream = nativeDecoder.decode(from: seekURL, outputFormat: outputFormat)
+                case .assetReader:
+                    stream = assetReaderDecoder.decode(from: seekURL, outputFormat: outputFormat)
+                }
                 let seekSamples = Int64(time * outputFormat.sampleRate)
                 var samplesSkipped: Int64 = 0
 
@@ -615,6 +665,7 @@ final class AudioPlayerService {
                 audioEngine.scheduleBuffer(firstBuffer)
                 if wasPlaying { audioEngine.play() }
 
+                isLoading = false
                 if wasPlaying {
                     isPlaying = true
                     startTimeUpdater()
@@ -644,6 +695,7 @@ final class AudioPlayerService {
                 }
             } catch {
                 plog("Seek error: \(error)")
+                isLoading = false
             }
         }
     }
@@ -651,6 +703,7 @@ final class AudioPlayerService {
     func setQueue(_ songs: [Song], startAt index: Int = 0) {
         queue = songs
         currentIndex = min(index, songs.count - 1)
+        if shuffleEnabled { rebuildShuffleOrder() }
     }
 
     func syncSongMetadata(_ updatedSong: Song) {
@@ -965,7 +1018,14 @@ final class AudioPlayerService {
 
         let nextIndex: Int
         if shuffleEnabled {
-            nextIndex = Int.random(in: 0..<queue.count)
+            let nextPos = shufflePosition + 1
+            if nextPos < shuffledIndices.count {
+                nextIndex = shuffledIndices[nextPos]
+            } else if repeatMode == .all {
+                return queue.first // will reshuffle on advanceToNextIndex
+            } else {
+                return nil
+            }
         } else {
             nextIndex = currentIndex + 1
         }
@@ -980,9 +1040,24 @@ final class AudioPlayerService {
 
     private func advanceToNextIndex() {
         if shuffleEnabled {
-            currentIndex = Int.random(in: 0..<queue.count)
+            shufflePosition += 1
+            if shufflePosition >= shuffledIndices.count {
+                rebuildShuffleOrder()
+                shufflePosition = 0
+            }
+            currentIndex = shuffledIndices.isEmpty ? 0 : shuffledIndices[shufflePosition]
         } else {
             currentIndex = (currentIndex + 1) % queue.count
+        }
+    }
+
+    private func rebuildShuffleOrder() {
+        guard !queue.isEmpty else { shuffledIndices = []; return }
+        shuffledIndices = Array(0..<queue.count).shuffled()
+        shufflePosition = 0
+        // Place current index at position 0 so current song stays first
+        if let pos = shuffledIndices.firstIndex(of: currentIndex) {
+            shuffledIndices.swapAt(0, pos)
         }
     }
 
@@ -1111,6 +1186,26 @@ final class AudioPlayerService {
             guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
             self?.seek(to: event.positionTime); return .success
         }
+    }
+
+    // MARK: - Sleep Timer
+
+    func scheduleSleep(minutes: Int) {
+        cancelSleep()
+        let endDate = Date().addingTimeInterval(TimeInterval(minutes * 60))
+        sleepTimerEndDate = endDate
+        sleepTimerTask = Task {
+            try? await Task.sleep(for: .seconds(minutes * 60))
+            guard !Task.isCancelled else { return }
+            self.pause()
+            self.sleepTimerEndDate = nil
+        }
+    }
+
+    func cancelSleep() {
+        sleepTimerTask?.cancel()
+        sleepTimerTask = nil
+        sleepTimerEndDate = nil
     }
 
     // MARK: - Shared Playback State
