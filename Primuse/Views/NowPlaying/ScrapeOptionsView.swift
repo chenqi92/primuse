@@ -39,6 +39,7 @@ struct ScrapeOptionsView: View {
         var updatedSong: Song
         var coverData: Data?
         var lyricsCount: Int
+        var lyricsLines: [LyricLine]?
         // Scraped values (always show these)
         var scrapedTitle: String?
         var scrapedArtist: String?
@@ -197,13 +198,31 @@ struct ScrapeOptionsView: View {
                         isChanged: preview.scrapedGenre != nil && preview.scrapedGenre != song.genre
                     )
 
-                    // Cover
+                    // Cover — show thumbnails for comparison
                     if preview.hasCover {
                         Toggle(isOn: $applyCover) {
-                            HStack(spacing: 6) {
-                                Text("cover").font(.caption).foregroundStyle(.secondary).frame(width: 45, alignment: .leading)
-                                statusBadge(hasLocal: song.coverArtFileName != nil, hasScraped: true,
-                                            isChanged: preview.updatedSong.coverArtFileName != song.coverArtFileName)
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("cover").font(.caption).foregroundStyle(.secondary)
+                                HStack(spacing: 8) {
+                                    // Current cover
+                                    VStack(spacing: 2) {
+                                        CachedArtworkView(coverFileName: song.coverArtFileName, size: 56, cornerRadius: 6)
+                                        Text("current").font(.system(size: 9)).foregroundStyle(.secondary)
+                                    }
+                                    Image(systemName: "arrow.right").font(.caption2).foregroundStyle(.tertiary)
+                                    // New cover (from in-memory data)
+                                    VStack(spacing: 2) {
+                                        if let data = preview.coverData, let img = UIImage(data: data) {
+                                            Image(uiImage: img)
+                                                .resizable().aspectRatio(contentMode: .fill)
+                                                .frame(width: 56, height: 56)
+                                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                                        } else {
+                                            CachedArtworkView(coverFileName: preview.updatedSong.coverArtFileName, size: 56, cornerRadius: 6)
+                                        }
+                                        Text("new").font(.system(size: 9)).foregroundStyle(.green)
+                                    }
+                                }
                             }
                         }
                     }
@@ -314,25 +333,46 @@ struct ScrapeOptionsView: View {
                     Button {
                         Task { await selectManualResult(item) }
                     } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Text(item.title).font(.subheadline).fontWeight(.medium).lineLimit(1)
-                                Spacer()
-                                if let dur = item.durationText {
-                                    Text(dur).font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                        HStack(spacing: 10) {
+                            // Cover art thumbnail
+                            if let urlString = item.coverUrl, let url = URL(string: urlString) {
+                                AsyncImage(url: url) { phase in
+                                    switch phase {
+                                    case .success(let image):
+                                        image.resizable().aspectRatio(contentMode: .fill)
+                                    default:
+                                        Rectangle().fill(.quaternary)
+                                            .overlay { Image(systemName: "music.note").font(.caption).foregroundStyle(.tertiary) }
+                                    }
                                 }
+                                .frame(width: 44, height: 44)
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                            } else {
+                                RoundedRectangle(cornerRadius: 6).fill(.quaternary)
+                                    .frame(width: 44, height: 44)
+                                    .overlay { Image(systemName: "music.note").font(.caption).foregroundStyle(.tertiary) }
                             }
-                            HStack(spacing: 4) {
-                                if let artist = item.artist {
-                                    Text(artist).font(.caption).foregroundStyle(.secondary)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text(item.title).font(.subheadline).fontWeight(.medium).lineLimit(1)
+                                    Spacer()
+                                    if let dur = item.durationText {
+                                        Text(dur).font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                                    }
                                 }
-                                if let album = item.album {
-                                    Text("·").font(.caption).foregroundStyle(.tertiary)
-                                    Text(album).font(.caption).foregroundStyle(.tertiary)
+                                HStack(spacing: 4) {
+                                    if let artist = item.artist {
+                                        Text(artist).font(.caption).foregroundStyle(.secondary)
+                                    }
+                                    if let album = item.album {
+                                        Text("·").font(.caption).foregroundStyle(.tertiary)
+                                        Text(album).font(.caption).foregroundStyle(.tertiary)
+                                    }
                                 }
+                                .lineLimit(1)
+                                Text(item.source).font(.caption2).foregroundStyle(.tint)
                             }
-                            .lineLimit(1)
-                            Text(item.source).font(.caption2).foregroundStyle(.tint)
                         }
                         .padding(.vertical, 2)
                     }
@@ -362,20 +402,21 @@ struct ScrapeOptionsView: View {
         errorMessage = nil
 
         do {
-            let updated = try await scraperService.scrapeSingle(song: song, in: library, dryRun: true)
+            let (updated, coverData, lyricsLines) = try await scraperService.scrapeSingle(song: song, in: library, dryRun: true)
             isScraping = false
 
-            let lyricsCount = await MetadataAssetStore.shared.lyrics(named: updated.lyricsFileName)?.count ?? 0
+            let lyricsCount = lyricsLines?.count ?? 0
 
             previewResult = ScrapePreview(
-                updatedSong: updated, coverData: nil, lyricsCount: lyricsCount,
+                updatedSong: updated, coverData: coverData, lyricsCount: lyricsCount,
+                lyricsLines: lyricsLines,
                 scrapedTitle: updated.title != song.title ? updated.title : updated.title,
                 scrapedArtist: updated.artistName,
                 scrapedAlbum: updated.albumTitle,
                 scrapedYear: updated.year,
                 scrapedGenre: updated.genre,
-                hasCover: updated.coverArtFileName != nil && updated.coverArtFileName != song.coverArtFileName,
-                hasLyrics: updated.lyricsFileName != nil && updated.lyricsFileName != song.lyricsFileName
+                hasCover: coverData != nil,
+                hasLyrics: lyricsLines != nil && !lyricsLines!.isEmpty
             )
 
             // Default all toggles to on for changed fields, off for unchanged
@@ -479,23 +520,53 @@ struct ScrapeOptionsView: View {
                 )
             }
 
+            // Download cover art if available (keep in memory, don't store to disk yet)
+            var hasCover = false
+            var coverData: Data?
+            let coverUrl = detail?.coverUrl ?? item.coverUrl
+            if let coverUrl, let url = URL(string: coverUrl) {
+                if let (data, response) = try? await URLSession.shared.data(from: url),
+                   let http = response as? HTTPURLResponse, http.statusCode == 200 {
+                    coverData = data
+                    hasCover = true
+                }
+            }
+
+            // Download lyrics if available (keep in memory, don't store to disk yet)
+            var hasLyrics = false
+            var lyricsCount = 0
+            var lyricsLines: [LyricLine]?
+            if let lyricsResult = try? await scraper.getLyrics(externalId: item.externalId),
+               lyricsResult.hasLyrics,
+               let lrc = lyricsResult.lrcContent, !lrc.isEmpty {
+                let parsed = LyricsParser.parse(lrc)
+                if !parsed.isEmpty {
+                    lyricsLines = parsed
+                    hasLyrics = true
+                    lyricsCount = parsed.count
+                }
+            }
+
             isScraping = false
 
             previewResult = ScrapePreview(
-                updatedSong: updated, coverData: nil, lyricsCount: 0,
+                updatedSong: updated, coverData: coverData, lyricsCount: lyricsCount,
+                lyricsLines: lyricsLines,
                 scrapedTitle: updated.title,
                 scrapedArtist: updated.artistName,
                 scrapedAlbum: updated.albumTitle,
                 scrapedYear: updated.year,
                 scrapedGenre: updated.genre,
-                hasCover: false, hasLyrics: false
+                hasCover: hasCover,
+                hasLyrics: hasLyrics
             )
             applyTitle = updated.title != song.title
             applyArtist = updated.artistName != song.artistName
             applyAlbum = updated.albumTitle != song.albumTitle
             applyYear = updated.year != song.year && updated.year != nil
             applyGenre = updated.genre != song.genre && updated.genre != nil
-            applyCover = true; applyLyrics = true
+            applyCover = hasCover
+            applyLyrics = hasLyrics
             mode = .preview
         } catch {
             isScraping = false
@@ -512,8 +583,27 @@ struct ScrapeOptionsView: View {
         let albumChanged = preview.scrapedAlbum != nil && preview.scrapedAlbum != song.albumTitle
         let yearChanged = preview.scrapedYear != nil && preview.scrapedYear != song.year
         let genreChanged = preview.scrapedGenre != nil && preview.scrapedGenre != song.genre
-        let coverChanged = preview.hasCover && u.coverArtFileName != song.coverArtFileName
-        let lyricsChanged = preview.hasLyrics && u.lyricsFileName != song.lyricsFileName
+
+        // Store cover and lyrics to disk NOW (only on apply, not during preview)
+        var coverFileName = song.coverArtFileName
+        var lyricsFileName = song.lyricsFileName
+
+        if preview.hasCover && applyCover, let data = preview.coverData {
+            Task {
+                if let name = await MetadataAssetStore.shared.storeCover(data, for: song.id) {
+                    coverFileName = name
+                }
+            }
+            // Synchronous fallback: generate expected filename
+            coverFileName = MetadataAssetStore.shared.expectedCoverFileName(for: song.id)
+            // Store synchronously for immediate availability
+            MetadataAssetStore.shared.storeCoverSync(data, for: song.id)
+        }
+
+        if preview.hasLyrics && applyLyrics, let lines = preview.lyricsLines {
+            MetadataAssetStore.shared.storeLyricsSync(lines, for: song.id)
+            lyricsFileName = MetadataAssetStore.shared.expectedLyricsFileName(for: song.id)
+        }
 
         // Build final song with only selected changes applied
         let final = Song(
@@ -534,8 +624,8 @@ struct ScrapeOptionsView: View {
             genre: (genreChanged && applyGenre) ? u.genre : song.genre,
             year: (yearChanged && applyYear) ? u.year : song.year,
             dateAdded: song.dateAdded,
-            coverArtFileName: (coverChanged && applyCover) ? u.coverArtFileName : song.coverArtFileName,
-            lyricsFileName: (lyricsChanged && applyLyrics) ? u.lyricsFileName : song.lyricsFileName
+            coverArtFileName: coverFileName,
+            lyricsFileName: lyricsFileName
         )
 
         library.replaceSong(final)

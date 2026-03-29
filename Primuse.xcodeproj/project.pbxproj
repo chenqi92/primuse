@@ -89,6 +89,7 @@
 		78E6FE1CE7C312E4E5BA76E8 /* ConnectionFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33778B5B75AE878513F91C1B /* ConnectionFlowView.swift */; };
 		7BEE5E7E46EDB36D5E7C34C2 /* EqualizerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 181EE28124D9CD151E0338E1 /* EqualizerView.swift */; };
 		805D574A9EE6E25009EACFE4 /* SourceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2749C2730EE3A6AB4EEFE3FE /* SourceManager.swift */; };
+		81964D06F64E5220CCCD7AC5 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 6A8B1952F2335141E936A2EF /* GRDB */; };
 		83D5D5AEB6EA850B28E6B5D2 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = C39C5A4CDC0E68A52651A1DB /* GRDB */; };
 		83FBC7E697D9FB957F5CFFE7 /* FileMetadataReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8607E666A6AB28E00D1C257 /* FileMetadataReader.swift */; };
 		84ECB1EB9771EBDA278129BC /* AudioEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39F6AE35FC2EC095FBF1EA0E /* AudioEngine.swift */; };
@@ -220,6 +221,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				C83D3E3D402A2494B21343D9 /* PrimuseWidgetExtension.appex in Embed Foundation Extensions */,
+				A66A3850F3D0EDA1863A81BC /* PrimuseActivityExtension.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -381,6 +383,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B4A627384B3D168B7BF384F0 /* PrimuseKit.framework in Frameworks */,
+				81964D06F64E5220CCCD7AC5 /* GRDB in Frameworks */,
 				A8E7B493EDA246098FAF8EB2 /* WidgetKit.framework in Frameworks */,
 				11CB33E17845B102955BD7D4 /* SwiftUI.framework in Frameworks */,
 			);
@@ -834,6 +837,7 @@
 			);
 			name = PrimuseWidgetExtension;
 			packageProductDependencies = (
+				6A8B1952F2335141E936A2EF /* GRDB */,
 			);
 			productName = PrimuseWidgetExtension;
 			productReference = FC0B19BA1149E4C3F22F6BF9 /* PrimuseWidgetExtension.appex */;
@@ -853,6 +857,7 @@
 			);
 			dependencies = (
 				C85F3B46B4DA8166FBF68F4D /* PBXTargetDependency */,
+				595F81CDF3FDCC15C23E2EF6 /* PBXTargetDependency */,
 				AFB4789CAF63B29A33145B89 /* PBXTargetDependency */,
 			);
 			name = Primuse;
@@ -1603,6 +1608,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 21EA0EB8036EED38290BD521 /* XCRemoteSwiftPackageReference "NFSKit" */;
 			productName = NFSKit;
+		};
+		6A8B1952F2335141E936A2EF /* GRDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5D1F5170FF958C6D23501EA2 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
+			productName = GRDB;
 		};
 		732C3E4918F41BB73857AAE7 /* Crypto */ = {
 			isa = XCSwiftPackageProductDependency;

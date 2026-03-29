@@ -60,6 +60,31 @@ final class AudioPlayerService {
         audioEngine = AudioEngine()
         equalizerService = EqualizerService(audioEngine: audioEngine)
         setupRemoteCommands()
+        setupAudioSessionCallbacks()
+    }
+
+    private func setupAudioSessionCallbacks() {
+        let manager = AudioSessionManager.shared
+
+        manager.onInterruptionBegan = { [weak self] in
+            guard let self, self.isPlaying else { return }
+            // Sync UI to paused state — the engine was already stopped by the system
+            self.isPlaying = false
+            self.stopTimeUpdater()
+            self.updateNowPlayingInfo()
+            self.updatePlaybackState()
+        }
+
+        manager.onInterruptionEndedShouldResume = { [weak self] in
+            guard let self, !self.isPlaying, self.currentSong != nil else { return }
+            self.resume()
+        }
+
+        manager.onConfigurationChange = { [weak self] in
+            guard let self, self.isPlaying else { return }
+            // Engine was stopped due to config change — restart it
+            self.audioEngine.restartIfNeeded()
+        }
     }
 
     // MARK: - Playback Control
@@ -118,7 +143,9 @@ final class AudioPlayerService {
         audioEngine.sampleTimeOffset = 0
         crossfadeTriggered = false
 
-        guard nativeDecoder.canDecode(url: url) else {
+        let isRemoteURL = url.scheme == "http" || url.scheme == "https"
+
+        guard isRemoteURL || nativeDecoder.canDecode(url: url) else {
             print("Unsupported format: \(url.pathExtension)")
             isLoading = false
             if currentIndex < queue.count - 1 { await next() }
@@ -133,15 +160,17 @@ final class AudioPlayerService {
 
             try audioEngine.start()
 
-            // Apply ReplayGain
-            let settings = playbackSettings.snapshot()
-            if settings.replayGainEnabled {
-                await applyReplayGain(for: url, mode: settings.replayGainMode)
-            } else {
-                audioEngine.resetPlayerVolume()
+            // Reset volume immediately; apply ReplayGain asynchronously after playback starts
+            audioEngine.resetPlayerVolume()
+
+            // Remote URLs must use AVAssetReader (AVAudioFile requires local files)
+            if isRemoteURL {
+                print("▶️ Using streaming decoder for remote URL")
+                await playWithFallbackDecoder(song: song, url: url, outputFormat: outputFormat, playID: id)
+                return
             }
 
-            // Try native decoder first
+            // Try native decoder for local files
             let stream = nativeDecoder.decode(from: url, outputFormat: outputFormat)
             let iteratorBox = BufferIteratorBox(stream.makeAsyncIterator())
 
@@ -187,6 +216,18 @@ final class AudioPlayerService {
             updateNowPlayingInfo()
             updateNowPlayingArtworkIfNeeded()
             updatePlaybackState()
+
+            // Apply ReplayGain in background (don't block playback start)
+            let settings = playbackSettings.snapshot()
+            if settings.replayGainEnabled {
+                Task { [id] in
+                    await self.applyReplayGain(for: url, mode: settings.replayGainMode)
+                    guard self.playID == id else { return }
+                }
+            }
+
+            // Background-cache file for offline playback
+            sourceManager?.cacheInBackground(song: song)
 
             // Decode remaining buffers in background task (hold-last for completion callback)
             decodingTask = Task { [id, iteratorBox] in
@@ -267,6 +308,18 @@ final class AudioPlayerService {
             updateNowPlayingInfo()
             updateNowPlayingArtworkIfNeeded()
             updatePlaybackState()
+
+            // Apply ReplayGain in background (don't block playback start)
+            let settings = playbackSettings.snapshot()
+            if settings.replayGainEnabled, url.isFileURL {
+                Task { [id] in
+                    await self.applyReplayGain(for: url, mode: settings.replayGainMode)
+                    guard self.playID == id else { return }
+                }
+            }
+
+            // Background-cache file for offline playback
+            sourceManager?.cacheInBackground(song: song)
 
             // Decode remaining buffers with track-end detection
             decodingTask = Task { [id, iteratorBox] in

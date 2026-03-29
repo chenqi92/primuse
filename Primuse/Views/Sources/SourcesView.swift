@@ -92,8 +92,9 @@ struct SourcesView: View {
                     .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                if source.songCount > 0 {
-                    Text("\(source.songCount)")
+                let liveSongCount = library.songs.filter { $0.sourceID == source.id }.count
+                if liveSongCount > 0 {
+                    Text("\(liveSongCount)")
                         .font(.caption).fontWeight(.semibold).monospacedDigit()
                         .padding(.horizontal, 8).padding(.vertical, 3)
                         .background(.quaternary).clipShape(Capsule())
@@ -129,7 +130,7 @@ struct SourcesView: View {
                         if scan.totalCount > 0 {
                             Text("\(scan.scannedCount)/\(scan.totalCount)").monospacedDigit()
                         } else {
-                            Text("\(scan.scannedCount) \(String(localized: "songs_found"))").monospacedDigit()
+                            Text("\(scan.scannedCount) \(String(localized: "files_scanned"))").monospacedDigit()
                         }
                     }
                     .font(.caption2).foregroundStyle(.secondary)
@@ -369,6 +370,7 @@ struct SourcesView: View {
             $0.lastScannedAt = Date()
         }
         scanStates[sourceID]?.isScanning = false
+        scanStates[sourceID]?.scannedCount = songs.count
         scanStates[sourceID]?.currentFile = "\(songs.count) \(String(localized: "songs_found"))"
     }
 

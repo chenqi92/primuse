@@ -25,43 +25,57 @@ struct NowPlayingView: View {
         return library.playlists.contains { library.contains(songID: songID, inPlaylist: $0.id) }
     }
 
+
+    /// Top safe area height (dynamic island / status bar)
+    private var topSafeArea: CGFloat {
+        (UIApplication.shared.connectedScenes.first as? UIWindowScene)?
+            .keyWindow?.safeAreaInsets.top ?? 59
+    }
+
     var body: some View {
         GeometryReader { geo in
             let artSize = min(geo.size.width - 60, geo.size.height * 0.38)
 
             ZStack {
-                // Dynamic background from cover colors
+                // Opaque base — prevents content bleeding through
+                Color.black.ignoresSafeArea()
+                // Dynamic background from cover colors — fully opaque
                 backgroundGradient.ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    // System-style grabber
-                    RoundedRectangle(cornerRadius: 2.5)
-                        .fill(.white.opacity(0.3))
-                        .frame(width: 36, height: 5)
-                        .padding(.top, 8)
+                    // Grabber handle (system-matching dimensions)
+                    Capsule()
+                        .fill(.white.opacity(0.4))
+                        .frame(width: 48, height: 5)
+                        .padding(.top, topSafeArea + 6)
                         .padding(.bottom, 10)
 
                     if showLyrics {
                         // LYRICS MODE: compact header at top
                         HStack(spacing: 10) {
-                            CachedArtworkView(
-                                coverFileName: player.currentSong?.coverArtFileName,
-                                size: 44, cornerRadius: 6
-                            )
+                            // Tappable cover + title → switch back to cover mode
+                            HStack(spacing: 10) {
+                                CachedArtworkView(
+                                    coverFileName: player.currentSong?.coverArtFileName,
+                                    size: 44, cornerRadius: 6
+                                )
 
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(player.currentSong?.title ?? "")
-                                    .font(.subheadline).fontWeight(.semibold).lineLimit(1)
-                                    .foregroundStyle(.white)
-                                Text(player.currentSong?.artistName ?? "")
-                                    .font(.caption).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(player.currentSong?.title ?? "")
+                                        .font(.subheadline).fontWeight(.semibold).lineLimit(1)
+                                        .foregroundStyle(.white)
+                                    Text(player.currentSong?.artistName ?? "")
+                                        .font(.caption).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
+                                }
                             }
+                            .contentShape(Rectangle())
+                            .onTapGesture { withAnimation(.easeInOut(duration: 0.3)) { showLyrics = false } }
+
                             Spacer()
 
-                            // Like button
                             Button { showAddToPlaylist = true } label: {
                                 Image(systemName: isLiked ? "heart.fill" : "heart")
-                                    .font(.body)
+                                    .font(.title3)
                                     .foregroundStyle(isLiked ? .red : .white.opacity(0.6))
                                     .contentTransition(.symbolEffect(.replace))
                             }
@@ -107,7 +121,7 @@ struct NowPlayingView: View {
                                 showAddToPlaylist = true
                             } label: {
                                 Image(systemName: isLiked ? "heart.fill" : "heart")
-                                    .font(.title3)
+                                    .font(.title2)
                                     .foregroundStyle(isLiked ? .red : .white.opacity(0.6))
                                     .contentTransition(.symbolEffect(.replace))
                             }
@@ -167,10 +181,10 @@ struct NowPlayingView: View {
                     // Volume
                     HStack(spacing: 8) {
                         Image(systemName: "speaker.fill").font(.caption2).foregroundStyle(.white.opacity(0.4))
-                        Slider(value: Binding(
+                        VolumeSlider(value: Binding(
                             get: { Double(player.audioEngine.volume) },
                             set: { player.audioEngine.volume = Float($0) }
-                        ), in: 0...1).tint(.white.opacity(0.4))
+                        ))
                         Image(systemName: "speaker.wave.3.fill").font(.caption2).foregroundStyle(.white.opacity(0.4))
                     }
                     .padding(.horizontal, 26).padding(.top, 10)
@@ -280,7 +294,7 @@ struct NowPlayingView: View {
             }
         } label: {
             Image(systemName: "ellipsis.circle.fill")
-                .font(.title2).symbolRenderingMode(.hierarchical)
+                .font(.title).symbolRenderingMode(.hierarchical)
                 .foregroundStyle(.white.opacity(0.6))
         }
     }
@@ -289,7 +303,11 @@ struct NowPlayingView: View {
 
     private var backgroundGradient: some View {
         LinearGradient(
-            colors: [theme.darkAccent, theme.darkAccent.opacity(0.6), .black],
+            colors: [
+                theme.darkAccent,
+                theme.darkAccent.mix(with: .black, by: 0.4),
+                .black
+            ],
             startPoint: .top, endPoint: .bottom
         )
         .animation(.easeInOut(duration: 0.5), value: theme.colorID)
@@ -392,7 +410,7 @@ struct NowPlayingView: View {
         guard let song = player.currentSong else { return }
         isScrapingCurrentSong = true; defer { isScrapingCurrentSong = false }
         do {
-            let u = try await scraperService.scrapeSingle(song: song, in: library)
+            let (u, _, _) = try await scraperService.scrapeSingle(song: song, in: library)
             player.syncSongMetadata(u); await loadLyrics()
             if !lyrics.isEmpty { showLyrics = true }
             scrapeAlertMessage = String(localized: "scrape_song_success")
@@ -422,7 +440,7 @@ struct ProgressSlider: View {
     var body: some View {
         GeometryReader { geo in
             let width = geo.size.width
-            let trackHeight: CGFloat = isDragging ? 6 : 3
+            let trackHeight: CGFloat = isDragging ? 8 : 5
 
             ZStack(alignment: .leading) {
                 // Background track
@@ -449,6 +467,51 @@ struct ProgressSlider: View {
                         let seekTime = Double(fraction) * total
                         onSeek(seekTime)
                         dragValue = nil
+                        withAnimation(.easeOut(duration: 0.2)) { isDragging = false }
+                    }
+            )
+            .animation(.easeInOut(duration: 0.15), value: isDragging)
+        }
+        .frame(height: 20)
+    }
+}
+
+// MARK: - Volume Slider (thin, matching ProgressSlider style)
+
+struct VolumeSlider: View {
+    @Binding var value: Double
+
+    @State private var isDragging = false
+    @State private var localValue: Double?
+
+    private var displayValue: Double { localValue ?? value }
+
+    var body: some View {
+        GeometryReader { geo in
+            let width = geo.size.width
+            let progress = CGFloat(max(0, min(1, displayValue)))
+            let trackHeight: CGFloat = isDragging ? 8 : 5
+
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(.white.opacity(0.2))
+                    .frame(height: trackHeight)
+
+                Capsule()
+                    .fill(.white)
+                    .frame(width: max(0, min(width, width * progress)), height: trackHeight)
+            }
+            .frame(height: 20)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { gesture in
+                        isDragging = true
+                        localValue = Double(max(0, min(1, gesture.location.x / width)))
+                        value = localValue!
+                    }
+                    .onEnded { _ in
+                        localValue = nil
                         withAnimation(.easeOut(duration: 0.2)) { isDragging = false }
                     }
             )

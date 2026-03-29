@@ -9,37 +9,129 @@ struct ContentView: View {
     @State private var showNowPlaying = false
 
     var body: some View {
-        TabView(selection: $selectedTab) {
-            Tab(String(localized: "home_title"), systemImage: "house.fill", value: 0) {
-                HomeView(
-                    switchToSettingsTab: { selectedTab = 3 },
-                    expandPlayer: { showNowPlaying = true }
-                )
+        ZStack {
+            TabView(selection: $selectedTab) {
+                Tab(String(localized: "home_title"), systemImage: "house.fill", value: 0) {
+                    HomeView(
+                        switchToSettingsTab: { selectedTab = 3 }
+                    )
+                }
+
+                Tab(String(localized: "library_title"), systemImage: "books.vertical", value: 1) {
+                    LibraryView()
+                }
+
+                Tab(String(localized: "search_title"), systemImage: "magnifyingglass", value: 2, role: .search) {
+                    SearchView(searchText: $searchText)
+                }
+
+                Tab(String(localized: "settings_title"), systemImage: "gearshape", value: 3) {
+                    SettingsView()
+                }
+            }
+            .tabBarMinimizeBehavior(player.currentSong != nil ? .onScrollDown : .never)
+            .tabViewBottomAccessory(isEnabled: player.currentSong != nil) {
+                NowPlayingAccessory(onTap: {
+                    withAnimation(.spring(response: 0.45, dampingFraction: 0.92)) {
+                        showNowPlaying = true
+                    }
+                })
             }
 
-            Tab(String(localized: "library_title"), systemImage: "books.vertical", value: 1) {
-                LibraryView()
-            }
-
-            Tab(String(localized: "search_title"), systemImage: "magnifyingglass", value: 2, role: .search) {
-                SearchView(searchText: $searchText)
-            }
-
-            Tab(String(localized: "settings_title"), systemImage: "gearshape", value: 3) {
-                SettingsView()
-            }
-        }
-        .tabBarMinimizeBehavior(player.currentSong != nil ? .onScrollDown : .never)
-        .tabViewBottomAccessory(isEnabled: player.currentSong != nil) {
-            NowPlayingAccessory(onTap: { showNowPlaying = true })
-        }
-        .fullScreenCover(isPresented: $showNowPlaying) {
-            PlayerSheet(onDismiss: { showNowPlaying = false })
+            // Player overlay — uses manual offset (no system transition/fullScreenCover)
+            PlayerOverlay(isPresented: $showNowPlaying)
         }
         .onChange(of: library.songCount) { _, _ in
             if let cs = player.currentSong, !library.songs.contains(where: { $0.id == cs.id }) {
                 player.stop(); player.queue = []; showNowPlaying = false
             }
+        }
+    }
+}
+
+// MARK: - Player Overlay (handles position, drag, rounded corners)
+
+struct PlayerOverlay: View {
+    @Binding var isPresented: Bool
+    @State private var dragOffset: CGFloat = 0
+    @State private var isDismissing = false
+    @State private var dismissScale: CGFloat = 1
+    @State private var dismissOpacity: CGFloat = 1
+
+    private let screenHeight = UIScreen.main.bounds.height
+
+    /// Device screen corner radius (matches physical display)
+    private let deviceCornerRadius: CGFloat = {
+        UIScreen.main.value(forKey: ["_display", "Corner", "Radius"].joined()) as? CGFloat ?? 55
+    }()
+
+    private var dismissProgress: CGFloat {
+        min(1, max(0, dragOffset / 400))
+    }
+
+    /// Corner radius ramps up to device screen corner radius as user drags down
+    private var topCornerRadius: CGFloat {
+        if isDismissing { return deviceCornerRadius }
+        return dragOffset > 5 ? min(deviceCornerRadius, dragOffset * 1.5) : 0
+    }
+
+    /// Bottom corner radius during dismiss (all corners round as it shrinks)
+    private var bottomCornerRadius: CGFloat {
+        isDismissing ? deviceCornerRadius : 0
+    }
+
+    var body: some View {
+        NowPlayingView()
+            .clipShape(
+                UnevenRoundedRectangle(
+                    topLeadingRadius: topCornerRadius,
+                    bottomLeadingRadius: bottomCornerRadius,
+                    bottomTrailingRadius: bottomCornerRadius,
+                    topTrailingRadius: topCornerRadius
+                )
+            )
+            .scaleEffect(
+                isDismissing ? dismissScale : (1 - dismissProgress * 0.04),
+                anchor: .bottom
+            )
+            .opacity(isDismissing ? dismissOpacity : 1)
+            .offset(y: isPresented || isDismissing ? dragOffset : screenHeight + 100)
+            .ignoresSafeArea()
+            .gesture(
+                DragGesture()
+                    .onChanged { value in
+                        guard !isDismissing, isPresented else { return }
+                        dragOffset = max(0, value.translation.height)
+                    }
+                    .onEnded { value in
+                        guard !isDismissing, isPresented else { return }
+                        if dragOffset > 150 || value.predictedEndTranslation.height > 500 {
+                            dismissPlayer()
+                        } else {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) {
+                                dragOffset = 0
+                            }
+                        }
+                    }
+            )
+            .animation(.spring(response: 0.45, dampingFraction: 0.92), value: isPresented)
+            .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.86), value: dragOffset)
+    }
+
+    private func dismissPlayer() {
+        isDismissing = true
+        // Shrink toward the mini player at the bottom
+        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+            dismissScale = 0.12
+            dismissOpacity = 0
+            dragOffset = screenHeight * 0.6
+        } completion: {
+            isPresented = false
+            // Reset for next presentation
+            dragOffset = 0
+            dismissScale = 1
+            dismissOpacity = 1
+            isDismissing = false
         }
     }
 }
@@ -100,30 +192,7 @@ struct NowPlayingAccessory: View {
     }
 }
 
-// MARK: - Player Sheet (fullScreenCover with drag dismiss)
 
-struct PlayerSheet: View {
-    var onDismiss: () -> Void
-    @State private var dragOffset: CGFloat = 0
-
-    var body: some View {
-        NowPlayingView(onMinimize: onDismiss)
-            .background(Color(.systemBackground))
-            .offset(y: dragOffset)
-            .gesture(
-                DragGesture()
-                    .onChanged { value in
-                        dragOffset = max(0, value.translation.height)
-                    }
-                    .onEnded { value in
-                        if dragOffset > 150 || value.predictedEndTranslation.height > 500 {
-                            onDismiss()
-                        }
-                        withAnimation(.spring(response: 0.3)) { dragOffset = 0 }
-                    }
-            )
-    }
-}
 
 #Preview {
     ContentView()

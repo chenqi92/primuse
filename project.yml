@@ -40,6 +40,19 @@ packages:
     url: https://github.com/alexiscn/NFSKit.git
     revision: ec63d055b9ee08d609d3c6cb32f42c07edc7bdf7
 
+schemes:
+  Primuse:
+    build:
+      targets:
+        Primuse: all
+        PrimuseKit: all
+        PrimuseWidgetExtension: all
+        PrimuseActivityExtension: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+
 targets:
   Primuse:
     type: application
@@ -88,7 +101,8 @@ targets:
         LSApplicationCategoryType: "public.app-category.music"
         UILaunchScreen: {}
         NSAppTransportSecurity:
-          NSAllowsArbitraryLoads: false
+          NSAllowsArbitraryLoads: true
+          NSAllowsLocalNetworking: true
           NSExceptionDomains:
             source-b.invalid:
               NSIncludesSubdomains: true
@@ -141,6 +155,7 @@ targets:
       - path: PrimuseWidgetExtension
     dependencies:
       - target: PrimuseKit
+      - package: GRDB
       - sdk: WidgetKit.framework
       - sdk: SwiftUI.framework
     info:

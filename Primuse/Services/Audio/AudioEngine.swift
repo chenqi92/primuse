@@ -145,6 +145,14 @@ final class AudioEngine {
     }
 
     func resume() {
+        // After audio interruption (e.g. phone call, other app), the engine stops.
+        // Restart it before resuming playback.
+        if let engine, !engine.isRunning {
+            do { try engine.start() } catch {
+                print("Failed to restart engine after interruption: \(error)")
+                return
+            }
+        }
         playerNode?.play()
         if (crossfadePlayerNode?.volume ?? 0) > 0 {
             crossfadePlayerNode?.play()
@@ -156,6 +164,17 @@ final class AudioEngine {
         playerNode?.stop()
         playerNode?.reset()
         isPlaying = false
+    }
+
+    /// Restart the engine and player node if they were stopped (e.g. by a configuration change).
+    func restartIfNeeded() {
+        guard let engine, !engine.isRunning else { return }
+        do {
+            try engine.start()
+            playerNode?.play()
+        } catch {
+            print("Failed to restart engine: \(error)")
+        }
     }
 
     // MARK: - Crossfade Volume
