@@ -1,0 +1,104 @@
+name: Build
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (iOS)
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.app/Contents/Developer
+
+      - name: Show build environment
+        run: |
+          xcodebuild -version
+          swift --version
+          echo "Available simulators:"
+          xcodebuild -showsdks | grep -i ios
+
+      - name: Resolve packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -scheme Primuse \
+            -project Primuse.xcodeproj
+
+      - name: Build for Simulator
+        run: |
+          xcodebuild build \
+            -scheme Primuse \
+            -project Primuse.xcodeproj \
+            -destination 'generic/platform=iOS Simulator' \
+            -configuration Debug \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM="" \
+            | xcpretty --color || true
+
+          # Check exit code from xcodebuild (not xcpretty)
+          exit ${PIPESTATUS[0]}
+
+  archive:
+    name: Archive (unsigned IPA)
+    runs-on: macos-15
+    timeout-minutes: 30
+    needs: build
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.app/Contents/Developer
+
+      - name: Resolve packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -scheme Primuse \
+            -project Primuse.xcodeproj
+
+      - name: Archive
+        run: |
+          xcodebuild archive \
+            -scheme Primuse \
+            -project Primuse.xcodeproj \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/Primuse.xcarchive \
+            -configuration Release \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            | xcpretty --color || true
+
+          exit ${PIPESTATUS[0]}
+
+      - name: Export unsigned app
+        run: |
+          mkdir -p build/Payload
+          cp -r build/Primuse.xcarchive/Products/Applications/Primuse.app build/Payload/
+          cd build && zip -r Primuse-unsigned.ipa Payload
+          echo "IPA size: $(du -h Primuse-unsigned.ipa | cut -f1)"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Primuse-unsigned-${{ github.sha }}
+          path: build/Primuse-unsigned.ipa
+          retention-days: 30

@@ -97,9 +97,9 @@ struct ScrapeOptionsView: View {
                     CachedArtworkView(coverFileName: song.coverArtFileName, size: 56, cornerRadius: 8)
                     VStack(alignment: .leading, spacing: 3) {
                         Text(song.title).font(.subheadline).fontWeight(.semibold).lineLimit(1)
-                        Text(song.artistName ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        Text(song.artistName ?? "").font(.caption).foregroundStyle(Color(.systemGray)).lineLimit(1)
                         if song.duration > 0 {
-                            Text(formatDuration(song.duration)).font(.caption2).foregroundStyle(.tertiary)
+                            Text(formatDuration(song.duration)).font(.caption2).foregroundStyle(Color(.systemGray2))
                         }
                     }
                 }
@@ -203,7 +203,7 @@ struct ScrapeOptionsView: View {
                     if preview.hasCover {
                         Toggle(isOn: $applyCover) {
                             VStack(alignment: .leading, spacing: 6) {
-                                Text("cover").font(.caption).foregroundStyle(.secondary)
+                                Text("cover").font(.caption).foregroundStyle(Color(.systemGray))
                                 HStack(spacing: 8) {
                                     // Current cover
                                     VStack(spacing: 2) {
@@ -232,7 +232,7 @@ struct ScrapeOptionsView: View {
                     if preview.hasLyrics {
                         Toggle(isOn: $applyLyrics) {
                             HStack(spacing: 6) {
-                                Text("lyrics_word").font(.caption).foregroundStyle(.secondary).frame(width: 45, alignment: .leading)
+                                Text("lyrics_word").font(.caption).foregroundStyle(Color(.systemGray)).frame(width: 45, alignment: .leading)
                                 statusBadge(hasLocal: song.lyricsFileName != nil, hasScraped: true,
                                             isChanged: preview.updatedSong.lyricsFileName != song.lyricsFileName)
                                 if preview.lyricsCount > 0 {
@@ -269,19 +269,19 @@ struct ScrapeOptionsView: View {
         if let scraped = scrapedValue {
             Toggle(isOn: isOn) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(label).font(.caption).foregroundStyle(.secondary)
+                    Text(label).font(.caption).foregroundStyle(Color(.systemGray))
                     if isChanged {
                         HStack(spacing: 4) {
-                            Text(localValue).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                            Image(systemName: "arrow.right").font(.system(size: 8)).foregroundStyle(.tertiary)
-                            Text(scraped).font(.caption2).fontWeight(.medium).foregroundStyle(Color.accentColor).lineLimit(1)
+                            Text(localValue).font(.caption2).foregroundStyle(Color(.systemGray)).lineLimit(1)
+                            Image(systemName: "arrow.right").font(.system(size: 8)).foregroundStyle(Color(.systemGray2))
+                            Text(scraped).font(.caption2).fontWeight(.medium).foregroundStyle(.green).lineLimit(1)
                         }
                     } else {
                         Text(scraped).font(.caption2).foregroundStyle(.primary).lineLimit(1)
                     }
                 }
             }
-            .tint(isChanged ? .accentColor : .secondary)
+            .tint(isChanged ? .green : Color(.systemGray))
         }
     }
 
@@ -290,14 +290,14 @@ struct ScrapeOptionsView: View {
         if isChanged {
             HStack(spacing: 3) {
                 Image(systemName: hasLocal ? "checkmark" : "xmark")
-                    .font(.caption2).foregroundStyle(.secondary)
+                    .font(.caption2).foregroundStyle(Color(.systemGray))
                 Image(systemName: "arrow.right")
-                    .font(.system(size: 8)).foregroundStyle(.tertiary)
+                    .font(.system(size: 8)).foregroundStyle(Color(.systemGray2))
                 Image(systemName: "checkmark")
                     .font(.caption2).foregroundStyle(.green)
             }
         } else {
-            Text(String(localized: "unchanged")).font(.caption2).foregroundStyle(.tertiary)
+            Text(String(localized: "unchanged")).font(.caption2).foregroundStyle(Color(.systemGray2))
         }
     }
 
@@ -362,15 +362,15 @@ struct ScrapeOptionsView: View {
                                 }
                                 HStack(spacing: 4) {
                                     if let artist = item.artist {
-                                        Text(artist).font(.caption).foregroundStyle(.secondary)
+                                        Text(artist).font(.caption).foregroundStyle(Color(.systemGray))
                                     }
                                     if let album = item.album {
-                                        Text("·").font(.caption).foregroundStyle(.tertiary)
-                                        Text(album).font(.caption).foregroundStyle(.tertiary)
+                                        Text("·").font(.caption).foregroundStyle(Color(.systemGray2))
+                                        Text(album).font(.caption).foregroundStyle(Color(.systemGray2))
                                     }
                                 }
                                 .lineLimit(1)
-                                Text(item.source).font(.caption2).foregroundStyle(.tint)
+                                Text(item.source).font(.caption2).foregroundStyle(.green)
                             }
                         }
                         .padding(.vertical, 2)
