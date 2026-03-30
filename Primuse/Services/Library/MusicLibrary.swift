@@ -175,17 +175,20 @@ final class MusicLibrary {
     // MARK: - Index Rebuild
 
     private func rebuildIndex() {
-        // Build albums
-        let albumGroups = Dictionary(grouping: songs) { song -> String in
-            let artist = song.artistName ?? "Unknown"
-            let album = song.albumTitle ?? "Unknown"
+        // Build albums — only group songs that have an actual album title
+        // Songs without album title get no albumID (treated as singles)
+        let unknownArtist = String(localized: "unknown_artist")
+        let songsWithAlbum = songs.filter { $0.albumTitle != nil && !$0.albumTitle!.isEmpty }
+        let albumGroups = Dictionary(grouping: songsWithAlbum) { song -> String in
+            let artist = song.artistName ?? unknownArtist
+            let album = song.albumTitle!
             return "\(artist)\0\(album)"
         }
 
         albums = albumGroups.map { key, songs in
             let parts = key.split(separator: "\0", maxSplits: 1)
-            let artistName = parts.count > 0 ? String(parts[0]) : "Unknown"
-            let albumTitle = parts.count > 1 ? String(parts[1]) : "Unknown"
+            let artistName = parts.count > 0 ? String(parts[0]) : unknownArtist
+            let albumTitle = parts.count > 1 ? String(parts[1]) : unknownArtist
             let id = hashID("\(artistName):\(albumTitle)")
 
             let artistID = hashID(artistName.lowercased())
@@ -202,15 +205,18 @@ final class MusicLibrary {
             )
         }.sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
 
-        // Update albumID on songs
+        // Update albumID on songs — nil for songs without album
         for i in songs.indices {
-            let artist = songs[i].artistName ?? "Unknown"
-            let album = songs[i].albumTitle ?? "Unknown"
-            songs[i].albumID = hashID("\(artist):\(album)")
+            if let album = songs[i].albumTitle, !album.isEmpty {
+                let artist = songs[i].artistName ?? unknownArtist
+                songs[i].albumID = hashID("\(artist):\(album)")
+            } else {
+                songs[i].albumID = nil
+            }
         }
 
         // Build artists
-        let artistGroups = Dictionary(grouping: songs) { $0.artistName ?? "Unknown" }
+        let artistGroups = Dictionary(grouping: songs) { $0.artistName ?? unknownArtist }
 
         artists = artistGroups.map { name, songs in
             let id = hashID(name.lowercased())
@@ -225,7 +231,7 @@ final class MusicLibrary {
 
         // Update artistID on songs
         for i in songs.indices {
-            let name = songs[i].artistName ?? "Unknown"
+            let name = songs[i].artistName ?? unknownArtist
             songs[i].artistID = hashID(name.lowercased())
         }
     }

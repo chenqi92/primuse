@@ -178,13 +178,14 @@ actor SynologyScanner {
         let parentDir = (item.path as NSString).deletingLastPathComponent
         let albumFromPath = (parentDir as NSString).lastPathComponent
 
-        // Defaults from filename
-        let (parsedTitle, parsedArtist) = parseFilename((item.name as NSString).deletingPathExtension)
+        // Title always comes from filename (more reliable than embedded metadata)
+        let fileBaseName = (item.name as NSString).deletingPathExtension
+        let (_, parsedArtist) = parseFilename(fileBaseName)
 
         // Don't use generic folder names as album title
         let genericFolders: Set<String> = ["music", "音乐", "Music", "songs", "Songs", "audio", "Audio", "media", "Media", "downloads", "Downloads"]
 
-        var title = parsedTitle
+        let title = fileBaseName
         var artist = parsedArtist
         var album: String? = genericFolders.contains(albumFromPath) ? nil : albumFromPath
         var trackNumber: Int?
@@ -234,7 +235,7 @@ actor SynologyScanner {
 
                     switch key {
                     case AVMetadataKey.commonKeyTitle.rawValue:
-                        if let v = value as? String, !v.isEmpty { title = v }
+                        break // Title always from filename
                     case AVMetadataKey.commonKeyArtist.rawValue:
                         if let v = value as? String, !v.isEmpty { artist = v }
                     case AVMetadataKey.commonKeyAlbumName.rawValue:

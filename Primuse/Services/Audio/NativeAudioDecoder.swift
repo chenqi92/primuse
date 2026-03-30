@@ -50,9 +50,8 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
 
                     plog("🎵 SFBDecoder: file=\(url.lastPathComponent) sourceFormat=sr\(sourceFormat.sampleRate)/ch\(sourceFormat.channelCount) length=\(totalFrames) outputFormat=sr\(outputFormat.sampleRate)/ch\(outputFormat.channelCount)")
 
-                    // If formats match, read directly
-                    if sourceFormat.sampleRate == outputFormat.sampleRate &&
-                       sourceFormat.channelCount == outputFormat.channelCount {
+                    // Full equality: sampleRate, channelCount, commonFormat, interleaving
+                    if sourceFormat == outputFormat {
                         plog("🎵 SFBDecoder: direct read (formats match)")
                         while decoder.position < totalFrames {
                             let remainingFrames = AVAudioFrameCount(totalFrames - decoder.position)

@@ -2,13 +2,21 @@ import SwiftUI
 import PrimuseKit
 
 struct AlbumCardView: View {
+    @Environment(MusicLibrary.self) private var library
     let album: Album
-    var coverData: Data?
 
     var body: some View {
+        let firstSong = library.songs(forAlbum: album.id).first
+
         VStack(alignment: .leading, spacing: 6) {
-            CoverArtView(data: coverData, size: .infinity, cornerRadius: 10)
-                .aspectRatio(1, contentMode: .fit)
+            CachedArtworkView(
+                coverRef: firstSong?.coverArtFileName,
+                songID: firstSong?.id ?? album.id,
+                cornerRadius: 10,
+                sourceID: firstSong?.sourceID,
+                filePath: firstSong?.filePath
+            )
+            .aspectRatio(1, contentMode: .fit)
 
             Text(album.title)
                 .font(.caption)

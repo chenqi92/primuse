@@ -240,6 +240,11 @@ struct NowPlayingView: View {
         .sheet(isPresented: $showScrapeOptions) {
             if let song = player.currentSong {
                 ScrapeOptionsView(song: song) { u in
+                    // Invalidate cover cache so all views reload
+                    CachedArtworkView.invalidateCache(for: u.id)
+                    if let oldRef = song.coverArtFileName {
+                        CachedArtworkView.invalidateCache(for: oldRef)
+                    }
                     player.syncSongMetadata(u)
                     player.forceRefreshNowPlayingArtwork()
                     Task { await loadLyrics() }
@@ -453,6 +458,8 @@ struct NowPlayingView: View {
         isScrapingCurrentSong = true; defer { isScrapingCurrentSong = false }
         do {
             let (u, _, _) = try await scraperService.scrapeSingle(song: song, in: library)
+            CachedArtworkView.invalidateCache(for: u.id)
+            if let oldRef = song.coverArtFileName { CachedArtworkView.invalidateCache(for: oldRef) }
             player.syncSongMetadata(u); player.forceRefreshNowPlayingArtwork(); await loadLyrics()
             if !lyrics.isEmpty { showLyrics = true }
             scrapeAlertMessage = String(localized: "scrape_song_success")

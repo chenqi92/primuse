@@ -27,6 +27,10 @@ protocol MusicSourceConnector: Sendable {
     /// Sources that support streaming (e.g. Synology) return the URL; others return nil.
     func streamingURL(for path: String) async throws -> URL?
 
+    /// Returns a direct HTTP(S) URL for an image file (cover art sidecar).
+    /// Used by CachedArtworkView to load covers without downloading to local cache.
+    func imageURL(for path: String) async throws -> URL?
+
     /// Write data to a remote path. Used by sidecar file writing (cover art, lyrics).
     func writeFile(data: Data, to path: String) async throws
 
@@ -36,6 +40,10 @@ protocol MusicSourceConnector: Sendable {
 
 extension MusicSourceConnector {
     func streamingURL(for path: String) async throws -> URL? { nil }
+    func imageURL(for path: String) async throws -> URL? {
+        // Default: use streamingURL as fallback (works for any file)
+        try await streamingURL(for: path)
+    }
 
     func countAudioFiles(in path: String) async throws -> Int {
         var count = 0

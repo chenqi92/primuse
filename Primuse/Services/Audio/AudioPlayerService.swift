@@ -284,6 +284,7 @@ final class AudioPlayerService {
             // Decode remaining buffers in background task (hold-last for completion callback)
             decodingTask = Task { [id, iteratorBox] in
                 var lastBuffer: AVAudioPCMBuffer?
+                var scheduledCount = 0
 
                 do {
                     while let buffer = try await iteratorBox.next() {
@@ -291,12 +292,22 @@ final class AudioPlayerService {
 
                         if let prev = lastBuffer {
                             self.audioEngine.scheduleBuffer(prev)
+                            scheduledCount += 1
                         }
                         lastBuffer = buffer
                     }
                 } catch {
-                    if !Task.isCancelled {
-                        plog("⚠️ Decode error mid-stream for '\(song.title)': \(error.localizedDescription)")
+                    if !Task.isCancelled, self.playID == id {
+                        plog("⚠️ Decode error mid-stream for '\(song.title)' (scheduled \(scheduledCount) buffers): \(error.localizedDescription)")
+                        // Too few buffers → effectively no audio; stop and skip
+                        if scheduledCount < 3 {
+                            self.showPlaybackError(String(localized: "playback_error_decode"))
+                            self.stop()
+                            if self.currentIndex < self.queue.count - 1 {
+                                await self.next()
+                            }
+                            return
+                        }
                     }
                 }
 
@@ -368,15 +379,27 @@ final class AudioPlayerService {
             // Decode remaining buffers
             decodingTask = Task { [id, iteratorBox] in
                 var lastBuffer: AVAudioPCMBuffer?
+                var scheduledCount = 0
                 do {
                     while let buffer = try await iteratorBox.next() {
                         guard !Task.isCancelled, self.playID == id else { return }
-                        if let prev = lastBuffer { self.audioEngine.scheduleBuffer(prev) }
+                        if let prev = lastBuffer {
+                            self.audioEngine.scheduleBuffer(prev)
+                            scheduledCount += 1
+                        }
                         lastBuffer = buffer
                     }
                 } catch {
-                    if !Task.isCancelled {
-                        plog("⚠️ StreamingDownload decode error: \(error.localizedDescription)")
+                    if !Task.isCancelled, self.playID == id {
+                        plog("⚠️ StreamingDownload decode error (scheduled \(scheduledCount) buffers): \(error.localizedDescription)")
+                        if scheduledCount < 3 {
+                            self.showPlaybackError(String(localized: "playback_error_decode"))
+                            self.stop()
+                            if self.currentIndex < self.queue.count - 1 {
+                                await self.next()
+                            }
+                            return
+                        }
                     }
                 }
                 if let finalBuffer = lastBuffer {
@@ -559,7 +582,9 @@ final class AudioPlayerService {
         audioEngine.stopCrossfadeNode()
         audioEngine.resetPlayerVolume()
         isPlaying = false
+        currentSong = nil
         currentTime = 0
+        duration = 0
         stopTimeUpdater()
     }
 
@@ -629,9 +654,14 @@ final class AudioPlayerService {
                 }
 
                 // Use the same decoder that was used for initial playback.
-                // For streaming, prefer the cached local file if available.
+                // For streaming, require the cached local file — can't seek in remote streams.
                 let seekURL: URL
-                if activeDecoderKind == .streaming, let cached = sourceManager?.cachedURL(for: song) {
+                if activeDecoderKind == .streaming {
+                    guard let cached = sourceManager?.cachedURL(for: song) else {
+                        plog("⚠️ Seek: streaming song not cached yet, seek not available")
+                        isLoading = false
+                        return
+                    }
                     seekURL = cached
                 } else {
                     seekURL = url

@@ -81,17 +81,21 @@ final class MusicScraperService {
             // Write sidecar files to source (cover.jpg, .lrc) and update Song refs
             let coverData = result.coverData
             let lyricsLines = result.lyricsLines
+            plog("📝 Sidecar: coverData=\(coverData?.count ?? 0)B lyricsLines=\(lyricsLines?.count ?? 0) for '\(updatedSong.title)'")
             if coverData != nil || lyricsLines != nil {
                 let songForWrite = updatedSong
                 let sourceManager = self.sourceManager
                 let songID = updatedSong.id
                 Task { @MainActor in
                     do {
+                        plog("📝 Sidecar: getting auxiliary connector for '\(songForWrite.title)' source=\(songForWrite.sourceID)")
                         let connector = try await sourceManager.auxiliaryConnector(for: songForWrite)
+                        plog("📝 Sidecar: writing sidecars for '\(songForWrite.title)' filePath=\(songForWrite.filePath)")
                         let writeResult = await SidecarWriteService.shared.writeSidecars(
                             for: songForWrite, using: connector,
                             coverData: coverData, lyricsLines: lyricsLines
                         )
+                        plog("📝 Sidecar: result cover=\(writeResult.coverWritten) lyrics=\(writeResult.lyricsWritten) errors=\(writeResult.errors)")
 
                         // Update Song refs to point to sidecar paths on source
                         let songDir = (songForWrite.filePath as NSString).deletingLastPathComponent
@@ -117,10 +121,10 @@ final class MusicScraperService {
                         }
 
                         if !writeResult.errors.isEmpty {
-                            NSLog("⚠️ Sidecar write errors: \(writeResult.errors)")
+                            plog("⚠️ Sidecar write errors: \(writeResult.errors)")
                         }
                     } catch {
-                        NSLog("⚠️ Sidecar write skipped: \(error.localizedDescription)")
+                        plog("⚠️ Sidecar write skipped for '\(songForWrite.title)': \(error.localizedDescription)")
                     }
                 }
             }

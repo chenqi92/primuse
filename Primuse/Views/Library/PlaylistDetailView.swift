@@ -62,7 +62,7 @@ struct PlaylistDetailView: View {
                         SongRowView(
                             song: song,
                             isPlaying: player.currentSong?.id == song.id,
-                            showsPlaylistActions: false
+                            showsActions: false
                         )
                         .padding(.horizontal)
                         .padding(.vertical, 8)

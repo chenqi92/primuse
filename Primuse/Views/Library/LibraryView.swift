@@ -138,7 +138,7 @@ struct LibraryView: View {
             .toolbarTitleDisplayMode(.inlineLarge)
             .navigationDestination(for: LibrarySection.self) { section in
                 switch section {
-                case .albums: AlbumGridView(albums: albums).navigationTitle(section.title)
+                case .albums: AlbumGridView().navigationTitle(section.title)
                 case .artists: ArtistListView(artists: artists).navigationTitle(section.title)
                 case .songs: SongListView(songs: songs).navigationTitle(section.title)
                 case .playlists: PlaylistListView().navigationTitle(section.title)
@@ -155,12 +155,14 @@ struct LibraryView: View {
     private var recentItems: [RecentItem] {
         if !albums.isEmpty {
             return albums.prefix(6).map { album in
-                let cover = library.songs(forAlbum: album.id).first?.coverArtFileName
+                let firstSong = library.songs(forAlbum: album.id).first
                 return RecentItem(
                     id: album.id,
                     title: album.title,
                     subtitle: album.artistName ?? "",
-                    coverFileName: cover,
+                    coverFileName: firstSong?.coverArtFileName,
+                    sourceID: firstSong?.sourceID,
+                    filePath: firstSong?.filePath,
                     song: nil,
                     album: album
                 )
@@ -172,6 +174,8 @@ struct LibraryView: View {
                 title: song.title,
                 subtitle: song.artistName ?? "",
                 coverFileName: song.coverArtFileName,
+                sourceID: song.sourceID,
+                filePath: song.filePath,
                 song: song,
                 album: nil
             )
@@ -209,6 +213,8 @@ struct RecentItem: Identifiable {
     let title: String
     let subtitle: String
     let coverFileName: String?
+    let sourceID: String?
+    let filePath: String?
     let song: Song?
     let album: Album?
 }
@@ -218,7 +224,8 @@ struct RecentItemCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            CachedArtworkView(coverFileName: item.coverFileName, cornerRadius: 8)
+            CachedArtworkView(coverFileName: item.coverFileName, cornerRadius: 8,
+                              sourceID: item.sourceID, filePath: item.filePath)
                 .aspectRatio(1, contentMode: .fit)
                 .shadow(color: .black.opacity(0.08), radius: 4, y: 2)
 

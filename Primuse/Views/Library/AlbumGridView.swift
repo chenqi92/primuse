@@ -2,13 +2,13 @@ import SwiftUI
 import PrimuseKit
 
 struct AlbumGridView: View {
-    let albums: [Album]
+    @Environment(MusicLibrary.self) private var library
     private let columns = [
         GridItem(.adaptive(minimum: 150), spacing: 16)
     ]
 
     var body: some View {
-        if albums.isEmpty {
+        if library.albums.isEmpty {
             ContentUnavailableView(
                 "no_albums",
                 systemImage: "square.stack",
@@ -17,7 +17,7 @@ struct AlbumGridView: View {
         } else {
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 20) {
-                    ForEach(albums) { album in
+                    ForEach(library.albums) { album in
                         NavigationLink(value: album) {
                             AlbumCardView(album: album)
                         }

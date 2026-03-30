@@ -172,20 +172,26 @@ struct CachedArtworkView: View {
         sourceID: String?, filePath: String?,
         sourceManager: SourceManager
     ) async -> Data? {
-        // Case 1: URL reference (media server API)
+        // Case 1: URL reference (media server API — already a full URL)
         if let ref, ref.contains("://"), let url = URL(string: ref) {
-            return try? await URLSession.shared.data(from: url).0
+            let config = URLSessionConfiguration.default
+            config.timeoutIntervalForRequest = 10
+            let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+            return try? await session.data(from: url).0
         }
 
-        // Case 2: Sidecar path reference (NAS/protocol source)
+        // Case 2: Sidecar path on source — get a streaming URL (no file download needed)
         if let ref, ref.contains("/"), let sourceID {
-            return await downloadSidecar(path: ref, sourceID: sourceID, sourceManager: sourceManager)
+            if let imageURL = await sourceManager.imageURL(for: ref, sourceID: sourceID) {
+                let config = URLSessionConfiguration.default
+                config.timeoutIntervalForRequest = 10
+                let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+                return try? await session.data(from: imageURL).0
+            }
         }
 
-        // Case 3: No explicit ref — only try embedded extraction from cached audio file
-        // (Don't probe multiple sidecar patterns over network — that interferes with playback)
+        // Case 3: No ref — try embedded extraction from locally cached audio file only
         if let sourceID, let filePath {
-            // Only use already-cached audio file to extract embedded cover (no network)
             let dummySong = Song(id: "", title: "", fileFormat: .mp3, filePath: filePath,
                                  sourceID: sourceID, fileSize: 0, dateAdded: Date())
             if let cachedURL = sourceManager.cachedURL(for: dummySong) {
@@ -195,39 +201,6 @@ struct CachedArtworkView: View {
         }
 
         return nil
-    }
-
-    private func downloadSidecar(path: String, sourceID: String, sourceManager: SourceManager) async -> Data? {
-        do {
-            // Use auxiliary connector — independent from playback connection
-            let dummySong = Song(id: "", title: "", fileFormat: .mp3, filePath: path,
-                                 sourceID: sourceID, fileSize: 0, dateAdded: Date())
-            let connector = try await sourceManager.auxiliaryConnector(for: dummySong)
-            let localURL = try await connector.localURL(for: path)
-            return try Data(contentsOf: localURL)
-        } catch {
-            plog("CachedArtworkView sidecar download failed: \(error.localizedDescription)")
-            return nil
-        }
-    }
-
-    private func extractEmbeddedCover(sourceID: String, filePath: String, sourceManager: SourceManager) async -> Data? {
-        do {
-            let song = Song(id: "", title: "", fileFormat: .mp3, filePath: filePath,
-                            sourceID: sourceID, fileSize: 0, dateAdded: Date())
-            let resolvedURL: URL
-            if let cached = sourceManager.cachedURL(for: song) {
-                resolvedURL = cached
-            } else {
-                resolvedURL = try await sourceManager.resolveURL(for: song)
-            }
-            guard !Task.isCancelled else { return nil }
-            let metadata = await FileMetadataReader.read(from: resolvedURL)
-            return metadata.coverArtData
-        } catch {
-            plog("CachedArtworkView embedded extract failed: \(error.localizedDescription)")
-            return nil
-        }
     }
 
     // MARK: - Static helpers

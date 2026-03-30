@@ -6,26 +6,37 @@ struct SongRowView: View {
     let song: Song
     var isPlaying: Bool = false
     var showAlbum: Bool = true
-    var showsPlaylistActions: Bool = true
+    var showsActions: Bool = true
 
     @State private var showCreatePlaylistAlert = false
     @State private var playlistName = ""
+    @State private var showScrapeOptions = false
+    @State private var showAddToPlaylist = false
+    @State private var showSongInfo = false
 
     var body: some View {
-        HStack(spacing: 12) {
-            // Playing indicator
-            Group {
+        HStack(spacing: 10) {
+            // Cover art with playing overlay
+            ZStack {
+                CachedArtworkView(
+                    coverRef: song.coverArtFileName,
+                    songID: song.id,
+                    size: 44, cornerRadius: 6,
+                    sourceID: song.sourceID,
+                    filePath: song.filePath
+                )
+
                 if isPlaying {
+                    Color.black.opacity(0.35)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .frame(width: 44, height: 44)
                     Image(systemName: "waveform")
+                        .font(.caption)
                         .symbolEffect(.variableColor.iterative)
-                        .foregroundStyle(.tint)
-                } else {
-                    Image(systemName: "music.note")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.white)
                 }
             }
-            .frame(width: 20)
-            .font(.caption)
+            .frame(width: 44, height: 44)
 
             // Song info
             VStack(alignment: .leading, spacing: 2) {
@@ -50,7 +61,7 @@ struct SongRowView: View {
 
             Spacer()
 
-            // Format badge (all formats)
+            // Format badge
             Text(song.fileFormat.displayName)
                 .font(.system(size: 9, weight: .medium))
                 .padding(.horizontal, 4)
@@ -65,31 +76,28 @@ struct SongRowView: View {
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
 
-            if showsPlaylistActions {
+            if showsActions {
                 Menu {
-                    if library.playlists.isEmpty == false {
-                        ForEach(library.playlists) { playlist in
-                            let isIncluded = library.contains(songID: song.id, inPlaylist: playlist.id)
-                            Button {
-                                if isIncluded == false {
-                                    library.add(songID: song.id, toPlaylist: playlist.id)
-                                }
-                            } label: {
-                                Label(
-                                    playlist.name,
-                                    systemImage: isIncluded ? "checkmark.circle.fill" : "plus.circle"
-                                )
-                            }
-                            .disabled(isIncluded)
-                        }
-
-                        Divider()
+                    Button {
+                        showScrapeOptions = true
+                    } label: {
+                        Label(String(localized: "scrape_song"), systemImage: "wand.and.stars")
                     }
 
                     Button {
-                        showCreatePlaylistAlert = true
+                        showAddToPlaylist = true
                     } label: {
-                        Label("new_playlist", systemImage: "text.badge.plus")
+                        Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
+                    }
+
+                    Button {
+                        showSongInfo = true
+                    } label: {
+                        Label(String(localized: "song_info"), systemImage: "info.circle")
+                    }
+
+                    ShareLink(item: "\(song.title) - \(song.artistName ?? "")") {
+                        Label(String(localized: "share"), systemImage: "square.and.arrow.up")
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -101,14 +109,24 @@ struct SongRowView: View {
             }
         }
         .contentShape(Rectangle())
-        .alert("new_playlist", isPresented: $showCreatePlaylistAlert) {
-            TextField("playlist_name", text: $playlistName)
-            Button("cancel", role: .cancel) {
-                playlistName = ""
+        .sheet(isPresented: $showScrapeOptions) {
+            ScrapeOptionsView(song: song) { updated in
+                CachedArtworkView.invalidateCache(for: updated.id)
+                if let oldRef = song.coverArtFileName {
+                    CachedArtworkView.invalidateCache(for: oldRef)
+                }
             }
-            Button("create") {
-                createPlaylistAndAddSong()
-            }
+            .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showAddToPlaylist) {
+            AddToPlaylistSheet(song: song)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showSongInfo) {
+            SongInfoSheet(song: song)
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
         }
     }
 
@@ -116,13 +134,5 @@ struct SongRowView: View {
         let minutes = Int(duration) / 60
         let seconds = Int(duration) % 60
         return String(format: "%d:%02d", minutes, seconds)
-    }
-
-    private func createPlaylistAndAddSong() {
-        let trimmedName = playlistName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmedName.isEmpty == false else { return }
-        let playlist = library.createPlaylist(name: trimmedName)
-        library.add(songID: song.id, toPlaylist: playlist.id)
-        playlistName = ""
     }
 }

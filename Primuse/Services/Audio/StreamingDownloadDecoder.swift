@@ -87,20 +87,53 @@ final class StreamingDownloadDecoder: Sendable {
 
                     plog("🌊 SFBDecoder: format=sr\(srcFmt.sampleRate)/ch\(srcFmt.channelCount) length=\(totalFrames)")
 
-                    let directRead = srcFmt.sampleRate == outputFormat.sampleRate
-                        && srcFmt.channelCount == outputFormat.channelCount
+                    // Full equality check: sampleRate, channelCount, commonFormat, interleaving
+                    let directRead = srcFmt == outputFormat
 
                     if directRead {
-                        // Direct read — formats match
-                        while decoder.position < totalFrames {
-                            if Task.isCancelled { break }
-                            let remaining = AVAudioFrameCount(totalFrames - decoder.position)
-                            let toRead = min(bufferFrameCount, remaining)
-                            guard let buf = AVAudioPCMBuffer(pcmFormat: srcFmt, frameCapacity: toRead) else { break }
-                            try decoder.decode(into: buf, length: toRead)
-                            if buf.frameLength > 0 {
-                                nonisolated(unsafe) let sendBuf = buf
-                                continuation.yield(sendBuf)
+                        // Direct read — formats fully match
+                        do {
+                            while decoder.position < totalFrames {
+                                if Task.isCancelled { break }
+                                let remaining = AVAudioFrameCount(totalFrames - decoder.position)
+                                let toRead = min(bufferFrameCount, remaining)
+                                guard let buf = AVAudioPCMBuffer(pcmFormat: srcFmt, frameCapacity: toRead) else { break }
+                                try decoder.decode(into: buf, length: toRead)
+                                if buf.frameLength > 0 {
+                                    nonisolated(unsafe) let sendBuf = buf
+                                    continuation.yield(sendBuf)
+                                }
+                            }
+                        } catch {
+                            // Direct read failed — fallback to converter path
+                            plog("⚠️ SFBDecoder: directRead failed at position \(decoder.position)/\(totalFrames), falling back to converter: \(error.localizedDescription)")
+                            guard let converter = AVAudioConverter(from: srcFmt, to: outputFormat) else {
+                                throw AudioDecoderError.converterCreationFailed
+                            }
+                            try decoder.seek(to: decoder.position) // re-sync position
+                            while decoder.position < totalFrames {
+                                if Task.isCancelled { break }
+                                let remaining = AVAudioFrameCount(totalFrames - decoder.position)
+                                let toRead = min(bufferFrameCount, remaining)
+                                guard let inBuf = AVAudioPCMBuffer(pcmFormat: srcFmt, frameCapacity: toRead) else { break }
+                                try decoder.decode(into: inBuf, length: toRead)
+                                guard inBuf.frameLength > 0 else { break }
+
+                                let outCap = AVAudioFrameCount(
+                                    Double(inBuf.frameLength) * outputFormat.sampleRate / srcFmt.sampleRate
+                                ) + 1
+                                guard let outBuf = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: outCap) else { break }
+
+                                var convError: NSError?
+                                let inputBuffer = inBuf
+                                converter.convert(to: outBuf, error: &convError) { _, outStatus in
+                                    outStatus.pointee = .haveData
+                                    return inputBuffer
+                                }
+                                if let e = convError { throw e }
+                                if outBuf.frameLength > 0 {
+                                    continuation.yield(outBuf)
+                                }
                             }
                         }
                     } else {

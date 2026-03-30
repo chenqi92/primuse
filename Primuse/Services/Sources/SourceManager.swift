@@ -308,6 +308,15 @@ final class SourceManager {
     }
 
 
+    /// Get a direct HTTP URL for an image file on the source (for cover art display).
+    /// Uses the shared connector — lightweight, just builds a URL without downloading.
+    func imageURL(for path: String, sourceID: String) async -> URL? {
+        guard let sources = try? await sourcesProvider(),
+              let source = sources.first(where: { $0.id == sourceID }) else { return nil }
+        let conn = connector(for: source)
+        return try? await conn.imageURL(for: path)
+    }
+
     func refreshConnector(for sourceID: String) async {
         guard let connector = connectors.removeValue(forKey: sourceID) else { return }
         await connector.disconnect()

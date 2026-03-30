@@ -80,8 +80,15 @@ struct SearchView: View {
             if !matchingAlbums.isEmpty {
                 Section("tab_albums") {
                     ForEach(matchingAlbums.prefix(5)) { album in
+                        let firstSong = library.songs(forAlbum: album.id).first
                         HStack(spacing: 12) {
-                            CoverArtView(data: nil, size: 44, cornerRadius: 6)
+                            CachedArtworkView(
+                                coverRef: firstSong?.coverArtFileName,
+                                songID: firstSong?.id ?? album.id,
+                                size: 44, cornerRadius: 6,
+                                sourceID: firstSong?.sourceID,
+                                filePath: firstSong?.filePath
+                            )
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(album.title).font(.subheadline).lineLimit(1)
                                 Text(album.artistName ?? "").font(.caption).foregroundStyle(.secondary)

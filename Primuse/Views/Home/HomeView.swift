@@ -66,6 +66,10 @@ struct HomeView: View {
                 spotlightAlbums = Array(library.albums.shuffled().prefix(min(library.albums.count, 20)))
             }
         }
+        .onChange(of: library.songCount) { _, _ in
+            // Refresh spotlight when library changes (e.g. after scraping or re-scan)
+            spotlightAlbums = Array(library.albums.shuffled().prefix(min(library.albums.count, 20)))
+        }
     }
 
     // MARK: - Album Spotlight Carousel
@@ -88,7 +92,9 @@ struct HomeView: View {
             HStack(spacing: 14) {
                 CachedArtworkView(
                     coverFileName: library.songs(forAlbum: album.id).first?.coverArtFileName,
-                    size: 120, cornerRadius: 12
+                    size: 120, cornerRadius: 12,
+                    sourceID: library.songs(forAlbum: album.id).first?.sourceID,
+                    filePath: library.songs(forAlbum: album.id).first?.filePath
                 )
 
                 VStack(alignment: .leading, spacing: 6) {
@@ -157,7 +163,9 @@ struct HomeView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             CachedArtworkView(
                                 coverFileName: library.songs(forAlbum: album.id).first?.coverArtFileName,
-                                size: 140, cornerRadius: 8
+                                size: 140, cornerRadius: 8,
+                                sourceID: library.songs(forAlbum: album.id).first?.sourceID,
+                                filePath: library.songs(forAlbum: album.id).first?.filePath
                             )
                             .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
                             Text(album.title).font(.caption).fontWeight(.medium).lineLimit(1)
