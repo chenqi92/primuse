@@ -249,23 +249,37 @@ final class SourceManager {
     func cacheInBackground(song: Song) {
         guard cachedURL(for: song) == nil else { return }
         Task {
-            guard let sources = try? await sourcesProvider(),
-                  let source = sources.first(where: { $0.id == song.sourceID }) else { return }
-            let conn = connector(for: source)
-            try? await conn.connect()
-            guard let streamURL = try? await conn.streamingURL(for: song.filePath) else { return }
-            let config = URLSessionConfiguration.default
-            config.timeoutIntervalForRequest = 300
-            let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
-            guard let (tempURL, response) = try? await session.download(from: streamURL),
-                  let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return }
-            let target = cacheURL(for: song)
-            try? FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-            await AudioCacheManager.shared.evictIfNeeded(reserveBytes: song.fileSize)
-            try? FileManager.default.removeItem(at: target)
-            try? FileManager.default.moveItem(at: tempURL, to: target)
-            let sanitized = song.filePath.replacingOccurrences(of: "/", with: "_")
-            await AudioCacheManager.shared.recordAccess(path: "\(song.sourceID)/\(sanitized)")
+            do {
+                let sources = try await sourcesProvider()
+                guard let source = sources.first(where: { $0.id == song.sourceID }) else {
+                    plog("⚠️ Cache: source not found for '\(song.title)'")
+                    return
+                }
+                let conn = connector(for: source)
+                try await conn.connect()
+                guard let streamURL = try await conn.streamingURL(for: song.filePath) else {
+                    plog("⚠️ Cache: no streaming URL for '\(song.title)'")
+                    return
+                }
+                let config = URLSessionConfiguration.default
+                config.timeoutIntervalForRequest = 300
+                let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+                let (tempURL, response) = try await session.download(from: streamURL)
+                guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                    plog("⚠️ Cache: HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0) for '\(song.title)'")
+                    return
+                }
+                let target = cacheURL(for: song)
+                try? FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+                await AudioCacheManager.shared.evictIfNeeded(reserveBytes: song.fileSize)
+                try? FileManager.default.removeItem(at: target)
+                try FileManager.default.moveItem(at: tempURL, to: target)
+                let sanitized = song.filePath.replacingOccurrences(of: "/", with: "_")
+                await AudioCacheManager.shared.recordAccess(path: "\(song.sourceID)/\(sanitized)")
+                plog("✅ Cache: '\(song.title)' cached successfully")
+            } catch {
+                plog("⚠️ Cache failed for '\(song.title)': \(error.localizedDescription)")
+            }
         }
     }
 

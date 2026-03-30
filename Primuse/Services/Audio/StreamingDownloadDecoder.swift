@@ -28,7 +28,8 @@ final class StreamingDownloadDecoder: Sendable {
     func decode(
         from url: URL,
         outputFormat: AVAudioFormat,
-        cacheFileURL: URL? = nil
+        cacheFileURL: URL? = nil,
+        fileExtension: String? = nil
     ) -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
         AsyncThrowingStream { continuation in
             Task {
@@ -67,8 +68,8 @@ final class StreamingDownloadDecoder: Sendable {
                     if Task.isCancelled { throw CancellationError() }
 
                     // Step 2: Decode using SFBAudioEngine (supports FLAC, APE, WV, TTA, DSD, etc.)
-                    // Append the original file extension so SFBAudioEngine can detect the format
-                    let ext = url.pathExtension.lowercased()
+                    // Use explicit file extension (from Song.fileFormat) or fall back to URL extension
+                    let ext = (fileExtension ?? url.pathExtension).lowercased()
                     let typedTempURL: URL
                     if !ext.isEmpty {
                         let typedPath = tempPath + ".\(ext)"
@@ -154,9 +155,9 @@ final class StreamingDownloadDecoder: Sendable {
                 } catch {
                     // Clean up temp files
                     try? FileManager.default.removeItem(at: tempURL)
-                    let ext = url.pathExtension.lowercased()
-                    if !ext.isEmpty {
-                        try? FileManager.default.removeItem(at: URL(fileURLWithPath: tempPath + ".\(ext)"))
+                    let cleanupExt = (fileExtension ?? url.pathExtension).lowercased()
+                    if !cleanupExt.isEmpty {
+                        try? FileManager.default.removeItem(at: URL(fileURLWithPath: tempPath + ".\(cleanupExt)"))
                     }
                     if !Task.isCancelled {
                         plog("⚠️ SFBDecoder failed: \(error.localizedDescription)")

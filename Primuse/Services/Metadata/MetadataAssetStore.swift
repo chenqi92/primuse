@@ -63,7 +63,12 @@ actor MetadataAssetStore {
 
     func coverData(named fileName: String?) -> Data? {
         guard let fileName, !fileName.isEmpty else { return nil }
-        return try? Data(contentsOf: artworkDirectory.appendingPathComponent(fileName))
+        do {
+            return try Data(contentsOf: artworkDirectory.appendingPathComponent(fileName))
+        } catch {
+            plog("MetadataAssetStore: failed to read cover '\(fileName)': \(error.localizedDescription)")
+            return nil
+        }
     }
 
     func storeLyrics(_ lines: [LyricLine], for key: String) -> String? {
@@ -79,11 +84,14 @@ actor MetadataAssetStore {
     }
 
     func lyrics(named fileName: String?) -> [LyricLine]? {
-        guard let fileName, !fileName.isEmpty,
-              let data = try? Data(contentsOf: lyricsDirectory.appendingPathComponent(fileName)) else {
+        guard let fileName, !fileName.isEmpty else { return nil }
+        do {
+            let data = try Data(contentsOf: lyricsDirectory.appendingPathComponent(fileName))
+            return try decoder.decode([LyricLine].self, from: data)
+        } catch {
+            plog("MetadataAssetStore: failed to read lyrics '\(fileName)': \(error.localizedDescription)")
             return nil
         }
-        return try? decoder.decode([LyricLine].self, from: data)
     }
 
     // MARK: - Song ID-based cache (new architecture: source ref + local cache)

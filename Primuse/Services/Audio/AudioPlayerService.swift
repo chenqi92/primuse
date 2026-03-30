@@ -323,7 +323,7 @@ final class AudioPlayerService {
         song: Song, url: URL, outputFormat: AVAudioFormat,
         playID id: UUID, cacheURL: URL?
     ) async {
-        let stream = streamingDecoder.decode(from: url, outputFormat: outputFormat, cacheFileURL: cacheURL)
+        let stream = streamingDecoder.decode(from: url, outputFormat: outputFormat, cacheFileURL: cacheURL, fileExtension: song.fileFormat.rawValue)
         let iteratorBox = BufferIteratorBox(stream.makeAsyncIterator())
 
         do {

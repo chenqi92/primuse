@@ -87,7 +87,7 @@ final class MusicScraperService {
                 let songID = updatedSong.id
                 Task { @MainActor in
                     do {
-                        let connector = try await sourceManager.connectorForSong(songForWrite)
+                        let connector = try await sourceManager.auxiliaryConnector(for: songForWrite)
                         let writeResult = await SidecarWriteService.shared.writeSidecars(
                             for: songForWrite, using: connector,
                             coverData: coverData, lyricsLines: lyricsLines

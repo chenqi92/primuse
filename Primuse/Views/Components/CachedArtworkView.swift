@@ -31,6 +31,10 @@ struct CachedArtworkView: View {
         return cache
     }()
 
+    /// Deduplicates in-flight source fetches: multiple views requesting the same cover
+    /// share a single network request instead of each fetching independently.
+    private static let inFlightTracker = InFlightFetchTracker()
+
     // Backward compatible init — old call sites use coverFileName
     init(coverFileName: String?, size: CGFloat? = nil, cornerRadius: CGFloat = 12,
          sourceID: String? = nil, filePath: String? = nil) {
@@ -121,15 +125,19 @@ struct CachedArtworkView: View {
                 return
             }
 
-            // Tier 3: Source fetch
-            if let data = await loadFromSource(
-                ref: capturedRef,
-                songID: capturedSongID,
-                sourceID: capturedSourceID,
-                filePath: capturedFilePath,
-                sourceManager: capturedSourceManager
-            ), let loaded = UIImage(data: data) {
-                // Cache to disk for future
+            // Tier 3: Source fetch (deduplicated — multiple views share one request)
+            let fetchKey = capturedSongID ?? capturedRef ?? ""
+            guard !fetchKey.isEmpty else { return }
+            let data = await Self.inFlightTracker.deduplicated(key: fetchKey) {
+                await self.loadFromSource(
+                    ref: capturedRef,
+                    songID: capturedSongID,
+                    sourceID: capturedSourceID,
+                    filePath: capturedFilePath,
+                    sourceManager: capturedSourceManager
+                )
+            }
+            if let data, let loaded = UIImage(data: data) {
                 if let sid = capturedSongID {
                     await MetadataAssetStore.shared.cacheCover(data, forSongID: sid)
                 }
@@ -237,5 +245,23 @@ extension View {
     @ViewBuilder
     func `if`<Content: View>(_ condition: Bool, transform: (Self) -> Content) -> some View {
         if condition { transform(self) } else { self }
+    }
+}
+
+/// Deduplicates concurrent fetch requests for the same key.
+/// If two views request the same cover art simultaneously, only one network
+/// request is made; the second waits for the first to complete and shares the result.
+private actor InFlightFetchTracker {
+    private var inFlight: [String: Task<Data?, Never>] = [:]
+
+    func deduplicated(key: String, fetch: @Sendable @escaping () async -> Data?) async -> Data? {
+        if let existing = inFlight[key] {
+            return await existing.value
+        }
+        let task = Task<Data?, Never> { await fetch() }
+        inFlight[key] = task
+        let result = await task.value
+        inFlight[key] = nil
+        return result
     }
 }
