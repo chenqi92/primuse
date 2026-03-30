@@ -7,6 +7,7 @@ struct ScrapeOptionsView: View {
 
     @Environment(MusicLibrary.self) private var library
     @Environment(MusicScraperService.self) private var scraperService
+    @Environment(SourceManager.self) private var sourceManager
     @Environment(\.dismiss) private var dismiss
 
     @State private var mode: ScrapeMode = .options
@@ -629,6 +630,53 @@ struct ScrapeOptionsView: View {
         )
 
         library.replaceSong(final)
+
+        // Write sidecar files (cover.jpg, .lrc) back to NAS source
+        let coverDataToWrite = (preview.hasCover && applyCover) ? preview.coverData : nil
+        let lyricsToWrite = (preview.hasLyrics && applyLyrics) ? preview.lyricsLines : nil
+        if coverDataToWrite != nil || lyricsToWrite != nil {
+            let songForWrite = final
+            let songID = final.id
+            let sm = sourceManager
+            let lib = library
+            Task { @MainActor in
+                do {
+                    plog("📝 Sidecar: writing back to source for '\(songForWrite.title)'")
+                    let connector = try await sm.auxiliaryConnector(for: songForWrite)
+                    let writeResult = await SidecarWriteService.shared.writeSidecars(
+                        for: songForWrite, using: connector,
+                        coverData: coverDataToWrite, lyricsLines: lyricsToWrite
+                    )
+                    plog("📝 Sidecar: result cover=\(writeResult.coverWritten) lyrics=\(writeResult.lyricsWritten)")
+
+                    let songDir = (songForWrite.filePath as NSString).deletingLastPathComponent
+                    let baseNameNoExt = ((songForWrite.filePath as NSString).lastPathComponent as NSString).deletingPathExtension
+                    var refSong = songForWrite
+                    var needsUpdate = false
+
+                    if writeResult.coverWritten {
+                        let coverPath = (songDir as NSString).appendingPathComponent("\(baseNameNoExt)-cover.jpg")
+                        refSong.coverArtFileName = coverPath
+                        await MetadataAssetStore.shared.invalidateCoverCache(forSongID: songID)
+                        needsUpdate = true
+                    }
+                    if writeResult.lyricsWritten {
+                        let lrcPath = (songDir as NSString).appendingPathComponent("\(baseNameNoExt).lrc")
+                        refSong.lyricsFileName = lrcPath
+                        needsUpdate = true
+                    }
+                    if needsUpdate {
+                        lib.replaceSong(refSong)
+                    }
+                    if !writeResult.errors.isEmpty {
+                        plog("⚠️ Sidecar write errors: \(writeResult.errors)")
+                    }
+                } catch {
+                    plog("⚠️ Sidecar write failed for '\(songForWrite.title)': \(error.localizedDescription)")
+                }
+            }
+        }
+
         onComplete?(final)
         dismiss()
     }

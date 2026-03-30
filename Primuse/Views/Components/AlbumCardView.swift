@@ -18,15 +18,17 @@ struct AlbumCardView: View {
             )
             .aspectRatio(1, contentMode: .fit)
 
-            Text(album.title)
-                .font(.caption)
-                .fontWeight(.medium)
-                .lineLimit(2)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(album.title)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
 
-            Text(album.artistName ?? String(localized: "unknown_artist"))
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+                Text(album.artistName ?? String(localized: "unknown_artist"))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
         }
     }
 }
