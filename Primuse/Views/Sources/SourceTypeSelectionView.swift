@@ -83,9 +83,9 @@ struct SourceTypeSelectionView: View {
                     HStack(spacing: 12) {
                         Image(systemName: device.sourceType.iconName)
                             .font(.title3)
-                            .foregroundStyle(.green)
+                            .foregroundStyle(.white)
                             .frame(width: 36, height: 36)
-                            .background(Color.green.opacity(0.12))
+                            .background(Color.green)
                             .clipShape(RoundedRectangle(cornerRadius: 8))
 
                         VStack(alignment: .leading, spacing: 2) {
@@ -95,7 +95,7 @@ struct SourceTypeSelectionView: View {
 
                             Text("\(device.sourceType.displayName) · \(device.host)")
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Color(.systemGray))
                         }
 
                         Spacer()
@@ -137,9 +137,9 @@ struct SourceTypeSelectionView: View {
         HStack(spacing: 12) {
             Image(systemName: type.iconName)
                 .font(.title3)
-                .foregroundStyle(.tint)
+                .foregroundStyle(.white)
                 .frame(width: 36, height: 36)
-                .background(Color.accentColor.opacity(0.12))
+                .background(Color.accentColor)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 2) {
@@ -149,7 +149,7 @@ struct SourceTypeSelectionView: View {
 
                 Text(type.subtitle)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color(.systemGray))
             }
 
             Spacer()
@@ -162,7 +162,7 @@ struct SourceTypeSelectionView: View {
 
             Image(systemName: "chevron.right")
                 .font(.caption)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(Color(.systemGray2))
         }
     }
 }

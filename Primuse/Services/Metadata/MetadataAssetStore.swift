@@ -7,6 +7,8 @@ actor MetadataAssetStore {
 
     private let artworkDirectory: URL
     private let lyricsDirectory: URL
+    private let albumArtworkDirectory: URL
+    private let artistArtworkDirectory: URL
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
@@ -19,11 +21,15 @@ actor MetadataAssetStore {
         let rootDirectory = appSupport.appendingPathComponent("Primuse/MetadataAssets", isDirectory: true)
         artworkDirectory = rootDirectory.appendingPathComponent("artwork", isDirectory: true)
         lyricsDirectory = rootDirectory.appendingPathComponent("lyrics", isDirectory: true)
+        albumArtworkDirectory = rootDirectory.appendingPathComponent("artwork/album", isDirectory: true)
+        artistArtworkDirectory = rootDirectory.appendingPathComponent("artwork/artist", isDirectory: true)
         artworkDirectoryURL = artworkDirectory
         lyricsDirectoryURL = lyricsDirectory
 
         try? fileManager.createDirectory(at: artworkDirectory, withIntermediateDirectories: true)
         try? fileManager.createDirectory(at: lyricsDirectory, withIntermediateDirectories: true)
+        try? fileManager.createDirectory(at: albumArtworkDirectory, withIntermediateDirectories: true)
+        try? fileManager.createDirectory(at: artistArtworkDirectory, withIntermediateDirectories: true)
 
         // One-time migration from old Caches location
         let oldRoot = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first!
@@ -135,13 +141,66 @@ actor MetadataAssetStore {
         !ref.contains("/") && !ref.contains("://") && ref.hasSuffix(".jpg") || ref.hasSuffix(".json")
     }
 
+    // MARK: - Album artwork
+
+    func storeAlbumCover(_ data: Data, forAlbumID albumID: String) -> String? {
+        let fileName = hashedFileName(for: "album_\(albumID)", pathExtension: "jpg")
+        let fileURL = albumArtworkDirectory.appendingPathComponent(fileName)
+        do {
+            try data.write(to: fileURL, options: .atomic)
+            return fileName
+        } catch { return nil }
+    }
+
+    func cachedAlbumCover(forAlbumID albumID: String) -> Data? {
+        let fileName = hashedFileName(for: "album_\(albumID)", pathExtension: "jpg")
+        return try? Data(contentsOf: albumArtworkDirectory.appendingPathComponent(fileName))
+    }
+
+    nonisolated func hasAlbumCover(forAlbumID albumID: String) -> Bool {
+        let fileName = hashedFileName(for: "album_\(albumID)", pathExtension: "jpg")
+        return FileManager.default.fileExists(atPath: albumArtworkDirectory.appendingPathComponent(fileName).path)
+    }
+
+    // MARK: - Artist artwork
+
+    func storeArtistImage(_ data: Data, forArtistID artistID: String) -> String? {
+        let fileName = hashedFileName(for: "artist_\(artistID)", pathExtension: "jpg")
+        let fileURL = artistArtworkDirectory.appendingPathComponent(fileName)
+        do {
+            try data.write(to: fileURL, options: .atomic)
+            return fileName
+        } catch { return nil }
+    }
+
+    func cachedArtistImage(forArtistID artistID: String) -> Data? {
+        let fileName = hashedFileName(for: "artist_\(artistID)", pathExtension: "jpg")
+        return try? Data(contentsOf: artistArtworkDirectory.appendingPathComponent(fileName))
+    }
+
+    nonisolated func hasArtistImage(forArtistID artistID: String) -> Bool {
+        let fileName = hashedFileName(for: "artist_\(artistID)", pathExtension: "jpg")
+        return FileManager.default.fileExists(atPath: artistArtworkDirectory.appendingPathComponent(fileName).path)
+    }
+
+    // MARK: - hashedFileName needs to be nonisolated for sync callers
+
+    nonisolated private func hashedFileName(for key: String, pathExtension ext: String) -> String {
+        let digest = SHA256.hash(data: Data(key.utf8))
+        let base = digest.prefix(16).map { String(format: "%02x", $0) }.joined()
+        return "\(base).\(ext)"
+    }
+
     func clearAll() {
         clear(directory: artworkDirectory)
         clear(directory: lyricsDirectory)
+        clear(directory: albumArtworkDirectory)
+        clear(directory: artistArtworkDirectory)
     }
 
     func cacheSize() -> Int64 {
         directorySize(artworkDirectory) + directorySize(lyricsDirectory)
+            + directorySize(albumArtworkDirectory) + directorySize(artistArtworkDirectory)
     }
 
     private func clear(directory: URL) {
@@ -168,12 +227,6 @@ actor MetadataAssetStore {
             let size = (try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
             return total + Int64(size)
         }
-    }
-
-    private func hashedFileName(for key: String, pathExtension: String) -> String {
-        let digest = SHA256.hash(data: Data(key.utf8))
-        let base = digest.prefix(16).map { String(format: "%02x", $0) }.joined()
-        return "\(base).\(pathExtension)"
     }
 
     // MARK: - Synchronous helpers (nonisolated, for use from non-async contexts)

@@ -1182,12 +1182,13 @@ final class AudioPlayerService {
                 }
             }
 
-            guard let image = loadedImage else { return }
-            let artwork = Self.makeArtwork(from: image)
-
             await MainActor.run {
                 var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
-                info[MPMediaItemPropertyArtwork] = artwork
+                if let image = loadedImage {
+                    info[MPMediaItemPropertyArtwork] = Self.makeArtwork(from: image)
+                } else {
+                    info[MPMediaItemPropertyArtwork] = nil
+                }
                 MPNowPlayingInfoCenter.default().nowPlayingInfo = info
             }
         }

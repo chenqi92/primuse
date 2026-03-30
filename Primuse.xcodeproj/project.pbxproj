@@ -115,6 +115,7 @@
 		A8E7B493EDA246098FAF8EB2 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 769C39487B88BFC43377D781 /* WidgetKit.framework */; };
 		AA508472ADFA435CEA0930A3 /* ConnectorScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A23DCE16E17D3C9AEBAD5AC /* ConnectorScanner.swift */; };
 		ADCDB73D415E79D8A3C57EB9 /* MetadataAssetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A24F02124D01EC09135B0F9 /* MetadataAssetStore.swift */; };
+		2756654CC888478B88B093F6 /* ArtworkFetchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 965ACBBE650E4E55A6C2B1A8 /* ArtworkFetchService.swift */; };
 		B23069C4815B5C7F51792DC5 /* source_cScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = F068587AE544B939C19F2672 /* source_cScraper.swift */; };
 		B3895BA1B582C6438B5DFC3B /* FnOSAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04E02F82BB81A881C4607BDC /* FnOSAPI.swift */; };
 		B4A627384B3D168B7BF384F0 /* PrimuseKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B1E36F2FECF46E724081F983 /* PrimuseKit.framework */; };
@@ -285,6 +286,7 @@
 		491A850F03AC46FECF60ADFD /* NetworkDiscoveryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkDiscoveryService.swift; sourceTree = "<group>"; };
 		4A09B9F2F4A23C9EAF3DDBA3 /* PrimuseActivityExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = PrimuseActivityExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		4A24F02124D01EC09135B0F9 /* MetadataAssetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataAssetStore.swift; sourceTree = "<group>"; };
+		965ACBBE650E4E55A6C2B1A8 /* ArtworkFetchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkFetchService.swift; sourceTree = "<group>"; };
 		4D5D8BD40FCC0AA7011B551B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		4F203BCB1761D09BF4865D8D /* source_dScraper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = source_dScraper.swift; sourceTree = "<group>"; };
 		4F953DC4532B85C7AD604EF9 /* AudioPlayerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayerService.swift; sourceTree = "<group>"; };
@@ -760,6 +762,7 @@
 				A8607E666A6AB28E00D1C257 /* FileMetadataReader.swift */,
 				B3853774B80EC7B89FE6982B /* LyricsParser.swift */,
 				4A24F02124D01EC09135B0F9 /* MetadataAssetStore.swift */,
+				965ACBBE650E4E55A6C2B1A8 /* ArtworkFetchService.swift */,
 				645BBABA564E600B40010061 /* MetadataService.swift */,
 				FAE228964342BBAAB23DCAD8 /* MusicScraperService.swift */,
 				AE41DF2E4D5B75A369E0159B /* ScraperManager.swift */,
@@ -1113,6 +1116,7 @@
 				54051F580B31F92D4D4673AD /* MediaServerBrowserView.swift in Sources */,
 				E89057B601696110B0F66E2D /* MediaServerSource.swift in Sources */,
 				ADCDB73D415E79D8A3C57EB9 /* MetadataAssetStore.swift in Sources */,
+				2756654CC888478B88B093F6 /* ArtworkFetchService.swift in Sources */,
 				971D5EDC7B3FEAC87870DB0D /* MetadataService.swift in Sources */,
 				B5A618167288EAE3A5B85F8B /* source_dScraper.swift in Sources */,
 				05932B0B3C4B3CAD469D869A /* MiniPlayerView.swift in Sources */,

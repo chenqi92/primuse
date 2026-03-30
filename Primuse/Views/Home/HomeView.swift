@@ -192,13 +192,8 @@ struct HomeView: View {
                     ForEach(library.artists.prefix(8)) { artist in
                         NavigationLink(value: artist) {
                             VStack(spacing: 6) {
-                                Circle()
-                                    .fill(.quaternary)
-                                    .frame(width: 80, height: 80)
-                                    .overlay {
-                                        Image(systemName: "music.mic")
-                                            .font(.title2).foregroundStyle(.secondary)
-                                    }
+                                CachedArtworkView(artistID: artist.id, artistName: artist.name,
+                                                  size: 80, cornerRadius: 40)
                                 Text(artist.name).font(.caption).lineLimit(1).frame(width: 80)
                             }
                         }

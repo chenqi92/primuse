@@ -321,3 +321,5 @@
 "persistent_data" = "Persistent Data";
 "cache_clear_footer" = "Cache can be safely cleared. Audio will be re-streamed and images re-downloaded as needed.";
 "metadata_clear_footer" = "Cover art and lyrics are stored persistently. Clearing will require re-scanning or re-fetching from your music sources.";
+"scraping_album_covers" = "Fetching album covers...";
+"scraping_artist_images" = "Fetching artist images...";

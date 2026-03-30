@@ -158,6 +158,7 @@ final class MusicScraperService {
                 scrapingTask = nil
             }
 
+            // Phase 1: Scrape song metadata
             for song in songs {
                 guard !Task.isCancelled else { return }
 
@@ -182,6 +183,48 @@ final class MusicScraperService {
                     processedCount += 1
                     failedCount += 1
                 }
+            }
+
+            // Phase 2: Scrape album and artist covers
+            guard !Task.isCancelled else { return }
+            await scrapeAlbumAndArtistCovers(in: library)
+        }
+    }
+
+    /// Batch-fetch album covers and artist images for items missing artwork.
+    private func scrapeAlbumAndArtistCovers(in library: MusicLibrary) async {
+        let assetStore = MetadataAssetStore.shared
+        let artworkService = ArtworkFetchService.shared
+
+        // Albums without cached cover
+        let albumsNeedingCover = library.albums.filter { album in
+            !assetStore.hasAlbumCover(forAlbumID: album.id)
+        }
+        if !albumsNeedingCover.isEmpty {
+            plog("🎨 Scraping covers for \(albumsNeedingCover.count) albums...")
+            currentSongTitle = String(localized: "scraping_album_covers")
+            for album in albumsNeedingCover {
+                guard !Task.isCancelled else { return }
+                currentSongTitle = album.title
+                _ = await artworkService.fetchAlbumCover(
+                    albumTitle: album.title, artistName: album.artistName, albumID: album.id
+                )
+            }
+        }
+
+        // Artists without cached image
+        let artistsNeedingImage = library.artists.filter { artist in
+            !assetStore.hasArtistImage(forArtistID: artist.id)
+        }
+        if !artistsNeedingImage.isEmpty {
+            plog("🎨 Scraping images for \(artistsNeedingImage.count) artists...")
+            currentSongTitle = String(localized: "scraping_artist_images")
+            for artist in artistsNeedingImage {
+                guard !Task.isCancelled else { return }
+                currentSongTitle = artist.name
+                _ = await artworkService.fetchArtistImage(
+                    artistName: artist.name, artistID: artist.id
+                )
             }
         }
     }

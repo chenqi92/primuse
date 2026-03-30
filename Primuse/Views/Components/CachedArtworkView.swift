@@ -17,6 +17,12 @@ struct CachedArtworkView: View {
     var cornerRadius: CGFloat = 12
     var sourceID: String? = nil
     var filePath: String? = nil
+    /// For album/artist artwork fetched by ArtworkFetchService
+    var albumID: String? = nil
+    var albumTitle: String? = nil
+    var artistID: String? = nil
+    var artistName: String? = nil
+    var placeholderIcon: String = "music.note"
 
     @Environment(SourceManager.self) private var sourceManager
     @State private var image: UIImage?
@@ -56,6 +62,29 @@ struct CachedArtworkView: View {
         self.filePath = filePath
     }
 
+    // Album cover init — fetches via ArtworkFetchService if not cached
+    init(albumID: String, albumTitle: String, artistName: String?,
+         size: CGFloat? = nil, cornerRadius: CGFloat = 12) {
+        self.coverRef = nil
+        self.albumID = albumID
+        self.albumTitle = albumTitle
+        self.artistName = artistName
+        self.size = size
+        self.cornerRadius = cornerRadius
+        self.placeholderIcon = "square.stack"
+    }
+
+    // Artist image init — fetches via ArtworkFetchService if not cached
+    init(artistID: String, artistName: String,
+         size: CGFloat? = nil, cornerRadius: CGFloat = 12) {
+        self.coverRef = nil
+        self.artistID = artistID
+        self.artistName = artistName
+        self.size = size
+        self.cornerRadius = cornerRadius
+        self.placeholderIcon = "music.mic"
+    }
+
     var body: some View {
         Group {
             if let image {
@@ -74,6 +103,8 @@ struct CachedArtworkView: View {
         .onAppear { loadImage() }
         .onChange(of: coverRef) { _, _ in loadImage() }
         .onChange(of: songID) { _, _ in loadImage() }
+        .onChange(of: albumID) { _, _ in loadImage() }
+        .onChange(of: artistID) { _, _ in loadImage() }
         .onDisappear { loadTask?.cancel() }
     }
 
@@ -87,14 +118,16 @@ struct CachedArtworkView: View {
                         endPoint: .bottomTrailing
                     )
                 )
-            Image(systemName: "music.note")
+            Image(systemName: placeholderIcon)
                 .font(.system(size: (size ?? 200) * 0.25))
                 .foregroundStyle(.secondary)
         }
     }
 
     private var cacheKey: String {
-        songID ?? coverRef ?? ""
+        if let albumID { return "album_\(albumID)" }
+        if let artistID { return "artist_\(artistID)" }
+        return songID ?? coverRef ?? ""
     }
 
     private func loadImage() {
@@ -110,6 +143,48 @@ struct CachedArtworkView: View {
         }
 
         loadTask?.cancel()
+
+        // Album/artist path — uses ArtworkFetchService
+        if let albumID, let albumTitle {
+            let capturedArtist = artistName
+            loadTask = Task {
+                // Check disk cache first
+                if let data = await MetadataAssetStore.shared.cachedAlbumCover(forAlbumID: albumID),
+                   let loaded = UIImage(data: data) {
+                    Self.memoryCache.setObject(loaded, forKey: cacheNSKey, cost: data.count)
+                    if !Task.isCancelled { image = loaded }
+                    return
+                }
+                // Fetch online
+                if let data = await ArtworkFetchService.shared.fetchAlbumCover(
+                    albumTitle: albumTitle, artistName: capturedArtist, albumID: albumID
+                ), let loaded = UIImage(data: data) {
+                    Self.memoryCache.setObject(loaded, forKey: cacheNSKey, cost: data.count)
+                    if !Task.isCancelled { image = loaded }
+                }
+            }
+            return
+        }
+
+        if let artistID, let artistName {
+            loadTask = Task {
+                if let data = await MetadataAssetStore.shared.cachedArtistImage(forArtistID: artistID),
+                   let loaded = UIImage(data: data) {
+                    Self.memoryCache.setObject(loaded, forKey: cacheNSKey, cost: data.count)
+                    if !Task.isCancelled { image = loaded }
+                    return
+                }
+                if let data = await ArtworkFetchService.shared.fetchArtistImage(
+                    artistName: artistName, artistID: artistID
+                ), let loaded = UIImage(data: data) {
+                    Self.memoryCache.setObject(loaded, forKey: cacheNSKey, cost: data.count)
+                    if !Task.isCancelled { image = loaded }
+                }
+            }
+            return
+        }
+
+        // Song-based path (existing logic)
         let capturedRef = coverRef
         let capturedSongID = songID
         let capturedSourceID = sourceID

@@ -15,11 +15,9 @@ struct AlbumDetailView: View {
             VStack(spacing: 20) {
                 // Album header
                 VStack(spacing: 12) {
-                    StoredCoverArtView(
-                        fileName: songs.first?.coverArtFileName,
-                        size: 220,
-                        cornerRadius: 14
-                    )
+                    CachedArtworkView(albumID: album.id, albumTitle: album.title,
+                                      artistName: album.artistName,
+                                      size: 220, cornerRadius: 14)
 
                     Text(album.title)
                         .font(.title2)

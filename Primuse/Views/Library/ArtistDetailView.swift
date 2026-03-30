@@ -24,7 +24,8 @@ struct ArtistDetailView: View {
             VStack(spacing: 24) {
                 // Artist header
                 VStack(spacing: 8) {
-                    CoverArtView(data: nil, size: 120, cornerRadius: 60)
+                    CachedArtworkView(artistID: artist.id, artistName: artist.name,
+                                      size: 120, cornerRadius: 60)
 
                     Text(artist.name)
                         .font(.title)

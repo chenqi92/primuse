@@ -15,7 +15,8 @@ struct ArtistListView: View {
             List(artists) { artist in
                 NavigationLink(value: artist) {
                     HStack(spacing: 12) {
-                        CoverArtView(data: nil, size: 44, cornerRadius: 22)
+                        CachedArtworkView(artistID: artist.id, artistName: artist.name,
+                                          size: 44, cornerRadius: 22)
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(artist.name)
