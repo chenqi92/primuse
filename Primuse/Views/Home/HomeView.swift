@@ -253,8 +253,13 @@ struct HomeView: View {
                 return
             }
         }
-        // Single song or no album context
-        player.setQueue([song], startAt: 0)
+        // No album context — use all library songs as queue so playback continues
+        let allSongs = library.songs
+        if let index = allSongs.firstIndex(where: { $0.id == song.id }) {
+            player.setQueue(allSongs, startAt: index)
+        } else {
+            player.setQueue([song] + allSongs.filter { $0.id != song.id }, startAt: 0)
+        }
         Task { await player.play(song: song) }
     }
 }

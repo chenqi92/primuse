@@ -586,6 +586,9 @@ final class AudioPlayerService {
         currentTime = 0
         duration = 0
         stopTimeUpdater()
+        // Clear NowPlaying info so Dynamic Island / Lock Screen also clears
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        updatePlaybackState()
     }
 
     func next() async {
