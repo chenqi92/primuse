@@ -8,7 +8,7 @@ actor ConfigurableScraper: MusicScraper {
     let type: MusicScraperType
     let config: ScraperConfig
 
-    private let session: URLSession
+    private let sessionManager: ScraperSessionManager
     private var lastRequestTime: ContinuousClock.Instant?
     private let minInterval: Duration
 
@@ -17,23 +17,16 @@ actor ConfigurableScraper: MusicScraper {
         self.type = .custom(config.id)
         self.minInterval = .milliseconds(config.rateLimit ?? 300)
 
-        // Build session with global headers + optional SSL trust
-        let sessionConfig = URLSessionConfiguration.default
-        sessionConfig.timeoutIntervalForRequest = 15
         var headers = config.headers ?? [:]
         if let cookie = cookie ?? config.cookie, !cookie.isEmpty {
             headers["Cookie"] = cookie
         }
-        if !headers.isEmpty {
-            sessionConfig.httpAdditionalHeaders = headers
-        }
 
-        if let trustDomains = config.sslTrustDomains, !trustDomains.isEmpty {
-            let delegate = SSLBypassDelegate(trustedDomains: trustDomains)
-            self.session = URLSession(configuration: sessionConfig, delegate: delegate, delegateQueue: nil)
-        } else {
-            self.session = URLSession(configuration: sessionConfig)
-        }
+        plog("🔧 ConfigurableScraper init: id=\(config.id) sslTrustDomains=\(config.sslTrustDomains ?? [])")
+        self.sessionManager = ScraperSessionManager(
+            headers: headers,
+            trustDomains: config.sslTrustDomains ?? []
+        )
     }
 
     // MARK: - MusicScraper
@@ -53,9 +46,12 @@ actor ConfigurableScraper: MusicScraper {
         ]
 
         let data = try await executeRequest(endpoint: endpoint, vars: vars)
+        plog("🔧 \(config.id) search: got \(data.count) bytes, responseText preview: \(String(data: data.prefix(200), encoding: .utf8) ?? "?")")
         let parsed = try runScript(endpoint.script, data: data)
+        plog("🔧 \(config.id) search: JS returned items=\((parsed as? [Any])?.count ?? -1)")
 
         guard let items = parsed as? [[String: Any]] else {
+            plog("🔧 \(config.id) search: parsed is NOT [[String:Any]], actual=\(String(describing: parsed).prefix(200))")
             return .empty(type)
         }
 
@@ -157,6 +153,9 @@ actor ConfigurableScraper: MusicScraper {
             urlString = urlString.replacingOccurrences(of: "{{\(key)}}", with: value)
         }
 
+        // Enforce HTTPS unless domain is in sslTrustDomains or is a local network address
+        urlString = Self.enforceHTTPPolicy(urlString, trustDomains: config.sslTrustDomains ?? [])
+
         let method = endpoint.method.uppercased()
 
         if method == "POST" {
@@ -198,7 +197,7 @@ actor ConfigurableScraper: MusicScraper {
                 }
             }
 
-            let (data, _) = try await session.data(for: request)
+            let (data, _) = try await sessionManager.data(for: request)
             return data
         } else {
             // GET: params as query items
@@ -224,7 +223,7 @@ actor ConfigurableScraper: MusicScraper {
                 request.setValue(v, forHTTPHeaderField: k)
             }
 
-            let (data, _) = try await session.data(for: request)
+            let (data, _) = try await sessionManager.data(for: request)
             return data
         }
     }
@@ -250,14 +249,39 @@ actor ConfigurableScraper: MusicScraper {
         let responseText = String(data: data, encoding: .utf8) ?? ""
         context.setObject(responseText, forKeyedSubscript: "responseText" as NSString)
 
-        // Try to parse as JSON
-        if var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            // Inject externalId so scripts can parse compound IDs
+        // Try to parse as JSON (with fallback for non-standard formats like single-quoted JSON)
+        var parsed: Any?
+        if let json = try? JSONSerialization.jsonObject(with: data) {
+            parsed = json
+        } else {
+            // Fallback: try fixing single-quoted JSON (e.g. source_e) or JSONP
+            var text = responseText.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Strip JSONP callback: starts with word chars followed by (
+            if text.range(of: #"^\w+\("#, options: .regularExpression) != nil,
+               let openParen = text.firstIndex(of: "("),
+               let closeParen = text.lastIndex(of: ")"),
+               openParen < closeParen {
+                text = String(text[text.index(after: openParen)..<closeParen])
+            }
+            // Replace single quotes with double quotes
+            text = text.replacingOccurrences(of: "'", with: "\"")
+            // Fix &nbsp; entities
+            text = text.replacingOccurrences(of: "&nbsp;", with: " ")
+            if let fixedData = text.data(using: .utf8) {
+                parsed = try? JSONSerialization.jsonObject(with: fixedData)
+                if parsed == nil {
+                    plog("🔧 JSON fallback parse failed for \(config.id), first 200: \(text.prefix(200))")
+                }
+            }
+        }
+
+        if var json = parsed as? [String: Any] {
             if let externalId { json["_externalId"] = externalId }
             context.setObject(json, forKeyedSubscript: "response" as NSString)
-        } else if let json = try? JSONSerialization.jsonObject(with: data) {
-            context.setObject(json, forKeyedSubscript: "response" as NSString)
+        } else if let parsed {
+            context.setObject(parsed, forKeyedSubscript: "response" as NSString)
         } else {
+            // Let JS parse it via responseText if Swift can't
             var fallback: [String: Any] = [:]
             if let externalId { fallback["_externalId"] = externalId }
             context.setObject(fallback, forKeyedSubscript: "response" as NSString)
@@ -292,6 +316,43 @@ actor ConfigurableScraper: MusicScraper {
         return result.toObject()
     }
 
+    // MARK: - HTTP Policy
+
+    /// Only allow HTTP for trusted domains and local network addresses.
+    /// All other HTTP URLs are upgraded to HTTPS.
+    nonisolated static func enforceHTTPPolicy(_ urlString: String, trustDomains: [String]) -> String {
+        guard urlString.hasPrefix("http://") else { return urlString }
+        guard let url = URL(string: urlString), let host = url.host else { return urlString }
+
+        // Allow HTTP for local network addresses
+        if isLocalNetwork(host) { return urlString }
+
+        // Allow HTTP for trusted domains
+        if trustDomains.contains(where: { host.hasSuffix($0) }) { return urlString }
+
+        // Upgrade to HTTPS
+        return "https://" + urlString.dropFirst(7)
+    }
+
+    /// Check if host is a local network address (IP, .local, private ranges)
+    nonisolated private static func isLocalNetwork(_ host: String) -> Bool {
+        if host == "localhost" || host.hasSuffix(".local") { return true }
+
+        // IPv6 link-local or private
+        if host.hasPrefix("[") || host.contains(":") { return true }
+
+        // IPv4 private ranges
+        let parts = host.split(separator: ".").compactMap { UInt8($0) }
+        if parts.count == 4 {
+            if parts[0] == 10 { return true }
+            if parts[0] == 172 && (16...31).contains(parts[1]) { return true }
+            if parts[0] == 192 && parts[1] == 168 { return true }
+            if parts[0] == 127 { return true }
+        }
+
+        return false
+    }
+
     // MARK: - Helper removed
 
     /// Removed.
@@ -314,48 +375,69 @@ actor ConfigurableScraper: MusicScraper {
     }
 }
 
-// MARK: - SSL Bypass Delegate
+// MARK: - Scraper Session Manager
 
-/// URLSession delegate that trusts specific domains (for CDNs with certificate issues).
-/// Implements both session-level and task-level challenge handlers for full coverage.
-final class SSLBypassDelegate: NSObject, URLSessionDelegate, URLSessionTaskDelegate, @unchecked Sendable {
-    let trustedDomains: [String]
+/// URLSession manager with SSL bypass for trusted domains.
+/// Follows the exact same pattern as the proven source_bSessionManager:
+/// - NSObject subclass as URLSessionTaskDelegate
+/// - Stored session property keeps delegate alive
+/// - data(for:delegate:self) ensures task-level delegate is called
+final class ScraperSessionManager: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    private var _session: URLSession!
+    private let trustDomains: [String]
 
-    init(trustedDomains: [String]) {
-        self.trustedDomains = trustedDomains
+    init(headers: [String: String], trustDomains: [String]) {
+        self.trustDomains = trustDomains
+        super.init()
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 15
+        if !headers.isEmpty {
+            config.httpAdditionalHeaders = headers
+        }
+        _session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }
 
-    // Session-level SSL challenge (used by async data(for:) API)
-    func urlSession(
-        _ session: URLSession,
-        didReceive challenge: URLAuthenticationChallenge,
-        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
-    ) {
-        handleChallenge(challenge, completionHandler: completionHandler)
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        let scheme = request.url?.scheme ?? "?"
+        let host = request.url?.host ?? "?"
+        plog("🔒 ScraperSession: \(scheme)://\(host) trustDomains=\(trustDomains)")
+
+        // HTTP requests must use URLSession.shared (ATS bypass only works with shared/default sessions)
+        // Custom sessions with delegates are not covered by NSAllowsArbitraryLoads
+        if scheme == "http" {
+            return try await URLSession.shared.data(for: request)
+        }
+
+        return try await _session.data(for: request, delegate: self)
     }
 
-    // Task-level SSL challenge (used by data(for:delegate:) API)
-    func urlSession(
-        _ session: URLSession,
-        task: URLSessionTask,
-        didReceive challenge: URLAuthenticationChallenge,
-        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
-    ) {
-        handleChallenge(challenge, completionHandler: completionHandler)
-    }
+    // Task-level delegate — called by async data(for:delegate:) API
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    didReceive challenge: URLAuthenticationChallenge,
+                    completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        let host = challenge.protectionSpace.host
+        let method = challenge.protectionSpace.authenticationMethod
+        plog("🔒 SSL challenge: host=\(host) method=\(method) trustDomains=\(trustDomains)")
 
-    private func handleChallenge(
-        _ challenge: URLAuthenticationChallenge,
-        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
-    ) {
-        if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+        if method == NSURLAuthenticationMethodServerTrust,
            let trust = challenge.protectionSpace.serverTrust {
-            let host = challenge.protectionSpace.host
-            if trustedDomains.contains(where: { host.hasSuffix($0) }) {
-                completionHandler(.useCredential, URLCredential(trust: trust))
+            if trustDomains.contains(where: { host.hasSuffix($0) }) {
+                plog("🔒 SSL: TRUSTING \(host) (overriding hostname validation)")
+                // Override the SSL policy to skip hostname validation
+                // This is needed for CDNs where cert CN doesn't match the requested domain
+                // (e.g. *.cdn.myqcloud.com serving source-b.invalid)
+                SecTrustSetPolicies(trust, SecPolicyCreateBasicX509())
+                var error: CFError?
+                if SecTrustEvaluateWithError(trust, &error) {
+                    completionHandler(.useCredential, URLCredential(trust: trust))
+                } else {
+                    plog("🔒 SSL: trust evaluation failed for \(host): \(error?.localizedDescription ?? "?")")
+                    completionHandler(.useCredential, URLCredential(trust: trust))
+                }
                 return
             }
         }
+        plog("🔒 SSL: DEFAULT handling for \(host)")
         completionHandler(.performDefaultHandling, nil)
     }
 }

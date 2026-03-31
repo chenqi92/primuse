@@ -703,11 +703,16 @@ private struct ScraperCoverThumbnail: View {
         .task(id: urlString) {
             guard let urlString, !urlString.isEmpty else { return }
 
-            var fixedUrlString = urlString
-            if fixedUrlString.hasPrefix("http://") {
-                fixedUrlString = "https://" + fixedUrlString.dropFirst(7)
+            // Enforce HTTP policy: only trusted domains and local IPs can use HTTP
+            let trustDomains: [String]
+            if case .custom(let configId) = scraperType,
+               let config = ScraperConfigStore.shared.config(for: configId) {
+                trustDomains = config.sslTrustDomains ?? []
+            } else {
+                trustDomains = []
             }
-            guard let url = URL(string: fixedUrlString) else { return }
+            let safeUrl = ConfigurableScraper.enforceHTTPPolicy(urlString, trustDomains: trustDomains)
+            guard let url = URL(string: safeUrl) else { return }
 
             var request = URLRequest(url: url)
             request.timeoutInterval = 10
@@ -721,16 +726,7 @@ private struct ScraperCoverThumbnail: View {
                 }
             }
 
-            // Build URLSession with SSL trust if needed
-            let session: URLSession
-            if case .custom(let configId) = scraperType,
-               let config = ScraperConfigStore.shared.config(for: configId),
-               let trustDomains = config.sslTrustDomains, !trustDomains.isEmpty {
-                let delegate = SSLBypassDelegate(trustedDomains: trustDomains)
-                session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
-            } else {
-                session = .shared
-            }
+            let session = URLSession.shared
 
             if let (data, response) = try? await session.data(for: request),
                let http = response as? HTTPURLResponse, http.statusCode == 200,
