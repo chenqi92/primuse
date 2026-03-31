@@ -334,23 +334,7 @@ struct ScrapeOptionsView: View {
                     } label: {
                         HStack(spacing: 10) {
                             // Cover art thumbnail
-                            if let urlString = item.coverUrl, let url = URL(string: urlString) {
-                                AsyncImage(url: url) { phase in
-                                    switch phase {
-                                    case .success(let image):
-                                        image.resizable().aspectRatio(contentMode: .fill)
-                                    default:
-                                        Rectangle().fill(.quaternary)
-                                            .overlay { Image(systemName: "music.note").font(.caption).foregroundStyle(.tertiary) }
-                                    }
-                                }
-                                .frame(width: 44, height: 44)
-                                .clipShape(RoundedRectangle(cornerRadius: 6))
-                            } else {
-                                RoundedRectangle(cornerRadius: 6).fill(.quaternary)
-                                    .frame(width: 44, height: 44)
-                                    .overlay { Image(systemName: "music.note").font(.caption).foregroundStyle(.tertiary) }
-                            }
+                            ScraperCoverThumbnail(urlString: item.coverUrl, scraperType: item.scraperType)
 
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack {
@@ -458,6 +442,7 @@ struct ScrapeOptionsView: View {
                     query: manualSearchQuery, artist: nil, album: nil, limit: 30
                 )
                 for item in result.items {
+                    plog("🔍 Search result: \(config.type.rawValue) '\(item.title)' coverUrl=\(item.coverUrl ?? "nil")")
                     searchResults.append(SearchResultItem(
                         id: "\(config.type.rawValue)_\(item.externalId)",
                         source: config.type.displayName,
@@ -471,7 +456,7 @@ struct ScrapeOptionsView: View {
                     ))
                 }
             } catch {
-                // skip failed sources
+                plog("⚠️ Search failed for \(config.type.rawValue): \(error.localizedDescription)")
             }
         }
 
@@ -522,9 +507,19 @@ struct ScrapeOptionsView: View {
             // Download cover art if available (keep in memory, don't store to disk yet)
             var hasCover = false
             var coverData: Data?
-            let coverUrl = detail?.coverUrl ?? item.coverUrl
+            // Prefer search result's coverUrl (e.g. source_b union_cover) if detail doesn't have one
+            let coverUrl = detail?.coverUrl ?? item.coverUrl ?? nil
             if let coverUrl, let url = URL(string: coverUrl) {
-                if let (data, response) = try? await URLSession.shared.data(from: url),
+                var coverRequest = URLRequest(url: url)
+                coverRequest.timeoutInterval = 10
+                // Use source_bSessionManager for source_b CDN SSL compatibility
+                let result: (Data, URLResponse)?
+                if item.scraperType == .source_b {
+                    result = try? await source_bSessionManager.shared.data(for: coverRequest)
+                } else {
+                    result = try? await URLSession.shared.data(for: coverRequest)
+                }
+                if let (data, response) = result,
                    let http = response as? HTTPURLResponse, http.statusCode == 200 {
                     coverData = data
                     hasCover = true
@@ -685,5 +680,81 @@ struct ScrapeOptionsView: View {
 
     private func formatDuration(_ t: TimeInterval) -> String {
         String(format: "%d:%02d", Int(t) / 60, Int(t) % 60)
+    }
+}
+
+// MARK: - Scraper Cover Thumbnail
+
+/// Loads cover thumbnails with proper Referer headers for Chinese music CDNs.
+/// AsyncImage cannot set custom headers, causing all cover loads to fail (403).
+private struct ScraperCoverThumbnail: View {
+    let urlString: String?
+    let scraperType: MusicScraperType
+
+    @State private var image: UIImage?
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                Rectangle().fill(.quaternary)
+                    .overlay { Image(systemName: "music.note").font(.caption).foregroundStyle(.tertiary) }
+            }
+        }
+        .frame(width: 44, height: 44)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .task(id: urlString) {
+            guard let urlString, !urlString.isEmpty else {
+                plog("🖼️ ScraperCover: no URL for \(scraperType.rawValue)")
+                return
+            }
+
+            // source_d and source_e may return http:// URLs — upgrade to https
+            var fixedUrlString = urlString
+            if fixedUrlString.hasPrefix("http://") {
+                fixedUrlString = "https://" + fixedUrlString.dropFirst(7)
+            }
+
+            guard let url = URL(string: fixedUrlString) else {
+                plog("🖼️ ScraperCover: invalid URL '\(fixedUrlString.prefix(80))'")
+                return
+            }
+
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 10
+            request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
+
+            // Set Referer header required by Chinese music CDNs
+            switch scraperType {
+            case .source_a:
+                request.setValue("https://source-a.invalid/", forHTTPHeaderField: "Referer")
+            case .source_c:
+                request.setValue("https://source-c.invalid/", forHTTPHeaderField: "Referer")
+            case .source_d:
+                request.setValue("https://music.source_d.cn/", forHTTPHeaderField: "Referer")
+            default:
+                break
+            }
+
+            do {
+                // source_b CDN uses Tencent Cloud certs with domain mismatch — must use source_bSessionManager
+                let (data, response): (Data, URLResponse)
+                if scraperType == .source_b {
+                    (data, response) = try await source_bSessionManager.shared.data(for: request)
+                } else {
+                    (data, response) = try await URLSession.shared.data(for: request)
+                }
+                let http = response as? HTTPURLResponse
+                plog("🖼️ ScraperCover: \(scraperType.rawValue) HTTP \(http?.statusCode ?? 0) size=\(data.count) url=\(fixedUrlString.prefix(60))")
+                if http?.statusCode == 200, let loaded = UIImage(data: data) {
+                    image = loaded
+                }
+            } catch {
+                plog("🖼️ ScraperCover: FAILED \(scraperType.rawValue) error=\(error.localizedDescription) url=\(fixedUrlString.prefix(60))")
+            }
+        }
     }
 }

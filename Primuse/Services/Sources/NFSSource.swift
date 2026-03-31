@@ -278,9 +278,13 @@ actor NFSSource: MusicSourceConnector {
     }
 
     private func makeClient() throws -> NFSClient {
+        // IPv6 addresses must be wrapped in brackets for URL construction
+        let urlHost = host.contains(":") && !host.hasPrefix("[")
+            ? "[\(host)]"
+            : host
         var components = URLComponents()
         components.scheme = "nfs"
-        components.host = host
+        components.host = urlHost
 
         if let port, port > 0 {
             components.port = port

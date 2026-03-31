@@ -40,6 +40,7 @@ actor MusicBrainzScraper: MusicScraper {
                 artist: rec.primaryArtistName,
                 album: rec.releases?.first?.title,
                 year: rec.releaseYear,
+                durationMs: rec.length,
                 genres: rec.tags?.compactMap(\.name)
             )
         }
@@ -125,12 +126,13 @@ actor MusicBrainzScraper: MusicScraper {
     struct MBRecording: Codable {
         let id: String
         let title: String?
+        let length: Int?  // duration in milliseconds
         let artistCredit: [ArtistCredit]?
         let releases: [MBRelease]?
         let tags: [MBTag]?
 
         enum CodingKeys: String, CodingKey {
-            case id, title, releases, tags
+            case id, title, length, releases, tags
             case artistCredit = "artist-credit"
         }
 

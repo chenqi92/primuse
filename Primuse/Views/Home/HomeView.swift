@@ -132,13 +132,16 @@ struct HomeView: View {
             Text("recently_played")
                 .font(.title3).fontWeight(.bold).padding(.horizontal, 20)
 
+            let songs = recentSongs
             LazyVGrid(columns: [
                 GridItem(.flexible(), spacing: 8),
                 GridItem(.flexible(), spacing: 8)
             ], spacing: 8) {
-                ForEach(recentSongs.prefix(6)) { song in
-                    RecentPlayCard(song: song)
-                        .onTapGesture { playSong(song) }
+                ForEach(songs) { song in
+                    Button { playSong(song) } label: {
+                        RecentPlayCard(song: song)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             .padding(.horizontal, 16)
@@ -160,20 +163,22 @@ struct HomeView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 14) {
                     ForEach(library.recentlyAddedAlbums(limit: 10)) { album in
-                        VStack(alignment: .leading, spacing: 6) {
-                            CachedArtworkView(
-                                coverFileName: library.songs(forAlbum: album.id).first?.coverArtFileName,
-                                size: 140, cornerRadius: 8,
-                                sourceID: library.songs(forAlbum: album.id).first?.sourceID,
-                                filePath: library.songs(forAlbum: album.id).first?.filePath
-                            )
-                            .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
-                            Text(album.title).font(.caption).fontWeight(.medium).lineLimit(1)
-                                .frame(width: 140, alignment: .leading)
-                            Text(album.artistName ?? "").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                                .frame(width: 140, alignment: .leading)
+                        Button { playAlbum(album) } label: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                CachedArtworkView(
+                                    coverFileName: library.songs(forAlbum: album.id).first?.coverArtFileName,
+                                    size: 140, cornerRadius: 8,
+                                    sourceID: library.songs(forAlbum: album.id).first?.sourceID,
+                                    filePath: library.songs(forAlbum: album.id).first?.filePath
+                                )
+                                .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
+                                Text(album.title).font(.caption).fontWeight(.medium).lineLimit(1)
+                                    .frame(width: 140, alignment: .leading)
+                                Text(album.artistName ?? "").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                                    .frame(width: 140, alignment: .leading)
+                            }
                         }
-                        .onTapGesture { playAlbum(album) }
+                        .buttonStyle(.plain)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -227,39 +232,46 @@ struct HomeView: View {
     }
 
     private func playAlbum(_ album: Album) {
-        // Build queue from all spotlight albums, starting at the tapped album
-        var allSongs: [Song] = []
-        var startIndex = 0
-        for spotlight in spotlightAlbums {
-            let songs = library.songs(forAlbum: spotlight.id)
-            if spotlight.id == album.id {
-                startIndex = allSongs.count
-            }
-            allSongs.append(contentsOf: songs)
+        // Get songs for the tapped album directly
+        let albumSongs = library.songs(forAlbum: album.id)
+        guard let firstSong = albumSongs.first else { return }
+
+        // Build queue: tapped album's songs first, then supplement
+        var queueSongs = albumSongs
+        if queueSongs.count < 20 {
+            let existingIDs = Set(queueSongs.map(\.id))
+            let extra = library.songs.filter { !existingIDs.contains($0.id) }.shuffled()
+            queueSongs.append(contentsOf: extra)
         }
-        guard !allSongs.isEmpty else { return }
-        player.setQueue(allSongs, startAt: startIndex)
-        Task { await player.play(song: allSongs[startIndex]) }
+
+        player.setQueue(queueSongs, startAt: 0)
+        Task { await player.play(song: firstSong) }
     }
 
     private func playSong(_ song: Song) {
-        // Always play the exact song the user tapped, with nearby songs as queue context
-        if let albumID = song.albumID {
-            let albumSongs = library.songs(forAlbum: albumID)
-            if albumSongs.count > 1,
-               let index = albumSongs.firstIndex(where: { $0.id == song.id }) {
-                player.setQueue(albumSongs, startAt: index)
-                Task { await player.play(song: song) }
-                return
-            }
+        plog("🏠 playSong TAPPED: '\(song.title)' id=\(song.id.prefix(12)) path=\(song.filePath)")
+
+        // Build queue from recently played songs, supplemented by library
+        var queueSongs = library.recentlyPlayedSongs(limit: 50)
+        plog("🏠 recentlyPlayed queue: \(queueSongs.count) songs, first3=\(queueSongs.prefix(3).map(\.title))")
+
+        // If tapped song isn't in recent list, prepend it
+        if !queueSongs.contains(where: { $0.id == song.id }) {
+            queueSongs.insert(song, at: 0)
+            plog("🏠 song not in recent, prepended")
         }
-        // No album context — use all library songs as queue so playback continues
-        let allSongs = library.songs
-        if let index = allSongs.firstIndex(where: { $0.id == song.id }) {
-            player.setQueue(allSongs, startAt: index)
-        } else {
-            player.setQueue([song] + allSongs.filter { $0.id != song.id }, startAt: 0)
+
+        // Supplement with library songs if queue is too small
+        if queueSongs.count < 20 {
+            let existingIDs = Set(queueSongs.map(\.id))
+            let extra = library.songs.filter { !existingIDs.contains($0.id) }
+            queueSongs.append(contentsOf: extra)
         }
+
+        let startIndex = queueSongs.firstIndex(where: { $0.id == song.id }) ?? 0
+        plog("🏠 setQueue: \(queueSongs.count) songs, startIndex=\(startIndex), songAtIndex='\(queueSongs[startIndex].title)'")
+        player.setQueue(queueSongs, startAt: startIndex)
+        plog("🏠 calling player.play(song: '\(song.title)')")
         Task { await player.play(song: song) }
     }
 }

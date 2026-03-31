@@ -88,10 +88,7 @@ enum MusicScraperType: String, Codable, Sendable, CaseIterable, Identifiable {
     }
 
     var defaultEnabled: Bool {
-        switch self {
-        case .musicBrainz: false
-        default: true
-        }
+        true
     }
 
     var defaultRequestInterval: Duration {

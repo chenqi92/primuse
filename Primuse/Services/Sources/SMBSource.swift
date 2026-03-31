@@ -30,9 +30,9 @@ actor SMBSource: MusicSourceConnector {
             return
         }
 
-        guard let serverURL = URL(string: "smb://\(host):\(port)") else {
-            throw SourceError.connectionFailed("Invalid SMB URL")
-        }
+        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        let serverURL = try Self.buildSMBUrl(host: trimmedHost, port: port)
+        NSLog("ℹ️ SMB connecting to \(serverURL.absoluteString) (original host: \(trimmedHost))")
 
         let credential = URLCredential(
             user: username,
@@ -180,6 +180,94 @@ actor SMBSource: MusicSourceConnector {
                 }
             }
         }
+    }
+
+    // MARK: - SMB URL Construction
+    //
+    // Supports hostname, IPv4, and IPv6. AMSMB2/libsmb2 has a bug where it
+    // concatenates host:port as a flat string, breaking IPv6 (e.g. "::1:445").
+    // Workaround: when the input is an IPv6 literal, resolve to IPv4 via
+    // reverse-DNS → forward-DNS. If the host only has IPv6 (no IPv4 record),
+    // pass the hostname (from reverse-DNS) so libsmb2 can resolve it natively.
+
+    private static func buildSMBUrl(host: String, port: Int) throws -> URL {
+        let isIPv4 = host.range(of: #"^\d{1,3}(\.\d{1,3}){3}$"#, options: .regularExpression) != nil
+        let isIPv6 = host.contains(":") && !isIPv4
+
+        var connectHost = host
+
+        if isIPv6 {
+            // Step 1: try reverse-DNS to get hostname (e.g. "LL-NAS.local")
+            if let hostname = reverseResolve(ipv6: host) {
+                NSLog("ℹ️ SMB: Reverse DNS '\(host)' → '\(hostname)'")
+                // Step 2: try forward-resolve to IPv4
+                if let ipv4 = forwardResolveIPv4(hostname) {
+                    NSLog("ℹ️ SMB: Resolved '\(hostname)' → '\(ipv4)'")
+                    connectHost = ipv4
+                } else {
+                    // No IPv4 record, but hostname itself works with libsmb2
+                    NSLog("ℹ️ SMB: No IPv4 for '\(hostname)', using hostname directly")
+                    connectHost = hostname
+                }
+            } else {
+                NSLog("⚠️ SMB: Reverse DNS failed for '\(host)', using bracketed IPv6")
+                // Last resort: bracketed IPv6 in URL (may still fail in libsmb2)
+            }
+        }
+
+        // Build the URL string
+        let hostPart: String
+        if connectHost.contains(":") {
+            hostPart = "[\(connectHost)]"  // Bracket IPv6 literals
+        } else {
+            hostPart = connectHost
+        }
+
+        let urlString = "smb://\(hostPart):\(port)"
+        guard let url = URL(string: urlString) else {
+            throw SourceError.connectionFailed("Invalid SMB URL: \(urlString)")
+        }
+        return url
+    }
+
+    /// Forward-resolve a hostname to an IPv4 address.
+    private static func forwardResolveIPv4(_ hostname: String) -> String? {
+        var hints = addrinfo()
+        hints.ai_family = AF_INET
+        hints.ai_socktype = SOCK_STREAM
+
+        var result: UnsafeMutablePointer<addrinfo>?
+        let status = getaddrinfo(hostname, nil, &hints, &result)
+        defer { if result != nil { freeaddrinfo(result) } }
+
+        guard status == 0, let addrInfo = result else { return nil }
+
+        var buf = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+        guard getnameinfo(addrInfo.pointee.ai_addr, socklen_t(addrInfo.pointee.ai_addrlen),
+                          &buf, socklen_t(buf.count), nil, 0, NI_NUMERICHOST) == 0
+        else { return nil }
+
+        return String(cString: buf)
+    }
+
+    /// Reverse-resolve an IPv6 address to a hostname (e.g. "LL-NAS.local").
+    private static func reverseResolve(ipv6 address: String) -> String? {
+        var addr = sockaddr_in6()
+        addr.sin6_len = UInt8(MemoryLayout<sockaddr_in6>.size)
+        addr.sin6_family = sa_family_t(AF_INET6)
+        guard inet_pton(AF_INET6, address, &addr.sin6_addr) == 1 else { return nil }
+
+        var buf = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+        let rc = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
+                getnameinfo(sockPtr, socklen_t(MemoryLayout<sockaddr_in6>.size),
+                            &buf, socklen_t(buf.count), nil, 0, 0)
+            }
+        }
+        guard rc == 0 else { return nil }
+        let name = String(cString: buf)
+        // getnameinfo may return the numeric address back if no PTR record exists
+        return name.contains(":") ? nil : name
     }
 
     func writeFile(data: Data, to path: String) async throws {

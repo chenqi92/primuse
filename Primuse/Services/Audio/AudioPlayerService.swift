@@ -126,11 +126,12 @@ final class AudioPlayerService {
 
     // MARK: - Playback Control
 
-    func play(song: Song) async {
+    func play(song: Song, caller: String = #fileID, callerLine: Int = #line) async {
         // Invalidate any pending operations immediately
         let id = UUID()
         playID = id
-        plog("▶️ play(song: \(song.title)) playID=\(id.uuidString.prefix(8))")
+        let callerFile = (caller as NSString).lastPathComponent
+        plog("▶️ play(song: \(song.title)) playID=\(id.uuidString.prefix(8)) FROM=\(callerFile):\(callerLine)")
 
         // Stop current playback
         decodingTask?.cancel()
@@ -143,6 +144,7 @@ final class AudioPlayerService {
 
         // Show new song in UI immediately (before download)
         currentSong = song
+        currentTime = 0
         duration = song.duration
         isLoading = true
         isPlaying = false
@@ -559,6 +561,7 @@ final class AudioPlayerService {
     }
 
     func resume() {
+        guard !isLoading else { return }
         audioEngine.resume()
         isPlaying = true
         startTimeUpdater()
@@ -824,6 +827,7 @@ final class AudioPlayerService {
                         }
                     }
                     updateNowPlayingInfo()
+                    updateNowPlayingArtworkIfNeeded()
                     updatePlaybackState()
                 }
             }
@@ -875,12 +879,18 @@ final class AudioPlayerService {
     }
 
     private func startCrossfade(duration crossfadeDuration: Double) async {
-        guard let nextSong = nextSongInQueue() else { return }
+        guard let nextSong = nextSongInQueue() else {
+            crossfadeTriggered = false
+            return
+        }
 
         do {
             let nextURL = try await resolvedURL(for: nextSong)
             guard nativeDecoder.canDecode(url: nextURL),
-                  let outputFormat = audioEngine.outputFormat else { return }
+                  let outputFormat = audioEngine.outputFormat else {
+                crossfadeTriggered = false
+                return
+            }
 
             // Apply ReplayGain for next track on crossfade node
             let settings = playbackSettings.snapshot()
@@ -985,6 +995,7 @@ final class AudioPlayerService {
         }
 
         updateNowPlayingInfo()
+        updateNowPlayingArtworkIfNeeded()
         updatePlaybackState()
     }
 
@@ -1017,6 +1028,15 @@ final class AudioPlayerService {
                 guard let self else { return }
                 if let time = self.audioEngine.currentTime {
                     self.currentTime = time
+
+                    // Safety net: if currentTime exceeds duration, the completion callback
+                    // may have failed to fire — force track advancement.
+                    if self.duration > 0, time >= self.duration + 1.0, !self.isLoading {
+                        plog("⚠️ Safety net: currentTime (\(time)) exceeded duration (\(self.duration)), forcing track end")
+                        self.stopTimeUpdater()
+                        await self.handleTrackEnd()
+                        return
+                    }
                 }
                 // Check if crossfade should start
                 self.checkCrossfade()
