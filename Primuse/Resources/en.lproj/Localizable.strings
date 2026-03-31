@@ -256,6 +256,20 @@
 "scraper_source_a_desc" = "Chinese music platform, lyrics and covers";
 "scraper_musicbrainz_desc" = "Open music database, metadata and covers";
 "scraper_lrclib_desc" = "Open synced lyrics database";
+"custom_scraper_desc" = "User-imported scraper";
+"import_scraper_source" = "Import Scraper Source";
+"import_scraper_footer" = "Import a custom scraper source via JSON config or URL. Provides metadata, cover art, and lyrics.";
+"custom_sources" = "Custom Sources";
+"paste_config" = "Paste Config";
+"from_url" = "From URL";
+"config_url_placeholder" = "https://example.com/scraper.json";
+"paste_config_footer" = "Paste the JSON configuration for a scraper source.";
+"url_config_footer" = "Enter the URL of a JSON scraper configuration file.";
+"import_action" = "Import";
+"import_mode" = "Import Mode";
+"invalid_url" = "Invalid URL";
+"reorder" = "Reorder";
+"done" = "Done";
 
 // Network Discovery
 "discovered_devices" = "Discovered Devices";

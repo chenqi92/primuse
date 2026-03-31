@@ -1,8 +1,8 @@
 import Foundation
 
 struct ScraperSettings: Codable, Sendable {
-    static let defaultsKey = "primuse_scraper_settings_v2"
-    private static let legacyKey = "primuse_scraper_settings_v1"
+    static let defaultsKey = "primuse_scraper_settings_v3"
+    private static let v2Key = "primuse_scraper_settings_v2"
 
     var sources: [ScraperSourceConfig]
     var onlyFillMissingFields: Bool
@@ -13,19 +13,39 @@ struct ScraperSettings: Codable, Sendable {
     }
 
     static func load(defaults: UserDefaults = .standard) -> ScraperSettings {
-        // Try v2 first
+        // Try v3 first
         if let data = defaults.data(forKey: defaultsKey),
            let settings = try? JSONDecoder().decode(ScraperSettings.self, from: data) {
             return settings
         }
 
-        // Migrate from v1
-        if let data = defaults.data(forKey: legacyKey),
-           let v1 = try? JSONDecoder().decode(LegacySettings.self, from: data) {
-            let settings = migrateFromV1(v1)
-            settings.save(defaults: defaults)
-            defaults.removeObject(forKey: legacyKey)
-            return settings
+        // Migrate from v2 (had hardcoded source_b/source_e/source_d/source_c/source_a types)
+        if let data = defaults.data(forKey: v2Key),
+           let settings = try? JSONDecoder().decode(ScraperSettings.self, from: data) {
+            // v2 sources with old hardcoded types are auto-migrated by MusicScraperType.init(rawValue:)
+            // which converts unknown raw values to .custom(id)
+            // Filter out custom sources whose configs don't exist (removed hardcoded scrapers)
+            var migrated = settings
+            migrated.sources = settings.sources.filter { source in
+                switch source.type {
+                case .musicBrainz, .lrclib: true
+                case .custom(let id): ScraperConfigStore.shared.exists(id: id)
+                }
+            }
+            // Ensure built-in sources exist
+            for builtIn in MusicScraperType.builtInOrder {
+                if !migrated.sources.contains(where: { $0.type == builtIn }) {
+                    migrated.sources.append(ScraperSourceConfig(
+                        id: UUID().uuidString,
+                        type: builtIn,
+                        isEnabled: true,
+                        priority: migrated.sources.count
+                    ))
+                }
+            }
+            migrated.save(defaults: defaults)
+            defaults.removeObject(forKey: v2Key)
+            return migrated
         }
 
         return ScraperSettings()
@@ -39,29 +59,6 @@ struct ScraperSettings: Codable, Sendable {
     /// Sorted enabled sources
     var enabledSources: [ScraperSourceConfig] {
         sources.filter(\.isEnabled).sorted { $0.priority < $1.priority }
-    }
-
-    // MARK: - Migration
-
-    private struct LegacySettings: Codable {
-        var musicBrainzMetadataEnabled = true
-        var musicBrainzCoverEnabled = true
-        var lrclibLyricsEnabled = true
-        var onlyFillMissingFields = true
-    }
-
-    private static func migrateFromV1(_ v1: LegacySettings) -> ScraperSettings {
-        var sources = ScraperSourceConfig.defaultSources()
-
-        // Apply v1 settings to matching sources
-        if let mbIndex = sources.firstIndex(where: { $0.type == .musicBrainz }) {
-            sources[mbIndex].isEnabled = v1.musicBrainzMetadataEnabled || v1.musicBrainzCoverEnabled
-        }
-        if let lrclibIndex = sources.firstIndex(where: { $0.type == .lrclib }) {
-            sources[lrclibIndex].isEnabled = v1.lrclibLyricsEnabled
-        }
-
-        return ScraperSettings(sources: sources, onlyFillMissingFields: v1.onlyFillMissingFields)
     }
 }
 
@@ -91,7 +88,6 @@ final class ScraperSettingsStore {
 
     func reorderSources(fromOffsets: IndexSet, toOffset: Int) {
         sources.move(fromOffsets: fromOffsets, toOffset: toOffset)
-        // Reassign priorities to match new order
         for i in sources.indices {
             sources[i].priority = i
         }
@@ -102,8 +98,35 @@ final class ScraperSettingsStore {
         sources[index].cookie = cookie
     }
 
+    /// Add a custom scraper source from an imported config
+    func addCustomSource(_ config: ScraperConfig) {
+        // Remove existing source for same config if present
+        sources.removeAll { source in
+            if case .custom(let id) = source.type, id == config.id { return true }
+            return false
+        }
+        var newSource = ScraperSourceConfig.fromCustomConfig(config)
+        newSource.priority = sources.count
+        sources.append(newSource)
+    }
+
+    /// Remove a custom scraper source and its config
+    func removeCustomSource(id: String) {
+        if let index = sources.firstIndex(where: { $0.id == id }) {
+            if case .custom(let configId) = sources[index].type {
+                ScraperConfigStore.shared.delete(id: configId)
+            }
+            sources.remove(at: index)
+        }
+    }
+
     func resetToDefaults() {
-        sources = ScraperSourceConfig.defaultSources()
+        // Keep custom sources, reset built-in only
+        let customSources = sources.filter { !$0.type.isBuiltIn }
+        var defaults = ScraperSourceConfig.defaultSources()
+        defaults.append(contentsOf: customSources)
+        for i in defaults.indices { defaults[i].priority = i }
+        sources = defaults
         onlyFillMissingFields = true
     }
 

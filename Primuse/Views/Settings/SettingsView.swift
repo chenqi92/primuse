@@ -87,6 +87,15 @@ struct MetadataScrapingView: View {
 
     @State private var editingCookieSourceId: String?
     @State private var cookieText = ""
+    @State private var showImportSheet = false
+    @State private var importText = ""
+    @State private var importError: String?
+    @State private var importMode: ImportMode = .paste
+    @State private var editingConfigSource: ScraperSourceConfig?
+    @State private var editingConfigJSON = ""
+    @State private var isReordering = false
+
+    enum ImportMode { case paste, url }
 
     var body: some View {
         @Bindable var settings = scraperSettings
@@ -100,15 +109,9 @@ struct MetadataScrapingView: View {
                             .foregroundStyle(source.isEnabled ? source.type.themeColor : .secondary)
                             .frame(width: 28)
 
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(source.type.displayName)
-                                .font(.subheadline)
-                                .fontWeight(.medium)
-                            Text(source.type.localizedDescription)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
+                        Text(source.type.displayName)
+                            .font(.subheadline)
+                            .fontWeight(.medium)
 
                         Spacer()
 
@@ -130,12 +133,57 @@ struct MetadataScrapingView: View {
                         ))
                         .labelsHidden()
                     }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        if !source.type.isBuiltIn {
+                            Button(role: .destructive) {
+                                scraperSettings.removeCustomSource(id: source.id)
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+
+                            Button {
+                                if case .custom(let configId) = source.type,
+                                   let config = ScraperConfigStore.shared.config(for: configId) {
+                                    let encoder = JSONEncoder()
+                                    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                                    if let data = try? encoder.encode(config),
+                                       let json = String(data: data, encoding: .utf8) {
+                                        editingConfigJSON = json
+                                        editingConfigSource = source
+                                    }
+                                }
+                            } label: {
+                                Image(systemName: "doc.text")
+                            }
+                            .tint(.blue)
+                        }
+                    }
                 }
                 .onMove { scraperSettings.reorderSources(fromOffsets: $0, toOffset: $1) }
             } header: {
-                Text("scraper_sources")
+                HStack {
+                    Text("scraper_sources")
+                    Spacer()
+                    Button(isReordering ? String(localized: "done") : String(localized: "reorder")) {
+                        withAnimation { isReordering.toggle() }
+                    }
+                    .font(.caption)
+                    .textCase(nil)
+                }
+            }
+
+            Section {
+                Button {
+                    importText = ""
+                    importError = nil
+                    showImportSheet = true
+                } label: {
+                    Label("import_scraper_source", systemImage: "plus.circle")
+                }
+            } header: {
+                Text("custom_sources")
             } footer: {
-                Text("scraper_sources_footer")
+                Text("import_scraper_footer")
             }
 
             Section("scraper_options") {
@@ -187,7 +235,7 @@ struct MetadataScrapingView: View {
         }
         .navigationTitle("metadata_scraping")
         .navigationBarTitleDisplayMode(.inline)
-        .environment(\.editMode, .constant(.active))
+        .environment(\.editMode, isReordering ? .constant(.active) : .constant(.inactive))
         .alert("cookie_config", isPresented: Binding(
             get: { editingCookieSourceId != nil },
             set: { if !$0 { editingCookieSourceId = nil } }
@@ -204,6 +252,125 @@ struct MetadataScrapingView: View {
             }
         } message: {
             Text("cookie_config_message")
+        }
+        .sheet(isPresented: $showImportSheet) {
+            importScraperSheet
+        }
+        .sheet(item: $editingConfigSource) { source in
+            editConfigSheet(source: source)
+        }
+    }
+
+    private var importScraperSheet: some View {
+        NavigationStack {
+            Form {
+                Picker("import_mode", selection: $importMode) {
+                    Text("paste_config").tag(ImportMode.paste)
+                    Text("from_url").tag(ImportMode.url)
+                }
+                .pickerStyle(.segmented)
+
+                Section {
+                    if importMode == .paste {
+                        TextEditor(text: $importText)
+                            .font(.system(.caption, design: .monospaced))
+                            .frame(minHeight: 200)
+                    } else {
+                        TextField("config_url_placeholder", text: $importText)
+                            .keyboardType(.URL)
+                            .autocapitalization(.none)
+                    }
+                } footer: {
+                    if importMode == .paste {
+                        Text("paste_config_footer")
+                    } else {
+                        Text("url_config_footer")
+                    }
+                }
+
+                if let error = importError {
+                    Section {
+                        Text(error).foregroundStyle(.red).font(.caption)
+                    }
+                }
+            }
+            .navigationTitle("import_scraper_source")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("cancel") { showImportSheet = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("import_action") {
+                        performImport()
+                    }
+                    .disabled(importText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func editConfigSheet(source: ScraperSourceConfig) -> some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextEditor(text: $editingConfigJSON)
+                        .font(.system(.caption, design: .monospaced))
+                        .frame(minHeight: 300)
+                }
+            }
+            .navigationTitle(source.type.displayName)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("cancel") { editingConfigSource = nil }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("save") {
+                        do {
+                            let config = try ScraperConfigStore.shared.importFromJSON(editingConfigJSON)
+                            scraperSettings.addCustomSource(config)
+                            editingConfigSource = nil
+                        } catch {
+                            plog("Config save error: \(error.localizedDescription)")
+                        }
+                    }
+                }
+            }
+        }
+        .presentationDetents([.large])
+    }
+
+    private func performImport() {
+        importError = nil
+        let text = importText.trimmingCharacters(in: .whitespacesAndNewlines)
+        plog("📥 Import: mode=\(importMode == .url ? "url" : "paste") textLen=\(text.count)")
+
+        if importMode == .url {
+            guard let url = URL(string: text) else {
+                importError = String(localized: "invalid_url")
+                return
+            }
+            Task {
+                do {
+                    let config = try await ScraperConfigStore.shared.importFromURL(url)
+                    scraperSettings.addCustomSource(config)
+                    showImportSheet = false
+                } catch {
+                    importError = error.localizedDescription
+                }
+            }
+        } else {
+            do {
+                let config = try ScraperConfigStore.shared.importFromJSON(text)
+                plog("📥 Import success: id=\(config.id) name=\(config.name)")
+                scraperSettings.addCustomSource(config)
+                showImportSheet = false
+            } catch {
+                plog("📥 Import failed: \(error.localizedDescription)")
+                importError = error.localizedDescription
+            }
         }
     }
 }

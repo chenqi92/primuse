@@ -21,12 +21,7 @@ final class SSLTrustStore {
 
     var pendingTrustRequest: TrustRequest?
 
-    private static let defaultDomains = [
-        "source-b.invalid",
-        "source-b.invalid",
-        "source-b.invalid",
-        "source-b.invalid",
-    ]
+    private static let defaultDomains: [String] = []
 
     private init() {
         loadFromDefaults()

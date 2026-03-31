@@ -12,14 +12,25 @@ struct ScraperSourceConfig: Codable, Sendable, Identifiable, Hashable {
 
     var isConfigured: Bool { true }
 
+    /// Default sources: built-in only (MusicBrainz + LRCLIB)
     static func defaultSources() -> [ScraperSourceConfig] {
-        MusicScraperType.defaultOrder.enumerated().map { index, type in
+        MusicScraperType.builtInOrder.enumerated().map { index, type in
             ScraperSourceConfig(
                 id: UUID().uuidString,
                 type: type,
-                isEnabled: type.defaultEnabled,
+                isEnabled: true,
                 priority: index
             )
         }
+    }
+
+    /// Create a source config for a custom scraper config
+    static func fromCustomConfig(_ config: ScraperConfig) -> ScraperSourceConfig {
+        ScraperSourceConfig(
+            id: UUID().uuidString,
+            type: .custom(config.id),
+            isEnabled: true,
+            priority: 999  // will be re-assigned when added
+        )
     }
 }

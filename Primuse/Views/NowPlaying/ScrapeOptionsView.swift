@@ -420,7 +420,7 @@ struct ScrapeOptionsView: View {
 
     private func manualSearch() async {
         // Initialize search query with cleaned title
-        manualSearchQuery = source_bScraper.cleanTitle(song.title)
+        manualSearchQuery = ScraperManager.cleanTitle(song.title)
         if let artist = song.artistName, !artist.isEmpty {
             manualSearchQuery += " \(artist)"
         }
@@ -434,6 +434,7 @@ struct ScrapeOptionsView: View {
         errorMessage = nil
 
         let settings = ScraperSettings.load()
+        plog("🔍 Manual search: \(settings.enabledSources.count) enabled sources: \(settings.enabledSources.map { $0.type.rawValue })")
 
         for config in settings.enabledSources where config.type.supportsMetadata {
             do {
@@ -512,14 +513,7 @@ struct ScrapeOptionsView: View {
             if let coverUrl, let url = URL(string: coverUrl) {
                 var coverRequest = URLRequest(url: url)
                 coverRequest.timeoutInterval = 10
-                // Use source_bSessionManager for source_b CDN SSL compatibility
-                let result: (Data, URLResponse)?
-                if item.scraperType == .source_b {
-                    result = try? await source_bSessionManager.shared.data(for: coverRequest)
-                } else {
-                    result = try? await URLSession.shared.data(for: coverRequest)
-                }
-                if let (data, response) = result,
+                if let (data, response) = try? await URLSession.shared.data(for: coverRequest),
                    let http = response as? HTTPURLResponse, http.statusCode == 200 {
                     coverData = data
                     hasCover = true
@@ -685,8 +679,8 @@ struct ScrapeOptionsView: View {
 
 // MARK: - Scraper Cover Thumbnail
 
-/// Loads cover thumbnails with proper Referer headers for Chinese music CDNs.
-/// AsyncImage cannot set custom headers, causing all cover loads to fail (403).
+/// Loads cover thumbnails using URLSession.
+/// Custom scrapers handle their own headers/SSL via ConfigurableScraper sessions.
 private struct ScraperCoverThumbnail: View {
     let urlString: String?
     let scraperType: MusicScraperType
@@ -707,53 +701,41 @@ private struct ScraperCoverThumbnail: View {
         .frame(width: 44, height: 44)
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .task(id: urlString) {
-            guard let urlString, !urlString.isEmpty else {
-                plog("🖼️ ScraperCover: no URL for \(scraperType.rawValue)")
-                return
-            }
+            guard let urlString, !urlString.isEmpty else { return }
 
-            // source_d and source_e may return http:// URLs — upgrade to https
             var fixedUrlString = urlString
             if fixedUrlString.hasPrefix("http://") {
                 fixedUrlString = "https://" + fixedUrlString.dropFirst(7)
             }
-
-            guard let url = URL(string: fixedUrlString) else {
-                plog("🖼️ ScraperCover: invalid URL '\(fixedUrlString.prefix(80))'")
-                return
-            }
+            guard let url = URL(string: fixedUrlString) else { return }
 
             var request = URLRequest(url: url)
             request.timeoutInterval = 10
             request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
 
-            // Set Referer header required by Chinese music CDNs
-            switch scraperType {
-            case .source_a:
-                request.setValue("https://source-a.invalid/", forHTTPHeaderField: "Referer")
-            case .source_c:
-                request.setValue("https://source-c.invalid/", forHTTPHeaderField: "Referer")
-            case .source_d:
-                request.setValue("https://music.source_d.cn/", forHTTPHeaderField: "Referer")
-            default:
-                break
+            // Apply headers from custom config if available
+            if case .custom(let configId) = scraperType,
+               let config = ScraperConfigStore.shared.config(for: configId) {
+                for (k, v) in config.headers ?? [:] {
+                    request.setValue(v, forHTTPHeaderField: k)
+                }
             }
 
-            do {
-                // source_b CDN uses Tencent Cloud certs with domain mismatch — must use source_bSessionManager
-                let (data, response): (Data, URLResponse)
-                if scraperType == .source_b {
-                    (data, response) = try await source_bSessionManager.shared.data(for: request)
-                } else {
-                    (data, response) = try await URLSession.shared.data(for: request)
-                }
-                let http = response as? HTTPURLResponse
-                plog("🖼️ ScraperCover: \(scraperType.rawValue) HTTP \(http?.statusCode ?? 0) size=\(data.count) url=\(fixedUrlString.prefix(60))")
-                if http?.statusCode == 200, let loaded = UIImage(data: data) {
-                    image = loaded
-                }
-            } catch {
-                plog("🖼️ ScraperCover: FAILED \(scraperType.rawValue) error=\(error.localizedDescription) url=\(fixedUrlString.prefix(60))")
+            // Build URLSession with SSL trust if needed
+            let session: URLSession
+            if case .custom(let configId) = scraperType,
+               let config = ScraperConfigStore.shared.config(for: configId),
+               let trustDomains = config.sslTrustDomains, !trustDomains.isEmpty {
+                let delegate = SSLBypassDelegate(trustedDomains: trustDomains)
+                session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+            } else {
+                session = .shared
+            }
+
+            if let (data, response) = try? await session.data(for: request),
+               let http = response as? HTTPURLResponse, http.statusCode == 200,
+               let loaded = UIImage(data: data) {
+                image = loaded
             }
         }
     }

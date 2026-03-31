@@ -22,7 +22,7 @@ actor ScraperManager {
         let enabledSources = settings.enabledSources
 
         // Clean title for better search results (remove brackets, numbering etc.)
-        let cleanedTitle = source_bScraper.cleanTitle(title)
+        let cleanedTitle = Self.cleanTitle(title)
 
         // Scrape metadata from first successful source
         if needs.metadata {
@@ -145,5 +145,21 @@ actor ScraperManager {
             return parsed.isEmpty ? nil : parsed
         }
         return nil
+    }
+
+    /// Remove bracket content that interferes with search
+    /// e.g. "只爱西经 (中四版)" → "只爱西经"
+    static func cleanTitle(_ title: String) -> String {
+        var result = title
+        result = result.replacingOccurrences(of: "\\([^)]*\\)", with: "", options: .regularExpression)
+        result = result.replacingOccurrences(of: "（[^）]*）", with: "", options: .regularExpression)
+        result = result.replacingOccurrences(of: "\\[[^\\]]*\\]", with: "", options: .regularExpression)
+        result = result.replacingOccurrences(of: "【[^】]*】", with: "", options: .regularExpression)
+        if let dashRange = result.range(of: "\\s*[–—-]\\s+", options: .regularExpression) {
+            result = String(result[result.startIndex..<dashRange.lowerBound])
+        }
+        result = result.trimmingCharacters(in: .whitespaces)
+        result = result.replacingOccurrences(of: "^\\d+[.\\s]+", with: "", options: .regularExpression)
+        return result.trimmingCharacters(in: .whitespaces)
     }
 }

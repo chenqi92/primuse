@@ -256,6 +256,20 @@
 "scraper_source_a_desc" = "国内音乐平台，支持歌词和封面";
 "scraper_musicbrainz_desc" = "开放音乐数据库，支持元数据和封面";
 "scraper_lrclib_desc" = "开放同步歌词数据库";
+"custom_scraper_desc" = "用户导入的刮削源";
+"import_scraper_source" = "导入刮削源";
+"import_scraper_footer" = "通过 JSON 配置或 URL 导入自定义刮削源，可提供元数据、封面和歌词。";
+"custom_sources" = "自定义源";
+"paste_config" = "粘贴配置";
+"from_url" = "从 URL 导入";
+"config_url_placeholder" = "https://example.com/scraper.json";
+"paste_config_footer" = "粘贴刮削源的 JSON 配置内容。";
+"url_config_footer" = "输入 JSON 刮削源配置文件的 URL。";
+"import_action" = "导入";
+"import_mode" = "导入方式";
+"invalid_url" = "无效的 URL";
+"reorder" = "排序";
+"done" = "完成";
 
 // Network Discovery
 "discovered_devices" = "发现的设备";
