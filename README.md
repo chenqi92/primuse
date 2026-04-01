@@ -6,7 +6,8 @@
 
 - **多源串流** — 支持 Synology DSM、SMB/CIFS、WebDAV、SFTP、FTP、NFS、Jellyfin、Plex
 - **无缝播放** — 基于 SFBAudioEngine 的交叉淡入淡出，支持 FLAC、APE、WAV、MP3、AAC、Opus 等格式
-- **元数据刮削** — 自动从外部来源B、QQ 音乐、外部来源A、咪咕、酷我、MusicBrainz、LRCLIB 获取封面、歌词和元数据
+- **元数据刮削** — 内置 MusicBrainz 和 LRCLIB 开源数据源，支持通过 JSON 配置导入自定义刮削源
+- **可配置刮削源** — 用户可通过粘贴 JSON 配置或 URL 导入第三方元数据、封面、歌词数据源
 - **Sidecar 回写** — 刮削的封面 (`-cover.jpg`) 和歌词 (`.lrc`) 自动写回 NAS
 - **专辑 & 艺术家封面** — 在线自动获取并本地缓存
 - **实时活动** — 灵动岛和锁屏播放控制
@@ -77,6 +78,59 @@ xcrun devicectl device process launch \
   com.kkape.primuse
 ```
 
+## 自定义刮削源
+
+Primuse 支持通过 JSON 配置导入自定义元数据刮削源。每个配置文件描述了 API 端点、请求格式和 JavaScript 解析脚本。
+
+### 配置格式
+
+```json
+{
+  "id": "my-source",
+  "name": "My Music Source",
+  "version": 1,
+  "icon": "music.note",
+  "color": "#FF6600",
+  "rateLimit": 500,
+  "headers": {
+    "User-Agent": "Mozilla/5.0"
+  },
+  "capabilities": ["metadata", "cover", "lyrics"],
+  "sslTrustDomains": ["example.com"],
+  "search": {
+    "url": "https://api.example.com/search",
+    "method": "GET",
+    "params": { "q": "{{query}}", "limit": "{{limit}}" },
+    "script": "var items = response.results || []; return items.map(function(s) { return {id: String(s.id), title: s.name, artist: s.artist, album: s.album, durationMs: s.duration, coverUrl: s.cover}; });"
+  },
+  "detail": { "url": "...", "method": "GET", "script": "..." },
+  "cover": { "url": "...", "method": "GET", "script": "..." },
+  "lyrics": { "url": "...", "method": "GET", "script": "..." }
+}
+```
+
+### 导入方式
+
+1. 打开 **设置 → 元数据刮削 → 导入刮削源**
+2. 选择 **粘贴配置** 或 **从 URL 导入**
+3. 导入后的源会出现在刮削源列表中，可拖动排序、启用/禁用
+
+### JS 脚本规范
+
+- `response`：已解析的 JSON 响应对象
+- `responseText`：原始响应文本
+- `externalId`：当前歌曲的外部 ID（detail/cover/lyrics 端点可用）
+- `_noop(id)`：内置的 source_a CDN 加密函数
+- `log(msg)`：调试日志输出
+
+**search 脚本** 返回 `[{id, title, artist, album, durationMs, coverUrl}]`
+
+**detail 脚本** 返回 `{title, artist, album, year, coverUrl, trackNumber, genres}`
+
+**lyrics 脚本** 返回 `{lrcContent}` 或 `{plainText}`
+
+**cover 脚本** 返回 `[{coverUrl, thumbnailUrl}]`
+
 ## 项目结构
 
 ```
@@ -87,7 +141,7 @@ primuse/
 │   │   ├── Audio/                  # 播放引擎、解码器、均衡器
 │   │   ├── Library/                # 音乐库、数据库
 │   │   ├── Metadata/               # 刮削器、资源存储、Sidecar 写入
-│   │   │   └── Scrapers/           # 外部来源B、QQ 音乐、外部来源A等
+│   │   │   └── Scrapers/           # 可配置刮削器、MusicBrainz、LRCLIB
 │   │   └── Sources/                # NAS 连接器、扫描器、设备发现
 │   ├── Views/
 │   │   ├── Home/                   # 首页（仪表盘）
@@ -136,8 +190,8 @@ primuse/
 
 ```
 用户触发刮削
-  → ScraperManager（按优先级依次尝试）
-  → [外部来源B、QQ 音乐、外部来源A、酷我、咪咕、MusicBrainz、LRCLIB]
+  → ScraperManager（按优先级依次尝试已启用的刮削源）
+  → ConfigurableScraper（JSON 配置 + JavaScriptCore 解析）
   → 封面 + 歌词 + 元数据
   → SidecarWriteService → NAS（<歌曲名>-cover.jpg、<歌曲名>.lrc）
   → MetadataAssetStore → 本地缓存
