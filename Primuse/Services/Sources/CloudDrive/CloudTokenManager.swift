@@ -71,7 +71,7 @@ actor CloudTokenManager {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: key,
-            kSecAttrService as String: "com.kkape.primuse.cloud",
+            kSecAttrService as String: "com.welape.primuse.cloud",
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
@@ -86,7 +86,7 @@ actor CloudTokenManager {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: key,
-            kSecAttrService as String: "com.kkape.primuse.cloud",
+            kSecAttrService as String: "com.welape.primuse.cloud",
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
         ]
@@ -97,7 +97,7 @@ actor CloudTokenManager {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: key,
-            kSecAttrService as String: "com.kkape.primuse.cloud",
+            kSecAttrService as String: "com.welape.primuse.cloud",
         ]
         SecItemDelete(query as CFDictionary)
     }

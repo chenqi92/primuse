@@ -1,9 +1,9 @@
 import Foundation
 
 public enum PrimuseConstants {
-    public static let appGroupIdentifier = "group.com.kkape.primuse"
+    public static let appGroupIdentifier = "group.com.welape.primuse"
     public static let playbackStateKey = "playbackState"
-    public static let keychainServiceName = "com.kkape.primuse.credentials"
+    public static let keychainServiceName = "com.welape.primuse.credentials"
 
     public static let eqBandFrequencies: [Float] = [
         31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000

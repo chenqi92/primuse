@@ -1,6 +1,6 @@
 name: Primuse
 options:
-  bundleIdPrefix: com.kkape
+  bundleIdPrefix: com.welape
   deploymentTarget:
     iOS: "26.1"
   xcodeVersion: "16.0"
@@ -131,7 +131,7 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SWIFT_EMIT_LOC_STRINGS: YES
-        PRODUCT_BUNDLE_IDENTIFIER: com.kkape.primuse
+        PRODUCT_BUNDLE_IDENTIFIER: com.welape.primuse
         CODE_SIGN_ENTITLEMENTS: Config/Primuse.entitlements
 
   PrimuseKit:
@@ -144,7 +144,7 @@ targets:
       - sdk: AppIntents.framework
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.kkape.primuse.kit
+        PRODUCT_BUNDLE_IDENTIFIER: com.welape.primuse.kit
         GENERATE_INFOPLIST_FILE: YES
         SKIP_INSTALL: YES
 
@@ -166,7 +166,7 @@ targets:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.kkape.primuse.widget
+        PRODUCT_BUNDLE_IDENTIFIER: com.welape.primuse.widget
         SKIP_INSTALL: YES
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         CODE_SIGN_ENTITLEMENTS: Config/PrimuseWidgetExtension.entitlements
@@ -190,7 +190,7 @@ targets:
         NSSupportsLiveActivities: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.kkape.primuse.activity
+        PRODUCT_BUNDLE_IDENTIFIER: com.welape.primuse.activity
         SKIP_INSTALL: YES
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         CODE_SIGN_ENTITLEMENTS: Config/PrimuseActivityExtension.entitlements

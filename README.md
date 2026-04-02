@@ -75,7 +75,7 @@ xcrun devicectl device install app \
 # 启动
 xcrun devicectl device process launch \
   --device 你的设备UDID \
-  com.kkape.primuse
+  com.welape.primuse
 ```
 
 ## 自定义刮削源
@@ -202,4 +202,4 @@ primuse/
 项目配置了 GitHub Actions 自动构建：
 
 - **build**：每次 push/PR 自动触发模拟器构建验证（无需签名）
-- **archive**：main 分支自动构建未签名 IPA 并上传为 Artifact
+- **archive**：仅当 `main` 分支的版本号发生变化时，自动构建未签名 IPA 并上传为 Artifact
