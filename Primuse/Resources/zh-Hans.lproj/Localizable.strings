@@ -29,6 +29,7 @@
 "no_playlists" = "没有播放列表";
 "no_playlists_desc" = "创建播放列表来整理你的音乐";
 "albums_count" = "张专辑";
+"artists_count" = "位艺术家";
 "songs_count" = "首歌曲";
 "albums_section" = "专辑";
 "all_songs_section" = "所有歌曲";
@@ -155,6 +156,9 @@
 "tap_to_scrape" = "点击菜单刮削歌词";
 "home_title" = "首页";
 "home_empty_desc" = "在设置中添加音乐源，开始构建你的音乐库";
+"home_library_mix_title" = "一键开听整个资料库";
+"home_library_mix_subtitle" = "随机开始一首歌，后续队列自动包含全部歌曲。";
+"home_library_mix_hint" = "想立刻开始听时，就从这里进入。";
 "manage_sources" = "音乐源管理";
 "recently_played" = "最近播放";
 "for_you" = "为你推荐";

@@ -172,22 +172,15 @@ actor FTPSource: MusicSourceConnector {
         case .implicitTLS: "ftps"
         case .explicitTLS: "ftpes"
         }
+        let resolvedPath = basePath.flatMap { $0.isEmpty ? nil : normalizedBasePath($0) } ?? "/"
 
-        let rawHost = host.contains("://") ? host : "\(scheme)://\(host)"
-        guard var components = URLComponents(string: rawHost) else {
-            throw SourceError.connectionFailed("Invalid FTP host")
-        }
-
-        components.scheme = scheme
-        components.port = port ?? defaultPort
-
-        if let basePath, !basePath.isEmpty {
-            components.path = normalizedBasePath(basePath)
-        } else if components.path.isEmpty {
-            components.path = "/"
-        }
-
-        guard let url = components.url else {
+        guard let url = NetworkURLBuilder.makeURL(
+            host: host,
+            defaultScheme: scheme,
+            port: port ?? defaultPort,
+            path: resolvedPath,
+            forceScheme: true
+        ) else {
             throw SourceError.connectionFailed("Invalid FTP URL")
         }
         return url

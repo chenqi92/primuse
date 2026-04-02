@@ -29,6 +29,7 @@
 "no_playlists" = "No Playlists";
 "no_playlists_desc" = "Create a playlist to organize your music";
 "albums_count" = "albums";
+"artists_count" = "artists";
 "songs_count" = "songs";
 "albums_section" = "Albums";
 "all_songs_section" = "All Songs";
@@ -155,6 +156,9 @@
 "tap_to_scrape" = "Tap menu to scrape lyrics";
 "home_title" = "Home";
 "home_empty_desc" = "Add a music source in Settings to start building your library";
+"home_library_mix_title" = "Start with Your Entire Library";
+"home_library_mix_subtitle" = "Kick off with a random song, then keep the full library in the queue.";
+"home_library_mix_hint" = "This is the fastest way to start listening from Home.";
 "manage_sources" = "Manage Sources";
 "recently_played" = "Recently Played";
 "for_you" = "For You";

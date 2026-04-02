@@ -12,16 +12,29 @@ final class AudioSessionManager {
     /// Called when the audio engine's hardware configuration changes (route change, etc.)
     var onConfigurationChange: (() -> Void)?
 
+    private var isConfigured = false
+
     private init() {}
 
-    func configureForPlayback() {
+    @discardableResult
+    func activatePlaybackSession() -> Bool {
         let session = AVAudioSession.sharedInstance()
         do {
             try session.setCategory(.playback, mode: .default, options: [])
             try session.setActive(true)
+            return true
         } catch {
-            print("Failed to configure audio session: \(error)")
+            print("Failed to activate audio session: \(error)")
+            return false
         }
+    }
+
+    func configureForPlayback() {
+        let session = AVAudioSession.sharedInstance()
+        _ = activatePlaybackSession()
+
+        guard !isConfigured else { return }
+        isConfigured = true
 
         // Observe interruptions (phone calls, other apps playing audio, Siri, alarms)
         NotificationCenter.default.addObserver(
@@ -72,6 +85,7 @@ final class AudioSessionManager {
 
                 if options.contains(.shouldResume) {
                     print("🔊 Audio interruption ended — shouldResume")
+                    _ = self.activatePlaybackSession()
                     onInterruptionEndedShouldResume?()
                 } else {
                     print("🔊 Audio interruption ended — should NOT resume")

@@ -6,6 +6,7 @@ actor WebDAVSource: MusicSourceConnector {
     let sourceID: String
     private let host: String
     private let port: Int?
+    private let useSsl: Bool
     private let basePath: String?
     private let username: String
     private let password: String
@@ -16,6 +17,7 @@ actor WebDAVSource: MusicSourceConnector {
         sourceID: String,
         host: String,
         port: Int? = nil,
+        useSsl: Bool,
         basePath: String? = nil,
         username: String,
         password: String
@@ -23,6 +25,7 @@ actor WebDAVSource: MusicSourceConnector {
         self.sourceID = sourceID
         self.host = host
         self.port = port
+        self.useSsl = useSsl
         self.basePath = basePath
         self.username = username
         self.password = password
@@ -37,35 +40,20 @@ actor WebDAVSource: MusicSourceConnector {
             return
         }
 
-        var urlString = host
-        if !urlString.hasPrefix("http") {
-            urlString = "https://\(urlString)"
-        }
-        if let port {
-            // Insert port before path
-            if let url = URL(string: urlString) {
-                var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-                components?.port = port
-                urlString = components?.string ?? urlString
-            }
-        }
-
-        guard let serverURL = URL(string: urlString) else {
-            throw SourceError.connectionFailed("Invalid WebDAV URL")
-        }
-
-        var components = URLComponents(url: serverURL, resolvingAgainstBaseURL: false)
-        if let basePath, !basePath.isEmpty {
-            components?.path = normalizedBasePath(basePath)
-        }
-
         let credential = URLCredential(
             user: username,
             password: password,
             persistence: .forSession
         )
 
-        provider = WebDAVFileProvider(baseURL: components?.url ?? serverURL, credential: credential)
+        guard let provider = WebDAVFileProvider(
+            baseURL: try serverURL(),
+            credential: credential
+        ) else {
+            throw SourceError.connectionFailed("Invalid WebDAV URL")
+        }
+
+        self.provider = provider
 
         // Test connection
         _ = try await listFiles(at: "/")
@@ -179,5 +167,18 @@ actor WebDAVSource: MusicSourceConnector {
 
     private func normalizedBasePath(_ path: String) -> String {
         path.hasPrefix("/") ? path : "/\(path)"
+    }
+
+    private func serverURL() throws -> URL {
+        let scheme = useSsl ? "https" : "http"
+        guard let url = NetworkURLBuilder.makeURL(
+            host: host,
+            defaultScheme: scheme,
+            port: port,
+            path: basePath
+        ) else {
+            throw SourceError.connectionFailed("Invalid WebDAV URL")
+        }
+        return url
     }
 }

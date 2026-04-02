@@ -10,13 +10,19 @@ actor SMBSource: MusicSourceConnector {
     private let username: String
     private let password: String
     private var client: SMB2Manager?
+    private var connectedShareName: String?
     private let cacheDirectory: URL
+
+    private enum ResolvedPath {
+        case serverRoot
+        case share(name: String, relativePath: String)
+    }
 
     init(sourceID: String, host: String, port: Int = 445, sharePath: String, username: String, password: String) {
         self.sourceID = sourceID
         self.host = host
         self.port = port
-        self.sharePath = sharePath
+        self.sharePath = Self.normalizeShareName(sharePath)
         self.username = username
         self.password = password
 
@@ -26,108 +32,85 @@ actor SMBSource: MusicSourceConnector {
     }
 
     func connect() async throws {
-        if client != nil {
-            return
-        }
+        _ = try await ensureServerConnection()
 
-        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        let serverURL = try Self.buildSMBUrl(host: trimmedHost, port: port)
-        NSLog("ℹ️ SMB connecting to \(serverURL.absoluteString) (original host: \(trimmedHost))")
-
-        let credential = URLCredential(
-            user: username,
-            password: password,
-            persistence: .forSession
-        )
-
-        client = SMB2Manager(url: serverURL, credential: credential)
-
-        // Test connection by listing shares
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            client?.listShares { result in
-                switch result {
-                case .success:
-                    continuation.resume()
-                case .failure(let error):
-                    continuation.resume(throwing: SourceError.connectionFailed(error.localizedDescription))
-                }
-            }
-        }
-
-        // Connect to the specific share
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            client?.connectShare(name: sharePath) { error in
-                if let error {
-                    continuation.resume(throwing: SourceError.connectionFailed(error.localizedDescription))
-                } else {
-                    continuation.resume()
-                }
-            }
+        if sharePath.isEmpty == false {
+            _ = try await ensureConnectedShare(named: sharePath)
         }
     }
 
     func disconnect() async {
-        client?.disconnectShare { _ in }
+        if let client, connectedShareName != nil {
+            try? await client.disconnectShare()
+        }
+
+        connectedShareName = nil
         client = nil
     }
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
-        guard let client else { throw SourceError.connectionFailed("Not connected") }
+        let normalizedPath = Self.normalizeRemotePath(path)
+        _ = try await ensureServerConnection()
 
-        return try await withCheckedThrowingContinuation { continuation in
-            client.contentsOfDirectory(atPath: path) { result in
-                switch result {
-                case .success(let items):
-                    let fileItems = items
-                        .filter { ($0[.nameKey] as? String)?.hasPrefix(".") == false }
-                        .map { item -> RemoteFileItem in
-                            let name = item[.nameKey] as? String ?? ""
-                            let isDir = (item[.fileResourceTypeKey] as? URLFileResourceType) == .directory
-                            let size = item[.fileSizeKey] as? Int64 ?? 0
-                            let modified = item[.contentModificationDateKey] as? Date
-
-                            return RemoteFileItem(
-                                name: name,
-                                path: (path as NSString).appendingPathComponent(name),
-                                isDirectory: isDir,
-                                size: size,
-                                modifiedDate: modified
-                            )
-                        }
-                        .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
-
-                    continuation.resume(returning: fileItems)
-                case .failure(let error):
-                    continuation.resume(throwing: error)
+        switch try resolve(path: normalizedPath) {
+        case .serverRoot:
+            return try await listShares()
+                .map { share in
+                    RemoteFileItem(
+                        name: share.name,
+                        path: Self.appendPathComponent(share.name, to: normalizedPath),
+                        isDirectory: true,
+                        size: 0,
+                        modifiedDate: nil
+                    )
                 }
-            }
+                .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+
+        case .share(let shareName, let relativePath):
+            let client = try await ensureConnectedShare(named: shareName)
+            let items = try await client.contentsOfDirectory(atPath: relativePath)
+
+            return items
+                .filter { ($0[.nameKey] as? String)?.hasPrefix(".") == false }
+                .map { item in
+                    let name = item[.nameKey] as? String ?? ""
+                    let isDir = (item[.fileResourceTypeKey] as? URLFileResourceType) == .directory
+                    let size = item[.fileSizeKey] as? Int64 ?? 0
+                    let modified = item[.contentModificationDateKey] as? Date
+
+                    return RemoteFileItem(
+                        name: name,
+                        path: Self.appendPathComponent(name, to: normalizedPath),
+                        isDirectory: isDir,
+                        size: size,
+                        modifiedDate: modified
+                    )
+                }
+                .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
         }
     }
 
     func localURL(for path: String) async throws -> URL {
-        guard let client else { throw SourceError.connectionFailed("Not connected") }
+        let normalizedPath = Self.normalizeRemotePath(path)
+        let resolvedPath = try resolve(path: normalizedPath)
 
+        guard case let .share(shareName, relativePath) = resolvedPath else {
+            throw SourceError.connectionFailed("SMB share not selected")
+        }
+
+        let client = try await ensureConnectedShare(named: shareName)
         let localURL = cacheDirectory.appendingPathComponent(
-            path.replacingOccurrences(of: "/", with: "_")
+            Self.cacheFileName(for: normalizedPath)
         )
 
-        // Check if already cached
         if FileManager.default.fileExists(atPath: localURL.path) {
             return localURL
         }
 
-        // Download file
-        return try await withCheckedThrowingContinuation { continuation in
-            client.downloadItem(atPath: path, to: localURL) { bytesReceived, totalBytes -> Bool in
-                return true // continue downloading
-            } completionHandler: { error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: localURL)
-                }
-            }
+        try await client.downloadItem(atPath: relativePath, to: localURL) { _, _ in
+            true
         }
+        return localURL
     }
 
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
@@ -164,6 +147,26 @@ actor SMBSource: MusicSourceConnector {
         }
     }
 
+    func writeFile(data: Data, to path: String) async throws {
+        let normalizedPath = Self.normalizeRemotePath(path)
+        let resolvedPath = try resolve(path: normalizedPath)
+
+        guard case let .share(shareName, relativePath) = resolvedPath else {
+            throw SourceError.connectionFailed("SMB share not selected")
+        }
+
+        let client = try await ensureConnectedShare(named: shareName)
+
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("smb_upload_\(UUID().uuidString)")
+        try data.write(to: tempURL)
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        try await client.uploadItem(at: tempURL, toPath: relativePath) { _ in
+            true
+        }
+    }
+
     private func scanDirectory(
         path: String,
         continuation: AsyncThrowingStream<RemoteFileItem, Error>.Continuation
@@ -182,6 +185,125 @@ actor SMBSource: MusicSourceConnector {
         }
     }
 
+    private func ensureServerConnection() async throws -> SMB2Manager {
+        if let client {
+            return client
+        }
+
+        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        let serverURL = try Self.buildSMBUrl(host: trimmedHost, port: port)
+        NSLog("ℹ️ SMB connecting to \(serverURL.absoluteString) (original host: \(trimmedHost))")
+
+        let credential = URLCredential(
+            user: username,
+            password: password,
+            persistence: .forSession
+        )
+
+        guard let client = SMB2Manager(url: serverURL, credential: credential) else {
+            throw SourceError.connectionFailed("Invalid SMB server configuration")
+        }
+        _ = try await client.listShares()
+
+        self.client = client
+        return client
+    }
+
+    private func ensureConnectedShare(named shareName: String) async throws -> SMB2Manager {
+        let normalizedShareName = Self.normalizeShareName(shareName)
+        guard normalizedShareName.isEmpty == false else {
+            throw SourceError.connectionFailed("SMB share not selected")
+        }
+
+        let client = try await ensureServerConnection()
+        if connectedShareName == normalizedShareName {
+            return client
+        }
+
+        try await client.connectShare(name: normalizedShareName)
+        connectedShareName = normalizedShareName
+        return client
+    }
+
+    private func listShares() async throws -> [(name: String, comment: String)] {
+        let client = try await ensureServerConnection()
+        return try await client.listShares()
+    }
+
+    private func resolve(path: String) throws -> ResolvedPath {
+        let normalizedPath = Self.normalizeRemotePath(path)
+
+        if sharePath.isEmpty == false {
+            let prefixedShareRoot = "/\(sharePath)"
+            if normalizedPath == prefixedShareRoot {
+                return .share(name: sharePath, relativePath: "/")
+            }
+            if normalizedPath.hasPrefix(prefixedShareRoot + "/") {
+                let relativePath = String(normalizedPath.dropFirst(prefixedShareRoot.count))
+                return .share(name: sharePath, relativePath: relativePath.isEmpty ? "/" : relativePath)
+            }
+            return .share(name: sharePath, relativePath: normalizedPath)
+        }
+
+        guard normalizedPath != "/" else {
+            return .serverRoot
+        }
+
+        let components = normalizedPath
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .map(String.init)
+
+        guard let shareName = components.first else {
+            return .serverRoot
+        }
+
+        let relativeComponents = components.dropFirst()
+        let relativePath = relativeComponents.isEmpty ? "/" : "/" + relativeComponents.joined(separator: "/")
+        return .share(name: shareName, relativePath: relativePath)
+    }
+
+    private static func normalizeShareName(_ shareName: String) -> String {
+        shareName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    }
+
+    private static func normalizeRemotePath(_ path: String) -> String {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty == false else {
+            return "/"
+        }
+
+        let components = trimmed
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .map(String.init)
+
+        guard components.isEmpty == false else {
+            return "/"
+        }
+
+        return "/" + components.joined(separator: "/")
+    }
+
+    private static func appendPathComponent(_ component: String, to path: String) -> String {
+        let normalizedBase = normalizeRemotePath(path)
+        let sanitizedComponent = component.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+
+        guard sanitizedComponent.isEmpty == false else {
+            return normalizedBase
+        }
+
+        if normalizedBase == "/" {
+            return "/" + sanitizedComponent
+        }
+
+        return normalizedBase + "/" + sanitizedComponent
+    }
+
+    private static func cacheFileName(for path: String) -> String {
+        normalizeRemotePath(path).replacingOccurrences(of: "/", with: "_")
+    }
+
     // MARK: - SMB URL Construction
     //
     // Supports hostname, IPv4, and IPv6. AMSMB2/libsmb2 has a bug where it
@@ -197,28 +319,23 @@ actor SMBSource: MusicSourceConnector {
         var connectHost = host
 
         if isIPv6 {
-            // Step 1: try reverse-DNS to get hostname (e.g. "LL-NAS.local")
             if let hostname = reverseResolve(ipv6: host) {
                 NSLog("ℹ️ SMB: Reverse DNS '\(host)' → '\(hostname)'")
-                // Step 2: try forward-resolve to IPv4
                 if let ipv4 = forwardResolveIPv4(hostname) {
                     NSLog("ℹ️ SMB: Resolved '\(hostname)' → '\(ipv4)'")
                     connectHost = ipv4
                 } else {
-                    // No IPv4 record, but hostname itself works with libsmb2
                     NSLog("ℹ️ SMB: No IPv4 for '\(hostname)', using hostname directly")
                     connectHost = hostname
                 }
             } else {
                 NSLog("⚠️ SMB: Reverse DNS failed for '\(host)', using bracketed IPv6")
-                // Last resort: bracketed IPv6 in URL (may still fail in libsmb2)
             }
         }
 
-        // Build the URL string
         let hostPart: String
         if connectHost.contains(":") {
-            hostPart = "[\(connectHost)]"  // Bracket IPv6 literals
+            hostPart = "[\(connectHost)]"
         } else {
             hostPart = connectHost
         }
@@ -230,7 +347,6 @@ actor SMBSource: MusicSourceConnector {
         return url
     }
 
-    /// Forward-resolve a hostname to an IPv4 address.
     private static func forwardResolveIPv4(_ hostname: String) -> String? {
         var hints = addrinfo()
         hints.ai_family = AF_INET
@@ -243,14 +359,21 @@ actor SMBSource: MusicSourceConnector {
         guard status == 0, let addrInfo = result else { return nil }
 
         var buf = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-        guard getnameinfo(addrInfo.pointee.ai_addr, socklen_t(addrInfo.pointee.ai_addrlen),
-                          &buf, socklen_t(buf.count), nil, 0, NI_NUMERICHOST) == 0
-        else { return nil }
+        guard getnameinfo(
+            addrInfo.pointee.ai_addr,
+            socklen_t(addrInfo.pointee.ai_addrlen),
+            &buf,
+            socklen_t(buf.count),
+            nil,
+            0,
+            NI_NUMERICHOST
+        ) == 0 else {
+            return nil
+        }
 
-        return String(cString: buf)
+        return String(decoding: buf.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
     }
 
-    /// Reverse-resolve an IPv6 address to a hostname (e.g. "LL-NAS.local").
     private static func reverseResolve(ipv6 address: String) -> String? {
         var addr = sockaddr_in6()
         addr.sin6_len = UInt8(MemoryLayout<sockaddr_in6>.size)
@@ -260,33 +383,19 @@ actor SMBSource: MusicSourceConnector {
         var buf = [CChar](repeating: 0, count: Int(NI_MAXHOST))
         let rc = withUnsafePointer(to: &addr) { ptr in
             ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
-                getnameinfo(sockPtr, socklen_t(MemoryLayout<sockaddr_in6>.size),
-                            &buf, socklen_t(buf.count), nil, 0, 0)
+                getnameinfo(
+                    sockPtr,
+                    socklen_t(MemoryLayout<sockaddr_in6>.size),
+                    &buf,
+                    socklen_t(buf.count),
+                    nil,
+                    0,
+                    0
+                )
             }
         }
         guard rc == 0 else { return nil }
-        let name = String(cString: buf)
-        // getnameinfo may return the numeric address back if no PTR record exists
+        let name = String(decoding: buf.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
         return name.contains(":") ? nil : name
-    }
-
-    func writeFile(data: Data, to path: String) async throws {
-        guard let client else { throw SourceError.connectionFailed("Not connected") }
-
-        // Write data to temp file first
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("smb_upload_\(UUID().uuidString)")
-        try data.write(to: tempURL)
-        defer { try? FileManager.default.removeItem(at: tempURL) }
-
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            client.uploadItem(at: tempURL, toPath: path, progress: { _ in return true }) { error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume()
-                }
-            }
-        }
     }
 }

@@ -57,7 +57,11 @@ struct PrimuseApp: App {
                     )
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
+                    playerService.handleAppWillResignActive()
                     musicLibrary.persistNow()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+                    playerService.handleAppDidBecomeActive()
                 }
         }
     }

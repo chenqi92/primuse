@@ -741,13 +741,9 @@ actor MediaServerSource: SongScanningConnector {
         basePath: String?
     ) -> URL {
         let rawHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        let baseString = rawHost.contains("://") ? rawHost : "\(useSsl ? "https" : "http")://\(rawHost)"
-        var url = URL(string: baseString) ?? URL(string: "\(useSsl ? "https" : "http")://\(rawHost)")!
-
-        if let port, port > 0, var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
-            components.port = port
-            url = components.url ?? url
-        }
+        let scheme = useSsl ? "https" : "http"
+        var url = NetworkURLBuilder.baseURL(host: rawHost, scheme: scheme, port: port)
+            ?? URL(string: "\(scheme)://localhost")!
 
         let normalizedBasePath = (basePath ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if normalizedBasePath.isEmpty == false {

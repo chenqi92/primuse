@@ -58,6 +58,7 @@ final class SourceManager {
                 sourceID: source.id,
                 host: source.host ?? "",
                 port: source.port,
+                useSsl: source.useSsl,
                 basePath: source.basePath,
                 username: source.username ?? "",
                 password: KeychainService.getPassword(for: source.id) ?? ""

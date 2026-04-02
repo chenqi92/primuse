@@ -7,6 +7,7 @@ struct HomeView: View {
     @Environment(MusicLibrary.self) private var library
 
     private var hasContent: Bool { !library.songs.isEmpty }
+    private var heroPreviewAlbums: [Album] { Array(library.recentlyAddedAlbums(limit: 3)) }
 
     private var greeting: String {
         let hour = Calendar.current.component(.hour, from: Date())
@@ -39,14 +40,9 @@ struct HomeView: View {
 
     // MARK: - Content
 
-    @State private var spotlightAlbums: [Album] = []
-
     private var contentView: some View {
         VStack(alignment: .leading, spacing: 24) {
-            // Album spotlight carousel
-            if !spotlightAlbums.isEmpty {
-                spotlightCarousel
-            }
+            libraryHeroSection
 
             // Recently played
             recentlyPlayedSection
@@ -61,68 +57,151 @@ struct HomeView: View {
                 artistsSection
             }
         }
-        .onAppear {
-            if spotlightAlbums.isEmpty {
-                spotlightAlbums = Array(library.albums.shuffled().prefix(min(library.albums.count, 20)))
-            }
-        }
-        .onChange(of: library.songCount) { _, _ in
-            // Refresh spotlight when library changes (e.g. after scraping or re-scan)
-            spotlightAlbums = Array(library.albums.shuffled().prefix(min(library.albums.count, 20)))
-        }
     }
 
-    // MARK: - Album Spotlight Carousel
+    // MARK: - Library Hero
 
-    private var spotlightCarousel: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            LazyHStack(spacing: 12) {
-                ForEach(spotlightAlbums) { album in
-                    spotlightCard(album: album)
-                }
-            }
-            .padding(.horizontal, 16)
-        }
-    }
+    private var libraryHeroSection: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(greeting)
+                        .font(.headline)
+                        .foregroundStyle(.white.opacity(0.82))
 
-    private func spotlightCard(album: Album) -> some View {
-        let cardWidth: CGFloat = UIScreen.main.bounds.width - 64
+                    Text("home_library_mix_title")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .foregroundStyle(.white)
 
-        return Button { playAlbum(album) } label: {
-            HStack(spacing: 14) {
-                CachedArtworkView(
-                    coverFileName: library.songs(forAlbum: album.id).first?.coverArtFileName,
-                    size: 120, cornerRadius: 12,
-                    sourceID: library.songs(forAlbum: album.id).first?.sourceID,
-                    filePath: library.songs(forAlbum: album.id).first?.filePath
-                )
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Spacer()
-                    Text(album.title)
-                        .font(.headline).fontWeight(.bold)
-                        .lineLimit(2)
-                    Text(album.artistName ?? "")
+                    Text("home_library_mix_subtitle")
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    HStack(spacing: 4) {
-                        Image(systemName: "music.note")
-                            .font(.caption2)
-                        Text("\(album.songCount)")
-                            .font(.caption)
-                    }
-                    .foregroundStyle(.tertiary)
-                    Spacer()
+                        .foregroundStyle(.white.opacity(0.78))
                 }
+
                 Spacer(minLength: 0)
+                heroArtworkPreview
             }
-            .padding(12)
-            .frame(width: cardWidth, height: 144)
-            .background(.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
+
+            HStack(spacing: 10) {
+                heroStatCard(symbol: "music.note.list", value: library.songCount, label: String(localized: "songs_count"))
+                heroStatCard(symbol: "square.stack.fill", value: library.albumCount, label: String(localized: "albums_count"))
+                heroStatCard(symbol: "music.mic", value: library.artistCount, label: String(localized: "artists_count"))
+            }
+
+            HStack(spacing: 12) {
+                Button { playLibrary(shuffled: true) } label: {
+                    Label("shuffle", systemImage: "shuffle")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .foregroundStyle(.black)
+                        .background(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+                .buttonStyle(.plain)
+
+                Button { playLibrary(shuffled: false) } label: {
+                    Label("play_all", systemImage: "play.fill")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .foregroundStyle(.white)
+                        .background(.white.opacity(0.14))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(.white.opacity(0.14), lineWidth: 1)
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+
+            Text("home_library_mix_hint")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(0.72))
         }
-        .buttonStyle(.plain)
+        .padding(20)
+        .background {
+            ZStack {
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.accentColor.opacity(0.95),
+                                Color.blue.opacity(0.82),
+                                Color.black.opacity(0.72)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+
+                Circle()
+                    .fill(.white.opacity(0.14))
+                    .frame(width: 180, height: 180)
+                    .offset(x: 110, y: -90)
+
+                Circle()
+                    .fill(.white.opacity(0.08))
+                    .frame(width: 150, height: 150)
+                    .offset(x: -120, y: 90)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+        }
+        .padding(.horizontal, 16)
+    }
+
+    private var heroArtworkPreview: some View {
+        ZStack {
+            if heroPreviewAlbums.isEmpty {
+                Image(systemName: "music.note")
+                    .font(.system(size: 28, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.86))
+                    .frame(width: 92, height: 92)
+                    .background(.white.opacity(0.14))
+                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            } else {
+                ForEach(Array(heroPreviewAlbums.enumerated()), id: \.offset) { index, album in
+                    let song = library.songs(forAlbum: album.id).first
+
+                    CachedArtworkView(
+                        coverFileName: song?.coverArtFileName,
+                        size: 72,
+                        cornerRadius: 18,
+                        sourceID: song?.sourceID,
+                        filePath: song?.filePath
+                    )
+                    .rotationEffect(.degrees(index == 0 ? -8 : (index == 1 ? 0 : 8)))
+                    .offset(x: CGFloat(index * 18 - 18), y: index == 1 ? 0 : 10)
+                    .shadow(color: .black.opacity(0.18), radius: 12, y: 6)
+                    .zIndex(index == 1 ? 1 : 0)
+                }
+            }
+        }
+        .frame(width: 110, height: 96)
+    }
+
+    private func heroStatCard(symbol: String, value: Int, label: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Image(systemName: symbol)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.82))
+
+            Text("\(value)")
+                .font(.headline)
+                .fontWeight(.semibold)
+                .foregroundStyle(.white)
+
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(0.7))
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(.white.opacity(0.12))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     // MARK: - Recently Played
@@ -244,6 +323,7 @@ struct HomeView: View {
             queueSongs.append(contentsOf: extra)
         }
 
+        player.shuffleEnabled = false
         player.setQueue(queueSongs, startAt: 0)
         Task { await player.play(song: firstSong) }
     }
@@ -270,9 +350,21 @@ struct HomeView: View {
 
         let startIndex = queueSongs.firstIndex(where: { $0.id == song.id }) ?? 0
         plog("🏠 setQueue: \(queueSongs.count) songs, startIndex=\(startIndex), songAtIndex='\(queueSongs[startIndex].title)'")
+        player.shuffleEnabled = false
         player.setQueue(queueSongs, startAt: startIndex)
         plog("🏠 calling player.play(song: '\(song.title)')")
         Task { await player.play(song: song) }
+    }
+
+    private func playLibrary(shuffled: Bool) {
+        guard !library.songs.isEmpty else { return }
+
+        let queueSongs = shuffled ? library.songs.shuffled() : library.songs
+        guard let firstSong = queueSongs.first else { return }
+
+        player.shuffleEnabled = false
+        player.setQueue(queueSongs, startAt: 0)
+        Task { await player.play(song: firstSong) }
     }
 }
 

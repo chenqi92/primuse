@@ -77,6 +77,9 @@ final class AudioPlayerService {
     private var playID: UUID?
 
     private var errorDismissTask: Task<Void, Never>?
+    private var shouldResumeAfterInterruption = false
+    private var needsPlaybackRecovery = false
+    private var pendingRecoveryTime: TimeInterval = 0
 
     let playbackSettings: PlaybackSettingsStore
 
@@ -94,8 +97,15 @@ final class AudioPlayerService {
         let manager = AudioSessionManager.shared
 
         manager.onInterruptionBegan = { [weak self] in
-            guard let self, self.isPlaying else { return }
-            // Sync UI to paused state — the engine was already stopped by the system
+            guard let self, self.currentSong != nil else { return }
+            let wasPlaying = self.isPlaying
+            self.syncPlaybackProgressFromEngine()
+            self.pendingRecoveryTime = self.currentTime
+            self.needsPlaybackRecovery = wasPlaying
+            self.shouldResumeAfterInterruption = wasPlaying
+
+            guard wasPlaying else { return }
+            // Sync UI to paused state — the engine was already stopped by the system.
             self.isPlaying = false
             self.stopTimeUpdater()
             self.updateNowPlayingInfo()
@@ -108,10 +118,28 @@ final class AudioPlayerService {
         }
 
         manager.onConfigurationChange = { [weak self] in
-            guard let self, self.isPlaying else { return }
-            // Engine was stopped due to config change — restart it
+            guard let self, self.currentSong != nil else { return }
+            let shouldAutoResume = self.isPlaying || self.shouldResumeAfterInterruption
+            self.syncPlaybackProgressFromEngine()
+            self.pendingRecoveryTime = self.currentTime
+            self.needsPlaybackRecovery = self.needsPlaybackRecovery || shouldAutoResume
+
+            guard shouldAutoResume else { return }
+            // Engine was stopped due to config change — restart it if possible, and
+            // rebuild the player pipeline on the next resume/play if buffers were lost.
             self.audioEngine.restartIfNeeded()
         }
+    }
+
+    private func clearPendingPlaybackRecovery() {
+        shouldResumeAfterInterruption = false
+        needsPlaybackRecovery = false
+        pendingRecoveryTime = 0
+    }
+
+    private func syncPlaybackProgressFromEngine() {
+        guard let engineTime = audioEngine.currentTime, engineTime.isFinite else { return }
+        currentTime = max(0, engineTime)
     }
 
     private func showPlaybackError(_ message: String) {
@@ -130,6 +158,7 @@ final class AudioPlayerService {
         // Invalidate any pending operations immediately
         let id = UUID()
         playID = id
+        clearPendingPlaybackRecovery()
         let callerFile = (caller as NSString).lastPathComponent
         plog("▶️ play(song: \(song.title)) playID=\(id.uuidString.prefix(8)) FROM=\(callerFile):\(callerLine)")
 
@@ -167,6 +196,7 @@ final class AudioPlayerService {
     func play(song: Song, from url: URL) async {
         let id = UUID()
         playID = id
+        clearPendingPlaybackRecovery()
         decodingTask?.cancel()
         decodingTask = nil
         audioEngine.stopPlayback()
@@ -196,6 +226,7 @@ final class AudioPlayerService {
         }
 
         do {
+            _ = AudioSessionManager.shared.activatePlaybackSession()
             try audioEngine.setUp()
             guard let outputFormat = audioEngine.outputFormat else {
                 throw AudioDecoderError.decodingFailed("Audio engine not ready")
@@ -260,6 +291,7 @@ final class AudioPlayerService {
             // NOW transition state — audio is actually playing
             isPlaying = true
             isLoading = false
+            clearPendingPlaybackRecovery()
             library?.recordPlayback(of: song.id)
             startTimeUpdater()
             updateNowPlayingInfo()
@@ -369,6 +401,7 @@ final class AudioPlayerService {
             // Transition state — audio is playing
             isPlaying = true
             isLoading = false
+            clearPendingPlaybackRecovery()
             library?.recordPlayback(of: song.id)
             startTimeUpdater()
             updateNowPlayingInfo()
@@ -484,6 +517,7 @@ final class AudioPlayerService {
             // Transition state after audio starts
             isPlaying = true
             isLoading = false
+            clearPendingPlaybackRecovery()
             library?.recordPlayback(of: song.id)
             startTimeUpdater()
             updateNowPlayingInfo()
@@ -553,6 +587,8 @@ final class AudioPlayerService {
     }
 
     func pause() {
+        shouldResumeAfterInterruption = false
+        syncPlaybackProgressFromEngine()
         audioEngine.pause()
         isPlaying = false
         stopTimeUpdater()
@@ -561,9 +597,16 @@ final class AudioPlayerService {
     }
 
     func resume() {
-        guard !isLoading else { return }
+        guard !isLoading, currentSong != nil else { return }
+        if needsPlaybackRecovery {
+            seek(to: pendingRecoveryTime, startPlaying: true, isRecovery: true)
+            return
+        }
+        _ = AudioSessionManager.shared.activatePlaybackSession()
         audioEngine.resume()
+        syncPlaybackProgressFromEngine()
         isPlaying = true
+        shouldResumeAfterInterruption = false
         startTimeUpdater()
         updateNowPlayingInfo()
         updatePlaybackState()
@@ -588,6 +631,7 @@ final class AudioPlayerService {
         currentSong = nil
         currentTime = 0
         duration = 0
+        clearPendingPlaybackRecovery()
         stopTimeUpdater()
         // Clear NowPlaying info so Dynamic Island / Lock Screen also clears
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
@@ -617,14 +661,15 @@ final class AudioPlayerService {
 
     private var seekTimeOffset: TimeInterval = 0
 
-    func seek(to time: TimeInterval) {
-        currentTime = time
+    func seek(to time: TimeInterval, startPlaying: Bool? = nil, isRecovery: Bool = false) {
+        let targetTime = max(0, min(time, duration > 0 ? duration : time))
+        currentTime = targetTime
         isLoading = true
         updateNowPlayingInfo()
 
         guard let song = currentSong else { isLoading = false; return }
         let savedDuration = duration
-        let wasPlaying = isPlaying
+        let shouldStartPlaying = startPlaying ?? isPlaying
 
         // Invalidate old playID BEFORE stopPlayback() so any pending completion
         // callbacks (triggered by AVAudioPlayerNode.stop()) will fail
@@ -643,13 +688,14 @@ final class AudioPlayerService {
 
         // Restore state that stopPlayback clears
         currentSong = song
-        currentTime = time
+        currentTime = targetTime
         duration = savedDuration
 
         Task {
             do {
                 let url = try await resolvedURL(for: song)
                 guard playID == id else { return }
+                _ = AudioSessionManager.shared.activatePlaybackSession()
                 try audioEngine.setUp()
                 guard let outputFormat = audioEngine.outputFormat else { return }
                 try audioEngine.start()
@@ -666,6 +712,10 @@ final class AudioPlayerService {
                     guard let cached = sourceManager?.cachedURL(for: song) else {
                         plog("⚠️ Seek: streaming song not cached yet, seek not available")
                         isLoading = false
+                        if isRecovery {
+                            clearPendingPlaybackRecovery()
+                            await play(song: song)
+                        }
                         return
                     }
                     seekURL = cached
@@ -700,17 +750,25 @@ final class AudioPlayerService {
                     break
                 }
 
-                guard let firstBuffer = firstPlayableBuffer else { return }
+                guard let firstBuffer = firstPlayableBuffer else {
+                    isLoading = false
+                    return
+                }
                 guard playID == id else { return }
 
                 audioEngine.scheduleBuffer(firstBuffer)
-                if wasPlaying { audioEngine.play() }
+                if shouldStartPlaying { audioEngine.play() }
 
                 isLoading = false
-                if wasPlaying {
+                if shouldStartPlaying {
                     isPlaying = true
                     startTimeUpdater()
+                } else {
+                    isPlaying = false
                 }
+                if isRecovery { clearPendingPlaybackRecovery() }
+                updateNowPlayingInfo()
+                updatePlaybackState()
 
                 // Decode remaining buffers with track-end detection
                 decodingTask = Task { [id, iteratorBox] in
@@ -737,8 +795,34 @@ final class AudioPlayerService {
             } catch {
                 plog("Seek error: \(error)")
                 isLoading = false
+                updateNowPlayingInfo()
+                updatePlaybackState()
             }
         }
+    }
+
+    func handleAppWillResignActive() {
+        syncPlaybackProgressFromEngine()
+        updateNowPlayingInfo()
+        updatePlaybackState()
+    }
+
+    func handleAppDidBecomeActive() {
+        if shouldResumeAfterInterruption, !isPlaying, currentSong != nil {
+            resume()
+            return
+        }
+
+        if needsPlaybackRecovery {
+            currentTime = max(0, pendingRecoveryTime)
+            updateNowPlayingInfo()
+            updatePlaybackState()
+            return
+        }
+
+        syncPlaybackProgressFromEngine()
+        updateNowPlayingInfo()
+        updatePlaybackState()
     }
 
     func setQueue(_ songs: [Song], startAt index: Int = 0) {
@@ -1159,13 +1243,21 @@ final class AudioPlayerService {
     private var lastArtworkFileName: String?
 
     private func updateNowPlayingInfo() {
+        guard currentSong != nil else {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            return
+        }
+
+        let elapsedTime = max(0, min(currentTime, duration > 0 ? duration : currentTime))
+
         // Create fresh info but preserve existing artwork
         var info = [String: Any]()
         info[MPMediaItemPropertyTitle] = currentSong?.title ?? ""
         info[MPMediaItemPropertyArtist] = currentSong?.artistName ?? ""
         info[MPMediaItemPropertyAlbumTitle] = currentSong?.albumTitle ?? ""
         info[MPMediaItemPropertyPlaybackDuration] = duration
-        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTime
+        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = elapsedTime
+        info[MPNowPlayingInfoPropertyDefaultPlaybackRate] = 1.0
         info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
 
         // Carry over existing artwork (set separately by updateNowPlayingArtworkIfNeeded)

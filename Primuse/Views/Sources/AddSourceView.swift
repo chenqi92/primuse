@@ -289,7 +289,7 @@ struct AddSourceView: View {
             name = device.name
             host = device.host
             port = "\(device.port)"
-            useSsl = sourceType.defaultSSL
+            useSsl = device.preferredUseSsl ?? sourceType.defaultSSL
             if sourceType == .plex {
                 authType = .apiKey
             } else if [.local, .nfs, .upnp].contains(sourceType) {

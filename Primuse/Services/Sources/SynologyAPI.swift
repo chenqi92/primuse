@@ -8,7 +8,8 @@ actor SynologyAPI {
 
     var baseURLString: String {
         let scheme = useSsl ? "https" : "http"
-        return "\(scheme)://\(host):\(port)"
+        return NetworkURLBuilder.baseURLString(host: host, scheme: scheme, port: port)
+            ?? "\(scheme)://localhost:\(port)"
     }
 
     private var baseURL: String { baseURLString }
