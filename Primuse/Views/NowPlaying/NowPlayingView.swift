@@ -67,7 +67,8 @@ struct NowPlayingView: View {
                             // Tappable cover + title → switch back to cover mode
                             HStack(spacing: 10) {
                                 CachedArtworkView(
-                                    coverFileName: player.currentSong?.coverArtFileName,
+                                    coverRef: player.currentSong?.coverArtFileName,
+                                    songID: player.currentSong?.id ?? "",
                                     size: 44, cornerRadius: 6,
                                     sourceID: player.currentSong?.sourceID,
                                     filePath: player.currentSong?.filePath
@@ -106,7 +107,8 @@ struct NowPlayingView: View {
 
                         // Artwork
                         CachedArtworkView(
-                            coverFileName: player.currentSong?.coverArtFileName,
+                            coverRef: player.currentSong?.coverArtFileName,
+                            songID: player.currentSong?.id ?? "",
                             size: artSize, cornerRadius: 12,
                             sourceID: player.currentSong?.sourceID,
                             filePath: player.currentSong?.filePath

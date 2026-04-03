@@ -195,7 +195,7 @@ actor SynologyScanner {
         var sampleRate: Int?
         var bitRate: Int?
         var bitDepth: Int?
-        var coverArtFileName: String?
+        let coverArtFileName: String? = nil
 
         // Try to download file header and parse with AVFoundation
         do {

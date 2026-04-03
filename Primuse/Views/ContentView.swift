@@ -76,13 +76,10 @@ struct PlayerOverlay: View {
     @State private var isDismissing = false
     @State private var dismissScale: CGFloat = 1
     @State private var dismissOpacity: CGFloat = 1
-
-    private let screenHeight = UIScreen.main.bounds.height
+    @State private var screenHeight: CGFloat = 900
 
     /// Device screen corner radius (matches physical display)
-    private let deviceCornerRadius: CGFloat = {
-        UIScreen.main.value(forKey: ["_display", "Corner", "Radius"].joined()) as? CGFloat ?? 55
-    }()
+    private let deviceCornerRadius: CGFloat = 55
 
     private var dismissProgress: CGFloat {
         min(1, max(0, dragOffset / 400))
@@ -101,6 +98,11 @@ struct PlayerOverlay: View {
 
     var body: some View {
         NowPlayingView()
+            .background {
+                GeometryReader { geo in
+                    Color.clear.onAppear { screenHeight = geo.size.height }
+                }
+            }
             .clipShape(
                 UnevenRoundedRectangle(
                     topLeadingRadius: topCornerRadius,
@@ -174,7 +176,8 @@ struct NowPlayingAccessory: View {
             HStack(spacing: 0) {
                 // Fixed left: cover art
                 CachedArtworkView(
-                    coverFileName: player.currentSong?.coverArtFileName,
+                    coverRef: player.currentSong?.coverArtFileName,
+                    songID: player.currentSong?.id ?? "",
                     size: isInline ? 32 : 40,
                     cornerRadius: isInline ? 6 : 8,
                     sourceID: player.currentSong?.sourceID,

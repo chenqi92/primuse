@@ -976,8 +976,6 @@ final class AudioPlayerService {
                 return
             }
 
-            // Apply ReplayGain for next track on crossfade node
-            let settings = playbackSettings.snapshot()
             // Note: ReplayGain for crossfade node would need per-node volume tracking
             // For now, apply after swap
 
@@ -1276,23 +1274,53 @@ final class AudioPlayerService {
 
         guard let songID else { return }
         let coverRef = currentSong?.coverArtFileName
+        let capturedSourceID = currentSong?.sourceID
+        let capturedFilePath = currentSong?.filePath
+        let capturedSourceManager = sourceManager
 
         Task.detached(priority: .userInitiated) { [weak self] in
             guard self != nil else { return }
             let store = MetadataAssetStore.shared
             let artworkDir = store.artworkDirectoryURL
 
-            // Try songID-based cache first
+            // Tier 1: songID-based cache
             var loadedImage: UIImage?
             let hashedName = store.expectedCoverFileName(for: songID)
             if let data = try? Data(contentsOf: artworkDir.appendingPathComponent(hashedName)) {
                 loadedImage = UIImage(data: data)
             }
 
-            // Fallback: legacy filename
+            // Tier 2: legacy filename (local hashed filename, no "/" or "://")
             if loadedImage == nil, let coverRef, !coverRef.isEmpty,
                !coverRef.contains("/"), !coverRef.contains("://") {
                 if let data = try? Data(contentsOf: artworkDir.appendingPathComponent(coverRef)) {
+                    loadedImage = UIImage(data: data)
+                }
+            }
+
+            // Tier 3: source fetch — URL reference or sidecar path
+            if loadedImage == nil, let coverRef, !coverRef.isEmpty {
+                var fetchedData: Data?
+                // Full URL (media server API)
+                if coverRef.contains("://"), let url = URL(string: coverRef) {
+                    let config = URLSessionConfiguration.default
+                    config.timeoutIntervalForRequest = 10
+                    let session = URLSession(configuration: config)
+                    fetchedData = try? await session.data(from: url).0
+                }
+                // Sidecar path on source (contains "/" but no "://")
+                else if coverRef.contains("/"), let sourceID = capturedSourceID,
+                        let sourceManager = capturedSourceManager {
+                    if let imageURL = await sourceManager.imageURL(for: coverRef, sourceID: sourceID) {
+                        let config = URLSessionConfiguration.default
+                        config.timeoutIntervalForRequest = 10
+                        let session = URLSession(configuration: config)
+                        fetchedData = try? await session.data(from: imageURL).0
+                    }
+                }
+                if let data = fetchedData {
+                    // Cache for next time
+                    await store.cacheCover(data, forSongID: songID)
                     loadedImage = UIImage(data: data)
                 }
             }
@@ -1328,7 +1356,7 @@ final class AudioPlayerService {
     /// Must be nonisolated so the closure doesn't inherit @MainActor isolation —
     /// MediaPlayer calls the handler on a background dispatch queue.
     nonisolated private static func makeArtwork(from image: UIImage) -> MPMediaItemArtwork {
-        nonisolated(unsafe) let safeImage = image
+        let safeImage = image
         return MPMediaItemArtwork(boundsSize: image.size) { _ in safeImage }
     }
 

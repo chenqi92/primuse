@@ -23,7 +23,7 @@ final class LiveActivityManager {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
 
         // Write cover image to App Group shared container
-        let coverName = writeCoverToSharedContainer(coverFileName: song.coverArtFileName)
+        let coverName = writeCoverToSharedContainer(song: song)
 
         let attributes = PlaybackActivityAttributes(
             songTitle: song.title,
@@ -86,18 +86,29 @@ final class LiveActivityManager {
 
     /// Writes a downscaled cover image to the App Group shared container.
     /// Returns the filename if successful, nil otherwise.
-    private func writeCoverToSharedContainer(coverFileName: String?) -> String? {
-        guard let coverFileName, !coverFileName.isEmpty,
-              let containerURL = Self.containerURL else {
-            return nil
+    private func writeCoverToSharedContainer(song: Song) -> String? {
+        guard let containerURL = Self.containerURL else { return nil }
+
+        let store = MetadataAssetStore.shared
+
+        // Try songID-based cache first (works with source path references)
+        var coverData: Data?
+        let hashedName = store.expectedCoverFileName(for: song.id)
+        let hashedURL = Self.artworkDir.appendingPathComponent(hashedName)
+        if FileManager.default.fileExists(atPath: hashedURL.path) {
+            coverData = try? Data(contentsOf: hashedURL)
         }
 
-        // Find the source cover file
-        let sourceURL = Self.artworkDir.appendingPathComponent(coverFileName)
+        // Fallback: legacy local filename (no "/" or "://")
+        if coverData == nil, let ref = song.coverArtFileName, !ref.isEmpty,
+           !ref.contains("/"), !ref.contains("://") {
+            let legacyURL = Self.artworkDir.appendingPathComponent(ref)
+            if FileManager.default.fileExists(atPath: legacyURL.path) {
+                coverData = try? Data(contentsOf: legacyURL)
+            }
+        }
 
-        guard FileManager.default.fileExists(atPath: sourceURL.path),
-              let data = try? Data(contentsOf: sourceURL),
-              let originalImage = UIImage(data: data) else {
+        guard let data = coverData, let originalImage = UIImage(data: data) else {
             return nil
         }
 

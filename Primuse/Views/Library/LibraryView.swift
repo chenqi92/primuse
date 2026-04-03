@@ -161,6 +161,7 @@ struct LibraryView: View {
                     title: album.title,
                     subtitle: album.artistName ?? "",
                     coverFileName: firstSong?.coverArtFileName,
+                    songID: firstSong?.id,
                     sourceID: firstSong?.sourceID,
                     filePath: firstSong?.filePath,
                     song: nil,
@@ -174,6 +175,7 @@ struct LibraryView: View {
                 title: song.title,
                 subtitle: song.artistName ?? "",
                 coverFileName: song.coverArtFileName,
+                songID: song.id,
                 sourceID: song.sourceID,
                 filePath: song.filePath,
                 song: song,
@@ -213,6 +215,7 @@ struct RecentItem: Identifiable {
     let title: String
     let subtitle: String
     let coverFileName: String?
+    let songID: String?
     let sourceID: String?
     let filePath: String?
     let song: Song?
@@ -224,7 +227,7 @@ struct RecentItemCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            CachedArtworkView(coverFileName: item.coverFileName, cornerRadius: 8,
+            CachedArtworkView(coverRef: item.coverFileName, songID: item.songID ?? "", cornerRadius: 8,
                               sourceID: item.sourceID, filePath: item.filePath)
                 .aspectRatio(1, contentMode: .fit)
                 .shadow(color: .black.opacity(0.08), radius: 4, y: 2)

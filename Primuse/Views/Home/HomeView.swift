@@ -166,7 +166,8 @@ struct HomeView: View {
                     let song = library.songs(forAlbum: album.id).first
 
                     CachedArtworkView(
-                        coverFileName: song?.coverArtFileName,
+                        coverRef: song?.coverArtFileName,
+                        songID: song?.id ?? "",
                         size: 72,
                         cornerRadius: 18,
                         sourceID: song?.sourceID,
@@ -244,11 +245,13 @@ struct HomeView: View {
                     ForEach(library.recentlyAddedAlbums(limit: 10)) { album in
                         Button { playAlbum(album) } label: {
                             VStack(alignment: .leading, spacing: 6) {
+                                let albumSong = library.songs(forAlbum: album.id).first
                                 CachedArtworkView(
-                                    coverFileName: library.songs(forAlbum: album.id).first?.coverArtFileName,
+                                    coverRef: albumSong?.coverArtFileName,
+                                    songID: albumSong?.id ?? "",
                                     size: 140, cornerRadius: 8,
-                                    sourceID: library.songs(forAlbum: album.id).first?.sourceID,
-                                    filePath: library.songs(forAlbum: album.id).first?.filePath
+                                    sourceID: albumSong?.sourceID,
+                                    filePath: albumSong?.filePath
                                 )
                                 .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
                                 Text(album.title).font(.caption).fontWeight(.medium).lineLimit(1)
@@ -374,7 +377,7 @@ struct RecentPlayCard: View {
     let song: Song
     var body: some View {
         HStack(spacing: 10) {
-            CachedArtworkView(coverFileName: song.coverArtFileName, size: 48, cornerRadius: 6, sourceID: song.sourceID, filePath: song.filePath)
+            CachedArtworkView(coverRef: song.coverArtFileName, songID: song.id, size: 48, cornerRadius: 6, sourceID: song.sourceID, filePath: song.filePath)
             VStack(alignment: .leading, spacing: 2) {
                 Text(song.title).font(.caption).fontWeight(.medium).lineLimit(1)
                 Text(song.artistName ?? "").font(.caption2).foregroundStyle(.secondary).lineLimit(1)

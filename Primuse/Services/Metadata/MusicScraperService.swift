@@ -158,24 +158,89 @@ final class MusicScraperService {
                 scrapingTask = nil
             }
 
-            // Phase 1: Scrape song metadata
+            let settings = ScraperSettings.load()
+            let onlyFillMissing = settings.onlyFillMissingFields && !forceRescrape
+
+            // Phase 1: Scrape song metadata + write sidecar files
             for song in songs {
                 guard !Task.isCancelled else { return }
 
                 currentSongTitle = song.title
 
                 do {
-                    guard let updatedSong = try await processedSong(song, forceRescrape: forceRescrape) else {
+                    guard let result = try await processedSongWithAssets(song, forceRescrape: forceRescrape) else {
                         processedCount += 1
                         skippedCount += 1
                         continue
                     }
 
                     processedCount += 1
+                    var updatedSong = result.song
 
                     if updatedSong != song {
                         library.replaceSong(updatedSong)
                         updatedCount += 1
+
+                        // Determine which sidecar data to write based on fill/overwrite mode
+                        let shouldWriteCover: Bool
+                        let shouldWriteLyrics: Bool
+                        if onlyFillMissing {
+                            // Only write if the song was missing cover/lyrics before
+                            shouldWriteCover = song.coverArtFileName == nil && result.coverData != nil
+                            shouldWriteLyrics = song.lyricsFileName == nil && result.lyricsLines != nil
+                        } else {
+                            // Overwrite mode: write if we got new data
+                            shouldWriteCover = result.coverData != nil
+                            shouldWriteLyrics = result.lyricsLines != nil
+                        }
+
+                        let coverData = shouldWriteCover ? result.coverData : nil
+                        let lyricsLines = shouldWriteLyrics ? result.lyricsLines : nil
+
+                        if coverData != nil || lyricsLines != nil {
+                            let songForWrite = updatedSong
+                            let sourceManager = self.sourceManager
+                            let songID = updatedSong.id
+
+                            // Write sidecar files to source asynchronously (don't block scraping loop)
+                            Task { @MainActor in
+                                do {
+                                    let connector = try await sourceManager.auxiliaryConnector(for: songForWrite)
+                                    let writeResult = await SidecarWriteService.shared.writeSidecars(
+                                        for: songForWrite, using: connector,
+                                        coverData: coverData, lyricsLines: lyricsLines
+                                    )
+
+                                    // Update Song refs to point to sidecar paths on source
+                                    let songDir = (songForWrite.filePath as NSString).deletingLastPathComponent
+                                    let baseNameNoExt = ((songForWrite.filePath as NSString).lastPathComponent as NSString).deletingPathExtension
+                                    var needsUpdate = false
+                                    var refSong = songForWrite
+
+                                    if writeResult.coverWritten {
+                                        let coverPath = (songDir as NSString).appendingPathComponent("\(baseNameNoExt)-cover.jpg")
+                                        refSong.coverArtFileName = coverPath
+                                        await MetadataAssetStore.shared.invalidateCoverCache(forSongID: songID)
+                                        needsUpdate = true
+                                    }
+                                    if writeResult.lyricsWritten {
+                                        let lrcPath = (songDir as NSString).appendingPathComponent("\(baseNameNoExt).lrc")
+                                        refSong.lyricsFileName = lrcPath
+                                        needsUpdate = true
+                                    }
+
+                                    if needsUpdate {
+                                        library.replaceSong(refSong)
+                                    }
+
+                                    if !writeResult.errors.isEmpty {
+                                        plog("⚠️ Batch sidecar errors for '\(songForWrite.title)': \(writeResult.errors)")
+                                    }
+                                } catch {
+                                    plog("⚠️ Batch sidecar skipped for '\(songForWrite.title)': \(error.localizedDescription)")
+                                }
+                            }
+                        }
                     } else {
                         skippedCount += 1
                     }

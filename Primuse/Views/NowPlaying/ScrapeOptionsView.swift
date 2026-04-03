@@ -94,7 +94,7 @@ struct ScrapeOptionsView: View {
         Form {
             Section {
                 HStack(spacing: 12) {
-                    CachedArtworkView(coverFileName: song.coverArtFileName, size: 56, cornerRadius: 8)
+                    CachedArtworkView(coverRef: song.coverArtFileName, songID: song.id, size: 56, cornerRadius: 8, sourceID: song.sourceID, filePath: song.filePath)
                     VStack(alignment: .leading, spacing: 3) {
                         Text(song.title).font(.subheadline).fontWeight(.semibold).lineLimit(1)
                         Text(song.artistName ?? "").font(.caption).foregroundStyle(Color(.systemGray)).lineLimit(1)
@@ -207,7 +207,7 @@ struct ScrapeOptionsView: View {
                                 HStack(spacing: 8) {
                                     // Current cover
                                     VStack(spacing: 2) {
-                                        CachedArtworkView(coverFileName: song.coverArtFileName, size: 56, cornerRadius: 6)
+                                        CachedArtworkView(coverRef: song.coverArtFileName, songID: song.id, size: 56, cornerRadius: 6, sourceID: song.sourceID, filePath: song.filePath)
                                         Text("current").font(.system(size: 9)).foregroundStyle(.secondary)
                                     }
                                     Image(systemName: "arrow.right").font(.caption2).foregroundStyle(.tertiary)
@@ -219,7 +219,7 @@ struct ScrapeOptionsView: View {
                                                 .frame(width: 56, height: 56)
                                                 .clipShape(RoundedRectangle(cornerRadius: 6))
                                         } else {
-                                            CachedArtworkView(coverFileName: preview.updatedSong.coverArtFileName, size: 56, cornerRadius: 6)
+                                            CachedArtworkView(coverRef: preview.updatedSong.coverArtFileName, songID: preview.updatedSong.id, size: 56, cornerRadius: 6, sourceID: song.sourceID, filePath: song.filePath)
                                         }
                                         Text("new").font(.system(size: 9)).foregroundStyle(.green)
                                     }

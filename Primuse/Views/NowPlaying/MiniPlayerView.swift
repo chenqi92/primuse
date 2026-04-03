@@ -11,7 +11,13 @@ struct MiniPlayerView: View {
         } label: {
             HStack(spacing: 0) {
                 // Fixed left: cover art
-                CachedArtworkView(coverFileName: player.currentSong?.coverArtFileName, size: 40, cornerRadius: 8)
+                CachedArtworkView(
+                    coverRef: player.currentSong?.coverArtFileName,
+                    songID: player.currentSong?.id ?? "",
+                    size: 40, cornerRadius: 8,
+                    sourceID: player.currentSong?.sourceID,
+                    filePath: player.currentSong?.filePath
+                )
                     .padding(.trailing, 10)
 
                 // Flexible middle: song title fills remaining space

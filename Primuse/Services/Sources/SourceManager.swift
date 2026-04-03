@@ -154,11 +154,6 @@ final class SourceManager {
                 secretKey: KeychainService.getPassword(for: source.id) ?? "",
                 useSsl: source.useSsl
             )
-        default:
-            connector = UnsupportedSourceConnector(
-                sourceID: source.id,
-                sourceType: source.type
-            )
         }
 
         if cache {

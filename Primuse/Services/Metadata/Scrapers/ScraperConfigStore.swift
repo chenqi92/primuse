@@ -3,7 +3,7 @@ import Foundation
 /// Manages storage and retrieval of user-imported ScraperConfig JSON files.
 /// Configs are stored as individual .json files in Application Support/Primuse/ScraperConfigs/.
 final class ScraperConfigStore: @unchecked Sendable {
-    nonisolated(unsafe) static let shared = ScraperConfigStore()
+    static let shared = ScraperConfigStore()
 
     private let configDir: URL
     private var cache: [String: ScraperConfig] = [:]

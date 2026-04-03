@@ -18,8 +18,8 @@ final class ThemeService {
     // MARK: - Defaults
 
     /// Fallback accent when nothing is playing (current brand blue-purple)
-    nonisolated(unsafe) static let defaultAccent = Color(red: 0.392, green: 0.318, blue: 0.976)       // #6451F9
-    nonisolated(unsafe) static let defaultDarkAccent = Color(red: 0.22, green: 0.15, blue: 0.56)
+    static let defaultAccent = Color(red: 0.392, green: 0.318, blue: 0.976)       // #6451F9
+    static let defaultDarkAccent = Color(red: 0.22, green: 0.15, blue: 0.56)
 
     // MARK: - Cover directory (via MetadataAssetStore)
 
@@ -61,14 +61,16 @@ final class ThemeService {
         }
 
         // Extract on background, apply on main
-        Task.detached(priority: .userInitiated) { [weak self] in
+        let capturedSongID = songID
+        let capturedFileName = fileName
+        Task.detached(priority: .userInitiated) {
             let result = Self.extractDominantColor(from: resolvedImage)
-            await MainActor.run {
+            await MainActor.run { [weak self] in
                 guard let self else { return }
                 withAnimation(.easeInOut(duration: 0.6)) {
                     self.accentColor = result.accent
                     self.darkAccent = result.dark
-                    self.colorID = songID ?? fileName ?? "default"
+                    self.colorID = capturedSongID ?? capturedFileName ?? "default"
                 }
             }
         }
