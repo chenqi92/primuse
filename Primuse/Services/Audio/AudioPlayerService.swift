@@ -1305,7 +1305,7 @@ final class AudioPlayerService {
                 if coverRef.contains("://"), let url = URL(string: coverRef) {
                     let config = URLSessionConfiguration.default
                     config.timeoutIntervalForRequest = 10
-                    let session = URLSession(configuration: config)
+                    let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
                     fetchedData = try? await session.data(from: url).0
                 }
                 // Sidecar path on source (contains "/" but no "://")
@@ -1314,7 +1314,7 @@ final class AudioPlayerService {
                     if let imageURL = await sourceManager.imageURL(for: coverRef, sourceID: sourceID) {
                         let config = URLSessionConfiguration.default
                         config.timeoutIntervalForRequest = 10
-                        let session = URLSession(configuration: config)
+                        let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
                         fetchedData = try? await session.data(from: imageURL).0
                     }
                 }
@@ -1325,7 +1325,23 @@ final class AudioPlayerService {
                 }
             }
 
-            await MainActor.run {
+            // Tier 4: embedded cover extraction from locally cached audio file
+            if loadedImage == nil, let sourceID = capturedSourceID, let filePath = capturedFilePath,
+               let sourceManager = capturedSourceManager {
+                let dummySong = Song(id: "", title: "", fileFormat: .mp3, filePath: filePath,
+                                     sourceID: sourceID, fileSize: 0, dateAdded: Date())
+                if let cachedURL = await sourceManager.cachedURL(for: dummySong) {
+                    let metadata = await FileMetadataReader.read(from: cachedURL)
+                    if let coverData = metadata.coverArtData {
+                        await store.cacheCover(coverData, forSongID: songID)
+                        loadedImage = UIImage(data: coverData)
+                    }
+                }
+            }
+
+            // Guard: make sure we're still on the same song before updating NowPlaying
+            await MainActor.run { [weak self] in
+                guard let self, self.currentSong?.id == songID else { return }
                 var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
                 if let image = loadedImage {
                     info[MPMediaItemPropertyArtwork] = Self.makeArtwork(from: image)

@@ -106,8 +106,9 @@ final class MusicScraperService {
                         if writeResult.coverWritten {
                             let coverPath = (songDir as NSString).appendingPathComponent("\(baseNameNoExt)-cover.jpg")
                             refSong.coverArtFileName = coverPath
-                            // Invalidate local cache so next display fetches from source
+                            // Invalidate both disk and memory cache so views refetch from source
                             await MetadataAssetStore.shared.invalidateCoverCache(forSongID: songID)
+                            CachedArtworkView.invalidateCache(for: songID)
                             needsUpdate = true
                         }
                         if writeResult.lyricsWritten {
@@ -220,7 +221,9 @@ final class MusicScraperService {
                                     if writeResult.coverWritten {
                                         let coverPath = (songDir as NSString).appendingPathComponent("\(baseNameNoExt)-cover.jpg")
                                         refSong.coverArtFileName = coverPath
+                                        // Invalidate both disk and memory cache so views refetch from source
                                         await MetadataAssetStore.shared.invalidateCoverCache(forSongID: songID)
+                                        CachedArtworkView.invalidateCache(for: songID)
                                         needsUpdate = true
                                     }
                                     if writeResult.lyricsWritten {

@@ -304,6 +304,7 @@
 "sample_rate_label" = "Sample Rate";
 "bit_depth_label" = "Bit Depth";
 "duration_label" = "Duration";
+"source_label" = "Source";
 
 // MARK: - SSL Trust
 "trusted_domains" = "Trusted Domains";

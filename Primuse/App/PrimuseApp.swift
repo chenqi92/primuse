@@ -56,6 +56,17 @@ struct PrimuseApp: App {
                         songID: playerService.currentSong?.id
                     )
                 }
+                // Sync player when library replaces a song (e.g. batch scraping updates metadata)
+                .onChange(of: musicLibrary.songReplacementToken) { _, _ in
+                    guard let updated = musicLibrary.lastReplacedSong,
+                          playerService.currentSong?.id == updated.id else { return }
+                    playerService.syncSongMetadata(updated)
+                    playerService.forceRefreshNowPlayingArtwork()
+                    themeService.updateFromCoverArt(
+                        fileName: updated.coverArtFileName,
+                        songID: updated.id
+                    )
+                }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
                     playerService.handleAppWillResignActive()
                     musicLibrary.persistNow()

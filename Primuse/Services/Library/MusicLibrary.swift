@@ -162,9 +162,16 @@ final class MusicLibrary {
         persistSnapshot()
     }
 
+    /// Most recently replaced song — observable so consumers (e.g. player) can sync.
+    /// Use songReplacementToken for onChange triggers (it changes on every replace, even same song).
+    private(set) var lastReplacedSong: Song?
+    private(set) var songReplacementToken = UUID()
+
     func replaceSong(_ updatedSong: Song) {
         guard let index = songs.firstIndex(where: { $0.id == updatedSong.id }) else { return }
         songs[index] = updatedSong
+        lastReplacedSong = updatedSong
+        songReplacementToken = UUID()
         rebuildIndex()
         cleanPlaylistEntries()
         cleanPlaybackHistoryEntries()

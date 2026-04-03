@@ -176,7 +176,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
 
     public var supports2FA: Bool {
         switch self {
-        case .synology: return true
+        case .synology, .qnap, .ugreen, .fnos: return true
         default: return false
         }
     }

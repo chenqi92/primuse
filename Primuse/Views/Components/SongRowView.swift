@@ -3,6 +3,7 @@ import PrimuseKit
 
 struct SongRowView: View {
     @Environment(MusicLibrary.self) private var library
+    @Environment(SourcesStore.self) private var sourcesStore
     let song: Song
     var isPlaying: Bool = false
     var showAlbum: Bool = true
@@ -52,6 +53,12 @@ struct SongRowView: View {
                     if showAlbum, let album = song.albumTitle {
                         Text("·")
                         Text(album)
+                    }
+                    if sourcesStore.sources.count > 1,
+                       let source = sourcesStore.source(id: song.sourceID) {
+                        Text("·")
+                        Image(systemName: source.type.iconName)
+                        Text(source.name)
                     }
                 }
                 .font(.caption)

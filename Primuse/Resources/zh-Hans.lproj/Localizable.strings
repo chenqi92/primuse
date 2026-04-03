@@ -304,6 +304,7 @@
 "sample_rate_label" = "采样率";
 "bit_depth_label" = "位深";
 "duration_label" = "时长";
+"source_label" = "来源";
 
 // MARK: - SSL Trust
 "trusted_domains" = "受信任的域名";

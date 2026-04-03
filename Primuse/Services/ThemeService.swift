@@ -18,8 +18,8 @@ final class ThemeService {
     // MARK: - Defaults
 
     /// Fallback accent when nothing is playing (current brand blue-purple)
-    static let defaultAccent = Color(red: 0.392, green: 0.318, blue: 0.976)       // #6451F9
-    static let defaultDarkAccent = Color(red: 0.22, green: 0.15, blue: 0.56)
+    nonisolated(unsafe) static let defaultAccent = Color(red: 0.392, green: 0.318, blue: 0.976)       // #6451F9
+    nonisolated(unsafe) static let defaultDarkAccent = Color(red: 0.22, green: 0.15, blue: 0.56)
 
     // MARK: - Cover directory (via MetadataAssetStore)
 

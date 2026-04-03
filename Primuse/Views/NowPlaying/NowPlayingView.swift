@@ -8,6 +8,7 @@ struct NowPlayingView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(SourceManager.self) private var sourceManager
+    @Environment(SourcesStore.self) private var sourcesStore
     @State private var showLyrics = false
     @State private var showQueue = false
     @State private var lyrics: [LyricLine] = []
@@ -221,11 +222,17 @@ struct NowPlayingView: View {
                     }
                     .font(.body).padding(.horizontal, 46).padding(.top, 12)
 
-                    // Format
+                    // Format & source
                     if let song = player.currentSong {
                         HStack(spacing: 4) {
                             Text(song.fileFormat.displayName)
                             if let sr = song.sampleRate { Text("·"); Text("\(sr / 1000)kHz") }
+                            if sourcesStore.sources.count > 1,
+                               let source = sourcesStore.source(id: song.sourceID) {
+                                Text("·")
+                                Image(systemName: source.type.iconName)
+                                Text(source.name)
+                            }
                         }
                         .font(.caption2).foregroundStyle(.white.opacity(0.3)).padding(.top, 4).padding(.bottom, 6)
                     }
@@ -577,6 +584,7 @@ struct VolumeSlider: View {
 struct SongInfoSheet: View {
     let song: Song
     @Environment(\.dismiss) private var dismiss
+    @Environment(SourcesStore.self) private var sourcesStore
 
     var body: some View {
         NavigationStack {
@@ -597,6 +605,9 @@ struct SongInfoSheet: View {
                         infoRow(String(localized: "bit_depth_label"), "\(bits) bit")
                     }
                     infoRow(String(localized: "duration_label"), formatDuration(song.duration))
+                    if let source = sourcesStore.source(id: song.sourceID) {
+                        infoRow(String(localized: "source_label"), source.name)
+                    }
                 }
             }
             .navigationTitle(String(localized: "song_info"))
