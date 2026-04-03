@@ -11,6 +11,7 @@ struct ScrapeOptionsView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var mode: ScrapeMode = .options
+    @State private var previewSource: ScrapeMode = .options
     @State private var scrapeMetadata = true
     @State private var scrapeCover = true
     @State private var scrapeLyrics = true
@@ -249,6 +250,11 @@ struct ScrapeOptionsView: View {
                 }
 
                 Section {
+                    if previewSource == .manual {
+                        Button { mode = .manual } label: {
+                            Text(String(localized: "back_to_results"))
+                        }
+                    }
                     Button { mode = .options } label: { Text("back_to_options") }
                 }
             }
@@ -411,6 +417,7 @@ struct ScrapeOptionsView: View {
             applyCover = true
             applyLyrics = true
 
+            previewSource = .options
             mode = .preview
         } catch {
             isScraping = false
@@ -476,7 +483,6 @@ struct ScrapeOptionsView: View {
     }
 
     private func selectManualResult(_ item: SearchResultItem) async {
-        mode = .options
         isScraping = true
 
         do {
@@ -555,6 +561,7 @@ struct ScrapeOptionsView: View {
             applyGenre = updated.genre != song.genre && updated.genre != nil
             applyCover = hasCover
             applyLyrics = hasLyrics
+            previewSource = .manual
             mode = .preview
         } catch {
             isScraping = false

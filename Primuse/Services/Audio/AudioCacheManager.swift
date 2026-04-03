@@ -67,6 +67,15 @@ actor AudioCacheManager {
         totalCacheSizeSync()
     }
 
+    /// Remove a single cache entry by its relative path.
+    func removeEntry(path: String) {
+        ensureInitialized()
+        let fileURL = basePath.appendingPathComponent(path)
+        try? FileManager.default.removeItem(at: fileURL)
+        accessLog[path] = nil
+        schedulePersist()
+    }
+
     func clearAll() {
         accessLog.removeAll()
         try? FileManager.default.removeItem(at: logURL)

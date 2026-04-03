@@ -19,6 +19,7 @@ struct NowPlayingView: View {
     @State private var showAddToPlaylist = false
     @State private var showSongInfo = false
     @State private var showSleepTimer = false
+    @State private var showDeleteConfirm = false
     @Environment(ThemeService.self) private var theme
 
     /// Whether the current song is in any playlist (not a dedicated "favorites" concept)
@@ -289,38 +290,75 @@ struct NowPlayingView: View {
                isPresented: Binding(get: { scrapeAlertMessage != nil }, set: { if !$0 { scrapeAlertMessage = nil } })) {
             Button("done", role: .cancel) {}
         } message: { Text(scrapeAlertMessage ?? "") }
+        .alert(String(localized: "delete_song"), isPresented: $showDeleteConfirm) {
+            Button(String(localized: "cancel"), role: .cancel) {}
+            Button(String(localized: "delete"), role: .destructive) {
+                deleteCurrentSong()
+            }
+        } message: {
+            Text(String(localized: "delete_song_message"))
+        }
+    }
+
+    private func deleteCurrentSong() {
+        guard let song = player.currentSong else { return }
+        // Skip to next before deleting
+        Task { await player.next() }
+        // Clean caches
+        MetadataAssetStore.shared.invalidateCoverCache(forSongID: song.id)
+        MetadataAssetStore.shared.invalidateLyricsCache(forSongID: song.id)
+        CachedArtworkView.invalidateCache(for: song.id)
+        sourceManager.deleteAudioCache(for: song)
+        // Remove from library
+        library.deleteSong(song)
     }
 
     // MARK: - More Menu
 
     private var moreMenu: some View {
         Menu {
-            Button { showScrapeOptions = true } label: {
-                Label(String(localized: "scrape_song"), systemImage: "wand.and.stars")
-            }
-            .disabled(player.currentSong == nil || isScrapingCurrentSong)
-
-            Button { showAddToPlaylist = true } label: {
-                Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
-            }
-            .disabled(player.currentSong == nil)
-
-            Button { showSleepTimer = true } label: {
-                Label(
-                    player.isSleepTimerActive ? String(localized: "sleep_timer_active") : String(localized: "sleep_timer"),
-                    systemImage: "moon.zzz"
-                )
-            }
-
-            Button { showSongInfo = true } label: {
-                Label(String(localized: "song_info"), systemImage: "info.circle")
-            }
-            .disabled(player.currentSong == nil)
-
-            if let song = player.currentSong {
-                ShareLink(item: "\(song.title) - \(song.artistName ?? "")") {
-                    Label(String(localized: "share"), systemImage: "square.and.arrow.up")
+            // Group 1: Music actions
+            Section {
+                Button { showScrapeOptions = true } label: {
+                    Label(String(localized: "scrape_song"), systemImage: "wand.and.stars")
                 }
+                .disabled(player.currentSong == nil || isScrapingCurrentSong)
+
+                Button { showAddToPlaylist = true } label: {
+                    Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
+                }
+                .disabled(player.currentSong == nil)
+            }
+
+            // Group 2: Utilities
+            Section {
+                Button { showSleepTimer = true } label: {
+                    Label(
+                        player.isSleepTimerActive ? String(localized: "sleep_timer_active") : String(localized: "sleep_timer"),
+                        systemImage: "moon.zzz"
+                    )
+                }
+
+                Button { showSongInfo = true } label: {
+                    Label(String(localized: "song_info"), systemImage: "info.circle")
+                }
+                .disabled(player.currentSong == nil)
+
+                if let song = player.currentSong {
+                    ShareLink(item: "\(song.title) - \(song.artistName ?? "")") {
+                        Label(String(localized: "share"), systemImage: "square.and.arrow.up")
+                    }
+                }
+            }
+
+            // Group 3: Destructive
+            Section {
+                Button(role: .destructive) {
+                    showDeleteConfirm = true
+                } label: {
+                    Label(String(localized: "delete_song"), systemImage: "trash")
+                }
+                .disabled(player.currentSong == nil)
             }
         } label: {
             Image(systemName: "ellipsis.circle.fill")

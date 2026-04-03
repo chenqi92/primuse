@@ -233,6 +233,13 @@ final class SourceManager {
         return total
     }
 
+    func deleteAudioCache(for song: Song) {
+        let cacheURL = cacheURL(for: song)
+        try? FileManager.default.removeItem(at: cacheURL)
+        let relativePath = "\(song.sourceID)/\(song.filePath.replacingOccurrences(of: "/", with: "_"))"
+        Task { await AudioCacheManager.shared.removeEntry(path: relativePath) }
+    }
+
     func clearAudioCache() {
         let basePath = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
             .appendingPathComponent(Self.audioCacheDirName)

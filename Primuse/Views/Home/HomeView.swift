@@ -213,25 +213,35 @@ struct HomeView: View {
                 .font(.title3).fontWeight(.bold).padding(.horizontal, 20)
 
             let songs = recentSongs
-            LazyVGrid(columns: [
-                GridItem(.flexible(), spacing: 8),
-                GridItem(.flexible(), spacing: 8)
-            ], spacing: 8) {
-                ForEach(songs) { song in
-                    Button { playSong(song) } label: {
-                        RecentPlayCard(song: song)
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 10) {
+                    // Display in pairs (two rows per column) for compact layout
+                    ForEach(Array(stride(from: 0, to: songs.count, by: 2)), id: \.self) { i in
+                        VStack(spacing: 8) {
+                            Button { playSong(songs[i]) } label: {
+                                RecentPlayCard(song: songs[i])
+                            }
+                            .buttonStyle(.plain)
+
+                            if i + 1 < songs.count {
+                                Button { playSong(songs[i + 1]) } label: {
+                                    RecentPlayCard(song: songs[i + 1])
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .frame(width: 200)
                     }
-                    .buttonStyle(.plain)
                 }
+                .padding(.horizontal, 16)
             }
-            .padding(.horizontal, 16)
         }
     }
 
     private var recentSongs: [Song] {
-        let recent = library.recentlyPlayedSongs(limit: 6)
+        let recent = library.recentlyPlayedSongs(limit: 30)
         if !recent.isEmpty { return recent }
-        return Array(library.songs.sorted { $0.dateAdded > $1.dateAdded }.prefix(6))
+        return Array(library.songs.sorted { $0.dateAdded > $1.dateAdded }.prefix(30))
     }
 
     // MARK: - Recently Added Albums

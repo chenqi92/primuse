@@ -47,6 +47,15 @@ final class MusicLibrary {
         persistSnapshot()
     }
 
+    /// Delete a single song and rebuild index
+    func deleteSong(_ song: Song) {
+        songs.removeAll { $0.id == song.id }
+        cleanPlaylistEntries()
+        cleanPlaybackHistoryEntries()
+        rebuildIndex()
+        persistSnapshot()
+    }
+
     /// Remove all songs for a given source
     func removeSongsForSource(_ sourceID: String) {
         songs.removeAll { $0.sourceID == sourceID }

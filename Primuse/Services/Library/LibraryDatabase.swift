@@ -174,6 +174,12 @@ actor LibraryDatabase {
         }
     }
 
+    func deleteSong(id: String) throws {
+        try dbPool.write { db in
+            _ = try Song.filter(Column("id") == id).deleteAll(db)
+        }
+    }
+
     func deleteSongs(forSource sourceID: String) throws {
         try dbPool.write { db in
             _ = try Song.filter(Column("sourceID") == sourceID).deleteAll(db)

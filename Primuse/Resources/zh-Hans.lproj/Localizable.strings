@@ -117,6 +117,8 @@
 "edit_source" = "编辑音乐源";
 "edit" = "编辑";
 "delete" = "删除";
+"delete_song" = "从资料库删除";
+"delete_song_message" = "歌曲、封面和歌词缓存将被同步删除";
 "scan" = "扫描";
 "password_edit_hint" = "留空则保持当前密码不变";
 "select_directories" = "选择目录";
@@ -181,6 +183,7 @@
 "scrape_compare" = "对比";
 "apply_changes" = "应用更改";
 "back_to_options" = "返回";
+"back_to_results" = "返回搜索结果";
 "title_changed" = "标题已更新";
 "artist_changed" = "艺术家已更新";
 "album_changed" = "专辑已更新";

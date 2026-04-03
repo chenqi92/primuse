@@ -117,6 +117,8 @@
 "edit_source" = "Edit Source";
 "edit" = "Edit";
 "delete" = "Delete";
+"delete_song" = "Delete from Library";
+"delete_song_message" = "The song, cover art and lyrics cache will be removed.";
 "scan" = "Scan";
 "password_edit_hint" = "Leave empty to keep current password";
 "select_directories" = "Select Directories";
@@ -181,6 +183,7 @@
 "scrape_compare" = "Compare";
 "apply_changes" = "Apply Changes";
 "back_to_options" = "Back";
+"back_to_results" = "Back to Results";
 "title_changed" = "Title updated";
 "artist_changed" = "Artist updated";
 "album_changed" = "Album updated";

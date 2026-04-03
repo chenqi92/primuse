@@ -136,6 +136,12 @@ actor MetadataAssetStore {
         try? FileManager.default.removeItem(at: artworkDirectory.appendingPathComponent(fileName))
     }
 
+    /// Remove cached lyrics for a specific song.
+    func invalidateLyricsCache(forSongID songID: String) {
+        let fileName = hashedFileName(for: songID, pathExtension: "json")
+        try? FileManager.default.removeItem(at: lyricsDirectory.appendingPathComponent(fileName))
+    }
+
     /// Check if a reference is an old-style local hashed filename (for migration).
     nonisolated func isLegacyLocalRef(_ ref: String) -> Bool {
         !ref.contains("/") && !ref.contains("://") && ref.hasSuffix(".jpg") || ref.hasSuffix(".json")

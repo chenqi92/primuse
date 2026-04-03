@@ -58,6 +58,7 @@ struct SongListView: View {
             }
             .onAppear { recomputeSorted() }
             .onChange(of: sortOrder) { _, _ in recomputeSorted() }
+            .onChange(of: songs) { _, _ in recomputeSorted() }
         }
     }
 
