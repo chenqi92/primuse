@@ -7,7 +7,7 @@ import Foundation
 final class SSLTrustStore {
     static let shared = SSLTrustStore()
 
-    nonisolated(unsafe) private static let defaultsKey = "primuse_trusted_ssl_domains"
+    private nonisolated static let defaultsKey = "primuse_trusted_ssl_domains"
 
     private(set) var trustedDomains: [String] = []
 

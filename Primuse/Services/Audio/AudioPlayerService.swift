@@ -35,6 +35,7 @@ private final class BufferIteratorBox: @unchecked Sendable {
 final class AudioPlayerService {
     let audioEngine: AudioEngine
     let equalizerService: EqualizerService
+    let audioEffectsService: AudioEffectsService
     private let sourceManager: SourceManager?
     private let library: MusicLibrary?
 
@@ -89,6 +90,7 @@ final class AudioPlayerService {
         self.playbackSettings = playbackSettings
         audioEngine = AudioEngine()
         equalizerService = EqualizerService(audioEngine: audioEngine)
+        audioEffectsService = AudioEffectsService(audioEngine: audioEngine, settingsStore: playbackSettings)
         setupRemoteCommands()
         setupAudioSessionCallbacks()
     }
@@ -228,6 +230,7 @@ final class AudioPlayerService {
         do {
             _ = AudioSessionManager.shared.activatePlaybackSession()
             try audioEngine.setUp()
+            audioEffectsService.applySettings()
             guard let outputFormat = audioEngine.outputFormat else {
                 throw AudioDecoderError.decodingFailed("Audio engine not ready")
             }
@@ -1032,9 +1035,12 @@ final class AudioPlayerService {
                     self.crossfadeTimer = nil
                     self.completeCrossfade(nextSong: nextSong, nextURL: nextURL)
                 } else {
+                    // Equal-power crossfade curve: maintains perceived loudness
+                    // through the transition (no "dip" in the middle like linear)
+                    let angle = Double(progress) * .pi / 2
                     self.audioEngine.setCrossfadeVolumes(
-                        primary: 1.0 - progress,
-                        crossfade: progress
+                        primary: Float(cos(angle)),
+                        crossfade: Float(sin(angle))
                     )
                 }
             }

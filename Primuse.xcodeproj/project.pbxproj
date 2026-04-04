@@ -38,6 +38,7 @@
 		317D2CFBC1073367E52497E6 /* ScraperManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE41DF2E4D5B75A369E0159B /* ScraperManager.swift */; };
 		33E89AD3C7CC59647356AC80 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1C42A7C0A74781060AD9C5EE /* Assets.xcassets */; };
 		34C3EC5C161A5BB8301D2562 /* UPnPBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6034E45EAB5EDE327A29E399 /* UPnPBrowserView.swift */; };
+		367589FBFD1F9D08DA579045 /* AudioEffectsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF8AA866BB34E797214D2656 /* AudioEffectsView.swift */; };
 		36E0CFC3794360116070FDE6 /* NativeAudioDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B638BB94F0E6542668978B3 /* NativeAudioDecoder.swift */; };
 		37095AC2E63B5DE44A74FE29 /* AlbumDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEE2C637A78576C7A05DF5BF /* AlbumDetailView.swift */; };
 		374F3BE97119D0550F06478A /* UgreenSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 404526370F939D7D68BB9F6E /* UgreenSource.swift */; };
@@ -104,6 +105,7 @@
 		8F0445DECEC9F9E78038D931 /* SMBBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFF0DF0592D356324C4E9A4C /* SMBBrowserView.swift */; };
 		94BE0B791A310003362CC3C5 /* FTPSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A0B5BE8B577AB5EBCBCFB9A /* FTPSource.swift */; };
 		96B283F41FBDFCEBD9C0222D /* BaiduPanSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = F40F5CE9382F37C345E04D5B /* BaiduPanSource.swift */; };
+		9718BDDC7D6FFB278B03B5FD /* AudioEffectsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F42D726BE11DCF9A0225625 /* AudioEffectsService.swift */; };
 		971D5EDC7B3FEAC87870DB0D /* MetadataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 645BBABA564E600B40010061 /* MetadataService.swift */; };
 		996C1B4150BF531114D218FD /* SynologySource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E60AA3C090087F657145292 /* SynologySource.swift */; };
 		9B2A49C180BA29D56A74D9CD /* QueueView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D2741FA5052447F5E1B27A4 /* QueueView.swift */; };
@@ -311,6 +313,7 @@
 		7A221B7D8D5901440E56C3F6 /* SynologyScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyScanner.swift; sourceTree = "<group>"; };
 		7B77E91ECC8568E876861750 /* EQPreset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EQPreset.swift; sourceTree = "<group>"; };
 		7D86538AD37BA59C267F1B20 /* QnapAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QnapAPI.swift; sourceTree = "<group>"; };
+		7F42D726BE11DCF9A0225625 /* AudioEffectsService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AudioEffectsService.swift; sourceTree = "<group>"; };
 		80BF155F8BD6EBFBBAA9B83A /* PlaybackSettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSettingsStore.swift; sourceTree = "<group>"; };
 		80D713C15544A72530F3E0ED /* MusicSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicSource.swift; sourceTree = "<group>"; };
 		81BF3B3BCA7A1454E6731DDC /* URL+AudioFormat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "URL+AudioFormat.swift"; sourceTree = "<group>"; };
@@ -358,6 +361,7 @@
 		CACF669ECDE8745A546EE459 /* UgreenAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UgreenAPI.swift; sourceTree = "<group>"; };
 		CAE5ECFCA4B6AB18CC72F7DB /* Album.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Album.swift; sourceTree = "<group>"; };
 		CEE2C637A78576C7A05DF5BF /* AlbumDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumDetailView.swift; sourceTree = "<group>"; };
+		CF8AA866BB34E797214D2656 /* AudioEffectsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AudioEffectsView.swift; sourceTree = "<group>"; };
 		D06E7634CBD07964DD84265F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		D2E3F4A5B6C7D8E9F0A1B2C3 /* ScanService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanService.swift; sourceTree = "<group>"; };
 		D3CFC2BB314F0A2BB166E280 /* AliyunDriveSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AliyunDriveSource.swift; sourceTree = "<group>"; };
@@ -452,6 +456,7 @@
 				3B638BB94F0E6542668978B3 /* NativeAudioDecoder.swift */,
 				80BF155F8BD6EBFBBAA9B83A /* PlaybackSettingsStore.swift */,
 				FF7F66F30F1802BA29DEB696 /* StreamingDownloadDecoder.swift */,
+				7F42D726BE11DCF9A0225625 /* AudioEffectsService.swift */,
 			);
 			path = Audio;
 			sourceTree = "<group>";
@@ -819,6 +824,7 @@
 			children = (
 				181EE28124D9CD151E0338E1 /* EqualizerView.swift */,
 				5E8868307C8B45B391847C2B /* SettingsView.swift */,
+				CF8AA866BB34E797214D2656 /* AudioEffectsView.swift */,
 			);
 			path = Settings;
 			sourceTree = "<group>";
@@ -903,8 +909,6 @@
 				3CBF2EE5C7BEEEFE38045AF9 /* PBXTargetDependency */,
 			);
 			name = PrimuseActivityExtension;
-			packageProductDependencies = (
-			);
 			productName = PrimuseActivityExtension;
 			productReference = 4A09B9F2F4A23C9EAF3DDBA3 /* PrimuseActivityExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
@@ -1173,6 +1177,8 @@
 				5C09CCC8FE4085218C5465FA /* UnsupportedSourceConnector.swift in Sources */,
 				87FF2436F5492C7D7D1D1A26 /* WebDAVBrowserView.swift in Sources */,
 				BCD118DDD7CB7A8F1DCC6BED /* WebDAVSource.swift in Sources */,
+				9718BDDC7D6FFB278B03B5FD /* AudioEffectsService.swift in Sources */,
+				367589FBFD1F9D08DA579045 /* AudioEffectsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

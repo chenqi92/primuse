@@ -13,6 +13,12 @@ struct SettingsView: View {
                     }
 
                     NavigationLink {
+                        AudioEffectsView()
+                    } label: {
+                        Label("audio_effects", systemImage: "waveform.badge.plus")
+                    }
+
+                    NavigationLink {
                         PlaybackSettingsView()
                     } label: {
                         Label("playback_settings", systemImage: "play.circle")

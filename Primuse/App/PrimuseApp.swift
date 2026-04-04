@@ -43,6 +43,7 @@ struct PrimuseApp: App {
                 .environment(playerService)
                 .environment(playerService.audioEngine)
                 .environment(playerService.equalizerService)
+                .environment(playerService.audioEffectsService)
                 .environment(musicLibrary)
                 .environment(sourcesStore)
                 .environment(sourceManager)

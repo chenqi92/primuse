@@ -228,6 +228,35 @@
 "audio_cache_enabled" = "Audio Cache";
 "audio_cache_desc" = "When enabled, played songs are cached locally for faster playback next time. When disabled, temporary files are removed after playback.";
 
+// MARK: - Audio Effects
+"audio_effects" = "Audio Effects";
+
+// Reverb
+"reverb" = "Reverb";
+"reverb_enabled" = "Reverb";
+"reverb_mix" = "Wet/Dry Mix";
+"reverb_desc" = "Add spatial depth to audio, simulating different acoustic environments.";
+"reverb_small_room" = "Small Room";
+"reverb_medium_room" = "Medium Room";
+"reverb_large_room" = "Large Room";
+"reverb_medium_hall" = "Medium Hall";
+"reverb_large_hall" = "Large Hall";
+"reverb_cathedral" = "Cathedral";
+"reverb_plate" = "Plate";
+
+// Compressor / Limiter
+"compressor_limiter" = "Compressor / Limiter";
+"compressor_enabled" = "Compressor";
+"compressor_threshold" = "Threshold";
+"compressor_headroom" = "Head Room";
+"compressor_attack" = "Attack Time";
+"compressor_release" = "Release Time";
+"compressor_gain" = "Makeup Gain";
+"compressor_desc" = "Reduce the dynamic range of audio, making quiet and loud parts more even. Also useful for loudness normalization.";
+"compressor_light" = "Light";
+"compressor_medium" = "Medium";
+"compressor_heavy" = "Heavy";
+
 // MARK: - Equalizer
 "eq_enabled" = "Equalizer";
 "eq_reset" = "Reset";

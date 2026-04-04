@@ -1,3 +1,4 @@
+import AudioToolbox
 import AVFoundation
 import Foundation
 import PrimuseKit
@@ -10,6 +11,8 @@ final class AudioEngine {
     private var crossfadePlayerNode: AVAudioPlayerNode?
     private var playerMixer: AVAudioMixerNode?  // Mixes both playerNodes before EQ
     private(set) var eqNode: AVAudioUnitEQ?
+    private(set) var compressorNode: AVAudioUnitEffect?
+    private(set) var reverbNode: AVAudioUnitReverb?
 
     private(set) var isPlaying = false
     private(set) var outputFormat: AVAudioFormat?
@@ -33,6 +36,15 @@ final class AudioEngine {
         let playerB = AVAudioPlayerNode()
         let mixer = AVAudioMixerNode()
         let eq = AVAudioUnitEQ(numberOfBands: PrimuseConstants.eqBandCount)
+        let compressorDesc = AudioComponentDescription(
+            componentType: kAudioUnitType_Effect,
+            componentSubType: kAudioUnitSubType_DynamicsProcessor,
+            componentManufacturer: kAudioUnitManufacturer_Apple,
+            componentFlags: 0,
+            componentFlagsMask: 0
+        )
+        let compressor = AVAudioUnitEffect(audioComponentDescription: compressorDesc)
+        let reverb = AVAudioUnitReverb()
 
         for (index, frequency) in PrimuseConstants.eqBandFrequencies.enumerated() {
             let band = eq.bands[index]
@@ -43,10 +55,18 @@ final class AudioEngine {
             band.bypass = false
         }
 
+        // Compressor — bypassed until user enables; parameters set by AudioEffectsService
+        compressor.bypass = true
+
+        // Reverb — bypassed until user enables; parameters set by AudioEffectsService
+        reverb.bypass = true
+
         eng.attach(playerA)
         eng.attach(playerB)
         eng.attach(mixer)
         eng.attach(eq)
+        eng.attach(compressor)
+        eng.attach(reverb)
 
         let mainMixer = eng.mainMixerNode
         var format = mainMixer.outputFormat(forBus: 0)
@@ -55,11 +75,13 @@ final class AudioEngine {
             format = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 2)!
         }
 
-        // playerA → mixer, playerB → mixer, mixer → EQ → mainMixer → output
+        // Signal chain: playerA/B → mixer → EQ → Compressor → Reverb → mainMixer → output
         eng.connect(playerA, to: mixer, format: format)
         eng.connect(playerB, to: mixer, format: format)
         eng.connect(mixer, to: eq, format: format)
-        eng.connect(eq, to: mainMixer, format: format)
+        eng.connect(eq, to: compressor, format: format)
+        eng.connect(compressor, to: reverb, format: format)
+        eng.connect(reverb, to: mainMixer, format: format)
 
         playerB.volume = 0 // crossfade node starts silent
 
@@ -68,6 +90,8 @@ final class AudioEngine {
         self.crossfadePlayerNode = playerB
         self.playerMixer = mixer
         self.eqNode = eq
+        self.compressorNode = compressor
+        self.reverbNode = reverb
         self.outputFormat = format
         self.isSetUp = true
         restoreVolume()

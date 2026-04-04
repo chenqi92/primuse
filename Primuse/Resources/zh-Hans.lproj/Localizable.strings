@@ -228,6 +228,35 @@
 "audio_cache_enabled" = "音频缓存";
 "audio_cache_desc" = "启用后，播放过的歌曲将被缓存到本地，下次播放时无需重新下载。关闭后不保留缓存文件。";
 
+// MARK: - 音效
+"audio_effects" = "音效";
+
+// 混响
+"reverb" = "混响";
+"reverb_enabled" = "混响";
+"reverb_mix" = "干/湿混合";
+"reverb_desc" = "为音频添加空间感，模拟不同环境的声学效果。";
+"reverb_small_room" = "小房间";
+"reverb_medium_room" = "中房间";
+"reverb_large_room" = "大房间";
+"reverb_medium_hall" = "中音乐厅";
+"reverb_large_hall" = "大音乐厅";
+"reverb_cathedral" = "大教堂";
+"reverb_plate" = "板式混响";
+
+// 压缩器/限制器
+"compressor_limiter" = "压缩器 / 限制器";
+"compressor_enabled" = "压缩器";
+"compressor_threshold" = "阈值";
+"compressor_headroom" = "余量";
+"compressor_attack" = "启动时间";
+"compressor_release" = "释放时间";
+"compressor_gain" = "增益补偿";
+"compressor_desc" = "减小音频动态范围，使安静和响亮的部分音量更均匀。也可用于响度标准化。";
+"compressor_light" = "轻度";
+"compressor_medium" = "中度";
+"compressor_heavy" = "重度";
+
 // MARK: - 均衡器
 "eq_enabled" = "均衡器";
 "eq_reset" = "重置";
