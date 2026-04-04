@@ -217,6 +217,7 @@ struct MetadataScrapingView: View {
                         Button("cancel", role: .cancel) {
                             scraperService.cancel()
                         }
+                        .buttonStyle(.borderless)
                     }
                 } else {
                     Button("scrape_missing_metadata") {

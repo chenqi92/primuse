@@ -1272,6 +1272,12 @@ final class AudioPlayerService {
         guard songID != lastArtworkFileName else { return }
         lastArtworkFileName = songID
 
+        // Immediately clear stale artwork from previous song so Dynamic Island
+        // doesn't keep showing the old cover while loading the new one.
+        var nowInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
+        nowInfo[MPMediaItemPropertyArtwork] = nil
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nowInfo
+
         guard let songID else { return }
         let coverRef = currentSong?.coverArtFileName
         let capturedSourceID = currentSong?.sourceID

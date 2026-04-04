@@ -255,19 +255,33 @@ final class MusicScraperService {
 
             // Phase 2: Scrape album and artist covers
             guard !Task.isCancelled else { return }
-            await scrapeAlbumAndArtistCovers(in: library)
+
+            let assetStore = MetadataAssetStore.shared
+            let albumsNeedingCover = library.albums.filter { album in
+                !assetStore.hasAlbumCover(forAlbumID: album.id)
+            }
+            let artistsNeedingImage = library.artists.filter { artist in
+                !assetStore.hasArtistImage(forArtistID: artist.id)
+            }
+            totalCount += albumsNeedingCover.count + artistsNeedingImage.count
+
+            await scrapeAlbumAndArtistCovers(
+                in: library,
+                albumsNeedingCover: albumsNeedingCover,
+                artistsNeedingImage: artistsNeedingImage
+            )
         }
     }
 
     /// Batch-fetch album covers and artist images for items missing artwork.
-    private func scrapeAlbumAndArtistCovers(in library: MusicLibrary) async {
-        let assetStore = MetadataAssetStore.shared
+    private func scrapeAlbumAndArtistCovers(
+        in library: MusicLibrary,
+        albumsNeedingCover: [Album],
+        artistsNeedingImage: [Artist]
+    ) async {
         let artworkService = ArtworkFetchService.shared
 
         // Albums without cached cover
-        let albumsNeedingCover = library.albums.filter { album in
-            !assetStore.hasAlbumCover(forAlbumID: album.id)
-        }
         if !albumsNeedingCover.isEmpty {
             plog("🎨 Scraping covers for \(albumsNeedingCover.count) albums...")
             currentSongTitle = String(localized: "scraping_album_covers")
@@ -277,13 +291,11 @@ final class MusicScraperService {
                 _ = await artworkService.fetchAlbumCover(
                     albumTitle: album.title, artistName: album.artistName, albumID: album.id
                 )
+                processedCount += 1
             }
         }
 
         // Artists without cached image
-        let artistsNeedingImage = library.artists.filter { artist in
-            !assetStore.hasArtistImage(forArtistID: artist.id)
-        }
         if !artistsNeedingImage.isEmpty {
             plog("🎨 Scraping images for \(artistsNeedingImage.count) artists...")
             currentSongTitle = String(localized: "scraping_artist_images")
@@ -293,6 +305,7 @@ final class MusicScraperService {
                 _ = await artworkService.fetchArtistImage(
                     artistName: artist.name, artistID: artist.id
                 )
+                processedCount += 1
             }
         }
     }
