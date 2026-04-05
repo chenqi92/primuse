@@ -514,7 +514,7 @@ struct ScrapeOptionsView: View {
             // Download cover art if available (keep in memory, don't store to disk yet)
             var hasCover = false
             var coverData: Data?
-            // Prefer search result's coverUrl (e.g. source_b union_cover) if detail doesn't have one
+            // Prefer search result's coverUrl if detail doesn't have one
             let coverUrl = detail?.coverUrl ?? item.coverUrl ?? nil
             if let coverUrl, let url = URL(string: coverUrl) {
                 var coverRequest = URLRequest(url: url)

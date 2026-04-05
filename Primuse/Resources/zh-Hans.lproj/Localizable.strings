@@ -285,11 +285,6 @@
 "cookie_config_message" = "可选：提供 Cookie 可改善访问效果。留空则使用匿名访问。";
 
 // MARK: - 刮削源描述
-"scraper_source_b_desc" = "国内音乐平台，歌词库丰富";
-"scraper_source_e_desc" = "国内音乐平台，支持歌词和封面";
-"scraper_source_d_desc" = "区域音乐来源，无损音源丰富";
-"scraper_qq_desc" = "国内音乐平台，支持歌词和封面";
-"scraper_source_a_desc" = "国内音乐平台，支持歌词和封面";
 "scraper_musicbrainz_desc" = "开放音乐数据库，支持元数据和封面";
 "scraper_lrclib_desc" = "开放同步歌词数据库";
 "custom_scraper_desc" = "用户导入的刮削源";

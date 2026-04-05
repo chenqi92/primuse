@@ -19,7 +19,7 @@ struct ScraperSettings: Codable, Sendable {
             return settings
         }
 
-        // Migrate from v2 (had hardcoded source_b/source_e/source_d/source_c/source_a types)
+        // Migrate from v2 (had hardcoded third-party scraper types)
         if let data = defaults.data(forKey: v2Key),
            let settings = try? JSONDecoder().decode(ScraperSettings.self, from: data) {
             // v2 sources with old hardcoded types are auto-migrated by MusicScraperType.init(rawValue:)

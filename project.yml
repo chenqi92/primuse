@@ -103,17 +103,6 @@ targets:
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
           NSAllowsLocalNetworking: true
-          NSExceptionDomains:
-            source-b.invalid:
-              NSIncludesSubdomains: true
-              NSExceptionAllowsInsecureHTTPLoads: true
-              NSExceptionRequiresForwardSecrecy: false
-              NSExceptionMinimumTLSVersion: TLSv1.0
-            myqcloud.com:
-              NSIncludesSubdomains: true
-              NSExceptionAllowsInsecureHTTPLoads: true
-              NSExceptionRequiresForwardSecrecy: false
-              NSExceptionMinimumTLSVersion: TLSv1.0
         NSLocalNetworkUsageDescription: "猿音需要访问本地网络以发现和连接您的 NAS 设备、媒体服务器及其他音乐源。"
         NSBonjourServices:
           - "_smb._tcp."

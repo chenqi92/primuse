@@ -378,7 +378,7 @@ actor ConfigurableScraper: MusicScraper {
 // MARK: - Scraper Session Manager
 
 /// URLSession manager with SSL bypass for trusted domains.
-/// Follows the exact same pattern as the proven source_bSessionManager:
+/// URLSession manager that supports SSL bypass for user-configured trusted domains.
 /// - NSObject subclass as URLSessionTaskDelegate
 /// - Stored session property keeps delegate alive
 /// - data(for:delegate:self) ensures task-level delegate is called
@@ -425,7 +425,6 @@ final class ScraperSessionManager: NSObject, URLSessionTaskDelegate, @unchecked 
                 plog("🔒 SSL: TRUSTING \(host) (overriding hostname validation)")
                 // Override the SSL policy to skip hostname validation
                 // This is needed for CDNs where cert CN doesn't match the requested domain
-                // (e.g. *.cdn.myqcloud.com serving source-b.invalid)
                 SecTrustSetPolicies(trust, SecPolicyCreateBasicX509())
                 var error: CFError?
                 if SecTrustEvaluateWithError(trust, &error) {

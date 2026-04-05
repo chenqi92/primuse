@@ -285,11 +285,6 @@
 "cookie_config_message" = "Optional: provide a cookie to improve access. Leave empty for anonymous access.";
 
 // MARK: - Scraper Source Descriptions
-"scraper_source_b_desc" = "Chinese music platform, rich lyrics database";
-"scraper_source_e_desc" = "Chinese music platform, lyrics and covers";
-"scraper_source_d_desc" = "Regional music source, lossless audio focus";
-"scraper_qq_desc" = "Chinese music platform, lyrics and covers";
-"scraper_source_a_desc" = "Chinese music platform, lyrics and covers";
 "scraper_musicbrainz_desc" = "Open music database, metadata and covers";
 "scraper_lrclib_desc" = "Open synced lyrics database";
 "custom_scraper_desc" = "User-imported scraper";
