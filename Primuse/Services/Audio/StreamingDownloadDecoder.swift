@@ -194,6 +194,7 @@ final class StreamingDownloadDecoder: Sendable {
                     }
                     if !Task.isCancelled {
                         plog("⚠️ SFBDecoder failed: \(error.localizedDescription)")
+                        await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
                         continuation.finish(throwing: error)
                     }
                 }

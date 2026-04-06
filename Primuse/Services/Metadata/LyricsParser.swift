@@ -32,4 +32,19 @@ enum LyricsParser {
         let content = try String(contentsOf: url, encoding: .utf8)
         return parse(content)
     }
+
+    /// Parses plain text lyrics (non-LRC) or embedded LRC content.
+    /// If the text contains LRC timestamps, parses as LRC; otherwise treats each line as a lyric line.
+    static func parseText(_ text: String) -> [LyricLine] {
+        // Check if text contains LRC timestamps
+        let lrcResult = parse(text)
+        if !lrcResult.isEmpty { return lrcResult }
+
+        // Plain text: each non-empty line becomes a lyric line (no timestamps)
+        return text.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .enumerated()
+            .map { LyricLine(timestamp: 0, text: $0.element) }
+    }
 }

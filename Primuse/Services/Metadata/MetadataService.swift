@@ -27,6 +27,7 @@ actor MetadataService {
     func loadMetadata(for url: URL, cacheKey: String? = nil) async -> SongMetadata {
         // 1. Read embedded metadata
         let embedded = await FileMetadataReader.read(from: url)
+        NSLog("📖 FileMetadataReader: title=\(embedded.title ?? "nil") cover=\(embedded.coverArtData?.count ?? 0)bytes lyrics=\(embedded.lyricsText?.prefix(30) ?? "nil") file=\(url.lastPathComponent)")
 
         var result = SongMetadata(
             title: embedded.title ?? url.deletingPathExtension().lastPathComponent,
@@ -54,6 +55,11 @@ actor MetadataService {
         if let lyricsURL = SidecarMetadataLoader.findLyrics(for: url) {
             result.lyricsFileName = lyricsURL.lastPathComponent
             result.lyrics = try? LyricsParser.parse(from: lyricsURL)
+        }
+
+        // 2.5 Check embedded lyrics (lower priority than sidecar)
+        if result.lyrics == nil, let lyricsText = embedded.lyricsText {
+            result.lyrics = LyricsParser.parseText(lyricsText)
         }
 
         // 3. Try online sources as fallback

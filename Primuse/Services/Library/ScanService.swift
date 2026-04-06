@@ -104,6 +104,18 @@ final class ScanService {
             }
 
             guard loginResult.success else {
+                // Check if login failure is due to SSL certificate issue
+                if let errorMsg = loginResult.errorMessage, let domain = source.host {
+                    let sslKeywords = ["ssl", "certificate", "trust", "secure connection", "kcfstreamerrordomainssl"]
+                    if sslKeywords.contains(where: { errorMsg.lowercased().contains($0) }) {
+                        let trusted = await SSLTrustStore.shared.requestTrust(domain: domain)
+                        if trusted {
+                            scanStates[source.id] = ScanState(isScanning: true)
+                            await scanSynology(source: source, directories: directories, library: library, sourceStore: sourceStore)
+                            return
+                        }
+                    }
+                }
                 scanStates[source.id] = ScanState(
                     isScanning: false,
                     currentFile: loginResult.errorMessage ?? "Login failed"
@@ -136,6 +148,13 @@ final class ScanService {
 
             completeScan(sourceID: source.id, songs: lastSongs, library: library, sourceStore: sourceStore)
         } catch {
+            let trusted = await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
+            if trusted {
+                // Retry scan after user trusted the domain
+                scanStates[source.id] = ScanState(isScanning: true)
+                await scanSynology(source: source, directories: directories, library: library, sourceStore: sourceStore)
+                return
+            }
             scanStates[source.id] = ScanState(
                 isScanning: false,
                 currentFile: error.localizedDescription
@@ -174,6 +193,13 @@ final class ScanService {
 
             completeScan(sourceID: source.id, songs: lastSongs, library: library, sourceStore: sourceStore)
         } catch {
+            let trusted = await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
+            if trusted {
+                // Retry scan after user trusted the domain
+                scanStates[source.id] = ScanState(isScanning: true)
+                await scanConnectorSource(source: source, directories: directories, sourceManager: sourceManager, library: library, sourceStore: sourceStore)
+                return
+            }
             scanStates[source.id] = ScanState(
                 isScanning: false,
                 currentFile: error.localizedDescription

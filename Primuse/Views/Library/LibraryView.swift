@@ -37,9 +37,9 @@ struct LibraryView: View {
     @Environment(MusicLibrary.self) private var library
     @State private var navigationPath = NavigationPath()
 
-    private var songs: [Song] { library.songs }
-    private var albums: [Album] { library.albums }
-    private var artists: [Artist] { library.artists }
+    private var songs: [Song] { library.visibleSongs }
+    private var albums: [Album] { library.visibleAlbums }
+    private var artists: [Artist] { library.visibleArtists }
     private var playlists: [Playlist] { library.playlists }
     private var hasContent: Bool { !songs.isEmpty }
 

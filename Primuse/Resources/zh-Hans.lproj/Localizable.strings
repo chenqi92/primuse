@@ -117,6 +117,9 @@
 "edit_source" = "编辑音乐源";
 "edit" = "编辑";
 "delete" = "删除";
+"disable" = "禁用";
+"enable" = "启用";
+"disabled" = "已禁用";
 "delete_song" = "从资料库删除";
 "delete_song_message" = "歌曲、封面和歌词缓存将被同步删除";
 "scan" = "扫描";

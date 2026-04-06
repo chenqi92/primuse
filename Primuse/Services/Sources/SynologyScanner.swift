@@ -144,7 +144,7 @@ actor SynologyScanner {
 
                 var song = await extractSongMetadata(item: item, ext: ext)
 
-                // Set source-side sidecar references (not local cache filenames)
+                // Priority: sidecar path > embedded/cached > nil
                 song = Song(
                     id: song.id, title: song.title, albumID: song.albumID, artistID: song.artistID,
                     albumTitle: song.albumTitle, artistName: song.artistName,
@@ -155,8 +155,8 @@ actor SynologyScanner {
                     sampleRate: song.sampleRate, bitDepth: song.bitDepth,
                     genre: song.genre, year: song.year,
                     dateAdded: song.dateAdded,
-                    coverArtFileName: coverRef,
-                    lyricsFileName: lyricsRef
+                    coverArtFileName: coverRef ?? song.coverArtFileName,
+                    lyricsFileName: lyricsRef ?? song.lyricsFileName
                 )
 
                 allSongs.append(song)
@@ -195,7 +195,10 @@ actor SynologyScanner {
         var sampleRate: Int?
         var bitRate: Int?
         var bitDepth: Int?
-        let coverArtFileName: String? = nil
+        var coverArtFileName: String?
+        var lyricsFileName: String?
+        var embeddedCoverData: Data?
+        var embeddedLyricsText: String?
 
         // Try to download file header and parse with AVFoundation
         do {
@@ -229,6 +232,7 @@ actor SynologyScanner {
 
             // Metadata tags
             if let items = try? await asset.load(.metadata) {
+                NSLog("📋 Metadata items count: \(items.count) for \(item.name), keys: \(items.compactMap { $0.commonKey?.rawValue })")
                 for meta in items {
                     guard let key = meta.commonKey?.rawValue else { continue }
                     let value = try? await meta.load(.value)
@@ -241,9 +245,12 @@ actor SynologyScanner {
                     case AVMetadataKey.commonKeyAlbumName.rawValue:
                         if let v = value as? String, !v.isEmpty { album = v }
                     case AVMetadataKey.commonKeyArtwork.rawValue:
-                        // Embedded cover art detected — coverArtFileName stays nil
-                        // (cover will be extracted on-demand at display time via CachedArtworkView)
-                        break
+                        if let data = value as? Data {
+                            embeddedCoverData = data
+                            NSLog("🎨 Embedded cover art found: \(data.count) bytes for \(item.name)")
+                        } else {
+                            NSLog("🎨 Artwork key exists but value is not Data: \(type(of: value as Any)) for \(item.name)")
+                        }
                     default: break
                     }
                 }
@@ -262,6 +269,16 @@ actor SynologyScanner {
                         if let s = value as? String { year = Int(String(s.prefix(4))) }
                     case .id3MetadataContentType:
                         genre = value as? String
+                    case .id3MetadataUnsynchronizedLyric:
+                        if let text = value as? String, !text.isEmpty {
+                            embeddedLyricsText = text
+                            NSLog("📝 Embedded USLT lyrics found: \(text.prefix(50))... for \(item.name)")
+                        }
+                    case .iTunesMetadataLyrics:
+                        if let text = value as? String, !text.isEmpty, embeddedLyricsText == nil {
+                            embeddedLyricsText = text
+                            NSLog("📝 Embedded iTunes lyrics found: \(text.prefix(50))... for \(item.name)")
+                        }
                     default: break
                     }
                 }
@@ -303,11 +320,25 @@ actor SynologyScanner {
             }
         }
 
+        // Store embedded cover art and lyrics to asset store
+        if let data = embeddedCoverData {
+            coverArtFileName = await MetadataAssetStore.shared.storeCover(data, for: songID)
+            NSLog("💾 Stored cover: \(coverArtFileName ?? "nil") for \(title)")
+        }
+        if let text = embeddedLyricsText {
+            let lyrics = LyricsParser.parseText(text)
+            if !lyrics.isEmpty {
+                lyricsFileName = await MetadataAssetStore.shared.storeLyrics(lyrics, for: songID)
+                NSLog("💾 Stored lyrics: \(lyricsFileName ?? "nil") for \(title)")
+            }
+        }
+        NSLog("📦 Song built: \(title) | cover=\(coverArtFileName ?? "nil") | lyrics=\(lyricsFileName ?? "nil")")
+
         return makeSong(id: songID, title: title, artist: artist, album: album,
                         trackNumber: trackNumber, duration: duration, format: format,
                         path: item.path, size: item.size, year: year, genre: genre,
                         sampleRate: sampleRate, bitRate: bitRate, bitDepth: bitDepth,
-                        coverArtFileName: coverArtFileName)
+                        coverArtFileName: coverArtFileName, lyricsFileName: lyricsFileName)
     }
 
     private func makeSong(
@@ -315,7 +346,7 @@ actor SynologyScanner {
         trackNumber: Int?, duration: TimeInterval, format: AudioFormat,
         path: String, size: Int64, year: Int?, genre: String?,
         sampleRate: Int?, bitRate: Int?, bitDepth: Int?,
-        coverArtFileName: String?
+        coverArtFileName: String?, lyricsFileName: String? = nil
     ) -> Song {
         let artistID = artist.map { generateID(sourceID: "", path: $0.lowercased()) }
         let albumID: String? = if let a = album, let ar = artist {
@@ -330,7 +361,8 @@ actor SynologyScanner {
             fileSize: size, bitRate: bitRate, sampleRate: sampleRate,
             bitDepth: bitDepth, genre: genre, year: year,
             dateAdded: Date(),
-            coverArtFileName: coverArtFileName
+            coverArtFileName: coverArtFileName,
+            lyricsFileName: lyricsFileName
         )
     }
 

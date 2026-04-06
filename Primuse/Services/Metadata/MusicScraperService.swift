@@ -143,7 +143,7 @@ final class MusicScraperService {
     private func startScraping(in library: MusicLibrary, forceRescrape: Bool) {
         guard !isScraping else { return }
 
-        let songs = library.songs
+        let songs = library.visibleSongs
         totalCount = songs.count
         processedCount = 0
         updatedCount = 0

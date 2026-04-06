@@ -201,7 +201,18 @@ struct ConnectorDirectoryBrowserView: View {
                 items = try await connector.listFiles(at: currentPath)
                 isLoading = false
             } catch {
-                errorMessage = error.localizedDescription
+                let trusted = await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
+                if trusted {
+                    // Retry after user trusted the domain
+                    do {
+                        try await connector.connect()
+                        items = try await connector.listFiles(at: currentPath)
+                    } catch {
+                        errorMessage = error.localizedDescription
+                    }
+                } else {
+                    errorMessage = error.localizedDescription
+                }
                 isLoading = false
             }
         }

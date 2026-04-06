@@ -91,8 +91,13 @@ final class AudioPlayerService {
         audioEngine = AudioEngine()
         equalizerService = EqualizerService(audioEngine: audioEngine)
         audioEffectsService = AudioEffectsService(audioEngine: audioEngine, settingsStore: playbackSettings)
-        setupRemoteCommands()
-        setupAudioSessionCallbacks()
+
+        // Defer heavy system registrations to avoid blocking first frame
+        Task { @MainActor [weak self] in
+            AudioSessionManager.shared.configureForPlayback()
+            self?.setupRemoteCommands()
+            self?.setupAudioSessionCallbacks()
+        }
     }
 
     private func setupAudioSessionCallbacks() {

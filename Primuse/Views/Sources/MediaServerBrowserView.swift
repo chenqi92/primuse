@@ -170,7 +170,17 @@ private struct MediaServerLibraryBrowserView: View {
                 libraries = try await connector.listFiles(at: "/")
                 isLoading = false
             } catch {
-                errorMessage = error.localizedDescription
+                let trusted = await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
+                if trusted {
+                    do {
+                        try await connector.connect()
+                        libraries = try await connector.listFiles(at: "/")
+                    } catch {
+                        errorMessage = error.localizedDescription
+                    }
+                } else {
+                    errorMessage = error.localizedDescription
+                }
                 isLoading = false
             }
         }

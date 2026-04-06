@@ -40,6 +40,7 @@ actor ScraperManager {
                     }
                 } catch {
                     NSLog("🔍 \(config.type.displayName) FAILED: \(error.localizedDescription)")
+                    await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
                     result.errors.append("[\(config.type.displayName)] metadata: \(error.localizedDescription)")
                 }
             }
@@ -72,6 +73,7 @@ actor ScraperManager {
                         }
                     }
                 } catch {
+                    await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
                     result.errors.append("[\(config.type.displayName)] cover: \(error.localizedDescription)")
                 }
             }
@@ -106,6 +108,7 @@ actor ScraperManager {
                         }
                     }
                 } catch {
+                    await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
                     result.errors.append("[\(config.type.displayName)] lyrics: \(error.localizedDescription)")
                 }
             }

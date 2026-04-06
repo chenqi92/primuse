@@ -42,7 +42,7 @@ struct ContentView: View {
             PlayerOverlay(isPresented: $showNowPlaying)
         }
         .onChange(of: library.songCount) { _, _ in
-            if let cs = player.currentSong, !library.songs.contains(where: { $0.id == cs.id }) {
+            if let cs = player.currentSong, !library.visibleSongs.contains(where: { $0.id == cs.id }) {
                 player.stop(); player.queue = []; showNowPlaying = false
             }
         }

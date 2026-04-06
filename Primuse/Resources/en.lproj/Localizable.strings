@@ -117,6 +117,9 @@
 "edit_source" = "Edit Source";
 "edit" = "Edit";
 "delete" = "Delete";
+"disable" = "Disable";
+"enable" = "Enable";
+"disabled" = "Disabled";
 "delete_song" = "Delete from Library";
 "delete_song_message" = "The song, cover art and lyrics cache will be removed.";
 "scan" = "Scan";

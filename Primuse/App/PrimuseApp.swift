@@ -14,8 +14,6 @@ struct PrimuseApp: App {
     @State private var scanService = ScanService()
 
     init() {
-        AudioSessionManager.shared.configureForPlayback()
-
         let store = SourcesStore()
         let manager = SourceManager(sourcesProvider: {
             await MainActor.run { store.sources }
@@ -33,6 +31,11 @@ struct PrimuseApp: App {
         _scraperService = State(initialValue: scraperService)
         _musicLibrary = State(initialValue: library)
         _playbackSettingsStore = State(initialValue: playbackSettings)
+
+        // Sync disabled source IDs at launch
+        library.updateDisabledSourceIDs(
+            Set(store.sources.filter { !$0.isEnabled }.map(\.id))
+        )
     }
 
     var body: some Scene {

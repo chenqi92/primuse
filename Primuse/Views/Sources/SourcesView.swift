@@ -71,10 +71,20 @@ struct SourcesView: View {
                 Image(systemName: source.type.iconName)
                     .font(.title3).foregroundStyle(.white)
                     .frame(width: 38, height: 38)
-                    .background(Color.accentColor.gradient)
+                    .background(source.isEnabled ? Color.accentColor.gradient : Color.gray.gradient)
                     .clipShape(RoundedRectangle(cornerRadius: 9))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(source.name).font(.body).fontWeight(.medium)
+                    HStack(spacing: 6) {
+                        Text(source.name).font(.body).fontWeight(.medium)
+                        if !source.isEnabled {
+                            Text(String(localized: "disabled"))
+                                .font(.caption2).fontWeight(.medium)
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(Color.red.opacity(0.12))
+                                .foregroundStyle(.red)
+                                .clipShape(Capsule())
+                        }
+                    }
                     HStack(spacing: 4) {
                         Text(source.type.displayName)
                         if let host = source.host, !host.isEmpty { Text("·"); Text(host) }
@@ -166,9 +176,32 @@ struct SourcesView: View {
             }
         }
         .padding(.vertical, 4)
+        .opacity(source.isEnabled ? 1.0 : 0.55)
+        .contextMenu {
+            Button {
+                toggleSourceEnabled(source)
+            } label: {
+                Label(
+                    source.isEnabled ? String(localized: "disable") : String(localized: "enable"),
+                    systemImage: source.isEnabled ? "eye.slash" : "eye"
+                )
+            }
+            Button { editingSource = source } label: { Label("edit", systemImage: "pencil") }
+            Divider()
+            Button(role: .destructive) { deleteSource(source) } label: { Label("delete", systemImage: "trash") }
+        }
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) { deleteSource(source) } label: { Label("delete", systemImage: "trash") }
             Button { editingSource = source } label: { Label("edit", systemImage: "pencil") }.tint(.orange)
+            Button {
+                toggleSourceEnabled(source)
+            } label: {
+                Label(
+                    source.isEnabled ? String(localized: "disable") : String(localized: "enable"),
+                    systemImage: source.isEnabled ? "eye.slash" : "eye"
+                )
+            }
+            .tint(source.isEnabled ? .gray : .green)
         }
     }
 
@@ -224,6 +257,15 @@ struct SourcesView: View {
             guard let items = grouped[cat], !items.isEmpty else { return nil }
             return (cat, items)
         }
+    }
+
+    private func toggleSourceEnabled(_ source: MusicSource) {
+        updateSource(source.id) { $0.isEnabled.toggle() }
+        library.updateDisabledSourceIDs(disabledSourceIDs)
+    }
+
+    private var disabledSourceIDs: Set<String> {
+        Set(sourceStore.sources.filter { !$0.isEnabled }.map(\.id))
     }
 
     private func deleteSource(_ source: MusicSource) {

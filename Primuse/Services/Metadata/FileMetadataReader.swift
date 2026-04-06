@@ -21,6 +21,7 @@ enum FileMetadataReader {
         var replayGainTrackPeak: Double?
         var replayGainAlbumGain: Double?
         var replayGainAlbumPeak: Double?
+        var lyricsText: String?
     }
 
     /// Reads metadata from an audio file using AVFoundation
@@ -78,6 +79,14 @@ enum FileMetadataReader {
                     }
                 case .id3MetadataContentType:
                     metadata.genre = value as? String
+                case .id3MetadataUnsynchronizedLyric:
+                    if let text = value as? String, !text.isEmpty {
+                        metadata.lyricsText = text
+                    }
+                case .iTunesMetadataLyrics:
+                    if let text = value as? String, !text.isEmpty, metadata.lyricsText == nil {
+                        metadata.lyricsText = text
+                    }
                 case .id3MetadataUserText:
                     // TXXX frames: ReplayGain tags stored in extraAttributes[.info]
                     if let extras = try? await item.load(.extraAttributes),

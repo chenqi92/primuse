@@ -219,6 +219,17 @@ struct ConnectionFlowView: View {
             }
             withAnimation { step = .otp }
         } else {
+            // Check if login error is SSL-related and prompt trust
+            if let msg = result.errorMessage, let host = source.host {
+                let sslKeywords = ["ssl", "certificate", "trust", "secure connection", "kCFStreamErrorDomainSSL"]
+                if sslKeywords.contains(where: { msg.lowercased().contains($0) }) {
+                    let trusted = await SSLTrustStore.shared.requestTrust(domain: host)
+                    if trusted {
+                        await connectSynology(otpCode: otpCode)
+                        return
+                    }
+                }
+            }
             errorMessage = result.errorMessage ?? "Unknown error"
             withAnimation { step = .failed }
         }

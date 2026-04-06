@@ -21,7 +21,7 @@ public enum PrimuseConstants {
     public static let folderCoverNames = ["cover", "folder", "album", "front", "artwork"]
 
     public static let supportedAudioExtensions: Set<String> = [
-        "mp3", "aac", "m4a", "flac", "wav", "aiff", "aif", "alac",
+        "mp3", "aac", "m4a", "mp4", "flac", "wav", "aiff", "aif", "alac",
         "ape", "dsf", "dff", "ogg", "opus", "wma", "wv"
     ]
 }

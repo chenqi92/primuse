@@ -5,6 +5,7 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
     case mp3
     case aac
     case m4a
+    case mp4
     case alac
     case flac
     case wav
@@ -22,7 +23,7 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
 
     public var requiresFFmpeg: Bool {
         switch self {
-        case .mp3, .aac, .m4a, .alac, .flac, .wav, .aiff, .aif:
+        case .mp3, .aac, .m4a, .mp4, .alac, .flac, .wav, .aiff, .aif:
             return false
         case .ape, .dsf, .dff, .ogg, .opus, .wma, .wv:
             return true
@@ -34,6 +35,7 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
         case .mp3: return "MP3"
         case .aac: return "AAC"
         case .m4a: return "M4A"
+        case .mp4: return "MP4"
         case .alac: return "ALAC"
         case .flac: return "FLAC"
         case .wav: return "WAV"
@@ -52,7 +54,7 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
         switch self {
         case .flac, .alac, .wav, .aiff, .aif, .ape, .dsf, .dff, .wv:
             return true
-        case .mp3, .aac, .m4a, .ogg, .opus, .wma:
+        case .mp3, .aac, .m4a, .mp4, .ogg, .opus, .wma:
             return false
         }
     }

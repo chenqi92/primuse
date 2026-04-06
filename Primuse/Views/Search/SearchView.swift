@@ -13,7 +13,7 @@ struct SearchView: View {
         NavigationStack {
             Group {
                 if searchText.isEmpty {
-                    if library.songs.isEmpty {
+                    if library.visibleSongs.isEmpty {
                         ContentUnavailableView(
                             "search_empty_library",
                             systemImage: "magnifyingglass",
@@ -56,7 +56,7 @@ struct SearchView: View {
                 HStack {
                     Image(systemName: "music.note.list")
                         .foregroundStyle(.secondary)
-                    Text("\(library.songs.count) \(String(localized: "tab_songs"))")
+                    Text("\(library.visibleSongs.count) \(String(localized: "tab_songs"))")
                     Spacer()
                     Text("\(library.albums.count) \(String(localized: "tab_albums"))")
                     Text("·")

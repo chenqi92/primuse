@@ -6,7 +6,7 @@ struct HomeView: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
 
-    private var hasContent: Bool { !library.songs.isEmpty }
+    private var hasContent: Bool { !library.visibleSongs.isEmpty }
     private var heroPreviewAlbums: [Album] { Array(library.recentlyAddedAlbums(limit: 3)) }
 
     private var greeting: String {
@@ -241,7 +241,7 @@ struct HomeView: View {
     private var recentSongs: [Song] {
         let recent = library.recentlyPlayedSongs(limit: 30)
         if !recent.isEmpty { return recent }
-        return Array(library.songs.sorted { $0.dateAdded > $1.dateAdded }.prefix(30))
+        return Array(library.visibleSongs.sorted { $0.dateAdded > $1.dateAdded }.prefix(30))
     }
 
     // MARK: - Recently Added Albums
@@ -332,7 +332,7 @@ struct HomeView: View {
         var queueSongs = albumSongs
         if queueSongs.count < 20 {
             let existingIDs = Set(queueSongs.map(\.id))
-            let extra = library.songs.filter { !existingIDs.contains($0.id) }.shuffled()
+            let extra = library.visibleSongs.filter { !existingIDs.contains($0.id) }.shuffled()
             queueSongs.append(contentsOf: extra)
         }
 
@@ -357,7 +357,7 @@ struct HomeView: View {
         // Supplement with library songs if queue is too small
         if queueSongs.count < 20 {
             let existingIDs = Set(queueSongs.map(\.id))
-            let extra = library.songs.filter { !existingIDs.contains($0.id) }
+            let extra = library.visibleSongs.filter { !existingIDs.contains($0.id) }
             queueSongs.append(contentsOf: extra)
         }
 
@@ -370,9 +370,9 @@ struct HomeView: View {
     }
 
     private func playLibrary(shuffled: Bool) {
-        guard !library.songs.isEmpty else { return }
+        guard !library.visibleSongs.isEmpty else { return }
 
-        let queueSongs = shuffled ? library.songs.shuffled() : library.songs
+        let queueSongs = shuffled ? library.visibleSongs.shuffled() : library.visibleSongs
         guard let firstSong = queueSongs.first else { return }
 
         player.shuffleEnabled = false

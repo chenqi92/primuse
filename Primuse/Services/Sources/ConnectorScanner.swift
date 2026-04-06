@@ -82,8 +82,8 @@ actor ConnectorScanner {
 
                             let localURL = try await connector.localURL(for: item.path)
                             let songID = hash("\(sourceID):\(item.path)")
-                            // Lightweight scan: extract metadata but don't pre-cache cover/lyrics to disk
-                            let metadata = await metadataService.loadMetadata(for: localURL, cacheKey: nil)
+                            // Extract metadata and cache embedded cover/lyrics to disk
+                            let metadata = await metadataService.loadMetadata(for: localURL, cacheKey: songID)
                             // Detect sidecar references on source
                             let sidecarRefs = detectSidecarRefs(for: item, localURL: localURL)
                             allSongs.append(buildSong(from: item, metadata: metadata, songID: songID, sidecarRefs: sidecarRefs))
@@ -159,9 +159,9 @@ actor ConnectorScanner {
         // Title always from filename (more reliable than embedded metadata)
         let fileBaseName = (item.name as NSString).deletingPathExtension
 
-        // Source-side references: sidecar path > nil (embedded handled at display time)
-        let coverRef = sidecarRefs.coverPath
-        let lyricsRef = sidecarRefs.lyricsPath
+        // Priority: sidecar path > embedded/cached > nil
+        let coverRef = sidecarRefs.coverPath ?? metadata.coverArtFileName
+        let lyricsRef = sidecarRefs.lyricsPath ?? metadata.lyricsFileName
 
         return Song(
             id: songID,

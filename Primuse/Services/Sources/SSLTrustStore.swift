@@ -108,6 +108,14 @@ final class SSLTrustStore {
         return nil
     }
 
+    /// Check if an error is SSL-related and prompt user to trust if so.
+    /// Returns true if user trusted the domain (caller should retry).
+    @discardableResult
+    func handleSSLErrorIfNeeded(_ error: Error) async -> Bool {
+        guard let domain = Self.sslErrorDomain(from: error) else { return false }
+        return await requestTrust(domain: domain)
+    }
+
     // MARK: - Persistence
 
     private func loadFromDefaults() {

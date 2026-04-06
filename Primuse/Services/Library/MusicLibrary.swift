@@ -12,14 +12,39 @@ final class MusicLibrary {
     private(set) var playlists: [Playlist] = []
     private var playlistSongIDs: [String: [String]] = [:]
     private var recentPlaybackSongIDs: [String] = []
+    private(set) var disabledSourceIDs: Set<String> = []
+
+    /// Cached filtered views — rebuilt only when songs/disabled state change
+    private(set) var visibleSongs: [Song] = []
+    private(set) var visibleAlbums: [Album] = []
+    private(set) var visibleArtists: [Artist] = []
 
     private let snapshotURL: URL
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
-    var songCount: Int { songs.count }
-    var albumCount: Int { albums.count }
-    var artistCount: Int { artists.count }
+    func updateDisabledSourceIDs(_ ids: Set<String>) {
+        disabledSourceIDs = ids
+        rebuildVisibleCache()
+    }
+
+    var songCount: Int { visibleSongs.count }
+    var albumCount: Int { visibleAlbums.count }
+    var artistCount: Int { visibleArtists.count }
+
+    private func rebuildVisibleCache() {
+        if disabledSourceIDs.isEmpty {
+            visibleSongs = songs
+            visibleAlbums = albums
+            visibleArtists = artists
+        } else {
+            visibleSongs = songs.filter { !disabledSourceIDs.contains($0.sourceID) }
+            let visibleAlbumIDs = Set(visibleSongs.compactMap(\.albumID))
+            visibleAlbums = albums.filter { visibleAlbumIDs.contains($0.id) }
+            let visibleArtistIDs = Set(visibleSongs.compactMap(\.artistID))
+            visibleArtists = artists.filter { visibleArtistIDs.contains($0.id) }
+        }
+    }
 
     init(fileManager: FileManager = .default) {
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -69,7 +94,7 @@ final class MusicLibrary {
     func search(query: String) -> [Song] {
         guard !query.isEmpty else { return [] }
         let q = query.lowercased()
-        return songs.filter {
+        return visibleSongs.filter {
             $0.title.lowercased().contains(q)
             || ($0.artistName?.lowercased().contains(q) ?? false)
             || ($0.albumTitle?.lowercased().contains(q) ?? false)
@@ -77,18 +102,18 @@ final class MusicLibrary {
     }
 
     func songs(forAlbum albumID: String) -> [Song] {
-        songs.filter { $0.albumID == albumID }
+        visibleSongs.filter { $0.albumID == albumID }
             .sorted { ($0.trackNumber ?? 0) < ($1.trackNumber ?? 0) }
     }
 
     func songs(forArtist artistID: String) -> [Song] {
-        songs.filter { $0.artistID == artistID }
+        visibleSongs.filter { $0.artistID == artistID }
     }
 
     func recentlyAddedAlbums(limit: Int = 10) -> [Album] {
-        let albumLatestDate = Dictionary(grouping: songs) { $0.albumID ?? "" }
+        let albumLatestDate = Dictionary(grouping: visibleSongs) { $0.albumID ?? "" }
             .mapValues { $0.map(\.dateAdded).max() ?? .distantPast }
-        return albums
+        return visibleAlbums
             .sorted { (albumLatestDate[$0.id] ?? .distantPast) > (albumLatestDate[$1.id] ?? .distantPast) }
             .prefix(limit)
             .map { $0 }
@@ -99,12 +124,12 @@ final class MusicLibrary {
     }
 
     func songs(forPlaylist playlistID: String) -> [Song] {
-        let songLookup = Dictionary(uniqueKeysWithValues: songs.map { ($0.id, $0) })
+        let songLookup = Dictionary(uniqueKeysWithValues: visibleSongs.map { ($0.id, $0) })
         return (playlistSongIDs[playlistID] ?? []).compactMap { songLookup[$0] }
     }
 
     func recentlyPlayedSongs(limit: Int = 6) -> [Song] {
-        let songLookup = Dictionary(uniqueKeysWithValues: songs.map { ($0.id, $0) })
+        let songLookup = Dictionary(uniqueKeysWithValues: visibleSongs.map { ($0.id, $0) })
         return Array(recentPlaybackSongIDs.prefix(limit).compactMap { songLookup[$0] })
     }
 
@@ -250,6 +275,8 @@ final class MusicLibrary {
             let name = songs[i].artistName ?? unknownArtist
             songs[i].artistID = hashID(name.lowercased())
         }
+
+        rebuildVisibleCache()
     }
 
     private func loadSnapshot() {
