@@ -120,7 +120,6 @@ Primuse 支持通过 JSON 配置导入自定义元数据刮削源。每个配置
 - `response`：已解析的 JSON 响应对象
 - `responseText`：原始响应文本
 - `externalId`：当前歌曲的外部 ID（detail/cover/lyrics 端点可用）
-- `_noop(id)`：内置的 source_a CDN 加密函数
 - `log(msg)`：调试日志输出
 
 **search 脚本** 返回 `[{id, title, artist, album, durationMs, coverUrl}]`

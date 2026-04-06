@@ -1,4 +1,3 @@
-import CommonCrypto
 import Foundation
 import JavaScriptCore
 
@@ -239,11 +238,6 @@ actor ConfigurableScraper: MusicScraper {
         }
         context.setObject(logBlock, forKeyedSubscript: "log" as NSString)
 
-        // Provide _noop helper for source_a CDN URL construction
-        let encryptBlock: @convention(block) (String) -> String = { idStr in
-            Self._noop(idStr)
-        }
-        context.setObject(encryptBlock, forKeyedSubscript: "_noop" as NSString)
 
         // Inject response as string and parsed JSON
         let responseText = String(data: data, encoding: .utf8) ?? ""
@@ -353,26 +347,6 @@ actor ConfigurableScraper: MusicScraper {
         return false
     }
 
-    // MARK: - Helper removed
-
-    /// Removed.
-    /// 
-    nonisolated static func _noop(_ id: String) -> String {
-        let key = Array("REMOVED_KEY".utf8)
-        let idBytes = Array(id.utf8)
-        var xored = [UInt8](repeating: 0, count: idBytes.count)
-        for i in 0..<idBytes.count {
-            xored[i] = idBytes[i] ^ key[i % key.count]
-        }
-        var digest = [UInt8](repeating: 0, count: 16)
-        let data = Data(xored)
-        data.withUnsafeBytes { ptr in
-            _ = CC_MD5(ptr.baseAddress, CC_LONG(data.count), &digest)
-        }
-        return Data(digest).base64EncodedString()
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "+", with: "-")
-    }
 }
 
 // MARK: - Scraper Session Manager

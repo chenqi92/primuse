@@ -292,7 +292,7 @@
 "scraper_lrclib_desc" = "开放同步歌词数据库";
 "custom_scraper_desc" = "用户导入的刮削源";
 "import_scraper_source" = "导入刮削源";
-"import_scraper_footer" = "通过 JSON 配置或 URL 导入自定义刮削源，可提供元数据、封面和歌词。";
+"import_scraper_footer" = "通过 JSON 配置或 URL 导入自定义刮削源，可提供元数据、封面和歌词。请确保所导入的数据源合法合规，本应用不对第三方源的内容承担责任。";
 "custom_sources" = "自定义源";
 "paste_config" = "粘贴配置";
 "from_url" = "从 URL 导入";

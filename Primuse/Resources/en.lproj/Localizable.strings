@@ -292,7 +292,7 @@
 "scraper_lrclib_desc" = "Open synced lyrics database";
 "custom_scraper_desc" = "User-imported scraper";
 "import_scraper_source" = "Import Scraper Source";
-"import_scraper_footer" = "Import a custom scraper source via JSON config or URL. Provides metadata, cover art, and lyrics.";
+"import_scraper_footer" = "Import a custom scraper source via JSON config or URL. You are responsible for ensuring imported sources comply with applicable terms and copyright laws.";
 "custom_sources" = "Custom Sources";
 "paste_config" = "Paste Config";
 "from_url" = "From URL";
