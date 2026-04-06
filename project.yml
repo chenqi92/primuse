@@ -100,6 +100,7 @@ targets:
         CFBundleName: "Primuse"
         LSApplicationCategoryType: "public.app-category.music"
         UILaunchScreen: {}
+        ITSAppUsesNonExemptEncryption: false
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
           NSAllowsLocalNetworking: true
@@ -120,7 +121,7 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SWIFT_EMIT_LOC_STRINGS: YES
-        PRODUCT_BUNDLE_IDENTIFIER: com.welape.primuse
+        PRODUCT_BUNDLE_IDENTIFIER: com.welape.yuanyin
         CODE_SIGN_ENTITLEMENTS: Config/Primuse.entitlements
 
   PrimuseKit:
@@ -133,7 +134,7 @@ targets:
       - sdk: AppIntents.framework
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.welape.primuse.kit
+        PRODUCT_BUNDLE_IDENTIFIER: com.welape.yuanyin.kit
         GENERATE_INFOPLIST_FILE: YES
         SKIP_INSTALL: YES
 
@@ -155,7 +156,7 @@ targets:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.welape.primuse.widget
+        PRODUCT_BUNDLE_IDENTIFIER: com.welape.yuanyin.widget
         SKIP_INSTALL: YES
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         CODE_SIGN_ENTITLEMENTS: Config/PrimuseWidgetExtension.entitlements
@@ -179,7 +180,7 @@ targets:
         NSSupportsLiveActivities: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.welape.primuse.activity
+        PRODUCT_BUNDLE_IDENTIFIER: com.welape.yuanyin.activity
         SKIP_INSTALL: YES
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         CODE_SIGN_ENTITLEMENTS: Config/PrimuseActivityExtension.entitlements

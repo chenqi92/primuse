@@ -1,7 +1,7 @@
 import Foundation
 
 public enum PrimuseConstants {
-    public static let appGroupIdentifier = "group.com.welape.primuse"
+    public static let appGroupIdentifier = "group.com.welape.yuanyin"
     public static let playbackStateKey = "playbackState"
     public static let keychainServiceName = "com.welape.primuse.credentials"
 
