@@ -30,6 +30,7 @@ actor SynologyAPI {
         var deviceId: String?
         var needs2FA: Bool
         var errorMessage: String?
+        var underlyingError: (any Error)?
     }
 
     func login(account: String, password: String, otpCode: String? = nil,
@@ -84,7 +85,8 @@ actor SynologyAPI {
             }
         } catch {
             return LoginResult(success: false, needs2FA: false,
-                               errorMessage: error.localizedDescription)
+                               errorMessage: error.localizedDescription,
+                               underlyingError: error)
         }
     }
 

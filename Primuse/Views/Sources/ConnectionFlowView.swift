@@ -17,6 +17,8 @@ struct ConnectionFlowView: View {
     @State private var synologyAPI: SynologyAPI?
     @State private var rootItems: [SynologyAPI.FileItem] = []
     @FocusState private var otpFocused: Bool
+    @State private var sslTrustDomain: String?
+    @State private var sslTrustContinuation: CheckedContinuation<Bool, Never>?
 
     enum FlowStep { case connecting, otp, browsing, failed }
 
@@ -50,6 +52,43 @@ struct ConnectionFlowView: View {
         }
         .interactiveDismissDisabled(step == .connecting)
         .onAppear { startConnection() }
+        .alert(
+            String(localized: "ssl_trust_title"),
+            isPresented: Binding(
+                get: { sslTrustDomain != nil },
+                set: { if !$0 { resolveSSLTrust(approved: false) } }
+            )
+        ) {
+            Button(String(localized: "trust_domain"), role: .destructive) {
+                resolveSSLTrust(approved: true)
+            }
+            Button(String(localized: "dont_trust"), role: .cancel) {
+                resolveSSLTrust(approved: false)
+            }
+        } message: {
+            if let domain = sslTrustDomain {
+                Text("ssl_trust_message \(domain)")
+            }
+        }
+    }
+
+    private func resolveSSLTrust(approved: Bool) {
+        if approved, let domain = sslTrustDomain {
+            SSLTrustStore.shared.trust(domain: domain)
+        }
+        let continuation = sslTrustContinuation
+        sslTrustDomain = nil
+        sslTrustContinuation = nil
+        continuation?.resume(returning: approved)
+    }
+
+    private func promptSSLTrust(domain: String) async -> Bool {
+        // Already trusted
+        if SSLTrustStore.shared.isTrusted(domain: domain) { return true }
+        return await withCheckedContinuation { continuation in
+            sslTrustDomain = domain
+            sslTrustContinuation = continuation
+        }
     }
 
     private var stepTitle: String {
@@ -208,6 +247,13 @@ struct ConnectionFlowView: View {
                 onSessionReady?(api)
                 withAnimation { step = .browsing }
             } catch {
+                if let domain = SSLTrustStore.sslErrorDomain(from: error) {
+                    let trusted = await promptSSLTrust(domain: domain)
+                    if trusted {
+                        await connectSynology(otpCode: otpCode)
+                        return
+                    }
+                }
                 errorMessage = error.localizedDescription
                 withAnimation { step = .failed }
             }
@@ -220,14 +266,12 @@ struct ConnectionFlowView: View {
             withAnimation { step = .otp }
         } else {
             // Check if login error is SSL-related and prompt trust
-            if let msg = result.errorMessage, let host = source.host {
-                let sslKeywords = ["ssl", "certificate", "trust", "secure connection", "kCFStreamErrorDomainSSL"]
-                if sslKeywords.contains(where: { msg.lowercased().contains($0) }) {
-                    let trusted = await SSLTrustStore.shared.requestTrust(domain: host)
-                    if trusted {
-                        await connectSynology(otpCode: otpCode)
-                        return
-                    }
+            if let error = result.underlyingError,
+               let domain = SSLTrustStore.sslErrorDomain(from: error) {
+                let trusted = await promptSSLTrust(domain: domain)
+                if trusted {
+                    await connectSynology(otpCode: otpCode)
+                    return
                 }
             }
             errorMessage = result.errorMessage ?? "Unknown error"

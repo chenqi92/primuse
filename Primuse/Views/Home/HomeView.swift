@@ -309,7 +309,7 @@ struct HomeView: View {
     private var emptyView: some View {
         VStack(spacing: 24) {
             Spacer().frame(height: 40)
-            Image(systemName: "waveform.and.music.note").font(.system(size: 56)).foregroundStyle(.tertiary)
+            Image(systemName: "music.note.list").font(.system(size: 56)).foregroundStyle(.tertiary)
             VStack(spacing: 8) {
                 Text("welcome_title").font(.title2).fontWeight(.bold)
                 Text("home_empty_desc").font(.body).foregroundStyle(.secondary)

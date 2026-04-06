@@ -41,8 +41,9 @@ struct ContentView: View {
             // Player overlay — uses manual offset (no system transition/fullScreenCover)
             PlayerOverlay(isPresented: $showNowPlaying)
         }
-        .onChange(of: library.songCount) { _, _ in
-            if let cs = player.currentSong, !library.visibleSongs.contains(where: { $0.id == cs.id }) {
+        .onChange(of: library.visibleSongs.count) { _, _ in
+            guard let cs = player.currentSong else { return }
+            if !library.visibleSongs.contains(where: { $0.id == cs.id }) {
                 player.stop(); player.queue = []; showNowPlaying = false
             }
         }

@@ -13,6 +13,8 @@ struct ConnectorDirectoryBrowserView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var hasLoadedRoot = false
+    @State private var sslTrustDomain: String?
+    @State private var sslTrustContinuation: CheckedContinuation<Bool, Never>?
 
     var body: some View {
         NavigationStack {
@@ -65,6 +67,33 @@ struct ConnectorDirectoryBrowserView: View {
             guard !hasLoadedRoot else { return }
             hasLoadedRoot = true
             loadDirectory()
+        }
+        .alert(
+            String(localized: "ssl_trust_title"),
+            isPresented: Binding(
+                get: { sslTrustDomain != nil },
+                set: { if !$0 { resolveSSLTrust(approved: false) } }
+            )
+        ) {
+            Button(String(localized: "trust_domain"), role: .destructive) { resolveSSLTrust(approved: true) }
+            Button(String(localized: "dont_trust"), role: .cancel) { resolveSSLTrust(approved: false) }
+        } message: {
+            if let domain = sslTrustDomain { Text("ssl_trust_message \(domain)") }
+        }
+    }
+
+    private func resolveSSLTrust(approved: Bool) {
+        if approved, let domain = sslTrustDomain { SSLTrustStore.shared.trust(domain: domain) }
+        let cont = sslTrustContinuation
+        sslTrustDomain = nil; sslTrustContinuation = nil
+        cont?.resume(returning: approved)
+    }
+
+    private func promptSSLTrust(for error: Error) async -> Bool {
+        guard let domain = SSLTrustStore.sslErrorDomain(from: error) else { return false }
+        if SSLTrustStore.shared.isTrusted(domain: domain) { return true }
+        return await withCheckedContinuation { continuation in
+            sslTrustDomain = domain; sslTrustContinuation = continuation
         }
     }
 
@@ -201,9 +230,8 @@ struct ConnectorDirectoryBrowserView: View {
                 items = try await connector.listFiles(at: currentPath)
                 isLoading = false
             } catch {
-                let trusted = await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
+                let trusted = await promptSSLTrust(for: error)
                 if trusted {
-                    // Retry after user trusted the domain
                     do {
                         try await connector.connect()
                         items = try await connector.listFiles(at: currentPath)

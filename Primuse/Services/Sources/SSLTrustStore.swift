@@ -110,6 +110,8 @@ final class SSLTrustStore {
 
     /// Check if an error is SSL-related and prompt user to trust if so.
     /// Returns true if user trusted the domain (caller should retry).
+    /// NOTE: This uses pendingTrustRequest which requires the alert to be visible.
+    /// For views presented as sheets, use the .sslTrustAlert() modifier instead.
     @discardableResult
     func handleSSLErrorIfNeeded(_ error: Error) async -> Bool {
         guard let domain = Self.sslErrorDomain(from: error) else { return false }

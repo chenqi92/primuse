@@ -105,15 +105,12 @@ final class ScanService {
 
             guard loginResult.success else {
                 // Check if login failure is due to SSL certificate issue
-                if let errorMsg = loginResult.errorMessage, let domain = source.host {
-                    let sslKeywords = ["ssl", "certificate", "trust", "secure connection", "kcfstreamerrordomainssl"]
-                    if sslKeywords.contains(where: { errorMsg.lowercased().contains($0) }) {
-                        let trusted = await SSLTrustStore.shared.requestTrust(domain: domain)
-                        if trusted {
-                            scanStates[source.id] = ScanState(isScanning: true)
-                            await scanSynology(source: source, directories: directories, library: library, sourceStore: sourceStore)
-                            return
-                        }
+                if let error = loginResult.underlyingError {
+                    let trusted = await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
+                    if trusted {
+                        scanStates[source.id] = ScanState(isScanning: true)
+                        await scanSynology(source: source, directories: directories, library: library, sourceStore: sourceStore)
+                        return
                     }
                 }
                 scanStates[source.id] = ScanState(

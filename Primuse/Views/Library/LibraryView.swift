@@ -110,7 +110,7 @@ struct LibraryView: View {
                     // Empty state
                     Section {
                         VStack(spacing: 16) {
-                            Image(systemName: "waveform.and.music.note")
+                            Image(systemName: "music.note.list")
                                 .font(.system(size: 40))
                                 .foregroundStyle(.tertiary)
 
