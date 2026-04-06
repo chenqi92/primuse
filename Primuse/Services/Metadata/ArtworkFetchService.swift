@@ -88,10 +88,7 @@ actor ArtworkFetchService {
     }
 
     private func searchArtistImageOnline(artistName: String) async -> Data? {
-        // Try Removed function first (best coverage for Chinese artists)
-        if let data = await _removedFunc(name: artistName) { return data }
-
-        // Fallback: search songs by artist, use cover as artist image
+        // Search via enabled scrapers, use cover from best match as artist image
         let settings = ScraperSettings.load()
         for config in settings.enabledSources where config.type.supportsCover {
             do {
@@ -109,39 +106,6 @@ actor ArtworkFetchService {
         return nil
     }
 
-    /// Removed function: search → singerMid → photo URL
-    private func _removedFunc(name: String) async -> Data? {
-        guard var components = URLComponents(string: "https://REMOVED_URL") else {
-            return nil
-        }
-        components.queryItems = [
-            URLQueryItem(name: "key", value: name),
-            URLQueryItem(name: "format", value: "json"),
-        ]
-        guard let url = components.url else { return nil }
-
-        do {
-            var request = URLRequest(url: url)
-            request.setValue("https://source-c.invalid", forHTTPHeaderField: "Referer")
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
-
-            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-            let jsonData = json?["data"] as? [String: Any]
-            let singer = jsonData?["singer"] as? [String: Any]
-            let itemlist = singer?["itemlist"] as? [[String: Any]]
-
-            guard let first = itemlist?.first,
-                  let singerMid = first["mid"] as? String, !singerMid.isEmpty else {
-                return nil
-            }
-
-            let photoUrl = "https://REMOVED_URL/\(singerMid).jpg"
-            return try await downloadImage(url: photoUrl)
-        } catch {
-            return nil
-        }
-    }
 
     // MARK: - Helpers
 
