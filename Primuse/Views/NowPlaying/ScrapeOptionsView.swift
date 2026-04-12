@@ -54,14 +54,15 @@ struct ScrapeOptionsView: View {
 
     struct SearchResultItem: Identifiable {
         let id: String
-        let source: String
         let title: String
         let artist: String?
         let album: String?
         let durationMs: Int?
         let coverUrl: String?
         let externalId: String
-        let scraperType: MusicScraperType
+        let sourceConfig: ScraperSourceConfig
+
+        var source: String { sourceConfig.displayName }
 
         var durationText: String? {
             guard let ms = durationMs else { return nil }
@@ -340,7 +341,7 @@ struct ScrapeOptionsView: View {
                     } label: {
                         HStack(spacing: 10) {
                             // Cover art thumbnail
-                            ScraperCoverThumbnail(urlString: item.coverUrl, scraperType: item.scraperType)
+                            ScraperCoverThumbnail(urlString: item.coverUrl, sourceConfig: item.sourceConfig)
 
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack {
@@ -453,14 +454,13 @@ struct ScrapeOptionsView: View {
                     plog("🔍 Search result: \(config.type.rawValue) '\(item.title)' coverUrl=\(item.coverUrl ?? "nil")")
                     searchResults.append(SearchResultItem(
                         id: "\(config.type.rawValue)_\(item.externalId)",
-                        source: config.type.displayName,
                         title: item.title,
                         artist: item.artist,
                         album: item.album,
                         durationMs: item.durationMs,
                         coverUrl: item.coverUrl,
                         externalId: item.externalId,
-                        scraperType: config.type
+                        sourceConfig: config
                     ))
                 }
             } catch {
@@ -486,8 +486,7 @@ struct ScrapeOptionsView: View {
         isScraping = true
 
         do {
-            let config = ScraperSourceConfig(id: "manual", type: item.scraperType, isEnabled: true, priority: 0)
-            let scraper = MusicScraperFactory.create(for: config)
+            let scraper = MusicScraperFactory.create(for: item.sourceConfig)
             let detail = try await scraper.getDetail(externalId: item.externalId)
 
             var updated = song
@@ -515,15 +514,15 @@ struct ScrapeOptionsView: View {
             var hasCover = false
             var coverData: Data?
             // Prefer search result's coverUrl if detail doesn't have one
-            let coverUrl = detail?.coverUrl ?? item.coverUrl ?? nil
-            if let coverUrl, let url = URL(string: coverUrl) {
-                var coverRequest = URLRequest(url: url)
-                coverRequest.timeoutInterval = 10
-                if let (data, response) = try? await URLSession.shared.data(for: coverRequest),
-                   let http = response as? HTTPURLResponse, http.statusCode == 200 {
-                    coverData = data
-                    hasCover = true
-                }
+            let coverUrl = detail?.coverUrl ?? item.coverUrl
+            if let coverUrl,
+               let data = try? await ConfigurableScraper.downloadResource(
+                from: coverUrl,
+                sourceConfig: item.sourceConfig,
+                timeout: 10
+               ) {
+                coverData = data
+                hasCover = true
             }
 
             // Download lyrics if available (keep in memory, don't store to disk yet)
@@ -686,11 +685,10 @@ struct ScrapeOptionsView: View {
 
 // MARK: - Scraper Cover Thumbnail
 
-/// Loads cover thumbnails using URLSession.
-/// Custom scrapers handle their own headers/SSL via ConfigurableScraper sessions.
+/// Loads cover thumbnails through the same config-aware request path as manual scraping.
 private struct ScraperCoverThumbnail: View {
     let urlString: String?
-    let scraperType: MusicScraperType
+    let sourceConfig: ScraperSourceConfig
 
     @State private var image: UIImage?
 
@@ -707,36 +705,15 @@ private struct ScraperCoverThumbnail: View {
         }
         .frame(width: 44, height: 44)
         .clipShape(RoundedRectangle(cornerRadius: 6))
-        .task(id: urlString) {
+        .task(id: "\(sourceConfig.id)|\(urlString ?? "")") {
             guard let urlString, !urlString.isEmpty else { return }
+            image = nil
 
-            // Enforce HTTP policy: only trusted domains and local IPs can use HTTP
-            let trustDomains: [String]
-            if case .custom(let configId) = scraperType,
-               let config = ScraperConfigStore.shared.config(for: configId) {
-                trustDomains = config.sslTrustDomains ?? []
-            } else {
-                trustDomains = []
-            }
-            let safeUrl = ConfigurableScraper.enforceHTTPPolicy(urlString, trustDomains: trustDomains)
-            guard let url = URL(string: safeUrl) else { return }
-
-            var request = URLRequest(url: url)
-            request.timeoutInterval = 10
-            request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
-
-            // Apply headers from custom config if available
-            if case .custom(let configId) = scraperType,
-               let config = ScraperConfigStore.shared.config(for: configId) {
-                for (k, v) in config.headers ?? [:] {
-                    request.setValue(v, forHTTPHeaderField: k)
-                }
-            }
-
-            let session = URLSession.shared
-
-            if let (data, response) = try? await session.data(for: request),
-               let http = response as? HTTPURLResponse, http.statusCode == 200,
+            if let data = try? await ConfigurableScraper.downloadResource(
+                from: urlString,
+                sourceConfig: sourceConfig,
+                timeout: 10
+            ),
                let loaded = UIImage(data: data) {
                 image = loaded
             }

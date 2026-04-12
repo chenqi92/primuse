@@ -76,7 +76,7 @@ actor ArtworkFetchService {
                 let scraper = MusicScraperFactory.create(for: config)
                 let searchResult = try await scraper.search(query: query, artist: artistName, album: albumTitle, limit: 5)
                 if let best = searchResult.items.first, let coverUrl = best.coverUrl {
-                    if let data = try? await downloadImage(url: coverUrl) {
+                    if let data = try? await downloadImage(url: coverUrl, sourceConfig: config) {
                         return compressJPEG(data)
                     }
                 }
@@ -95,7 +95,7 @@ actor ArtworkFetchService {
                 let scraper = MusicScraperFactory.create(for: config)
                 let searchResult = try await scraper.search(query: artistName, artist: artistName, album: nil, limit: 3)
                 if let best = searchResult.items.first, let coverUrl = best.coverUrl {
-                    if let data = try? await downloadImage(url: coverUrl) {
+                    if let data = try? await downloadImage(url: coverUrl, sourceConfig: config) {
                         return compressJPEG(data)
                     }
                 }
@@ -109,11 +109,8 @@ actor ArtworkFetchService {
 
     // MARK: - Helpers
 
-    private func downloadImage(url: String) async throws -> Data? {
-        guard let imageURL = URL(string: url) else { return nil }
-        let (data, response) = try await URLSession.shared.data(from: imageURL)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
-        return data
+    private func downloadImage(url: String, sourceConfig: ScraperSourceConfig) async throws -> Data? {
+        try await ConfigurableScraper.downloadResource(from: url, sourceConfig: sourceConfig)
     }
 
     private func compressJPEG(_ data: Data) -> Data? {

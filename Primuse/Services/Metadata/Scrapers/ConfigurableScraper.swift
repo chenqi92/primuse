@@ -28,6 +28,23 @@ actor ConfigurableScraper: MusicScraper {
         )
     }
 
+    nonisolated static func downloadResource(
+        from urlString: String,
+        sourceConfig: ScraperSourceConfig? = nil,
+        timeout: TimeInterval = 10
+    ) async throws -> Data? {
+        guard let request = buildResourceRequest(from: urlString, sourceConfig: sourceConfig, timeout: timeout) else {
+            return nil
+        }
+
+        let sessionManager = resourceSessionManager(for: sourceConfig)
+        let (data, response) = try await sessionManager.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode) else {
+            return nil
+        }
+        return data
+    }
+
     // MARK: - MusicScraper
 
     func search(query: String, artist: String?, album: String?, limit: Int) async throws -> ScraperSearchResult {
@@ -312,6 +329,57 @@ actor ConfigurableScraper: MusicScraper {
 
     // MARK: - HTTP Policy
 
+    nonisolated private static func buildResourceRequest(
+        from urlString: String,
+        sourceConfig: ScraperSourceConfig?,
+        timeout: TimeInterval
+    ) -> URLRequest? {
+        let trustDomains = resourceTrustDomains(for: sourceConfig)
+        let safeURLString = enforceHTTPPolicy(urlString, trustDomains: trustDomains)
+        guard let url = URL(string: safeURLString) else { return nil }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = timeout
+        for (header, value) in resourceHeaders(for: sourceConfig) {
+            request.setValue(value, forHTTPHeaderField: header)
+        }
+        return request
+    }
+
+    nonisolated private static func resourceSessionManager(for sourceConfig: ScraperSourceConfig?) -> ScraperSessionManager {
+        ScraperSessionManager(
+            headers: resourceHeaders(for: sourceConfig),
+            trustDomains: resourceTrustDomains(for: sourceConfig)
+        )
+    }
+
+    nonisolated private static func resourceHeaders(for sourceConfig: ScraperSourceConfig?) -> [String: String] {
+        let context = configContext(for: sourceConfig)
+        var headers = context?.config.headers ?? [:]
+        if let cookie = context?.cookie, !cookie.isEmpty {
+            headers["Cookie"] = cookie
+        }
+        if headers["User-Agent"] == nil {
+            headers["User-Agent"] = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15"
+        }
+        return headers
+    }
+
+    nonisolated private static func resourceTrustDomains(for sourceConfig: ScraperSourceConfig?) -> [String] {
+        configContext(for: sourceConfig)?.config.sslTrustDomains ?? []
+    }
+
+    nonisolated private static func configContext(
+        for sourceConfig: ScraperSourceConfig?
+    ) -> (config: ScraperConfig, cookie: String?)? {
+        guard let sourceConfig,
+              case .custom(let configID) = sourceConfig.type,
+              let config = ScraperConfigStore.shared.config(for: configID) else {
+            return nil
+        }
+        return (config, sourceConfig.cookie ?? config.cookie)
+    }
+
     /// Only allow HTTP for trusted domains and local network addresses.
     /// All other HTTP URLs are upgraded to HTTPS.
     nonisolated static func enforceHTTPPolicy(_ urlString: String, trustDomains: [String]) -> String {
@@ -358,9 +426,11 @@ actor ConfigurableScraper: MusicScraper {
 /// - data(for:delegate:self) ensures task-level delegate is called
 final class ScraperSessionManager: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     private var _session: URLSession!
+    private let defaultHeaders: [String: String]
     private let trustDomains: [String]
 
     init(headers: [String: String], trustDomains: [String]) {
+        self.defaultHeaders = headers
         self.trustDomains = trustDomains
         super.init()
         let config = URLSessionConfiguration.default
@@ -372,17 +442,22 @@ final class ScraperSessionManager: NSObject, URLSessionTaskDelegate, @unchecked 
     }
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
-        let scheme = request.url?.scheme ?? "?"
-        let host = request.url?.host ?? "?"
+        var mergedRequest = request
+        for (header, value) in defaultHeaders where mergedRequest.value(forHTTPHeaderField: header) == nil {
+            mergedRequest.setValue(value, forHTTPHeaderField: header)
+        }
+
+        let scheme = mergedRequest.url?.scheme ?? "?"
+        let host = mergedRequest.url?.host ?? "?"
         plog("🔒 ScraperSession: \(scheme)://\(host) trustDomains=\(trustDomains)")
 
         // HTTP requests must use URLSession.shared (ATS bypass only works with shared/default sessions)
         // Custom sessions with delegates are not covered by NSAllowsArbitraryLoads
         if scheme == "http" {
-            return try await URLSession.shared.data(for: request)
+            return try await URLSession.shared.data(for: mergedRequest)
         }
 
-        return try await _session.data(for: request, delegate: self)
+        return try await _session.data(for: mergedRequest, delegate: self)
     }
 
     // Task-level delegate — called by async data(for:delegate:) API
@@ -395,8 +470,10 @@ final class ScraperSessionManager: NSObject, URLSessionTaskDelegate, @unchecked 
 
         if method == NSURLAuthenticationMethodServerTrust,
            let trust = challenge.protectionSpace.serverTrust {
-            if trustDomains.contains(where: { host.hasSuffix($0) }) {
-                plog("🔒 SSL: TRUSTING \(host) (overriding hostname validation)")
+            let trustedByConfig = trustDomains.contains(where: { host.hasSuffix($0) })
+            let trustedByUser = SSLTrustStore.isTrustedSync(domain: host)
+            if trustedByConfig || trustedByUser {
+                plog("🔒 SSL: TRUSTING \(host) (trustedByConfig=\(trustedByConfig) trustedByUser=\(trustedByUser))")
                 // Override the SSL policy to skip hostname validation
                 // This is needed for CDNs where cert CN doesn't match the requested domain
                 SecTrustSetPolicies(trust, SecPolicyCreateBasicX509())
