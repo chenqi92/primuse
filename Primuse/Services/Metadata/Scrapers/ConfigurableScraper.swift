@@ -1,5 +1,6 @@
 import Foundation
 import JavaScriptCore
+import Network
 
 /// A generic scraper driven by a ScraperConfig JSON definition.
 /// URL templates use {{var}} placeholders; response parsing is done via embedded JavaScript.
@@ -340,6 +341,7 @@ actor ConfigurableScraper: MusicScraper {
 
         var request = URLRequest(url: url)
         request.timeoutInterval = timeout
+        request.cachePolicy = .reloadIgnoringLocalCacheData
         for (header, value) in resourceHeaders(for: sourceConfig) {
             request.setValue(value, forHTTPHeaderField: header)
         }
@@ -415,6 +417,244 @@ actor ConfigurableScraper: MusicScraper {
         return false
     }
 
+    nonisolated static func describeNetworkError(_ error: Error) -> String {
+        let nsError = error as NSError
+        var parts = [
+            "domain=\(nsError.domain)",
+            "code=\(nsError.code)",
+            "localized=\(nsError.localizedDescription)",
+        ]
+
+        if let failingURL = (nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL)?.absoluteString {
+            parts.append("url=\(failingURL)")
+        }
+
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
+            parts.append("underlying=\(underlying.domain)(\(underlying.code)) \(underlying.localizedDescription)")
+        }
+
+        return parts.joined(separator: " ")
+    }
+
+}
+
+private enum PlainHTTPClient {
+    private final class StateBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var didResume = false
+        private var received = Data()
+
+        func append(_ data: Data) {
+            lock.lock()
+            received.append(data)
+            lock.unlock()
+        }
+
+        func snapshot() -> Data {
+            lock.lock()
+            defer { lock.unlock() }
+            return received
+        }
+
+        func markResumed() -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            guard !didResume else { return false }
+            didResume = true
+            return true
+        }
+    }
+
+    static func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        guard let url = request.url,
+              url.scheme == "http",
+              let host = url.host,
+              let port = NWEndpoint.Port(rawValue: UInt16(url.port ?? 80)) else {
+            throw ScraperError.networkError("Invalid HTTP URL: \(request.url?.absoluteString ?? "nil")")
+        }
+
+        let connection = NWConnection(host: NWEndpoint.Host(host), port: port, using: .tcp)
+        let queue = DispatchQueue(label: "Primuse.PlainHTTPClient.\(UUID().uuidString)")
+
+        return try await withCheckedThrowingContinuation { continuation in
+            let stateBox = StateBox()
+
+            @Sendable func finish(_ result: Result<(Data, URLResponse), Error>) {
+                guard stateBox.markResumed() else { return }
+                connection.cancel()
+                continuation.resume(with: result)
+            }
+
+            @Sendable func receiveLoop() {
+                connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { data, _, isComplete, error in
+                    if let error {
+                        finish(.failure(error))
+                        return
+                    }
+
+                    if let data, !data.isEmpty {
+                        stateBox.append(data)
+                    }
+
+                    if isComplete || data?.isEmpty == true {
+                        do {
+                            let parsed = try parseResponse(stateBox.snapshot(), for: url)
+                            finish(.success(parsed))
+                        } catch {
+                            finish(.failure(error))
+                        }
+                    } else {
+                        receiveLoop()
+                    }
+                }
+            }
+
+            connection.stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    do {
+                        let payload = try buildRequestData(for: request)
+                        connection.send(content: payload, completion: .contentProcessed { error in
+                            if let error {
+                                finish(.failure(error))
+                            } else {
+                                receiveLoop()
+                            }
+                        })
+                    } catch {
+                        finish(.failure(error))
+                    }
+                case .failed(let error):
+                    finish(.failure(error))
+                case .cancelled:
+                    finish(.failure(ScraperError.networkError("HTTP connection cancelled")))
+                default:
+                    break
+                }
+            }
+
+            connection.start(queue: queue)
+        }
+    }
+
+    private static func buildRequestData(for request: URLRequest) throws -> Data {
+        guard let url = request.url,
+              let host = url.host else {
+            throw ScraperError.networkError("Invalid HTTP request URL")
+        }
+
+        let method = request.httpMethod ?? "GET"
+        let path = url.path.isEmpty ? "/" : url.path
+        let pathWithQuery = path + (url.query.map { "?\($0)" } ?? "")
+
+        var headers = request.allHTTPHeaderFields ?? [:]
+        headers["Host"] = host
+        headers["Connection"] = "close"
+        headers["Accept-Encoding"] = "identity"
+        if let body = request.httpBody, headers["Content-Length"] == nil {
+            headers["Content-Length"] = String(body.count)
+        }
+
+        var lines = ["\(method) \(pathWithQuery) HTTP/1.1"]
+        for key in headers.keys.sorted() {
+            if let value = headers[key] {
+                lines.append("\(key): \(value)")
+            }
+        }
+        lines.append("")
+        lines.append("")
+
+        var data = Data(lines.joined(separator: "\r\n").utf8)
+        if let body = request.httpBody {
+            data.append(body)
+        }
+        return data
+    }
+
+    private static func parseResponse(_ responseData: Data, for url: URL) throws -> (Data, URLResponse) {
+        let separator = Data("\r\n\r\n".utf8)
+        guard let headerRange = responseData.range(of: separator) else {
+            throw ScraperError.networkError("Invalid HTTP response")
+        }
+
+        let headerData = responseData[..<headerRange.lowerBound]
+        var body = Data(responseData[headerRange.upperBound...])
+        let headerText = String(decoding: headerData, as: UTF8.self)
+        let lines = headerText.components(separatedBy: "\r\n")
+
+        guard let statusLine = lines.first else {
+            throw ScraperError.networkError("Missing HTTP status line")
+        }
+
+        let statusParts = statusLine.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
+        guard statusParts.count >= 2, let statusCode = Int(statusParts[1]) else {
+            throw ScraperError.networkError("Invalid HTTP status line: \(statusLine)")
+        }
+
+        var headerFields: [String: String] = [:]
+        for line in lines.dropFirst() {
+            guard let separatorIndex = line.firstIndex(of: ":") else { continue }
+            let key = String(line[..<separatorIndex]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let value = String(line[line.index(after: separatorIndex)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if let existing = headerFields[key], !existing.isEmpty {
+                headerFields[key] = "\(existing), \(value)"
+            } else {
+                headerFields[key] = value
+            }
+        }
+
+        if headerFields["Transfer-Encoding"]?.localizedCaseInsensitiveContains("chunked") == true {
+            body = try decodeChunked(body)
+        }
+
+        guard let response = HTTPURLResponse(
+            url: url,
+            statusCode: statusCode,
+            httpVersion: "HTTP/1.1",
+            headerFields: headerFields
+        ) else {
+            throw ScraperError.networkError("Failed to construct HTTPURLResponse")
+        }
+
+        return (body, response)
+    }
+
+    private static func decodeChunked(_ data: Data) throws -> Data {
+        var cursor = data.startIndex
+        var decoded = Data()
+        let lineBreak = Data("\r\n".utf8)
+
+        while cursor < data.endIndex {
+            guard let sizeLineRange = data[cursor...].range(of: lineBreak) else {
+                throw ScraperError.networkError("Invalid chunked body")
+            }
+
+            let sizeLine = String(decoding: data[cursor..<sizeLineRange.lowerBound], as: UTF8.self)
+            let hexPart = sizeLine.split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false).first ?? ""
+            guard let chunkSize = Int(hexPart.trimmingCharacters(in: .whitespacesAndNewlines), radix: 16) else {
+                throw ScraperError.networkError("Invalid chunk size: \(sizeLine)")
+            }
+
+            cursor = sizeLineRange.upperBound
+            if chunkSize == 0 {
+                break
+            }
+
+            guard let chunkEnd = data.index(cursor, offsetBy: chunkSize, limitedBy: data.endIndex) else {
+                throw ScraperError.networkError("Chunk exceeds response body")
+            }
+
+            decoded.append(data[cursor..<chunkEnd])
+            cursor = chunkEnd
+
+            guard data[cursor...].starts(with: lineBreak) else {
+                throw ScraperError.networkError("Missing chunk terminator")
+            }
+            cursor = data.index(cursor, offsetBy: lineBreak.count)
+        }
+
+        return decoded
+    }
 }
 
 // MARK: - Scraper Session Manager
@@ -433,8 +673,13 @@ final class ScraperSessionManager: NSObject, URLSessionTaskDelegate, @unchecked 
         self.defaultHeaders = headers
         self.trustDomains = trustDomains
         super.init()
-        let config = URLSessionConfiguration.default
+        let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 15
+        config.httpCookieStorage = nil
+        config.httpShouldSetCookies = false
+        config.httpCookieAcceptPolicy = .never
+        config.urlCache = nil
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
         if !headers.isEmpty {
             config.httpAdditionalHeaders = headers
         }
@@ -443,6 +688,7 @@ final class ScraperSessionManager: NSObject, URLSessionTaskDelegate, @unchecked 
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         var mergedRequest = request
+        mergedRequest.cachePolicy = .reloadIgnoringLocalCacheData
         for (header, value) in defaultHeaders where mergedRequest.value(forHTTPHeaderField: header) == nil {
             mergedRequest.setValue(value, forHTTPHeaderField: header)
         }
@@ -452,12 +698,47 @@ final class ScraperSessionManager: NSObject, URLSessionTaskDelegate, @unchecked 
         plog("🔒 ScraperSession: \(scheme)://\(host) trustDomains=\(trustDomains)")
 
         // HTTP requests must use URLSession.shared (ATS bypass only works with shared/default sessions)
-        // Custom sessions with delegates are not covered by NSAllowsArbitraryLoads
         if scheme == "http" {
-            return try await URLSession.shared.data(for: mergedRequest)
+            return try await PlainHTTPClient.data(for: mergedRequest)
         }
 
-        return try await _session.data(for: mergedRequest, delegate: self)
+        do {
+            return try await _session.data(for: mergedRequest, delegate: self)
+        } catch {
+            if let fallbackRequest = fallbackRequestForTrustedHTTPRetry(from: mergedRequest, error: error) {
+                plog("⚠️ HTTPS failed for trusted host \(host); retrying over HTTP: \(fallbackRequest.url?.absoluteString ?? "?")")
+                do {
+                    return try await PlainHTTPClient.data(for: fallbackRequest)
+                } catch {
+                    plog("⚠️ HTTP retry failed: \(fallbackRequest.httpMethod ?? "GET") \(fallbackRequest.url?.absoluteString ?? "?") \(ConfigurableScraper.describeNetworkError(error))")
+                    throw error
+                }
+            }
+            plog("⚠️ Request failed: \(mergedRequest.httpMethod ?? "GET") \(mergedRequest.url?.absoluteString ?? "?") \(ConfigurableScraper.describeNetworkError(error))")
+            throw error
+        }
+    }
+
+    private func fallbackRequestForTrustedHTTPRetry(from request: URLRequest, error: Error) -> URLRequest? {
+        guard let url = request.url,
+              url.scheme == "https",
+              let host = url.host,
+              SSLTrustStore.sslErrorDomain(from: error) != nil else {
+            return nil
+        }
+
+        let trustedByConfig = trustDomains.contains(where: { host.hasSuffix($0) })
+        let trustedByUser = SSLTrustStore.isTrustedSync(domain: host)
+        guard trustedByConfig || trustedByUser else { return nil }
+
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        components?.scheme = "http"
+        guard let fallbackURL = components?.url else { return nil }
+
+        var fallbackRequest = request
+        fallbackRequest.url = fallbackURL
+        fallbackRequest.cachePolicy = .reloadIgnoringLocalCacheData
+        return fallbackRequest
     }
 
     // Task-level delegate — called by async data(for:delegate:) API

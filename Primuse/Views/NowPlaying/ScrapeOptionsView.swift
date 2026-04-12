@@ -341,7 +341,11 @@ struct ScrapeOptionsView: View {
                     } label: {
                         HStack(spacing: 10) {
                             // Cover art thumbnail
-                            ScraperCoverThumbnail(urlString: item.coverUrl, sourceConfig: item.sourceConfig)
+                            ScraperCoverThumbnail(
+                                urlString: item.coverUrl,
+                                externalId: item.externalId,
+                                sourceConfig: item.sourceConfig
+                            )
 
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack {
@@ -427,9 +431,10 @@ struct ScrapeOptionsView: View {
     }
 
     private func manualSearch() async {
-        // Initialize search query with cleaned title
-        manualSearchQuery = ScraperManager.cleanTitle(song.title)
-        if let artist = song.artistName, !artist.isEmpty {
+        manualSearchQuery = ScraperManager.searchTitle(song.title, artist: song.artistName)
+        if let artist = song.artistName,
+           !artist.isEmpty,
+           ScraperManager.shouldAppendArtist(to: manualSearchQuery, artist: artist) {
             manualSearchQuery += " \(artist)"
         }
         mode = .manual
@@ -440,11 +445,13 @@ struct ScrapeOptionsView: View {
         isSearching = true
         searchResults = []
         errorMessage = nil
+        var aggregatedResults: [SearchResultItem] = []
 
         let settings = ScraperSettings.load()
-        plog("🔍 Manual search: \(settings.enabledSources.count) enabled sources: \(settings.enabledSources.map { $0.type.rawValue })")
+        plog("🔍 Manual search query='\(manualSearchQuery)' enabled sources: \(settings.enabledSources.map { $0.type.rawValue })")
 
-        for config in settings.enabledSources where config.type.supportsMetadata {
+        for config in settings.enabledSources {
+            guard canUseSourceInManualSearch(config) else { continue }
             do {
                 let scraper = MusicScraperFactory.create(for: config)
                 let result = try await scraper.search(
@@ -452,7 +459,7 @@ struct ScrapeOptionsView: View {
                 )
                 for item in result.items {
                     plog("🔍 Search result: \(config.type.rawValue) '\(item.title)' coverUrl=\(item.coverUrl ?? "nil")")
-                    searchResults.append(SearchResultItem(
+                    aggregatedResults.append(SearchResultItem(
                         id: "\(config.type.rawValue)_\(item.externalId)",
                         title: item.title,
                         artist: item.artist,
@@ -464,20 +471,21 @@ struct ScrapeOptionsView: View {
                     ))
                 }
             } catch {
-                plog("⚠️ Search failed for \(config.type.rawValue): \(error.localizedDescription)")
+                plog("⚠️ Search failed for \(config.type.rawValue): \(ConfigurableScraper.describeNetworkError(error))")
             }
         }
 
         // Sort by duration match
         if song.duration.sanitizedDuration > 0 {
             let targetMs = Int((song.duration.sanitizedDuration * 1000).rounded(.down))
-            searchResults.sort { a, b in
+            aggregatedResults.sort { a, b in
                 let diffA = abs((a.durationMs ?? 0) - targetMs)
                 let diffB = abs((b.durationMs ?? 0) - targetMs)
                 return diffA < diffB
             }
         }
 
+        searchResults = aggregatedResults
         isSearching = false
         mode = .manual
     }
@@ -681,6 +689,23 @@ struct ScrapeOptionsView: View {
     private func formatDuration(_ t: TimeInterval) -> String {
         t.formattedDuration
     }
+
+    private func canUseSourceInManualSearch(_ sourceConfig: ScraperSourceConfig) -> Bool {
+        switch sourceConfig.type {
+        case .custom(let configID):
+            guard let config = ScraperConfigStore.shared.config(for: configID) else {
+                plog("⚠️ Manual search skipping \(sourceConfig.type.rawValue): config '\(configID)' not found")
+                return false
+            }
+            let canSearch = config.search != nil
+            if !canSearch {
+                plog("⚠️ Manual search skipping \(sourceConfig.type.rawValue): search endpoint missing")
+            }
+            return canSearch
+        default:
+            return sourceConfig.type.supportsMetadata
+        }
+    }
 }
 
 // MARK: - Scraper Cover Thumbnail
@@ -688,6 +713,7 @@ struct ScrapeOptionsView: View {
 /// Loads cover thumbnails through the same config-aware request path as manual scraping.
 private struct ScraperCoverThumbnail: View {
     let urlString: String?
+    let externalId: String
     let sourceConfig: ScraperSourceConfig
 
     @State private var image: UIImage?
@@ -706,11 +732,12 @@ private struct ScraperCoverThumbnail: View {
         .frame(width: 44, height: 44)
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .task(id: "\(sourceConfig.id)|\(urlString ?? "")") {
-            guard let urlString, !urlString.isEmpty else { return }
             image = nil
+            let resolvedURL = await resolveThumbnailURL()
+            guard let resolvedURL, !resolvedURL.isEmpty else { return }
 
             if let data = try? await ConfigurableScraper.downloadResource(
-                from: urlString,
+                from: resolvedURL,
                 sourceConfig: sourceConfig,
                 timeout: 10
             ),
@@ -718,5 +745,26 @@ private struct ScraperCoverThumbnail: View {
                 image = loaded
             }
         }
+    }
+
+    private func resolveThumbnailURL() async -> String? {
+        if let urlString, !urlString.isEmpty {
+            return urlString
+        }
+
+        let scraper = MusicScraperFactory.create(for: sourceConfig)
+        if let cover = try? await scraper.getCoverArt(externalId: externalId).first {
+            let fallbackURL = cover.thumbnailUrl ?? cover.coverUrl
+            plog("🖼️ Thumbnail fallback via getCoverArt for \(sourceConfig.type.rawValue): \(fallbackURL)")
+            return fallbackURL
+        }
+
+        if let detail = try? await scraper.getDetail(externalId: externalId),
+           let fallbackURL = detail.coverUrl {
+            plog("🖼️ Thumbnail fallback via getDetail for \(sourceConfig.type.rawValue): \(fallbackURL)")
+            return fallbackURL
+        }
+
+        return nil
     }
 }

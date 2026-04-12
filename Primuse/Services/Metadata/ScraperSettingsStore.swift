@@ -16,7 +16,11 @@ struct ScraperSettings: Codable, Sendable {
         // Try v3 first
         if let data = defaults.data(forKey: defaultsKey),
            let settings = try? JSONDecoder().decode(ScraperSettings.self, from: data) {
-            return settings
+            let (reconciled, didChange) = reconcileLoadedSettings(settings)
+            if didChange {
+                reconciled.save(defaults: defaults)
+            }
+            return reconciled
         }
 
         // Migrate from v2 (had hardcoded third-party scraper types)
@@ -43,12 +47,17 @@ struct ScraperSettings: Codable, Sendable {
                     ))
                 }
             }
-            migrated.save(defaults: defaults)
             defaults.removeObject(forKey: v2Key)
-            return migrated
+            let (reconciled, _) = reconcileLoadedSettings(migrated)
+            reconciled.save(defaults: defaults)
+            return reconciled
         }
 
-        return ScraperSettings()
+        let (reconciled, didChange) = reconcileLoadedSettings(ScraperSettings())
+        if didChange {
+            reconciled.save(defaults: defaults)
+        }
+        return reconciled
     }
 
     func save(defaults: UserDefaults = .standard) {
@@ -59,6 +68,60 @@ struct ScraperSettings: Codable, Sendable {
     /// Sorted enabled sources
     var enabledSources: [ScraperSourceConfig] {
         sources.filter(\.isEnabled).sorted { $0.priority < $1.priority }
+    }
+
+    private static func reconcileLoadedSettings(_ settings: ScraperSettings) -> (ScraperSettings, Bool) {
+        var reconciled = settings
+        var didChange = false
+        var seenTypes = Set<MusicScraperType>()
+
+        reconciled.sources = reconciled.sources
+            .sorted { $0.priority < $1.priority }
+            .filter { source in
+                if case .custom(let id) = source.type,
+                   !ScraperConfigStore.shared.exists(id: id) {
+                    didChange = true
+                    return false
+                }
+                guard seenTypes.insert(source.type).inserted else {
+                    didChange = true
+                    return false
+                }
+                return true
+            }
+
+        var nextPriority = (reconciled.sources.map(\.priority).max() ?? -1) + 1
+
+        for builtIn in MusicScraperType.builtInOrder where !reconciled.sources.contains(where: { $0.type == builtIn }) {
+            reconciled.sources.append(
+                ScraperSourceConfig(
+                    id: UUID().uuidString,
+                    type: builtIn,
+                    isEnabled: true,
+                    priority: nextPriority
+                )
+            )
+            nextPriority += 1
+            didChange = true
+        }
+
+        for config in ScraperConfigStore.shared.allConfigs where !reconciled.sources.contains(where: { $0.type == .custom(config.id) }) {
+            var source = ScraperSourceConfig.fromCustomConfig(config)
+            source.priority = nextPriority
+            reconciled.sources.append(source)
+            nextPriority += 1
+            didChange = true
+        }
+
+        reconciled.sources.sort { $0.priority < $1.priority }
+        for index in reconciled.sources.indices {
+            if reconciled.sources[index].priority != index {
+                reconciled.sources[index].priority = index
+                didChange = true
+            }
+        }
+
+        return (reconciled, didChange)
     }
 }
 

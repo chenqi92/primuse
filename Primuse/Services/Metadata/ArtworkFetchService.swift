@@ -75,7 +75,8 @@ actor ArtworkFetchService {
             do {
                 let scraper = MusicScraperFactory.create(for: config)
                 let searchResult = try await scraper.search(query: query, artist: artistName, album: albumTitle, limit: 5)
-                if let best = searchResult.items.first, let coverUrl = best.coverUrl {
+                if let best = searchResult.items.first,
+                   let coverUrl = try await resolveCoverURL(for: best, with: scraper) {
                     if let data = try? await downloadImage(url: coverUrl, sourceConfig: config) {
                         return compressJPEG(data)
                     }
@@ -94,7 +95,8 @@ actor ArtworkFetchService {
             do {
                 let scraper = MusicScraperFactory.create(for: config)
                 let searchResult = try await scraper.search(query: artistName, artist: artistName, album: nil, limit: 3)
-                if let best = searchResult.items.first, let coverUrl = best.coverUrl {
+                if let best = searchResult.items.first,
+                   let coverUrl = try await resolveCoverURL(for: best, with: scraper) {
                     if let data = try? await downloadImage(url: coverUrl, sourceConfig: config) {
                         return compressJPEG(data)
                     }
@@ -111,6 +113,21 @@ actor ArtworkFetchService {
 
     private func downloadImage(url: String, sourceConfig: ScraperSourceConfig) async throws -> Data? {
         try await ConfigurableScraper.downloadResource(from: url, sourceConfig: sourceConfig)
+    }
+
+    private func resolveCoverURL(for item: ScraperSearchItem, with scraper: any MusicScraper) async throws -> String? {
+        if let coverUrl = item.coverUrl, !coverUrl.isEmpty {
+            return coverUrl
+        }
+        if let fallback = try await scraper.getCoverArt(externalId: item.externalId).first?.coverUrl,
+           !fallback.isEmpty {
+            return fallback
+        }
+        if let detailCover = try await scraper.getDetail(externalId: item.externalId)?.coverUrl,
+           !detailCover.isEmpty {
+            return detailCover
+        }
+        return nil
     }
 
     private func compressJPEG(_ data: Data) -> Data? {

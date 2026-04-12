@@ -22,7 +22,7 @@ actor ScraperManager {
         let enabledSources = settings.enabledSources
 
         // Clean title for better search results (remove brackets, numbering etc.)
-        let cleanedTitle = Self.cleanTitle(title)
+        let cleanedTitle = Self.searchTitle(title, artist: artist)
 
         // Scrape metadata from first successful source
         if needs.metadata {
@@ -145,19 +145,57 @@ actor ScraperManager {
         return nil
     }
 
-    /// Remove bracket content that interferes with search
-    /// e.g. "只爱西经 (中四版)" → "只爱西经"
+    static func searchTitle(_ title: String, artist: String?) -> String {
+        let cleanedTitle = cleanTitle(title)
+        let cleanedArtist = normalizeComparableText(artist)
+
+        guard !cleanedArtist.isEmpty,
+              let split = splitTitleAroundDash(cleanedTitle) else {
+            return cleanedTitle
+        }
+
+        if normalizeComparableText(split.left) == cleanedArtist, !split.right.isEmpty {
+            return split.right
+        }
+        if normalizeComparableText(split.right) == cleanedArtist, !split.left.isEmpty {
+            return split.left
+        }
+
+        return cleanedTitle
+    }
+
+    static func shouldAppendArtist(to query: String, artist: String?) -> Bool {
+        let cleanedArtist = normalizeComparableText(artist)
+        guard !cleanedArtist.isEmpty else { return false }
+        return !normalizeComparableText(query).contains(cleanedArtist)
+    }
+
+    /// Remove bracket content and noisy prefixes that interfere with search.
     static func cleanTitle(_ title: String) -> String {
         var result = title
         result = result.replacingOccurrences(of: "\\([^)]*\\)", with: "", options: .regularExpression)
         result = result.replacingOccurrences(of: "（[^）]*）", with: "", options: .regularExpression)
         result = result.replacingOccurrences(of: "\\[[^\\]]*\\]", with: "", options: .regularExpression)
         result = result.replacingOccurrences(of: "【[^】]*】", with: "", options: .regularExpression)
-        if let dashRange = result.range(of: "\\s*[–—-]\\s+", options: .regularExpression) {
-            result = String(result[result.startIndex..<dashRange.lowerBound])
-        }
-        result = result.trimmingCharacters(in: .whitespaces)
         result = result.replacingOccurrences(of: "^\\d+[.\\s]+", with: "", options: .regularExpression)
-        return result.trimmingCharacters(in: .whitespaces)
+        result = result.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func splitTitleAroundDash(_ title: String) -> (left: String, right: String)? {
+        guard let dashRange = title.range(of: "\\s*[–—-]\\s+", options: .regularExpression) else {
+            return nil
+        }
+        let left = String(title[..<dashRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let right = String(title[dashRange.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !left.isEmpty, !right.isEmpty else { return nil }
+        return (left, right)
+    }
+
+    private static func normalizeComparableText(_ text: String?) -> String {
+        guard let text else { return "" }
+        return cleanTitle(text)
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .replacingOccurrences(of: "[\\s·•・_\\-–—]+", with: "", options: .regularExpression)
     }
 }
