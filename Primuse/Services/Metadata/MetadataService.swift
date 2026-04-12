@@ -24,7 +24,11 @@ actor MetadataService {
     }
 
     /// Load metadata with priority: sidecar → embedded → online
-    func loadMetadata(for url: URL, cacheKey: String? = nil) async -> SongMetadata {
+    func loadMetadata(
+        for url: URL,
+        cacheKey: String? = nil,
+        allowOnlineFetch: Bool = true
+    ) async -> SongMetadata {
         // 1. Read embedded metadata
         let embedded = await FileMetadataReader.read(from: url)
         NSLog("📖 FileMetadataReader: title=\(embedded.title ?? "nil") cover=\(embedded.coverArtData?.count ?? 0)bytes lyrics=\(embedded.lyricsText?.prefix(30) ?? "nil") file=\(url.lastPathComponent)")
@@ -37,7 +41,7 @@ actor MetadataService {
             discNumber: embedded.discNumber,
             year: embedded.year,
             genre: embedded.genre,
-            duration: embedded.duration ?? 0,
+            duration: TimeInterval.sanitized(embedded.duration),
             sampleRate: embedded.sampleRate,
             bitRate: embedded.bitRate,
             bitDepth: embedded.bitDepth,
@@ -67,7 +71,7 @@ actor MetadataService {
         let needsCover = result.coverArtData == nil
         let needsLyrics = result.lyrics == nil
 
-        if needsMetadata || needsCover || needsLyrics {
+        if allowOnlineFetch && (needsMetadata || needsCover || needsLyrics) {
             await fetchOnlineMetadata(
                 for: &result,
                 needsMetadata: needsMetadata,

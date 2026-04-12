@@ -25,30 +25,56 @@ actor SynologyScanner {
         var songs: [Song]
     }
 
-    func scan(directories: [String]) -> AsyncThrowingStream<ScanUpdate, Error> {
+    func scan(
+        directories: [String],
+        existingSongs: [Song] = [],
+        startingCount: Int = 0
+    ) -> AsyncThrowingStream<ScanUpdate, Error> {
         AsyncThrowingStream { continuation in
             Task {
+                // Remove redundant child directories when a parent is already selected
+                let dirs = Self.deduplicateDirectories(directories)
+
                 // Phase 1: Count total audio files
                 var totalCount = 0
-                for dir in directories {
+                for dir in dirs {
                     totalCount += await countAudioFiles(in: dir)
                 }
 
                 // Phase 2: Scan and extract metadata
-                var allSongs: [Song] = []
-                var count = 0
+                var allSongs = existingSongs
+                let existingPaths = Set(existingSongs.map(\.filePath))
+                let initialCount = max(existingSongs.count, startingCount)
+                var count = totalCount > 0 ? min(initialCount, totalCount) : initialCount
+                var encounteredPaths: Set<String> = []
+                var hadDirectoryFailure = false
 
-                for dir in directories {
+                if !existingSongs.isEmpty {
+                    continuation.yield(
+                        ScanUpdate(scannedCount: count, totalCount: totalCount, currentFile: "", songs: allSongs)
+                    )
+                }
+
+                for dir in dirs {
                     do {
                         try await scanDirectory(
                             path: dir, allSongs: &allSongs,
                             count: &count, totalCount: totalCount,
+                            existingPaths: existingPaths,
+                            encounteredPaths: &encounteredPaths,
                             continuation: continuation
                         )
                     } catch {
-                        continuation.finish(throwing: error)
-                        return
+                        hadDirectoryFailure = true
+                        // Log error but continue scanning remaining directories
+                        NSLog("⚠️ Failed to scan directory \(dir): \(error.localizedDescription)")
+                        continue
                     }
+                }
+
+                if !hadDirectoryFailure {
+                    allSongs.removeAll { encounteredPaths.contains($0.filePath) == false }
+                    count = allSongs.count
                 }
 
                 continuation.yield(ScanUpdate(scannedCount: count, totalCount: totalCount, currentFile: "", songs: allSongs))
@@ -78,6 +104,8 @@ actor SynologyScanner {
     private func scanDirectory(
         path: String, allSongs: inout [Song], count: inout Int,
         totalCount: Int,
+        existingPaths: Set<String>,
+        encounteredPaths: inout Set<String>,
         continuation: AsyncThrowingStream<ScanUpdate, Error>.Continuation
     ) async throws {
         let items = try await api.listDirectory(path: path)
@@ -104,11 +132,15 @@ actor SynologyScanner {
                 try await scanDirectory(
                     path: item.path, allSongs: &allSongs,
                     count: &count, totalCount: totalCount,
+                    existingPaths: existingPaths,
+                    encounteredPaths: &encounteredPaths,
                     continuation: continuation
                 )
             } else {
                 let ext = (item.name as NSString).pathExtension.lowercased()
                 guard PrimuseConstants.supportedAudioExtensions.contains(ext) else { continue }
+                encounteredPaths.insert(item.path)
+                guard existingPaths.contains(item.path) == false else { continue }
 
                 // Detect sidecar files by name (no download needed)
                 let baseName = (item.name as NSString).deletingPathExtension
@@ -442,5 +474,21 @@ actor SynologyScanner {
 
     private func cleanup() {
         try? FileManager.default.removeItem(at: tempDir)
+    }
+
+    /// Remove child directories when a parent directory is already in the list.
+    /// e.g. ["/test", "/test/music"] → ["/test"] (parent already covers child via recursion)
+    static func deduplicateDirectories(_ directories: [String]) -> [String] {
+        let sorted = directories.sorted()
+        var result: [String] = []
+        for dir in sorted {
+            let isChildOfExisting = result.contains { parent in
+                dir.hasPrefix(parent.hasSuffix("/") ? parent : parent + "/")
+            }
+            if !isChildOfExisting {
+                result.append(dir)
+            }
+        }
+        return result
     }
 }

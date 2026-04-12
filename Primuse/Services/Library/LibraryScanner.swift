@@ -62,7 +62,11 @@ actor LibraryScanner {
 
                         let localURL = try await connector.localURL(for: file.path)
                         let songID = generateID(sourceID: source.id, path: file.path)
-                        let metadata = await metadataService.loadMetadata(for: localURL, cacheKey: songID)
+                        let metadata = await metadataService.loadMetadata(
+                            for: localURL,
+                            cacheKey: songID,
+                            allowOnlineFetch: false
+                        )
                         let artistID = metadata.artist.map { generateArtistID(name: $0) }
                         let albumID: String? = if let album = metadata.albumTitle, let artist = metadata.artist {
                             generateAlbumID(artist: artist, album: album)

@@ -13,13 +13,11 @@ struct PlaylistListView: View {
     var body: some View {
         Group {
             if playlists.isEmpty {
-                VStack(spacing: 16) {
-                    ContentUnavailableView(
-                        "no_playlists",
-                        systemImage: "music.note.list",
-                        description: Text("no_playlists_desc")
-                    )
-
+                ContentUnavailableView {
+                    Label("no_playlists", systemImage: "music.note.list")
+                } description: {
+                    Text("no_playlists_desc")
+                } actions: {
                     Button("new_playlist") {
                         showNewPlaylist = true
                     }

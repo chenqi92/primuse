@@ -156,7 +156,7 @@ struct NowPlayingView: View {
                     VStack(spacing: 4) {
                         ProgressSlider(
                             value: player.currentTime,
-                            total: max(player.duration, 0.1),
+                            total: player.duration,
                             onSeek: { player.seek(to: $0) }
                         )
                         HStack {
@@ -514,7 +514,7 @@ struct NowPlayingView: View {
     }
 
     private func fmt(_ t: TimeInterval) -> String {
-        let s = max(0, t); return String(format: "%d:%02d", Int(s) / 60, Int(s) % 60)
+        t.formattedDuration
     }
 }
 
@@ -528,9 +528,20 @@ struct ProgressSlider: View {
     @State private var isDragging = false
     @State private var dragValue: TimeInterval?
 
-    private var displayValue: TimeInterval { dragValue ?? value }
+    private var safeTotal: TimeInterval { total.sanitizedDuration }
+    private var displayValue: TimeInterval { (dragValue ?? value).sanitizedDuration }
     private var progress: CGFloat {
-        total > 0 ? CGFloat(displayValue / total) : 0
+        guard safeTotal > 0 else { return 0 }
+        let fraction = displayValue / safeTotal
+        guard fraction.isFinite else { return 0 }
+        return CGFloat(max(0, min(1, fraction)))
+    }
+
+    private func seekValue(for locationX: CGFloat, width: CGFloat) -> TimeInterval? {
+        guard width > 0, safeTotal > 0 else { return nil }
+        let fraction = locationX / width
+        guard fraction.isFinite else { return nil }
+        return Double(max(0, min(1, fraction))) * safeTotal
     }
 
     var body: some View {
@@ -555,13 +566,12 @@ struct ProgressSlider: View {
                 DragGesture(minimumDistance: 0)
                     .onChanged { gesture in
                         isDragging = true
-                        let fraction = max(0, min(1, gesture.location.x / width))
-                        dragValue = Double(fraction) * total
+                        dragValue = seekValue(for: gesture.location.x, width: width)
                     }
                     .onEnded { gesture in
-                        let fraction = max(0, min(1, gesture.location.x / width))
-                        let seekTime = Double(fraction) * total
-                        onSeek(seekTime)
+                        if let seekTime = seekValue(for: gesture.location.x, width: width) {
+                            onSeek(seekTime)
+                        }
                         dragValue = nil
                         withAnimation(.easeOut(duration: 0.2)) { isDragging = false }
                     }
@@ -667,9 +677,7 @@ struct SongInfoSheet: View {
     }
 
     private func formatDuration(_ t: TimeInterval) -> String {
-        let minutes = Int(t) / 60
-        let seconds = Int(t) % 60
-        return String(format: "%d:%02d", minutes, seconds)
+        t.formattedDuration
     }
 }
 

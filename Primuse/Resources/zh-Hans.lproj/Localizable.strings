@@ -155,6 +155,8 @@
 "scan_complete" = "扫描完成";
 "remember_device_desc" = "下次登录时跳过验证码";
 "scan_needs_connect" = "请先连接（需要验证码）";
+"resume_scan" = "继续扫描";
+"scan_resume_hint" = "上次扫描已中断，点击继续";
 "search_empty_library" = "还没有音乐";
 "search_empty_library_desc" = "添加音乐源并扫描后即可搜索";
 "scrape_song" = "刮削元数据";

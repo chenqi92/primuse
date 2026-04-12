@@ -99,7 +99,7 @@ struct ScrapeOptionsView: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(song.title).font(.subheadline).fontWeight(.semibold).lineLimit(1)
                         Text(song.artistName ?? "").font(.caption).foregroundStyle(Color(.systemGray)).lineLimit(1)
-                        if song.duration > 0 {
+                        if song.duration.sanitizedDuration > 0 {
                             Text(formatDuration(song.duration)).font(.caption2).foregroundStyle(Color(.systemGray2))
                         }
                     }
@@ -469,8 +469,8 @@ struct ScrapeOptionsView: View {
         }
 
         // Sort by duration match
-        if song.duration > 0 {
-            let targetMs = Int(song.duration * 1000)
+        if song.duration.sanitizedDuration > 0 {
+            let targetMs = Int((song.duration.sanitizedDuration * 1000).rounded(.down))
             searchResults.sort { a, b in
                 let diffA = abs((a.durationMs ?? 0) - targetMs)
                 let diffB = abs((b.durationMs ?? 0) - targetMs)
@@ -680,7 +680,7 @@ struct ScrapeOptionsView: View {
     // MARK: - Helpers
 
     private func formatDuration(_ t: TimeInterval) -> String {
-        String(format: "%d:%02d", Int(t) / 60, Int(t) % 60)
+        t.formattedDuration
     }
 }
 

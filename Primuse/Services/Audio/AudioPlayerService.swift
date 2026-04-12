@@ -181,7 +181,7 @@ final class AudioPlayerService {
         // Show new song in UI immediately (before download)
         currentSong = song
         currentTime = 0
-        duration = song.duration
+        duration = song.duration.sanitizedDuration
         isLoading = true
         isPlaying = false
         plog("▶️ currentSong set to: \(song.title)")
@@ -216,7 +216,7 @@ final class AudioPlayerService {
         plog("▶️   URL: \(url.absoluteString.prefix(120))")
         plog("▶️   scheme=\(url.scheme ?? "nil") isFileURL=\(url.isFileURL) ext=\(url.pathExtension) format=\(song.fileFormat) duration=\(song.duration)")
         currentSong = song
-        duration = song.duration
+        duration = song.duration.sanitizedDuration
         isLoading = true
         isPlaying = false
         audioEngine.sampleTimeOffset = 0
@@ -290,7 +290,7 @@ final class AudioPlayerService {
                 Task {
                     if let info = try? await nativeDecoder.fileInfo(for: url) {
                         guard self.playID == id else { return }
-                        self.duration = info.duration
+                        self.duration = info.duration.sanitizedDuration
                         self.updateNowPlayingInfo()
                     }
                 }
@@ -400,7 +400,7 @@ final class AudioPlayerService {
                 Task {
                     if let info = try? await self.nativeDecoder.fileInfo(for: url) {
                         guard self.playID == id else { return }
-                        self.duration = info.duration
+                        self.duration = info.duration.sanitizedDuration
                         self.updateNowPlayingInfo()
                     }
                 }
@@ -516,7 +516,7 @@ final class AudioPlayerService {
                 Task {
                     if let info = await self.assetReaderDecoder.fileInfo(for: url) {
                         guard self.playID == id else { return }
-                        self.duration = info.duration
+                        self.duration = info.duration.sanitizedDuration
                         self.updateNowPlayingInfo()
                     }
                 }
@@ -670,7 +670,9 @@ final class AudioPlayerService {
     private var seekTimeOffset: TimeInterval = 0
 
     func seek(to time: TimeInterval, startPlaying: Bool? = nil, isRecovery: Bool = false) {
-        let targetTime = max(0, min(time, duration > 0 ? duration : time))
+        let requestedTime = TimeInterval.sanitized(time)
+        let safeDuration = duration.sanitizedDuration
+        let targetTime = safeDuration > 0 ? min(requestedTime, safeDuration) : requestedTime
         currentTime = targetTime
         isLoading = true
         updateNowPlayingInfo()
@@ -737,7 +739,14 @@ final class AudioPlayerService {
                 case .assetReader:
                     stream = assetReaderDecoder.decode(from: seekURL, outputFormat: outputFormat)
                 }
-                let seekSamples = Int64(time * outputFormat.sampleRate)
+                let seekSamplePosition = targetTime * outputFormat.sampleRate
+                guard seekSamplePosition.isFinite else {
+                    self.isLoading = false
+                    self.updateNowPlayingInfo()
+                    self.updatePlaybackState()
+                    return
+                }
+                let seekSamples = Int64(seekSamplePosition.rounded(.down))
                 var samplesSkipped: Int64 = 0
 
                 // Set sample time offset so currentTime calculation accounts for seek position
@@ -915,7 +924,7 @@ final class AudioPlayerService {
                     isFirst = false
                     Task {
                         if let info = try? await nativeDecoder.fileInfo(for: nextURL) {
-                            self.duration = info.duration
+                            self.duration = info.duration.sanitizedDuration
                         }
                     }
                     updateNowPlayingInfo()
@@ -1120,12 +1129,12 @@ final class AudioPlayerService {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if let time = self.audioEngine.currentTime {
-                    self.currentTime = time
+                    self.currentTime = time.sanitizedDuration
 
                     // Safety net: if currentTime exceeds duration, the completion callback
                     // may have failed to fire — force track advancement.
-                    if self.duration > 0, time >= self.duration + 1.0, !self.isLoading {
-                        plog("⚠️ Safety net: currentTime (\(time)) exceeded duration (\(self.duration)), forcing track end")
+                    if self.duration > 0, self.currentTime >= self.duration + 1.0, !self.isLoading {
+                        plog("⚠️ Safety net: currentTime (\(self.currentTime)) exceeded duration (\(self.duration)), forcing track end")
                         self.stopTimeUpdater()
                         await self.handleTrackEnd()
                         return

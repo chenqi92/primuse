@@ -241,7 +241,7 @@ final class MusicLibrary {
                 year: songs.first?.year,
                 genre: songs.first?.genre,
                 songCount: songs.count,
-                totalDuration: songs.reduce(0) { $0 + $1.duration },
+                totalDuration: songs.reduce(0) { $0 + $1.duration.sanitizedDuration },
                 sourceID: songs.first?.sourceID
             )
         }.sorted { $0.title.localizedCompare($1.title) == .orderedAscending }

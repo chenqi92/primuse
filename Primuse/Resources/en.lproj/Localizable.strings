@@ -155,6 +155,8 @@
 "scan_complete" = "Scan complete";
 "remember_device_desc" = "Skip OTP verification on next login";
 "scan_needs_connect" = "Please connect first (OTP required)";
+"resume_scan" = "Resume Scan";
+"scan_resume_hint" = "Previous scan was interrupted. Tap to continue";
 "search_empty_library" = "No Music Yet";
 "search_empty_library_desc" = "Add a music source and scan to start searching";
 "scrape_song" = "Scrape Metadata";

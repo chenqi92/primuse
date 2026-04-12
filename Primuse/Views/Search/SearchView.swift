@@ -2,6 +2,9 @@ import SwiftUI
 import PrimuseKit
 
 struct SearchView: View {
+    private static let recentSearchesKey = "search_recent_queries"
+    private static let recentSearchLimit = 12
+
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Binding var searchText: String
@@ -31,24 +34,39 @@ struct SearchView: View {
             .navigationTitle("search_title")
             .toolbarTitleDisplayMode(.inlineLarge)
             .searchable(text: $searchText, prompt: Text("search_prompt"))
+            .onSubmit(of: .search) {
+                addRecentSearch(searchText)
+            }
         }
+        .onAppear(perform: loadRecentSearches)
         .onChange(of: searchText) { _, newValue in
             performSearch(query: newValue)
+        }
+        .onDisappear {
+            searchTask?.cancel()
         }
     }
 
     private var recentSearchView: some View {
         List {
             if !recentSearches.isEmpty {
-                Section("recent_searches") {
+                Section {
                     ForEach(recentSearches, id: \.self) { query in
                         Button {
+                            addRecentSearch(query)
                             searchText = query
                         } label: {
                             Label(query, systemImage: "clock")
                         }
                     }
-                    .onDelete { recentSearches.remove(atOffsets: $0) }
+                    .onDelete(perform: deleteRecentSearches)
+                } header: {
+                    HStack {
+                        Text("recent_searches")
+                        Spacer()
+                        Button("clear_all", role: .destructive, action: clearRecentSearches)
+                            .font(.caption)
+                    }
                 }
             }
 
@@ -128,9 +146,38 @@ struct SearchView: View {
         guard let index = searchResults.firstIndex(where: { $0.id == song.id }) else { return }
         player.setQueue(searchResults, startAt: index)
         Task { await player.play(song: song) }
-        if !recentSearches.contains(searchText) {
-            recentSearches.insert(searchText, at: 0)
-            if recentSearches.count > 10 { recentSearches.removeLast() }
+        addRecentSearch(searchText)
+    }
+
+    private func loadRecentSearches() {
+        recentSearches = UserDefaults.standard.stringArray(forKey: Self.recentSearchesKey) ?? []
+    }
+
+    private func addRecentSearch(_ query: String) {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedQuery.isEmpty == false else { return }
+
+        recentSearches.removeAll { $0.caseInsensitiveCompare(trimmedQuery) == .orderedSame }
+        recentSearches.insert(trimmedQuery, at: 0)
+
+        if recentSearches.count > Self.recentSearchLimit {
+            recentSearches = Array(recentSearches.prefix(Self.recentSearchLimit))
         }
+
+        saveRecentSearches()
+    }
+
+    private func deleteRecentSearches(at offsets: IndexSet) {
+        recentSearches.remove(atOffsets: offsets)
+        saveRecentSearches()
+    }
+
+    private func clearRecentSearches() {
+        recentSearches.removeAll()
+        saveRecentSearches()
+    }
+
+    private func saveRecentSearches() {
+        UserDefaults.standard.set(recentSearches, forKey: Self.recentSearchesKey)
     }
 }

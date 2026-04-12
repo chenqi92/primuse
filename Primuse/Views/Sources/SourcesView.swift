@@ -6,6 +6,7 @@ struct SourcesView: View {
     @Environment(SourcesStore.self) private var sourceStore
     @Environment(MusicLibrary.self) private var library
     @Environment(ScanService.self) private var scanService
+    @Environment(MusicScraperService.self) private var scraperService
     @State private var showAddSource = false
     @State private var editingSource: MusicSource?
     @State private var connectingSource: MusicSource?
@@ -65,6 +66,11 @@ struct SourcesView: View {
     private func sourceCard(_ source: MusicSource) -> some View {
         let dirs = decodeDirs(source.extraConfig)
         let scanning = scanService.scanStates[source.id]
+        let displayedSongCount = if let scanning, scanning.isScanning || scanning.canResume {
+            scanning.scannedCount
+        } else {
+            source.songCount
+        }
 
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
@@ -92,9 +98,8 @@ struct SourcesView: View {
                     .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                let liveSongCount = library.songs.filter { $0.sourceID == source.id }.count
-                if liveSongCount > 0 {
-                    Text("\(liveSongCount)")
+                if displayedSongCount > 0 {
+                    Text("\(displayedSongCount)")
                         .font(.caption).fontWeight(.semibold).monospacedDigit()
                         .padding(.horizontal, 8).padding(.vertical, 3)
                         .background(.quaternary).clipShape(Capsule())
@@ -116,7 +121,7 @@ struct SourcesView: View {
                 }
             }
 
-            if let scan = scanning, scan.isScanning {
+            if let scan = scanning, scan.isScanning || scan.canResume {
                 VStack(alignment: .leading, spacing: 4) {
                     if scan.totalCount > 0 {
                         ProgressView(value: min(scan.progress, 1.0)).tint(.accentColor)
@@ -125,7 +130,7 @@ struct SourcesView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     HStack {
-                        Text(scan.currentFile).lineLimit(1)
+                        Text(scan.isScanning ? scan.currentFile : String(localized: "scan_resume_hint")).lineLimit(1)
                         Spacer()
                         if scan.totalCount > 0 {
                             Text("\(scan.scannedCount)/\(scan.totalCount)").monospacedDigit()
@@ -141,9 +146,16 @@ struct SourcesView: View {
                 if source.type.isMediaServer {
                     // Media servers scan all libraries directly — no directory selection needed
                     Button {
-                        scanService.scanSource(source, sourceManager: sourceManager, library: library, sourceStore: sourceStore)
+                        scanService.scanSource(
+                            source,
+                            sourceManager: sourceManager,
+                            library: library,
+                            sourceStore: sourceStore,
+                            scraperService: scraperService
+                        )
                     } label: {
-                        Label("scan", systemImage: "waveform.badge.magnifyingglass")
+                        Label(scanning?.canResume == true ? "resume_scan" : "scan",
+                              systemImage: scanning?.canResume == true ? "arrow.clockwise.circle" : "waveform.badge.magnifyingglass")
                             .font(.caption).fontWeight(.medium)
                             .frame(maxWidth: .infinity).padding(.vertical, 7)
                     }
@@ -163,9 +175,16 @@ struct SourcesView: View {
 
                     if !dirs.isEmpty {
                         Button {
-                            scanService.scanSource(source, sourceManager: sourceManager, library: library, sourceStore: sourceStore)
+                            scanService.scanSource(
+                                source,
+                                sourceManager: sourceManager,
+                                library: library,
+                                sourceStore: sourceStore,
+                                scraperService: scraperService
+                            )
                         } label: {
-                            Label("scan", systemImage: "waveform.badge.magnifyingglass")
+                            Label(scanning?.canResume == true ? "resume_scan" : "scan",
+                                  systemImage: scanning?.canResume == true ? "arrow.clockwise.circle" : "waveform.badge.magnifyingglass")
                                 .font(.caption).fontWeight(.medium)
                                 .frame(maxWidth: .infinity).padding(.vertical, 7)
                         }
@@ -269,6 +288,9 @@ struct SourcesView: View {
     }
 
     private func deleteSource(_ source: MusicSource) {
+        // Cancel any active scan first — otherwise it keeps adding songs back
+        scanService.cancelScan(for: source.id)
+        scanService.removeCheckpoint(for: source.id)
         library.removeSongsForSource(source.id)
         sourceStore.remove(id: source.id)
         scanService.removeSynologyAPI(for: source.id)

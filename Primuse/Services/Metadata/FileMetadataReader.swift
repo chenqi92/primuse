@@ -32,7 +32,10 @@ enum FileMetadataReader {
 
         // Get duration
         if let duration = try? await asset.load(.duration) {
-            metadata.duration = CMTimeGetSeconds(duration)
+            let seconds = CMTimeGetSeconds(duration)
+            if seconds.isFinite, seconds >= 0 {
+                metadata.duration = seconds
+            }
         }
 
         // Read metadata items

@@ -7,8 +7,12 @@ final class MusicScraperService {
     private let sourceManager: SourceManager
     private let metadataService = MetadataService()
     private var scrapingTask: Task<Void, Never>?
+    private var backgroundEnrichmentTask: Task<Void, Never>?
+    private var pendingEnrichmentSongIDs: [String] = []
+    private var pendingEnrichmentSongIDSet: Set<String> = []
 
     private(set) var isScraping = false
+    private(set) var isBackgroundEnriching = false
     private(set) var currentSongTitle = ""
     private(set) var processedCount = 0
     private(set) var totalCount = 0
@@ -133,6 +137,20 @@ final class MusicScraperService {
         return (updatedSong, result.coverData, result.lyricsLines)
     }
 
+    func enqueueBackgroundEnrichment(for songs: [Song], in library: MusicLibrary) {
+        let candidates = songs.filter(shouldBackgroundEnrich)
+        guard !candidates.isEmpty else { return }
+
+        for song in candidates where pendingEnrichmentSongIDSet.insert(song.id).inserted {
+            pendingEnrichmentSongIDs.append(song.id)
+        }
+
+        guard backgroundEnrichmentTask == nil else { return }
+        backgroundEnrichmentTask = Task(priority: .utility) { @MainActor [weak self] in
+            await self?.runBackgroundEnrichment(in: library)
+        }
+    }
+
     func cancel() {
         scrapingTask?.cancel()
         scrapingTask = nil
@@ -176,7 +194,7 @@ final class MusicScraperService {
                     }
 
                     processedCount += 1
-                    var updatedSong = result.song
+                    let updatedSong = result.song
 
                     if updatedSong != song {
                         library.replaceSong(updatedSong)
@@ -332,6 +350,67 @@ final class MusicScraperService {
             forceRescrape: forceRescrape
         )
         return ProcessedResult(song: merged, coverData: metadata.coverArtData, lyricsLines: metadata.lyrics)
+    }
+
+    private func runBackgroundEnrichment(in library: MusicLibrary) async {
+        isBackgroundEnriching = true
+
+        defer {
+            backgroundEnrichmentTask = nil
+            isBackgroundEnriching = false
+        }
+
+        while !Task.isCancelled {
+            if isScraping {
+                try? await Task.sleep(for: .seconds(1))
+                continue
+            }
+
+            guard let song = nextSongForBackgroundEnrichment(in: library) else {
+                return
+            }
+
+            do {
+                guard let result = try await processedSongWithAssets(song, forceRescrape: false) else {
+                    continue
+                }
+
+                if result.song != song {
+                    library.replaceSong(result.song)
+                }
+            } catch {
+                plog("⚠️ Background enrichment skipped for '\(song.title)': \(error.localizedDescription)")
+            }
+
+            try? await Task.sleep(for: .milliseconds(150))
+        }
+    }
+
+    private func nextSongForBackgroundEnrichment(in library: MusicLibrary) -> Song? {
+        while let songID = pendingEnrichmentSongIDs.first {
+            pendingEnrichmentSongIDs.removeFirst()
+            pendingEnrichmentSongIDSet.remove(songID)
+
+            if let song = library.visibleSongs.first(where: { $0.id == songID }) {
+                return song
+            }
+        }
+
+        return nil
+    }
+
+    private func shouldBackgroundEnrich(_ song: Song) -> Bool {
+        let settings = ScraperSettings.load()
+        if settings.onlyFillMissingFields == false {
+            return true
+        }
+
+        return song.artistName?.isEmpty ?? true
+            || song.albumTitle?.isEmpty ?? true
+            || song.year == nil
+            || song.genre?.isEmpty ?? true
+            || song.coverArtFileName == nil
+            || song.lyricsFileName == nil
     }
 
     private func processedSong(_ song: Song, forceRescrape: Bool) async throws -> Song? {
