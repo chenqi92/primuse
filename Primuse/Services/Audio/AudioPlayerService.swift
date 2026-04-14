@@ -1,7 +1,10 @@
 import AVFoundation
+import CryptoKit
 import Foundation
 import MediaPlayer
 import PrimuseKit
+import UIKit
+import WidgetKit
 
 /// Mutable counter that can be captured by @Sendable closures (e.g. Timer callbacks wrapped in Task).
 private final class StepCounter: @unchecked Sendable {
@@ -1443,17 +1446,175 @@ final class AudioPlayerService {
 
     // MARK: - Shared Playback State
 
+    /// Tracks the last songID for which we wrote a widget cover, to avoid redundant writes.
+    private var lastWidgetCoverSongID: String?
+    /// Coalesces repeated WidgetKit reload requests with identical content.
+    private var lastWidgetTimelineSignature: String?
+
     private func updatePlaybackState() {
+        var coverName: String?
+        var recentAlbumsChanged = false
+
+        if let song = currentSong {
+            let sharedCoverName = "widget_cover.png"
+            let needsSharedCoverRefresh = song.id != lastWidgetCoverSongID || !sharedWidgetCoverExists(named: sharedCoverName)
+
+            if needsSharedCoverRefresh {
+                if let writtenCoverName = writeWidgetCover(song: song, fileName: sharedCoverName) {
+                    coverName = writtenCoverName
+                    lastWidgetCoverSongID = song.id
+                } else if sharedWidgetCoverExists(named: sharedCoverName) {
+                    coverName = sharedCoverName
+                    lastWidgetCoverSongID = song.id
+                } else {
+                    lastWidgetCoverSongID = nil
+                }
+
+                if let albumEntry = makeRecentAlbumEntry(for: song) {
+                    if let albumCoverName = albumEntry.coverImageName,
+                       !sharedWidgetCoverExists(named: albumCoverName) {
+                        _ = writeWidgetCover(song: song, fileName: albumCoverName, size: 200)
+                    }
+                    RecentAlbumsStore.record(albumEntry)
+                    recentAlbumsChanged = true
+                }
+            } else {
+                coverName = sharedCoverName
+            }
+        } else {
+            lastWidgetCoverSongID = nil
+        }
+
         let state = PlaybackState(
             currentSongID: currentSong?.id,
             songTitle: currentSong?.title,
             artistName: currentSong?.artistName,
             albumTitle: currentSong?.albumTitle,
+            coverImageName: coverName,
             isPlaying: isPlaying,
             currentTime: currentTime,
             duration: duration,
             queueSongIDs: queue.map(\.id)
         )
         state.save()
+
+        let timelineSignature = widgetTimelineSignature(for: state)
+        if recentAlbumsChanged || timelineSignature != lastWidgetTimelineSignature {
+            lastWidgetTimelineSignature = timelineSignature
+            WidgetCenter.shared.reloadAllTimelines()
+        }
+    }
+
+    /// Writes a cover image to the App Group shared container for Widget rendering.
+    /// Returns the filename if successful.
+    @discardableResult
+    private func writeWidgetCover(song: Song, fileName: String, size: CGFloat = 300) -> String? {
+        guard let containerURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier
+        ) else { return nil }
+
+        let store = MetadataAssetStore.shared
+        let artworkDir = store.artworkDirectoryURL
+
+        // Try songID-based cache first
+        var coverData: Data?
+        let hashedName = store.expectedCoverFileName(for: song.id)
+        let hashedURL = artworkDir.appendingPathComponent(hashedName)
+        if FileManager.default.fileExists(atPath: hashedURL.path) {
+            coverData = try? Data(contentsOf: hashedURL)
+        }
+
+        // Fallback: legacy local filename
+        if coverData == nil, let ref = song.coverArtFileName, !ref.isEmpty,
+           !ref.contains("/"), !ref.contains("://") {
+            let legacyURL = artworkDir.appendingPathComponent(ref)
+            if FileManager.default.fileExists(atPath: legacyURL.path) {
+                coverData = try? Data(contentsOf: legacyURL)
+            }
+        }
+
+        guard let data = coverData, let originalImage = UIImage(data: data) else {
+            return nil
+        }
+
+        let targetSize = CGSize(width: size, height: size)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1.0
+        format.opaque = true
+
+        let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
+        let resizedImage = renderer.image { context in
+            UIColor.black.setFill()
+            context.fill(CGRect(origin: .zero, size: targetSize))
+            let sourceAspect = originalImage.size.width / originalImage.size.height
+            let drawRect: CGRect
+            if sourceAspect > 1 {
+                let scaledWidth = targetSize.height * sourceAspect
+                let xOffset = (targetSize.width - scaledWidth) / 2
+                drawRect = CGRect(x: xOffset, y: 0, width: scaledWidth, height: targetSize.height)
+            } else {
+                let scaledHeight = targetSize.width / sourceAspect
+                let yOffset = (targetSize.height - scaledHeight) / 2
+                drawRect = CGRect(x: 0, y: yOffset, width: targetSize.width, height: scaledHeight)
+            }
+            originalImage.draw(in: drawRect)
+        }
+
+        guard let jpegData = resizedImage.jpegData(compressionQuality: 0.8) else { return nil }
+
+        let destinationURL = containerURL.appendingPathComponent(fileName)
+
+        do {
+            try jpegData.write(to: destinationURL, options: .atomic)
+            return fileName
+        } catch {
+            return nil
+        }
+    }
+
+    private func sharedWidgetCoverExists(named fileName: String) -> Bool {
+        guard let containerURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier
+        ) else {
+            return false
+        }
+        return FileManager.default.fileExists(atPath: containerURL.appendingPathComponent(fileName).path)
+    }
+
+    private func makeRecentAlbumEntry(for song: Song) -> RecentAlbumEntry? {
+        guard let rawAlbumTitle = song.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawAlbumTitle.isEmpty else {
+            return nil
+        }
+
+        let artistName = song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let albumKey = stableWidgetAlbumKey(for: song, albumTitle: rawAlbumTitle, artistName: artistName)
+        let coverImageName = "widget_album_\(albumKey).jpg"
+
+        return RecentAlbumEntry(
+            id: albumKey,
+            title: rawAlbumTitle,
+            artistName: artistName,
+            coverImageName: coverImageName
+        )
+    }
+
+    private func stableWidgetAlbumKey(for song: Song, albumTitle: String, artistName: String) -> String {
+        let baseKey = song.albumID ?? "\(song.sourceID)|\(albumTitle.lowercased())|\(artistName.lowercased())"
+        let digest = SHA256.hash(data: Data(baseKey.utf8))
+        return digest.prefix(16).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func widgetTimelineSignature(for state: PlaybackState) -> String {
+        [
+            state.currentSongID ?? "",
+            state.songTitle ?? "",
+            state.artistName ?? "",
+            state.albumTitle ?? "",
+            state.coverImageName ?? "",
+            state.isPlaying ? "1" : "0",
+            String(Int(state.currentTime.rounded())),
+            String(Int(state.duration.rounded()))
+        ].joined(separator: "|")
     }
 }

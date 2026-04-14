@@ -65,6 +65,10 @@ actor CloudTokenManager {
         keychainWrite(key: "cloud_creds_\(sourceID)", data: data)
     }
 
+    func deleteAppCredentials() {
+        keychainDelete(key: "cloud_creds_\(sourceID)")
+    }
+
     // MARK: - Keychain helpers
 
     private func keychainRead(key: String) -> Data? {

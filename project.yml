@@ -11,8 +11,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    MARKETING_VERSION: "1.0.1"
-    CURRENT_PROJECT_VERSION: "3"
+    MARKETING_VERSION: "1.0.2"
+    CURRENT_PROJECT_VERSION: "4"
     DEVELOPMENT_TEAM: "2U97K3U27A"
     CODE_SIGN_STYLE: Automatic
     CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION: YES
@@ -60,6 +60,9 @@ targets:
   Primuse:
     type: application
     platform: iOS
+    configFiles:
+      Debug: Config/Debug.xcconfig
+      Release: Config/Release.xcconfig
     sources:
       - path: Primuse
         excludes:
@@ -89,6 +92,8 @@ targets:
     info:
       path: Primuse/Info.plist
       properties:
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         UIBackgroundModes:
           - audio
         NSSupportsLiveActivities: true
@@ -104,6 +109,12 @@ targets:
         CFBundleDisplayName: "猿音"
         CFBundleName: "Primuse"
         LSApplicationCategoryType: "public.app-category.music"
+        CFBundleURLTypes:
+          - CFBundleURLSchemes:
+              - primuse
+            CFBundleURLName: "com.welape.yuanyin.oauth"
+        PrimuseBaiduClientID: "$(BAIDU_CLIENT_ID)"
+        PrimuseBaiduClientSecret: "$(BAIDU_CLIENT_SECRET)"
         UILaunchScreen: {}
         ITSAppUsesNonExemptEncryption: false
         NSAppTransportSecurity:
@@ -157,6 +168,8 @@ targets:
       path: PrimuseWidgetExtension/Info.plist
       properties:
         CFBundleDisplayName: "猿音小组件"
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
@@ -180,6 +193,8 @@ targets:
       path: PrimuseActivityExtension/Info.plist
       properties:
         CFBundleDisplayName: "猿音实时活动"
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
         NSSupportsLiveActivities: true

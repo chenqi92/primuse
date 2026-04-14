@@ -1,0 +1,4 @@
+BAIDU_CLIENT_ID =
+BAIDU_CLIENT_SECRET =
+
+#include? "Secrets.local.xcconfig"

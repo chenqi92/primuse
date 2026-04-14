@@ -261,6 +261,11 @@ struct SourcesView: View {
             NFSBrowserView(source: source, selectedDirectories: selectedDirectories)
         case .upnp:
             UPnPBrowserView(source: source, selectedDirectories: selectedDirectories)
+        case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox:
+            CloudDriveConnectionView(
+                source: source,
+                selectedDirectories: selectedDirectories
+            )
         default:
             ContentUnavailableView(
                 "connection_failed",
@@ -294,6 +299,14 @@ struct SourcesView: View {
         library.removeSongsForSource(source.id)
         sourceStore.remove(id: source.id)
         scanService.removeSynologyAPI(for: source.id)
+        KeychainService.deletePassword(for: source.id)
+        if source.type.isCloudDrive {
+            Task {
+                let tokenManager = CloudTokenManager(sourceID: source.id)
+                await tokenManager.deleteTokens()
+                await tokenManager.deleteAppCredentials()
+            }
+        }
         Task { await sourceManager.removeConnector(for: source.id) }
     }
 

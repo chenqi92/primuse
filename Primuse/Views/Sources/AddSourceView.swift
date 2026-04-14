@@ -261,15 +261,33 @@ struct AddSourceView: View {
             }
         case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox:
             Section("cloud_oauth_config") {
-                TextField("Client ID / App Key", text: $username)
-                    .focused($focusedField, equals: .username)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-                SecureField("Client Secret (optional)", text: $password)
-                    .focused($focusedField, equals: .password)
-                Label("cloud_oauth_hint", systemImage: "info.circle")
+                if BuiltInCloudCredentials.hasBuiltIn(for: sourceType) {
+                    // Built-in credentials available — no input needed
+                    Label("已内置官方凭证，保存后直接授权即可", systemImage: "checkmark.seal.fill")
+                        .font(.subheadline)
+                        .foregroundStyle(.green)
+                    // Still allow override if user wants custom credentials
+                    DisclosureGroup("使用自定义凭证（高级）") {
+                        TextField("Client ID / App Key", text: $username)
+                            .focused($focusedField, equals: .username)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                        SecureField("Client Secret", text: $password)
+                            .focused($focusedField, equals: .password)
+                    }
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                } else {
+                    TextField("Client ID / App Key", text: $username)
+                        .focused($focusedField, equals: .username)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                    SecureField("Client Secret (optional)", text: $password)
+                        .focused($focusedField, equals: .password)
+                    Label("cloud_oauth_hint", systemImage: "info.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         default: EmptyView()
         }
@@ -354,13 +372,15 @@ struct AddSourceView: View {
         // Save credentials
         if sourceType.isCloudDrive {
             // Store client_id + client_secret via CloudTokenManager
-            if !username.isEmpty {
-                let tm = CloudTokenManager(sourceID: source.id)
-                Task {
+            let tm = CloudTokenManager(sourceID: source.id)
+            Task {
+                if !username.isEmpty {
                     await tm.saveAppCredentials(.init(
                         clientId: username,
                         clientSecret: password.isEmpty ? nil : password
                     ))
+                } else {
+                    await tm.deleteAppCredentials()
                 }
             }
         } else if sourceType == .s3 || authType == .password || authType == .apiKey || authType == .cookie || authType == .oauth {

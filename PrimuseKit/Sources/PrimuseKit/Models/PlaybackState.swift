@@ -12,6 +12,8 @@ public struct PlaybackState: Codable, Sendable {
     public var artistName: String?
     public var albumTitle: String?
     public var coverArtData: Data? // small thumbnail < 100KB
+    /// Filename of cover image stored in the App Group shared container (for Widget rendering)
+    public var coverImageName: String?
     public var isPlaying: Bool
     public var currentTime: TimeInterval
     public var duration: TimeInterval
@@ -23,6 +25,7 @@ public struct PlaybackState: Codable, Sendable {
         artistName: String? = nil,
         albumTitle: String? = nil,
         coverArtData: Data? = nil,
+        coverImageName: String? = nil,
         isPlaying: Bool = false,
         currentTime: TimeInterval = 0,
         duration: TimeInterval = 0,
@@ -33,6 +36,7 @@ public struct PlaybackState: Codable, Sendable {
         self.artistName = artistName
         self.albumTitle = albumTitle
         self.coverArtData = coverArtData
+        self.coverImageName = coverImageName
         self.isPlaying = isPlaying
         self.currentTime = currentTime
         self.duration = duration
