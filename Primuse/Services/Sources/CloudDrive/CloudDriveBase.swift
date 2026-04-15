@@ -9,8 +9,34 @@ struct CloudOAuthConfig: Sendable {
     let clientSecret: String?
     let scopes: [String]
     let redirectURI: String
+    let scopeSeparator: String
+    let usesPKCE: Bool
 
     static let callbackScheme = "primuse"
+
+    var callbackURLScheme: String {
+        URLComponents(string: redirectURI)?.scheme ?? Self.callbackScheme
+    }
+
+    init(
+        authURL: String,
+        tokenURL: String,
+        clientId: String,
+        clientSecret: String?,
+        scopes: [String],
+        redirectURI: String,
+        scopeSeparator: String = " ",
+        usesPKCE: Bool = true
+    ) {
+        self.authURL = authURL
+        self.tokenURL = tokenURL
+        self.clientId = clientId
+        self.clientSecret = clientSecret
+        self.scopes = scopes
+        self.redirectURI = redirectURI
+        self.scopeSeparator = scopeSeparator
+        self.usesPKCE = usesPKCE
+    }
 }
 
 /// Common errors for cloud drive operations

@@ -262,6 +262,14 @@ struct CloudDriveConnectionView: View {
     }
 
     private func resolvedCredentials(using tokenManager: CloudTokenManager) async -> CloudTokenManager.AppCredentials? {
+        // Baidu is currently shipped with app-owned credentials, so always prefer
+        // the built-in pair over any stale per-source client_id the user may have
+        // entered before built-in support existed.
+        if source.type == .baiduPan,
+           let builtIn = BuiltInCloudCredentials.credentials(for: source.type) {
+            return .init(clientId: builtIn.clientId, clientSecret: builtIn.clientSecret)
+        }
+
         let hasCustomCredentials = !(source.username?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
 
         if hasCustomCredentials,
@@ -296,6 +304,7 @@ struct CloudDriveConnectionView: View {
             await tokenManager.saveAppCredentials(creds)
 
             let config = oauthConfig(for: source.type, clientId: creds.clientId, clientSecret: creds.clientSecret)
+            plog("☁️ OAuth starting type=\(source.type.rawValue) sourceID=\(source.id) clientId=\(creds.clientId) redirect=\(config.redirectURI) scopes=\(config.scopes)")
 
             do {
                 let tokens = try await OAuthService.shared.authorize(config: config)

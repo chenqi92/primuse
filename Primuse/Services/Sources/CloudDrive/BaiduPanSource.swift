@@ -120,6 +120,15 @@ actor BaiduPanSource: MusicSourceConnector {
     }
 
     static func oauthConfig(clientId: String, clientSecret: String?) -> CloudOAuthConfig {
-        CloudOAuthConfig(authURL: "\(oauthBase)/authorize", tokenURL: "\(oauthBase)/token", clientId: clientId, clientSecret: clientSecret, scopes: ["basic", "netdisk"], redirectURI: "\(CloudOAuthConfig.callbackScheme)://baidu/callback")
+        CloudOAuthConfig(
+            authURL: "\(oauthBase)/authorize",
+            tokenURL: "\(oauthBase)/token",
+            clientId: clientId,
+            clientSecret: clientSecret,
+            scopes: ["basic", "netdisk"],
+            redirectURI: "\(CloudOAuthConfig.callbackScheme)://baidu/callback",
+            scopeSeparator: ",",
+            usesPKCE: false
+        )
     }
 }

@@ -17,7 +17,7 @@ actor DropboxSource: MusicSourceConnector {
     func disconnect() async {}
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
-        let folderPath = path.isEmpty ? "" : path
+        let folderPath = (path.isEmpty || path == "/") ? "" : path
         let token = try await getToken()
         let body: [String: Any] = ["path": folderPath, "limit": 2000, "include_mounted_folders": true]
         let bodyData = try JSONSerialization.data(withJSONObject: body)

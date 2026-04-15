@@ -10,6 +10,7 @@ struct SourcesView: View {
     @State private var showAddSource = false
     @State private var editingSource: MusicSource?
     @State private var connectingSource: MusicSource?
+    @State private var cloudDirectoryNameRefreshID = UUID()
 
     var body: some View {
         NavigationStack {
@@ -36,6 +37,9 @@ struct SourcesView: View {
             }
             .sheet(item: $connectingSource) { source in
                 connectionSheet(for: source)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: CloudDirectoryNameStore.didChangeNotification)) { _ in
+                cloudDirectoryNameRefreshID = UUID()
             }
         }
     }
@@ -110,7 +114,7 @@ struct SourcesView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
                         ForEach(dirs, id: \.self) { dir in
-                            Label((dir as NSString).lastPathComponent, systemImage: "folder.fill")
+                            Label(directoryDisplayName(for: dir, source: source), systemImage: "folder.fill")
                                 .font(.caption2)
                                 .padding(.horizontal, 8).padding(.vertical, 4)
                                 .background(Color.blue.opacity(0.1))
@@ -195,6 +199,7 @@ struct SourcesView: View {
             }
         }
         .padding(.vertical, 4)
+        .id("\(source.id)-\(cloudDirectoryNameRefreshID.uuidString)")
         .opacity(source.isEnabled ? 1.0 : 0.55)
         .contextMenu {
             Button {
@@ -306,6 +311,7 @@ struct SourcesView: View {
                 await tokenManager.deleteTokens()
                 await tokenManager.deleteAppCredentials()
             }
+            CloudDirectoryNameStore.deleteAll(for: source.id)
         }
         Task { await sourceManager.removeConnector(for: source.id) }
     }
@@ -316,6 +322,21 @@ struct SourcesView: View {
 
     private func updateSource(_ sourceID: String, mutate: (inout MusicSource) -> Void) {
         sourceStore.update(sourceID, mutate: mutate)
+    }
+
+    private func directoryDisplayName(for path: String, source: MusicSource) -> String {
+        if source.type.isCloudDrive,
+           let displayName = CloudDirectoryNameStore.displayName(for: path, sourceID: source.id),
+           !displayName.isEmpty {
+            return displayName
+        }
+
+        if path == "/" {
+            return String(localized: "shared_folders")
+        }
+
+        let lastComponent = (path as NSString).lastPathComponent
+        return lastComponent.isEmpty ? path : lastComponent
     }
 
     private func decodeDirs(_ config: String?) -> [String] {

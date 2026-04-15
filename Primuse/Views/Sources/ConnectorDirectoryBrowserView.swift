@@ -2,13 +2,20 @@ import SwiftUI
 import PrimuseKit
 
 struct ConnectorDirectoryBrowserView: View {
+    private struct BreadcrumbSegment: Equatable {
+        let path: String
+        let title: String
+    }
+
     let source: MusicSource
     let connector: any MusicSourceConnector
     @Binding var selectedDirectories: [String]
 
     @Environment(\.dismiss) private var dismiss
     @State private var currentPath = "/"
-    @State private var pathStack: [String] = ["/"]
+    @State private var pathStack: [BreadcrumbSegment] = [
+        .init(path: "/", title: String(localized: "shared_folders"))
+    ]
     @State private var items: [RemoteFileItem] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
@@ -109,7 +116,7 @@ struct ConnectorDirectoryBrowserView: View {
                         }
 
                         Button { navigateTo(index: index) } label: {
-                            Text(segment == "/" ? String(localized: "shared_folders") : (segment as NSString).lastPathComponent)
+                            Text(segment.title)
                                 .font(.caption)
                                 .fontWeight(index == pathStack.count - 1 ? .semibold : .regular)
                                 .foregroundStyle(index == pathStack.count - 1 ? Color.primary : Color.accentColor)
@@ -143,7 +150,7 @@ struct ConnectorDirectoryBrowserView: View {
                 if currentPath != "/" {
                     DirectoryCheckRow(
                         name: String(localized: "current_directory"),
-                        subtitle: currentPath,
+                        subtitle: currentDirectorySubtitle,
                         path: currentPath,
                         icon: "folder.fill",
                         iconColor: .orange,
@@ -206,16 +213,24 @@ struct ConnectorDirectoryBrowserView: View {
         .background(.bar)
     }
 
+    private var currentDirectorySubtitle: String? {
+        guard currentPath != "/" else { return nil }
+        if source.type.isCloudDrive {
+            return pathStack.last?.title
+        }
+        return currentPath
+    }
+
     private func enterDirectory(_ item: RemoteFileItem) {
         currentPath = item.path
-        pathStack.append(item.path)
+        pathStack.append(.init(path: item.path, title: item.name))
         loadDirectory()
     }
 
     private func navigateTo(index: Int) {
         guard index < pathStack.count else { return }
 
-        currentPath = pathStack[index]
+        currentPath = pathStack[index].path
         pathStack = Array(pathStack.prefix(index + 1))
         loadDirectory()
     }
@@ -228,6 +243,12 @@ struct ConnectorDirectoryBrowserView: View {
             do {
                 try await connector.connect()
                 items = try await connector.listFiles(at: currentPath)
+                if source.type.isCloudDrive {
+                    CloudDirectoryNameStore.save(items, for: source.id)
+                    if let current = pathStack.last {
+                        CloudDirectoryNameStore.saveName(current.title, for: current.path, sourceID: source.id)
+                    }
+                }
                 isLoading = false
             } catch {
                 let trusted = await promptSSLTrust(for: error)
@@ -235,6 +256,12 @@ struct ConnectorDirectoryBrowserView: View {
                     do {
                         try await connector.connect()
                         items = try await connector.listFiles(at: currentPath)
+                        if source.type.isCloudDrive {
+                            CloudDirectoryNameStore.save(items, for: source.id)
+                            if let current = pathStack.last {
+                                CloudDirectoryNameStore.saveName(current.title, for: current.path, sourceID: source.id)
+                            }
+                        }
                     } catch {
                         errorMessage = error.localizedDescription
                     }

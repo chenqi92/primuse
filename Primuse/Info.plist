@@ -28,6 +28,22 @@
 				<string>primuse</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.welape.yuanyin.google-oauth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>$(GOOGLE_REVERSED_CLIENT_ID)</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.welape.yuanyin.microsoft-oauth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>msauth.$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
@@ -63,6 +79,16 @@
 	<string>$(BAIDU_CLIENT_ID)</string>
 	<key>PrimuseBaiduClientSecret</key>
 	<string>$(BAIDU_CLIENT_SECRET)</string>
+	<key>PrimuseDropboxClientID</key>
+	<string>$(DROPBOX_CLIENT_ID)</string>
+	<key>PrimuseDropboxClientSecret</key>
+	<string>$(DROPBOX_CLIENT_SECRET)</string>
+	<key>PrimuseGoogleClientID</key>
+	<string>$(GOOGLE_CLIENT_ID)</string>
+	<key>PrimuseGoogleReversedClientID</key>
+	<string>$(GOOGLE_REVERSED_CLIENT_ID)</string>
+	<key>PrimuseOneDriveClientID</key>
+	<string>$(ONEDRIVE_CLIENT_ID)</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

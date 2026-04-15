@@ -18,15 +18,16 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
     /// Starts the full OAuth flow: authorize → get code → exchange for tokens.
     /// Returns the obtained tokens ready to be stored.
     func authorize(config: CloudOAuthConfig) async throws -> CloudTokenManager.Tokens {
-        let pkce = PKCEChallenge()
+        let pkce = config.usesPKCE ? PKCEChallenge() : nil
 
         // 1. Build authorize URL
         let authURL = try buildAuthorizeURL(config: config, pkce: pkce)
+        plog("☁️ OAuth authorize URL: \(authURL.absoluteString)")
 
         // 2. Present system browser
         let callbackURL = try await presentAuthSession(
             url: authURL,
-            callbackScheme: CloudOAuthConfig.callbackScheme
+            callbackScheme: config.callbackURLScheme
         )
 
         // 3. Extract authorization code from callback
@@ -36,7 +37,7 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
         let tokens = try await exchangeCodeForTokens(
             code: code,
             config: config,
-            codeVerifier: pkce.verifier
+            codeVerifier: pkce?.verifier
         )
 
         return tokens
@@ -44,7 +45,7 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
 
     // MARK: - Step 1: Build Authorize URL
 
-    private func buildAuthorizeURL(config: CloudOAuthConfig, pkce: PKCEChallenge) throws -> URL {
+    private func buildAuthorizeURL(config: CloudOAuthConfig, pkce: PKCEChallenge?) throws -> URL {
         guard var components = URLComponents(string: config.authURL) else {
             throw OAuthError.invalidConfiguration("Invalid auth URL: \(config.authURL)")
         }
@@ -53,12 +54,15 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
             .init(name: "client_id", value: config.clientId),
             .init(name: "redirect_uri", value: config.redirectURI),
             .init(name: "response_type", value: "code"),
-            .init(name: "code_challenge", value: pkce.challenge),
-            .init(name: "code_challenge_method", value: "S256"),
         ]
 
+        if let pkce {
+            queryItems.append(.init(name: "code_challenge", value: pkce.challenge))
+            queryItems.append(.init(name: "code_challenge_method", value: "S256"))
+        }
+
         if !config.scopes.isEmpty {
-            queryItems.append(.init(name: "scope", value: config.scopes.joined(separator: " ")))
+            queryItems.append(.init(name: "scope", value: config.scopes.joined(separator: config.scopeSeparator)))
         }
 
         // Platform-specific parameters
@@ -137,7 +141,7 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
     private func exchangeCodeForTokens(
         code: String,
         config: CloudOAuthConfig,
-        codeVerifier: String
+        codeVerifier: String?
     ) async throws -> CloudTokenManager.Tokens {
         guard let tokenURL = URL(string: config.tokenURL) else {
             throw OAuthError.invalidConfiguration("Invalid token URL")
@@ -148,8 +152,11 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
             "code": code,
             "redirect_uri": config.redirectURI,
             "client_id": config.clientId,
-            "code_verifier": codeVerifier,
         ]
+
+        if let codeVerifier {
+            bodyParams["code_verifier"] = codeVerifier
+        }
 
         if let secret = config.clientSecret, !secret.isEmpty {
             bodyParams["client_secret"] = secret

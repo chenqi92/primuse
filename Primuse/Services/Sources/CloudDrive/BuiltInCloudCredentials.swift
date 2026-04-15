@@ -12,6 +12,10 @@ enum BuiltInCloudCredentials {
     // live in tracked source files.
     private static let baiduClientIdKey = "PrimuseBaiduClientID"
     private static let baiduClientSecretKey = "PrimuseBaiduClientSecret"
+    private static let dropboxClientIdKey = "PrimuseDropboxClientID"
+    private static let dropboxClientSecretKey = "PrimuseDropboxClientSecret"
+    private static let googleClientIdKey = "PrimuseGoogleClientID"
+    private static let oneDriveClientIdKey = "PrimuseOneDriveClientID"
 
     // MARK: - Query
 
@@ -26,10 +30,25 @@ enum BuiltInCloudCredentials {
                 clientId,
                 stringValue(forInfoDictionaryKey: baiduClientSecretKey)
             )
+        case .dropbox:
+            guard let clientId = stringValue(forInfoDictionaryKey: dropboxClientIdKey) else {
+                return nil
+            }
+            return (
+                clientId,
+                stringValue(forInfoDictionaryKey: dropboxClientSecretKey)
+            )
+        case .googleDrive:
+            guard let clientId = stringValue(forInfoDictionaryKey: googleClientIdKey) else {
+                return nil
+            }
+            return (clientId, nil)
+        case .oneDrive:
+            guard let clientId = stringValue(forInfoDictionaryKey: oneDriveClientIdKey) else {
+                return nil
+            }
+            return (clientId, nil)
         // Add more as you register:
-        // case .googleDrive: return (googleClientId, nil)
-        // case .oneDrive: return (oneDriveClientId, nil)
-        // case .dropbox: return (dropboxClientId, dropboxClientSecret)
         default:
             return nil
         }

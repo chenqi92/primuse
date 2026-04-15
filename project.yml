@@ -113,8 +113,19 @@ targets:
           - CFBundleURLSchemes:
               - primuse
             CFBundleURLName: "com.welape.yuanyin.oauth"
+          - CFBundleURLSchemes:
+              - "$(GOOGLE_REVERSED_CLIENT_ID)"
+            CFBundleURLName: "com.welape.yuanyin.google-oauth"
+          - CFBundleURLSchemes:
+              - "msauth.$(PRODUCT_BUNDLE_IDENTIFIER)"
+            CFBundleURLName: "com.welape.yuanyin.microsoft-oauth"
         PrimuseBaiduClientID: "$(BAIDU_CLIENT_ID)"
         PrimuseBaiduClientSecret: "$(BAIDU_CLIENT_SECRET)"
+        PrimuseDropboxClientID: "$(DROPBOX_CLIENT_ID)"
+        PrimuseDropboxClientSecret: "$(DROPBOX_CLIENT_SECRET)"
+        PrimuseGoogleClientID: "$(GOOGLE_CLIENT_ID)"
+        PrimuseGoogleReversedClientID: "$(GOOGLE_REVERSED_CLIENT_ID)"
+        PrimuseOneDriveClientID: "$(ONEDRIVE_CLIENT_ID)"
         UILaunchScreen: {}
         ITSAppUsesNonExemptEncryption: false
         NSAppTransportSecurity:

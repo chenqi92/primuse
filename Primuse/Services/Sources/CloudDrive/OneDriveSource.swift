@@ -7,6 +7,7 @@ actor OneDriveSource: MusicSourceConnector {
     private let helper: CloudDriveHelper
     private static let graphBase = "https://graph.microsoft.com/v1.0"
     private static let authBase = "https://login.microsoftonline.com/common/oauth2/v2.0"
+    private static let fallbackRedirectURI = "\(CloudOAuthConfig.callbackScheme)://onedrive/callback"
 
     init(sourceID: String) {
         self.sourceID = sourceID
@@ -74,7 +75,7 @@ actor OneDriveSource: MusicSourceConnector {
         var request = URLRequest(url: URL(string: "\(Self.authBase)/token")!)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        request.httpBody = "grant_type=refresh_token&refresh_token=\(rt)&client_id=\(cid)&scope=Files.Read.All offline_access".data(using: .utf8)
+        request.httpBody = "grant_type=refresh_token&refresh_token=\(rt)&client_id=\(cid)&scope=Files.Read offline_access".data(using: .utf8)
         let (data, _) = try await URLSession.shared.data(for: request)
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
         guard let at = json["access_token"] as? String else { throw CloudDriveError.tokenRefreshFailed("") }
@@ -82,6 +83,21 @@ actor OneDriveSource: MusicSourceConnector {
     }
 
     static func oauthConfig(clientId: String) -> CloudOAuthConfig {
-        CloudOAuthConfig(authURL: "\(authBase)/authorize", tokenURL: "\(authBase)/token", clientId: clientId, clientSecret: nil, scopes: ["Files.Read.All", "offline_access"], redirectURI: "\(CloudOAuthConfig.callbackScheme)://onedrive/callback")
+        CloudOAuthConfig(
+            authURL: "\(authBase)/authorize",
+            tokenURL: "\(authBase)/token",
+            clientId: clientId,
+            clientSecret: nil,
+            scopes: ["Files.Read", "offline_access"],
+            redirectURI: redirectURI()
+        )
+    }
+
+    private static func redirectURI() -> String {
+        guard let bundleID = Bundle.main.bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !bundleID.isEmpty else {
+            return fallbackRedirectURI
+        }
+        return "msauth.\(bundleID)://auth"
     }
 }

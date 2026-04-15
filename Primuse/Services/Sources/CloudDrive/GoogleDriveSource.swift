@@ -7,6 +7,7 @@ actor GoogleDriveSource: MusicSourceConnector {
     private let helper: CloudDriveHelper
     private static let apiBase = "https://www.googleapis.com/drive/v3"
     private static let tokenURL = "https://oauth2.googleapis.com/token"
+    private static let reversedClientIdKey = "PrimuseGoogleReversedClientID"
 
     init(sourceID: String) {
         self.sourceID = sourceID
@@ -81,6 +82,23 @@ actor GoogleDriveSource: MusicSourceConnector {
     }
 
     static func oauthConfig(clientId: String) -> CloudOAuthConfig {
-        CloudOAuthConfig(authURL: "https://accounts.google.com/o/oauth2/v2/auth", tokenURL: tokenURL, clientId: clientId, clientSecret: nil, scopes: ["https://www.googleapis.com/auth/drive.readonly"], redirectURI: "\(CloudOAuthConfig.callbackScheme)://google/callback")
+        CloudOAuthConfig(
+            authURL: "https://accounts.google.com/o/oauth2/v2/auth",
+            tokenURL: tokenURL,
+            clientId: clientId,
+            clientSecret: nil,
+            scopes: ["https://www.googleapis.com/auth/drive.readonly"],
+            redirectURI: redirectURI()
+        )
+    }
+
+    private static func redirectURI() -> String {
+        if let scheme = Bundle.main.object(forInfoDictionaryKey: reversedClientIdKey) as? String {
+            let trimmed = scheme.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return "\(trimmed):/oauth2redirect"
+            }
+        }
+        return "\(CloudOAuthConfig.callbackScheme)://google/callback"
     }
 }

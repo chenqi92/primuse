@@ -127,6 +127,7 @@
 		B4A627384B3D168B7BF384F0 /* PrimuseKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B1E36F2FECF46E724081F983 /* PrimuseKit.framework */; };
 		B5F0628AAE0C7C40B2803778 /* CloudTokenManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C28F9B371297DF55837BAB92 /* CloudTokenManager.swift */; };
 		B6335813F1208FBA370C8787 /* StreamingDownloadDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF7F66F30F1802BA29DEB696 /* StreamingDownloadDecoder.swift */; };
+		B678A94A106E8D8FB032DE4F /* CloudDirectoryNameStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6603576133F7798EFB9267D0 /* CloudDirectoryNameStore.swift */; };
 		B8450463C38E1DD352D751F7 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A04A9461976D9D58E02D5BA /* ContentView.swift */; };
 		B861A10458A66BAE39CCE232 /* AliyunDriveSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3CFC2BB314F0A2BB166E280 /* AliyunDriveSource.swift */; };
 		B8A6BB7771D620FCE3D4D649 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A41F54083A82815533AA0C36 /* SwiftUI.framework */; };
@@ -314,6 +315,7 @@
 		637B2519A8207FCB3ABC3E34 /* WebDAVBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebDAVBrowserView.swift; sourceTree = "<group>"; };
 		63D1E2C3BE30F68AD3F01632 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		645BBABA564E600B40010061 /* MetadataService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataService.swift; sourceTree = "<group>"; };
+		6603576133F7798EFB9267D0 /* CloudDirectoryNameStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDirectoryNameStore.swift; sourceTree = "<group>"; };
 		6723FC0B92EDA2CC1B5E3C83 /* SourcesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourcesView.swift; sourceTree = "<group>"; };
 		6938B4831BD4508FCE2FB6C0 /* QuickAccessWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickAccessWidget.swift; sourceTree = "<group>"; };
 		6D84632D6A2887E8E174E87C /* LibraryScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryScanner.swift; sourceTree = "<group>"; };
@@ -825,6 +827,7 @@
 				D3CFC2BB314F0A2BB166E280 /* AliyunDriveSource.swift */,
 				F40F5CE9382F37C345E04D5B /* BaiduPanSource.swift */,
 				82C951D83E89D86B5BBCCF22 /* BuiltInCloudCredentials.swift */,
+				6603576133F7798EFB9267D0 /* CloudDirectoryNameStore.swift */,
 				94FE18AA29D7F79EE4D6BDE5 /* CloudDriveBase.swift */,
 				C28F9B371297DF55837BAB92 /* CloudTokenManager.swift */,
 				AC2D3494E7475F44773698F9 /* DropboxSource.swift */,
@@ -1114,6 +1117,7 @@
 				96B283F41FBDFCEBD9C0222D /* BaiduPanSource.swift in Sources */,
 				338CFE65AF69397D9FB501E6 /* BuiltInCloudCredentials.swift in Sources */,
 				0A176E7239A1CEA25561D8F8 /* CachedArtworkView.swift in Sources */,
+				B678A94A106E8D8FB032DE4F /* CloudDirectoryNameStore.swift in Sources */,
 				3997C4EE7DF9D36DA1851230 /* CloudDriveBase.swift in Sources */,
 				C0CD7D6E45358510AB9E6B04 /* CloudDriveConnectionView.swift in Sources */,
 				B5F0628AAE0C7C40B2803778 /* CloudTokenManager.swift in Sources */,
