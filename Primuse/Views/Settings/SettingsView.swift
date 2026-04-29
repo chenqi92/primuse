@@ -336,7 +336,11 @@ struct MetadataScrapingView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("save") {
                         do {
-                            let config = try ScraperConfigStore.shared.importFromJSON(editingConfigJSON)
+                            let configs = try ScraperConfigStore.shared.importFromJSON(editingConfigJSON)
+                            guard configs.count == 1, let config = configs.first else {
+                                plog("Config save error: edit accepts a single source only, got \(configs.count)")
+                                return
+                            }
                             scraperSettings.addCustomSource(config)
                             editingConfigSource = nil
                         } catch {
@@ -361,8 +365,9 @@ struct MetadataScrapingView: View {
             }
             Task {
                 do {
-                    let config = try await ScraperConfigStore.shared.importFromURL(url)
-                    scraperSettings.addCustomSource(config)
+                    let configs = try await ScraperConfigStore.shared.importFromURL(url)
+                    plog("📥 Import success (url): count=\(configs.count) ids=\(configs.map(\.id))")
+                    for config in configs { scraperSettings.addCustomSource(config) }
                     showImportSheet = false
                 } catch {
                     importError = error.localizedDescription
@@ -370,9 +375,9 @@ struct MetadataScrapingView: View {
             }
         } else {
             do {
-                let config = try ScraperConfigStore.shared.importFromJSON(text)
-                plog("📥 Import success: id=\(config.id) name=\(config.name)")
-                scraperSettings.addCustomSource(config)
+                let configs = try ScraperConfigStore.shared.importFromJSON(text)
+                plog("📥 Import success: count=\(configs.count) ids=\(configs.map(\.id))")
+                for config in configs { scraperSettings.addCustomSource(config) }
                 showImportSheet = false
             } catch {
                 plog("📥 Import failed: \(error.localizedDescription)")

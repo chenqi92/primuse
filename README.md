@@ -2,6 +2,28 @@
 
 原生 iOS 音乐播放器，支持从 NAS 及网络源串流播放，具备元数据刮削、歌词显示和无缝播放功能。
 
+> 🎉 **现已上架 App Store** — 在中国区 App Store 搜索「猿音」即可免费下载体验。
+
+<p align="center">
+  <a href="https://apps.apple.com/cn/app/%E7%8C%BF%E9%9F%B3/id6761675450">
+    <img src="https://img.shields.io/badge/App_Store-立即下载-007AFF?logo=apple&logoColor=white&style=for-the-badge" alt="Download on App Store"/>
+  </a>
+</p>
+
+## 应用截图
+
+<p align="center">
+  <img src="https://nas.allbs.cn:8888/cloudpic/2026/04/16e6b1d0cf490560a30dccfc66a1b92f.PNG" width="200"/>
+  <img src="https://nas.allbs.cn:8888/cloudpic/2026/04/c69767db240b20945e2bf8053ec1c0fc.PNG" width="200"/>
+  <img src="https://nas.allbs.cn:8888/cloudpic/2026/04/b9389f9bc599fd6bc7afad498f0fe88d.PNG" width="200"/>
+  <img src="https://nas.allbs.cn:8888/cloudpic/2026/04/c34dddc9e8bf32dbc5f129e84201d986.PNG" width="200"/>
+</p>
+<p align="center">
+  <img src="https://nas.allbs.cn:8888/cloudpic/2026/04/945ac954ae775990d3ffd92b3645b7ce.PNG" width="200"/>
+  <img src="https://nas.allbs.cn:8888/cloudpic/2026/04/4ad53cb9feed2da77283888e94fb254d.PNG" width="200"/>
+  <img src="https://nas.allbs.cn:8888/cloudpic/2026/04/84594ca1f8ec44463645bb77644f1db2.PNG" width="200"/>
+</p>
+
 ## 功能特性
 
 - **多源串流** — 支持 Synology DSM、SMB/CIFS、WebDAV、SFTP、FTP、NFS、Jellyfin、Plex

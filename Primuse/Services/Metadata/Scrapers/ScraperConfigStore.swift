@@ -32,23 +32,39 @@ final class ScraperConfigStore: @unchecked Sendable {
         return cache[id]
     }
 
-    /// Import a config from JSON string. Returns the config if valid.
+    /// Import one or more configs from a JSON string.
+    ///
+    /// Accepts three input shapes (with arbitrary leading/trailing/inter-object whitespace):
+    /// - Single object: `{ ... }`
+    /// - JSON array:    `[{...}, {...}]`
+    /// - Concatenated:  `{...}\n{...}` or `{...} {...}`
     @discardableResult
-    func importFromJSON(_ jsonString: String) throws -> ScraperConfig {
-        guard let data = jsonString.data(using: .utf8) else {
-            throw ScraperConfigError.invalidJSON("Cannot encode string as UTF-8")
+    func importFromJSON(_ jsonString: String) throws -> [ScraperConfig] {
+        let trimmed = jsonString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw ScraperConfigError.invalidJSON("Empty input")
         }
-        let config = try JSONDecoder().decode(ScraperConfig.self, from: data)
-        try validate(config)
-        try save(config, data: data)
-        lock.lock()
-        cache[config.id] = config
-        lock.unlock()
-        return config
+
+        let decoder = JSONDecoder()
+        let configs: [ScraperConfig]
+
+        if trimmed.hasPrefix("[") {
+            guard let data = trimmed.data(using: .utf8) else {
+                throw ScraperConfigError.invalidJSON("Cannot encode string as UTF-8")
+            }
+            configs = try decoder.decode([ScraperConfig].self, from: data)
+        } else if trimmed.hasPrefix("{") {
+            let chunks = try extractTopLevelObjects(trimmed)
+            configs = try chunks.map { try decoder.decode(ScraperConfig.self, from: $0) }
+        } else {
+            throw ScraperConfigError.invalidJSON("Expected '{' or '[' at start")
+        }
+
+        return try persistAll(configs)
     }
 
-    /// Import from URL — downloads the JSON and imports it.
-    func importFromURL(_ url: URL) async throws -> ScraperConfig {
+    /// Import one or more configs from a URL — downloads the JSON and imports it.
+    func importFromURL(_ url: URL) async throws -> [ScraperConfig] {
         let (data, response) = try await URLSession.shared.data(from: url)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw ScraperConfigError.downloadFailed("HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)")
@@ -108,6 +124,73 @@ final class ScraperConfigStore: @unchecked Sendable {
         guard config.search != nil || config.detail != nil || config.cover != nil || config.lyrics != nil else {
             throw ScraperConfigError.validationFailed("Config has no endpoints defined")
         }
+    }
+
+    /// Validate everything before writing anything — avoid half-imported state.
+    private func persistAll(_ configs: [ScraperConfig]) throws -> [ScraperConfig] {
+        guard !configs.isEmpty else {
+            throw ScraperConfigError.invalidJSON("No config object found")
+        }
+        for config in configs { try validate(config) }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        for config in configs {
+            let data = try encoder.encode(config)
+            try save(config, data: data)
+            lock.lock()
+            cache[config.id] = config
+            lock.unlock()
+        }
+        return configs
+    }
+
+    /// Split a buffer of one-or-more concatenated top-level `{...}` JSON objects.
+    /// Tolerates whitespace/newlines between objects; rejects any other stray characters.
+    /// String contents and `\"` escapes are respected so braces inside strings don't fool the scanner.
+    private func extractTopLevelObjects(_ text: String) throws -> [Data] {
+        var results: [Data] = []
+        var depth = 0
+        var inString = false
+        var escape = false
+        var startIdx: String.Index? = nil
+
+        for idx in text.indices {
+            let c = text[idx]
+            if escape { escape = false; continue }
+            if inString {
+                if c == "\\" { escape = true }
+                else if c == "\"" { inString = false }
+                continue
+            }
+            switch c {
+            case "\"":
+                inString = true
+            case "{":
+                if depth == 0 { startIdx = idx }
+                depth += 1
+            case "}":
+                depth -= 1
+                if depth < 0 {
+                    throw ScraperConfigError.invalidJSON("Unbalanced '}'")
+                }
+                if depth == 0, let s = startIdx {
+                    let slice = text[s...idx]
+                    guard let data = String(slice).data(using: .utf8) else {
+                        throw ScraperConfigError.invalidJSON("Cannot encode chunk as UTF-8")
+                    }
+                    results.append(data)
+                    startIdx = nil
+                }
+            default:
+                if depth == 0 && !c.isWhitespace && !c.isNewline {
+                    throw ScraperConfigError.invalidJSON("Unexpected '\(c)' between objects")
+                }
+            }
+        }
+        guard depth == 0, !inString else {
+            throw ScraperConfigError.invalidJSON("Unclosed JSON object")
+        }
+        return results
     }
 }
 
