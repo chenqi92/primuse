@@ -57,7 +57,10 @@ struct AddSourceView: View {
         switch authType {
         case .sshKey:
             return sshKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false || hasStoredSecret
-        case .password, .apiKey, .cookie, .oauth:
+        case .password:
+            if password.isEmpty == false || hasStoredSecret { return true }
+            return sourceType.supportsAnonymous
+        case .apiKey, .cookie, .oauth:
             return password.isEmpty == false || hasStoredSecret
         case .none:
             return true
@@ -139,6 +142,9 @@ struct AddSourceView: View {
                         }
                         if isEditing {
                             Text("password_edit_hint").font(.caption).foregroundStyle(.secondary)
+                        }
+                        if sourceType.supportsAnonymous && authType == .password {
+                            Text("anonymous_login_hint").font(.caption).foregroundStyle(.secondary)
                         }
                     }
                 }

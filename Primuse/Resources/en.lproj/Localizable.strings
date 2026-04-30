@@ -124,6 +124,7 @@
 "delete_song_message" = "The song, cover art and lyrics cache will be removed.";
 "scan" = "Scan";
 "password_edit_hint" = "Leave empty to keep current password";
+"anonymous_login_hint" = "Leave username and password empty to connect anonymously";
 "select_directories" = "Select Directories";
 "scan_directories" = "Scan Directories";
 "scan_directories_hint" = "Connect and select directories to scan for music files";

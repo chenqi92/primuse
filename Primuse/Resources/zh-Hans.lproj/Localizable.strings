@@ -124,6 +124,7 @@
 "delete_song_message" = "歌曲、封面和歌词缓存将被同步删除";
 "scan" = "扫描";
 "password_edit_hint" = "留空则保持当前密码不变";
+"anonymous_login_hint" = "账号和密码留空以匿名方式连接";
 "select_directories" = "选择目录";
 "scan_directories" = "扫描目录";
 "scan_directories_hint" = "连接后选择要扫描音乐文件的目录";

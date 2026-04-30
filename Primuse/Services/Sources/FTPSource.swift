@@ -42,9 +42,19 @@ actor FTPSource: MusicSourceConnector {
             return
         }
 
+        // FTP anonymous login convention: username "anonymous" with any password
+        // (commonly an email). Empty username is rejected by most servers.
+        let effectiveUser = username.isEmpty ? "anonymous" : username
+        let effectivePassword: String = {
+            if username.isEmpty && password.isEmpty {
+                return "anonymous@primuse"
+            }
+            return password
+        }()
+
         let credential = URLCredential(
-            user: username,
-            password: password,
+            user: effectiveUser,
+            password: effectivePassword,
             persistence: .forSession
         )
 
@@ -58,7 +68,12 @@ actor FTPSource: MusicSourceConnector {
         provider.securedDataConnection = encryption != .none
         self.provider = provider
 
-        _ = try await listFiles(at: "/")
+        do {
+            _ = try await listFiles(at: "/")
+        } catch {
+            self.provider = nil
+            throw error
+        }
     }
 
     func disconnect() async {

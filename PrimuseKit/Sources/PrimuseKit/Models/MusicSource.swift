@@ -174,6 +174,17 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         }
     }
 
+    /// Protocols that allow connecting without a password:
+    /// - SMB: guest / anonymous share access
+    /// - WebDAV: server-side anonymous PROPFIND
+    /// - FTP: standard "anonymous" login
+    public var supportsAnonymous: Bool {
+        switch self {
+        case .smb, .webdav, .ftp: return true
+        default: return false
+        }
+    }
+
     public var supports2FA: Bool {
         switch self {
         case .synology, .qnap, .ugreen, .fnos: return true
