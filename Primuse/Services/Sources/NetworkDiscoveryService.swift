@@ -27,8 +27,10 @@ enum NetworkURLBuilder {
             return nil
         }
 
+        let hostContainsURL = trimmedHost.contains("://")
+
         var components: URLComponents
-        if trimmedHost.contains("://"), let parsed = URLComponents(string: trimmedHost) {
+        if hostContainsURL, let parsed = URLComponents(string: trimmedHost) {
             components = parsed
         } else if isLikelyIPv6Literal(trimmedHost) {
             components = URLComponents()
@@ -48,15 +50,18 @@ enum NetworkURLBuilder {
 
         if let parsedHost = components.host, parsedHost.isEmpty == false {
             components.host = sanitizedHost(parsedHost)
-        } else if trimmedHost.contains("://") == false {
+        } else if hostContainsURL == false {
             components.host = sanitizedHost(trimmedHost)
         }
 
-        if let port {
+        // When the user pasted a full URL that already specifies a port, trust it
+        // over the form's port field — otherwise default port (e.g. 443) silently
+        // overrides whatever was in the URL.
+        if let port, !(hostContainsURL && components.port != nil) {
             components.port = port
         }
 
-        if let path {
+        if let path, !(hostContainsURL && components.path.isEmpty == false) {
             components.path = normalizedPath(path)
         }
 

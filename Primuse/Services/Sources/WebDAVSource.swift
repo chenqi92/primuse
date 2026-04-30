@@ -55,8 +55,12 @@ actor WebDAVSource: MusicSourceConnector {
 
         self.provider = provider
 
-        // Test connection
-        _ = try await listFiles(at: "/")
+        do {
+            _ = try await listFiles(at: "/")
+        } catch {
+            self.provider = nil
+            throw error
+        }
     }
 
     func disconnect() async {
@@ -66,10 +70,15 @@ actor WebDAVSource: MusicSourceConnector {
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
         guard let provider else { throw SourceError.connectionFailed("Not connected") }
 
+        let providerPath = providerRelativePath(path)
+
         return try await withCheckedThrowingContinuation { continuation in
-            provider.contentsOfDirectory(path: path) { contents, error in
+            provider.contentsOfDirectory(path: providerPath) { contents, error in
                 if let error {
-                    continuation.resume(throwing: SourceError.connectionFailed(error.localizedDescription))
+                    // Re-throw the underlying NSError so SSLTrustStore can detect
+                    // certificate errors and prompt the user. Wrapping it in
+                    // SourceError.connectionFailed(_:) loses domain/code/userInfo.
+                    continuation.resume(throwing: error)
                     return
                 }
 
@@ -102,8 +111,10 @@ actor WebDAVSource: MusicSourceConnector {
             return localPath
         }
 
+        let providerPath = providerRelativePath(path)
+
         return try await withCheckedThrowingContinuation { continuation in
-            provider.copyItem(path: path, toLocalURL: localPath) { error in
+            provider.copyItem(path: providerPath, toLocalURL: localPath) { error in
                 if let error {
                     continuation.resume(throwing: error)
                 } else {
@@ -165,13 +176,18 @@ actor WebDAVSource: MusicSourceConnector {
         }
     }
 
-    private func normalizedBasePath(_ path: String) -> String {
-        path.hasPrefix("/") ? path : "/\(path)"
+    /// Strips the leading "/" so the path is resolved relative to baseURL.
+    /// WebDAVFileProvider does relative-URL resolution, and an absolute path
+    /// (one that starts with "/") will replace baseURL's path component —
+    /// dropping basePath entirely.
+    private func providerRelativePath(_ path: String) -> String {
+        if path == "/" { return "" }
+        return path.hasPrefix("/") ? String(path.dropFirst()) : path
     }
 
     private func serverURL() throws -> URL {
         let scheme = useSsl ? "https" : "http"
-        guard let url = NetworkURLBuilder.makeURL(
+        guard let baseURL = NetworkURLBuilder.makeURL(
             host: host,
             defaultScheme: scheme,
             port: port,
@@ -179,6 +195,13 @@ actor WebDAVSource: MusicSourceConnector {
         ) else {
             throw SourceError.connectionFailed("Invalid WebDAV URL")
         }
-        return url
+
+        // WebDAVFileProvider needs a directory-style baseURL (trailing "/")
+        // so that relative path resolution preserves basePath.
+        let absolute = baseURL.absoluteString
+        if absolute.hasSuffix("/") {
+            return baseURL
+        }
+        return URL(string: absolute + "/") ?? baseURL
     }
 }
