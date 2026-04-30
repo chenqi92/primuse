@@ -9,7 +9,18 @@ final class MusicLibrary {
     private(set) var songs: [Song] = []
     private(set) var albums: [Album] = []
     private(set) var artists: [Artist] = []
-    private(set) var playlists: [Playlist] = []
+    /// Backing storage that includes soft-deleted entries. UI-facing
+    /// `playlists` filters this down.
+    private(set) var allPlaylists: [Playlist] = []
+    /// Live (non-deleted) playlists for normal UI use.
+    var playlists: [Playlist] { allPlaylists.filter { !$0.isDeleted } }
+    /// Soft-deleted playlists, newest deletion first. Drives the "Recently
+    /// Deleted" recovery panel.
+    var recentlyDeletedPlaylists: [Playlist] {
+        allPlaylists
+            .filter { $0.isDeleted }
+            .sorted { ($0.deletedAt ?? .distantPast) > ($1.deletedAt ?? .distantPast) }
+    }
     private var playlistSongIDs: [String: [String]] = [:]
     private var recentPlaybackSongIDs: [String] = []
     private(set) var disabledSourceIDs: Set<String> = []
@@ -120,7 +131,7 @@ final class MusicLibrary {
     }
 
     func playlist(id: String) -> Playlist? {
-        playlists.first(where: { $0.id == id })
+        allPlaylists.first(where: { $0.id == id })
     }
 
     func songs(forPlaylist playlistID: String) -> [Song] {
@@ -148,26 +159,62 @@ final class MusicLibrary {
         }
 
         persistSnapshot()
+        NotificationCenter.default.post(name: .primusePlaybackHistoryDidChange, object: nil)
     }
 
     func createPlaylist(name: String) -> Playlist {
         let playlist = Playlist(name: name)
-        playlists.append(playlist)
+        allPlaylists.append(playlist)
         playlistSongIDs[playlist.id] = []
         sortPlaylists()
         persistSnapshot()
+        notifyPlaylistsChanged([playlist.id])
         return playlist
     }
 
+    /// Soft-delete: mark `isDeleted = true`, propagated to other devices as
+    /// an update so the recycle bin converges.
     func deletePlaylist(id: String) {
-        playlists.removeAll { $0.id == id }
+        guard let index = allPlaylists.firstIndex(where: { $0.id == id }) else { return }
+        allPlaylists[index].isDeleted = true
+        allPlaylists[index].deletedAt = Date()
+        allPlaylists[index].updatedAt = Date()
+        persistSnapshot()
+        notifyPlaylistsChanged([id])
+    }
+
+    /// Restore a soft-deleted playlist (e.g. from the Recently Deleted view).
+    func restorePlaylist(id: String) {
+        guard let index = allPlaylists.firstIndex(where: { $0.id == id }) else { return }
+        allPlaylists[index].isDeleted = false
+        allPlaylists[index].deletedAt = nil
+        allPlaylists[index].updatedAt = Date()
+        persistSnapshot()
+        notifyPlaylistsChanged([id])
+    }
+
+    /// Permanently remove a playlist (manual purge or 30-day prune). Drops the
+    /// record from CloudKit too.
+    func permanentlyDeletePlaylist(id: String) {
+        allPlaylists.removeAll { $0.id == id }
         playlistSongIDs[id] = nil
         persistSnapshot()
+        notifyPlaylistDeleted(id)
+    }
+
+    /// Sweep playlists whose `deletedAt` is older than `threshold` and remove
+    /// them for good. Called on launch with a 30-day threshold.
+    func prunePlaylists(deletedBefore threshold: Date) {
+        let toPrune = allPlaylists.filter { $0.isDeleted && ($0.deletedAt ?? .distantFuture) < threshold }
+        guard !toPrune.isEmpty else { return }
+        for playlist in toPrune {
+            permanentlyDeletePlaylist(id: playlist.id)
+        }
     }
 
     func add(songID: String, toPlaylist playlistID: String) {
         guard songs.contains(where: { $0.id == songID }),
-              let existingIndex = playlists.firstIndex(where: { $0.id == playlistID }) else {
+              let existingIndex = allPlaylists.firstIndex(where: { $0.id == playlistID }) else {
             return
         }
 
@@ -177,23 +224,89 @@ final class MusicLibrary {
         entries.append(songID)
         playlistSongIDs[playlistID] = entries
 
-        playlists[existingIndex].updatedAt = Date()
-        playlists[existingIndex].coverArtPath = songs.first(where: { $0.id == entries.first })?.coverArtFileName
+        allPlaylists[existingIndex].updatedAt = Date()
+        allPlaylists[existingIndex].coverArtPath = songs.first(where: { $0.id == entries.first })?.coverArtFileName
         sortPlaylists()
         persistSnapshot()
+        notifyPlaylistsChanged([playlistID])
     }
 
     func remove(songID: String, fromPlaylist playlistID: String) {
-        guard let existingIndex = playlists.firstIndex(where: { $0.id == playlistID }) else { return }
+        guard let existingIndex = allPlaylists.firstIndex(where: { $0.id == playlistID }) else { return }
 
         var entries = playlistSongIDs[playlistID] ?? []
         entries.removeAll { $0 == songID }
         playlistSongIDs[playlistID] = entries
 
-        playlists[existingIndex].updatedAt = Date()
-        playlists[existingIndex].coverArtPath = songs.first(where: { $0.id == entries.first })?.coverArtFileName
+        allPlaylists[existingIndex].updatedAt = Date()
+        allPlaylists[existingIndex].coverArtPath = songs.first(where: { $0.id == entries.first })?.coverArtFileName
         sortPlaylists()
         persistSnapshot()
+        notifyPlaylistsChanged([playlistID])
+    }
+
+    // MARK: - Cloud sync hooks
+
+    /// Raw stored song IDs for a playlist (no visibility filtering).
+    func rawSongIDs(forPlaylist playlistID: String) -> [String] {
+        playlistSongIDs[playlistID] ?? []
+    }
+
+    /// Snapshot of recent playback song IDs — used by CloudKit sync.
+    var recentPlaybackSongIDsForSync: [String] { recentPlaybackSongIDs }
+
+    /// Wipe playback history (in response to a remote deletion).
+    func clearPlaybackHistory() {
+        recentPlaybackSongIDs.removeAll()
+        persistSnapshot()
+    }
+
+    /// Apply a playlist record + its song list pulled from CloudKit. Does not
+    /// re-broadcast a local change notification. Song IDs are stored as-is;
+    /// `songs(forPlaylist:)` filters down to whatever songs are present locally
+    /// at display time, so a freshly-synced device will fill in entries as its
+    /// own scan progresses.
+    func applyRemotePlaylist(_ playlist: Playlist, songIDs: [String]) {
+        if let index = allPlaylists.firstIndex(where: { $0.id == playlist.id }) {
+            allPlaylists[index] = playlist
+        } else {
+            allPlaylists.append(playlist)
+        }
+        playlistSongIDs[playlist.id] = songIDs
+        sortPlaylists()
+        persistSnapshot()
+    }
+
+    /// Replace the local playback history with one pulled from CloudKit. IDs are
+    /// stored as-is; `recentlyPlayedSongs(limit:)` filters down to locally-known
+    /// songs at display time.
+    func applyRemotePlaybackHistory(songIDs: [String]) {
+        recentPlaybackSongIDs = Array(songIDs.prefix(100))
+        persistSnapshot()
+    }
+
+    /// Remove a playlist in response to a remote deletion event. Does not fire
+    /// the local-change notification (which would echo back to CloudKit).
+    func deletePlaylistFromRemote(id: String) {
+        allPlaylists.removeAll { $0.id == id }
+        playlistSongIDs[id] = nil
+        persistSnapshot()
+    }
+
+    private func notifyPlaylistsChanged(_ ids: [String]) {
+        NotificationCenter.default.post(
+            name: .primusePlaylistsDidChange,
+            object: nil,
+            userInfo: ["ids": ids]
+        )
+    }
+
+    private func notifyPlaylistDeleted(_ id: String) {
+        NotificationCenter.default.post(
+            name: .primusePlaylistDidDelete,
+            object: nil,
+            userInfo: ["id": id]
+        )
     }
 
     /// Most recently replaced song — observable so consumers (e.g. player) can sync.
@@ -286,7 +399,7 @@ final class MusicLibrary {
         }
 
         songs = snapshot.songs
-        playlists = snapshot.playlists
+        allPlaylists = snapshot.playlists
         playlistSongIDs = snapshot.playlistSongIDs ?? [:]
         recentPlaybackSongIDs = snapshot.recentPlaybackSongIDs ?? []
         cleanPlaylistEntries()
@@ -309,7 +422,7 @@ final class MusicLibrary {
     func persistNow() {
         let snapshot = Snapshot(
             songs: songs,
-            playlists: playlists,
+            playlists: allPlaylists,
             playlistSongIDs: playlistSongIDs,
             recentPlaybackSongIDs: recentPlaybackSongIDs
         )
@@ -318,13 +431,13 @@ final class MusicLibrary {
     }
 
     private func sortPlaylists() {
-        playlists.sort { $0.updatedAt > $1.updatedAt }
+        allPlaylists.sort { $0.updatedAt > $1.updatedAt }
     }
 
     private func refreshPlaylistArtworkReferences() {
-        for index in playlists.indices {
-            let firstSongID = playlistSongIDs[playlists[index].id]?.first
-            playlists[index].coverArtPath = songs.first(where: { $0.id == firstSongID })?.coverArtFileName
+        for index in allPlaylists.indices {
+            let firstSongID = playlistSongIDs[allPlaylists[index].id]?.first
+            allPlaylists[index].coverArtPath = songs.first(where: { $0.id == firstSongID })?.coverArtFileName
         }
         sortPlaylists()
     }
@@ -352,4 +465,14 @@ final class MusicLibrary {
         var playlistSongIDs: [String: [String]]?
         var recentPlaybackSongIDs: [String]?
     }
+}
+
+extension Notification.Name {
+    static let primusePlaylistsDidChange = Notification.Name("primuse.playlistsDidChange")
+    static let primusePlaylistDidDelete = Notification.Name("primuse.playlistDidDelete")
+    static let primusePlaybackHistoryDidChange = Notification.Name("primuse.playbackHistoryDidChange")
+    static let primuseSourcesDidChange = Notification.Name("primuse.sourcesDidChange")
+    static let primuseSourceDidDelete = Notification.Name("primuse.sourceDidDelete")
+    static let primuseScraperConfigDidChange = Notification.Name("primuse.scraperConfigDidChange")
+    static let primuseScraperConfigDidDelete = Notification.Name("primuse.scraperConfigDidDelete")
 }

@@ -200,8 +200,11 @@ struct SongRowView: View {
             Task { await player.next() }
         }
         // Clean caches
-        MetadataAssetStore.shared.invalidateCoverCache(forSongID: song.id)
-        MetadataAssetStore.shared.invalidateLyricsCache(forSongID: song.id)
+        let songID = song.id
+        Task {
+            await MetadataAssetStore.shared.invalidateCoverCache(forSongID: songID)
+            await MetadataAssetStore.shared.invalidateLyricsCache(forSongID: songID)
+        }
         CachedArtworkView.invalidateCache(for: song.id)
         sourceManager.deleteAudioCache(for: song)
         // Remove from library

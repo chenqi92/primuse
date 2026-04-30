@@ -60,13 +60,13 @@
 "appearance" = "Appearance";
 "app_icon" = "App Icon";
 "icon_default" = "Default";
-"icon_theme_1" = "Theme 1";
-"icon_theme_2" = "Theme 2";
-"icon_theme_3" = "Theme 3";
-"icon_theme_4" = "Theme 4";
-"icon_theme_5" = "Theme 5";
-"icon_theme_6" = "Theme 6";
-"icon_theme_7" = "Theme 7";
+"icon_theme_1" = "Neon";
+"icon_theme_2" = "Origin";
+"icon_theme_3" = "Matrix";
+"icon_theme_4" = "Gilded";
+"icon_theme_5" = "Spirit Charm";
+"icon_theme_6" = "Phoenix";
+"icon_theme_7" = "Twilight";
 "queue_title" = "Queue";
 "queue_empty" = "Queue Empty";
 "queue_empty_desc" = "Add songs to the queue";
@@ -120,6 +120,11 @@
 "enter_otp" = "Enter OTP Code";
 "otp_hint" = "Enter the 6-digit code from your authenticator app";
 "smb_config" = "SMB Settings";
+"smb_error_auth" = "SMB: Wrong username or password";
+"smb_error_not_found" = "SMB: Share or file not found";
+"smb_error_refused" = "SMB: Server refused connection (check port)";
+"smb_error_unreachable" = "SMB: Server unreachable (check network)";
+"smb_error_timeout" = "SMB: Connection timed out";
 "webdav_config" = "WebDAV Settings";
 "server_config" = "Server Settings";
 "ftp_config" = "FTP Settings";
@@ -392,3 +397,53 @@
 "metadata_clear_footer" = "Cover art and lyrics are stored persistently. Clearing will require re-scanning or re-fetching from your music sources.";
 "scraping_album_covers" = "Fetching album covers...";
 "scraping_artist_images" = "Fetching artist images...";
+
+// MARK: - iCloud Sync
+"sync" = "Sync";
+"icloud_sync_title" = "iCloud Sync";
+"icloud_sync_enabled" = "Enable iCloud Sync";
+"icloud_sync_footer" = "Sync playlists, music sources, playback history, and settings across devices signed in to the same iCloud account. Source passwords and cloud-drive login state sync via iCloud Keychain.";
+"icloud_sync_status" = "Status";
+"status" = "Status";
+"status_disabled" = "Off";
+"status_unavailable" = "Temporarily unavailable";
+"status_quota_exceeded" = "iCloud storage is full";
+"status_network_unavailable" = "Network unavailable";
+"status_no_icloud_account" = "No iCloud account signed in";
+"status_icloud_restricted" = "iCloud is restricted (family / device policy)";
+"status_icloud_temporarily_unavailable" = "iCloud is temporarily unavailable";
+"status_icloud_unknown" = "iCloud status could not be determined";
+"status_idle" = "Idle";
+"status_syncing" = "Syncing…";
+"status_up_to_date" = "Up to date";
+"last_synced" = "Last synced";
+"sync_now" = "Sync Now";
+"synced_items" = "Synced items";
+"synced_items_footer" = "Local music library and caches are not synced — each device scans independently.";
+"synced_playlists" = "Playlists";
+"synced_sources" = "Music sources (passwords excluded)";
+"synced_playback_history" = "Recent playback (5-minute throttle)";
+"synced_settings" = "Playback settings, equalizer, scraper config";
+"synced_credentials" = "Source passwords & cloud login (Keychain)";
+
+// MARK: - iCloud sync status detail
+"status_no_icloud_account" = "Not signed in to iCloud — sign in from Settings";
+"status_icloud_restricted" = "iCloud is restricted (Family Sharing or Screen Time)";
+"status_icloud_temporarily_unavailable" = "iCloud temporarily unavailable; will retry";
+"status_icloud_unknown" = "iCloud status unknown";
+"status_quota_exceeded" = "iCloud storage is full";
+"status_network_unavailable" = "Network unavailable";
+"open_system_settings" = "Open System Settings";
+"credentials_channel_footer" = "Credentials channel: when off, new passwords and tokens stay on this device; entries already in iCloud Keychain are managed through Settings → Apple ID → iCloud → Passwords & Keychain.";
+
+// MARK: - Recently Deleted
+"recently_deleted" = "Recently Deleted";
+"recently_deleted_empty" = "Nothing recently deleted";
+"recently_deleted_empty_desc" = "Deleted playlists, music sources and scraper configs are kept here for 30 days.";
+"recently_deleted_playlists" = "Playlists";
+"recently_deleted_sources" = "Music Sources";
+"recently_deleted_scraper_configs" = "Scraper Configs";
+"restore" = "Restore";
+"delete_permanently" = "Delete Permanently";
+"auto_remove_in_n_days" = "Auto-removes in %d days";
+"icloud_container_setup_hint" = "Enable the iCloud container iCloud.com.welape.yuanyin in Apple Developer, and verify it in Xcode → Signing & Capabilities";

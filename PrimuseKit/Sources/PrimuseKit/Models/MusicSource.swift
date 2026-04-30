@@ -287,6 +287,14 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
     public var isEnabled: Bool
     public var songCount: Int
     public var extraConfig: String? // JSON for type-specific config
+    /// Wall-clock time of the most recent user edit to this source. Drives
+    /// CloudKit conflict resolution: the side with the larger `modifiedAt`
+    /// wins on a conflicting save.
+    public var modifiedAt: Date
+    /// Soft-delete flag. Hidden from the regular UI but kept around so the
+    /// 30-day prune can clear it for good once all devices have converged.
+    public var isDeleted: Bool
+    public var deletedAt: Date?
 
     public init(
         id: String = UUID().uuidString,
@@ -308,7 +316,10 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
         lastScannedAt: Date? = nil,
         isEnabled: Bool = true,
         songCount: Int = 0,
-        extraConfig: String? = nil
+        extraConfig: String? = nil,
+        modifiedAt: Date = Date(),
+        isDeleted: Bool = false,
+        deletedAt: Date? = nil
     ) {
         self.id = id
         self.name = name
@@ -330,6 +341,38 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
         self.isEnabled = isEnabled
         self.songCount = songCount
         self.extraConfig = extraConfig
+        self.modifiedAt = modifiedAt
+        self.isDeleted = isDeleted
+        self.deletedAt = deletedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decode(String.self, forKey: .id)
+        self.name = try c.decode(String.self, forKey: .name)
+        self.type = try c.decode(MusicSourceType.self, forKey: .type)
+        self.host = try c.decodeIfPresent(String.self, forKey: .host)
+        self.port = try c.decodeIfPresent(Int.self, forKey: .port)
+        self.useSsl = try c.decode(Bool.self, forKey: .useSsl)
+        self.username = try c.decodeIfPresent(String.self, forKey: .username)
+        self.basePath = try c.decodeIfPresent(String.self, forKey: .basePath)
+        self.shareName = try c.decodeIfPresent(String.self, forKey: .shareName)
+        self.exportPath = try c.decodeIfPresent(String.self, forKey: .exportPath)
+        self.authType = try c.decode(SourceAuthType.self, forKey: .authType)
+        self.ftpEncryption = try c.decodeIfPresent(FTPEncryption.self, forKey: .ftpEncryption)
+        self.nfsVersion = try c.decodeIfPresent(NFSVersion.self, forKey: .nfsVersion)
+        self.autoConnect = try c.decode(Bool.self, forKey: .autoConnect)
+        self.rememberDevice = try c.decode(Bool.self, forKey: .rememberDevice)
+        self.deviceId = try c.decodeIfPresent(String.self, forKey: .deviceId)
+        self.lastScannedAt = try c.decodeIfPresent(Date.self, forKey: .lastScannedAt)
+        self.isEnabled = try c.decode(Bool.self, forKey: .isEnabled)
+        self.songCount = try c.decode(Int.self, forKey: .songCount)
+        self.extraConfig = try c.decodeIfPresent(String.self, forKey: .extraConfig)
+        // Default to .distantPast so any subsequent edit on this device wins
+        // over the migration default — but loses to a fresh remote write.
+        self.modifiedAt = try c.decodeIfPresent(Date.self, forKey: .modifiedAt) ?? .distantPast
+        self.isDeleted = try c.decodeIfPresent(Bool.self, forKey: .isDeleted) ?? false
+        self.deletedAt = try c.decodeIfPresent(Date.self, forKey: .deletedAt)
     }
 }
 

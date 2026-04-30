@@ -66,6 +66,20 @@ struct SettingsView: View {
                     }
                 }
 
+                Section("sync") {
+                    NavigationLink {
+                        CloudSyncSettingsView()
+                    } label: {
+                        Label("icloud_sync_title", systemImage: "icloud")
+                    }
+
+                    NavigationLink {
+                        RecentlyDeletedView()
+                    } label: {
+                        Label("recently_deleted", systemImage: "trash")
+                    }
+                }
+
                 Section("about") {
                     HStack {
                         Text("version")

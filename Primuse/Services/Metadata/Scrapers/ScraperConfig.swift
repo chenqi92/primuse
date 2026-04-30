@@ -19,6 +19,14 @@ struct ScraperConfig: Codable, Sendable, Identifiable {
     var cover: EndpointConfig?
     var lyrics: EndpointConfig?
 
+    /// Wall-clock time of last user mutation. Drives CloudKit conflict
+    /// resolution; absent when the value comes from a freshly-imported JSON.
+    var modifiedAt: Date?
+    /// Soft-delete flag. Hidden from the regular UI but kept on disk +
+    /// CloudKit until the 30-day prune sweeps it.
+    var isDeleted: Bool?
+    var deletedAt: Date?
+
     var supportsMetadata: Bool { capabilities.contains("metadata") }
     var supportsCover: Bool { capabilities.contains("cover") }
     var supportsLyrics: Bool { capabilities.contains("lyrics") }

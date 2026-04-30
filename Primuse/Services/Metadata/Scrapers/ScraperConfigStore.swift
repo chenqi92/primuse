@@ -18,14 +18,34 @@ final class ScraperConfigStore: @unchecked Sendable {
 
     // MARK: - Public API
 
-    /// All imported configs
+    /// Live (non-deleted) imported configs for normal UI use.
     var allConfigs: [ScraperConfig] {
+        lock.lock()
+        defer { lock.unlock() }
+        return cache.values
+            .filter { $0.isDeleted != true }
+            .sorted { $0.name < $1.name }
+    }
+
+    /// Includes soft-deleted entries — used by CloudKit sync to push the full
+    /// state (including the soft-delete tombstone) to other devices.
+    var allConfigsIncludingDeleted: [ScraperConfig] {
         lock.lock()
         defer { lock.unlock() }
         return Array(cache.values).sorted { $0.name < $1.name }
     }
 
-    /// Get config by ID
+    /// Soft-deleted configs, newest deletion first.
+    var recentlyDeletedConfigs: [ScraperConfig] {
+        lock.lock()
+        defer { lock.unlock() }
+        return cache.values
+            .filter { $0.isDeleted == true }
+            .sorted { ($0.deletedAt ?? .distantPast) > ($1.deletedAt ?? .distantPast) }
+    }
+
+    /// Get config by ID — also returns soft-deleted entries so the cloud sync
+    /// path can re-push them. UI callers should look it up via `allConfigs`.
     func config(for id: String) -> ScraperConfig? {
         lock.lock()
         defer { lock.unlock() }
@@ -75,8 +95,94 @@ final class ScraperConfigStore: @unchecked Sendable {
         return try importFromJSON(jsonString)
     }
 
-    /// Delete a config by ID
+    /// Soft-delete a config — flag and persist, propagated to other devices as
+    /// an update. Use `permanentlyDelete(id:)` for the real removal.
     func delete(id: String) {
+        lock.lock()
+        guard var config = cache[id] else { lock.unlock(); return }
+        config.isDeleted = true
+        config.deletedAt = Date()
+        config.modifiedAt = Date()
+        cache[id] = config
+        lock.unlock()
+        writeToDisk(config)
+        NotificationCenter.default.post(
+            name: .primuseScraperConfigDidChange,
+            object: nil,
+            userInfo: ["ids": [id]]
+        )
+    }
+
+    /// Restore a soft-deleted config.
+    func restore(id: String) {
+        lock.lock()
+        guard var config = cache[id] else { lock.unlock(); return }
+        config.isDeleted = false
+        config.deletedAt = nil
+        config.modifiedAt = Date()
+        cache[id] = config
+        lock.unlock()
+        writeToDisk(config)
+        NotificationCenter.default.post(
+            name: .primuseScraperConfigDidChange,
+            object: nil,
+            userInfo: ["ids": [id]]
+        )
+    }
+
+    /// Permanently remove a config — drops the file from disk and notifies
+    /// CloudKit sync to delete the record.
+    func permanentlyDelete(id: String) {
+        lock.lock()
+        cache.removeValue(forKey: id)
+        lock.unlock()
+        let fileURL = configDir.appendingPathComponent("\(id).json")
+        try? FileManager.default.removeItem(at: fileURL)
+        NotificationCenter.default.post(
+            name: .primuseScraperConfigDidDelete,
+            object: nil,
+            userInfo: ["id": id]
+        )
+    }
+
+    /// Sweep configs whose `deletedAt` is older than `threshold`. Called on
+    /// launch with a 30-day threshold.
+    func pruneConfigs(deletedBefore threshold: Date) {
+        let toPrune: [String] = {
+            lock.lock()
+            defer { lock.unlock() }
+            return cache.values
+                .filter { $0.isDeleted == true && ($0.deletedAt ?? .distantFuture) < threshold }
+                .map(\.id)
+        }()
+        for id in toPrune {
+            permanentlyDelete(id: id)
+        }
+    }
+
+    private func writeToDisk(_ config: ScraperConfig) {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(config) else { return }
+        let fileURL = configDir.appendingPathComponent("\(config.id).json")
+        try? data.write(to: fileURL, options: .atomic)
+    }
+
+    /// Apply a config pulled from CloudKit. Skips notification — caller is the
+    /// remote-apply path.
+    func applyRemoteConfig(_ config: ScraperConfig) {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(config) else { return }
+        let fileURL = configDir.appendingPathComponent("\(config.id).json")
+        try? data.write(to: fileURL, options: .atomic)
+        lock.lock()
+        cache[config.id] = config
+        lock.unlock()
+    }
+
+    /// Delete a config in response to a remote deletion. Skips notification.
+    func deleteFromRemote(id: String) {
         lock.lock()
         cache.removeValue(forKey: id)
         lock.unlock()
@@ -134,14 +240,25 @@ final class ScraperConfigStore: @unchecked Sendable {
         for config in configs { try validate(config) }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        for config in configs {
+        let now = Date()
+        var stamped: [ScraperConfig] = []
+        for var config in configs {
+            // Stamp with import time so conflict resolution can compare wall-clock
+            // edit times across devices.
+            config.modifiedAt = now
             let data = try encoder.encode(config)
             try save(config, data: data)
             lock.lock()
             cache[config.id] = config
             lock.unlock()
+            stamped.append(config)
         }
-        return configs
+        NotificationCenter.default.post(
+            name: .primuseScraperConfigDidChange,
+            object: nil,
+            userInfo: ["ids": stamped.map(\.id)]
+        )
+        return stamped
     }
 
     /// Split a buffer of one-or-more concatenated top-level `{...}` JSON objects.

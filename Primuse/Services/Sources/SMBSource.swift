@@ -26,7 +26,11 @@ actor SMBSource: MusicSourceConnector {
         self.username = username
         self.password = password
 
-        let cacheDir = FileManager.default.temporaryDirectory.appendingPathComponent("primuse_smb_cache")
+        // Per-source cache dir avoids file-name collisions when two SMB sources
+        // happen to expose files with the same path.
+        let cacheDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("primuse_smb_cache")
+            .appendingPathComponent(sourceID)
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
         self.cacheDirectory = cacheDir
     }
@@ -50,11 +54,12 @@ actor SMBSource: MusicSourceConnector {
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
         let normalizedPath = Self.normalizeRemotePath(path)
-        _ = try await ensureServerConnection()
 
         switch try resolve(path: normalizedPath) {
         case .serverRoot:
-            return try await listShares()
+            let shares = try await runWithRetry { try await self.rawListShares() }
+            return shares
+                .filter { Self.isUserVisibleShare($0.name) }
                 .map { share in
                     RemoteFileItem(
                         name: share.name,
@@ -67,26 +72,28 @@ actor SMBSource: MusicSourceConnector {
                 .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
 
         case .share(let shareName, let relativePath):
-            let client = try await ensureConnectedShare(named: shareName)
-            let items = try await client.contentsOfDirectory(atPath: relativePath)
-
-            return items
-                .filter { ($0[.nameKey] as? String)?.hasPrefix(".") == false }
-                .map { item in
-                    let name = item[.nameKey] as? String ?? ""
-                    let isDir = (item[.fileResourceTypeKey] as? URLFileResourceType) == .directory
-                    let size = item[.fileSizeKey] as? Int64 ?? 0
-                    let modified = item[.contentModificationDateKey] as? Date
-
-                    return RemoteFileItem(
-                        name: name,
-                        path: Self.appendPathComponent(name, to: normalizedPath),
-                        isDirectory: isDir,
-                        size: size,
-                        modifiedDate: modified
-                    )
-                }
-                .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+            // Convert raw entries to Sendable RemoteFileItem inside the retry block —
+            // the AMSMB2 dictionaries contain `Any` values that can't cross the closure boundary.
+            return try await runWithRetry {
+                let client = try await self.ensureConnectedShare(named: shareName)
+                let items = try await client.contentsOfDirectory(atPath: relativePath)
+                return items
+                    .filter { Self.isUserVisibleEntry(($0[.nameKey] as? String) ?? "") }
+                    .map { item -> RemoteFileItem in
+                        let name = item[.nameKey] as? String ?? ""
+                        let isDir = (item[.fileResourceTypeKey] as? URLFileResourceType) == .directory
+                        let size = item[.fileSizeKey] as? Int64 ?? 0
+                        let modified = item[.contentModificationDateKey] as? Date
+                        return RemoteFileItem(
+                            name: name,
+                            path: Self.appendPathComponent(name, to: normalizedPath),
+                            isDirectory: isDir,
+                            size: size,
+                            modifiedDate: modified
+                        )
+                    }
+                    .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+            }
         }
     }
 
@@ -98,7 +105,6 @@ actor SMBSource: MusicSourceConnector {
             throw SourceError.connectionFailed("SMB share not selected")
         }
 
-        let client = try await ensureConnectedShare(named: shareName)
         let localURL = cacheDirectory.appendingPathComponent(
             Self.cacheFileName(for: normalizedPath)
         )
@@ -107,8 +113,22 @@ actor SMBSource: MusicSourceConnector {
             return localURL
         }
 
-        try await client.downloadItem(atPath: relativePath, to: localURL) { _, _ in
-            true
+        // Download to a sibling temp path then atomically rename. If the download
+        // is cancelled or the connection drops mid-stream we don't want a half-written
+        // file lingering at `localURL` that future calls will think is complete.
+        let tempURL = cacheDirectory.appendingPathComponent(
+            "\(Self.cacheFileName(for: normalizedPath)).part-\(UUID().uuidString)"
+        )
+
+        do {
+            try await runWithRetry {
+                let client = try await self.ensureConnectedShare(named: shareName)
+                try await client.downloadItem(atPath: relativePath, to: tempURL) { _, _ in true }
+            }
+            try FileManager.default.moveItem(at: tempURL, to: localURL)
+        } catch {
+            try? FileManager.default.removeItem(at: tempURL)
+            throw error
         }
         return localURL
     }
@@ -155,15 +175,14 @@ actor SMBSource: MusicSourceConnector {
             throw SourceError.connectionFailed("SMB share not selected")
         }
 
-        let client = try await ensureConnectedShare(named: shareName)
-
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("smb_upload_\(UUID().uuidString)")
         try data.write(to: tempURL)
         defer { try? FileManager.default.removeItem(at: tempURL) }
 
-        try await client.uploadItem(at: tempURL, toPath: relativePath) { _ in
-            true
+        try await runWithRetry {
+            let client = try await self.ensureConnectedShare(named: shareName)
+            try await client.uploadItem(at: tempURL, toPath: relativePath) { _ in true }
         }
     }
 
@@ -203,7 +222,11 @@ actor SMBSource: MusicSourceConnector {
         guard let client = SMB2Manager(url: serverURL, credential: credential) else {
             throw SourceError.connectionFailed("Invalid SMB server configuration")
         }
-        _ = try await client.listShares()
+        do {
+            _ = try await client.listShares()
+        } catch {
+            throw mapSMBError(error)
+        }
 
         self.client = client
         return client
@@ -220,14 +243,104 @@ actor SMBSource: MusicSourceConnector {
             return client
         }
 
-        try await client.connectShare(name: normalizedShareName)
+        // libsmb2 keeps a single tree-connect per session, so switching shares
+        // requires explicitly disconnecting the previous one first.
+        if connectedShareName != nil {
+            try? await client.disconnectShare()
+            connectedShareName = nil
+        }
+
+        do {
+            try await client.connectShare(name: normalizedShareName)
+        } catch {
+            throw mapSMBError(error)
+        }
         connectedShareName = normalizedShareName
         return client
     }
 
-    private func listShares() async throws -> [(name: String, comment: String)] {
+    private func rawListShares() async throws -> [(name: String, comment: String)] {
         let client = try await ensureServerConnection()
         return try await client.listShares()
+    }
+
+    /// Drop the cached client and tree-connect so the next call re-handshakes
+    /// from scratch. Called when a request fails with a transient error.
+    private func invalidateConnection() async {
+        if let client, connectedShareName != nil {
+            try? await client.disconnectShare()
+        }
+        connectedShareName = nil
+        client = nil
+    }
+
+    /// Run an SMB request, retrying once if the first attempt fails with a
+    /// transient connection error. AMSMB2 sessions die silently after Wi-Fi
+    /// changes / device sleep and surface as `ECONNRESET` / `EBADF`; reconnecting
+    /// transparently is much nicer than asking the user to reopen the source.
+    private func runWithRetry<T: Sendable>(
+        _ block: () async throws -> T
+    ) async throws -> T {
+        do {
+            return try await block()
+        } catch {
+            guard Self.isTransientConnectionError(error) else {
+                throw mapSMBError(error)
+            }
+            NSLog("⚠️ SMB transient error, reconnecting: \(error)")
+            await invalidateConnection()
+            do {
+                return try await block()
+            } catch {
+                throw mapSMBError(error)
+            }
+        }
+    }
+
+    private nonisolated func mapSMBError(_ error: Error) -> Error {
+        if error is SourceError { return error }
+        let ns = error as NSError
+        if ns.domain == NSPOSIXErrorDomain {
+            switch ns.code {
+            case Int(EACCES), Int(EPERM):
+                return SourceError.connectionFailed(String(localized: "smb_error_auth"))
+            case Int(ENOENT):
+                return SourceError.connectionFailed(String(localized: "smb_error_not_found"))
+            case Int(ECONNREFUSED):
+                return SourceError.connectionFailed(String(localized: "smb_error_refused"))
+            case Int(EHOSTUNREACH), Int(ENETUNREACH):
+                return SourceError.connectionFailed(String(localized: "smb_error_unreachable"))
+            case Int(ETIMEDOUT):
+                return SourceError.connectionFailed(String(localized: "smb_error_timeout"))
+            default: break
+            }
+        }
+        return SourceError.connectionFailed("SMB: \(ns.localizedDescription)")
+    }
+
+    private static func isTransientConnectionError(_ error: Error) -> Bool {
+        let ns = error as NSError
+        guard ns.domain == NSPOSIXErrorDomain else { return false }
+        return [
+            Int(ECONNRESET), Int(EPIPE), Int(EBADF),
+            Int(ENOTCONN), Int(ETIMEDOUT), Int(ENETRESET)
+        ].contains(ns.code)
+    }
+
+    /// Hide system / administrative shares from the source picker. Hidden shares
+    /// end with `$` (C$, ADMIN$, IPC$, print$ ...) — none of which contain
+    /// user-browsable music files.
+    private static func isUserVisibleShare(_ name: String) -> Bool {
+        !name.hasSuffix("$")
+    }
+
+    private static func isUserVisibleEntry(_ name: String) -> Bool {
+        if name.isEmpty { return false }
+        if name.hasPrefix(".") { return false }
+        let lower = name.lowercased()
+        if lower == "thumbs.db" { return false }
+        if lower == "desktop.ini" { return false }
+        return true
     }
 
     private func resolve(path: String) throws -> ResolvedPath {

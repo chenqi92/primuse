@@ -173,9 +173,23 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
             request.httpBody = try JSONSerialization.data(withJSONObject: bodyParams)
         } else {
             request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-            let bodyString = bodyParams.map { "\($0.key)=\(percentEncode($0.value))" }.joined(separator: "&")
+            // Sort keys for stable, debuggable bodies, and use strict
+            // x-www-form-urlencoded escaping (only unreserved chars stay raw).
+            let bodyString = bodyParams.keys.sorted()
+                .map { key in "\(key)=\(formURLEncode(bodyParams[key] ?? ""))" }
+                .joined(separator: "&")
             request.httpBody = bodyString.data(using: .utf8)
         }
+
+        // Mask the secret in logs but show everything else — invaluable when an
+        // OAuth provider rejects the request and you need to compare what we
+        // sent against what they registered.
+        let loggedParams = bodyParams.mapValues { _ in "" }.merging(
+            bodyParams.mapValues { v -> String in
+                v.count > 8 ? "\(v.prefix(4))…\(v.suffix(4))" : "***"
+            }
+        ) { _, b in b }
+        plog("☁️ OAuth token POST \(tokenURL.absoluteString) params=\(loggedParams.sorted(by: { $0.key < $1.key }))")
 
         let (data, response) = try await URLSession.shared.data(for: request)
 
@@ -183,8 +197,9 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
             throw OAuthError.tokenExchangeFailed("Invalid response")
         }
 
-        guard (200...299).contains(http.statusCode) else {
+        if !(200...299).contains(http.statusCode) {
             let body = String(data: data, encoding: .utf8) ?? ""
+            plog("☁️ OAuth token HTTP \(http.statusCode) body=\(body)")
             throw OAuthError.tokenExchangeFailed("HTTP \(http.statusCode): \(body)")
         }
 
@@ -246,6 +261,16 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
         var allowed = CharacterSet.urlQueryAllowed
         allowed.remove(charactersIn: "+&=")
         return string.addingPercentEncoding(withAllowedCharacters: allowed) ?? string
+    }
+
+    /// Strict `application/x-www-form-urlencoded` escaping: only unreserved
+    /// characters (`A–Z a–z 0–9 - _ . ~`) stay raw, everything else gets
+    /// percent-encoded. Matches what most OAuth providers — including Baidu —
+    /// expect, where leaving `:` or `/` raw inside the body can cause the
+    /// server to reject `redirect_uri` validation.
+    private func formURLEncode(_ string: String) -> String {
+        let unreserved = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~")
+        return string.addingPercentEncoding(withAllowedCharacters: unreserved) ?? string
     }
 
     // MARK: - ASWebAuthenticationPresentationContextProviding

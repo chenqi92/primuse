@@ -39,6 +39,11 @@ struct SearchView: View {
             }
         }
         .onAppear(perform: loadRecentSearches)
+        .onReceive(NotificationCenter.default.publisher(for: CloudKVSSync.externalChangeNotification)) { note in
+            guard let key = note.userInfo?["key"] as? String,
+                  key == Self.recentSearchesKey else { return }
+            loadRecentSearches()
+        }
         .onChange(of: searchText) { _, newValue in
             performSearch(query: newValue)
         }
@@ -179,5 +184,6 @@ struct SearchView: View {
 
     private func saveRecentSearches() {
         UserDefaults.standard.set(recentSearches, forKey: Self.recentSearchesKey)
+        CloudKVSSync.shared.markChanged(key: Self.recentSearchesKey)
     }
 }

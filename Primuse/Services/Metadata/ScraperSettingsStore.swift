@@ -132,12 +132,25 @@ final class ScraperSettingsStore {
     var onlyFillMissingFields: Bool { didSet { persist() } }
 
     private let defaults: UserDefaults
+    private var suppressPersist = false
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         let settings = ScraperSettings.load(defaults: defaults)
         self.sources = settings.sources.sorted { $0.priority < $1.priority }
         self.onlyFillMissingFields = settings.onlyFillMissingFields
+
+        CloudKVSSync.shared.register(key: ScraperSettings.defaultsKey) { [weak self] in
+            self?.reloadFromDefaults()
+        }
+    }
+
+    private func reloadFromDefaults() {
+        let settings = ScraperSettings.load(defaults: defaults)
+        suppressPersist = true
+        defer { suppressPersist = false }
+        sources = settings.sources.sorted { $0.priority < $1.priority }
+        onlyFillMissingFields = settings.onlyFillMissingFields
     }
 
     var enabledSources: [ScraperSourceConfig] {
@@ -173,6 +186,17 @@ final class ScraperSettingsStore {
         sources.append(newSource)
     }
 
+    /// Idempotent: ensure a custom-source row exists for the given config (used by
+    /// CloudKit sync after a remote config arrives).
+    func ensureCustomSourcePresent(for config: ScraperConfig) {
+        let alreadyPresent = sources.contains { source in
+            if case .custom(let id) = source.type, id == config.id { return true }
+            return false
+        }
+        guard !alreadyPresent else { return }
+        addCustomSource(config)
+    }
+
     /// Remove a custom scraper source and its config
     func removeCustomSource(id: String) {
         if let index = sources.firstIndex(where: { $0.id == id }) {
@@ -198,6 +222,8 @@ final class ScraperSettingsStore {
     }
 
     private func persist() {
+        guard !suppressPersist else { return }
         snapshot().save(defaults: defaults)
+        CloudKVSSync.shared.markChanged(key: ScraperSettings.defaultsKey)
     }
 }

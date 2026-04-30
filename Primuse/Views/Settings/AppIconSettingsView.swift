@@ -52,7 +52,7 @@ struct AppIconSettingsView: View {
                     }
                 }
 
-                Text(option.displayKey)
+                Text(option.displayName)
                     .font(.caption)
                     .foregroundStyle(isSelected ? Color.accentColor : .primary)
                     .lineLimit(1)

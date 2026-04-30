@@ -78,7 +78,7 @@ final class ScanService {
 
         if !resumeSongs.isEmpty {
             library.addSongs(resumeSongs)
-            sourceStore.update(source.id) { $0.songCount = resumeSongs.count }
+            sourceStore.updateLocal(source.id) { $0.songCount = resumeSongs.count }
         }
 
         scanStates[source.id] = ScanState(
@@ -210,7 +210,7 @@ final class ScanService {
             }
 
             if let did = loginResult.deviceId {
-                sourceStore.update(source.id) { $0.deviceId = did }
+                sourceStore.updateLocal(source.id) { $0.deviceId = did }
             }
         }
 
@@ -233,7 +233,7 @@ final class ScanService {
 
                 if update.scannedCount - lastIncrementalUpdate >= 10 {
                     library.addSongs(lastSongs)
-                    sourceStore.update(source.id) { $0.songCount = lastSongs.count }
+                    sourceStore.updateLocal(source.id) { $0.songCount = lastSongs.count }
                     persistCheckpoint(
                         sourceID: source.id,
                         directories: directories,
@@ -309,7 +309,7 @@ final class ScanService {
 
                 if update.scannedCount - lastIncrementalUpdate >= 10 {
                     library.addSongs(lastSongs)
-                    sourceStore.update(source.id) { $0.songCount = lastSongs.count }
+                    sourceStore.updateLocal(source.id) { $0.songCount = lastSongs.count }
                     persistCheckpoint(
                         sourceID: source.id,
                         directories: directories,
@@ -363,7 +363,7 @@ final class ScanService {
         scraperService: MusicScraperService?
     ) {
         library.addSongs(songs)
-        sourceStore.update(sourceID) {
+        sourceStore.updateLocal(sourceID) {
             $0.songCount = songs.count
             $0.lastScannedAt = Date()
         }

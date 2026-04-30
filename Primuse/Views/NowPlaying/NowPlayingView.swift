@@ -22,6 +22,21 @@ struct NowPlayingView: View {
     @State private var showDeleteConfirm = false
     @Environment(ThemeService.self) private var theme
 
+    // Lyrics font scaling — persisted across launches; live pinch overlay during a gesture
+    @AppStorage("lyricsFontScale") private var lyricsFontScale: Double = 1.0
+    @State private var lyricsPinchScale: CGFloat = 1.0
+    @State private var isPinchingLyrics = false
+
+    private static let lyricsMinScale: Double = 0.7
+    private static let lyricsMaxScale: Double = 1.8
+    private static let lyricsActiveBaseSize: CGFloat = 28
+    private static let lyricsInactiveBaseSize: CGFloat = 22
+
+    private var effectiveLyricsScale: Double {
+        let combined = lyricsFontScale * Double(lyricsPinchScale)
+        return min(max(combined, Self.lyricsMinScale), Self.lyricsMaxScale)
+    }
+
     /// Whether the current song is in any playlist (not a dedicated "favorites" concept)
     private var isInAnyPlaylist: Bool {
         guard let songID = player.currentSong?.id else { return false }
@@ -298,6 +313,9 @@ struct NowPlayingView: View {
         } message: {
             Text(String(localized: "delete_song_message"))
         }
+        .onChange(of: lyricsFontScale) { _, _ in
+            CloudKVSSync.shared.markChanged(key: CloudKVSKey.lyricsFontScale)
+        }
     }
 
     private func deleteCurrentSong() {
@@ -305,8 +323,11 @@ struct NowPlayingView: View {
         // Skip to next before deleting
         Task { await player.next() }
         // Clean caches
-        MetadataAssetStore.shared.invalidateCoverCache(forSongID: song.id)
-        MetadataAssetStore.shared.invalidateLyricsCache(forSongID: song.id)
+        let songID = song.id
+        Task {
+            await MetadataAssetStore.shared.invalidateCoverCache(forSongID: songID)
+            await MetadataAssetStore.shared.invalidateLyricsCache(forSongID: songID)
+        }
         CachedArtworkView.invalidateCache(for: song.id)
         sourceManager.deleteAudioCache(for: song)
         // Remove from library
@@ -328,6 +349,20 @@ struct NowPlayingView: View {
                     Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
                 }
                 .disabled(player.currentSong == nil)
+            }
+
+            // Group 1b: Lyrics font size — only relevant while viewing lyrics
+            if showLyrics {
+                Section {
+                    Picker(selection: $lyricsFontScale) {
+                        Text("lyrics_font_small").tag(0.85)
+                        Text("lyrics_font_medium").tag(1.0)
+                        Text("lyrics_font_large").tag(1.2)
+                        Text("lyrics_font_xlarge").tag(1.5)
+                    } label: {
+                        Label(String(localized: "lyrics_font_size"), systemImage: "textformat.size")
+                    }
+                }
             }
 
             // Group 2: Utilities
@@ -402,11 +437,13 @@ struct NowPlayingView: View {
                         .frame(maxWidth: .infinity)
                     } else {
                         ForEach(Array(lyrics.enumerated()), id: \.element.id) { index, line in
+                            let isActive = index == currentLineIndex
+                            let baseSize = isActive ? Self.lyricsActiveBaseSize : Self.lyricsInactiveBaseSize
                             Text(line.text)
-                                .font(index == currentLineIndex ? .title : .title2)
-                                .fontWeight(index == currentLineIndex ? .bold : .semibold)
+                                .font(.system(size: baseSize * CGFloat(effectiveLyricsScale)))
+                                .fontWeight(isActive ? .bold : .semibold)
                                 .foregroundStyle(
-                                    index == currentLineIndex ? .white
+                                    isActive ? .white
                                     : index < currentLineIndex ? .white.opacity(0.25)
                                     : .white.opacity(0.4)
                                 )
@@ -420,8 +457,22 @@ struct NowPlayingView: View {
                 }
                 .padding(.horizontal, 24)
             }
+            .simultaneousGesture(
+                MagnifyGesture()
+                    .onChanged { value in
+                        isPinchingLyrics = true
+                        lyricsPinchScale = value.magnification
+                    }
+                    .onEnded { value in
+                        let next = lyricsFontScale * Double(value.magnification)
+                        lyricsFontScale = min(max(next, Self.lyricsMinScale), Self.lyricsMaxScale)
+                        lyricsPinchScale = 1.0
+                        isPinchingLyrics = false
+                    }
+            )
             .onChange(of: currentLineIndex) { _, idx in
-                guard idx < lyrics.count else { return }
+                // Don't fight the user's pinch — auto-scroll resumes once they let go
+                guard !isPinchingLyrics, idx < lyrics.count else { return }
                 withAnimation(.easeInOut(duration: 0.4)) {
                     proxy.scrollTo(lyrics[idx].id, anchor: .center)
                 }

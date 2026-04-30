@@ -135,6 +135,7 @@ final class PlaybackSettingsStore {
     var reverbWetDryMix: Float { didSet { persist() } }
 
     private let defaults: UserDefaults
+    private var suppressPersist = false
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -155,6 +156,34 @@ final class PlaybackSettingsStore {
         self.reverbEnabled = s.reverbEnabled
         self.reverbPresetIndex = s.reverbPresetIndex
         self.reverbWetDryMix = s.reverbWetDryMix
+
+        CloudKVSSync.shared.register(key: PlaybackSettings.defaultsKey) { [weak self] in
+            self?.reloadFromDefaults()
+        }
+    }
+
+    /// Re-apply values from UserDefaults (used after KVS pushes a remote update).
+    private func reloadFromDefaults() {
+        let s = PlaybackSettings.load(defaults: defaults)
+        suppressPersist = true
+        defer { suppressPersist = false }
+
+        gaplessEnabled = s.gaplessEnabled
+        crossfadeEnabled = s.crossfadeEnabled
+        crossfadeDuration = s.crossfadeDuration
+        replayGainEnabled = s.replayGainEnabled
+        replayGainMode = s.replayGainMode
+        audioCacheEnabled = s.audioCacheEnabled
+        compressorEnabled = s.compressorEnabled
+        compressorThreshold = s.compressorThreshold
+        compressorHeadRoom = s.compressorHeadRoom
+        compressorAttackTime = s.compressorAttackTime
+        compressorReleaseTime = s.compressorReleaseTime
+        compressorMasterGain = s.compressorMasterGain
+        compressorPresetId = s.compressorPresetId
+        reverbEnabled = s.reverbEnabled
+        reverbPresetIndex = s.reverbPresetIndex
+        reverbWetDryMix = s.reverbWetDryMix
     }
 
     func snapshot() -> PlaybackSettings {
@@ -179,6 +208,8 @@ final class PlaybackSettingsStore {
     }
 
     private func persist() {
+        guard !suppressPersist else { return }
         snapshot().save(defaults: defaults)
+        CloudKVSSync.shared.markChanged(key: PlaybackSettings.defaultsKey)
     }
 }

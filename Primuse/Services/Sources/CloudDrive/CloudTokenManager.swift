@@ -2,8 +2,11 @@ import Foundation
 import Security
 
 /// Manages OAuth tokens for cloud drive sources, storing securely in Keychain.
+/// Tokens are written as iCloud-synchronizable keychain items so they roam across
+/// the user's devices alongside the source list.
 actor CloudTokenManager {
     private let sourceID: String
+    private static let serviceName = "com.welape.primuse.cloud"
 
     init(sourceID: String) {
         self.sourceID = sourceID
@@ -75,9 +78,10 @@ actor CloudTokenManager {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: key,
-            kSecAttrService as String: "com.welape.primuse.cloud",
+            kSecAttrService as String: Self.serviceName,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecAttrSynchronizable as String: kSecAttrSynchronizableAny,
         ]
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
@@ -86,13 +90,15 @@ actor CloudTokenManager {
     }
 
     private func keychainWrite(key: String, data: Data) {
-        keychainDelete(key: key) // Remove existing
+        keychainDelete(key: key) // Remove existing (both sync and non-sync variants)
+        let synchronizable = CloudSyncChannel.isEnabled(.credentials)
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: key,
-            kSecAttrService as String: "com.welape.primuse.cloud",
+            kSecAttrService as String: Self.serviceName,
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+            kSecAttrSynchronizable as String: synchronizable ? kCFBooleanTrue as Any : kCFBooleanFalse as Any,
         ]
         SecItemAdd(query as CFDictionary, nil)
     }
@@ -101,8 +107,48 @@ actor CloudTokenManager {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: key,
-            kSecAttrService as String: "com.welape.primuse.cloud",
+            kSecAttrService as String: Self.serviceName,
+            kSecAttrSynchronizable as String: kSecAttrSynchronizableAny,
         ]
         SecItemDelete(query as CFDictionary)
+    }
+
+    /// Re-write any pre-iCloud (non-synchronizable) cloud-token entries as synchronizable.
+    /// Idempotent — safe to call on every launch.
+    nonisolated static func migrateLegacyEntriesToICloud() {
+        let copyQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: serviceName,
+            kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
+            kSecReturnAttributes as String: true,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitAll,
+        ]
+        var result: AnyObject?
+        let status = SecItemCopyMatching(copyQuery as CFDictionary, &result)
+        guard status == errSecSuccess, let items = result as? [[String: Any]] else { return }
+
+        for item in items {
+            guard let account = item[kSecAttrAccount as String] as? String,
+                  let data = item[kSecValueData as String] as? Data else { continue }
+
+            let deleteQuery: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrAccount as String: account,
+                kSecAttrService as String: serviceName,
+                kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
+            ]
+            SecItemDelete(deleteQuery as CFDictionary)
+
+            let addQuery: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrAccount as String: account,
+                kSecAttrService as String: serviceName,
+                kSecValueData as String: data,
+                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+                kSecAttrSynchronizable as String: kCFBooleanTrue as Any,
+            ]
+            SecItemAdd(addQuery as CFDictionary, nil)
+        }
     }
 }

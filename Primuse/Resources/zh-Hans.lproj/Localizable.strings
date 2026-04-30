@@ -60,13 +60,13 @@
 "appearance" = "外观";
 "app_icon" = "应用图标";
 "icon_default" = "默认";
-"icon_theme_1" = "主题 1";
-"icon_theme_2" = "主题 2";
-"icon_theme_3" = "主题 3";
-"icon_theme_4" = "主题 4";
-"icon_theme_5" = "主题 5";
-"icon_theme_6" = "主题 6";
-"icon_theme_7" = "主题 7";
+"icon_theme_1" = "霓虹音符";
+"icon_theme_2" = "原始回归";
+"icon_theme_3" = "矩阵机箱";
+"icon_theme_4" = "鎏金光影";
+"icon_theme_5" = "灵韵猿魂";
+"icon_theme_6" = "凤鸣音潮";
+"icon_theme_7" = "暮光剪影";
 "queue_title" = "播放队列";
 "queue_empty" = "队列为空";
 "queue_empty_desc" = "添加歌曲到队列";
@@ -120,6 +120,11 @@
 "enter_otp" = "输入验证码";
 "otp_hint" = "请输入验证器应用中的 6 位数字验证码";
 "smb_config" = "SMB 设置";
+"smb_error_auth" = "SMB：用户名或密码错误";
+"smb_error_not_found" = "SMB：共享或文件不存在";
+"smb_error_refused" = "SMB：服务器拒绝连接，请检查端口";
+"smb_error_unreachable" = "SMB：服务器不可达，请检查网络";
+"smb_error_timeout" = "SMB：连接超时";
 "webdav_config" = "WebDAV 设置";
 "server_config" = "服务器设置";
 "ftp_config" = "FTP 设置";
@@ -392,3 +397,53 @@
 "metadata_clear_footer" = "封面与歌词为持久化存储。清除后需要重新扫描或从音乐源重新获取。";
 "scraping_album_covers" = "正在获取专辑封面...";
 "scraping_artist_images" = "正在获取艺术家图片...";
+
+// MARK: - iCloud 同步
+"sync" = "同步";
+"icloud_sync_title" = "iCloud 同步";
+"icloud_sync_enabled" = "启用 iCloud 同步";
+"icloud_sync_footer" = "在使用同一 iCloud 账号的设备之间同步歌单、音乐源、播放历史和设置。源密码与云盘登录态通过 iCloud 钥匙串安全同步。";
+"icloud_sync_status" = "状态";
+"status" = "状态";
+"status_disabled" = "已关闭";
+"status_unavailable" = "暂时不可用";
+"status_quota_exceeded" = "iCloud 存储已满";
+"status_network_unavailable" = "网络不可用";
+"status_no_icloud_account" = "未登录 iCloud 账号";
+"status_icloud_restricted" = "iCloud 已被限制（家庭或设备策略）";
+"status_icloud_temporarily_unavailable" = "iCloud 暂时不可用";
+"status_icloud_unknown" = "无法确定 iCloud 状态";
+"status_idle" = "空闲";
+"status_syncing" = "同步中…";
+"status_up_to_date" = "已是最新";
+"last_synced" = "上次同步";
+"sync_now" = "立即同步";
+"synced_items" = "同步内容";
+"synced_items_footer" = "本地音乐资料库与缓存不会同步，每台设备各自扫描。";
+"synced_playlists" = "歌单";
+"synced_sources" = "音乐源（不含密码）";
+"synced_playback_history" = "最近播放（5 分钟节流）";
+"synced_settings" = "播放设置、均衡器、刮削配置";
+"synced_credentials" = "源密码与云盘登录态（钥匙串）";
+
+// MARK: - iCloud 同步状态细分
+"status_no_icloud_account" = "未登录 iCloud — 请到系统设置登录";
+"status_icloud_restricted" = "iCloud 受限制（家庭共享或屏幕使用时间）";
+"status_icloud_temporarily_unavailable" = "iCloud 暂时不可用，稍后会自动重试";
+"status_icloud_unknown" = "无法确定 iCloud 状态";
+"status_quota_exceeded" = "iCloud 储存空间已满";
+"status_network_unavailable" = "网络不可用";
+"open_system_settings" = "打开系统设置";
+"credentials_channel_footer" = "凭证通道：关闭后新写入的密码与 token 仅保存在本机；已上传到 iCloud 钥匙串的旧条目需到系统设置 → Apple ID → iCloud → 密码与钥匙串 中处理。";
+
+// MARK: - 最近删除（回收站）
+"recently_deleted" = "最近删除";
+"recently_deleted_empty" = "没有最近删除项";
+"recently_deleted_empty_desc" = "歌单、音乐源和刮削配置删除后会在此保留 30 天。";
+"recently_deleted_playlists" = "歌单";
+"recently_deleted_sources" = "音乐源";
+"recently_deleted_scraper_configs" = "刮削配置";
+"restore" = "恢复";
+"delete_permanently" = "彻底删除";
+"auto_remove_in_n_days" = "%d 天后自动彻底删除";
+"icloud_container_setup_hint" = "请在 Apple Developer 后台启用 iCloud 容器 iCloud.com.welape.yuanyin，并在 Xcode → Signing & Capabilities 中确认勾选";
