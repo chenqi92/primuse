@@ -2,6 +2,7 @@ import SwiftUI
 
 struct AppIconSettingsView: View {
     private let service = AppIconService.shared
+    @Environment(ThemeService.self) private var themeService
 
     private let columns = [
         GridItem(.adaptive(minimum: 96), spacing: 16)
@@ -26,7 +27,10 @@ struct AppIconSettingsView: View {
         let isSelected = service.currentIconID == option.id
 
         return Button {
-            Task { await service.setIcon(option) }
+            Task {
+                await service.setIcon(option)
+                themeService.setBaseAccent(option.tint)
+            }
         } label: {
             VStack(spacing: 8) {
                 ZStack(alignment: .topTrailing) {

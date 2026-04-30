@@ -15,6 +15,12 @@ final class ThemeService {
     /// Identity token for SwiftUI animation tracking
     private(set) var colorID: String = "default"
 
+    /// User-chosen base accent (driven by selected app icon). When set, this
+    /// replaces the static brand purple as the fallback whenever a song's
+    /// cover art isn't actively driving the theme.
+    private(set) var baseAccent: Color = ThemeService.defaultAccent
+    private(set) var baseDarkAccent: Color = ThemeService.defaultDarkAccent
+
     // MARK: - Defaults
 
     /// Fallback accent when nothing is playing (current brand blue-purple)
@@ -78,10 +84,32 @@ final class ThemeService {
 
     func resetToDefault() {
         withAnimation(.easeInOut(duration: 0.6)) {
-            accentColor = Self.defaultAccent
-            darkAccent = Self.defaultDarkAccent
+            accentColor = baseAccent
+            darkAccent = baseDarkAccent
             colorID = "default"
         }
+    }
+
+    /// Set the user-chosen base accent (typically from the selected app icon).
+    /// If the theme is currently sitting on the default (no cover art driving
+    /// it), the live accent updates immediately too. Otherwise the new base
+    /// kicks in next time `resetToDefault` runs.
+    func setBaseAccent(_ tint: Color) {
+        let dark = Self.darken(tint, factor: 0.55)
+        baseAccent = tint
+        baseDarkAccent = dark
+        if colorID == "default" {
+            withAnimation(.easeInOut(duration: 0.6)) {
+                accentColor = tint
+                darkAccent = dark
+            }
+        }
+    }
+
+    private static func darken(_ color: Color, factor: CGFloat) -> Color {
+        var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        UIColor(color).getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+        return Color(hue: h, saturation: s, brightness: max(0, b * factor))
     }
 
     // MARK: - Color Extraction Algorithm

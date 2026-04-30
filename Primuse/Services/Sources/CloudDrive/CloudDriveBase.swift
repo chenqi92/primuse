@@ -11,11 +11,17 @@ struct CloudOAuthConfig: Sendable {
     let redirectURI: String
     let scopeSeparator: String
     let usesPKCE: Bool
+    /// 当 redirectURI 是 https 中转页时，必须显式指定真正回到 App 的自定义 scheme
+    /// （ASWebAuthenticationSession 要监听这个 scheme 才能拦截到中转页 JS 跳回来的那一下）。
+    /// 如果为 nil，则自动从 redirectURI 派生。
+    let explicitCallbackScheme: String?
 
     static let callbackScheme = "primuse"
 
     var callbackURLScheme: String {
-        URLComponents(string: redirectURI)?.scheme ?? Self.callbackScheme
+        explicitCallbackScheme
+            ?? URLComponents(string: redirectURI)?.scheme
+            ?? Self.callbackScheme
     }
 
     init(
@@ -26,7 +32,8 @@ struct CloudOAuthConfig: Sendable {
         scopes: [String],
         redirectURI: String,
         scopeSeparator: String = " ",
-        usesPKCE: Bool = true
+        usesPKCE: Bool = true,
+        explicitCallbackScheme: String? = nil
     ) {
         self.authURL = authURL
         self.tokenURL = tokenURL
@@ -36,6 +43,7 @@ struct CloudOAuthConfig: Sendable {
         self.redirectURI = redirectURI
         self.scopeSeparator = scopeSeparator
         self.usesPKCE = usesPKCE
+        self.explicitCallbackScheme = explicitCallbackScheme
     }
 }
 

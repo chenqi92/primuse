@@ -126,9 +126,12 @@ actor BaiduPanSource: MusicSourceConnector {
             clientId: clientId,
             clientSecret: clientSecret,
             scopes: ["basic", "netdisk"],
-            redirectURI: "\(CloudOAuthConfig.callbackScheme)://baidu/callback",
+            redirectURI: "https://baidu.callback.welape.com/",
             scopeSeparator: ",",
-            usesPKCE: false
+            usesPKCE: false,
+            // 百度不支持自定义 scheme，redirect_uri 必须 https，
+            // 由 baidu.callback.welape.com 上的中转页 JS 跳回 primuse:// 让 App 收到 code。
+            explicitCallbackScheme: CloudOAuthConfig.callbackScheme
         )
     }
 }

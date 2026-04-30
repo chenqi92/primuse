@@ -29,6 +29,10 @@ final class AppIconService {
         let previewAsset: String
         let displayName: String
 
+        /// Brand tint that the chosen icon paints across the rest of the UI as
+        /// the fallback accent (when no song's cover art is driving the theme).
+        let tint: Color
+
         /// True if the design has separate dark/light artwork — used by the
         /// settings UI to render the "auto-switch" badge.
         var supportsAppearance: Bool { darkName != nil && darkName != lightName }
@@ -40,6 +44,19 @@ final class AppIconService {
     /// and dark mode. Add a theme index here when no `*Dark` iconset exists
     /// for that theme.
     private static let singleVariantThemes: Set<Int> = [2]
+
+    /// Brand tints per icon — eyeballed from the preview artwork. Updating an
+    /// icon design? Refresh the tint here too.
+    private static let iconTints: [String: Color] = [
+        "":         Color(red: 0.20, green: 0.50, blue: 0.95),  // default — vinyl blue
+        "AppIcon1": Color(red: 0.39, green: 0.32, blue: 0.98),  // 1 — blue-purple gradient
+        "AppIcon2": Color(red: 0.55, green: 0.32, blue: 0.85),  // 2 — gorilla purple
+        "AppIcon3": Color(red: 0.20, green: 0.78, blue: 0.78),  // 3 — NAS cyan
+        "AppIcon4": Color(red: 0.92, green: 0.72, blue: 0.20),  // 4 — gold
+        "AppIcon5": Color(red: 0.95, green: 0.45, blue: 0.78),  // 5 — pastel magenta
+        "AppIcon6": Color(red: 0.45, green: 0.55, blue: 0.95),  // 6 — pastel blue
+        "AppIcon7": Color(red: 0.55, green: 0.50, blue: 0.92),  // 7 — pastel lavender
+    ]
 
     let options: [IconOption] = {
         var list: [IconOption] = [
@@ -53,7 +70,8 @@ final class AppIconService {
                 lightName: nil,
                 darkName: "AppIconDark",
                 previewAsset: "AppIconPreview",
-                displayName: NSLocalizedString("icon_default", comment: "")
+                displayName: NSLocalizedString("icon_default", comment: ""),
+                tint: AppIconService.iconTints[""] ?? Color.accentColor
             )
         ]
         for i in 1...AppIconService.themeCount {
@@ -66,11 +84,19 @@ final class AppIconService {
                 lightName: lightName,
                 darkName: darkName,
                 previewAsset: "AppIcon\(i)Preview",
-                displayName: NSLocalizedString("icon_theme_\(i)", comment: "")
+                displayName: NSLocalizedString("icon_theme_\(i)", comment: ""),
+                tint: AppIconService.iconTints[lightName] ?? Color.accentColor
             ))
         }
         return list
     }()
+
+    /// Tint for the currently-selected icon — drives the theme accent.
+    var currentTint: Color {
+        options.first { $0.id == currentIconID }?.tint
+            ?? options.first?.tint
+            ?? Color.accentColor
+    }
 
     /// Persisted user choice — the option's `id`. Survives appearance changes;
     /// the actual alternate-icon name we call into iOS with is computed each time.

@@ -40,7 +40,9 @@ struct CloudSyncSettingsView: View {
                         HStack {
                             Text("last_synced")
                             Spacer()
-                            Text(lastSyncedAt, style: .relative)
+                            // Named relative format ("just now", "5 minutes ago") —
+                            // does NOT tick by seconds. Style `.relative` would.
+                            Text(lastSyncedAt.formatted(.relative(presentation: .named)))
                                 .foregroundStyle(.secondary)
                         }
                     }

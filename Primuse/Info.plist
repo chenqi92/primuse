@@ -73,8 +73,14 @@
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>猿音需要访问本地网络以发现和连接您的 NAS 设备、媒体服务器及其他音乐源。</string>
+	<key>NSSiriUsageDescription</key>
+	<string>用 Siri 语音点播、控制猿音播放。</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>INPlayMediaIntent</string>
+	</array>
 	<key>PrimuseBaiduClientID</key>
 	<string>$(BAIDU_CLIENT_ID)</string>
 	<key>PrimuseBaiduClientSecret</key>
@@ -89,6 +95,25 @@
 	<string>$(GOOGLE_REVERSED_CLIENT_ID)</string>
 	<key>PrimuseOneDriveClientID</key>
 	<string>$(ONEDRIVE_CLIENT_ID)</string>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<true/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>CPTemplateApplicationSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneClassName</key>
+					<string>CPTemplateApplicationScene</string>
+					<key>UISceneConfigurationName</key>
+					<string>CarPlay</string>
+					<key>UISceneDelegateClassName</key>
+					<string>$(PRODUCT_MODULE_NAME).CarPlaySceneDelegate</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

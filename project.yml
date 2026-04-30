@@ -128,6 +128,16 @@ targets:
         PrimuseOneDriveClientID: "$(ONEDRIVE_CLIENT_ID)"
         UILaunchScreen: {}
         ITSAppUsesNonExemptEncryption: false
+        NSSiriUsageDescription: "用 Siri 语音点播、控制猿音播放。"
+        NSUserActivityTypes:
+          - INPlayMediaIntent
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+          UISceneConfigurations:
+            CPTemplateApplicationSceneSessionRoleApplication:
+              - UISceneClassName: CPTemplateApplicationScene
+                UISceneConfigurationName: CarPlay
+                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).CarPlaySceneDelegate
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
           NSAllowsLocalNetworking: true

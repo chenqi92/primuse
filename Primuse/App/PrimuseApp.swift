@@ -1,4 +1,5 @@
 import CloudKit
+import Intents
 import SwiftUI
 import UIKit
 import PrimuseKit
@@ -31,6 +32,18 @@ final class PrimuseAppDelegate: NSObject, UIApplicationDelegate {
             completionHandler(.newData)
         }
     }
+
+    // Routes Siri voice intents (INPlayMediaIntent etc.) to a handler. Without
+    // an Intents Extension this only fires while the app is running, but
+    // CarPlay voice and Shortcuts both work this way.
+    nonisolated(unsafe) static let playMediaHandler = PlayMediaIntentHandler()
+
+    func application(_ application: UIApplication, handlerFor intent: INIntent) -> Any? {
+        if intent is INPlayMediaIntent {
+            return Self.playMediaHandler
+        }
+        return nil
+    }
 }
 
 @main
@@ -44,62 +57,23 @@ struct PrimuseApp: App {
     @State private var musicLibrary: MusicLibrary
     @State private var playbackSettingsStore: PlaybackSettingsStore
     @State private var cloudSync: CloudKitSyncService
-    @State private var themeService = ThemeService()
-    @State private var scanService = ScanService()
+    @State private var themeService: ThemeService
+    @State private var scanService: ScanService
 
     @AppStorage("primuse.iCloudSyncEnabled") private var iCloudSyncEnabled: Bool = true
 
     init() {
-        // One-shot migration: lift any pre-iCloud Keychain entries up so they sync.
-        // Skip when the user has the credentials channel switched off — those
-        // entries should stay local-only.
-        if CloudSyncChannel.isEnabled(.credentials) {
-            KeychainService.migrateLegacyEntriesToICloud()
-            CloudTokenManager.migrateLegacyEntriesToICloud()
-        }
-
-        let store = SourcesStore()
-        let manager = SourceManager(sourcesProvider: {
-            await MainActor.run { store.sources }
-        })
-        let scraperSettings = ScraperSettingsStore()
-        let scraperService = MusicScraperService(sourceManager: manager)
-        let library = MusicLibrary()
-        let playbackSettings = PlaybackSettingsStore()
-        let sync = CloudKitSyncService(
-            library: library,
-            sourcesStore: store,
-            scraperConfigStore: .shared,
-            scraperSettingsStore: scraperSettings
-        )
-
-        _sourcesStore = State(initialValue: store)
-        _sourceManager = State(initialValue: manager)
-        let player = AudioPlayerService(sourceManager: manager, library: library, playbackSettings: playbackSettings)
-        _playerService = State(initialValue: player)
-        _scraperSettingsStore = State(initialValue: scraperSettings)
-        _scraperService = State(initialValue: scraperService)
-        _musicLibrary = State(initialValue: library)
-        _playbackSettingsStore = State(initialValue: playbackSettings)
-        _cloudSync = State(initialValue: sync)
-
-        // Sync disabled source IDs at launch
-        library.updateDisabledSourceIDs(
-            Set(store.sources.filter { !$0.isEnabled }.map(\.id))
-        )
-
-        // Sweep recycle-bin entries older than 30 days. Uses a wall-clock
-        // threshold; multiple devices converge because each writes the same
-        // permanent-delete to CloudKit.
-        let pruneThreshold = Date(timeIntervalSinceNow: -30 * 24 * 60 * 60)
-        library.prunePlaylists(deletedBefore: pruneThreshold)
-        store.pruneSources(deletedBefore: pruneThreshold)
-        ScraperConfigStore.shared.pruneConfigs(deletedBefore: pruneThreshold)
-
-        // Eagerly register KVS keys so the first launch on a fresh device pulls
-        // remote values into UserDefaults before any view reads them.
-        CloudKVSSync.shared.register(key: CloudKVSKey.lyricsFontScale) { }
-        CloudKVSSync.shared.register(key: CloudKVSKey.recentSearches) { }
+        let services = AppServices.shared
+        _sourcesStore = State(initialValue: services.sourcesStore)
+        _sourceManager = State(initialValue: services.sourceManager)
+        _playerService = State(initialValue: services.playerService)
+        _scraperSettingsStore = State(initialValue: services.scraperSettingsStore)
+        _scraperService = State(initialValue: services.scraperService)
+        _musicLibrary = State(initialValue: services.musicLibrary)
+        _playbackSettingsStore = State(initialValue: services.playbackSettingsStore)
+        _cloudSync = State(initialValue: services.cloudSync)
+        _themeService = State(initialValue: services.themeService)
+        _scanService = State(initialValue: services.scanService)
     }
 
     var body: some Scene {
