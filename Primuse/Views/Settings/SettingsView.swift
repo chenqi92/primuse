@@ -58,6 +58,14 @@ struct SettingsView: View {
                     }
                 }
 
+                Section("appearance") {
+                    NavigationLink {
+                        AppIconSettingsView()
+                    } label: {
+                        Label("app_icon", systemImage: "app.badge")
+                    }
+                }
+
                 Section("about") {
                     HStack {
                         Text("version")

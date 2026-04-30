@@ -50,6 +50,23 @@
 "now_playing" = "正在播放";
 "lyrics_title" = "歌词";
 "no_lyrics" = "暂无歌词";
+"lyrics_font_size" = "字号";
+"lyrics_font_small" = "小";
+"lyrics_font_medium" = "中";
+"lyrics_font_large" = "大";
+"lyrics_font_xlarge" = "特大";
+
+// MARK: - 外观设置
+"appearance" = "外观";
+"app_icon" = "应用图标";
+"icon_default" = "默认";
+"icon_theme_1" = "主题 1";
+"icon_theme_2" = "主题 2";
+"icon_theme_3" = "主题 3";
+"icon_theme_4" = "主题 4";
+"icon_theme_5" = "主题 5";
+"icon_theme_6" = "主题 6";
+"icon_theme_7" = "主题 7";
 "queue_title" = "播放队列";
 "queue_empty" = "队列为空";
 "queue_empty_desc" = "添加歌曲到队列";

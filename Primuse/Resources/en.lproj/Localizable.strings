@@ -50,6 +50,23 @@
 "now_playing" = "Now Playing";
 "lyrics_title" = "Lyrics";
 "no_lyrics" = "No lyrics available";
+"lyrics_font_size" = "Font Size";
+"lyrics_font_small" = "Small";
+"lyrics_font_medium" = "Medium";
+"lyrics_font_large" = "Large";
+"lyrics_font_xlarge" = "Extra Large";
+
+// MARK: - Appearance
+"appearance" = "Appearance";
+"app_icon" = "App Icon";
+"icon_default" = "Default";
+"icon_theme_1" = "Theme 1";
+"icon_theme_2" = "Theme 2";
+"icon_theme_3" = "Theme 3";
+"icon_theme_4" = "Theme 4";
+"icon_theme_5" = "Theme 5";
+"icon_theme_6" = "Theme 6";
+"icon_theme_7" = "Theme 7";
 "queue_title" = "Queue";
 "queue_empty" = "Queue Empty";
 "queue_empty_desc" = "Add songs to the queue";
