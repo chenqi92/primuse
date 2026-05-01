@@ -1,9 +1,10 @@
-import BackgroundTasks
 import CloudKit
-import Intents
 import SwiftUI
-import UIKit
 import PrimuseKit
+#if os(iOS)
+import BackgroundTasks
+import Intents
+import UIKit
 
 /// Forwards CloudKit silent pushes to the sync engine. CKSyncEngine relies on these
 /// to know when to fetch — without forwarding, sync only happens on app launch and
@@ -91,10 +92,36 @@ final class PrimuseAppDelegate: NSObject, UIApplicationDelegate {
         return nil
     }
 }
+#else
+import AppKit
+
+/// macOS counterpart of `PrimuseAppDelegate`. macOS has no BGTaskScheduler /
+/// CarPlay / Intents-handler routing — the delegate exists only to forward
+/// CloudKit silent pushes the same way the iOS one does.
+final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
+    nonisolated(unsafe) static weak var sync: CloudKitSyncService?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApplication.shared.registerForRemoteNotifications()
+    }
+
+    func application(
+        _ application: NSApplication,
+        didReceiveRemoteNotification userInfo: [String: Any]
+    ) {
+        guard CKDatabaseNotification(fromRemoteNotificationDictionary: userInfo) != nil else { return }
+        Task { @MainActor in await Self.sync?.syncNow() }
+    }
+}
+#endif
 
 @main
 struct PrimuseApp: App {
+    #if os(iOS)
     @UIApplicationDelegateAdaptor(PrimuseAppDelegate.self) private var appDelegate
+    #else
+    @NSApplicationDelegateAdaptor(PrimuseAppDelegate.self) private var appDelegate
+    #endif
     @State private var sourcesStore: SourcesStore
     @State private var sourceManager: SourceManager
     @State private var playerService: AudioPlayerService
@@ -108,6 +135,7 @@ struct PrimuseApp: App {
     @State private var metadataBackfill: MetadataBackfillService
 
     @AppStorage("primuse.iCloudSyncEnabled") private var iCloudSyncEnabled: Bool = true
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         let services = AppServices.shared
@@ -173,29 +201,34 @@ struct PrimuseApp: App {
                         songID: updated.id
                     )
                 }
-                .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
-                    playerService.handleAppWillResignActive()
-                    musicLibrary.persistNow()
-                    // If a scan was running OR backfill has pending work, ask
-                    // iOS to wake us later via BGProcessingTask so we can keep
-                    // going past the beginBackgroundTask 30s ceiling.
-                    scanService.scheduleBackgroundResumeIfNeeded(
-                        backfillPending: metadataBackfill.hasPendingWork
-                    )
-                }
-                .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
-                    playerService.handleAppDidBecomeActive()
-                    // Auto-resume any scan that was interrupted (app killed,
-                    // backgrounded past the begin/endBackgroundTask window, or
-                    // crashed mid-scan). Idempotent.
-                    scanService.resumePendingScans(
-                        sourceManager: sourceManager,
-                        library: musicLibrary,
-                        sourceStore: sourcesStore,
-                        scraperService: scraperService
-                    )
-                    // Pick up any bare songs left behind by an earlier scan.
-                    metadataBackfill.start()
+                .onChange(of: scenePhase) { _, newPhase in
+                    switch newPhase {
+                    case .background, .inactive:
+                        playerService.handleAppWillResignActive()
+                        musicLibrary.persistNow()
+                        // If a scan was running OR backfill has pending work, ask
+                        // iOS to wake us later via BGProcessingTask so we can keep
+                        // going past the beginBackgroundTask 30s ceiling. (No-op
+                        // on macOS — BGTaskScheduler doesn't exist there.)
+                        scanService.scheduleBackgroundResumeIfNeeded(
+                            backfillPending: metadataBackfill.hasPendingWork
+                        )
+                    case .active:
+                        playerService.handleAppDidBecomeActive()
+                        // Auto-resume any scan that was interrupted (app killed,
+                        // backgrounded past the begin/endBackgroundTask window, or
+                        // crashed mid-scan). Idempotent.
+                        scanService.resumePendingScans(
+                            sourceManager: sourceManager,
+                            library: musicLibrary,
+                            sourceStore: sourcesStore,
+                            scraperService: scraperService
+                        )
+                        // Pick up any bare songs left behind by an earlier scan.
+                        metadataBackfill.start()
+                    @unknown default:
+                        break
+                    }
                 }
                 // After every library write (scan progress, replaceSong, etc.)
                 // re-evaluate whether there's bare-song work to do. This

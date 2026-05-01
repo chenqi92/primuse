@@ -2,7 +2,6 @@ import AVFoundation
 import CryptoKit
 import Foundation
 import PrimuseKit
-import UIKit
 
 /// Scans a Synology NAS for audio files and extracts metadata
 actor SynologyScanner {

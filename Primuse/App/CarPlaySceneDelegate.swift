@@ -1,3 +1,4 @@
+#if os(iOS)
 import CarPlay
 import MediaPlayer
 import OSLog
@@ -695,3 +696,5 @@ extension CarPlaySceneDelegate {
         refreshDrillDownTemplates()
     }
 }
+
+#endif

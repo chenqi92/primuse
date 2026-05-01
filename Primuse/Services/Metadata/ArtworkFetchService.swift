@@ -1,6 +1,10 @@
 import Foundation
 import PrimuseKit
+#if os(iOS)
 import UIKit
+#else
+import AppKit
+#endif
 
 /// Fetches and caches album covers and artist images from online scrapers.
 actor ArtworkFetchService {
@@ -131,10 +135,20 @@ actor ArtworkFetchService {
     }
 
     private func compressJPEG(_ data: Data) -> Data? {
+        #if os(iOS)
         guard let image = UIImage(data: data),
               let compressed = image.jpegData(compressionQuality: 0.85) else {
             return data
         }
         return compressed
+        #else
+        guard let image = NSImage(data: data),
+              let tiff = image.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff),
+              let compressed = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.85]) else {
+            return data
+        }
+        return compressed
+        #endif
     }
 }

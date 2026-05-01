@@ -1,7 +1,9 @@
-import BackgroundTasks
 import Foundation
 import PrimuseKit
+#if os(iOS)
+import BackgroundTasks
 import UIKit
+#endif
 
 /// Manages music source scanning state and tasks.
 /// Lives in the SwiftUI environment so scan progress persists across navigation.
@@ -42,7 +44,9 @@ final class ScanService {
     var synologyAPIs: [String: SynologyAPI] = [:]
     private var activeTasks: [String: Task<Void, Never>] = [:]
     private var checkpoints: [String: ScanCheckpoint] = [:]
+    #if os(iOS)
     private var backgroundTaskIDs: [String: UIBackgroundTaskIdentifier] = [:]
+    #endif
 
     private let checkpointURL: URL
     private let encoder = JSONEncoder()
@@ -167,6 +171,7 @@ final class ScanService {
     ///   still has bare songs to process — we'll schedule even when no scan
     ///   has a checkpoint, so backfill can keep running in the background.
     func scheduleBackgroundResumeIfNeeded(backfillPending: Bool = false) {
+        #if os(iOS)
         // Only schedule if there's actually something pending.
         let hasScanWork = scanStates.values.contains(where: { $0.canResume || $0.isScanning })
         guard hasScanWork || backfillPending else { return }
@@ -183,6 +188,8 @@ final class ScanService {
             // Don't crash — auto-resume on foreground still works.
             plog("⚠️ BGProcessing submit failed: \(error)")
         }
+        #endif
+        // macOS has no BGTaskScheduler — scans run while the app is open.
     }
 
     func cancelScan(for sourceID: String) {
@@ -511,18 +518,22 @@ final class ScanService {
     }
 
     private func beginBackgroundTask(for sourceID: String) {
+        #if os(iOS)
         endBackgroundTask(for: sourceID)
         backgroundTaskIDs[sourceID] = UIApplication.shared.beginBackgroundTask(withName: "scan-\(sourceID)") { [weak self] in
             Task { @MainActor in
                 self?.cancelScan(for: sourceID)
             }
         }
+        #endif
     }
 
     private func endBackgroundTask(for sourceID: String) {
+        #if os(iOS)
         guard let taskID = backgroundTaskIDs.removeValue(forKey: sourceID),
               taskID != .invalid else { return }
         UIApplication.shared.endBackgroundTask(taskID)
+        #endif
     }
 
     private func normalizedDirectories(_ directories: [String]) -> [String] {

@@ -1,3 +1,4 @@
+#if os(iOS)
 import SwiftUI
 import UIKit
 
@@ -224,3 +225,5 @@ final class AppIconService {
             .first { $0.isKeyWindow }
     }
 }
+
+#endif

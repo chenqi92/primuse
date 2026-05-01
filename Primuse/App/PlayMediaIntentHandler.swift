@@ -1,3 +1,4 @@
+#if os(iOS)
 @preconcurrency import Intents
 import PrimuseKit
 
@@ -112,3 +113,4 @@ private final class UncheckedBox<T>: @unchecked Sendable {
     let value: T
     init(_ value: T) { self.value = value }
 }
+#endif

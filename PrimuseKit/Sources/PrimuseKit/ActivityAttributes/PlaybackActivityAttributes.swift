@@ -1,5 +1,6 @@
-import ActivityKit
 import Foundation
+#if os(iOS)
+import ActivityKit
 
 public struct PlaybackActivityAttributes: ActivityAttributes {
     public struct ContentState: Codable, Hashable, Sendable {
@@ -30,3 +31,4 @@ public struct PlaybackActivityAttributes: ActivityAttributes {
         self.coverImageName = coverImageName
     }
 }
+#endif

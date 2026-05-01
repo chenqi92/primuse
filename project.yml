@@ -3,6 +3,7 @@ options:
   bundleIdPrefix: com.welape
   deploymentTarget:
     iOS: "26.1"
+    macOS: "26.0"
   xcodeVersion: "16.0"
   defaultConfig: Debug
   groupSortPosition: top
@@ -51,6 +52,16 @@ schemes:
         PrimuseKit: all
         PrimuseWidgetExtension: all
         PrimuseActivityExtension: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+
+  PrimuseMac:
+    build:
+      targets:
+        PrimuseMac: all
+        PrimuseKit: all
     run:
       config: Debug
     archive:
@@ -174,7 +185,7 @@ targets:
 
   PrimuseKit:
     type: framework
-    platform: iOS
+    supportedDestinations: [iOS, macOS]
     sources:
       - path: PrimuseKit/Sources/PrimuseKit
     dependencies:
@@ -236,3 +247,85 @@ targets:
         SKIP_INSTALL: YES
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         CODE_SIGN_ENTITLEMENTS: Config/PrimuseActivityExtension.entitlements
+
+  PrimuseMac:
+    type: application
+    platform: macOS
+    configFiles:
+      Debug: Config/Debug.xcconfig
+      Release: Config/Release.xcconfig
+    sources:
+      - path: Primuse
+        excludes:
+          - "**/.DS_Store"
+    resources:
+      - path: Primuse/Resources
+    dependencies:
+      - package: GRDB
+      - package: AMSMB2
+        embed: true
+      - package: FilesProvider
+        product: FilesProvider
+      - package: Citadel
+        product: Citadel
+      - package: SwiftCrypto
+        product: Crypto
+      - package: SwiftNIO
+        product: NIOCore
+      - package: NFSKit
+        product: NFSKit
+      - package: SFBAudioEngine
+        product: SFBAudioEngine
+      - sdk: AppIntents.framework
+      - target: PrimuseKit
+    info:
+      path: Primuse/Info-macOS.plist
+      properties:
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        CFBundleDisplayName: "猿音"
+        CFBundleName: "Primuse"
+        LSApplicationCategoryType: "public.app-category.music"
+        LSMinimumSystemVersion: "$(MACOSX_DEPLOYMENT_TARGET)"
+        NSHumanReadableCopyright: "© Welape"
+        ITSAppUsesNonExemptEncryption: false
+        CFBundleURLTypes:
+          - CFBundleURLSchemes:
+              - primuse
+            CFBundleURLName: "com.welape.yuanyin.oauth"
+          - CFBundleURLSchemes:
+              - "$(GOOGLE_REVERSED_CLIENT_ID)"
+            CFBundleURLName: "com.welape.yuanyin.google-oauth"
+          - CFBundleURLSchemes:
+              - "msauth.$(PRODUCT_BUNDLE_IDENTIFIER)"
+            CFBundleURLName: "com.welape.yuanyin.microsoft-oauth"
+        PrimuseBaiduClientID: "$(BAIDU_CLIENT_ID)"
+        PrimuseBaiduClientSecret: "$(BAIDU_CLIENT_SECRET)"
+        PrimuseDropboxClientID: "$(DROPBOX_CLIENT_ID)"
+        PrimuseDropboxClientSecret: "$(DROPBOX_CLIENT_SECRET)"
+        PrimuseGoogleClientID: "$(GOOGLE_CLIENT_ID)"
+        PrimuseGoogleReversedClientID: "$(GOOGLE_REVERSED_CLIENT_ID)"
+        PrimuseOneDriveClientID: "$(ONEDRIVE_CLIENT_ID)"
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+          NSAllowsLocalNetworking: true
+        NSLocalNetworkUsageDescription: "猿音需要访问本地网络以发现和连接您的 NAS 设备、媒体服务器及其他音乐源。"
+        NSBonjourServices:
+          - "_smb._tcp."
+          - "_webdav._tcp."
+          - "_webdavs._tcp."
+          - "_ftp._tcp."
+          - "_sftp-ssh._tcp."
+          - "_nfs._tcp."
+          - "_diskstation._tcp."
+          - "_synology-dsm._tcp."
+          - "_http._tcp."
+          - "_https._tcp."
+    settings:
+      base:
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        SWIFT_EMIT_LOC_STRINGS: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.welape.yuanyin.mac
+        CODE_SIGN_ENTITLEMENTS: Config/PrimuseMac.entitlements
+        SWIFT_OBJC_BRIDGING_HEADER: Primuse/Primuse-Bridging-Header.h

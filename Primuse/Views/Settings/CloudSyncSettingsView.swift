@@ -1,4 +1,9 @@
 import SwiftUI
+#if os(iOS)
+import UIKit
+#else
+import AppKit
+#endif
 
 struct CloudSyncSettingsView: View {
     @Environment(CloudKitSyncService.self) private var sync
@@ -49,9 +54,16 @@ struct CloudSyncSettingsView: View {
 
                     if case .accountUnavailable(.noAccount) = sync.status {
                         Button {
+                            #if os(iOS)
                             if let url = URL(string: UIApplication.openSettingsURLString) {
                                 UIApplication.shared.open(url)
                             }
+                            #else
+                            // macOS — open the iCloud System Settings pane.
+                            if let url = URL(string: "x-apple.systempreferences:com.apple.systempreferences.AppleIDSettings") {
+                                NSWorkspace.shared.open(url)
+                            }
+                            #endif
                         } label: {
                             Label("open_system_settings", systemImage: "gear")
                         }

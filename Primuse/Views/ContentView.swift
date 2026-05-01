@@ -29,6 +29,7 @@ struct ContentView: View {
                     SettingsView()
                 }
             }
+            #if os(iOS)
             .tabBarMinimizeBehavior(player.currentSong != nil ? .onScrollDown : .never)
             .tabViewBottomAccessory(isEnabled: player.currentSong != nil) {
                 NowPlayingAccessory(onTap: {
@@ -37,6 +38,7 @@ struct ContentView: View {
                     }
                 })
             }
+            #endif
 
             // Player overlay — uses manual offset (no system transition/fullScreenCover)
             PlayerOverlay(isPresented: $showNowPlaying)

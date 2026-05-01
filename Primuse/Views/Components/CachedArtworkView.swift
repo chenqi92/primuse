@@ -25,13 +25,13 @@ struct CachedArtworkView: View {
     var placeholderIcon: String = "music.note"
 
     @Environment(SourceManager.self) private var sourceManager
-    @State private var image: UIImage?
+    @State private var image: PlatformImage?
     @State private var loadTask: Task<Void, Never>?
 
     private static let artworkDir: URL = MetadataAssetStore.shared.artworkDirectoryURL
 
-    private static let memoryCache: NSCache<NSString, UIImage> = {
-        let cache = NSCache<NSString, UIImage>()
+    private static let memoryCache: NSCache<NSString, PlatformImage> = {
+        let cache = NSCache<NSString, PlatformImage>()
         cache.countLimit = 300
         cache.totalCostLimit = 80 * 1024 * 1024
         return cache
@@ -88,7 +88,7 @@ struct CachedArtworkView: View {
     var body: some View {
         Group {
             if let image {
-                Image(uiImage: image)
+                Image(platformImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
             } else {
@@ -113,7 +113,7 @@ struct CachedArtworkView: View {
             RoundedRectangle(cornerRadius: cornerRadius)
                 .fill(
                     LinearGradient(
-                        colors: [Color(.systemGray5), Color(.systemGray4)],
+                        colors: [Color.gray.opacity(0.2), Color.gray.opacity(0.3)],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
@@ -150,7 +150,7 @@ struct CachedArtworkView: View {
             loadTask = Task {
                 // Check disk cache first
                 if let data = await MetadataAssetStore.shared.cachedAlbumCover(forAlbumID: albumID),
-                   let loaded = UIImage(data: data) {
+                   let loaded = PlatformImage(data: data) {
                     Self.memoryCache.setObject(loaded, forKey: cacheNSKey, cost: data.count)
                     if !Task.isCancelled { image = loaded }
                     return
@@ -158,7 +158,7 @@ struct CachedArtworkView: View {
                 // Fetch online
                 if let data = await ArtworkFetchService.shared.fetchAlbumCover(
                     albumTitle: albumTitle, artistName: capturedArtist, albumID: albumID
-                ), let loaded = UIImage(data: data) {
+                ), let loaded = PlatformImage(data: data) {
                     Self.memoryCache.setObject(loaded, forKey: cacheNSKey, cost: data.count)
                     if !Task.isCancelled { image = loaded }
                 }
@@ -169,14 +169,14 @@ struct CachedArtworkView: View {
         if let artistID, let artistName {
             loadTask = Task {
                 if let data = await MetadataAssetStore.shared.cachedArtistImage(forArtistID: artistID),
-                   let loaded = UIImage(data: data) {
+                   let loaded = PlatformImage(data: data) {
                     Self.memoryCache.setObject(loaded, forKey: cacheNSKey, cost: data.count)
                     if !Task.isCancelled { image = loaded }
                     return
                 }
                 if let data = await ArtworkFetchService.shared.fetchArtistImage(
                     artistName: artistName, artistID: artistID
-                ), let loaded = UIImage(data: data) {
+                ), let loaded = PlatformImage(data: data) {
                     Self.memoryCache.setObject(loaded, forKey: cacheNSKey, cost: data.count)
                     if !Task.isCancelled { image = loaded }
                 }
@@ -194,7 +194,7 @@ struct CachedArtworkView: View {
         loadTask = Task {
             // Tier 2: Disk cache (songID-based or legacy filename-based)
             if let data = await loadFromDiskCache(songID: capturedSongID, ref: capturedRef),
-               let loaded = UIImage(data: data) {
+               let loaded = PlatformImage(data: data) {
                 Self.memoryCache.setObject(loaded, forKey: cacheNSKey, cost: data.count)
                 if !Task.isCancelled { image = loaded }
                 return
@@ -212,7 +212,7 @@ struct CachedArtworkView: View {
                     sourceManager: capturedSourceManager
                 )
             }
-            if let data, let loaded = UIImage(data: data) {
+            if let data, let loaded = PlatformImage(data: data) {
                 if let sid = capturedSongID {
                     await MetadataAssetStore.shared.cacheCover(data, forSongID: sid)
                 }

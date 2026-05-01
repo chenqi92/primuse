@@ -55,7 +55,9 @@ struct QueueView: View {
                     }
                 }
             }
+            #if os(iOS)
             .environment(\.editMode, .constant(.active)) // Enable drag handles
+            #endif
             .navigationTitle("queue_title")
             .navigationBarTitleDisplayMode(.inline)
         }

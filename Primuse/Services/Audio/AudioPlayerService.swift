@@ -3,8 +3,12 @@ import CryptoKit
 import Foundation
 import MediaPlayer
 import PrimuseKit
-import UIKit
 import WidgetKit
+#if os(iOS)
+import UIKit
+#else
+import AppKit
+#endif
 
 /// Mutable counter that can be captured by @Sendable closures (e.g. Timer callbacks wrapped in Task).
 private final class StepCounter: @unchecked Sendable {
@@ -1404,17 +1408,17 @@ final class AudioPlayerService {
             let artworkDir = store.artworkDirectoryURL
 
             // Tier 1: songID-based cache
-            var loadedImage: UIImage?
+            var loadedImage: PlatformImage?
             let hashedName = store.expectedCoverFileName(for: songID)
             if let data = try? Data(contentsOf: artworkDir.appendingPathComponent(hashedName)) {
-                loadedImage = UIImage(data: data)
+                loadedImage = PlatformImage(data: data)
             }
 
             // Tier 2: legacy filename (local hashed filename, no "/" or "://")
             if loadedImage == nil, let coverRef, !coverRef.isEmpty,
                !coverRef.contains("/"), !coverRef.contains("://") {
                 if let data = try? Data(contentsOf: artworkDir.appendingPathComponent(coverRef)) {
-                    loadedImage = UIImage(data: data)
+                    loadedImage = PlatformImage(data: data)
                 }
             }
 
@@ -1441,7 +1445,7 @@ final class AudioPlayerService {
                 if let data = fetchedData {
                     // Cache for next time
                     await store.cacheCover(data, forSongID: songID)
-                    loadedImage = UIImage(data: data)
+                    loadedImage = PlatformImage(data: data)
                 }
             }
 
@@ -1454,7 +1458,7 @@ final class AudioPlayerService {
                     let metadata = await FileMetadataReader.read(from: cachedURL)
                     if let coverData = metadata.coverArtData {
                         await store.cacheCover(coverData, forSongID: songID)
-                        loadedImage = UIImage(data: coverData)
+                        loadedImage = PlatformImage(data: coverData)
                     }
                 }
             }
@@ -1480,7 +1484,7 @@ final class AudioPlayerService {
         updateNowPlayingArtworkIfNeeded()
     }
 
-    func updateNowPlayingArtwork(_ image: UIImage) {
+    func updateNowPlayingArtwork(_ image: PlatformImage) {
         lastArtworkFileName = currentSong?.coverArtFileName
         let artwork = Self.makeArtwork(from: image)
         var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
@@ -1491,7 +1495,7 @@ final class AudioPlayerService {
     /// Creates MPMediaItemArtwork with a non-isolated requestHandler closure.
     /// Must be nonisolated so the closure doesn't inherit @MainActor isolation —
     /// MediaPlayer calls the handler on a background dispatch queue.
-    nonisolated private static func makeArtwork(from image: UIImage) -> MPMediaItemArtwork {
+    nonisolated private static func makeArtwork(from image: PlatformImage) -> MPMediaItemArtwork {
         let safeImage = image
         return MPMediaItemArtwork(boundsSize: image.size) { _ in safeImage }
     }
@@ -1597,9 +1601,11 @@ final class AudioPlayerService {
     }
 
     /// Writes a cover image to the App Group shared container for Widget rendering.
-    /// Returns the filename if successful.
+    /// Returns the filename if successful. macOS has no widget extension in
+    /// this build, so the call collapses to a no-op there.
     @discardableResult
     private func writeWidgetCover(song: Song, fileName: String, size: CGFloat = 300) -> String? {
+        #if os(iOS)
         guard let containerURL = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier
         ) else { return nil }
@@ -1661,6 +1667,9 @@ final class AudioPlayerService {
         } catch {
             return nil
         }
+        #else
+        return nil
+        #endif
     }
 
     private func sharedWidgetCoverExists(named fileName: String) -> Bool {

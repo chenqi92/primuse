@@ -95,7 +95,7 @@ struct SourceTypeSelectionView: View {
 
                             Text("\(device.sourceType.displayName) · \(device.host)")
                                 .font(.caption)
-                                .foregroundStyle(Color(.systemGray))
+                                .foregroundStyle(Color.secondary)
                         }
 
                         Spacer()
@@ -149,7 +149,7 @@ struct SourceTypeSelectionView: View {
 
                 Text(type.subtitle)
                     .font(.caption)
-                    .foregroundStyle(Color(.systemGray))
+                    .foregroundStyle(Color.secondary)
             }
 
             Spacer()
@@ -162,7 +162,7 @@ struct SourceTypeSelectionView: View {
 
             Image(systemName: "chevron.right")
                 .font(.caption)
-                .foregroundStyle(Color(.systemGray2))
+                .foregroundStyle(.secondary)
         }
     }
 }

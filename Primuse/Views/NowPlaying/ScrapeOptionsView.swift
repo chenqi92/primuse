@@ -99,9 +99,9 @@ struct ScrapeOptionsView: View {
                     CachedArtworkView(coverRef: song.coverArtFileName, songID: song.id, size: 56, cornerRadius: 8, sourceID: song.sourceID, filePath: song.filePath)
                     VStack(alignment: .leading, spacing: 3) {
                         Text(song.title).font(.subheadline).fontWeight(.semibold).lineLimit(1)
-                        Text(song.artistName ?? "").font(.caption).foregroundStyle(Color(.systemGray)).lineLimit(1)
+                        Text(song.artistName ?? "").font(.caption).foregroundStyle(Color.secondary).lineLimit(1)
                         if song.duration.sanitizedDuration > 0 {
-                            Text(formatDuration(song.duration)).font(.caption2).foregroundStyle(Color(.systemGray2))
+                            Text(formatDuration(song.duration)).font(.caption2).foregroundStyle(Color.secondary.opacity(0.7))
                         }
                     }
                 }
@@ -205,7 +205,7 @@ struct ScrapeOptionsView: View {
                     if preview.hasCover {
                         Toggle(isOn: $applyCover) {
                             VStack(alignment: .leading, spacing: 6) {
-                                Text("cover").font(.caption).foregroundStyle(Color(.systemGray))
+                                Text("cover").font(.caption).foregroundStyle(Color.secondary)
                                 HStack(spacing: 8) {
                                     // Current cover
                                     VStack(spacing: 2) {
@@ -215,8 +215,8 @@ struct ScrapeOptionsView: View {
                                     Image(systemName: "arrow.right").font(.caption2).foregroundStyle(.tertiary)
                                     // New cover (from in-memory data)
                                     VStack(spacing: 2) {
-                                        if let data = preview.coverData, let img = UIImage(data: data) {
-                                            Image(uiImage: img)
+                                        if let data = preview.coverData, let img = PlatformImage(data: data) {
+                                            Image(platformImage: img)
                                                 .resizable().aspectRatio(contentMode: .fill)
                                                 .frame(width: 56, height: 56)
                                                 .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -234,7 +234,7 @@ struct ScrapeOptionsView: View {
                     if preview.hasLyrics {
                         Toggle(isOn: $applyLyrics) {
                             HStack(spacing: 6) {
-                                Text("lyrics_word").font(.caption).foregroundStyle(Color(.systemGray)).frame(width: 45, alignment: .leading)
+                                Text("lyrics_word").font(.caption).foregroundStyle(Color.secondary).frame(width: 45, alignment: .leading)
                                 statusBadge(hasLocal: song.lyricsFileName != nil, hasScraped: true,
                                             isChanged: preview.updatedSong.lyricsFileName != song.lyricsFileName)
                                 if preview.lyricsCount > 0 {
@@ -276,11 +276,11 @@ struct ScrapeOptionsView: View {
         if let scraped = scrapedValue {
             Toggle(isOn: isOn) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(label).font(.caption).foregroundStyle(Color(.systemGray))
+                    Text(label).font(.caption).foregroundStyle(Color.secondary)
                     if isChanged {
                         HStack(spacing: 4) {
-                            Text(localValue).font(.caption2).foregroundStyle(Color(.systemGray)).lineLimit(1)
-                            Image(systemName: "arrow.right").font(.system(size: 8)).foregroundStyle(Color(.systemGray2))
+                            Text(localValue).font(.caption2).foregroundStyle(Color.secondary).lineLimit(1)
+                            Image(systemName: "arrow.right").font(.system(size: 8)).foregroundStyle(Color.secondary.opacity(0.7))
                             Text(scraped).font(.caption2).fontWeight(.medium).foregroundStyle(.green).lineLimit(1)
                         }
                     } else {
@@ -288,7 +288,7 @@ struct ScrapeOptionsView: View {
                     }
                 }
             }
-            .tint(isChanged ? .green : Color(.systemGray))
+            .tint(isChanged ? .green : Color.secondary)
         }
     }
 
@@ -297,14 +297,14 @@ struct ScrapeOptionsView: View {
         if isChanged {
             HStack(spacing: 3) {
                 Image(systemName: hasLocal ? "checkmark" : "xmark")
-                    .font(.caption2).foregroundStyle(Color(.systemGray))
+                    .font(.caption2).foregroundStyle(Color.secondary)
                 Image(systemName: "arrow.right")
-                    .font(.system(size: 8)).foregroundStyle(Color(.systemGray2))
+                    .font(.system(size: 8)).foregroundStyle(Color.secondary.opacity(0.7))
                 Image(systemName: "checkmark")
                     .font(.caption2).foregroundStyle(.green)
             }
         } else {
-            Text(String(localized: "unchanged")).font(.caption2).foregroundStyle(Color(.systemGray2))
+            Text(String(localized: "unchanged")).font(.caption2).foregroundStyle(Color.secondary.opacity(0.7))
         }
     }
 
@@ -357,11 +357,11 @@ struct ScrapeOptionsView: View {
                                 }
                                 HStack(spacing: 4) {
                                     if let artist = item.artist {
-                                        Text(artist).font(.caption).foregroundStyle(Color(.systemGray))
+                                        Text(artist).font(.caption).foregroundStyle(Color.secondary)
                                     }
                                     if let album = item.album {
-                                        Text("·").font(.caption).foregroundStyle(Color(.systemGray2))
-                                        Text(album).font(.caption).foregroundStyle(Color(.systemGray2))
+                                        Text("·").font(.caption).foregroundStyle(Color.secondary.opacity(0.7))
+                                        Text(album).font(.caption).foregroundStyle(Color.secondary.opacity(0.7))
                                     }
                                 }
                                 .lineLimit(1)
@@ -716,12 +716,12 @@ private struct ScraperCoverThumbnail: View {
     let externalId: String
     let sourceConfig: ScraperSourceConfig
 
-    @State private var image: UIImage?
+    @State private var image: PlatformImage?
 
     var body: some View {
         Group {
             if let image {
-                Image(uiImage: image)
+                Image(platformImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
             } else {
@@ -741,7 +741,7 @@ private struct ScraperCoverThumbnail: View {
                 sourceConfig: sourceConfig,
                 timeout: 10
             ),
-               let loaded = UIImage(data: data) {
+               let loaded = PlatformImage(data: data) {
                 image = loaded
             }
         }

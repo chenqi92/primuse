@@ -1,6 +1,11 @@
 import Foundation
 import AuthenticationServices
 import CryptoKit
+#if os(iOS)
+import UIKit
+#else
+import AppKit
+#endif
 
 /// Handles the complete OAuth 2.0 Authorization Code + PKCE flow for cloud drive sources.
 /// Uses ASWebAuthenticationSession for system-level browser authentication.
@@ -278,9 +283,13 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
     nonisolated func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
         // ASWebAuthenticationSession calls this on main thread, but we need nonisolated for the protocol
         MainActor.assumeIsolated {
+            #if os(iOS)
             let scenes = UIApplication.shared.connectedScenes
             let windowScene = scenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene
             return windowScene?.windows.first(where: \.isKeyWindow) ?? ASPresentationAnchor()
+            #else
+            return NSApplication.shared.keyWindow ?? ASPresentationAnchor()
+            #endif
         }
     }
 }

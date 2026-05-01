@@ -46,8 +46,14 @@ struct NowPlayingView: View {
 
     /// Top safe area height (dynamic island / status bar)
     private var topSafeArea: CGFloat {
+        #if os(iOS)
         (UIApplication.shared.connectedScenes.first as? UIWindowScene)?
             .keyWindow?.safeAreaInsets.top ?? 59
+        #else
+        // macOS has no dynamic island / status bar — title bar is part of the
+        // window chrome, not the SwiftUI content. Zero pads cleanly.
+        0
+        #endif
     }
 
     var body: some View {
@@ -817,6 +823,7 @@ struct AddToPlaylistSheet: View {
     }
 }
 
+#if os(iOS)
 struct AirPlayButton: UIViewRepresentable {
     func makeUIView(context: Context) -> AVRoutePickerView {
         let v = AVRoutePickerView()
@@ -827,3 +834,10 @@ struct AirPlayButton: UIViewRepresentable {
     }
     func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
 }
+#else
+// macOS exposes AirPlay through the system menu bar / Control Center, not an
+// in-app picker. Provide a no-op view so layout is preserved without UIKit.
+struct AirPlayButton: View {
+    var body: some View { EmptyView() }
+}
+#endif

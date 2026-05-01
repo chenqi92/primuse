@@ -58,6 +58,7 @@ struct SettingsView: View {
                     }
                 }
 
+                #if os(iOS)
                 Section("appearance") {
                     NavigationLink {
                         AppIconSettingsView()
@@ -65,6 +66,7 @@ struct SettingsView: View {
                         Label("app_icon", systemImage: "app.badge")
                     }
                 }
+                #endif
 
                 Section("sync") {
                     NavigationLink {
@@ -264,7 +266,9 @@ struct MetadataScrapingView: View {
         }
         .navigationTitle("metadata_scraping")
         .navigationBarTitleDisplayMode(.inline)
+        #if os(iOS)
         .environment(\.editMode, isReordering ? .constant(.active) : .constant(.inactive))
+        #endif
         .alert("cookie_config", isPresented: Binding(
             get: { editingCookieSourceId != nil },
             set: { if !$0 { editingCookieSourceId = nil } }

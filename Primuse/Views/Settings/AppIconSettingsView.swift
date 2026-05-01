@@ -1,3 +1,4 @@
+#if os(iOS)
 import SwiftUI
 
 struct AppIconSettingsView: View {
@@ -66,3 +67,5 @@ struct AppIconSettingsView: View {
         .disabled(!service.supportsAlternateIcons)
     }
 }
+
+#endif

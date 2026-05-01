@@ -487,7 +487,7 @@ struct DirectoryCheckRow: View {
             Button { toggle() } label: {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
-                    .foregroundStyle(isSelected ? Color.accentColor : Color(.systemGray3))
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.gray.opacity(0.4))
                     .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(.plain)

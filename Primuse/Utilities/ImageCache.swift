@@ -1,9 +1,14 @@
+import Foundation
+#if os(iOS)
 import UIKit
+#else
+import AppKit
+#endif
 
 actor ImageCache {
     static let shared = ImageCache()
 
-    private let memoryCache = NSCache<NSString, UIImage>()
+    private let memoryCache = NSCache<NSString, PlatformImage>()
     private let cacheDirectory: URL
 
     private init() {
@@ -15,7 +20,7 @@ actor ImageCache {
         try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
     }
 
-    func image(forKey key: String) -> UIImage? {
+    func image(forKey key: String) -> PlatformImage? {
         // Check memory cache
         if let cached = memoryCache.object(forKey: key as NSString) {
             return cached
@@ -24,7 +29,7 @@ actor ImageCache {
         // Check disk cache
         let fileURL = cacheDirectory.appendingPathComponent(key)
         guard let data = try? Data(contentsOf: fileURL),
-              let image = UIImage(data: data) else {
+              let image = PlatformImage(data: data) else {
             return nil
         }
 
@@ -32,17 +37,25 @@ actor ImageCache {
         return image
     }
 
-    func store(_ image: UIImage, forKey key: String) {
+    func store(_ image: PlatformImage, forKey key: String) {
         memoryCache.setObject(image, forKey: key as NSString)
 
         let fileURL = cacheDirectory.appendingPathComponent(key)
+        #if os(iOS)
         if let data = image.jpegData(compressionQuality: 0.8) {
             try? data.write(to: fileURL)
         }
+        #else
+        if let tiff = image.tiffRepresentation,
+           let rep = NSBitmapImageRep(data: tiff),
+           let data = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.8]) {
+            try? data.write(to: fileURL)
+        }
+        #endif
     }
 
     func store(data: Data, forKey key: String) {
-        if let image = UIImage(data: data) {
+        if let image = PlatformImage(data: data) {
             store(image, forKey: key)
         }
     }
