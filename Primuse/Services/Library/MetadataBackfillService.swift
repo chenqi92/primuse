@@ -133,6 +133,26 @@ final class MetadataBackfillService {
         }
     }
 
+    /// True if a Song is considered "bare" — i.e. nothing was ever
+    /// successfully extracted from it. Mirrors the filter used by
+    /// `pickNextBatch`/`remainingCount`.
+    ///
+    /// **Important**: checks every metadata field, not just duration +
+    /// bitRate. The 256KB head fetch often parses ID3v2 tags (artist,
+    /// album) cleanly even when it can't compute duration (needs more
+    /// frames) or bitRate (needs full file). If we only checked duration
+    /// + bitRate, those partially-resolved songs stayed "bare" forever
+    /// and got re-picked on every worker iteration — burning network
+    /// quota in an infinite loop without any progress.
+    static func isBareSong(_ song: Song) -> Bool {
+        song.duration == 0
+            && song.bitRate == nil
+            && song.artistID == nil
+            && song.albumID == nil
+            && song.year == nil
+            && song.genre == nil
+    }
+
     /// True if there are bare songs in the library that backfill could
     /// process. Reflects queue state, not just whether a worker is
     /// currently running — a cellular-paused service shows
@@ -140,9 +160,7 @@ final class MetadataBackfillService {
     /// BGProcessingTask scheduled.
     var hasPendingWork: Bool {
         library.songs.contains { song in
-            !failedSongIDs.contains(song.id) &&
-                song.duration == 0 &&
-                song.bitRate == nil
+            !failedSongIDs.contains(song.id) && Self.isBareSong(song)
         }
     }
 
@@ -160,8 +178,7 @@ final class MetadataBackfillService {
     func remainingCount(forSource sourceID: String?) -> Int {
         library.songs.lazy.filter { song in
             !self.failedSongIDs.contains(song.id) &&
-                song.duration == 0 &&
-                song.bitRate == nil &&
+                Self.isBareSong(song) &&
                 (sourceID == nil || song.sourceID == sourceID)
         }.count
     }
@@ -388,9 +405,7 @@ final class MetadataBackfillService {
     private func pickNextBatch() -> [Song] {
         let candidates = library.songs.lazy.filter { song in
             guard !self.failedSongIDs.contains(song.id) else { return false }
-            // duration == 0 + bitRate == nil ⇒ ConnectorScanner produced a bare
-            // song and backfill hasn't filled it in yet.
-            return song.duration == 0 && song.bitRate == nil
+            return Self.isBareSong(song)
         }
         return Array(candidates.prefix(500))
     }

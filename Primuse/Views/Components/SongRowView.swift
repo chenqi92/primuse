@@ -17,14 +17,16 @@ struct SongRowView: View {
     @State private var showDeleteConfirm = false
     @State private var showBareAlert = false
 
-    /// Cloud songs added by Phase A scan have duration=0 and no bitRate
-    /// until `MetadataBackfillService` fills them in. The row dims slightly
-    /// and shows "loading details" where duration would normally appear.
-    /// Tap-to-play still works (streaming uses Song.fileSize, not duration);
-    /// the visual cue just lets the user know cover art / scrubbing won't
-    /// be accurate until backfill catches up.
+    /// Cloud songs added by Phase A scan have no metadata until
+    /// `MetadataBackfillService` fills them in. The row dims slightly and
+    /// shows "loading details" where duration would normally appear. Tap
+    /// is intercepted to a hint alert — streaming would still work, but
+    /// the UX is clearer if users wait for details to land.
+    /// Same predicate as `MetadataBackfillService.isBareSong` so both
+    /// stay in sync (a song that's "not bare enough to backfill" is also
+    /// "not bare enough to dim in the list").
     private var isBare: Bool {
-        song.duration == 0 && song.bitRate == nil
+        MetadataBackfillService.isBareSong(song)
     }
 
     var body: some View {

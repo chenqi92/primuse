@@ -99,8 +99,21 @@ final class MusicLibrary {
         for newSong in newSongs {
             if let idx = existingIndexByID[newSong.id] {
                 let existing = songs[idx]
-                let incomingIsBare = newSong.duration == 0 && newSong.bitRate == nil
-                let existingHasMetadata = existing.duration > 0 || existing.bitRate != nil
+                // "Bare incoming" matches `MetadataBackfillService.isBareSong` —
+                // a Phase A scan that found no metadata. If the existing
+                // entry has any metadata at all, prefer it.
+                let incomingIsBare = newSong.duration == 0
+                    && newSong.bitRate == nil
+                    && newSong.artistID == nil
+                    && newSong.albumID == nil
+                    && newSong.year == nil
+                    && newSong.genre == nil
+                let existingHasMetadata = existing.duration > 0
+                    || existing.bitRate != nil
+                    || existing.artistID != nil
+                    || existing.albumID != nil
+                    || existing.year != nil
+                    || existing.genre != nil
                 if incomingIsBare && existingHasMetadata {
                     var merged = existing
                     merged.fileSize = newSong.fileSize
