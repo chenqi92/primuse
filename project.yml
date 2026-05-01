@@ -96,6 +96,12 @@ targets:
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         UIBackgroundModes:
           - audio
+          # `processing` is required for BGProcessingTask scheduling
+          # (used by ScanService/MetadataBackfillService to keep working
+          # while the app is suspended).
+          - processing
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.welape.yuanyin.scan-resume
         NSSupportsLiveActivities: true
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
@@ -162,6 +168,9 @@ targets:
         SWIFT_EMIT_LOC_STRINGS: YES
         PRODUCT_BUNDLE_IDENTIFIER: com.welape.yuanyin
         CODE_SIGN_ENTITLEMENTS: Config/Primuse.entitlements
+        # Bridging header re-declares SFBInputSource's hidden -initWithURL:
+        # so we can subclass it from Swift for streaming cloud playback.
+        SWIFT_OBJC_BRIDGING_HEADER: Primuse/Primuse-Bridging-Header.h
 
   PrimuseKit:
     type: framework

@@ -31,6 +31,7 @@
 		19C85ED05C09AB735883A8E5 /* S3Source.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FD2BBC1EC1BECCE0D1EEF17 /* S3Source.swift */; };
 		1AB7C4D50C43A24D7A9E3F53 /* FileFormatRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 111D15C431BBFAC41E4D37B1 /* FileFormatRouter.swift */; };
 		1C9DBAB2DE5C6A853B2BDFB9 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = F1BFF15A0A036FCC4F2F2274 /* GRDB */; };
+		1EE5E389A8FE771DA64B8810 /* NetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4F6B266B199B4973F7A9134 /* NetworkMonitor.swift */; };
 		233A8E21197A29B84629B73A /* NFSKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4554180DADE700DF4BA63BA0 /* NFSKit */; };
 		235C8FC6F296376EB5E6A8F1 /* OneDriveSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E648713A25DB3912120693A /* OneDriveSource.swift */; };
 		26192D93F3064161BD6FE9F6 /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 728BAEB07B8C593506D9CD6A /* AppIntents.framework */; };
@@ -131,6 +132,7 @@
 		AA508472ADFA435CEA0930A3 /* ConnectorScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A23DCE16E17D3C9AEBAD5AC /* ConnectorScanner.swift */; };
 		AB336FFF4145009B17128D30 /* AudioCacheManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E0E5D6E03C437F8A3D75067 /* AudioCacheManager.swift */; };
 		ABD88E53839D81C6CB1117A6 /* PlayMediaIntentHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52DC73F5A1DA3D173DB8D78E /* PlayMediaIntentHandler.swift */; };
+		AD67A69E72837A8AA7866B3A /* MetadataBackfillService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B56809F1C697EF691877166D /* MetadataBackfillService.swift */; };
 		ADCDB73D415E79D8A3C57EB9 /* MetadataAssetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A24F02124D01EC09135B0F9 /* MetadataAssetStore.swift */; };
 		B3895BA1B582C6438B5DFC3B /* FnOSAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04E02F82BB81A881C4607BDC /* FnOSAPI.swift */; };
 		B4A627384B3D168B7BF384F0 /* PrimuseKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B1E36F2FECF46E724081F983 /* PrimuseKit.framework */; };
@@ -172,12 +174,14 @@
 		E89057B601696110B0F66E2D /* MediaServerSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D799C291E3FDAA06B4A33EBA /* MediaServerSource.swift */; };
 		EA44F0DBD9EE53189955BA62 /* CoverArtView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F79BB4F57731400094A75FD /* CoverArtView.swift */; };
 		EBB310A0DD524FCF93EEDD63 /* SongRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1424E7F042F598B858110FDB /* SongRowView.swift */; };
+		EC444736CDE5CEAF3E97B453 /* CloudPlaybackSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3024D172840BEE722BD53FF /* CloudPlaybackSource.swift */; };
 		EE40C14EC379B339FE3A1C41 /* Citadel in Frameworks */ = {isa = PBXBuildFile; productRef = 0606057AA8A4360CCC6E7DCC /* Citadel */; };
 		EFAB156F0158347B9BF9C7CD /* SFTPBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51F211B7D47D87F19AEBC79C /* SFTPBrowserView.swift */; };
 		F0C26F653605E21534860B2F /* MusicScraperService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAE228964342BBAAB23DCAD8 /* MusicScraperService.swift */; };
 		F3E8C3E3C7DA98A5BA56ABB9 /* ArtistListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02F0CA17DCBE23FCB6FF6791 /* ArtistListView.swift */; };
 		F3EA7BACCB01D8BF92192A3E /* AudioEffectsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78324748ACDF339A48E0E8D4 /* AudioEffectsService.swift */; };
 		F42267DB1E4B85832BE4E52D /* ScrapeOptionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11180515D910975A39CBE6C5 /* ScrapeOptionsView.swift */; };
+		F601A246B39932913307C8CF /* CloudInputSourceObjC.m in Sources */ = {isa = PBXBuildFile; fileRef = D34E04201479990BA80AEE2A /* CloudInputSourceObjC.m */; };
 		F7C1D24746A9EFBB09955A64 /* SongListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B7EF9080A3A41EE3BE9D8E0 /* SongListView.swift */; };
 		FDE9341F377DC2DBA47DC9D9 /* LyricLine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10930AD1677DFF0C351D43C5 /* LyricLine.swift */; };
 		FF0491E244913A3757FE4626 /* AMSMB2 in Frameworks */ = {isa = PBXBuildFile; productRef = D27B8A9F7EB545A6FD182BB9 /* AMSMB2 */; };
@@ -307,6 +311,7 @@
 		4A24F02124D01EC09135B0F9 /* MetadataAssetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataAssetStore.swift; sourceTree = "<group>"; };
 		4AD7C0A9B431AEBEC047E320 /* SSLTrustStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSLTrustStore.swift; sourceTree = "<group>"; };
 		4BF1A706ED97024BCCCCD9F8 /* ScraperConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScraperConfigStore.swift; sourceTree = "<group>"; };
+		4CFE0AB34758413DB8B02463 /* Primuse-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Primuse-Bridging-Header.h"; sourceTree = "<group>"; };
 		4D5D8BD40FCC0AA7011B551B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		4F953DC4532B85C7AD604EF9 /* AudioPlayerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayerService.swift; sourceTree = "<group>"; };
 		51F211B7D47D87F19AEBC79C /* SFTPBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBrowserView.swift; sourceTree = "<group>"; };
@@ -354,6 +359,7 @@
 		899FC409D467BC67F47C75C2 /* MusicSourceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicSourceProtocol.swift; sourceTree = "<group>"; };
 		8A7424889FC9166F74570F6E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		8A7C2D0F07C125A333AC1046 /* UPnPSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UPnPSource.swift; sourceTree = "<group>"; };
+		8D173D8CC7D37EB5E31E5B8D /* CloudInputSourceObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CloudInputSourceObjC.h; sourceTree = "<group>"; };
 		8FA4CDC2BBDAD61AD6E95981 /* Primuse.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Primuse.entitlements; sourceTree = "<group>"; };
 		9081DDAD5B33D4D005479E15 /* MusicScraperProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicScraperProtocol.swift; sourceTree = "<group>"; };
 		91C06A4C190FC178D4C65D00 /* PrimuseWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrimuseWidgetBundle.swift; sourceTree = "<group>"; };
@@ -365,6 +371,7 @@
 		9AA5AE882AD3B192D6A6764E /* PlaybackLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackLiveActivity.swift; sourceTree = "<group>"; };
 		9D64868ED9B01B2808EEFF51 /* SFTPSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPSource.swift; sourceTree = "<group>"; };
 		9E4DEB871B6A33BFDF98131D /* ArtworkFetchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkFetchService.swift; sourceTree = "<group>"; };
+		A3024D172840BEE722BD53FF /* CloudPlaybackSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPlaybackSource.swift; sourceTree = "<group>"; };
 		A40F791353852EF9291CCFBB /* PrimuseActivityExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PrimuseActivityExtension.entitlements; sourceTree = "<group>"; };
 		A41F54083A82815533AA0C36 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		A620EA0CD2EEF9F08E3A131D /* KeychainService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainService.swift; sourceTree = "<group>"; };
@@ -377,6 +384,7 @@
 		AE41DF2E4D5B75A369E0159B /* ScraperManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScraperManager.swift; sourceTree = "<group>"; };
 		B1E36F2FECF46E724081F983 /* PrimuseKit.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = PrimuseKit.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		B3853774B80EC7B89FE6982B /* LyricsParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricsParser.swift; sourceTree = "<group>"; };
+		B56809F1C697EF691877166D /* MetadataBackfillService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataBackfillService.swift; sourceTree = "<group>"; };
 		BD05C51C265711C2B7239F9B /* CloudSyncChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSyncChannel.swift; sourceTree = "<group>"; };
 		BDC5ED08076B47DEE8ECB3AA /* NowPlayingWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingWidget.swift; sourceTree = "<group>"; };
 		BEF1C4D090D0F65114B8F0D5 /* SMBSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SMBSource.swift; sourceTree = "<group>"; };
@@ -392,6 +400,7 @@
 		CAE5ECFCA4B6AB18CC72F7DB /* Album.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Album.swift; sourceTree = "<group>"; };
 		CEE2C637A78576C7A05DF5BF /* AlbumDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumDetailView.swift; sourceTree = "<group>"; };
 		D06E7634CBD07964DD84265F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		D34E04201479990BA80AEE2A /* CloudInputSourceObjC.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = CloudInputSourceObjC.m; sourceTree = "<group>"; };
 		D3CFC2BB314F0A2BB166E280 /* AliyunDriveSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AliyunDriveSource.swift; sourceTree = "<group>"; };
 		D4999BBD97AF63761839AA42 /* WebDAVSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebDAVSource.swift; sourceTree = "<group>"; };
 		D6FCDA560A7C84C713C02499 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -404,6 +413,7 @@
 		E083139645350B81D8E8C645 /* FFmpegAudioDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFmpegAudioDecoder.swift; sourceTree = "<group>"; };
 		E0CD6571B6CA1E276A954F2F /* SidecarWriteService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidecarWriteService.swift; sourceTree = "<group>"; };
 		E43D86A7277FFD6BA412DECF /* SourcesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourcesStore.swift; sourceTree = "<group>"; };
+		E4F6B266B199B4973F7A9134 /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
 		E7BBFA50461FE980684501FA /* AddSourceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddSourceView.swift; sourceTree = "<group>"; };
 		E7F90F8D26A59F3DF6BF867F /* SidecarMetadataLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidecarMetadataLoader.swift; sourceTree = "<group>"; };
 		E8945701E14DEF0FF55A668F /* ScraperSourceConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScraperSourceConfig.swift; sourceTree = "<group>"; };
@@ -484,6 +494,9 @@
 				39F6AE35FC2EC095FBF1EA0E /* AudioEngine.swift */,
 				4F953DC4532B85C7AD604EF9 /* AudioPlayerService.swift */,
 				C54818EBAB874DF0A7E5C6DE /* AudioSessionManager.swift */,
+				8D173D8CC7D37EB5E31E5B8D /* CloudInputSourceObjC.h */,
+				D34E04201479990BA80AEE2A /* CloudInputSourceObjC.m */,
+				A3024D172840BEE722BD53FF /* CloudPlaybackSource.swift */,
 				0EA999555F455617E1DF9281 /* EqualizerService.swift */,
 				E083139645350B81D8E8C645 /* FFmpegAudioDecoder.swift */,
 				3B638BB94F0E6542668978B3 /* NativeAudioDecoder.swift */,
@@ -607,6 +620,7 @@
 				C9F569D02D3E6102A0C0E1CF /* FileLogger.swift */,
 				92713492CA49F4357602CCA3 /* ImageCache.swift */,
 				A620EA0CD2EEF9F08E3A131D /* KeychainService.swift */,
+				E4F6B266B199B4973F7A9134 /* NetworkMonitor.swift */,
 			);
 			path = Utilities;
 			sourceTree = "<group>";
@@ -628,6 +642,7 @@
 				446C966AB896D0111F3CDA9A /* Utilities */,
 				B328E2A73345B855028189CB /* Views */,
 				70DEB6F21FD1CEB3FF954C72 /* Info.plist */,
+				4CFE0AB34758413DB8B02463 /* Primuse-Bridging-Header.h */,
 				8FA4CDC2BBDAD61AD6E95981 /* Primuse.entitlements */,
 			);
 			path = Primuse;
@@ -727,6 +742,7 @@
 				F246393058D148228F7BA7B9 /* LibraryDatabase.swift */,
 				6D84632D6A2887E8E174E87C /* LibraryScanner.swift */,
 				CA3A196D13D6AB09FFF51545 /* LibraryService.swift */,
+				B56809F1C697EF691877166D /* MetadataBackfillService.swift */,
 				5A2105927D98B1DF9885EB81 /* MusicLibrary.swift */,
 				632A16B1EB87A560435B7039 /* ScanService.swift */,
 			);
@@ -1159,8 +1175,10 @@
 				B678A94A106E8D8FB032DE4F /* CloudDirectoryNameStore.swift in Sources */,
 				3997C4EE7DF9D36DA1851230 /* CloudDriveBase.swift in Sources */,
 				C0CD7D6E45358510AB9E6B04 /* CloudDriveConnectionView.swift in Sources */,
+				F601A246B39932913307C8CF /* CloudInputSourceObjC.m in Sources */,
 				69199230049BDAC34D444C1C /* CloudKVSSync.swift in Sources */,
 				5AF67F370EFCD4AA7528FEC6 /* CloudKitSyncService.swift in Sources */,
+				EC444736CDE5CEAF3E97B453 /* CloudPlaybackSource.swift in Sources */,
 				19741E9B55DE0BA9BE5F2FDB /* CloudSyncChannel.swift in Sources */,
 				61D6D6E47723FA9A0FF6A72A /* CloudSyncSettingsView.swift in Sources */,
 				B5F0628AAE0C7C40B2803778 /* CloudTokenManager.swift in Sources */,
@@ -1197,6 +1215,7 @@
 				54051F580B31F92D4D4673AD /* MediaServerBrowserView.swift in Sources */,
 				E89057B601696110B0F66E2D /* MediaServerSource.swift in Sources */,
 				ADCDB73D415E79D8A3C57EB9 /* MetadataAssetStore.swift in Sources */,
+				AD67A69E72837A8AA7866B3A /* MetadataBackfillService.swift in Sources */,
 				971D5EDC7B3FEAC87870DB0D /* MetadataService.swift in Sources */,
 				05932B0B3C4B3CAD469D869A /* MiniPlayerView.swift in Sources */,
 				8A77CEB41659883181CEBEA5 /* MusicBrainzScraper.swift in Sources */,
@@ -1209,6 +1228,7 @@
 				DDB06ADDF4431E958BF177F7 /* NFSSource.swift in Sources */,
 				36E0CFC3794360116070FDE6 /* NativeAudioDecoder.swift in Sources */,
 				87D3B3265A7CBAA9C3AB046B /* NetworkDiscoveryService.swift in Sources */,
+				1EE5E389A8FE771DA64B8810 /* NetworkMonitor.swift in Sources */,
 				15DBB04327A405ACF38C9162 /* NowPlayingView.swift in Sources */,
 				4ACD5BA7D98E9557368E3ABE /* OAuthService.swift in Sources */,
 				235C8FC6F296376EB5E6A8F1 /* OneDriveSource.swift in Sources */,
@@ -1325,6 +1345,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.welape.yuanyin;
 				SDKROOT = iphoneos;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "Primuse/Primuse-Bridging-Header.h";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
@@ -1515,6 +1536,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.welape.yuanyin;
 				SDKROOT = iphoneos;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "Primuse/Primuse-Bridging-Header.h";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;

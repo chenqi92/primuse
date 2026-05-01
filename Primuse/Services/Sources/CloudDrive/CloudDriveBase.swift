@@ -88,6 +88,50 @@ struct CloudDriveHelper: Sendable {
         self.tokenManager = CloudTokenManager(sourceID: sourceID)
     }
 
+    // MARK: - Range request
+
+    /// HTTP Range GET. `offset < 0` means "from end" — translated to `Range: bytes=-N`.
+    /// Always returns bytes whose semantic position is `[offset, offset+length)` of
+    /// the underlying file:
+    /// - 206 Partial Content: response body is exactly that slice — pass through.
+    /// - 200 OK: server ignored our Range header and sent the full file. We slice
+    ///   the requested window ourselves so callers can trust offsets. Without this
+    ///   correction, a seek-to-middle would write the start of the file into the
+    ///   middle of our cache and corrupt `.partial` permanently.
+    func rangeRequest(url: URL, offset: Int64, length: Int64, accessToken: String? = nil) async throws -> Data {
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        let rangeHeader: String
+        if offset < 0 {
+            rangeHeader = "bytes=\(offset)"  // suffix-byte-range form: bytes=-N
+        } else {
+            rangeHeader = "bytes=\(offset)-\(offset + length - 1)"
+        }
+        request.setValue(rangeHeader, forHTTPHeaderField: "Range")
+        if let accessToken {
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        }
+        request.timeoutInterval = 60
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw CloudDriveError.invalidResponse }
+        switch http.statusCode {
+        case 206:
+            return data
+        case 200:
+            // Server returned the full file. Translate "from end" offsets to
+            // a positive index into the body, then slice to the requested window.
+            let totalSize = Int64(data.count)
+            let actualOffset: Int64 = offset < 0
+                ? max(0, totalSize + offset)
+                : offset
+            guard actualOffset < totalSize else { return Data() }
+            let upper = min(actualOffset + length, totalSize)
+            return data.subdata(in: Int(actualOffset)..<Int(upper))
+        default:
+            throw CloudDriveError.apiError(http.statusCode, "Range request failed")
+        }
+    }
+
     // MARK: - Authorized HTTP request
 
     func makeAuthorizedRequest(
@@ -145,22 +189,100 @@ struct CloudDriveHelper: Sendable {
         }
     }
 
+    /// 最多同时递归这么多个子目录。Baidu/Aliyun 的 listFiles 在 actor 里串行，
+    /// 加上 100ms 节流，并发在网络层不会真正提速；但能让 listFiles 结果的 JSON
+    /// 解析、子目录排队、文件 yield 的 CPU 工作叠在 I/O 等待之上。
+    private static let scanConcurrency = 4
+
     private func scanDirectory(
         path: String,
-        listFiles: (String) async throws -> [RemoteFileItem],
+        listFiles: @escaping @Sendable (String) async throws -> [RemoteFileItem],
         continuation: AsyncThrowingStream<RemoteFileItem, Error>.Continuation
     ) async throws {
         let items = try await listFiles(path)
-        for item in items {
-            if item.isDirectory {
-                try await scanDirectory(path: item.path, listFiles: listFiles, continuation: continuation)
-            } else {
-                let ext = (item.name as NSString).pathExtension.lowercased()
-                if PrimuseConstants.supportedAudioExtensions.contains(ext) {
-                    continuation.yield(item)
+
+        // 找当前目录里的封面/歌词文件，作为 sidecar 候选
+        let nonAudio = items.filter { !$0.isDirectory && !PrimuseConstants.supportedAudioExtensions.contains(($0.name as NSString).pathExtension.lowercased()) }
+        let folderCover = findFolderCover(in: nonAudio)
+
+        // 先把当前目录的音频文件 yield 出去，避免 ConnectorScanner 等子树扫完才开始处理
+        for item in items where !item.isDirectory {
+            let ext = (item.name as NSString).pathExtension.lowercased()
+            if PrimuseConstants.supportedAudioExtensions.contains(ext) {
+                let basename = (item.name as NSString).deletingPathExtension
+                let cover = findSameNameCover(basename: basename, in: nonAudio) ?? folderCover
+                let lyrics = findSameNameLyrics(basename: basename, in: nonAudio)
+                let withHints = RemoteFileItem(
+                    name: item.name,
+                    path: item.path,
+                    isDirectory: false,
+                    size: item.size,
+                    modifiedDate: item.modifiedDate,
+                    sidecarHints: (cover != nil || lyrics != nil)
+                        ? SidecarHints(coverPath: cover, lyricsPath: lyrics)
+                        : nil
+                )
+                continuation.yield(withHints)
+            }
+        }
+
+        let subdirs = items.filter { $0.isDirectory }
+        guard !subdirs.isEmpty else { return }
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            var iterator = subdirs.makeIterator()
+            // 启动 N 个并发 worker
+            for _ in 0..<min(Self.scanConcurrency, subdirs.count) {
+                guard let next = iterator.next() else { break }
+                group.addTask { [self] in
+                    try await scanDirectory(path: next.path, listFiles: listFiles, continuation: continuation)
+                }
+            }
+            // 每完成一个就投下一个，保持 N 路并发
+            while try await group.next() != nil {
+                guard let next = iterator.next() else { continue }
+                group.addTask { [self] in
+                    try await scanDirectory(path: next.path, listFiles: listFiles, continuation: continuation)
                 }
             }
         }
+    }
+
+    // MARK: - Sidecar lookup helpers
+
+    /// Find `{basename}.{jpg,png,...}` or `{basename}-cover.{...}` in the same dir.
+    private func findSameNameCover(basename: String, in candidates: [RemoteFileItem]) -> String? {
+        let baseLower = basename.lowercased()
+        for ext in PrimuseConstants.supportedCoverExtensions {
+            if let m = candidates.first(where: {
+                let n = ($0.name as NSString).lowercased
+                return n == "\(baseLower).\(ext)" || n == "\(baseLower)-cover.\(ext)"
+            }) { return m.path }
+        }
+        return nil
+    }
+
+    /// Find `cover.jpg`, `folder.jpg`, `album.jpg` etc. as a directory-wide fallback.
+    private func findFolderCover(in candidates: [RemoteFileItem]) -> String? {
+        for name in PrimuseConstants.folderCoverNames {
+            for ext in PrimuseConstants.supportedCoverExtensions {
+                if let m = candidates.first(where: {
+                    ($0.name as NSString).lowercased == "\(name).\(ext)"
+                }) { return m.path }
+            }
+        }
+        return nil
+    }
+
+    /// Find `{basename}.{lrc,...}` in the same dir.
+    private func findSameNameLyrics(basename: String, in candidates: [RemoteFileItem]) -> String? {
+        let baseLower = basename.lowercased()
+        for ext in PrimuseConstants.supportedLyricsExtensions {
+            if let m = candidates.first(where: {
+                ($0.name as NSString).lowercased == "\(baseLower).\(ext)"
+            }) { return m.path }
+        }
+        return nil
     }
 
     // MARK: - Stream from cache

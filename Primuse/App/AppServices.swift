@@ -15,6 +15,7 @@ final class AppServices {
     let cloudSync: CloudKitSyncService
     let themeService: ThemeService
     let scanService: ScanService
+    let metadataBackfill: MetadataBackfillService
 
     private init() {
         if CloudSyncChannel.isEnabled(.credentials) {
@@ -53,6 +54,7 @@ final class AppServices {
         theme.setBaseAccent(AppIconService.shared.currentTint)
         self.themeService = theme
         self.scanService = ScanService()
+        self.metadataBackfill = MetadataBackfillService(library: library, sourceManager: manager)
 
         library.updateDisabledSourceIDs(
             Set(store.sources.filter { !$0.isEnabled }.map(\.id))

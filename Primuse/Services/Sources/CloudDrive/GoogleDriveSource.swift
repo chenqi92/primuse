@@ -19,23 +19,31 @@ actor GoogleDriveSource: MusicSourceConnector {
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
         let parentId = path.isEmpty || path == "/" ? "root" : path
-        let token = try await getToken()
-        var components = URLComponents(string: "\(Self.apiBase)/files")!
-        components.queryItems = [
-            .init(name: "q", value: "'\(parentId)' in parents and trashed = false"),
-            .init(name: "fields", value: "files(id,name,mimeType,size,modifiedTime)"),
-            .init(name: "pageSize", value: "1000"),
-            .init(name: "orderBy", value: "name"),
-        ]
-        let (data, http) = try await helper.makeAuthorizedRequest(url: components.url!, accessToken: token)
-        guard http.statusCode == 200 else { throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "") }
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-        guard let files = json["files"] as? [[String: Any]] else { return [] }
-        return files.compactMap { item in
-            guard let id = item["id"] as? String, let name = item["name"] as? String else { return nil }
-            let isDir = (item["mimeType"] as? String) == "application/vnd.google-apps.folder"
-            return RemoteFileItem(name: name, path: id, isDirectory: isDir, size: Int64(item["size"] as? String ?? "0") ?? 0, modifiedDate: nil)
-        }
+        var all: [RemoteFileItem] = []
+        var pageToken: String? = nil
+        repeat {
+            let token = try await getToken()
+            var components = URLComponents(string: "\(Self.apiBase)/files")!
+            var items: [URLQueryItem] = [
+                .init(name: "q", value: "'\(parentId)' in parents and trashed = false"),
+                .init(name: "fields", value: "files(id,name,mimeType,size,modifiedTime),nextPageToken"),
+                .init(name: "pageSize", value: "1000"),
+                .init(name: "orderBy", value: "name"),
+            ]
+            if let p = pageToken { items.append(.init(name: "pageToken", value: p)) }
+            components.queryItems = items
+            let (data, http) = try await helper.makeAuthorizedRequest(url: components.url!, accessToken: token)
+            guard http.statusCode == 200 else { throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "") }
+            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+            let files = json["files"] as? [[String: Any]] ?? []
+            all.append(contentsOf: files.compactMap { item in
+                guard let id = item["id"] as? String, let name = item["name"] as? String else { return nil }
+                let isDir = (item["mimeType"] as? String) == "application/vnd.google-apps.folder"
+                return RemoteFileItem(name: name, path: id, isDirectory: isDir, size: Int64(item["size"] as? String ?? "0") ?? 0, modifiedDate: nil)
+            })
+            pageToken = json["nextPageToken"] as? String
+        } while pageToken != nil
+        return all
     }
 
     func localURL(for path: String) async throws -> URL {
@@ -56,6 +64,13 @@ actor GoogleDriveSource: MusicSourceConnector {
 
     func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
         helper.scanAudioFiles(from: path) { [self] p in try await listFiles(at: p) }
+    }
+
+    func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+        let token = try await getToken()
+        var components = URLComponents(string: "\(Self.apiBase)/files/\(path)")!
+        components.queryItems = [.init(name: "alt", value: "media")]
+        return try await helper.rangeRequest(url: components.url!, offset: offset, length: length, accessToken: token)
     }
 
     private func getToken() async throws -> String {

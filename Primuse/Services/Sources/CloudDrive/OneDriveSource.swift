@@ -19,21 +19,34 @@ actor OneDriveSource: MusicSourceConnector {
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
         let endpoint = (path.isEmpty || path == "/") ? "\(Self.graphBase)/me/drive/root/children" : "\(Self.graphBase)/me/drive/items/\(path)/children"
-        let token = try await getToken()
-        var components = URLComponents(string: endpoint)!
-        components.queryItems = [
-            .init(name: "$select", value: "id,name,folder,file,size"),
-            .init(name: "$top", value: "999"),
-            .init(name: "$orderby", value: "name"),
-        ]
-        let (data, http) = try await helper.makeAuthorizedRequest(url: components.url!, accessToken: token)
-        guard http.statusCode == 200 else { throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "") }
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-        guard let items = json["value"] as? [[String: Any]] else { return [] }
-        return items.compactMap { item in
-            guard let id = item["id"] as? String, let name = item["name"] as? String else { return nil }
-            return RemoteFileItem(name: name, path: id, isDirectory: item["folder"] != nil, size: item["size"] as? Int64 ?? 0, modifiedDate: nil)
+        var all: [RemoteFileItem] = []
+        var nextURL: URL? = {
+            var components = URLComponents(string: endpoint)!
+            components.queryItems = [
+                .init(name: "$select", value: "id,name,folder,file,size"),
+                .init(name: "$top", value: "999"),
+                .init(name: "$orderby", value: "name"),
+            ]
+            return components.url
+        }()
+        while let url = nextURL {
+            let token = try await getToken()
+            let (data, http) = try await helper.makeAuthorizedRequest(url: url, accessToken: token)
+            guard http.statusCode == 200 else { throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "") }
+            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+            let items = json["value"] as? [[String: Any]] ?? []
+            all.append(contentsOf: items.compactMap { item in
+                guard let id = item["id"] as? String, let name = item["name"] as? String else { return nil }
+                return RemoteFileItem(name: name, path: id, isDirectory: item["folder"] != nil, size: item["size"] as? Int64 ?? 0, modifiedDate: nil)
+            })
+            // @odata.nextLink 是完整 URL（已包含 skiptoken）
+            if let next = json["@odata.nextLink"] as? String, let nextU = URL(string: next) {
+                nextURL = nextU
+            } else {
+                nextURL = nil
+            }
         }
+        return all
     }
 
     func localURL(for path: String) async throws -> URL {
@@ -57,6 +70,20 @@ actor OneDriveSource: MusicSourceConnector {
 
     func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
         helper.scanAudioFiles(from: path) { [self] p in try await listFiles(at: p) }
+    }
+
+    func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+        // OneDrive returns a short-lived pre-authenticated downloadUrl per item.
+        // Range requests against that URL don't need our Bearer token.
+        let token = try await getToken()
+        let (data, http) = try await helper.makeAuthorizedRequest(url: URL(string: "\(Self.graphBase)/me/drive/items/\(path)")!, accessToken: token)
+        guard http.statusCode == 200 else { throw CloudDriveError.apiError(http.statusCode, "Item not found") }
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        guard let downloadUrl = json["@microsoft.graph.downloadUrl"] as? String,
+              let fileURL = URL(string: downloadUrl) else {
+            throw CloudDriveError.fileNotFound(path)
+        }
+        return try await helper.rangeRequest(url: fileURL, offset: offset, length: length)
     }
 
     private func getToken() async throws -> String {

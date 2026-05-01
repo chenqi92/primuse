@@ -227,8 +227,9 @@ final class AudioPlayerService {
         activeDecoderKind = .native
 
         let isRemoteURL = url.scheme == "http" || url.scheme == "https"
+        let isCloudStream = url.scheme == SourceManager.cloudStreamingScheme
 
-        guard isRemoteURL || nativeDecoder.canDecode(url: url) else {
+        guard isRemoteURL || isCloudStream || nativeDecoder.canDecode(url: url) else {
             plog("Unsupported format: \(url.pathExtension)")
             isLoading = false
             if currentIndex < queue.count - 1 { await next() }
@@ -257,8 +258,19 @@ final class AudioPlayerService {
                 return
             }
 
-            // Try native decoder for local files
-            let stream = nativeDecoder.decode(from: url, outputFormat: outputFormat)
+            // Cloud streaming: instead of downloading the whole file, build
+            // an SFBInputSource whose reads go through HTTP Range +
+            // sparse-on-disk cache. SFBAudioEngine reads from it like any
+            // file and we get instant playback.
+            let stream: AsyncThrowingStream<AVAudioPCMBuffer, Error>
+            if isCloudStream, let manager = sourceManager,
+               let inputSource = try? await manager.makeStreamingInputSource(for: song) {
+                plog("▶️ Using CloudPlaybackSource (streaming SFBInputSource)")
+                stream = nativeDecoder.decode(from: inputSource, outputFormat: outputFormat)
+            } else {
+                // Local file path (or fallback when streaming setup failed)
+                stream = nativeDecoder.decode(from: url, outputFormat: outputFormat)
+            }
             let iteratorBox = BufferIteratorBox(stream.makeAsyncIterator())
 
             // Await first buffer — ensures we have audio data before calling play()
@@ -273,10 +285,16 @@ final class AudioPlayerService {
                 guard playID == id else { return }
                 firstBuffer = buffer
             } catch {
-                // Native decode failed on first buffer — try fallback decoder
+                // Native decode failed on first buffer — try fallback decoder.
+                // Cloud-stream URLs can't be opened by the FFmpeg fallback,
+                // so let the caller surface the error instead.
                 guard !Task.isCancelled, playID == id else { return }
                 plog("⚠️ Native decode failed for '\(song.title)': \(error.localizedDescription)")
-                await playWithFallbackDecoder(song: song, url: url, outputFormat: outputFormat, playID: id)
+                if !isCloudStream {
+                    await playWithFallbackDecoder(song: song, url: url, outputFormat: outputFormat, playID: id)
+                } else {
+                    isLoading = false
+                }
                 return
             }
 
@@ -288,8 +306,11 @@ final class AudioPlayerService {
             audioEngine.play()
             plog("▶️ After play(): \(audioEngine.diagnosticInfo())")
 
-            // Fetch duration asynchronously if not already known
-            if duration <= 0 {
+            // Fetch duration asynchronously if not already known.
+            // Skip for cloud-stream URLs — fileInfo opens via SFBAudioEngine
+            // by URL, which doesn't understand the custom scheme. Duration
+            // for cloud songs is filled in by MetadataBackfillService.
+            if duration <= 0, !isCloudStream {
                 Task {
                     if let info = try? await nativeDecoder.fileInfo(for: url) {
                         guard self.playID == id else { return }
@@ -309,17 +330,23 @@ final class AudioPlayerService {
             updateNowPlayingArtworkIfNeeded()
             updatePlaybackState()
 
-            // Apply ReplayGain in background (don't block playback start)
+            // Apply ReplayGain in background (don't block playback start).
+            // Skip for cloud-stream URLs — readers open by URL and can't
+            // decode the custom scheme. Once playback finishes the cache
+            // file is fully populated and a future play picks up RG.
             let settings = playbackSettings.snapshot()
-            if settings.replayGainEnabled {
+            if settings.replayGainEnabled, !isCloudStream {
                 Task { [id] in
                     await self.applyReplayGain(for: url, mode: settings.replayGainMode)
                     guard self.playID == id else { return }
                 }
             }
 
-            // Background-cache file for offline playback (if enabled)
-            if playbackSettings.audioCacheEnabled {
+            // Background-cache file for offline playback (if enabled).
+            // Cloud streaming already writes to the same cache file as
+            // it goes — duplicating via cacheInBackground would just
+            // race two writers on the same path.
+            if playbackSettings.audioCacheEnabled, !isCloudStream {
                 sourceManager?.cacheInBackground(song: song)
             }
 

@@ -338,42 +338,22 @@ struct NowPlayingView: View {
 
     private var moreMenu: some View {
         Menu {
-            // Group 1: Music actions
+            // 收藏 / 编辑当前歌曲
             Section {
+                Button { showAddToPlaylist = true } label: {
+                    Label(String(localized: "add_to_playlist"),
+                          systemImage: isInAnyPlaylist ? "heart.fill" : "text.badge.plus")
+                }
+                .disabled(player.currentSong == nil)
+
                 Button { showScrapeOptions = true } label: {
                     Label(String(localized: "scrape_song"), systemImage: "wand.and.stars")
                 }
                 .disabled(player.currentSong == nil || isScrapingCurrentSong)
-
-                Button { showAddToPlaylist = true } label: {
-                    Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
-                }
-                .disabled(player.currentSong == nil)
             }
 
-            // Group 1b: Lyrics font size — only relevant while viewing lyrics
-            if showLyrics {
-                Section {
-                    Picker(selection: $lyricsFontScale) {
-                        Text("lyrics_font_small").tag(0.85)
-                        Text("lyrics_font_medium").tag(1.0)
-                        Text("lyrics_font_large").tag(1.2)
-                        Text("lyrics_font_xlarge").tag(1.5)
-                    } label: {
-                        Label(String(localized: "lyrics_font_size"), systemImage: "textformat.size")
-                    }
-                }
-            }
-
-            // Group 2: Utilities
+            // 信息 / 分享
             Section {
-                Button { showSleepTimer = true } label: {
-                    Label(
-                        player.isSleepTimerActive ? String(localized: "sleep_timer_active") : String(localized: "sleep_timer"),
-                        systemImage: "moon.zzz"
-                    )
-                }
-
                 Button { showSongInfo = true } label: {
                     Label(String(localized: "song_info"), systemImage: "info.circle")
                 }
@@ -386,7 +366,32 @@ struct NowPlayingView: View {
                 }
             }
 
-            // Group 3: Destructive
+            // 阅读偏好（仅歌词模式可见，submenu 形式：父行显示当前字号，点开 4 项带勾选）
+            if showLyrics {
+                Section {
+                    Picker(selection: $lyricsFontScale) {
+                        Text("lyrics_font_small").tag(0.85)
+                        Text("lyrics_font_medium").tag(1.0)
+                        Text("lyrics_font_large").tag(1.2)
+                        Text("lyrics_font_xlarge").tag(1.5)
+                    } label: {
+                        Label(String(localized: "lyrics_font_size"), systemImage: "textformat.size")
+                    }
+                    .pickerStyle(.menu)
+                }
+            }
+
+            // 播放控制
+            Section {
+                Button { showSleepTimer = true } label: {
+                    Label(
+                        player.isSleepTimerActive ? String(localized: "sleep_timer_active") : String(localized: "sleep_timer"),
+                        systemImage: player.isSleepTimerActive ? "moon.zzz.fill" : "moon.zzz"
+                    )
+                }
+            }
+
+            // 销毁
             Section {
                 Button(role: .destructive) {
                     showDeleteConfirm = true

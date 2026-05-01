@@ -255,6 +255,10 @@
 "rg_mode_album" = "专辑";
 "audio_cache_enabled" = "音频缓存";
 "audio_cache_desc" = "启用后，播放过的歌曲将被缓存到本地，下次播放时无需重新下载。关闭后不保留缓存文件。";
+"network" = "网络";
+"cloud_scan_wifi_only" = "仅在 Wi-Fi 下补全云盘信息";
+"cloud_scan_wifi_only_footer" = "扫描云盘时只下载文件名，曲目信息（歌手/专辑/封面/时长）会在后台分批补全。一首歌大约消耗 256KB 流量。开启此项后，遇到蜂窝网络会自动暂停，连上 Wi-Fi 自动继续。";
+"backfill_progress" = "正在补全";
 
 // MARK: - 音效
 "audio_effects" = "音效";
@@ -447,3 +451,22 @@
 "delete_permanently" = "彻底删除";
 "auto_remove_in_n_days" = "%d 天后自动彻底删除";
 "icloud_container_setup_hint" = "请在 Apple Developer 后台启用 iCloud 容器 iCloud.com.welape.yuanyin，并在 Xcode → Signing & Capabilities 中确认勾选";
+
+// MARK: - CarPlay
+"carplay_tab_recent" = "最近";
+"carplay_tab_albums" = "专辑";
+"carplay_tab_artists" = "艺人";
+"carplay_tab_songs" = "歌曲";
+"carplay_recent_title" = "最近添加";
+"carplay_albums_title" = "专辑";
+"carplay_artists_title" = "艺人";
+"carplay_songs_title" = "歌曲";
+"carplay_empty_library_title" = "资料库为空";
+"carplay_empty_library_subtitle" = "请在 iPhone 上添加音乐源";
+"carplay_up_next" = "即将播放";
+"carplay_queue_empty" = "队列为空";
+"carplay_tab_search" = "搜索";
+"carplay_search_title" = "搜索";
+"carplay_search_no_results" = "无匹配结果";
+"carplay_play_failed_format" = "无法播放 %@";
+"carplay_ok" = "好";

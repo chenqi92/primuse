@@ -86,6 +86,16 @@ final class CloudKitSyncService {
     /// when the user signs out of iCloud while the app is running.
     private var accountChangeObserver: NSObjectProtocol?
 
+    /// Once-per-install flag: did we run `scheduleInitialUpload()` to seed
+    /// CloudKit with everything that was already on disk before sync existed?
+    /// CKSyncEngine's persisted state tracks per-record sync status after the
+    /// first run, so re-uploading on every cold launch is wasteful.
+    private static let initialUploadDoneKey = "primuse.cloudSync.initialUploadComplete"
+    private var didCompleteInitialUpload: Bool {
+        get { UserDefaults.standard.bool(forKey: Self.initialUploadDoneKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.initialUploadDoneKey) }
+    }
+
     // MARK: - Init
 
     init(
@@ -138,8 +148,12 @@ final class CloudKitSyncService {
         attachLocalChangeObservers()
         attachAccountChangeObserver()
 
-        // Push existing local state on first run so the other device sees something.
-        scheduleInitialUpload()
+        // Push existing local state once after install so the engine has a
+        // baseline. After that CKSyncEngine's persisted state tracks per-record
+        // sync status — re-uploading on every cold launch just burns quota.
+        if !didCompleteInitialUpload {
+            scheduleInitialUpload()
+        }
 
         do {
             plog("CloudKitSync: starting fetchChanges()")
@@ -147,6 +161,7 @@ final class CloudKitSyncService {
             plog("CloudKitSync: fetchChanges OK, starting sendChanges()")
             try await engine.sendChanges()
             plog("CloudKitSync: sendChanges OK")
+            self.didCompleteInitialUpload = true
             self.status = .upToDate
             self.lastSyncedAt = Date()
         } catch {
@@ -218,6 +233,33 @@ final class CloudKitSyncService {
         if updateStatus { status = .disabled }
     }
 
+    /// Re-enqueue every local entity belonging to a channel. Use this when a
+    /// channel is toggled from off → on so edits made while it was off get
+    /// caught up. Cheap because CKSyncEngine de-dupes against server change tags.
+    func catchUp(channel: CloudSyncChannel) async {
+        guard isStarted else { return }
+        switch channel {
+        case .playlists:
+            playlistsChanged(ids: library.allPlaylists.map(\.id))
+        case .sources:
+            sourcesChanged(ids: sourcesStore.allSources.map(\.id))
+        case .playbackHistory:
+            enqueueSaves(recordType: RecordType.playbackHistory, ids: [Self.playbackHistoryRecordName])
+        case .settings:
+            scraperConfigsChanged(ids: scraperConfigStore.allConfigsIncludingDeleted.map(\.id))
+            // KVS-mirrored UserDefaults keys: poke each so timestamps update.
+            for key in [CloudKVSKey.playbackSettings, CloudKVSKey.scraperSettings,
+                        CloudKVSKey.lyricsFontScale, CloudKVSKey.recentSearches] {
+                CloudKVSSync.shared.markChanged(key: key)
+            }
+        case .credentials:
+            // Past Keychain entries are governed by the system iCloud Keychain
+            // toggle — nothing for us to push from here.
+            break
+        }
+        await syncNow()
+    }
+
     /// Force a fetch + send pass (used by the "Sync now" action).
     func syncNow() async {
         guard let engine else { return }
@@ -264,6 +306,9 @@ final class CloudKitSyncService {
             // succeeded enough to be worth treating as up-to-date so the UI
             // doesn't go red. Stuck records will retry on the next pass.
             lastSyncedAt = Date()
+            // Engine state has been updated for everything that did succeed,
+            // so future cold launches don't need to re-seed.
+            didCompleteInitialUpload = true
             return .upToDate
         case .serverRejectedRequest, .badContainer, .missingEntitlement, .permissionFailure:
             // Container / entitlement misconfigured server-side. Surface a specific
@@ -390,13 +435,16 @@ final class CloudKitSyncService {
 
     /// On first start, push everything we have locally — including soft-deleted
     /// tombstones — so the engine can de-dupe against existing server records
-    /// via change tags.
+    /// via change tags. Each call respects the per-channel toggles.
     private func scheduleInitialUpload() {
         playlistsChanged(ids: library.allPlaylists.map(\.id))
         sourcesChanged(ids: sourcesStore.allSources.map(\.id))
         scraperConfigsChanged(ids: scraperConfigStore.allConfigsIncludingDeleted.map(\.id))
-        // Push history at startup too (bypass throttle once).
-        enqueueSaves(recordType: RecordType.playbackHistory, ids: [Self.playbackHistoryRecordName])
+        // Push history at startup too (bypass the 5-min throttle, but still
+        // honour the channel toggle).
+        if CloudSyncChannel.isEnabled(.playbackHistory) {
+            enqueueSaves(recordType: RecordType.playbackHistory, ids: [Self.playbackHistoryRecordName])
+        }
     }
 
     // MARK: - State persistence
@@ -457,10 +505,20 @@ final class CloudKitSyncService {
             return
         }
 
+        guard let id = parseLocalID(from: recordID, recordType: recordType) else { return }
+
+        // Recycle-bin recovery race: if the local copy has been restored
+        // (isDeleted == false) since the remote prune was scheduled, treat
+        // the remote deletion as stale and re-push our restored state instead
+        // of wiping it.
+        if isLocallyRestored(recordType: recordType, id: id) {
+            engine?.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
+            return
+        }
+
         isApplyingRemote = true
         defer { isApplyingRemote = false }
 
-        guard let id = parseLocalID(from: recordID, recordType: recordType) else { return }
         switch recordType {
         case RecordType.playlist:
             library.deletePlaylistFromRemote(id: id)
@@ -472,6 +530,24 @@ final class CloudKitSyncService {
             library.clearPlaybackHistory()
         default:
             break
+        }
+    }
+
+    /// True if the local store still holds an active (non-soft-deleted) entry
+    /// for `id`. Used to ignore stale remote prunes that would otherwise wipe
+    /// a recently-restored item.
+    private func isLocallyRestored(recordType: String, id: String) -> Bool {
+        switch recordType {
+        case RecordType.playlist:
+            return library.allPlaylists.first(where: { $0.id == id }).map { !$0.isDeleted } ?? false
+        case RecordType.musicSource:
+            return sourcesStore.allSources.first(where: { $0.id == id }).map { !$0.isDeleted } ?? false
+        case RecordType.scraperConfig:
+            return scraperConfigStore.allConfigsIncludingDeleted
+                .first(where: { $0.id == id })
+                .map { $0.isDeleted != true } ?? false
+        default:
+            return false
         }
     }
 
@@ -579,16 +655,35 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
                     self.applyRemoteDeletion(recordID: deletion.recordID, recordType: deletion.recordType)
                 }
             }
+        case .fetchedDatabaseChanges(let event):
+            // Zone-level changes from another device. Most often: zone deletion
+            // (user wiped CloudKit data on another device, or container reset).
+            // We re-create our zone if it's gone and force a re-seed on next
+            // start so the local data ends up back in CloudKit.
+            for deletion in event.deletions where deletion.zoneID == Self.zoneID {
+                plog("CloudKitSync: PrimuseSync zone was deleted remotely — recreating + re-seeding")
+                await MainActor.run {
+                    syncEngine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: Self.zoneID))])
+                    self.didCompleteInitialUpload = false
+                }
+            }
         case .sentRecordZoneChanges(let event):
             for failed in event.failedRecordSaves {
                 await MainActor.run {
                     self.handleFailedSave(failed, syncEngine: syncEngine)
                 }
             }
+        case .sentDatabaseChanges(let event):
+            for failed in event.failedZoneSaves {
+                plog("CloudKitSync: failed to save zone \(failed.zone.zoneID): \(failed.error.localizedDescription)")
+            }
         case .accountChange(let change):
             await MainActor.run { self.handleAccountChange(change) }
-        default:
+        case .willFetchChanges, .willSendChanges, .didFetchChanges, .didSendChanges:
+            // Lifecycle markers — useful for debugging but no action needed.
             break
+        @unknown default:
+            plog("CloudKitSync: unhandled engine event \(event)")
         }
     }
 
@@ -600,7 +695,12 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
         let pending = syncEngine.state.pendingRecordZoneChanges.filter { scope.contains($0) }
 
         return await CKSyncEngine.RecordZoneChangeBatch(pendingChanges: pending) { recordID in
-            await MainActor.run { self.makeRecord(for: recordID) }
+            let record = await MainActor.run { self.makeRecord(for: recordID) }
+            if let record { return record }
+            // Local entity is gone — drop the pending change so the engine
+            // doesn't retry forever. (Default behavior is to leave it queued.)
+            syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(recordID)])
+            return nil
         }
     }
 
@@ -643,10 +743,17 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
         }
     }
 
-    /// Last-writer-wins on `updatedAt`. If the server copy is newer we apply it
-    /// locally and let the local save get dropped; otherwise we re-enqueue —
-    /// CKSyncEngine carries the server's new changeTag forward so the next save
-    /// won't conflict.
+    /// Resolve a `serverRecordChanged` conflict with type-aware merging.
+    ///
+    /// - **Playlists**: union both sides' `songIDs` so neither device's recent
+    ///   add is lost; pick name/coverArt from the larger `updatedAt`.
+    /// - **PlaybackHistory**: union+dedup, capped at 100, local entries first.
+    /// - **MusicSource / ScraperConfig** (payload-based atomic types):
+    ///   straight last-writer-wins on `updatedAt`.
+    ///
+    /// Always applies the merged record locally, then re-enqueues a save —
+    /// CKSyncEngine carries the server's new changeTag forward so the next
+    /// save isn't rejected.
     @MainActor
     private func resolveServerRecordChanged(
         local: CKRecord,
@@ -659,16 +766,78 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
             return
         }
 
+        switch server.recordType {
+        case RecordType.playlist:
+            mergePlaylistRecord(local: local, server: server)
+        case RecordType.playbackHistory:
+            mergePlaybackHistoryRecord(local: local, server: server)
+        default:
+            // MusicSource / ScraperConfig: payload is atomic, LWW on updatedAt.
+            let localUpdated = (local["updatedAt"] as? Date) ?? .distantPast
+            let serverUpdated = (server["updatedAt"] as? Date) ?? .distantPast
+            if serverUpdated >= localUpdated {
+                applyRemoteRecord(server)
+                return  // local save dropped
+            }
+            // Local wins: keep our store as-is and re-push.
+        }
+
+        // Re-enqueue so engine picks up the merged local state with server's
+        // changeTag.
+        syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(local.recordID)])
+    }
+
+    @MainActor
+    private func mergePlaylistRecord(local: CKRecord, server: CKRecord) {
+        guard let id = parseLocalID(from: server.recordID, recordType: RecordType.playlist) else { return }
+
+        // Union of both song lists, preserving local order first then any new
+        // server-only IDs. Stable ordering keeps the UI from jumping around.
+        let localIDs = (local["songIDs"] as? [String]) ?? []
+        let serverIDs = (server["songIDs"] as? [String]) ?? []
+        var seen = Set<String>()
+        let mergedIDs = (localIDs + serverIDs).filter { seen.insert($0).inserted }
+
         let localUpdated = (local["updatedAt"] as? Date) ?? .distantPast
         let serverUpdated = (server["updatedAt"] as? Date) ?? .distantPast
+        let useLocalScalars = localUpdated > serverUpdated
+        let name = (useLocalScalars ? local["name"] : server["name"]) as? String
+            ?? (server["name"] as? String) ?? ""
+        let createdAt = (server["createdAt"] as? Date) ?? Date()
+        let coverArtPath = (useLocalScalars ? local["coverArtPath"] : server["coverArtPath"]) as? String
+        let updatedAt = max(localUpdated, serverUpdated)
 
-        if serverUpdated >= localUpdated {
-            // Server wins — drop the local save and apply the server version.
-            applyRemoteRecord(server)
-        } else {
-            // Local wins — re-enqueue the save.
-            syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(local.recordID)])
+        applyRemoteEnvelope {
+            library.applyRemotePlaylist(
+                Playlist(
+                    id: id,
+                    name: name,
+                    createdAt: createdAt,
+                    updatedAt: updatedAt,
+                    coverArtPath: coverArtPath
+                ),
+                songIDs: mergedIDs
+            )
         }
+    }
+
+    @MainActor
+    private func mergePlaybackHistoryRecord(local: CKRecord, server: CKRecord) {
+        let localIDs = (local["songIDs"] as? [String]) ?? []
+        let serverIDs = (server["songIDs"] as? [String]) ?? []
+        var seen = Set<String>()
+        let merged = (localIDs + serverIDs).filter { seen.insert($0).inserted }
+        let capped = Array(merged.prefix(100))
+        applyRemoteEnvelope {
+            library.applyRemotePlaybackHistory(songIDs: capped)
+        }
+    }
+
+    @MainActor
+    private func applyRemoteEnvelope(_ work: () -> Void) {
+        isApplyingRemote = true
+        defer { isApplyingRemote = false }
+        work()
     }
 
     @MainActor
@@ -688,12 +857,22 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
     private func handleAccountChange(_ change: CKSyncEngine.Event.AccountChange) {
         switch change.changeType {
         case .signOut, .switchAccounts:
-            // Drop the local engine state — the new account starts fresh.
+            // Drop the engine state and disarm sync. We deliberately do NOT
+            // wipe the local stores (playlists, sources, scraper configs) —
+            // that would be data loss the user didn't ask for. We also force
+            // the master toggle off so we don't auto-push the previous user's
+            // data into the new account on next launch. The user can re-enable
+            // sync from Settings when they're ready, and the next start() will
+            // re-seed CloudKit because we've cleared `didCompleteInitialUpload`.
             try? FileManager.default.removeItem(at: stateURL)
-            engine = nil
-            isStarted = false
+            didCompleteInitialUpload = false
+            UserDefaults.standard.set(false, forKey: "primuse.iCloudSyncEnabled")
+            stop(updateStatus: true)
+            status = .accountUnavailable(.unknown)
         case .signIn:
-            Task { await self.start() }
+            // Don't auto-start — let the user re-toggle iCloud sync explicitly
+            // so they understand the data direction.
+            break
         @unknown default:
             break
         }

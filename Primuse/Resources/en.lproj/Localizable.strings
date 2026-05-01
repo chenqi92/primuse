@@ -255,6 +255,10 @@
 "rg_mode_album" = "Album";
 "audio_cache_enabled" = "Audio Cache";
 "audio_cache_desc" = "When enabled, played songs are cached locally for faster playback next time. When disabled, temporary files are removed after playback.";
+"network" = "Network";
+"cloud_scan_wifi_only" = "Wi-Fi only for cloud info";
+"cloud_scan_wifi_only_footer" = "Cloud scans only fetch filenames upfront. Track info (artist, album, cover, duration) is filled in afterwards in the background — about 256KB per song. With this on, backfill pauses on cellular and resumes when you reconnect to Wi-Fi.";
+"backfill_progress" = "Filling info";
 
 // MARK: - Audio Effects
 "audio_effects" = "Audio Effects";
@@ -447,3 +451,22 @@
 "delete_permanently" = "Delete Permanently";
 "auto_remove_in_n_days" = "Auto-removes in %d days";
 "icloud_container_setup_hint" = "Enable the iCloud container iCloud.com.welape.yuanyin in Apple Developer, and verify it in Xcode → Signing & Capabilities";
+
+// MARK: - CarPlay
+"carplay_tab_recent" = "Recent";
+"carplay_tab_albums" = "Albums";
+"carplay_tab_artists" = "Artists";
+"carplay_tab_songs" = "Songs";
+"carplay_recent_title" = "Recently Added";
+"carplay_albums_title" = "Albums";
+"carplay_artists_title" = "Artists";
+"carplay_songs_title" = "Songs";
+"carplay_empty_library_title" = "Library is Empty";
+"carplay_empty_library_subtitle" = "Add a music source on your iPhone to start";
+"carplay_up_next" = "Up Next";
+"carplay_queue_empty" = "Queue is Empty";
+"carplay_tab_search" = "Search";
+"carplay_search_title" = "Search";
+"carplay_search_no_results" = "No results";
+"carplay_play_failed_format" = "Couldn't play %@";
+"carplay_ok" = "OK";

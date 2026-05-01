@@ -6,6 +6,11 @@ actor AliyunDriveSource: MusicSourceConnector {
     let sourceID: String
     private let helper: CloudDriveHelper
     private var driveId: String?
+    /// path → (downloadURL, expiry). Aliyun signed URLs are good for ~4
+    /// hours; we cache for 30min to skip the getDownloadUrl round-trip on
+    /// every range fetch within a single play session.
+    private var downloadURLCache: [String: (url: URL, expiresAt: Date)] = [:]
+    private static let downloadURLTTL: TimeInterval = 30 * 60
     private static let apiBase = "https://openapi.alipan.com"
     private static let oauthBase = "https://openapi.alipan.com/oauth"
 
@@ -27,17 +32,25 @@ actor AliyunDriveSource: MusicSourceConnector {
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
         guard let driveId else { throw CloudDriveError.notAuthenticated }
         let parentFileId = path.isEmpty || path == "/" ? "root" : path
-        let body: [String: Any] = ["drive_id": driveId, "parent_file_id": parentFileId, "limit": 200, "order_by": "name", "order_direction": "ASC"]
-        let bodyData = try JSONSerialization.data(withJSONObject: body)
-        let token = try await getToken()
-        let (data, http) = try await helper.makeAuthorizedRequest(url: URL(string: "\(Self.apiBase)/adrive/v1.0/openFile/list")!, method: "POST", body: bodyData, contentType: "application/json", accessToken: token)
-        guard http.statusCode == 200 else { throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "") }
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-        guard let items = json["items"] as? [[String: Any]] else { return [] }
-        return items.compactMap { item in
-            guard let name = item["name"] as? String, let fileId = item["file_id"] as? String, let type = item["type"] as? String else { return nil }
-            return RemoteFileItem(name: name, path: fileId, isDirectory: type == "folder", size: item["size"] as? Int64 ?? 0, modifiedDate: nil)
-        }
+        var all: [RemoteFileItem] = []
+        var marker: String? = nil
+        repeat {
+            var body: [String: Any] = ["drive_id": driveId, "parent_file_id": parentFileId, "limit": 200, "order_by": "name", "order_direction": "ASC"]
+            if let m = marker, !m.isEmpty { body["marker"] = m }
+            let bodyData = try JSONSerialization.data(withJSONObject: body)
+            let token = try await getToken()
+            let (data, http) = try await helper.makeAuthorizedRequest(url: URL(string: "\(Self.apiBase)/adrive/v1.0/openFile/list")!, method: "POST", body: bodyData, contentType: "application/json", accessToken: token)
+            guard http.statusCode == 200 else { throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "") }
+            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+            let items = json["items"] as? [[String: Any]] ?? []
+            all.append(contentsOf: items.compactMap { item in
+                guard let name = item["name"] as? String, let fileId = item["file_id"] as? String, let type = item["type"] as? String else { return nil }
+                return RemoteFileItem(name: name, path: fileId, isDirectory: type == "folder", size: item["size"] as? Int64 ?? 0, modifiedDate: nil)
+            })
+            let next = json["next_marker"] as? String
+            marker = (next?.isEmpty == false) ? next : nil
+        } while marker != nil
+        return all
     }
 
     func localURL(for path: String) async throws -> URL {
@@ -56,7 +69,23 @@ actor AliyunDriveSource: MusicSourceConnector {
         helper.scanAudioFiles(from: path) { [self] p in try await listFiles(at: p) }
     }
 
+    func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+        let url = try await getDownloadURL(for: path)
+        return try await helper.rangeRequest(url: url, offset: offset, length: length)
+    }
+
     private func downloadFile(at path: String) async throws -> Data {
+        let url = try await getDownloadURL(for: path)
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 300
+        let (fileData, _) = try await URLSession(configuration: config).data(from: url)
+        return fileData
+    }
+
+    private func getDownloadURL(for path: String) async throws -> URL {
+        if let cached = downloadURLCache[path], cached.expiresAt > Date() {
+            return cached.url
+        }
         guard let driveId else { throw CloudDriveError.notAuthenticated }
         let token = try await getToken()
         let body: [String: Any] = ["drive_id": driveId, "file_id": path]
@@ -64,11 +93,11 @@ actor AliyunDriveSource: MusicSourceConnector {
         let (data, http) = try await helper.makeAuthorizedRequest(url: URL(string: "\(Self.apiBase)/adrive/v1.0/openFile/getDownloadUrl")!, method: "POST", body: bodyData, contentType: "application/json", accessToken: token)
         guard http.statusCode == 200 else { throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "") }
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-        guard let downloadUrl = json["url"] as? String, let fileURL = URL(string: downloadUrl) else { throw CloudDriveError.fileNotFound(path) }
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 300
-        let (fileData, _) = try await URLSession(configuration: config).data(from: fileURL)
-        return fileData
+        guard let downloadUrl = json["url"] as? String, let fileURL = URL(string: downloadUrl) else {
+            throw CloudDriveError.fileNotFound(path)
+        }
+        downloadURLCache[path] = (fileURL, Date().addingTimeInterval(Self.downloadURLTTL))
+        return fileURL
     }
 
     private func fetchDriveId() async throws -> String {

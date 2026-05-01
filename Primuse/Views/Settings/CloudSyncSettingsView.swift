@@ -77,11 +77,11 @@ struct CloudSyncSettingsView: View {
             }
 
             Section {
-                channelToggle("synced_playlists", systemImage: "music.note.list", isOn: $syncPlaylists)
-                channelToggle("synced_sources", systemImage: "externaldrive.connected.to.line.below", isOn: $syncSources)
-                channelToggle("synced_playback_history", systemImage: "clock.arrow.circlepath", isOn: $syncPlaybackHistory)
-                channelToggle("synced_settings", systemImage: "slider.horizontal.3", isOn: $syncSettings)
-                channelToggle("synced_credentials", systemImage: "lock.shield", isOn: $syncCredentials)
+                channelToggle("synced_playlists", systemImage: "music.note.list", isOn: $syncPlaylists, channel: .playlists)
+                channelToggle("synced_sources", systemImage: "externaldrive.connected.to.line.below", isOn: $syncSources, channel: .sources)
+                channelToggle("synced_playback_history", systemImage: "clock.arrow.circlepath", isOn: $syncPlaybackHistory, channel: .playbackHistory)
+                channelToggle("synced_settings", systemImage: "slider.horizontal.3", isOn: $syncSettings, channel: .settings)
+                channelToggle("synced_credentials", systemImage: "lock.shield", isOn: $syncCredentials, channel: .credentials)
             } header: {
                 Text("synced_items")
             } footer: {
@@ -96,11 +96,13 @@ struct CloudSyncSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    /// A channel toggle that fires a catch-up sync when flipped on.
+    /// A channel toggle that re-enqueues every local entity of the channel
+    /// when flipped on, so edits made while it was off get caught up.
     private func channelToggle(
         _ titleKey: LocalizedStringKey,
         systemImage: String,
-        isOn: Binding<Bool>
+        isOn: Binding<Bool>,
+        channel: CloudSyncChannel
     ) -> some View {
         Toggle(isOn: isOn) {
             Label(titleKey, systemImage: systemImage)
@@ -108,7 +110,7 @@ struct CloudSyncSettingsView: View {
         .disabled(!enabled)
         .onChange(of: isOn.wrappedValue) { _, newValue in
             guard newValue, enabled else { return }
-            Task { await sync.syncNow() }
+            Task { await sync.catchUp(channel: channel) }
         }
     }
 

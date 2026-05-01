@@ -7,6 +7,32 @@ struct RemoteFileItem: Sendable {
     let isDirectory: Bool
     let size: Int64
     let modifiedDate: Date?
+    /// Sidecar files (cover.jpg, lyrics.lrc) discovered alongside this audio
+    /// item during scan. Cloud connectors populate this from the parent
+    /// directory listing so we don't need a fully-downloaded localURL to
+    /// detect siblings.
+    let sidecarHints: SidecarHints?
+
+    init(
+        name: String,
+        path: String,
+        isDirectory: Bool,
+        size: Int64,
+        modifiedDate: Date?,
+        sidecarHints: SidecarHints? = nil
+    ) {
+        self.name = name
+        self.path = path
+        self.isDirectory = isDirectory
+        self.size = size
+        self.modifiedDate = modifiedDate
+        self.sidecarHints = sidecarHints
+    }
+}
+
+struct SidecarHints: Sendable {
+    let coverPath: String?
+    let lyricsPath: String?
 }
 
 struct ConnectorScannedSong: Sendable {
@@ -36,6 +62,18 @@ protocol MusicSourceConnector: Sendable {
 
     /// Count audio files in a directory (recursive). Default implementation uses scanAudioFiles.
     func countAudioFiles(in path: String) async throws -> Int
+
+    /// Fetch a byte range of a remote file. Used by `MetadataBackfillService`
+    /// to read just the ID3/Vorbis/moov header (typically the first 256KB)
+    /// instead of downloading the whole audio file.
+    /// - Parameters:
+    ///   - path: Remote path identifier (same as `localURL` accepts).
+    ///   - offset: Starting byte offset. Negative values mean "from the end"
+    ///     (e.g. `-262144` is the last 256KB) where the connector supports it.
+    ///   - length: Number of bytes to fetch.
+    /// Default implementation falls back to a full download via `localURL`,
+    /// which is correct but slow — cloud connectors should override.
+    func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data
 }
 
 extension MusicSourceConnector {
@@ -54,6 +92,23 @@ extension MusicSourceConnector {
 
     func writeFile(data: Data, to path: String) async throws {
         throw SourceError.connectionFailed("This source does not support file writing")
+    }
+
+    /// Default fallback: download the whole file via `localURL` then slice.
+    /// Correct but slow. Cloud connectors override this with HTTP Range.
+    func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+        let url = try await localURL(for: path)
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        let fileSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
+        let actualOffset: UInt64
+        if offset < 0 {
+            actualOffset = UInt64(max(0, fileSize + offset))
+        } else {
+            actualOffset = UInt64(offset)
+        }
+        try handle.seek(toOffset: actualOffset)
+        return handle.readData(ofLength: Int(length))
     }
 }
 

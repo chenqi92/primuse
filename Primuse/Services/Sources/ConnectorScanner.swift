@@ -27,18 +27,19 @@ actor ConnectorScanner {
         AsyncThrowingStream { continuation in
             Task {
                 do {
+                    plog("🔍 ConnectorScanner.scan source=\(sourceID) dirs=\(directories)")
                     try await connector.connect()
+                    plog("🔍 ConnectorScanner.scan connected")
 
                     // Remove redundant child directories when a parent is already selected
                     let dirs = SynologyScanner.deduplicateDirectories(directories)
 
-                    // Phase 1: Count total audio files
-                    var totalCount = 0
-                    for directory in dirs {
-                        totalCount += (try? await connector.countAudioFiles(in: directory)) ?? 0
-                    }
-
-                    // Phase 2: Scan and extract metadata
+                    // Single-pass scan. Total count is unknown until we finish walking
+                    // the tree — UI shows scannedCount as an indeterminate counter
+                    // rather than X/Y. Skipping the prior Phase1 countAudioFiles pass
+                    // avoids walking every directory twice (saved ~50% list-API time
+                    // on large cloud trees).
+                    let totalCount = 0
                     var allSongs = existingSongs
                     let existingPaths = Set(existingSongs.map(\.filePath))
                     let initialCount = max(existingSongs.count, startingCount)
@@ -80,6 +81,7 @@ actor ConnectorScanner {
                                 }
                             } catch {
                                 hadDirectoryFailure = true
+                                plog("⚠️ Failed to scan directory \(directory): \(error)")
                                 NSLog("⚠️ Failed to scan directory \(directory): \(error.localizedDescription)")
                                 continue
                             }
@@ -102,6 +104,12 @@ actor ConnectorScanner {
                         return
                     }
 
+                    // Phase A: walk the tree, build "bare" Songs (filename + path
+                    // + size + sidecar hints from sibling listing). Skip the full
+                    // file download + ID3 extraction — that work is deferred to
+                    // MetadataBackfillService which fetches just the first 256KB
+                    // via HTTP Range. This drops scan time from minutes (and 11GB
+                    // of egress on a 2200-song cloud library) to seconds.
                     for directory in dirs {
                         do {
                             let stream = try await connector.scanAudioFiles(from: directory)
@@ -110,29 +118,14 @@ actor ConnectorScanner {
                                 encounteredPaths.insert(item.path)
                                 guard existingPaths.contains(item.path) == false else { continue }
 
-                                scannedCount += 1
-                                continuation.yield(
-                                    ScanUpdate(
-                                        scannedCount: scannedCount,
-                                        totalCount: totalCount,
-                                        currentFile: item.name,
-                                        songs: allSongs
-                                    )
-                                )
-
-                                let localURL = try await connector.localURL(for: item.path)
                                 let songID = hash("\(sourceID):\(item.path)")
-                                // Extract metadata and cache embedded cover/lyrics to disk
-                                let metadata = await metadataService.loadMetadata(
-                                    for: localURL,
-                                    cacheKey: songID,
-                                    allowOnlineFetch: false
-                                )
-                                // Detect sidecar references on source
-                                let sidecarRefs = detectSidecarRefs(for: item, localURL: localURL)
-                                allSongs.append(buildSong(from: item, metadata: metadata, songID: songID, sidecarRefs: sidecarRefs))
+                                allSongs.append(buildBareSong(from: item, songID: songID))
+                                scannedCount += 1
 
-                                if scannedCount % 3 == 0 {
+                                // Yield progress every 20 items — yielding on every
+                                // file made the SwiftUI publisher chain the bottleneck
+                                // when scanning fast cloud listings.
+                                if scannedCount % 20 == 0 {
                                     continuation.yield(
                                         ScanUpdate(
                                             scannedCount: scannedCount,
@@ -145,6 +138,7 @@ actor ConnectorScanner {
                             }
                         } catch {
                             hadDirectoryFailure = true
+                            plog("⚠️ Failed to scan directory \(directory): \(error)")
                             NSLog("⚠️ Failed to scan directory \(directory): \(error.localizedDescription)")
                             continue
                         }
@@ -193,6 +187,39 @@ actor ConnectorScanner {
         }
 
         return refs
+    }
+
+    /// Build a Song with no metadata extraction — title is the filename, all
+    /// metadata fields (artist, album, duration, bitRate, etc.) are nil. The
+    /// MetadataBackfillService is responsible for filling these in later by
+    /// reading just the file's header via HTTP Range.
+    private func buildBareSong(from item: RemoteFileItem, songID: String) -> Song {
+        let format = AudioFormat.from(fileExtension: (item.name as NSString).pathExtension) ?? .mp3
+        let fileBaseName = (item.name as NSString).deletingPathExtension
+        return Song(
+            id: songID,
+            title: fileBaseName,
+            albumID: nil,
+            artistID: nil,
+            albumTitle: nil,
+            artistName: nil,
+            trackNumber: nil,
+            discNumber: nil,
+            duration: 0,  // 0 = not yet extracted; backfill service watches for this
+            fileFormat: format,
+            filePath: item.path,
+            sourceID: sourceID,
+            fileSize: item.size,
+            bitRate: nil,
+            sampleRate: nil,
+            bitDepth: nil,
+            genre: nil,
+            year: nil,
+            lastModified: item.modifiedDate,
+            dateAdded: Date(),
+            coverArtFileName: item.sidecarHints?.coverPath,
+            lyricsFileName: item.sidecarHints?.lyricsPath
+        )
     }
 
     private func buildSong(

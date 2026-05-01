@@ -62,4 +62,18 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
     public static func from(fileExtension ext: String) -> AudioFormat? {
         AudioFormat(rawValue: ext.lowercased())
     }
+
+    /// UTI / file-type identifier for `AVAssetResourceLoadingContentInformationRequest.contentType`.
+    /// Returns nil for formats AVPlayer can't play natively (FFmpeg-required) —
+    /// caller falls back to full-download playback for those.
+    public var avPlayerContentType: String? {
+        switch self {
+        case .mp3: return "public.mp3"
+        case .aac, .m4a, .mp4, .alac: return "public.mpeg-4-audio"
+        case .flac: return "org.xiph.flac"
+        case .wav: return "com.microsoft.waveform-audio"
+        case .aiff, .aif: return "public.aiff-audio"
+        case .ape, .dsf, .dff, .ogg, .opus, .wma, .wv: return nil
+        }
+    }
 }

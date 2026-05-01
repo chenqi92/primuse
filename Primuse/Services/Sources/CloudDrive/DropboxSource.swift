@@ -18,12 +18,35 @@ actor DropboxSource: MusicSourceConnector {
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
         let folderPath = (path.isEmpty || path == "/") ? "" : path
+        var all: [RemoteFileItem] = []
+
+        // 首次：files/list_folder
+        var json = try await postJSON(
+            url: "\(Self.apiBase)/files/list_folder",
+            body: ["path": folderPath, "limit": 2000, "include_mounted_folders": true]
+        )
+        all.append(contentsOf: parseEntries(json))
+
+        // 翻页：files/list_folder/continue 直到 has_more == false
+        while (json["has_more"] as? Bool) == true, let cursor = json["cursor"] as? String {
+            json = try await postJSON(
+                url: "\(Self.apiBase)/files/list_folder/continue",
+                body: ["cursor": cursor]
+            )
+            all.append(contentsOf: parseEntries(json))
+        }
+        return all
+    }
+
+    private func postJSON(url: String, body: [String: Any]) async throws -> [String: Any] {
         let token = try await getToken()
-        let body: [String: Any] = ["path": folderPath, "limit": 2000, "include_mounted_folders": true]
         let bodyData = try JSONSerialization.data(withJSONObject: body)
-        let (data, http) = try await helper.makeAuthorizedRequest(url: URL(string: "\(Self.apiBase)/files/list_folder")!, method: "POST", body: bodyData, contentType: "application/json", accessToken: token)
+        let (data, http) = try await helper.makeAuthorizedRequest(url: URL(string: url)!, method: "POST", body: bodyData, contentType: "application/json", accessToken: token)
         guard http.statusCode == 200 else { throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "") }
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        return try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+    }
+
+    private func parseEntries(_ json: [String: Any]) -> [RemoteFileItem] {
         guard let entries = json["entries"] as? [[String: Any]] else { return [] }
         return entries.compactMap { entry in
             guard let name = entry["name"] as? String, let pathDisplay = entry["path_display"] as? String, let tag = entry[".tag"] as? String else { return nil }
@@ -54,6 +77,46 @@ actor DropboxSource: MusicSourceConnector {
 
     func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
         helper.scanAudioFiles(from: path) { [self] p in try await listFiles(at: p) }
+    }
+
+    func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+        let token = try await getToken()
+        var request = URLRequest(url: URL(string: "\(Self.contentBase)/files/download")!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        // Escape path for JSON header value
+        let escaped = path.replacingOccurrences(of: "\\", with: "\\\\")
+                          .replacingOccurrences(of: "\"", with: "\\\"")
+        request.setValue("{\"path\":\"\(escaped)\"}", forHTTPHeaderField: "Dropbox-API-Arg")
+        let rangeHeader: String
+        if offset < 0 {
+            rangeHeader = "bytes=\(offset)"
+        } else {
+            rangeHeader = "bytes=\(offset)-\(offset + length - 1)"
+        }
+        request.setValue(rangeHeader, forHTTPHeaderField: "Range")
+        request.timeoutInterval = 60
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw CloudDriveError.apiError(0, "Range fetch failed")
+        }
+        switch http.statusCode {
+        case 206:
+            return data
+        case 200:
+            // Same correction as CloudDriveHelper.rangeRequest — Dropbox should
+            // honor Range, but if some intermediary strips the header we'd
+            // otherwise write the file head into a mid-file cache offset.
+            let totalSize = Int64(data.count)
+            let actualOffset: Int64 = offset < 0
+                ? max(0, totalSize + offset)
+                : offset
+            guard actualOffset < totalSize else { return Data() }
+            let upper = min(actualOffset + length, totalSize)
+            return data.subdata(in: Int(actualOffset)..<Int(upper))
+        default:
+            throw CloudDriveError.apiError(http.statusCode, "Range fetch failed")
+        }
     }
 
     private func getToken() async throws -> String {

@@ -467,6 +467,8 @@ struct PlaybackSettingsView: View {
 struct StorageManagementView: View {
     @Environment(SourceManager.self) private var sourceManager
     @Environment(PlaybackSettingsStore.self) private var playbackSettings
+    @Environment(MetadataBackfillService.self) private var backfill
+    @AppStorage(MetadataBackfillService.wifiOnlyDefaultsKey) private var cloudScanWifiOnly: Bool = true
     @State private var audioCacheSize: String = "..."
     @State private var imageCacheSize: String = "..."
     @State private var metadataSize: String = "..."
@@ -478,6 +480,27 @@ struct StorageManagementView: View {
         @Bindable var settings = playbackSettings
 
         List {
+            Section {
+                Toggle("cloud_scan_wifi_only", isOn: $cloudScanWifiOnly)
+                    .onChange(of: cloudScanWifiOnly) { _, _ in
+                        // Re-evaluate immediately so the user sees backfill
+                        // start (or stop) right after flipping the switch.
+                        backfill.refreshQueue()
+                    }
+                if backfill.isRunning {
+                    HStack {
+                        Text("backfill_progress")
+                        Spacer()
+                        Text("\(backfill.processedCount) / \(backfill.pendingCount)")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } header: {
+                Text("network")
+            } footer: {
+                Text("cloud_scan_wifi_only_footer")
+            }
+
             Section {
                 Toggle("audio_cache_enabled", isOn: $settings.audioCacheEnabled)
 

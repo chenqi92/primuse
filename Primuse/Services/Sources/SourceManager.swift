@@ -162,6 +162,11 @@ final class SourceManager {
         return connector
     }
 
+    /// Custom URL scheme that signals "play this song via streaming
+    /// SFBInputSource" — AudioPlayerService intercepts it and routes to
+    /// CloudPlaybackSource instead of doing a full download.
+    static let cloudStreamingScheme = "primuse-stream"
+
     func resolveURL(for song: Song) async throws -> URL {
         let sources = try await sourcesProvider()
         guard let source = sources.first(where: { $0.id == song.sourceID }) else {
@@ -175,11 +180,27 @@ final class SourceManager {
         if let cached = cachedURL(for: song) {
             return cached
         }
-        // Priority 2: Streaming URL (StreamingDownloadDecoder handles SSL)
+        // Priority 2: Streaming URL (Synology and similar — direct HTTP URL)
         if let streamURL = try await conn.streamingURL(for: song.filePath) {
             return streamURL
         }
-        // Priority 3: Download to local
+        // Priority 3: Cloud-drive sources with a known fileSize go through
+        // the streaming SFBInputSource — instant playback, lazy on-disk
+        // caching. AudioPlayerService spots the custom scheme and uses
+        // CloudPlaybackSource. Falls back to full download for sources
+        // without a usable fileSize (rare; only happens before the first
+        // metadata refresh on legacy entries).
+        if source.type.category == .cloudDrive, song.fileSize > 0 {
+            var components = URLComponents()
+            components.scheme = Self.cloudStreamingScheme
+            components.host = song.sourceID
+            components.path = song.filePath.hasPrefix("/") ? song.filePath : "/" + song.filePath
+            if let url = components.url {
+                return url
+            }
+        }
+        // Priority 4: Download to local (legacy path; still required for
+        // sources without Range support).
         return try await conn.localURL(for: song.filePath)
     }
 
@@ -284,6 +305,29 @@ final class SourceManager {
                 plog("⚠️ Cache failed for '\(song.title)': \(error.localizedDescription)")
             }
         }
+    }
+
+    /// Build a streaming `SFBInputSource` for `song`. Used by
+    /// AudioPlayerService when `resolveURL` returns a `primuse-stream://`
+    /// URL. The returned source reads via HTTP Range and writes fetched
+    /// chunks to the same cache file used by `localURL` — once enough
+    /// ranges accumulate (or the user replays after a full listen) the
+    /// next play hits Priority 1 above and bypasses streaming entirely.
+    func makeStreamingInputSource(for song: Song) async throws -> InputSource? {
+        let sources = try await sourcesProvider()
+        guard let source = sources.first(where: { $0.id == song.sourceID }) else {
+            throw SourceError.fileNotFound("Source not found for song: \(song.title)")
+        }
+        let conn = connector(for: source)
+        try await conn.connect()
+        guard song.fileSize > 0 else { return nil }
+        let cache = cacheURL(for: song)
+        return CloudPlaybackSource.makeInputSource(
+            song: song,
+            totalLength: song.fileSize,
+            connector: conn,
+            cacheURL: cache
+        )
     }
 
     /// Get the shared connector for a song's source (for playback and file writing).

@@ -1,3 +1,4 @@
+import BackgroundTasks
 import Foundation
 import PrimuseKit
 import UIKit
@@ -106,7 +107,11 @@ final class ScanService {
                     sourceStore: sourceStore,
                     scraperService: scraperService
                 )
-            case .smb, .webdav, .ftp, .sftp, .nfs, .upnp, .jellyfin, .emby, .plex:
+            case .smb, .webdav, .ftp, .sftp, .nfs, .upnp,
+                 .jellyfin, .emby, .plex,
+                 .qnap, .ugreen, .fnos, .s3,
+                 .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox,
+                 .local:
                 await scanConnectorSource(
                     source: source,
                     directories: normalizedDirs,
@@ -116,14 +121,62 @@ final class ScanService {
                     sourceStore: sourceStore,
                     scraperService: scraperService
                 )
-            default:
-                scanStates[source.id] = ScanState(
-                    isScanning: false,
-                    currentFile: String(localized: "scan_needs_connect")
-                )
             }
         }
         activeTasks[source.id] = task
+    }
+
+    /// Identifier used for BGProcessingTask scheduling.
+    /// Must match `BGTaskSchedulerPermittedIdentifiers` in Info.plist.
+    static let backgroundTaskIdentifier = "com.welape.yuanyin.scan-resume"
+
+    /// Re-launch any source whose scan was interrupted (has a checkpoint with
+    /// unfinished progress) and is not already running. Idempotent — safe to
+    /// call on every app foreground or background-task wake.
+    func resumePendingScans(
+        sourceManager: SourceManager,
+        library: MusicLibrary,
+        sourceStore: SourcesStore,
+        scraperService: MusicScraperService?
+    ) {
+        for (sourceID, state) in scanStates where state.canResume {
+            guard activeTasks[sourceID] == nil,
+                  let source = sourceStore.source(id: sourceID),
+                  source.isEnabled, !source.isDeleted else { continue }
+            scanSource(
+                source,
+                sourceManager: sourceManager,
+                library: library,
+                sourceStore: sourceStore,
+                scraperService: scraperService
+            )
+        }
+    }
+
+    /// Schedule a BGProcessingTask that iOS will fire when the device is
+    /// idle (and ideally plugged in / on Wi-Fi). The task handler resumes
+    /// any pending scans and runs metadata backfill. Should be called when
+    /// the app moves to background.
+    /// - Parameter backfillPending: pass `true` if `MetadataBackfillService`
+    ///   still has bare songs to process — we'll schedule even when no scan
+    ///   has a checkpoint, so backfill can keep running in the background.
+    func scheduleBackgroundResumeIfNeeded(backfillPending: Bool = false) {
+        // Only schedule if there's actually something pending.
+        let hasScanWork = scanStates.values.contains(where: { $0.canResume || $0.isScanning })
+        guard hasScanWork || backfillPending else { return }
+
+        let request = BGProcessingTaskRequest(identifier: Self.backgroundTaskIdentifier)
+        request.requiresNetworkConnectivity = true
+        request.requiresExternalPower = false
+        // Earliest wake — actual fire time is iOS's call.
+        request.earliestBeginDate = Date(timeIntervalSinceNow: 60)
+        do {
+            try BGTaskScheduler.shared.submit(request)
+        } catch {
+            // BGTaskScheduler.Error.unavailable on simulator and when entitlement missing.
+            // Don't crash — auto-resume on foreground still works.
+            plog("⚠️ BGProcessing submit failed: \(error)")
+        }
     }
 
     func cancelScan(for sourceID: String) {
@@ -131,6 +184,22 @@ final class ScanService {
         activeTasks[sourceID] = nil
         scanStates[sourceID]?.isScanning = false
         endBackgroundTask(for: sourceID)
+    }
+
+    /// Cancel every in-flight scan. Used by the BGProcessingTask expiration
+    /// handler so iOS doesn't kill us mid-write.
+    func cancelAllActiveScans() {
+        for sourceID in Array(activeTasks.keys) {
+            cancelScan(for: sourceID)
+        }
+    }
+
+    /// Polls until no scan is active. Used inside the BGProcessingTask handler
+    /// so we can mark the task complete only after work finishes.
+    func waitForActiveScansToComplete() async {
+        while !activeTasks.isEmpty {
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+        }
     }
 
     func removeCheckpoint(for sourceID: String) {

@@ -73,17 +73,24 @@ final class CloudKVSSync {
         let timestamp = Date().timeIntervalSince1970
         defaults.set(timestamp, forKey: timestampKey(for: key))
 
-        // Copy whatever is at `key` in defaults up to KVS.
+        // Copy whatever is at `key` in defaults up to KVS. Order matters: a
+        // Bool stored in UserDefaults round-trips as an NSNumber whose Swift
+        // bridging satisfies both `is Bool` and `is Double` — Bool detection
+        // via CFBoolean has to come first.
         if let data = defaults.data(forKey: key) {
             kvs.set(data, forKey: key)
         } else if let array = defaults.stringArray(forKey: key) {
             kvs.set(array, forKey: key)
         } else if let s = defaults.string(forKey: key) {
             kvs.set(s, forKey: key)
-        } else if defaults.object(forKey: key) is Double || defaults.object(forKey: key) is Int {
-            kvs.set(defaults.double(forKey: key), forKey: key)
-        } else if defaults.object(forKey: key) is Bool {
-            kvs.set(defaults.bool(forKey: key), forKey: key)
+        } else if let raw = defaults.object(forKey: key) {
+            if CFGetTypeID(raw as CFTypeRef) == CFBooleanGetTypeID() {
+                kvs.set(defaults.bool(forKey: key), forKey: key)
+            } else if raw is NSNumber {
+                kvs.set(defaults.double(forKey: key), forKey: key)
+            } else {
+                kvs.set(raw, forKey: key)
+            }
         } else {
             // Nothing to push — treat as deletion.
             kvs.removeObject(forKey: key)

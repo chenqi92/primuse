@@ -169,8 +169,19 @@ final class ScraperConfigStore: @unchecked Sendable {
     }
 
     /// Apply a config pulled from CloudKit. Skips notification — caller is the
-    /// remote-apply path.
+    /// remote-apply path. Compares `modifiedAt` last-writer-wins so a slow
+    /// remote arrival doesn't clobber a fresher local edit.
     func applyRemoteConfig(_ config: ScraperConfig) {
+        lock.lock()
+        if let existing = cache[config.id],
+           let localTS = existing.modifiedAt,
+           let remoteTS = config.modifiedAt,
+           localTS > remoteTS {
+            lock.unlock()
+            return
+        }
+        lock.unlock()
+
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         guard let data = try? encoder.encode(config) else { return }
