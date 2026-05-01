@@ -4,12 +4,14 @@ import SwiftUI
 enum MusicScraperType: Sendable, Identifiable, Hashable {
     case musicBrainz
     case lrclib
+    case itunes
     case custom(String)  // config ID
 
     var id: String {
         switch self {
         case .musicBrainz: "musicBrainz"
         case .lrclib: "lrclib"
+        case .itunes: "itunes"
         case .custom(let configId): "custom_\(configId)"
         }
     }
@@ -19,6 +21,7 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
         switch self {
         case .musicBrainz: "musicBrainz"
         case .lrclib: "lrclib"
+        case .itunes: "itunes"
         case .custom(let configId): "custom:\(configId)"
         }
     }
@@ -27,6 +30,7 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
         switch rawValue {
         case "musicBrainz": self = .musicBrainz
         case "lrclib": self = .lrclib
+        case "itunes": self = .itunes
         default:
             if rawValue.hasPrefix("custom:") {
                 self = .custom(String(rawValue.dropFirst(7)))
@@ -41,6 +45,7 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
         switch self {
         case .musicBrainz: "MusicBrainz"
         case .lrclib: "LRCLIB"
+        case .itunes: "Apple Music"
         case .custom(let configId):
             ScraperConfigStore.shared.config(for: configId)?.name ?? configId
         }
@@ -50,6 +55,7 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
         switch self {
         case .musicBrainz: "globe"
         case .lrclib: "text.quote"
+        case .itunes: "applelogo"
         case .custom(let configId):
             ScraperConfigStore.shared.config(for: configId)?.icon ?? "puzzlepiece"
         }
@@ -59,6 +65,7 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
         switch self {
         case .musicBrainz: Color(red: 0.73, green: 0.28, blue: 0.56)
         case .lrclib: Color(red: 0.39, green: 0.4, blue: 0.95)
+        case .itunes: Color(red: 0.98, green: 0.18, blue: 0.36)
         case .custom(let configId):
             if let hex = ScraperConfigStore.shared.config(for: configId)?.color {
                 Color(hex: hex)
@@ -72,6 +79,7 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
         switch self {
         case .musicBrainz: return String(localized: "scraper_musicbrainz_desc")
         case .lrclib: return String(localized: "scraper_lrclib_desc")
+        case .itunes: return String(localized: "scraper_itunes_desc")
         case .custom(let configId):
             let caps = ScraperConfigStore.shared.config(for: configId)?.capabilities.joined(separator: ", ") ?? ""
             return String(localized: "custom_scraper_desc") + " (\(caps))"
@@ -82,6 +90,7 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
         switch self {
         case .musicBrainz: true
         case .lrclib: false
+        case .itunes: true
         case .custom(let id): ScraperConfigStore.shared.config(for: id)?.supportsMetadata ?? false
         }
     }
@@ -90,6 +99,7 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
         switch self {
         case .musicBrainz: true
         case .lrclib: false
+        case .itunes: true
         case .custom(let id): ScraperConfigStore.shared.config(for: id)?.supportsCover ?? false
         }
     }
@@ -98,27 +108,28 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
         switch self {
         case .musicBrainz: false
         case .lrclib: true
+        case .itunes: false
         case .custom(let id): ScraperConfigStore.shared.config(for: id)?.supportsLyrics ?? false
         }
     }
 
     var supportsCookie: Bool {
         switch self {
-        case .musicBrainz, .lrclib: false
+        case .musicBrainz, .lrclib, .itunes: false
         case .custom(let id): ScraperConfigStore.shared.config(for: id)?.supportsCookie ?? false
         }
     }
 
     var isBuiltIn: Bool {
         switch self {
-        case .musicBrainz, .lrclib: true
+        case .musicBrainz, .lrclib, .itunes: true
         case .custom: false
         }
     }
 
     /// Built-in scrapers in default order
     static var builtInOrder: [MusicScraperType] {
-        [.musicBrainz, .lrclib]
+        [.itunes, .musicBrainz, .lrclib]
     }
 }
 

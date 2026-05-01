@@ -72,10 +72,53 @@ final class MusicLibrary {
 
     /// Add songs from a scan result and rebuild albums/artists
     func addSongs(_ newSongs: [Song]) {
-        // Merge: replace songs from same source, keep others
+        // Merge semantics:
+        //
+        // - Drop songs from the affected sources that the new scan didn't
+        //   yield (file deleted on the remote).
+        // - For songs that already exist AND the incoming entry is "bare"
+        //   (cloud Phase A scan: duration=0 && bitRate=nil), keep the
+        //   previously-backfilled metadata. Just refresh the fields the
+        //   scan is authoritative for: fileSize, lastModified, sidecar
+        //   pointers when the scan found new ones.
+        // - For everything else (local source rescan, full-metadata scan,
+        //   or genuinely new songs), trust the incoming entry.
+        //
+        // The previous implementation simply wiped every song from the
+        // source and re-appended — which silently undid hours of cloud
+        // metadata backfill the moment the user tapped "scan" again.
+        let incomingIDs = Set(newSongs.map(\.id))
         let sourceIDs = Set(newSongs.map(\.sourceID))
-        songs.removeAll { sourceIDs.contains($0.sourceID) }
-        songs.append(contentsOf: newSongs)
+
+        songs.removeAll { sourceIDs.contains($0.sourceID) && !incomingIDs.contains($0.id) }
+
+        var existingIndexByID: [String: Int] = [:]
+        existingIndexByID.reserveCapacity(songs.count)
+        for (i, s) in songs.enumerated() { existingIndexByID[s.id] = i }
+
+        for newSong in newSongs {
+            if let idx = existingIndexByID[newSong.id] {
+                let existing = songs[idx]
+                let incomingIsBare = newSong.duration == 0 && newSong.bitRate == nil
+                let existingHasMetadata = existing.duration > 0 || existing.bitRate != nil
+                if incomingIsBare && existingHasMetadata {
+                    var merged = existing
+                    merged.fileSize = newSong.fileSize
+                    merged.lastModified = newSong.lastModified
+                    // Sidecar from a fresh scan (sibling listing) wins over
+                    // backfill's embedded-art reference; if the scan didn't
+                    // find any, keep what backfill stored.
+                    if let cover = newSong.coverArtFileName { merged.coverArtFileName = cover }
+                    if let lyrics = newSong.lyricsFileName { merged.lyricsFileName = lyrics }
+                    songs[idx] = merged
+                } else {
+                    songs[idx] = newSong
+                }
+            } else {
+                songs.append(newSong)
+                existingIndexByID[newSong.id] = songs.count - 1
+            }
+        }
 
         cleanPlaylistEntries()
         cleanPlaybackHistoryEntries()
@@ -312,12 +355,49 @@ final class MusicLibrary {
     /// Most recently replaced song — observable so consumers (e.g. player) can sync.
     /// Use songReplacementToken for onChange triggers (it changes on every replace, even same song).
     private(set) var lastReplacedSong: Song?
+    /// IDs of every song touched in the most recent replace operation.
+    /// Single-song `replaceSong` populates this with one element; batch
+    /// `replaceSongs` populates the whole batch. Consumers (e.g. the
+    /// player) use this to sync currentSong/queue when a backfilled
+    /// song happened to NOT be the last one in a batch.
+    private(set) var lastReplacedSongIDs: Set<String> = []
     private(set) var songReplacementToken = UUID()
 
     func replaceSong(_ updatedSong: Song) {
         guard let index = songs.firstIndex(where: { $0.id == updatedSong.id }) else { return }
         songs[index] = updatedSong
         lastReplacedSong = updatedSong
+        lastReplacedSongIDs = [updatedSong.id]
+        songReplacementToken = UUID()
+        rebuildIndex()
+        cleanPlaylistEntries()
+        cleanPlaybackHistoryEntries()
+        refreshPlaylistArtworkReferences()
+        persistSnapshot()
+    }
+
+    /// Batch counterpart to `replaceSong`. Used by `MetadataBackfillService`
+    /// to apply many metadata fills at once — running rebuildIndex /
+    /// persistSnapshot once per batch instead of per song keeps the UI
+    /// responsive when the backfill worker is at full speed (otherwise
+    /// the artists/albums grouping is recomputed dozens of times a second).
+    func replaceSongs(_ updatedSongs: [Song]) {
+        guard !updatedSongs.isEmpty else { return }
+        var idToIndex: [String: Int] = [:]
+        idToIndex.reserveCapacity(songs.count)
+        for (i, song) in songs.enumerated() { idToIndex[song.id] = i }
+
+        var lastApplied: Song?
+        var appliedIDs: Set<String> = []
+        for updated in updatedSongs {
+            guard let index = idToIndex[updated.id] else { continue }
+            songs[index] = updated
+            lastApplied = updated
+            appliedIDs.insert(updated.id)
+        }
+        guard let lastApplied else { return }
+        lastReplacedSong = lastApplied
+        lastReplacedSongIDs = appliedIDs
         songReplacementToken = UUID()
         rebuildIndex()
         cleanPlaylistEntries()

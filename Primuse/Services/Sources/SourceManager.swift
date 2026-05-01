@@ -270,7 +270,16 @@ final class SourceManager {
     }
 
     /// Background-cache a song file (generalized for all sources).
-    func cacheInBackground(song: Song) {
+    /// Cloud sources take a different path: instead of pre-downloading the
+    /// whole file (wasteful — they stream on demand anyway), we just warm
+    /// the connector's dlink cache and pull the first chunk into the
+    /// `.partial` cache file. Result: when the user hits "next", the
+    /// dlink is already resolved and the first 256KB is local — playback
+    /// starts in <100ms instead of 500ms-1s of dlink+head latency.
+    /// Pass `cacheEnabled: false` (when the user has Audio Cache off) to
+    /// skip the prewarm/cache write entirely — we'll still play the song
+    /// fine, just without the latency win.
+    func cacheInBackground(song: Song, cacheEnabled: Bool = true) {
         guard cachedURL(for: song) == nil else { return }
         Task {
             do {
@@ -281,6 +290,15 @@ final class SourceManager {
                 }
                 let conn = connector(for: source)
                 try await conn.connect()
+
+                if source.type.category == .cloudDrive, song.fileSize > 0 {
+                    if cacheEnabled {
+                        await prewarmCloudSong(song: song, connector: conn)
+                    }
+                    return
+                }
+                guard cacheEnabled else { return }
+
                 guard let streamURL = try await conn.streamingURL(for: song.filePath) else {
                     plog("⚠️ Cache: no streaming URL for '\(song.title)'")
                     return
@@ -307,13 +325,55 @@ final class SourceManager {
         }
     }
 
+    /// Prewarm a cloud song so the next "play" is instant:
+    /// - Resolve and cache the dlink (saves the 200-500ms multi-API round trip)
+    /// - Pull the first 256KB into the `.partial` cache file
+    ///
+    /// `CloudPlaybackSource` recognises a `.partial` file at exactly the
+    /// prewarm head size as a trustworthy seed and re-uses the bytes when
+    /// the actual play session starts — so the very first SFB read hits
+    /// disk, not the network. Idempotent on repeat calls.
+    private func prewarmCloudSong(song: Song, connector: any MusicSourceConnector) async {
+        let cache = cacheURL(for: song)
+        let partial = URL(fileURLWithPath: cache.path + ".partial")
+
+        // Already prewarmed (file exists at expected head size) — skip.
+        let headSize: Int64 = 256 * 1024
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: partial.path),
+           let size = attrs[.size] as? Int64,
+           size == headSize {
+            return
+        }
+
+        do {
+            let head = try await connector.fetchRange(path: song.filePath, offset: 0, length: headSize)
+            guard !head.isEmpty else { return }
+            try? FileManager.default.createDirectory(
+                at: partial.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            // Atomic write: this either replaces an old/garbage partial or
+            // creates a fresh one. Either way, file size after = head.count,
+            // which the State init uses as the "trustable seed" signal.
+            try head.write(to: partial, options: .atomic)
+            plog("⏩ Prewarm: '\(song.title)' head=\(head.count / 1024)KB cached")
+        } catch {
+            plog("⚠️ Prewarm failed for '\(song.title)': \(error.localizedDescription)")
+        }
+    }
+
     /// Build a streaming `SFBInputSource` for `song`. Used by
     /// AudioPlayerService when `resolveURL` returns a `primuse-stream://`
     /// URL. The returned source reads via HTTP Range and writes fetched
     /// chunks to the same cache file used by `localURL` — once enough
     /// ranges accumulate (or the user replays after a full listen) the
     /// next play hits Priority 1 above and bypasses streaming entirely.
-    func makeStreamingInputSource(for song: Song) async throws -> InputSource? {
+    /// When `cacheEnabled` is false (the user disabled Audio Cache), the
+    /// streaming partial is routed to `NSTemporaryDirectory` and is never
+    /// promoted to the canonical cache path — the file is still needed
+    /// during the session for SFB to read from, but iOS reaps the temp
+    /// directory on its own schedule afterward.
+    func makeStreamingInputSource(for song: Song, cacheEnabled: Bool = true) async throws -> InputSource? {
         let sources = try await sourcesProvider()
         guard let source = sources.first(where: { $0.id == song.sourceID }) else {
             throw SourceError.fileNotFound("Source not found for song: \(song.title)")
@@ -321,12 +381,16 @@ final class SourceManager {
         let conn = connector(for: source)
         try await conn.connect()
         guard song.fileSize > 0 else { return nil }
-        let cache = cacheURL(for: song)
+        let cache = cacheEnabled
+            ? cacheURL(for: song)
+            : URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("primuse-stream-\(song.id)")
         return CloudPlaybackSource.makeInputSource(
             song: song,
             totalLength: song.fileSize,
             connector: conn,
-            cacheURL: cache
+            cacheURL: cache,
+            persistOnComplete: cacheEnabled
         )
     }
 

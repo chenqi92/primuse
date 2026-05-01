@@ -61,7 +61,14 @@ final class AudioPlayerService {
     private var shufflePosition: Int = 0
 
     // MARK: - Decoder Tracking (for seek)
-    private enum DecoderKind { case native, streaming, assetReader }
+    /// Tracks which decoder pipeline produced the currently-playing audio
+    /// stream so seek/crossfade/recovery can reproduce the exact same path.
+    /// `cloudStream` means SFBAudio decoding from a `CloudPlaybackSource`
+    /// `InputSource` (Range-fetch + sparse cache). Seeking that path
+    /// requires building a NEW `InputSource` — feeding the
+    /// `primuse-stream://` URL to SFB's URL-based opener fails because
+    /// the scheme isn't registered with the file system.
+    private enum DecoderKind { case native, streaming, cloudStream, assetReader }
     private var activeDecoderKind: DecoderKind = .native
 
     // MARK: - Sleep Timer
@@ -264,8 +271,12 @@ final class AudioPlayerService {
             // file and we get instant playback.
             let stream: AsyncThrowingStream<AVAudioPCMBuffer, Error>
             if isCloudStream, let manager = sourceManager,
-               let inputSource = try? await manager.makeStreamingInputSource(for: song) {
-                plog("▶️ Using CloudPlaybackSource (streaming SFBInputSource)")
+               let inputSource = try? await manager.makeStreamingInputSource(
+                   for: song,
+                   cacheEnabled: playbackSettings.audioCacheEnabled
+               ) {
+                plog("▶️ Using CloudPlaybackSource (streaming SFBInputSource, cache=\(playbackSettings.audioCacheEnabled))")
+                activeDecoderKind = .cloudStream
                 stream = nativeDecoder.decode(from: inputSource, outputFormat: outputFormat)
             } else {
                 // Local file path (or fallback when streaming setup failed)
@@ -347,7 +358,7 @@ final class AudioPlayerService {
             // it goes — duplicating via cacheInBackground would just
             // race two writers on the same path.
             if playbackSettings.audioCacheEnabled, !isCloudStream {
-                sourceManager?.cacheInBackground(song: song)
+                sourceManager?.cacheInBackground(song: song, cacheEnabled: playbackSettings.audioCacheEnabled)
             }
 
             // Prefetch next song
@@ -489,6 +500,33 @@ final class AudioPlayerService {
     }
 
     /// Prefetch the next song in the queue to local cache for instant playback.
+    /// Decode any URL produced by `resolvedURL`, transparently handling
+    /// the `primuse-stream://` custom scheme by building a fresh
+    /// `CloudPlaybackSource` InputSource. Crossfade/gapless/seek paths all
+    /// go through here so they stay correct when the source is a cloud
+    /// streaming song.
+    private func decodeStream(
+        for song: Song,
+        url: URL,
+        outputFormat: AVAudioFormat
+    ) async -> AsyncThrowingStream<AVAudioPCMBuffer, Error>? {
+        if url.scheme == SourceManager.cloudStreamingScheme {
+            // Prefer fully-cached file if available (skips streaming overhead).
+            if let cached = sourceManager?.cachedURL(for: song) {
+                return nativeDecoder.decode(from: cached, outputFormat: outputFormat)
+            }
+            guard let manager = sourceManager,
+                  let inputSource = try? await manager.makeStreamingInputSource(
+                      for: song,
+                      cacheEnabled: playbackSettings.audioCacheEnabled
+                  ) else {
+                return nil
+            }
+            return nativeDecoder.decode(from: inputSource, outputFormat: outputFormat)
+        }
+        return nativeDecoder.decode(from: url, outputFormat: outputFormat)
+    }
+
     private func prefetchNextSong() {
         prefetchTask?.cancel()
         let nextIdx = currentIndex + 1
@@ -500,7 +538,7 @@ final class AudioPlayerService {
 
         prefetchTask = Task {
             plog("⏩ Prefetching next song: \(nextSong.title)")
-            sourceManager?.cacheInBackground(song: nextSong)
+            sourceManager?.cacheInBackground(song: nextSong, cacheEnabled: playbackSettings.audioCacheEnabled)
         }
     }
 
@@ -572,7 +610,7 @@ final class AudioPlayerService {
             }
 
             // Background-cache file for offline playback
-            sourceManager?.cacheInBackground(song: song)
+            sourceManager?.cacheInBackground(song: song, cacheEnabled: playbackSettings.audioCacheEnabled)
 
             // Decode remaining buffers with track-end detection
             decodingTask = Task { [id, iteratorBox] in
@@ -766,6 +804,26 @@ final class AudioPlayerService {
                 switch activeDecoderKind {
                 case .native, .streaming:
                     stream = nativeDecoder.decode(from: seekURL, outputFormat: outputFormat)
+                case .cloudStream:
+                    // Build a fresh InputSource for the seek session. The
+                    // sparse cache file from the prior session is reused
+                    // (SFB reads will hit local for any byte range we've
+                    // already fetched, fall through to network for the
+                    // rest). If the song has since been fully downloaded
+                    // and renamed to the canonical path, prefer that.
+                    if let cached = sourceManager?.cachedURL(for: song) {
+                        stream = nativeDecoder.decode(from: cached, outputFormat: outputFormat)
+                    } else if let manager = sourceManager,
+                              let inputSource = try? await manager.makeStreamingInputSource(
+                                  for: song,
+                                  cacheEnabled: playbackSettings.audioCacheEnabled
+                              ) {
+                        stream = nativeDecoder.decode(from: inputSource, outputFormat: outputFormat)
+                    } else {
+                        plog("⚠️ Seek: failed to build cloud streaming InputSource")
+                        isLoading = false
+                        return
+                    }
                 case .assetReader:
                     stream = assetReaderDecoder.decode(from: seekURL, outputFormat: outputFormat)
                 }
@@ -938,7 +996,10 @@ final class AudioPlayerService {
             }
 
             // Decode and schedule next track's buffers (only this one track)
-            let stream = nativeDecoder.decode(from: nextURL, outputFormat: outputFormat)
+            guard let stream = await decodeStream(for: nextSong, url: nextURL, outputFormat: outputFormat) else {
+                scheduleEndDetection(id: id)
+                return
+            }
             var isFirst = true
             var lastBuffer: AVAudioPCMBuffer?
 
@@ -1027,7 +1088,10 @@ final class AudioPlayerService {
             // For now, apply after swap
 
             // Decode into crossfade node — schedule first buffer before play
-            let stream = nativeDecoder.decode(from: nextURL, outputFormat: outputFormat)
+            guard let stream = await decodeStream(for: nextSong, url: nextURL, outputFormat: outputFormat) else {
+                crossfadeTriggered = false
+                return
+            }
             let iteratorBox = BufferIteratorBox(stream.makeAsyncIterator())
 
             guard let firstBuffer = try await iteratorBox.next() else { return }

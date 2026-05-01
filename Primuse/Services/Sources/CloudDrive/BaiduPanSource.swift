@@ -35,6 +35,18 @@ actor BaiduPanSource: MusicSourceConnector {
     /// itself is signed for the user account; existing entries stay valid.
     private var dlinkCache: [String: (url: String, expiresAt: Date)] = [:]
 
+    /// dir → (full paginated listing, expiry).
+    /// Lets backfill skip the file/list call entirely for songs that share
+    /// a directory with a previously-resolved song. For a typical album
+    /// folder of 10-20 tracks this turns "20 list calls + 20 filemetas"
+    /// into "1 list call + 20 filemetas" — and during backfill of a
+    /// 2200-song library, dropping ~2000 redundant list calls is what
+    /// cuts the throughput floor from minutes/song to seconds/song.
+    private var dirListingCache: [String: (entries: [[String: Any]], expiresAt: Date)] = [:]
+    /// 5 min: long enough to amortize across a backfill batch, short
+    /// enough that a user who adds files to Baidu sees them re-listed.
+    private static let dirListingTTL: TimeInterval = 5 * 60
+
     init(sourceID: String) {
         self.sourceID = sourceID
         self.helper = CloudDriveHelper(sourceID: sourceID)
@@ -117,26 +129,24 @@ actor BaiduPanSource: MusicSourceConnector {
     }
 
     /// Resolve a remote path to a Baidu dlink URL (without access_token suffix).
-    /// Two API calls (file/list + multimedia/filemetas) — cached for `dlinkTTL`
-    /// so a single play session of N range requests doesn't burn 2N API calls.
+    /// Cached at two levels:
+    /// - `dlinkCache[path]` — once we have a dlink, reuse it for `dlinkTTL`
+    /// - `dirListingCache[dir]` — when we have to look up `fs_id`, the
+    ///   directory listing is shared with any sibling song that needs
+    ///   resolution within `dirListingTTL`
     private func getDlink(for path: String) async throws -> String {
         if let cached = dlinkCache[path], cached.expiresAt > Date() {
             return cached.url
         }
         let dir = (path as NSString).deletingLastPathComponent
         let name = (path as NSString).lastPathComponent
-        let listJson = try await callAPI(
-            base: "\(Self.apiBase)/rest/2.0/xpan/file",
-            queryItems: [
-                .init(name: "method", value: "list"),
-                .init(name: "dir", value: dir),
-            ]
-        )
-        guard let entries = listJson["list"] as? [[String: Any]],
-              let entry = entries.first(where: { ($0["server_filename"] as? String) == name }),
+
+        let entries = try await listEntries(in: dir)
+        guard let entry = entries.first(where: { ($0["server_filename"] as? String) == name }),
               let fsId = entry["fs_id"] as? Int64 else {
             throw CloudDriveError.fileNotFound(path)
         }
+
         let metaJson = try await callAPI(
             base: "\(Self.apiBase)/rest/2.0/xpan/multimedia",
             queryItems: [
@@ -151,6 +161,33 @@ actor BaiduPanSource: MusicSourceConnector {
         }
         dlinkCache[path] = (dlink, Date().addingTimeInterval(Self.dlinkTTL))
         return dlink
+    }
+
+    /// Returns the full paginated entries of a directory, cached briefly
+    /// so concurrent dlink lookups for sibling songs share one list call.
+    private func listEntries(in dir: String) async throws -> [[String: Any]] {
+        if let cached = dirListingCache[dir], cached.expiresAt > Date() {
+            return cached.entries
+        }
+        var all: [[String: Any]] = []
+        var start = 0
+        while true {
+            let json = try await callAPI(
+                base: "\(Self.apiBase)/rest/2.0/xpan/file",
+                queryItems: [
+                    .init(name: "method", value: "list"),
+                    .init(name: "dir", value: dir),
+                    .init(name: "start", value: String(start)),
+                    .init(name: "limit", value: String(Self.pageSize)),
+                ]
+            )
+            let entries = json["list"] as? [[String: Any]] ?? []
+            all.append(contentsOf: entries)
+            if entries.count < Self.pageSize { break }
+            start += Self.pageSize
+        }
+        dirListingCache[dir] = (all, Date().addingTimeInterval(Self.dirListingTTL))
+        return all
     }
 
     /// 统一封装百度 API 调用：节流 + errno 检查 + 31034 退避重试。

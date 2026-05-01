@@ -7,6 +7,8 @@ enum MusicScraperFactory {
             MusicBrainzScraper()
         case .lrclib:
             LRCLIBScraper()
+        case .itunes:
+            ITunesScraper()
         case .custom(let configId):
             if let scraperConfig = ScraperConfigStore.shared.config(for: configId) {
                 ConfigurableScraper(config: scraperConfig, cookie: config.cookie)

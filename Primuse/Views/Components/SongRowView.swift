@@ -15,6 +15,17 @@ struct SongRowView: View {
     @State private var showAddToPlaylist = false
     @State private var showSongInfo = false
     @State private var showDeleteConfirm = false
+    @State private var showBareAlert = false
+
+    /// Cloud songs added by Phase A scan have duration=0 and no bitRate
+    /// until `MetadataBackfillService` fills them in. The row dims slightly
+    /// and shows "loading details" where duration would normally appear.
+    /// Tap-to-play still works (streaming uses Song.fileSize, not duration);
+    /// the visual cue just lets the user know cover art / scrubbing won't
+    /// be accurate until backfill catches up.
+    private var isBare: Bool {
+        song.duration == 0 && song.bitRate == nil
+    }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -39,6 +50,7 @@ struct SongRowView: View {
                 }
             }
             .frame(width: 44, height: 44)
+            .opacity(isBare ? 0.55 : 1)
 
             // Song info — title and subtitle only, no format/duration clutter
             VStack(alignment: .leading, spacing: 2) {
@@ -46,23 +58,31 @@ struct SongRowView: View {
                     .font(.subheadline)
                     .lineLimit(1)
                     .foregroundStyle(isPlaying ? Color.accentColor : Color.primary)
+                    .opacity(isBare ? 0.65 : 1)
 
                 HStack(spacing: 4) {
-                    if let artist = song.artistName {
-                        Text(artist)
-                    }
-                    if showAlbum, let album = song.albumTitle {
+                    if isBare {
+                        ProgressView()
+                            .scaleEffect(0.55)
+                            .frame(width: 12, height: 12)
+                        Text("backfill_in_progress")
+                    } else {
+                        if let artist = song.artistName {
+                            Text(artist)
+                        }
+                        if showAlbum, let album = song.albumTitle {
+                            Text("·")
+                            Text(album)
+                        }
                         Text("·")
-                        Text(album)
-                    }
-                    Text("·")
-                    Text(formatDuration(song.duration))
-                        .monospacedDigit()
-                    if sourcesStore.sources.count > 1,
-                       let source = sourcesStore.source(id: song.sourceID) {
-                        Text("·")
-                        Image(systemName: source.type.iconName)
-                        Text(source.name)
+                        Text(formatDuration(song.duration))
+                            .monospacedDigit()
+                        if sourcesStore.sources.count > 1,
+                           let source = sourcesStore.source(id: song.sourceID) {
+                            Text("·")
+                            Image(systemName: source.type.iconName)
+                            Text(source.name)
+                        }
                     }
                 }
                 .font(.caption)
@@ -120,6 +140,23 @@ struct SongRowView: View {
             }
         }
         .contentShape(Rectangle())
+        // Bare songs (still being filled by MetadataBackfillService) are
+        // tap-disabled with a clear hint rather than just visually dimmed.
+        // The overlay is layered above the row's content so its tap
+        // handler intercepts before the parent List/NavigationLink
+        // forwards the tap to play().
+        .overlay {
+            if isBare {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { showBareAlert = true }
+            }
+        }
+        .alert(String(localized: "song_details_loading"), isPresented: $showBareAlert) {
+            Button(String(localized: "done"), role: .cancel) {}
+        } message: {
+            Text(String(localized: "song_details_loading_message"))
+        }
         .contextMenu {
             // Group 1: Actions
             Section {

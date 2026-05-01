@@ -7,6 +7,7 @@ struct SourcesView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(ScanService.self) private var scanService
     @Environment(MusicScraperService.self) private var scraperService
+    @Environment(MetadataBackfillService.self) private var backfill
     @State private var showAddSource = false
     @State private var editingSource: MusicSource?
     @State private var connectingSource: MusicSource?
@@ -139,10 +140,32 @@ struct SourcesView: View {
                         if scan.totalCount > 0 {
                             Text("\(scan.scannedCount)/\(scan.totalCount)").monospacedDigit()
                         } else {
-                            Text("\(scan.scannedCount) \(String(localized: "files_scanned"))").monospacedDigit()
+                            // Show "newly added" instead of "files scanned" — the
+                            // latter implied every file was being reprocessed even
+                            // when ConnectorScanner was just walking known songs.
+                            Text(String(format: String(localized: "new_songs_added"), scan.addedCount))
+                                .monospacedDigit()
                         }
                     }
                     .font(.caption2).foregroundStyle(.secondary)
+                }
+            } else {
+                // Phase A finished. If there are still bare songs from this source
+                // (cloud sources fill metadata in the background), show a softer
+                // "loading details" indicator so users don't think the scan is
+                // stuck or "interrupted". Filter matches `MetadataBackfillService`
+                // exactly (excludes already-failed songs) so this number agrees
+                // with the global "remaining" in StorageManagementView.
+                let bare = backfill.remainingCount(forSource: source.id)
+                if bare > 0 {
+                    HStack(spacing: 8) {
+                        ProgressView().scaleEffect(0.7).tint(.secondary)
+                        Text("backfill_in_progress").font(.caption2)
+                        Spacer()
+                        Text(String(format: String(localized: "backfill_remaining"), bare))
+                            .font(.caption2).monospacedDigit()
+                    }
+                    .foregroundStyle(.secondary)
                 }
             }
 

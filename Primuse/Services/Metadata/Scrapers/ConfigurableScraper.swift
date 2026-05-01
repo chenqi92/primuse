@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import JavaScriptCore
 import Network
@@ -255,6 +256,8 @@ actor ConfigurableScraper: MusicScraper {
             plog("📜 JS[\(self.config.id)]: \(msg)")
         }
         context.setObject(logBlock, forKeyedSubscript: "log" as NSString)
+
+        ScraperNativeResolvers.register(in: context)
 
 
         // Inject response as string and parsed JSON
@@ -770,5 +773,57 @@ final class ScraperSessionManager: NSObject, URLSessionTaskDelegate, @unchecked 
         }
         plog("🔒 SSL: DEFAULT handling for \(host)")
         completionHandler(.performDefaultHandling, nil)
+    }
+}
+
+// MARK: - Native Resolvers
+
+/// Swift-side helpers exposed to scraper JavaScript via the `nativeResolver` global.
+/// Source-specific transforms that would otherwise live as plaintext in shared
+/// scraper JSON are kept here so the public configs stay neutral.
+enum ScraperNativeResolvers {
+    static func register(in context: JSContext) {
+        context.evaluateScript("var nativeResolver = nativeResolver || {};")
+        guard let resolver = context.objectForKeyedSubscript("nativeResolver") else { return }
+
+        let neteaseCoverBlock: @convention(block) (Any?, Any?) -> String? = { picIdArg, sizeArg in
+            normalizedPicId(picIdArg).flatMap { picId in
+                neteaseCoverURL(picId: picId, size: normalizedSize(sizeArg))
+            }
+        }
+        resolver.setObject(neteaseCoverBlock, forKeyedSubscript: "neteaseCover" as NSString)
+    }
+
+    private static func normalizedPicId(_ value: Any?) -> String? {
+        if let s = value as? String, !s.isEmpty, s != "0" { return s }
+        if let n = value as? NSNumber, n.int64Value > 0 { return n.stringValue }
+        return nil
+    }
+
+    private static func normalizedSize(_ value: Any?) -> Int {
+        if let n = value as? NSNumber { return n.intValue }
+        if let s = value as? String, let v = Int(s) { return v }
+        return 0
+    }
+
+    // Stored as bytes so the literal seed never appears in source as a single string.
+    private static let neteaseCoverSeed: [UInt8] = [
+        0x33, 0x67, 0x6F, 0x38, 0x26, 0x24, 0x38, 0x2A, 0x33,
+        0x2A, 0x33, 0x68, 0x30, 0x6B, 0x28, 0x32, 0x29, 0x32,
+    ]
+
+    private static func neteaseCoverURL(picId: String, size: Int) -> String {
+        let src = Array(picId.utf8)
+        var mixed = [UInt8](repeating: 0, count: src.count)
+        for i in 0..<src.count {
+            mixed[i] = src[i] ^ neteaseCoverSeed[i % neteaseCoverSeed.count]
+        }
+        let digest = Insecure.MD5.hash(data: mixed)
+        let encoded = Data(digest).base64EncodedString()
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "+", with: "-")
+        var url = "https://p1.music.126.net/\(encoded)/\(picId).jpg"
+        if size > 0 { url += "?param=\(size)y\(size)" }
+        return url
     }
 }

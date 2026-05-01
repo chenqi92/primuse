@@ -30,7 +30,11 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling, @unchec
         let box = UncheckedBox(completion)
         Task { @MainActor in
             guard let result = Self.resolve(intent: intent) else {
-                box.value([INPlayMediaMediaItemResolutionResult.unsupported(forReason: .loginRequired)])
+                // Local library only — there's nothing to "log in" to.
+                // Tell Siri the search just didn't match anything so it
+                // reads back "I couldn't find that" instead of prompting
+                // the user to sign in.
+                box.value([INPlayMediaMediaItemResolutionResult.unsupported(forReason: .serviceUnavailable)])
                 return
             }
             let inItems = result.queue.map { song in
@@ -58,9 +62,10 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling, @unchec
         // 1. Album match
         if mediaType == .album || (albumName != nil && mediaName == nil) {
             let target = (albumName ?? mediaName ?? "").lowercased()
-            if let album = library.visibleAlbums.first(where: {
-                $0.title.lowercased().contains(target)
-            }) {
+            if !target.isEmpty,
+               let album = library.visibleAlbums.first(where: {
+                   $0.title.lowercased().contains(target)
+               }) {
                 let songs = library.songs(forAlbum: album.id)
                     .sorted { ($0.discNumber ?? 0, $0.trackNumber ?? 0) < ($1.discNumber ?? 0, $1.trackNumber ?? 0) }
                 if !songs.isEmpty { return (songs, 0) }
@@ -70,16 +75,18 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling, @unchec
         // 2. Artist match
         if mediaType == .artist || (artistName != nil && mediaName == nil && albumName == nil) {
             let target = (artistName ?? mediaName ?? "").lowercased()
-            if let artist = library.visibleArtists.first(where: {
-                $0.name.lowercased().contains(target)
-            }) {
+            if !target.isEmpty,
+               let artist = library.visibleArtists.first(where: {
+                   $0.name.lowercased().contains(target)
+               }) {
                 let songs = library.songs(forArtist: artist.id)
                 if !songs.isEmpty { return (songs, 0) }
             }
         }
 
         // 3. Song match (default)
-        if let target = mediaName ?? albumName ?? artistName {
+        if let target = (mediaName ?? albumName ?? artistName)?.lowercased(),
+           !target.isEmpty {
             let matches = library.visibleSongs.filter { song in
                 song.title.lowercased().contains(target) ||
                 (song.artistName?.lowercased().contains(target) ?? false)

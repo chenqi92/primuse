@@ -116,6 +116,7 @@
 		87FF2436F5492C7D7D1D1A26 /* WebDAVBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 637B2519A8207FCB3ABC3E34 /* WebDAVBrowserView.swift */; };
 		88744C4DE23E697ACA4B7337 /* FFmpegAudioDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = E083139645350B81D8E8C645 /* FFmpegAudioDecoder.swift */; };
 		8A77CEB41659883181CEBEA5 /* MusicBrainzScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 992934DD86AE09796F7BC1A3 /* MusicBrainzScraper.swift */; };
+		3FA863DF0A4A94D37647BA3D /* ITunesScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90E3414F6CE7CBE6BC2AE83F /* ITunesScraper.swift */; };
 		8AF7136F6EF1307AD9557628 /* AudioSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54818EBAB874DF0A7E5C6DE /* AudioSessionManager.swift */; };
 		8D2529E423A54099E093CB90 /* PlaylistListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA720A839678F244BF3C85A /* PlaylistListView.swift */; };
 		8F0445DECEC9F9E78038D931 /* SMBBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFF0DF0592D356324C4E9A4C /* SMBBrowserView.swift */; };
@@ -368,6 +369,7 @@
 		973D5A18BC4228928E42C0C1 /* MiniPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniPlayerView.swift; sourceTree = "<group>"; };
 		983B4BD41961986660A6E775 /* ScraperConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScraperConfig.swift; sourceTree = "<group>"; };
 		992934DD86AE09796F7BC1A3 /* MusicBrainzScraper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicBrainzScraper.swift; sourceTree = "<group>"; };
+		90E3414F6CE7CBE6BC2AE83F /* ITunesScraper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ITunesScraper.swift; sourceTree = "<group>"; };
 		9AA5AE882AD3B192D6A6764E /* PlaybackLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackLiveActivity.swift; sourceTree = "<group>"; };
 		9D64868ED9B01B2808EEFF51 /* SFTPSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPSource.swift; sourceTree = "<group>"; };
 		9E4DEB871B6A33BFDF98131D /* ArtworkFetchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkFetchService.swift; sourceTree = "<group>"; };
@@ -806,6 +808,7 @@
 			isa = PBXGroup;
 			children = (
 				EFBD55481DE18F95FCC74F76 /* ConfigurableScraper.swift */,
+				90E3414F6CE7CBE6BC2AE83F /* ITunesScraper.swift */,
 				1AE8A78DAC80BEED65803A6B /* LRCLIBScraper.swift */,
 				992934DD86AE09796F7BC1A3 /* MusicBrainzScraper.swift */,
 				F6255A91A1DE2B2C344A5491 /* MusicScraperFactory.swift */,
@@ -1218,6 +1221,7 @@
 				AD67A69E72837A8AA7866B3A /* MetadataBackfillService.swift in Sources */,
 				971D5EDC7B3FEAC87870DB0D /* MetadataService.swift in Sources */,
 				05932B0B3C4B3CAD469D869A /* MiniPlayerView.swift in Sources */,
+				3FA863DF0A4A94D37647BA3D /* ITunesScraper.swift in Sources */,
 				8A77CEB41659883181CEBEA5 /* MusicBrainzScraper.swift in Sources */,
 				0A29AD1261453B6735CB9962 /* MusicLibrary.swift in Sources */,
 				6AE046838D6546471C6E2457 /* MusicScraperFactory.swift in Sources */,

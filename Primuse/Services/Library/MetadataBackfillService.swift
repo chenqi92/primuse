@@ -92,7 +92,10 @@ final class MetadataBackfillService {
         isRunning = true
         workerGeneration += 1
         let generation = workerGeneration
-        plog("📥 Backfill: starting, \(needsBackfill.count) songs queued")
+        // Diagnostic: prove that we only pick still-bare songs. If you see
+        // this number stay >0 forever you can compare against
+        // `library.songs.count` to confirm no infinite reprocessing.
+        plog("📥 Backfill: gen=\(generation) bareInLib=\(remainingCount) batchHead=\(needsBackfill.count)")
         worker = Task { [weak self] in
             await self?.runWorker()
             await MainActor.run { [weak self] in
@@ -143,32 +146,105 @@ final class MetadataBackfillService {
         }
     }
 
+    /// Number of songs currently waiting for backfill. Used by the UI to
+    /// show "loading details · N remaining" — the older `pendingCount`
+    /// was a snapshot at start time so it could disagree with reality
+    /// after Phase A added more bare songs mid-backfill.
+    var remainingCount: Int {
+        remainingCount(forSource: nil)
+    }
+
+    /// Per-source variant — used by the source card so its "remaining"
+    /// number matches the global storage page rather than counting
+    /// songs that backfill has given up on.
+    func remainingCount(forSource sourceID: String?) -> Int {
+        library.songs.lazy.filter { song in
+            !self.failedSongIDs.contains(song.id) &&
+                song.duration == 0 &&
+                song.bitRate == nil &&
+                (sourceID == nil || song.sourceID == sourceID)
+        }.count
+    }
+
     // MARK: - Worker
 
+    /// Songs to flush to the library at once. Smaller = UI updates feel
+    /// more incremental; larger = fewer SwiftUI invalidations and fewer
+    /// `rebuildIndex`/`persistSnapshot` runs. 10 strikes a good balance.
+    private static let flushBatchSize = 10
+    /// Even with a partial batch, flush at least every N seconds so the
+    /// user sees progress without having to wait for 10 songs.
+    private static let flushInterval: TimeInterval = 3
+
     private func runWorker() async {
+        // Outer loop: take a snapshot of bare songs, process the snapshot
+        // sequentially, flush in batches. We deliberately do NOT call
+        // `pickNextBatch` per-song — until we flush the batch the
+        // already-processed songs still look "bare" in the library and
+        // would be picked again, causing duplicate Range fetches and a
+        // weird-looking processedCount that grows past pendingCount.
         while !Task.isCancelled {
-            // Re-check the cellular gate every iteration — if the user
-            // switches off Wi-Fi mid-backfill we stop on the next song
-            // boundary rather than hammering their data plan.
             let blockedByCellular = await MainActor.run { [self] in shouldBlockForCellular() }
             if blockedByCellular {
                 plog("📥 Backfill: pausing (cellular detected mid-flight)")
                 break
             }
 
-            let candidate = await MainActor.run { [self] in pickNextBatch().first }
-            guard let song = candidate else { break }
+            let snapshot = await MainActor.run { [self] in pickNextBatch() }
+            if snapshot.isEmpty { break }
 
-            let success = await processOne(song)
+            await processSnapshot(snapshot)
+        }
+    }
+
+    /// Process a fixed list of songs sequentially, flushing the library
+    /// every `flushBatchSize` successes (or every `flushInterval` seconds).
+    /// Each song in the snapshot is touched exactly once.
+    private func processSnapshot(_ snapshot: [Song]) async {
+        var pendingFlush: [Song] = []
+        var lastFlushAt = Date()
+
+        let flush: (_ force: Bool) async -> Void = { [weak self] force in
+            guard let self else { return }
+            let shouldFlush = force
+                || pendingFlush.count >= Self.flushBatchSize
+                || Date().timeIntervalSince(lastFlushAt) >= Self.flushInterval
+            guard shouldFlush, !pendingFlush.isEmpty else { return }
+            let batch = pendingFlush
+            pendingFlush.removeAll(keepingCapacity: true)
+            lastFlushAt = Date()
+            await MainActor.run { [weak self] in
+                self?.library.replaceSongs(batch)
+            }
+        }
+
+        for song in snapshot {
+            if Task.isCancelled { break }
+
+            // Cellular check between songs — flush what we have and bail
+            // so the user's data isn't burned past their setting.
+            let blockedByCellular = await MainActor.run { [self] in shouldBlockForCellular() }
+            if blockedByCellular {
+                await flush(true)
+                return
+            }
+
+            let result = await processOne(song)
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 processedCount += 1
-                if !success {
+                if result == nil {
                     failedSongIDs.insert(song.id)
                     saveFailed()
                 }
             }
+            if let updated = result {
+                pendingFlush.append(updated)
+            }
+            await flush(false)
         }
+
+        await flush(true)
     }
 
     private func shouldBlockForCellular() -> Bool {
@@ -176,20 +252,30 @@ final class MetadataBackfillService {
         return wifiOnly && !NetworkMonitor.shared.isOnUnmeteredNetwork
     }
 
-    private func processOne(_ song: Song) async -> Bool {
+    /// Returns the merged Song on success, nil on failure. Caller is
+    /// responsible for batching the result into the library — this
+    /// method no longer touches `library.replaceSong` directly so we can
+    /// flush many songs at once.
+    private func processOne(_ song: Song) async -> Song? {
+        let started = Date()
         do {
-            let connector = try await sourceManager.auxiliaryConnector(for: song)
+            // Use the SHARED connector (not auxiliary). Backfill is sequential
+            // and benefits massively from accumulated state on the single
+            // BaiduPanSource actor: throttle clock, dlink cache, dir-listing
+            // cache. Auxiliary instances reset all of that per song, which is
+            // what made backfill 10× slower than it needed to be — every song
+            // re-paid the list+filemetas dlink cost AND was prone to 31034
+            // rate-limit storms because the throttle state didn't carry over.
+            let connector = try await sourceManager.connectorForSong(song)
 
-            // 1. Fetch first N bytes via Range request.
+            let fetchStarted = Date()
             let headData = try await connector.fetchRange(
                 path: song.filePath,
                 offset: 0,
                 length: Self.headBytes
             )
+            let fetchElapsed = Date().timeIntervalSince(fetchStarted)
 
-            // 2. Try metadata extraction from the head slice. If it comes back
-            //    empty (M4A with trailing moov, or some FLAC variants), retry
-            //    with a tail-range fetch.
             var metadata = await extractMetadata(
                 from: headData,
                 song: song,
@@ -206,15 +292,24 @@ final class MetadataBackfillService {
                 }
             }
 
-            // 3. Build a complete Song and swap it in.
-            let updated = mergeSong(bare: song, metadata: metadata)
-            await MainActor.run { [weak self] in
-                self?.library.replaceSong(updated)
+            // Even with both head and tail in hand, some files have no
+            // parseable tags at all (untagged WAV, broken FLACs, weird
+            // encoders). Without this guard, mergeSong writes a Song that
+            // STILL satisfies `bare` (duration=0, bitRate=nil), so the
+            // next worker iteration / next launch keeps re-fetching it
+            // forever. Mark these as failed so they're skipped on retry.
+            if metadataLooksMissing(metadata) {
+                plog("⚠️ Backfill: '\(song.title)' has no parseable metadata after head+tail; marking failed")
+                return nil
             }
-            return true
+
+            let totalElapsed = Date().timeIntervalSince(started)
+            plog(String(format: "📥 Backfill: '%@' done in %.2fs (fetch %.2fs)", song.title, totalElapsed, fetchElapsed))
+            return mergeSong(bare: song, metadata: metadata)
         } catch {
-            plog("⚠️ Backfill failed for \(song.title): \(error.localizedDescription)")
-            return false
+            let elapsed = Date().timeIntervalSince(started)
+            plog(String(format: "⚠️ Backfill failed for '%@' after %.2fs: %@", song.title, elapsed, error.localizedDescription))
+            return nil
         }
     }
 

@@ -13,7 +13,14 @@ actor ConnectorScanner {
     }
 
     struct ScanUpdate: Sendable {
+        /// Total songs known for this source after this scan run — existing
+        /// (from prior runs) plus anything newly discovered. Drives the
+        /// source-card "X songs" badge.
         var scannedCount: Int
+        /// Songs the scan walk added this run. Stays 0 when re-scanning a
+        /// source that hasn't gained any files. Drives the in-progress
+        /// "新增 N 首" label so users can tell a no-op scan from a real one.
+        var addedCount: Int
         var totalCount: Int
         var currentFile: String
         var songs: [Song]
@@ -44,6 +51,7 @@ actor ConnectorScanner {
                     let existingPaths = Set(existingSongs.map(\.filePath))
                     let initialCount = max(existingSongs.count, startingCount)
                     var scannedCount = totalCount > 0 ? min(initialCount, totalCount) : initialCount
+                    var addedCount = 0
                     var encounteredPaths: Set<String> = []
                     var hadDirectoryFailure = false
 
@@ -51,6 +59,7 @@ actor ConnectorScanner {
                         continuation.yield(
                             ScanUpdate(
                                 scannedCount: scannedCount,
+                                addedCount: addedCount,
                                 totalCount: totalCount,
                                 currentFile: "",
                                 songs: allSongs
@@ -68,11 +77,13 @@ actor ConnectorScanner {
                                     guard existingPaths.contains(scannedSong.song.filePath) == false else { continue }
 
                                     scannedCount += 1
+                                    addedCount += 1
                                     allSongs.append(scannedSong.song)
 
                                     continuation.yield(
                                         ScanUpdate(
                                             scannedCount: scannedCount,
+                                            addedCount: addedCount,
                                             totalCount: totalCount,
                                             currentFile: scannedSong.displayName,
                                             songs: allSongs
@@ -95,6 +106,7 @@ actor ConnectorScanner {
                         continuation.yield(
                             ScanUpdate(
                                 scannedCount: scannedCount,
+                                addedCount: addedCount,
                                 totalCount: totalCount,
                                 currentFile: "",
                                 songs: allSongs
@@ -121,14 +133,16 @@ actor ConnectorScanner {
                                 let songID = hash("\(sourceID):\(item.path)")
                                 allSongs.append(buildBareSong(from: item, songID: songID))
                                 scannedCount += 1
+                                addedCount += 1
 
                                 // Yield progress every 20 items — yielding on every
                                 // file made the SwiftUI publisher chain the bottleneck
                                 // when scanning fast cloud listings.
-                                if scannedCount % 20 == 0 {
+                                if addedCount % 20 == 0 {
                                     continuation.yield(
                                         ScanUpdate(
                                             scannedCount: scannedCount,
+                                            addedCount: addedCount,
                                             totalCount: totalCount,
                                             currentFile: item.name,
                                             songs: allSongs
@@ -152,6 +166,7 @@ actor ConnectorScanner {
                     continuation.yield(
                         ScanUpdate(
                             scannedCount: scannedCount,
+                            addedCount: addedCount,
                             totalCount: totalCount,
                             currentFile: "",
                             songs: allSongs

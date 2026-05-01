@@ -156,10 +156,16 @@ struct PrimuseApp: App {
                         songID: playerService.currentSong?.id
                     )
                 }
-                // Sync player when library replaces a song (e.g. batch scraping updates metadata)
+                // Sync player when library replaces a song (e.g. batch scraping
+                // or metadata backfill updates metadata). Backfill uses
+                // batched `replaceSongs`, so the currently-playing song may
+                // be ANYWHERE in the batch, not just the last entry — we
+                // check `lastReplacedSongIDs` to catch every case.
                 .onChange(of: musicLibrary.songReplacementToken) { _, _ in
-                    guard let updated = musicLibrary.lastReplacedSong,
-                          playerService.currentSong?.id == updated.id else { return }
+                    guard let currentID = playerService.currentSong?.id,
+                          musicLibrary.lastReplacedSongIDs.contains(currentID),
+                          let updated = musicLibrary.songs.first(where: { $0.id == currentID })
+                    else { return }
                     playerService.syncSongMetadata(updated)
                     playerService.forceRefreshNowPlayingArtwork()
                     themeService.updateFromCoverArt(

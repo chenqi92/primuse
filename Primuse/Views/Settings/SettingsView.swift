@@ -487,12 +487,13 @@ struct StorageManagementView: View {
                         // start (or stop) right after flipping the switch.
                         backfill.refreshQueue()
                     }
-                if backfill.isRunning {
+                if backfill.hasPendingWork {
                     HStack {
-                        Text("backfill_progress")
+                        Text("backfill_in_progress")
                         Spacer()
-                        Text("\(backfill.processedCount) / \(backfill.pendingCount)")
+                        Text(String(format: String(localized: "backfill_remaining"), backfill.remainingCount))
                             .foregroundStyle(.secondary)
+                            .monospacedDigit()
                     }
                 }
             } header: {

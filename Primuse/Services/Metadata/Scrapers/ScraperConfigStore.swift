@@ -54,10 +54,11 @@ final class ScraperConfigStore: @unchecked Sendable {
 
     /// Import one or more configs from a JSON string.
     ///
-    /// Accepts three input shapes (with arbitrary leading/trailing/inter-object whitespace):
-    /// - Single object: `{ ... }`
-    /// - JSON array:    `[{...}, {...}]`
-    /// - Concatenated:  `{...}\n{...}` or `{...} {...}`
+    /// Accepts these input shapes (with arbitrary leading/trailing/inter-object whitespace):
+    /// - Single object:   `{ ... }`
+    /// - JSON array:      `[{...}, {...}]`
+    /// - Concatenated:    `{...}\n{...}` or `{...} {...}`
+    /// - Bundle manifest: `{ "schema": N, "sources": [{...}, ...] }`
     @discardableResult
     func importFromJSON(_ jsonString: String) throws -> [ScraperConfig] {
         let trimmed = jsonString.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -74,13 +75,25 @@ final class ScraperConfigStore: @unchecked Sendable {
             }
             configs = try decoder.decode([ScraperConfig].self, from: data)
         } else if trimmed.hasPrefix("{") {
-            let chunks = try extractTopLevelObjects(trimmed)
-            configs = try chunks.map { try decoder.decode(ScraperConfig.self, from: $0) }
+            guard let data = trimmed.data(using: .utf8) else {
+                throw ScraperConfigError.invalidJSON("Cannot encode string as UTF-8")
+            }
+            if let bundle = try? decoder.decode(BundleManifest.self, from: data),
+               !bundle.sources.isEmpty {
+                configs = bundle.sources
+            } else {
+                let chunks = try extractTopLevelObjects(trimmed)
+                configs = try chunks.map { try decoder.decode(ScraperConfig.self, from: $0) }
+            }
         } else {
             throw ScraperConfigError.invalidJSON("Expected '{' or '[' at start")
         }
 
         return try persistAll(configs)
+    }
+
+    private struct BundleManifest: Decodable {
+        let sources: [ScraperConfig]
     }
 
     /// Import one or more configs from a URL — downloads the JSON and imports it.

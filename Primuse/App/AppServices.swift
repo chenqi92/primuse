@@ -18,6 +18,13 @@ final class AppServices {
     let metadataBackfill: MetadataBackfillService
 
     private init() {
+        // Class is @MainActor so this initializer is too — but the static
+        // `shared` instantiation is lazy-on-first-access. If anything
+        // ever touches `AppServices.shared` from a non-main thread, Swift
+        // will hop here implicitly and we'd silently break invariants in
+        // the services we own. Crash loudly instead.
+        dispatchPrecondition(condition: .onQueue(.main))
+
         if CloudSyncChannel.isEnabled(.credentials) {
             KeychainService.migrateLegacyEntriesToICloud()
             CloudTokenManager.migrateLegacyEntriesToICloud()

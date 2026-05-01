@@ -256,9 +256,14 @@
 "audio_cache_enabled" = "Audio Cache";
 "audio_cache_desc" = "When enabled, played songs are cached locally for faster playback next time. When disabled, temporary files are removed after playback.";
 "network" = "Network";
-"cloud_scan_wifi_only" = "Wi-Fi only for cloud info";
-"cloud_scan_wifi_only_footer" = "Cloud scans only fetch filenames upfront. Track info (artist, album, cover, duration) is filled in afterwards in the background — about 256KB per song. With this on, backfill pauses on cellular and resumes when you reconnect to Wi-Fi.";
-"backfill_progress" = "Filling info";
+"cloud_scan_wifi_only" = "Wi-Fi only for cloud details";
+"cloud_scan_wifi_only_footer" = "Cloud scans only fetch filenames upfront. Track details (artist, album, cover, duration) are loaded in the background — about 256KB per song. With this on, loading pauses on cellular and resumes when you reconnect to Wi-Fi.";
+"backfill_in_progress" = "Loading details";
+"new_songs_added" = "%d new songs";
+"no_new_songs" = "No new songs";
+"backfill_remaining" = "%d remaining";
+"song_details_loading" = "Loading song details";
+"song_details_loading_message" = "Details for this song are still loading. Duration and cover art will appear once it finishes. You can still play it.";
 
 // MARK: - Audio Effects
 "audio_effects" = "Audio Effects";
@@ -319,6 +324,7 @@
 // MARK: - Scraper Source Descriptions
 "scraper_musicbrainz_desc" = "Open music database, metadata and covers";
 "scraper_lrclib_desc" = "Open synced lyrics database";
+"scraper_itunes_desc" = "Apple's iTunes Search API — metadata and high-resolution covers";
 "custom_scraper_desc" = "User-imported scraper";
 "import_scraper_source" = "Import Scraper Source";
 "import_scraper_footer" = "Import a custom scraper source via JSON config or URL. You are responsible for ensuring imported sources comply with applicable terms and copyright laws.";

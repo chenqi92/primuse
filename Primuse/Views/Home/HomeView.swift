@@ -370,9 +370,13 @@ struct HomeView: View {
     }
 
     private func playLibrary(shuffled: Bool) {
-        guard !library.visibleSongs.isEmpty else { return }
+        // Skip cloud songs that haven't been backfilled yet — they have no
+        // duration / cover / metadata and would land in the queue with a
+        // blank progress bar. Once backfill catches up they become eligible.
+        let candidates = library.visibleSongs.filter { $0.duration > 0 }
+        guard !candidates.isEmpty else { return }
 
-        let queueSongs = shuffled ? library.visibleSongs.shuffled() : library.visibleSongs
+        let queueSongs = shuffled ? candidates.shuffled() : candidates
         guard let firstSong = queueSongs.first else { return }
 
         player.shuffleEnabled = false

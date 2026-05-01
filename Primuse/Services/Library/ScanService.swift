@@ -12,6 +12,12 @@ final class ScanService {
         var isScanning: Bool = false
         var currentFile: String = ""
         var scannedCount: Int = 0
+        /// Newly-added songs from the current scan run (excludes already-known
+        /// files that the scanner skipped). UI surfaces this as "新增 N 首"
+        /// so a re-scan that finds nothing new shows 0 instead of "2205
+        /// files scanned" — which used to make users think every file was
+        /// being reprocessed.
+        var addedCount: Int = 0
         var totalCount: Int = 0
 
         var progress: Double {
@@ -360,10 +366,20 @@ final class ScanService {
     ) async {
         let connector = sourceManager.connector(for: source)
         let scanner = ConnectorScanner(connector: connector, sourceID: source.id)
+        // Pass songs from the live library (for this source) as the
+        // existing-set, not just resumeSongs. Without this, re-scanning
+        // a finished source would walk the full tree and yield every file
+        // as "new" — wasteful, and the UI's "scanned X" counter looked
+        // like all files were being reprocessed even when nothing changed
+        // remotely. With it, the scanner skips known files at the
+        // listFiles-stream level and `addedCount` tracks just the actual
+        // delta.
+        let knownExisting = library.songs.filter { $0.sourceID == source.id }
+        let existingForScan = resumeSongs.isEmpty ? knownExisting : resumeSongs
         let stream = await scanner.scan(
             directories: directories,
-            existingSongs: resumeSongs,
-            startingCount: resumeSongs.count
+            existingSongs: existingForScan,
+            startingCount: existingForScan.count
         )
 
         do {
@@ -372,11 +388,16 @@ final class ScanService {
             for try await update in stream {
                 try Task.checkCancellation()
                 scanStates[source.id]?.scannedCount = update.scannedCount
+                scanStates[source.id]?.addedCount = update.addedCount
                 scanStates[source.id]?.totalCount = update.totalCount
                 scanStates[source.id]?.currentFile = update.currentFile
                 lastSongs = update.songs
 
-                if update.scannedCount - lastIncrementalUpdate >= 10 {
+                // Flush every 10 *new* songs (not every 10 yields). With
+                // incremental scan, yields and new songs are the same, but
+                // when the scanner processes a song that was already in
+                // the library this still avoids needless DB churn.
+                if update.addedCount - lastIncrementalUpdate >= 10 {
                     library.addSongs(lastSongs)
                     sourceStore.updateLocal(source.id) { $0.songCount = lastSongs.count }
                     persistCheckpoint(
@@ -386,7 +407,7 @@ final class ScanService {
                         totalCount: update.totalCount,
                         currentFile: update.currentFile
                     )
-                    lastIncrementalUpdate = update.scannedCount
+                    lastIncrementalUpdate = update.addedCount
                 }
             }
 
@@ -437,10 +458,14 @@ final class ScanService {
             $0.lastScannedAt = Date()
         }
         scraperService?.enqueueBackgroundEnrichment(for: songs, in: library)
-        removeCheckpoint(for: sourceID)
-        scanStates[sourceID]?.isScanning = false
-        scanStates[sourceID]?.scannedCount = songs.count
-        scanStates[sourceID]?.currentFile = "\(songs.count) \(String(localized: "songs_found"))"
+        // Wipe both checkpoint and live state. The source card now reads
+        // `lastScannedAt` for the "scanned X songs" line; without clearing
+        // scanStates, `canResume` would read true forever (totalCount is
+        // always 0 since we removed Phase 1 counting) and the UI would
+        // show "click to resume scan" on a finished source.
+        checkpoints[sourceID] = nil
+        persistCheckpoints()
+        scanStates[sourceID] = nil
     }
 
     // MARK: - Helpers

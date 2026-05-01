@@ -256,9 +256,14 @@
 "audio_cache_enabled" = "音频缓存";
 "audio_cache_desc" = "启用后，播放过的歌曲将被缓存到本地，下次播放时无需重新下载。关闭后不保留缓存文件。";
 "network" = "网络";
-"cloud_scan_wifi_only" = "仅在 Wi-Fi 下补全云盘信息";
-"cloud_scan_wifi_only_footer" = "扫描云盘时只下载文件名，曲目信息（歌手/专辑/封面/时长）会在后台分批补全。一首歌大约消耗 256KB 流量。开启此项后，遇到蜂窝网络会自动暂停，连上 Wi-Fi 自动继续。";
-"backfill_progress" = "正在补全";
+"cloud_scan_wifi_only" = "仅在 Wi-Fi 下加载云盘详情";
+"cloud_scan_wifi_only_footer" = "扫描云盘时只读取文件名，详情（歌手/专辑/封面/时长）会在后台分批加载。一首歌大约消耗 256KB 流量。开启此项后，遇到蜂窝网络会自动暂停，连上 Wi-Fi 自动继续。";
+"backfill_in_progress" = "正在加载详情";
+"new_songs_added" = "新增 %d 首";
+"no_new_songs" = "暂无新歌";
+"backfill_remaining" = "剩余 %d 首";
+"song_details_loading" = "歌曲详情加载中";
+"song_details_loading_message" = "该歌曲信息正在加载，加载完成后即可正常显示时长和封面。仍可继续播放。";
 
 // MARK: - 音效
 "audio_effects" = "音效";
@@ -319,6 +324,7 @@
 // MARK: - 刮削源描述
 "scraper_musicbrainz_desc" = "开放音乐数据库，支持元数据和封面";
 "scraper_lrclib_desc" = "开放同步歌词数据库";
+"scraper_itunes_desc" = "Apple iTunes Search API——元数据和高清封面";
 "custom_scraper_desc" = "用户导入的刮削源";
 "import_scraper_source" = "导入刮削源";
 "import_scraper_footer" = "通过 JSON 配置或 URL 导入自定义刮削源，可提供元数据、封面和歌词。请确保所导入的数据源合法合规，本应用不对第三方源的内容承担责任。";

@@ -32,7 +32,7 @@ struct ScraperSettings: Codable, Sendable {
             var migrated = settings
             migrated.sources = settings.sources.filter { source in
                 switch source.type {
-                case .musicBrainz, .lrclib: true
+                case .musicBrainz, .lrclib, .itunes: true
                 case .custom(let id): ScraperConfigStore.shared.exists(id: id)
                 }
             }
@@ -91,18 +91,42 @@ struct ScraperSettings: Codable, Sendable {
             }
 
         var nextPriority = (reconciled.sources.map(\.priority).max() ?? -1) + 1
+        let hadITunes = reconciled.sources.contains(where: { $0.type == .itunes })
 
         for builtIn in MusicScraperType.builtInOrder where !reconciled.sources.contains(where: { $0.type == builtIn }) {
             reconciled.sources.append(
                 ScraperSourceConfig(
                     id: UUID().uuidString,
                     type: builtIn,
-                    isEnabled: true,
+                    isEnabled: ScraperSourceConfig.defaultEnabled(for: builtIn),
                     priority: nextPriority
                 )
             )
             nextPriority += 1
             didChange = true
+        }
+
+        // First-time iTunes migration: when iTunes is being added to existing
+        // settings (which had MusicBrainz/LRCLIB enabled by the old defaults),
+        // realign with the new defaults — iTunes on top, others demoted to
+        // disabled. Built-in sources can't be removed via UI, so this branch
+        // runs at most once per install.
+        if !hadITunes, reconciled.sources.contains(where: { $0.type == .itunes }) {
+            for index in reconciled.sources.indices {
+                switch reconciled.sources[index].type {
+                case .musicBrainz, .lrclib:
+                    if reconciled.sources[index].isEnabled {
+                        reconciled.sources[index].isEnabled = false
+                        didChange = true
+                    }
+                default: break
+                }
+            }
+            if let itunesIdx = reconciled.sources.firstIndex(where: { $0.type == .itunes }), itunesIdx != 0 {
+                let itunes = reconciled.sources.remove(at: itunesIdx)
+                reconciled.sources.insert(itunes, at: 0)
+                didChange = true
+            }
         }
 
         for config in ScraperConfigStore.shared.allConfigs where !reconciled.sources.contains(where: { $0.type == .custom(config.id) }) {
