@@ -14,22 +14,23 @@ struct MacBottomBar: View {
     @Environment(AudioEngine.self) private var engine
 
     var body: some View {
-        VStack(spacing: 0) {
-            Divider()
-            HStack(spacing: 16) {
-                nowPlayingInfo
-                    .frame(width: 280, alignment: .leading)
+        // Apple Music macOS 26 风格的浮动播放栏:不再是 .background(.bar)
+        // 全宽贴底,而是一个底部居中的 capsule 玻璃,左右留 margin。
+        HStack(spacing: 16) {
+            nowPlayingInfo
+                .frame(width: 260, alignment: .leading)
 
-                transport
-                    .frame(maxWidth: .infinity)
+            transport
+                .frame(maxWidth: .infinity)
 
-                rightControls
-                    .frame(width: 200, alignment: .trailing)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            rightControls
+                .frame(width: 200, alignment: .trailing)
         }
-        .background(.bar)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .glassEffect(.regular, in: .capsule)
+        .padding(.horizontal, 18)
+        .padding(.bottom, 10)
     }
 
     // MARK: - Sections
@@ -147,18 +148,21 @@ struct MacBottomBar: View {
                 .foregroundStyle(.secondary)
                 .font(.caption)
 
-            Button { onToggleNowPlaying() } label: {
-                Image(systemName: isExpanded
-                      ? "chevron.down"
-                      : "chevron.up")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 30, height: 30)
-                    .contentTransition(.symbolEffect(.replace))
+            // NowPlaying 展开时 NowPlaying 视图内部右上角已有 close 按钮,
+            // 这里再放一个 chevron.down 就重复了。展开后只保留 NowPlaying
+            // 自带的 close,这里只在收起态显示 chevron.up 作为"打开"入口。
+            if !isExpanded {
+                Button { onToggleNowPlaying() } label: {
+                    Image(systemName: "chevron.up")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 30, height: 30)
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .help(Text("now_playing"))
             }
-            .buttonStyle(.plain)
-            .glassEffect(.regular.interactive(), in: .circle)
-            .help(Text(isExpanded ? "close" : "now_playing"))
         }
     }
 

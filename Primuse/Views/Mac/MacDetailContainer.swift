@@ -7,6 +7,7 @@ import PrimuseKit
 /// macOS split view. Stack resets whenever sidebar selection changes.
 struct MacDetailContainer: View {
     let route: MacRoute
+    @Binding var searchText: String
     @Environment(MusicLibrary.self) private var library
     @Environment(SourcesStore.self) private var sourcesStore
     @State private var path = NavigationPath()
@@ -26,6 +27,9 @@ struct MacDetailContainer: View {
         switch route {
         case .home:
             MacHomeView()
+        case .search:
+            SearchView(searchText: $searchText)
+                .navigationTitle("search_title")
         case .section(let section):
             switch section {
             case .songs:

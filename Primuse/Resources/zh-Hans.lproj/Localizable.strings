@@ -500,3 +500,6 @@
 "carplay_search_no_results" = "无匹配结果";
 "carplay_play_failed_format" = "无法播放 %@";
 "carplay_ok" = "好";
+"welcome_back" = "欢迎回来";
+"lyrics_font_smaller" = "缩小歌词";
+"lyrics_font_larger" = "放大歌词";

@@ -282,6 +282,10 @@ struct MacSourcesView: View {
         }
         .buttonStyle(.bordered)
         .controlSize(.small)
+        // 不同源类型的按钮数 1~3 个,不固定宽度时每行最右的「...」menu
+        // 落在不同竖线上,看着不齐。把整组按钮固定到 trailing 对齐 +
+        // 最小宽度,让所有源卡片的菜单按钮垂直对齐。
+        .frame(minWidth: 130, alignment: .trailing)
     }
 
     private func scanProgress(_ scan: ScanService.ScanState) -> some View {

@@ -20,9 +20,10 @@ struct MacCloudSyncSettingsView: View {
         ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 14) {
                 Text("icloud_sync_footer")
-                    .font(.callout)
+                    .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 4)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 masterToggle
 

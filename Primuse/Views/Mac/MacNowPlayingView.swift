@@ -22,14 +22,20 @@ struct MacNowPlayingView: View {
 
     @State private var lyrics: [LyricLine] = []
     @State private var currentIndex: Int = 0
+    /// 歌词基准字号,用户可在 NowPlaying 内通过 +/- 调整。当前播放行
+    /// 字号 = base + 5。
+    @AppStorage("now_playing_lyrics_base_font") private var lyricsBaseFontSize: Double = 17
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
             backdrop
 
-            HStack(spacing: 32) {
+            // 把 artwork / 歌词从 1:1 平分改为 fixed-vs-flex,
+            // 让封面只占左侧一块、歌词区域吃掉剩余宽度。
+            HStack(alignment: .top, spacing: 36) {
                 artworkPane
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(width: 380)
+                    .frame(maxHeight: .infinity)
                 lyricsPane
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -37,18 +43,51 @@ struct MacNowPlayingView: View {
             .padding(.top, 32)
             .padding(.bottom, 24)
 
-            Button {
-                onClose()
-            } label: {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 30, height: 30)
+            HStack(spacing: 8) {
+                // 歌词字号 +/- (Apple Music 风格的浮动控件)
+                Button {
+                    lyricsBaseFontSize = max(12, lyricsBaseFontSize - 2)
+                } label: {
+                    Image(systemName: "textformat.size.smaller")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 36, height: 36)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .help(Text("lyrics_font_smaller"))
+                .disabled(lyrics.isEmpty)
+
+                Button {
+                    lyricsBaseFontSize = min(28, lyricsBaseFontSize + 2)
+                } label: {
+                    Image(systemName: "textformat.size.larger")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 36, height: 36)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .help(Text("lyrics_font_larger"))
+                .disabled(lyrics.isEmpty)
+
+                Button {
+                    onClose()
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 36, height: 36)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .help(Text("close"))
+                .keyboardShortcut(.cancelAction)
             }
-            .buttonStyle(.plain)
-            .glassEffect(.regular.interactive(), in: .circle)
-            .help(Text("close"))
-            .padding(14)
+            .padding(18)
         }
         .task(id: player.currentSong?.id) { await reloadLyrics() }
         .onChange(of: player.currentTime) { _, t in updateIndex(time: t) }
@@ -144,7 +183,7 @@ struct MacNowPlayingView: View {
                     } else {
                         ForEach(Array(lyrics.enumerated()), id: \.element.id) { i, line in
                             Text(line.text)
-                                .font(.system(size: i == currentIndex ? 22 : 17,
+                                .font(.system(size: i == currentIndex ? lyricsBaseFontSize + 5 : lyricsBaseFontSize,
                                               weight: i == currentIndex ? .semibold : .regular))
                                 .foregroundStyle(i == currentIndex ? .primary : .secondary)
                                 .opacity(i == currentIndex ? 1 : 0.6)

@@ -325,6 +325,9 @@ struct PrimuseApp: App {
         Settings {
             injectServices { MacSettingsView() }
         }
+        // 防止切到内容少的 tab (RecentlyDeleted 空 / Replay Gain 关闭后
+        // 的 Playback Settings) 时整个 Settings 窗口突兀缩小。
+        .windowResizability(.contentMinSize)
         #endif
     }
 }

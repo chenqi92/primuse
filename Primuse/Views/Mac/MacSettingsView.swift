@@ -19,40 +19,39 @@ struct MacSettingsView: View {
 
     var body: some View {
         TabView(selection: $tab) {
-            PlaybackSettingsView().topAligned()
+            PlaybackSettingsView().tabPaneSize().topAligned()
                 .tabItem { Label("playback_settings", systemImage: "play.circle") }
                 .tag(Tab.general)
 
-            EqualizerView().topAligned()
+            EqualizerView().tabPaneSize().topAligned()
                 .tabItem { Label("equalizer", systemImage: "slider.horizontal.3") }
                 .tag(Tab.equalizer)
 
-            AudioEffectsView().topAligned()
+            AudioEffectsView().tabPaneSize().topAligned()
                 .tabItem { Label("audio_effects", systemImage: "waveform.badge.plus") }
                 .tag(Tab.effects)
 
-            MacMetadataScrapingView()
+            MacMetadataScrapingView().tabPaneSize()
                 .tabItem { Label("metadata_scraping", systemImage: "wand.and.stars") }
                 .tag(Tab.library)
 
-            MacSourcesView()
+            MacSourcesView().tabPaneSize()
                 .tabItem { Label("manage_sources", systemImage: "externaldrive.connected.to.line.below") }
                 .tag(Tab.sources)
 
-            MacCloudSyncSettingsView()
+            MacCloudSyncSettingsView().tabPaneSize()
                 .tabItem { Label("icloud_sync_title", systemImage: "icloud") }
                 .tag(Tab.sync)
 
-            RecentlyDeletedView()
-                .frame(minWidth: 720, minHeight: 520)
+            RecentlyDeletedView().tabPaneSize()
                 .tabItem { Label("recently_deleted", systemImage: "trash") }
                 .tag(Tab.recentlyDeleted)
 
-            MacTrustedDomainsView()
+            MacTrustedDomainsView().tabPaneSize()
                 .tabItem { Label("trusted_domains", systemImage: "lock.shield") }
                 .tag(Tab.security)
 
-            aboutTab.topAligned()
+            aboutTab.tabPaneSize().topAligned()
                 .tabItem { Label("about", systemImage: "info.circle") }
                 .tag(Tab.about)
         }
@@ -78,6 +77,13 @@ private extension View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .padding(.horizontal, 20)
             .padding(.vertical, 18)
+    }
+
+    /// 给 Settings TabView 每个 tab 钉一个统一的 minSize, 防止切到内容
+    /// 少的 tab (例如 RecentlyDeleted 空列表 / Replay Gain 关闭后的
+    /// Playback Settings) 时整个 NSWindow 突兀缩小。
+    func tabPaneSize() -> some View {
+        self.frame(minWidth: 720, minHeight: 520)
     }
 }
 #endif

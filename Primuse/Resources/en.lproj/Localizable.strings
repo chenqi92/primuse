@@ -500,3 +500,6 @@
 "carplay_search_no_results" = "No results";
 "carplay_play_failed_format" = "Couldn't play %@";
 "carplay_ok" = "OK";
+"welcome_back" = "Welcome back";
+"lyrics_font_smaller" = "Smaller Lyrics";
+"lyrics_font_larger" = "Larger Lyrics";

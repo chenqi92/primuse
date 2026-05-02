@@ -11,6 +11,8 @@ struct MacSidebar: View {
             Section {
                 Label("home_title", systemImage: "house.fill")
                     .tag(MacRoute.home)
+                Label("search_title", systemImage: "magnifyingglass")
+                    .tag(MacRoute.search)
             }
 
             Section("library_title") {

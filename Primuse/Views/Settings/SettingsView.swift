@@ -431,15 +431,20 @@ struct PlaybackSettingsView: View {
                 Toggle("crossfade", isOn: $settings.crossfadeEnabled)
 
                 if settings.crossfadeEnabled {
-                    VStack(alignment: .leading) {
-                        Text("crossfade_duration")
-                            .font(.caption)
-                        Slider(value: $settings.crossfadeDuration, in: 1...12, step: 1) {
-                            Text("\(Int(settings.crossfadeDuration))s")
+                    // 之前 Slider 的 trailing label "3s" 和下方 caption2 "3 秒"
+                    // 同时显示,在 macOS Form 里产生左右各一处重复的当前值。
+                    // 改为「title 左 / 当前值右」一行 + slider 单独一行,只显示一次值。
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("crossfade_duration")
+                                .font(.caption)
+                            Spacer()
+                            Text("\(Int(settings.crossfadeDuration)) \(String(localized: "seconds"))")
+                                .font(.caption)
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
                         }
-                        Text("\(Int(settings.crossfadeDuration)) \(String(localized: "seconds"))")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                        Slider(value: $settings.crossfadeDuration, in: 1...12, step: 1)
                     }
                 }
             } footer: {
@@ -450,10 +455,18 @@ struct PlaybackSettingsView: View {
                 Toggle("replay_gain", isOn: $settings.replayGainEnabled)
 
                 if settings.replayGainEnabled {
-                    Picker("rg_mode", selection: $settings.replayGainMode) {
-                        ForEach(ReplayGainMode.allCases, id: \.self) { mode in
-                            Text(mode.displayName).tag(mode)
+                    // 用 LabeledContent 显式分隔 title / Picker, 这样 macOS Form
+                    // 才会把 dropdown 推到行尾, 不会"模式 单曲"挤在最左留一片空白。
+                    LabeledContent {
+                        Picker("", selection: $settings.replayGainMode) {
+                            ForEach(ReplayGainMode.allCases, id: \.self) { mode in
+                                Text(mode.displayName).tag(mode)
+                            }
                         }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                    } label: {
+                        Text("rg_mode")
                     }
                 }
             } footer: {

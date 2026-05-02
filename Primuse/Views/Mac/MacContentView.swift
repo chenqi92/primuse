@@ -13,6 +13,7 @@ struct MacContentView: View {
     @State private var selection: MacRoute = .home
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var nowPlayingPresented = false
+    @State private var searchText = ""
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -20,7 +21,7 @@ struct MacContentView: View {
                 .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 320)
         } detail: {
             ZStack {
-                MacDetailContainer(route: selection)
+                MacDetailContainer(route: selection, searchText: $searchText)
 
                 if nowPlayingPresented {
                     MacNowPlayingView(onClose: {

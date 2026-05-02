@@ -16,11 +16,10 @@ struct MacHomeView: View {
 
     var body: some View {
         ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: 28) {
-                header
+            VStack(alignment: .leading, spacing: 32) {
+                heroSection
 
                 if hasContent {
-                    statsStrip
                     recentlyAddedAlbumsSection
                     recentlyPlayedSection
                     if !library.visibleArtists.isEmpty {
@@ -31,7 +30,7 @@ struct MacHomeView: View {
                 }
             }
             .padding(.horizontal, 32)
-            .padding(.top, 28)
+            .padding(.top, 24)
             // Mini bar (~76pt) sits in the bottom safe area inset; pad
             // generously so the last row doesn't tuck under it.
             .padding(.bottom, 96)
@@ -50,65 +49,48 @@ struct MacHomeView: View {
         }
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
+    /// 左 greeting + 大标题 + 库统计一行 / 右 Play All + Shuffle 按钮组。
+    /// 替换原本的 4 列 stat strip — 后者最末位放 quick-play 双按钮卡，
+    /// 在窗口偏窄时按钮文案被截断成 "随机..."。
+    private var heroSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
             Text(greeting)
                 .font(.callout)
                 .foregroundStyle(.secondary)
-            Text("home_title")
-                .font(.system(size: 30, weight: .bold))
+
+            HStack(alignment: .firstTextBaseline, spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("welcome_back")
+                        .font(.system(size: 34, weight: .bold))
+                    Text(librarySummary)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 12)
+                HStack(spacing: 10) {
+                    Button { playLibrary(shuffled: true) } label: {
+                        Label("shuffle", systemImage: "shuffle")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+
+                    Button { playLibrary(shuffled: false) } label: {
+                        Label("play_all", systemImage: "play.fill")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                }
+                .disabled(!hasContent)
+            }
         }
     }
 
-    private var statsStrip: some View {
-        HStack(spacing: 12) {
-            statCard(symbol: "music.note", value: library.songCount, label: String(localized: "tab_songs"))
-            statCard(symbol: "square.stack.fill", value: library.albumCount, label: String(localized: "tab_albums"))
-            statCard(symbol: "music.mic", value: library.artistCount, label: String(localized: "tab_artists"))
-            quickPlayCard
-        }
-    }
-
-    private func statCard(symbol: String, value: Int, label: String) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: symbol)
-                .font(.title3)
-                .foregroundStyle(.secondary)
-                .frame(width: 32)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("\(value)")
-                    .font(.title3)
-                    .fontWeight(.semibold)
-                    .monospacedDigit()
-                Text(label)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background.secondary, in: .rect(cornerRadius: 10))
-    }
-
-    private var quickPlayCard: some View {
-        HStack(spacing: 8) {
-            Button { playLibrary(shuffled: true) } label: {
-                Label("shuffle", systemImage: "shuffle")
-            }
-            .buttonStyle(.borderedProminent)
-
-            Button { playLibrary(shuffled: false) } label: {
-                Label("play_all", systemImage: "play.fill")
-            }
-            .buttonStyle(.bordered)
-        }
-        .controlSize(.large)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .center)
-        .background(.background.secondary, in: .rect(cornerRadius: 10))
+    private var librarySummary: String {
+        let songs = String(localized: "tab_songs")
+        let albums = String(localized: "tab_albums")
+        let artists = String(localized: "tab_artists")
+        return "\(library.songCount) \(songs) · \(library.albumCount) \(albums) · \(library.artistCount) \(artists)"
     }
 
     // MARK: - Recently Added
@@ -118,8 +100,10 @@ struct MacHomeView: View {
             Text("recently_added")
                 .font(.title3).fontWeight(.semibold)
 
+            // 130/170 让 1180 宽窗口下能塞 6 列；之前 160/200 在窄窗口
+            // 退化成 1 列就一片留白。
             LazyVGrid(columns: [
-                GridItem(.adaptive(minimum: 160, maximum: 200), spacing: 18, alignment: .top)
+                GridItem(.adaptive(minimum: 130, maximum: 170), spacing: 18, alignment: .top)
             ], alignment: .leading, spacing: 22) {
                 ForEach(library.recentlyAddedAlbums(limit: 12)) { album in
                     Button { playAlbum(album) } label: {
