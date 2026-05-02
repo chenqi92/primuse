@@ -90,10 +90,19 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
 
     private func presentAuthSession(url: URL, callbackScheme: String) async throws -> URL {
         try await withCheckedThrowingContinuation { continuation in
+            // The completion closure must NOT inherit `@MainActor` from this
+            // type — ASWebAuthenticationSession invokes it on its XPC reply
+            // queue (`com.apple.NSXPCConnection.m-user.com.apple.SafariLaunchAgent`),
+            // and Swift 6 / macOS 26 enforces that a main-actor-isolated
+            // closure is actually running on main. Without `@Sendable`,
+            // the runtime trips `_swift_task_checkIsolatedSwift` and the
+            // process crashes (SIGTRAP) before the continuation resumes.
+            // `continuation.resume` is itself nonisolated, so running this
+            // closure on a non-main queue is safe.
             let session = ASWebAuthenticationSession(
                 url: url,
                 callbackURLScheme: callbackScheme
-            ) { callbackURL, error in
+            ) { @Sendable callbackURL, error in
                 if let error {
                     if (error as NSError).code == ASWebAuthenticationSessionError.canceledLogin.rawValue {
                         continuation.resume(throwing: OAuthError.userCancelled)
