@@ -295,6 +295,11 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
     /// 30-day prune can clear it for good once all devices have converged.
     public var isDeleted: Bool
     public var deletedAt: Date?
+    /// Links this mount to its owning `CloudAccount` for OAuth-typed
+    /// sources. nil for local / NAS / protocol-typed sources whose
+    /// identity is already rooted in host+credentials. Populated by the
+    /// OAuth flow when `MusicSourceType.requiresOAuth` is true.
+    public var cloudAccountID: String?
 
     public init(
         id: String = UUID().uuidString,
@@ -319,7 +324,8 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
         extraConfig: String? = nil,
         modifiedAt: Date = Date(),
         isDeleted: Bool = false,
-        deletedAt: Date? = nil
+        deletedAt: Date? = nil,
+        cloudAccountID: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -344,6 +350,7 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
         self.modifiedAt = modifiedAt
         self.isDeleted = isDeleted
         self.deletedAt = deletedAt
+        self.cloudAccountID = cloudAccountID
     }
 
     public init(from decoder: Decoder) throws {
@@ -373,6 +380,10 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
         self.modifiedAt = try c.decodeIfPresent(Date.self, forKey: .modifiedAt) ?? .distantPast
         self.isDeleted = try c.decodeIfPresent(Bool.self, forKey: .isDeleted) ?? false
         self.deletedAt = try c.decodeIfPresent(Date.self, forKey: .deletedAt)
+        // decodeIfPresent so old JSON snapshots (pre-CloudAccount) decode
+        // cleanly with cloudAccountID = nil. The migration in stage 4
+        // will populate this for existing OAuth sources.
+        self.cloudAccountID = try c.decodeIfPresent(String.self, forKey: .cloudAccountID)
     }
 }
 

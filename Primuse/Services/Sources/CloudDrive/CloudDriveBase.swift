@@ -98,7 +98,14 @@ struct CloudDriveHelper: Sendable {
     ///   the requested window ourselves so callers can trust offsets. Without this
     ///   correction, a seek-to-middle would write the start of the file into the
     ///   middle of our cache and corrupt `.partial` permanently.
-    func rangeRequest(url: URL, offset: Int64, length: Int64, accessToken: String? = nil) async throws -> Data {
+    func rangeRequest(
+        url: URL,
+        offset: Int64,
+        length: Int64,
+        accessToken: String? = nil,
+        userAgent: String? = nil,
+        referer: String? = nil
+    ) async throws -> Data {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         let rangeHeader: String
@@ -110,6 +117,16 @@ struct CloudDriveHelper: Sendable {
         request.setValue(rangeHeader, forHTTPHeaderField: "Range")
         if let accessToken {
             request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        }
+        if let userAgent {
+            // Some providers (notably Baidu) refuse / throttle dlink fetches
+            // unless the request looks like it's coming from their first-party
+            // client. URLSession preserves custom headers across 302s, so this
+            // also applies to the redirected CDN URL.
+            request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        }
+        if let referer {
+            request.setValue(referer, forHTTPHeaderField: "Referer")
         }
         request.timeoutInterval = 60
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -128,6 +145,11 @@ struct CloudDriveHelper: Sendable {
             let upper = min(actualOffset + length, totalSize)
             return data.subdata(in: Int(actualOffset)..<Int(upper))
         default:
+            // Surface the status code so the caller can decide whether
+            // it's recoverable (401/403/410 → token/dlink refresh) and
+            // so the log shows which provider error triggered a
+            // mid-stream playback failure.
+            plog("⚠️ rangeRequest HTTP \(http.statusCode) for \(url.host ?? "?") path=\(url.path.suffix(60))")
             throw CloudDriveError.apiError(http.statusCode, "Range request failed")
         }
     }
@@ -220,7 +242,14 @@ struct CloudDriveHelper: Sendable {
                     modifiedDate: item.modifiedDate,
                     sidecarHints: (cover != nil || lyrics != nil)
                         ? SidecarHints(coverPath: cover, lyricsPath: lyrics)
-                        : nil
+                        : nil,
+                    // Preserve provider revision (md5/etag/content_hash)
+                    // through the sidecar-decoration step. Without this,
+                    // each cloud connector's listFiles would surface a
+                    // revision but ConnectorScanner — which consumes
+                    // scanAudioFiles — would only ever see nil, defeating
+                    // same-size overwrite detection on every cloud drive.
+                    revision: item.revision
                 )
                 continuation.yield(withHints)
             }

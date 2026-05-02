@@ -2,7 +2,7 @@ import Foundation
 import PrimuseKit
 
 /// OneDrive Source — Microsoft Graph API
-actor OneDriveSource: MusicSourceConnector {
+actor OneDriveSource: MusicSourceConnector, OAuthCloudSource {
     let sourceID: String
     private let helper: CloudDriveHelper
     private static let graphBase = "https://graph.microsoft.com/v1.0"
@@ -15,6 +15,27 @@ actor OneDriveSource: MusicSourceConnector {
     }
 
     func connect() async throws { _ = try await getToken() }
+
+    /// Microsoft Graph `/me` returns the signed-in user record. The `id`
+    /// field is the Azure AD object identifier — stable across token
+    /// refresh and across devices logged into the same Microsoft account.
+    /// `$select=id` keeps the response tiny.
+    func accountIdentifier() async throws -> String {
+        let token = try await getToken()
+        let (data, http) = try await helper.makeAuthorizedRequest(
+            url: URL(string: "\(Self.graphBase)/me?$select=id")!,
+            accessToken: token
+        )
+        guard http.statusCode == 200 else {
+            throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+        }
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        guard let id = json["id"] as? String, !id.isEmpty else {
+            plog("⚠️ OneDrive accountIdentifier: missing id in response: \(json)")
+            throw CloudDriveError.invalidResponse
+        }
+        return id
+    }
     func disconnect() async {}
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
@@ -37,7 +58,19 @@ actor OneDriveSource: MusicSourceConnector {
             let items = json["value"] as? [[String: Any]] ?? []
             all.append(contentsOf: items.compactMap { item in
                 guard let id = item["id"] as? String, let name = item["name"] as? String else { return nil }
-                return RemoteFileItem(name: name, path: id, isDirectory: item["folder"] != nil, size: item["size"] as? Int64 ?? 0, modifiedDate: nil)
+                // Microsoft Graph driveItem returns file.hashes.sha1Hash /
+                // sha256Hash / quickXorHash. Use whichever is present as
+                // the revision fingerprint; eTag is a final fallback.
+                let revision: String? = {
+                    if let file = item["file"] as? [String: Any],
+                       let hashes = file["hashes"] as? [String: Any] {
+                        if let h = hashes["sha256Hash"] as? String { return h }
+                        if let h = hashes["sha1Hash"] as? String { return h }
+                        if let h = hashes["quickXorHash"] as? String { return h }
+                    }
+                    return item["eTag"] as? String
+                }()
+                return RemoteFileItem(name: name, path: id, isDirectory: item["folder"] != nil, size: item["size"] as? Int64 ?? 0, modifiedDate: nil, revision: revision)
             })
             // @odata.nextLink 是完整 URL（已包含 skiptoken）
             if let next = json["@odata.nextLink"] as? String, let nextU = URL(string: next) {
@@ -73,8 +106,29 @@ actor OneDriveSource: MusicSourceConnector {
     }
 
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
-        // OneDrive returns a short-lived pre-authenticated downloadUrl per item.
-        // Range requests against that URL don't need our Bearer token.
+        // OneDrive returns a short-lived pre-authenticated downloadUrl per
+        // item. Range requests against that URL don't need our Bearer token.
+        // Cache it for ~50min (Microsoft documents 1h validity, leave margin).
+        let fileURL = try await getDownloadURL(for: path)
+        do {
+            return try await helper.rangeRequest(url: fileURL, offset: offset, length: length)
+        } catch CloudDriveError.apiError(let code, _) where code == 401 || code == 403 || code == 410 {
+            // URL expired between cache and use — invalidate and retry once.
+            invalidateDownloadURL(for: path)
+            let fresh = try await getDownloadURL(for: path)
+            return try await helper.rangeRequest(url: fresh, offset: offset, length: length)
+        }
+    }
+
+    private var downloadURLCache: [String: (url: URL, expiresAt: Date)] = [:]
+    /// Microsoft documents `@microsoft.graph.downloadUrl` as valid for ~1
+    /// hour. Use 50min to leave a safety margin against clock skew.
+    private static let downloadURLTTL: TimeInterval = 50 * 60
+
+    private func getDownloadURL(for path: String) async throws -> URL {
+        if let cached = downloadURLCache[path], cached.expiresAt > Date() {
+            return cached.url
+        }
         let token = try await getToken()
         let (data, http) = try await helper.makeAuthorizedRequest(url: URL(string: "\(Self.graphBase)/me/drive/items/\(path)")!, accessToken: token)
         guard http.statusCode == 200 else { throw CloudDriveError.apiError(http.statusCode, "Item not found") }
@@ -83,7 +137,12 @@ actor OneDriveSource: MusicSourceConnector {
               let fileURL = URL(string: downloadUrl) else {
             throw CloudDriveError.fileNotFound(path)
         }
-        return try await helper.rangeRequest(url: fileURL, offset: offset, length: length)
+        downloadURLCache[path] = (fileURL, Date().addingTimeInterval(Self.downloadURLTTL))
+        return fileURL
+    }
+
+    private func invalidateDownloadURL(for path: String) {
+        downloadURLCache.removeValue(forKey: path)
     }
 
     private func getToken() async throws -> String {

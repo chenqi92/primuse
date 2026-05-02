@@ -59,7 +59,8 @@ final class MusicScraperService {
                 genre: updatedSong.genre, year: updatedSong.year,
                 dateAdded: updatedSong.dateAdded,
                 coverArtFileName: song.coverArtFileName,
-                lyricsFileName: updatedSong.lyricsFileName ?? song.lyricsFileName
+                lyricsFileName: updatedSong.lyricsFileName ?? song.lyricsFileName,
+                revision: updatedSong.revision ?? song.revision
             )
         }
         if updatedSong.lyricsFileName == nil && song.lyricsFileName != nil {
@@ -75,7 +76,8 @@ final class MusicScraperService {
                 genre: updatedSong.genre, year: updatedSong.year,
                 dateAdded: updatedSong.dateAdded,
                 coverArtFileName: updatedSong.coverArtFileName,
-                lyricsFileName: song.lyricsFileName
+                lyricsFileName: song.lyricsFileName,
+                revision: updatedSong.revision ?? song.revision
             )
         }
 
@@ -483,7 +485,8 @@ final class MusicScraperService {
             lastModified: song.lastModified,
             dateAdded: song.dateAdded,
             coverArtFileName: coverNeedsUpdate ? (metadata.coverArtFileName ?? song.coverArtFileName) : song.coverArtFileName,
-            lyricsFileName: lyricsNeedsUpdate ? (metadata.lyricsFileName ?? song.lyricsFileName) : song.lyricsFileName
+            lyricsFileName: lyricsNeedsUpdate ? (metadata.lyricsFileName ?? song.lyricsFileName) : song.lyricsFileName,
+            revision: song.revision
         )
     }
 }

@@ -42,6 +42,7 @@ final class CloudKitSyncService {
     enum RecordType {
         static let playlist = "Playlist"
         static let musicSource = "MusicSource"
+        static let cloudAccount = "CloudAccount"
         static let playbackHistory = "PlaybackHistory"
         static let scraperConfig = "ScraperConfig"
     }
@@ -337,6 +338,26 @@ final class CloudKitSyncService {
             guard let id = note.userInfo?["id"] as? String else { return }
             Task { @MainActor in self?.sourceDeleted(id: id) }
         })
+        // Soft-delete is a different signal than permanent delete: the
+        // local row stays for recycle-bin recovery, but the upstream
+        // CloudKit record must be removed (otherwise fetchChanges would
+        // resurrect it on every sync).
+        observerTokens.append(nc.addObserver(forName: .primuseSourceDidSoftDelete, object: nil, queue: .main) { [weak self] note in
+            guard let id = note.userInfo?["id"] as? String else { return }
+            Task { @MainActor in self?.sourceDeleted(id: id) }
+        })
+        observerTokens.append(nc.addObserver(forName: .primuseCloudAccountsDidChange, object: nil, queue: .main) { [weak self] note in
+            let ids = (note.userInfo?["ids"] as? [String]) ?? []
+            Task { @MainActor in self?.cloudAccountsChanged(ids: ids) }
+        })
+        observerTokens.append(nc.addObserver(forName: .primuseCloudAccountDidSoftDelete, object: nil, queue: .main) { [weak self] note in
+            guard let id = note.userInfo?["id"] as? String else { return }
+            Task { @MainActor in self?.cloudAccountDeleted(id: id) }
+        })
+        observerTokens.append(nc.addObserver(forName: .primuseCloudAccountDidDelete, object: nil, queue: .main) { [weak self] note in
+            guard let id = note.userInfo?["id"] as? String else { return }
+            Task { @MainActor in self?.cloudAccountDeleted(id: id) }
+        })
         observerTokens.append(nc.addObserver(forName: .primuseScraperConfigDidChange, object: nil, queue: .main) { [weak self] note in
             let ids = (note.userInfo?["ids"] as? [String]) ?? []
             Task { @MainActor in self?.scraperConfigsChanged(ids: ids) }
@@ -372,6 +393,19 @@ final class CloudKitSyncService {
         enqueueDeletes(recordType: RecordType.musicSource, ids: [id])
     }
 
+    func cloudAccountsChanged(ids: [String]) {
+        // Cloud accounts piggy-back on the `.sources` sync channel —
+        // they're the same lifecycle (user-managed cloud entities) and
+        // don't deserve a separate user-facing toggle.
+        guard CloudSyncChannel.isEnabled(.sources) else { return }
+        enqueueSaves(recordType: RecordType.cloudAccount, ids: ids)
+    }
+
+    func cloudAccountDeleted(id: String) {
+        guard CloudSyncChannel.isEnabled(.sources) else { return }
+        enqueueDeletes(recordType: RecordType.cloudAccount, ids: [id])
+    }
+
     func scraperConfigsChanged(ids: [String]) {
         guard CloudSyncChannel.isEnabled(.settings) else { return }
         enqueueSaves(recordType: RecordType.scraperConfig, ids: ids)
@@ -405,6 +439,7 @@ final class CloudKitSyncService {
         switch recordType {
         case RecordType.playlist: return .playlists
         case RecordType.musicSource: return .sources
+        case RecordType.cloudAccount: return .sources
         case RecordType.playbackHistory: return .playbackHistory
         case RecordType.scraperConfig: return .settings
         default: return nil
@@ -439,6 +474,7 @@ final class CloudKitSyncService {
     private func scheduleInitialUpload() {
         playlistsChanged(ids: library.allPlaylists.map(\.id))
         sourcesChanged(ids: sourcesStore.allSources.map(\.id))
+        cloudAccountsChanged(ids: sourcesStore.allAccounts.map(\.id))
         scraperConfigsChanged(ids: scraperConfigStore.allConfigsIncludingDeleted.map(\.id))
         // Push history at startup too (bypass the 5-min throttle, but still
         // honour the channel toggle).
@@ -467,6 +503,8 @@ final class CloudKitSyncService {
             return populatePlaylistRecord(record, playlistID: id)
         case RecordType.musicSource:
             return populateSourceRecord(record, sourceID: id)
+        case RecordType.cloudAccount:
+            return populateCloudAccountRecord(record, accountID: id)
         case RecordType.scraperConfig:
             return populateScraperConfigRecord(record, configID: id)
         case RecordType.playbackHistory:
@@ -490,6 +528,8 @@ final class CloudKitSyncService {
             applyPlaylistRecord(record)
         case RecordType.musicSource:
             applySourceRecord(record)
+        case RecordType.cloudAccount:
+            applyCloudAccountRecord(record)
         case RecordType.scraperConfig:
             applyScraperConfigRecord(record)
         case RecordType.playbackHistory:
@@ -524,6 +564,8 @@ final class CloudKitSyncService {
             library.deletePlaylistFromRemote(id: id)
         case RecordType.musicSource:
             sourcesStore.removeFromRemote(id: id)
+        case RecordType.cloudAccount:
+            sourcesStore.removeAccountFromRemote(id: id)
         case RecordType.scraperConfig:
             scraperConfigStore.deleteFromRemote(id: id)
         case RecordType.playbackHistory:
@@ -542,6 +584,8 @@ final class CloudKitSyncService {
             return library.allPlaylists.first(where: { $0.id == id }).map { !$0.isDeleted } ?? false
         case RecordType.musicSource:
             return sourcesStore.allSources.first(where: { $0.id == id }).map { !$0.isDeleted } ?? false
+        case RecordType.cloudAccount:
+            return sourcesStore.allAccounts.first(where: { $0.id == id }).map { !$0.isDeleted } ?? false
         case RecordType.scraperConfig:
             return scraperConfigStore.allConfigsIncludingDeleted
                 .first(where: { $0.id == id })
@@ -565,7 +609,14 @@ final class CloudKitSyncService {
         record["createdAt"] = playlist.createdAt
         record["updatedAt"] = playlist.updatedAt
         if let cover = playlist.coverArtPath { record["coverArtPath"] = cover }
-        record["songIDs"] = library.rawSongIDs(forPlaylist: playlistID)
+        let songIDs = library.rawSongIDs(forPlaylist: playlistID)
+        record["songIDs"] = songIDs
+        // Stable cross-device identities — receivers fall back through
+        // (cloudAccountID, filePath) and fuzzy match when the originating
+        // Song.id doesn't line up with the local mount's hash.
+        if let data = encodeIdentities(makeIdentities(forSongIDs: songIDs)) {
+            record[Self.songIdentitiesField] = data
+        }
         return true
     }
 
@@ -576,9 +627,14 @@ final class CloudKitSyncService {
               let updatedAt = record["updatedAt"] as? Date else { return }
         let coverArtPath = record["coverArtPath"] as? String
         let songIDs = (record["songIDs"] as? [String]) ?? []
+        let identities = decodeIdentities(record[Self.songIdentitiesField] as? Data)
+        // Hand the raw payload to the library; it owns the 3-tier resolver
+        // and stashes anything that doesn't match yet as pending so a later
+        // scan can fill it in.
         library.applyRemotePlaylist(
             Playlist(id: id, name: name, createdAt: createdAt, updatedAt: updatedAt, coverArtPath: coverArtPath),
-            songIDs: songIDs
+            songIDs: songIDs,
+            identities: identities
         )
     }
 
@@ -601,6 +657,27 @@ final class CloudKitSyncService {
         guard let data = record["payload"] as? Data,
               let syncable = try? JSONDecoder().decode(SyncableSource.self, from: data) else { return }
         sourcesStore.upsertFromRemote(syncable.source)
+    }
+
+    // MARK: - Cloud account mapping
+
+    private func populateCloudAccountRecord(_ record: CKRecord, accountID: String) -> Bool {
+        guard let account = sourcesStore.account(id: accountID) else { return false }
+        do {
+            let data = try JSONEncoder().encode(account)
+            record["payload"] = data
+            record["updatedAt"] = account.modifiedAt
+            return true
+        } catch {
+            plog("CloudKitSync: encode cloudAccount failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private func applyCloudAccountRecord(_ record: CKRecord) {
+        guard let data = record["payload"] as? Data,
+              let account = try? JSONDecoder().decode(CloudAccount.self, from: data) else { return }
+        sourcesStore.upsertAccountFromRemote(account)
     }
 
     // MARK: - Scraper config mapping
@@ -628,15 +705,61 @@ final class CloudKitSyncService {
     // MARK: - Playback history mapping
 
     private func populatePlaybackHistoryRecord(_ record: CKRecord) -> Bool {
-        record["songIDs"] = library.recentPlaybackSongIDsForSync
+        let songIDs = library.recentPlaybackSongIDsForSync
+        record["songIDs"] = songIDs
         record["updatedAt"] = Date()
+        if let data = encodeIdentities(makeIdentities(forSongIDs: songIDs)) {
+            record[Self.songIdentitiesField] = data
+        }
         return true
     }
 
     private func applyPlaybackHistoryRecord(_ record: CKRecord) {
         guard let songIDs = record["songIDs"] as? [String] else { return }
-        library.applyRemotePlaybackHistory(songIDs: songIDs)
+        let identities = decodeIdentities(record[Self.songIdentitiesField] as? Data)
+        library.applyRemotePlaybackHistory(songIDs: songIDs, identities: identities)
     }
+
+    // MARK: - Song identity / cross-device resolution
+
+    private static let songIdentitiesField = "songIdentities"
+
+    /// Build cross-device identities for a batch of locally-stored song
+    /// IDs. Songs that have already been deleted locally still get a stub
+    /// identity so the receiving device can attempt a fuzzy match — at
+    /// worst it's dropped, which matches the receiver's reality anyway.
+    private func makeIdentities(forSongIDs songIDs: [String]) -> [SongIdentity] {
+        songIDs.map { id in
+            if let song = library.song(id: id) {
+                return SongIdentity(
+                    songID: song.id,
+                    title: song.title,
+                    artistName: song.artistName,
+                    duration: song.duration,
+                    cloudAccountID: sourcesStore.source(id: song.sourceID)?.cloudAccountID,
+                    filePath: song.filePath
+                )
+            }
+            return SongIdentity(
+                songID: id, title: "", artistName: nil,
+                duration: 0, cloudAccountID: nil, filePath: ""
+            )
+        }
+    }
+
+    private func encodeIdentities(_ identities: [SongIdentity]) -> Data? {
+        try? JSONEncoder().encode(identities)
+    }
+
+    private func decodeIdentities(_ data: Data?) -> [SongIdentity]? {
+        guard let data else { return nil }
+        return try? JSONDecoder().decode([SongIdentity].self, from: data)
+    }
+
+    // The cross-device 3-tier resolver lives on `MusicLibrary` — it
+    // owns the songs collection, can use `sourceIdentityResolver` to map
+    // a song's mount UUID back to a stable cloud account, and persists
+    // unresolved identities as pending so a later scan can fill them in.
 }
 
 // MARK: - CKSyncEngineDelegate
@@ -791,12 +914,9 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
     private func mergePlaylistRecord(local: CKRecord, server: CKRecord) {
         guard let id = parseLocalID(from: server.recordID, recordType: RecordType.playlist) else { return }
 
-        // Union of both song lists, preserving local order first then any new
-        // server-only IDs. Stable ordering keeps the UI from jumping around.
         let localIDs = (local["songIDs"] as? [String]) ?? []
+        let serverIdentities = decodeIdentities(server[Self.songIdentitiesField] as? Data)
         let serverIDs = (server["songIDs"] as? [String]) ?? []
-        var seen = Set<String>()
-        let mergedIDs = (localIDs + serverIDs).filter { seen.insert($0).inserted }
 
         let localUpdated = (local["updatedAt"] as? Date) ?? .distantPast
         let serverUpdated = (server["updatedAt"] as? Date) ?? .distantPast
@@ -806,30 +926,50 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
         let createdAt = (server["createdAt"] as? Date) ?? Date()
         let coverArtPath = (useLocalScalars ? local["coverArtPath"] : server["coverArtPath"]) as? String
         let updatedAt = max(localUpdated, serverUpdated)
+        let mergedPlaylist = Playlist(
+            id: id, name: name,
+            createdAt: createdAt, updatedAt: updatedAt,
+            coverArtPath: coverArtPath
+        )
 
         applyRemoteEnvelope {
-            library.applyRemotePlaylist(
-                Playlist(
-                    id: id,
-                    name: name,
-                    createdAt: createdAt,
-                    updatedAt: updatedAt,
-                    coverArtPath: coverArtPath
-                ),
-                songIDs: mergedIDs
-            )
+            if let serverIdentities {
+                // Identity-aware merge: server entries that resolve are
+                // unioned in; entries that don't go to pending so a later
+                // local scan can fill them. localIDs preserved as the
+                // base list (already resolved on this device).
+                library.mergeRemotePlaylist(
+                    mergedPlaylist,
+                    baseSongIDs: localIDs,
+                    additionalIdentities: serverIdentities
+                )
+            } else {
+                // Legacy record without identities — naive ID union.
+                var seen = Set<String>()
+                let mergedIDs = (localIDs + serverIDs).filter { seen.insert($0).inserted }
+                library.applyRemotePlaylist(mergedPlaylist, songIDs: mergedIDs)
+            }
         }
     }
 
     @MainActor
     private func mergePlaybackHistoryRecord(local: CKRecord, server: CKRecord) {
         let localIDs = (local["songIDs"] as? [String]) ?? []
+        let serverIdentities = decodeIdentities(server[Self.songIdentitiesField] as? Data)
         let serverIDs = (server["songIDs"] as? [String]) ?? []
-        var seen = Set<String>()
-        let merged = (localIDs + serverIDs).filter { seen.insert($0).inserted }
-        let capped = Array(merged.prefix(100))
+
         applyRemoteEnvelope {
-            library.applyRemotePlaybackHistory(songIDs: capped)
+            if let serverIdentities {
+                library.mergeRemotePlaybackHistory(
+                    baseSongIDs: localIDs,
+                    additionalIdentities: serverIdentities
+                )
+            } else {
+                var seen = Set<String>()
+                let merged = (localIDs + serverIDs).filter { seen.insert($0).inserted }
+                let capped = Array(merged.prefix(100))
+                library.applyRemotePlaybackHistory(songIDs: capped)
+            }
         }
     }
 

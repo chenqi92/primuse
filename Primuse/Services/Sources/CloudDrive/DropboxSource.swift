@@ -2,7 +2,7 @@ import Foundation
 import PrimuseKit
 
 /// Dropbox Source — API v2
-actor DropboxSource: MusicSourceConnector {
+actor DropboxSource: MusicSourceConnector, OAuthCloudSource {
     let sourceID: String
     private let helper: CloudDriveHelper
     private static let apiBase = "https://api.dropboxapi.com/2"
@@ -15,6 +15,31 @@ actor DropboxSource: MusicSourceConnector {
 
     func connect() async throws { _ = try await getToken() }
     func disconnect() async {}
+
+    /// `users/get_current_account` returns the Dropbox account record.
+    /// `account_id` is the stable per-user identifier (format `dbid:...`).
+    /// Note: Dropbox treats this as an RPC call requiring a `null` JSON
+    /// body and `Content-Type: application/json`.
+    func accountIdentifier() async throws -> String {
+        let token = try await getToken()
+        let nullBody = Data("null".utf8)
+        let (data, http) = try await helper.makeAuthorizedRequest(
+            url: URL(string: "\(Self.apiBase)/users/get_current_account")!,
+            method: "POST",
+            body: nullBody,
+            contentType: "application/json",
+            accessToken: token
+        )
+        guard http.statusCode == 200 else {
+            throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+        }
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        guard let id = json["account_id"] as? String, !id.isEmpty else {
+            plog("⚠️ Dropbox accountIdentifier: missing account_id in response: \(json)")
+            throw CloudDriveError.invalidResponse
+        }
+        return id
+    }
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
         let folderPath = (path.isEmpty || path == "/") ? "" : path
@@ -50,7 +75,11 @@ actor DropboxSource: MusicSourceConnector {
         guard let entries = json["entries"] as? [[String: Any]] else { return [] }
         return entries.compactMap { entry in
             guard let name = entry["name"] as? String, let pathDisplay = entry["path_display"] as? String, let tag = entry[".tag"] as? String else { return nil }
-            return RemoteFileItem(name: name, path: pathDisplay, isDirectory: tag == "folder", size: entry["size"] as? Int64 ?? 0, modifiedDate: nil)
+            // Dropbox returns `content_hash` (their custom 4MB-block hash)
+            // for files. `rev` is also stable per file version. Either
+            // works as the revision fingerprint.
+            let revision = entry["content_hash"] as? String ?? entry["rev"] as? String
+            return RemoteFileItem(name: name, path: pathDisplay, isDirectory: tag == "folder", size: entry["size"] as? Int64 ?? 0, modifiedDate: nil, revision: revision)
         }
     }
 
@@ -80,43 +109,53 @@ actor DropboxSource: MusicSourceConnector {
     }
 
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+        // Use Dropbox's `get_temporary_link` to obtain a short-lived
+        // pre-signed URL (4-hour validity per Dropbox docs; we cache 50 min
+        // for safety). Range requests against the link don't need our
+        // Bearer token + Dropbox-API-Arg per call — saves one POST round
+        // trip per chunk and avoids hammering the API endpoint, which is
+        // what alist's official driver does.
+        let url = try await getTemporaryLink(for: path)
+        do {
+            return try await helper.rangeRequest(url: url, offset: offset, length: length)
+        } catch CloudDriveError.apiError(let code, _) where code == 401 || code == 403 || code == 410 {
+            invalidateTemporaryLink(for: path)
+            let fresh = try await getTemporaryLink(for: path)
+            return try await helper.rangeRequest(url: fresh, offset: offset, length: length)
+        }
+    }
+
+    private var temporaryLinkCache: [String: (url: URL, expiresAt: Date)] = [:]
+    /// Dropbox's temp links are valid for 4 hours; cache 50 min for
+    /// margin. Renews per-path on demand.
+    private static let temporaryLinkTTL: TimeInterval = 50 * 60
+
+    private func getTemporaryLink(for path: String) async throws -> URL {
+        if let cached = temporaryLinkCache[path], cached.expiresAt > Date() {
+            return cached.url
+        }
         let token = try await getToken()
-        var request = URLRequest(url: URL(string: "\(Self.contentBase)/files/download")!)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        // Escape path for JSON header value
-        let escaped = path.replacingOccurrences(of: "\\", with: "\\\\")
-                          .replacingOccurrences(of: "\"", with: "\\\"")
-        request.setValue("{\"path\":\"\(escaped)\"}", forHTTPHeaderField: "Dropbox-API-Arg")
-        let rangeHeader: String
-        if offset < 0 {
-            rangeHeader = "bytes=\(offset)"
-        } else {
-            rangeHeader = "bytes=\(offset)-\(offset + length - 1)"
+        let body = try JSONSerialization.data(withJSONObject: ["path": path])
+        let (data, http) = try await helper.makeAuthorizedRequest(
+            url: URL(string: "\(Self.apiBase)/files/get_temporary_link")!,
+            method: "POST",
+            body: body,
+            contentType: "application/json",
+            accessToken: token
+        )
+        guard http.statusCode == 200 else {
+            throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "")
         }
-        request.setValue(rangeHeader, forHTTPHeaderField: "Range")
-        request.timeoutInterval = 60
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw CloudDriveError.apiError(0, "Range fetch failed")
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        guard let link = json["link"] as? String, let url = URL(string: link) else {
+            throw CloudDriveError.fileNotFound(path)
         }
-        switch http.statusCode {
-        case 206:
-            return data
-        case 200:
-            // Same correction as CloudDriveHelper.rangeRequest — Dropbox should
-            // honor Range, but if some intermediary strips the header we'd
-            // otherwise write the file head into a mid-file cache offset.
-            let totalSize = Int64(data.count)
-            let actualOffset: Int64 = offset < 0
-                ? max(0, totalSize + offset)
-                : offset
-            guard actualOffset < totalSize else { return Data() }
-            let upper = min(actualOffset + length, totalSize)
-            return data.subdata(in: Int(actualOffset)..<Int(upper))
-        default:
-            throw CloudDriveError.apiError(http.statusCode, "Range fetch failed")
-        }
+        temporaryLinkCache[path] = (url, Date().addingTimeInterval(Self.temporaryLinkTTL))
+        return url
+    }
+
+    private func invalidateTemporaryLink(for path: String) {
+        temporaryLinkCache.removeValue(forKey: path)
     }
 
     private func getToken() async throws -> String {

@@ -173,10 +173,36 @@ struct PrimuseApp: App {
                 .task {
                     PrimuseAppDelegate.sync = cloudSync
                     if iCloudSyncEnabled { await cloudSync.start() }
+                    // Stage 4c migration: deduplicate legacy
+                    // duplicate-OAuth sources by upstream account UID.
+                    // Runs once (gated by UserDefaults flag); needs
+                    // CloudKit sync started first so any
+                    // newly-synced sources participate. Backfill
+                    // starts after — it'll see the merged song set.
+                    await CloudAccountMigrationService.runIfNeeded(
+                        sourcesStore: sourcesStore,
+                        sourceManager: sourceManager,
+                        library: musicLibrary
+                    )
                     // Catch up on any songs that were left "bare" by a previous
                     // scan (cloud sources only download metadata in the
                     // background after Phase A completes).
                     metadataBackfill.start()
+                    // Re-prewarm any cloud songs whose `.partial` cache or
+                    // CDN URL has expired since last launch. Cheap (skips
+                    // already-prewarmed via marker check); huge win on the
+                    // first play after a cold start where every CDN HEAD
+                    // would otherwise add 3-20s of latency in front of the
+                    // user.
+                    Task.detached(priority: .background) {
+                        let snapshot = await MainActor.run { musicLibrary.songs }
+                        for song in snapshot {
+                            if Task.isCancelled { return }
+                            let done = await MainActor.run { sourceManager.isPrewarmed(song: song) }
+                            if done { continue }
+                            await sourceManager.prewarmCloudSongPublic(song: song)
+                        }
+                    }
                 }
                 .onChange(of: playerService.currentSong?.id) { _, _ in
                     themeService.updateFromCoverArt(

@@ -1,10 +1,18 @@
 import SwiftUI
+import ImageIO
 import PrimuseKit
 
 /// Loads cover art with a unified three-tier strategy:
-/// 1. Memory cache (NSCache, keyed by songID)
+/// 1. Memory cache (NSCache, keyed by songID + size bucket)
 /// 2. Disk cache (MetadataAssetStore, keyed by songID)
 /// 3. Source fetch (URL download / sidecar download / embedded extraction)
+///
+/// Decoding runs off the main thread via ImageIO so list scrolling never
+/// pays for `PlatformImage(data:)` lazy decode at draw time. Each cover is
+/// also downsampled to one of two pixel buckets:
+/// - `thumb` (max 288px) for list-cell sized requests (size <= 96pt)
+/// - `full`  (max 1536px) for hero / large views
+/// so a 1500×1500 source image never sits decoded inside a 44pt row cell.
 ///
 /// `coverRef` stores the source-side reference:
 /// - Media servers: full API URL (https://...)
@@ -28,18 +36,40 @@ struct CachedArtworkView: View {
     @State private var image: PlatformImage?
     @State private var loadTask: Task<Void, Never>?
 
-    private static let artworkDir: URL = MetadataAssetStore.shared.artworkDirectoryURL
+    nonisolated(unsafe) private static let artworkDir: URL = MetadataAssetStore.shared.artworkDirectoryURL
 
-    private static let memoryCache: NSCache<NSString, PlatformImage> = {
+    /// Memory cache holds *already-decoded* PlatformImages. Cost is reported
+    /// as real pixel byte count so the limit reflects actual memory pressure
+    /// rather than the compressed source size.
+    nonisolated(unsafe) private static let memoryCache: NSCache<NSString, PlatformImage> = {
         let cache = NSCache<NSString, PlatformImage>()
-        cache.countLimit = 300
-        cache.totalCostLimit = 80 * 1024 * 1024
+        cache.countLimit = 600
+        cache.totalCostLimit = 64 * 1024 * 1024
         return cache
     }()
 
     /// Deduplicates in-flight source fetches: multiple views requesting the same cover
     /// share a single network request instead of each fetching independently.
     private static let inFlightTracker = InFlightFetchTracker()
+
+    private enum Bucket: String, Sendable {
+        case thumb, full
+    }
+
+    /// Anything visibly small (list rows, mini player, album cards under
+    /// ~88pt) lands in the thumb bucket. 96 keeps a small headroom for
+    /// occasional 80pt artist circles without bumping them to a full decode.
+    private var bucket: Bucket {
+        if let s = size, s <= 96 { return .thumb } else { return .full }
+    }
+
+    /// 96pt × 3x display scale. ImageIO downsamples in the GPU and the
+    /// resulting CGImage is fed to PlatformImage at scale 1, so cost stays small.
+    private static let thumbMaxPixel: Int = 288
+
+    /// Cap full-resolution decodes so a pathological 4000×4000 source can't
+    /// blow the cache budget by itself. Larger than any device's hero art.
+    private static let fullMaxPixel: Int = 1536
 
     // Backward compatible init — old call sites use coverFileName
     init(coverFileName: String?, size: CGFloat? = nil, cornerRadius: CGFloat = 12,
@@ -124,10 +154,14 @@ struct CachedArtworkView: View {
         }
     }
 
+    /// Composite cache key — different sized views share the underlying disk
+    /// cache but get separate decoded PlatformImage entries so the 44pt list
+    /// cell never has to display (or hold) the 1500×1500 original.
     private var cacheKey: String {
-        if let albumID { return "album_\(albumID)" }
-        if let artistID { return "artist_\(artistID)" }
-        return songID ?? coverRef ?? ""
+        let suffix = "@\(bucket.rawValue)"
+        if let albumID { return "album_\(albumID)\(suffix)" }
+        if let artistID { return "artist_\(artistID)\(suffix)" }
+        return (songID ?? coverRef ?? "") + suffix
     }
 
     private func loadImage() {
@@ -136,7 +170,7 @@ struct CachedArtworkView: View {
 
         let cacheNSKey = key as NSString
 
-        // Tier 1: Memory cache
+        // Tier 1: Memory cache — already decoded, hand it to the View directly.
         if let cached = Self.memoryCache.object(forKey: cacheNSKey) {
             image = cached
             return
@@ -144,87 +178,119 @@ struct CachedArtworkView: View {
 
         loadTask?.cancel()
 
-        // Album/artist path — uses ArtworkFetchService
-        if let albumID, let albumTitle {
-            let capturedArtist = artistName
-            loadTask = Task {
-                // Check disk cache first
-                if let data = await MetadataAssetStore.shared.cachedAlbumCover(forAlbumID: albumID),
-                   let loaded = PlatformImage(data: data) {
-                    Self.memoryCache.setObject(loaded, forKey: cacheNSKey, cost: data.count)
-                    if !Task.isCancelled { image = loaded }
-                    return
-                }
-                // Fetch online
-                if let data = await ArtworkFetchService.shared.fetchAlbumCover(
-                    albumTitle: albumTitle, artistName: capturedArtist, albumID: albumID
-                ), let loaded = PlatformImage(data: data) {
-                    Self.memoryCache.setObject(loaded, forKey: cacheNSKey, cost: data.count)
-                    if !Task.isCancelled { image = loaded }
-                }
-            }
-            return
-        }
-
-        if let artistID, let artistName {
-            loadTask = Task {
-                if let data = await MetadataAssetStore.shared.cachedArtistImage(forArtistID: artistID),
-                   let loaded = PlatformImage(data: data) {
-                    Self.memoryCache.setObject(loaded, forKey: cacheNSKey, cost: data.count)
-                    if !Task.isCancelled { image = loaded }
-                    return
-                }
-                if let data = await ArtworkFetchService.shared.fetchArtistImage(
-                    artistName: artistName, artistID: artistID
-                ), let loaded = PlatformImage(data: data) {
-                    Self.memoryCache.setObject(loaded, forKey: cacheNSKey, cost: data.count)
-                    if !Task.isCancelled { image = loaded }
-                }
-            }
-            return
-        }
-
-        // Song-based path (existing logic)
+        // Capture everything the off-main path needs. SwiftUI Views are
+        // @MainActor; the awaited helper is `nonisolated`, so the IO and
+        // decode run on the cooperative pool, not the main thread.
+        let capturedBucket = bucket
         let capturedRef = coverRef
         let capturedSongID = songID
+        let capturedAlbumID = albumID
+        let capturedAlbumTitle = albumTitle
+        let capturedArtistID = artistID
+        let capturedArtistName = artistName
         let capturedSourceID = sourceID
         let capturedFilePath = filePath
         let capturedSourceManager = sourceManager
 
         loadTask = Task {
-            // Tier 2: Disk cache (songID-based or legacy filename-based)
-            if let data = await loadFromDiskCache(songID: capturedSongID, ref: capturedRef),
-               let loaded = PlatformImage(data: data) {
-                Self.memoryCache.setObject(loaded, forKey: cacheNSKey, cost: data.count)
-                if !Task.isCancelled { image = loaded }
-                return
-            }
+            let decoded = await Self.loadAndDecode(
+                cacheKey: key,
+                bucket: capturedBucket,
+                ref: capturedRef,
+                songID: capturedSongID,
+                albumID: capturedAlbumID,
+                albumTitle: capturedAlbumTitle,
+                artistID: capturedArtistID,
+                artistName: capturedArtistName,
+                sourceID: capturedSourceID,
+                filePath: capturedFilePath,
+                sourceManager: capturedSourceManager
+            )
+            guard let decoded, !Task.isCancelled else { return }
+            image = decoded
+        }
+    }
 
-            // Tier 3: Source fetch (deduplicated — multiple views share one request)
-            let fetchKey = capturedSongID ?? capturedRef ?? ""
-            guard !fetchKey.isEmpty else { return }
-            let data = await Self.inFlightTracker.deduplicated(key: fetchKey) {
-                await self.loadFromSource(
-                    ref: capturedRef,
-                    songID: capturedSongID,
-                    sourceID: capturedSourceID,
-                    filePath: capturedFilePath,
-                    sourceManager: capturedSourceManager
+    // MARK: - Load + Decode (off-main)
+
+    /// Top-level loader: tries memory cache, disk cache, then falls back to
+    /// the source. Decodes via ImageIO, writes both layers of cache, returns
+    /// the decoded PlatformImage. Runs on the cooperative pool.
+    private static func loadAndDecode(
+        cacheKey: String,
+        bucket: Bucket,
+        ref: String?,
+        songID: String?,
+        albumID: String?,
+        albumTitle: String?,
+        artistID: String?,
+        artistName: String?,
+        sourceID: String?,
+        filePath: String?,
+        sourceManager: SourceManager
+    ) async -> PlatformImage? {
+        // Album path — ArtworkFetchService
+        if let albumID, let albumTitle {
+            let data: Data?
+            if let cached = await MetadataAssetStore.shared.cachedAlbumCover(forAlbumID: albumID) {
+                data = cached
+            } else {
+                data = await ArtworkFetchService.shared.fetchAlbumCover(
+                    albumTitle: albumTitle, artistName: artistName, albumID: albumID
                 )
             }
-            if let data, let loaded = PlatformImage(data: data) {
-                if let sid = capturedSongID {
-                    await MetadataAssetStore.shared.cacheCover(data, forSongID: sid)
-                }
-                Self.memoryCache.setObject(loaded, forKey: cacheNSKey, cost: data.count)
-                if !Task.isCancelled { image = loaded }
-            }
+            guard let data else { return nil }
+            return finalize(data: data, bucket: bucket, cacheKey: cacheKey)
         }
+
+        // Artist path — ArtworkFetchService
+        if let artistID, let artistName {
+            let data: Data?
+            if let cached = await MetadataAssetStore.shared.cachedArtistImage(forArtistID: artistID) {
+                data = cached
+            } else {
+                data = await ArtworkFetchService.shared.fetchArtistImage(
+                    artistName: artistName, artistID: artistID
+                )
+            }
+            guard let data else { return nil }
+            return finalize(data: data, bucket: bucket, cacheKey: cacheKey)
+        }
+
+        // Song path
+        if let data = await loadFromDiskCache(songID: songID, ref: ref) {
+            return finalize(data: data, bucket: bucket, cacheKey: cacheKey)
+        }
+
+        let fetchKey = songID ?? ref ?? ""
+        guard !fetchKey.isEmpty else { return nil }
+        let fetched = await inFlightTracker.deduplicated(key: fetchKey) {
+            await loadFromSource(
+                ref: ref,
+                songID: songID,
+                sourceID: sourceID,
+                filePath: filePath,
+                sourceManager: sourceManager
+            )
+        }
+        guard let fetched else { return nil }
+        if let songID {
+            await MetadataAssetStore.shared.cacheCover(fetched, forSongID: songID)
+        }
+        return finalize(data: fetched, bucket: bucket, cacheKey: cacheKey)
+    }
+
+    /// Decode + write to memory cache. NSCache is thread-safe so this can
+    /// happen on the cooperative pool.
+    private static func finalize(data: Data, bucket: Bucket, cacheKey: String) -> PlatformImage? {
+        guard let decoded = decode(data, bucket: bucket) else { return nil }
+        memoryCache.setObject(decoded, forKey: cacheKey as NSString, cost: imageCost(decoded))
+        return decoded
     }
 
     // MARK: - Disk Cache
 
-    private func loadFromDiskCache(songID: String?, ref: String?) async -> Data? {
+    private static func loadFromDiskCache(songID: String?, ref: String?) async -> Data? {
         // New: songID-based cache
         if let songID {
             if let data = await MetadataAssetStore.shared.cachedCoverData(forSongID: songID) {
@@ -234,7 +300,7 @@ struct CachedArtworkView: View {
         // Legacy: old hashed filename in artworkDir
         if let ref, !ref.isEmpty,
            !ref.contains("/"), !ref.contains("://") {
-            let url = Self.artworkDir.appendingPathComponent(ref)
+            let url = artworkDir.appendingPathComponent(ref)
             return try? Data(contentsOf: url)
         }
         return nil
@@ -242,7 +308,7 @@ struct CachedArtworkView: View {
 
     // MARK: - Source Fetch
 
-    private func loadFromSource(
+    private static func loadFromSource(
         ref: String?, songID: String?,
         sourceID: String?, filePath: String?,
         sourceManager: SourceManager
@@ -278,10 +344,50 @@ struct CachedArtworkView: View {
         return nil
     }
 
+    // MARK: - Decode
+
+    /// Synchronous decode. Called from `loadAndDecode` on the cooperative
+    /// pool, not the main thread. Uses ImageIO's thumbnail API which both
+    /// downsamples and force-decodes the bitmap so SwiftUI never re-decodes
+    /// at draw time.
+    private static func decode(_ data: Data, bucket: Bucket) -> PlatformImage? {
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil) else {
+            // Fallback for formats ImageIO can't open (rare): PlatformImage(data:)
+            // still defers decode to first draw, but this is a graceful path.
+            return PlatformImage(data: data)
+        }
+        let maxPixel = bucket == .thumb ? thumbMaxPixel : fullMaxPixel
+        let opts: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixel
+        ]
+        if let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) {
+            return PlatformImage.fromCGImage(cg)
+        }
+        return PlatformImage(data: data)
+    }
+
+    private static func imageCost(_ image: PlatformImage) -> Int {
+        if let cg = image.platformCGImage {
+            return cg.bytesPerRow * cg.height
+        }
+        #if os(iOS)
+        return Int(image.size.width * image.size.height * image.scale * image.scale * 4)
+        #else
+        return Int(image.size.width * image.size.height * 4)
+        #endif
+    }
+
     // MARK: - Static helpers
 
     static func invalidateCache(for fileName: String) {
-        memoryCache.removeObject(forKey: fileName as NSString)
+        for bucket in ["thumb", "full"] {
+            memoryCache.removeObject(forKey: "\(fileName)@\(bucket)" as NSString)
+            memoryCache.removeObject(forKey: "album_\(fileName)@\(bucket)" as NSString)
+            memoryCache.removeObject(forKey: "artist_\(fileName)@\(bucket)" as NSString)
+        }
     }
 
     static func clearMemoryCache() {

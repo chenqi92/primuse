@@ -12,6 +12,13 @@ struct RemoteFileItem: Sendable {
     /// directory listing so we don't need a fully-downloaded localURL to
     /// detect siblings.
     let sidecarHints: SidecarHints?
+    /// Provider content fingerprint — md5 / etag / content_hash / fs_id+
+    /// local_mtime. Powers re-scan replacement detection when both size
+    /// and mtime are unreliable (Baidu/Aliyun/Dropbox/OneDrive listFiles
+    /// often return nil for `modifiedDate`, and a same-size overwrite
+    /// would otherwise be missed). Connectors leave this nil when the
+    /// list API doesn't expose anything stable.
+    let revision: String?
 
     init(
         name: String,
@@ -19,7 +26,8 @@ struct RemoteFileItem: Sendable {
         isDirectory: Bool,
         size: Int64,
         modifiedDate: Date?,
-        sidecarHints: SidecarHints? = nil
+        sidecarHints: SidecarHints? = nil,
+        revision: String? = nil
     ) {
         self.name = name
         self.path = path
@@ -27,6 +35,7 @@ struct RemoteFileItem: Sendable {
         self.size = size
         self.modifiedDate = modifiedDate
         self.sidecarHints = sidecarHints
+        self.revision = revision
     }
 }
 
@@ -114,4 +123,26 @@ extension MusicSourceConnector {
 
 protocol SongScanningConnector: MusicSourceConnector {
     func scanSongs(from path: String) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error>
+}
+
+/// Implemented by cloud connectors whose identity is rooted in an OAuth
+/// account (Baidu / Aliyun / Dropbox / OneDrive / Google Drive). Lets the
+/// upper layer ask "which user does this token belong to" so multiple
+/// MusicMount instances pointing at the same upstream account can be
+/// coalesced under a single CloudAccount entity.
+///
+/// Local / NAS connectors (Synology, SMB, WebDAV, FTP, SFTP, NFS, S3,
+/// MediaServer, UPnP) do NOT adopt this protocol — their identity is
+/// already tied to host/credentials, no extra dedup hop needed.
+protocol OAuthCloudSource: MusicSourceConnector {
+    /// Stable account identifier issued by the OAuth provider. MUST be
+    /// the same value across token refresh and across devices logged
+    /// into the same account. Each connector documents which provider
+    /// field it returns:
+    /// - Baidu Pan: `uk` (from xpan/nas?method=uinfo)
+    /// - Aliyun Drive: `id` (from oauth/users/info, OIDC sub)
+    /// - Dropbox: `account_id` (from users/get_current_account)
+    /// - OneDrive: `id` (from Microsoft Graph /me)
+    /// - Google Drive: `sub` (from oauth2/v3/userinfo)
+    func accountIdentifier() async throws -> String
 }

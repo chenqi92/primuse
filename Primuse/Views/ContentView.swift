@@ -33,15 +33,20 @@ struct ContentView: View {
             .tabBarMinimizeBehavior(player.currentSong != nil ? .onScrollDown : .never)
             .tabViewBottomAccessory(isEnabled: player.currentSong != nil) {
                 NowPlayingAccessory(onTap: {
-                    withAnimation(.spring(response: 0.45, dampingFraction: 0.92)) {
-                        showNowPlaying = true
-                    }
+                    showNowPlaying = true
                 })
             }
             #endif
 
-            // Player overlay — uses manual offset (no system transition/fullScreenCover)
-            PlayerOverlay(isPresented: $showNowPlaying)
+            // Player overlay — mounted on demand. NowPlayingView holds heavy
+            // observers (player, library, lyrics) and a 0.3s timer; keeping it
+            // mounted while the user is on the song list means scrolling pays
+            // for those observations every time anything in the player state
+            // changes. The slide-in animation is driven by PlayerOverlay's
+            // own internal `entered` state on first appear.
+            if showNowPlaying {
+                PlayerOverlay(isPresented: $showNowPlaying)
+            }
         }
         .onChange(of: library.visibleSongs.count) { _, _ in
             guard let cs = player.currentSong else { return }
@@ -75,11 +80,18 @@ struct ContentView: View {
 
 struct PlayerOverlay: View {
     @Binding var isPresented: Bool
+    /// Drives the entrance animation. Starts `false` on mount so the first
+    /// frame renders off-screen (offset = screenHeight + 100); `onAppear`
+    /// flips it inside a `withAnimation` so SwiftUI animates the offset to 0.
+    /// Without this, the view would render immediately on-screen with no
+    /// slide-in because `if showNowPlaying` mounts the view *during*
+    /// presentation, not before.
+    @State private var entered = false
     @State private var dragOffset: CGFloat = 0
     @State private var isDismissing = false
     @State private var dismissScale: CGFloat = 1
     @State private var dismissOpacity: CGFloat = 1
-    @State private var screenHeight: CGFloat = 900
+    @State private var screenHeight: CGFloat = UIScreen.main.bounds.height
 
     /// Device screen corner radius (matches physical display)
     private let deviceCornerRadius: CGFloat = 55
@@ -119,16 +131,16 @@ struct PlayerOverlay: View {
                 anchor: .bottom
             )
             .opacity(isDismissing ? dismissOpacity : 1)
-            .offset(y: isPresented || isDismissing ? dragOffset : screenHeight + 100)
+            .offset(y: entered ? dragOffset : screenHeight + 100)
             .ignoresSafeArea()
             .gesture(
                 DragGesture()
                     .onChanged { value in
-                        guard !isDismissing, isPresented else { return }
+                        guard !isDismissing, entered else { return }
                         dragOffset = max(0, value.translation.height)
                     }
                     .onEnded { value in
-                        guard !isDismissing, isPresented else { return }
+                        guard !isDismissing, entered else { return }
                         if dragOffset > 150 || value.predictedEndTranslation.height > 500 {
                             dismissPlayer()
                         } else {
@@ -138,24 +150,26 @@ struct PlayerOverlay: View {
                         }
                     }
             )
-            .animation(.spring(response: 0.45, dampingFraction: 0.92), value: isPresented)
+            .animation(.spring(response: 0.45, dampingFraction: 0.92), value: entered)
             .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.86), value: dragOffset)
+            .onAppear {
+                withAnimation(.spring(response: 0.45, dampingFraction: 0.92)) {
+                    entered = true
+                }
+            }
     }
 
     private func dismissPlayer() {
         isDismissing = true
-        // Shrink toward the mini player at the bottom
+        // Shrink toward the mini player at the bottom; on completion, drop
+        // `isPresented` so the parent unmounts the overlay entirely. State
+        // reset is unnecessary — the next presentation gets fresh @State.
         withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
             dismissScale = 0.12
             dismissOpacity = 0
             dragOffset = screenHeight * 0.6
         } completion: {
             isPresented = false
-            // Reset for next presentation
-            dragOffset = 0
-            dismissScale = 1
-            dismissOpacity = 1
-            isDismissing = false
         }
     }
 }
@@ -198,11 +212,21 @@ struct NowPlayingAccessory: View {
                 // Fixed right: transport controls
                 HStack(spacing: isInline ? 0 : 4) {
                     Button { player.togglePlayPause() } label: {
-                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                            .font(isInline ? .subheadline : .body)
-                            .contentTransition(.symbolEffect(.replace))
-                            .frame(width: isInline ? 28 : 32, height: isInline ? 28 : 32)
+                        ZStack {
+                            Image(systemName: "play.fill")
+                                .font(isInline ? .subheadline : .body)
+                                .opacity(0)
+                            if player.isLoading {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                                    .font(isInline ? .subheadline : .body)
+                                    .contentTransition(.symbolEffect(.replace))
+                            }
+                        }
+                        .frame(width: isInline ? 28 : 32, height: isInline ? 28 : 32)
                     }
+                    .disabled(player.isLoading)
 
                     if !isInline {
                         Button { Task { await player.next() } } label: {

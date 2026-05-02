@@ -3,6 +3,8 @@ import PrimuseKit
 
 struct QueueView: View {
     @Environment(AudioPlayerService.self) private var player
+    @Environment(SourcesStore.self) private var sourcesStore
+    @Environment(MetadataBackfillService.self) private var backfill
 
     var body: some View {
         NavigationStack {
@@ -17,7 +19,12 @@ struct QueueView: View {
                     // Now Playing
                     if let current = player.currentSong {
                         Section("now_playing") {
-                            SongRowView(song: current, isPlaying: true, showsActions: false)
+                            SongRowView(
+                                song: current,
+                                isPlaying: true,
+                                showsActions: false,
+                                context: SongRowView.context(for: current, sourcesStore: sourcesStore, backfill: backfill)
+                            )
                         }
                     }
 
@@ -27,9 +34,14 @@ struct QueueView: View {
                         Section("up_next") {
                             ForEach(Array(upNextIndices), id: \.self) { index in
                                 let song = player.queue[index]
-                                SongRowView(song: song, isPlaying: false, showsActions: false)
-                                    .contentShape(Rectangle())
-                                    .onTapGesture { playAt(index: index) }
+                                SongRowView(
+                                    song: song,
+                                    isPlaying: false,
+                                    showsActions: false,
+                                    context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
+                                )
+                                .contentShape(Rectangle())
+                                .onTapGesture { playAt(index: index) }
                             }
                             .onMove { source, destination in
                                 // Adjust indices relative to queue (not section)
@@ -46,10 +58,15 @@ struct QueueView: View {
                         Section("played") {
                             ForEach(Array(playedIndices), id: \.self) { index in
                                 let song = player.queue[index]
-                                SongRowView(song: song, isPlaying: false, showsActions: false)
-                                    .opacity(0.6)
-                                    .contentShape(Rectangle())
-                                    .onTapGesture { playAt(index: index) }
+                                SongRowView(
+                                    song: song,
+                                    isPlaying: false,
+                                    showsActions: false,
+                                    context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
+                                )
+                                .opacity(0.6)
+                                .contentShape(Rectangle())
+                                .onTapGesture { playAt(index: index) }
                             }
                         }
                     }

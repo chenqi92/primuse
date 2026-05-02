@@ -110,4 +110,24 @@ extension PlatformImage {
         return rep.representation(using: .png, properties: [:])
         #endif
     }
+
+    /// Construct from a `CGImage` without callers picking the platform initializer.
+    static func fromCGImage(_ cg: CGImage) -> PlatformImage {
+        #if os(iOS)
+        return UIImage(cgImage: cg)
+        #else
+        return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+        #endif
+    }
+
+    /// Underlying `CGImage`. `UIImage.cgImage` is a property; `NSImage` needs
+    /// `cgImage(forProposedRect:context:hints:)`.
+    var platformCGImage: CGImage? {
+        #if os(iOS)
+        return self.cgImage
+        #else
+        var rect = NSRect(x: 0, y: 0, width: self.size.width, height: self.size.height)
+        return self.cgImage(forProposedRect: &rect, context: nil, hints: nil)
+        #endif
+    }
 }

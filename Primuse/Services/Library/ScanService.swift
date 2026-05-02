@@ -89,7 +89,8 @@ final class ScanService {
 
         if !resumeSongs.isEmpty {
             library.addSongs(resumeSongs)
-            sourceStore.updateLocal(source.id) { $0.songCount = resumeSongs.count }
+            let acceptedCount = library.songs.filter { $0.sourceID == source.id }.count
+            sourceStore.updateLocal(source.id) { $0.songCount = acceptedCount }
         }
 
         scanStates[source.id] = ScanState(
@@ -315,7 +316,8 @@ final class ScanService {
 
                 if update.scannedCount - lastIncrementalUpdate >= 10 {
                     library.addSongs(lastSongs)
-                    sourceStore.updateLocal(source.id) { $0.songCount = lastSongs.count }
+                    let acceptedCount = library.songs.filter { $0.sourceID == source.id }.count
+                    sourceStore.updateLocal(source.id) { $0.songCount = acceptedCount }
                     persistCheckpoint(
                         sourceID: source.id,
                         directories: directories,
@@ -328,6 +330,7 @@ final class ScanService {
             }
 
             try Task.checkCancellation()
+            // Synology doesn't go through CloudPlaybackSource — skip prewarm sweep.
             completeScan(
                 sourceID: source.id,
                 songs: lastSongs,
@@ -406,7 +409,8 @@ final class ScanService {
                 // the library this still avoids needless DB churn.
                 if update.addedCount - lastIncrementalUpdate >= 10 {
                     library.addSongs(lastSongs)
-                    sourceStore.updateLocal(source.id) { $0.songCount = lastSongs.count }
+                    let acceptedCount = library.songs.filter { $0.sourceID == source.id }.count
+                    sourceStore.updateLocal(source.id) { $0.songCount = acceptedCount }
                     persistCheckpoint(
                         sourceID: source.id,
                         directories: directories,
@@ -424,7 +428,8 @@ final class ScanService {
                 songs: lastSongs,
                 library: library,
                 sourceStore: sourceStore,
-                scraperService: scraperService
+                scraperService: scraperService,
+                sourceManager: sourceManager
             )
         } catch is CancellationError {
             // Scan was cancelled (e.g. source deleted) — clean up silently
@@ -457,14 +462,27 @@ final class ScanService {
         songs: [Song],
         library: MusicLibrary,
         sourceStore: SourcesStore,
-        scraperService: MusicScraperService?
+        scraperService: MusicScraperService?,
+        sourceManager: SourceManager? = nil
     ) {
         library.addSongs(songs)
+        // Use the post-tombstone count from the library, not the raw scan
+        // count — otherwise a deleted-then-rescanned song shows as still
+        // present in the source card while the library actually filters it.
+        let acceptedCount = library.songs.filter { $0.sourceID == sourceID }.count
         sourceStore.updateLocal(sourceID) {
-            $0.songCount = songs.count
+            $0.songCount = acceptedCount
             $0.lastScannedAt = Date()
         }
         scraperService?.enqueueBackgroundEnrichment(for: songs, in: library)
+        // Kick off background prewarm for cloud songs. Each call resolves
+        // the CDN URL once (cached for 30 min in the connector) and stages
+        // the head 256KB into `.partial`. Done one-at-a-time so a
+        // 2k-song library doesn't open 2k concurrent HTTP connections —
+        // the throttle inside `prewarmAllCloudSongs` does the queueing.
+        if let sourceManager {
+            prewarmAllCloudSongs(in: songs, sourceManager: sourceManager)
+        }
         // Wipe both checkpoint and live state. The source card now reads
         // `lastScannedAt` for the "scanned X songs" line; without clearing
         // scanStates, `canResume` would read true forever (totalCount is
@@ -473,6 +491,32 @@ final class ScanService {
         checkpoints[sourceID] = nil
         persistCheckpoints()
         scanStates[sourceID] = nil
+    }
+
+    /// Sequentially prewarm every cloud song in `songs` so that future
+    /// `play(song:)` taps skip the CDN-HEAD round trip (~3-20s through a
+    /// proxy) and the first SFB read hits disk instead of the network.
+    /// Uses a single background `Task` with a `for` loop — explicit
+    /// concurrency limit of 1 — so a fresh scan of 2k songs can't fire 2k
+    /// parallel range fetches and trip Baidu's anti-abuse throttle.
+    private func prewarmAllCloudSongs(in songs: [Song], sourceManager: SourceManager) {
+        let candidates = songs.filter { $0.fileSize > 0 }
+        guard !candidates.isEmpty else { return }
+        Task.detached(priority: .background) { [weak sourceManager] in
+            guard let sourceManager else { return }
+            for song in candidates {
+                if Task.isCancelled { return }
+                let alreadyDone = await MainActor.run { sourceManager.isPrewarmed(song: song) }
+                if alreadyDone { continue }
+                guard await sourceManager.songSupportsRangeStreaming(song) else { continue }
+                // `cacheInBackground` already does dedup + connector.connect()
+                // + prewarmCloudSong inside its own Task. We await its
+                // completion by inlining the same body so the for-loop
+                // serialization is honoured (firing it as a fire-and-forget
+                // Task per song would defeat the throttle).
+                await sourceManager.prewarmCloudSongPublic(song: song)
+            }
+        }
     }
 
     // MARK: - Helpers

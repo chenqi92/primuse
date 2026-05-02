@@ -83,20 +83,11 @@ private struct SmallNowPlayingView: View {
             )
 
             VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .top) {
-                    WidgetStatusPill(
-                        text: state.isPlaying ? "播放中" : "已暂停",
-                        systemImage: state.isPlaying ? "waveform" : "pause.fill",
-                        tint: state.isPlaying ? WidgetDesign.cyan : WidgetDesign.coral
-                    )
-                    Spacer()
-                    WidgetPanel(padding: 7, cornerRadius: 14) {
-                        Text(formatTime(state.duration))
-                            .font(.system(size: 10, weight: .semibold, design: .rounded))
-                            .foregroundStyle(WidgetDesign.secondaryText)
-                    }
-                    .fixedSize()
-                }
+                WidgetStatusPill(
+                    text: state.isPlaying ? "播放中" : "已暂停",
+                    systemImage: state.isPlaying ? "waveform" : "pause.fill",
+                    tint: state.isPlaying ? WidgetDesign.cyan : WidgetDesign.coral
+                )
 
                 Spacer()
 
@@ -112,27 +103,21 @@ private struct SmallNowPlayingView: View {
                         .lineLimit(1)
                 }
 
-                VStack(spacing: 5) {
+                VStack(spacing: 6) {
                     WidgetProgressBar(value: state.currentTime, total: max(state.duration, 1))
                     HStack {
                         Text(formatTime(state.currentTime))
-                            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
                             .foregroundStyle(WidgetDesign.secondaryText)
                         Spacer()
-                        Text(progressText)
-                            .font(.system(size: 9, weight: .semibold, design: .rounded))
+                        Text(formatTime(state.duration))
+                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
                             .foregroundStyle(WidgetDesign.tertiaryText)
                     }
                 }
             }
             .padding(14)
         }
-    }
-
-    private var progressText: String {
-        guard state.duration > 0 else { return "LIVE" }
-        let progress = max(0, min(100, Int((state.currentTime / state.duration) * 100)))
-        return "\(progress)%"
     }
 }
 
@@ -155,7 +140,7 @@ private struct MediumNowPlayingView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(alignment: .top) {
                         VStack(alignment: .leading, spacing: 4) {
-                            WidgetSectionEyebrow(text: "Now Playing")
+                            WidgetSectionEyebrow(text: "正在播放")
                             Text(state.songTitle ?? "未知歌曲")
                                 .font(.system(size: 17, weight: .bold, design: .rounded))
                                 .foregroundStyle(WidgetDesign.strongText)
@@ -223,7 +208,7 @@ private struct LargeNowPlayingView: View {
 
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
-                            WidgetSectionEyebrow(text: "Now Playing")
+                            WidgetSectionEyebrow(text: "正在播放")
                             Spacer()
                             WidgetStatusPill(
                                 text: state.isPlaying ? "播放中" : "暂停中",
@@ -274,7 +259,7 @@ private struct LargeNowPlayingView: View {
                         WidgetProgressBar(
                             value: state.currentTime,
                             total: max(state.duration, 1),
-                            height: 5
+                            height: 7
                         )
 
                         HStack {
@@ -306,151 +291,80 @@ private struct LargeNowPlayingView: View {
 
 private struct SmallEmptyStateView: View {
     var body: some View {
-        WidgetCanvas(padding: 14) {
-            VStack(alignment: .leading, spacing: 0) {
-                WidgetSectionEyebrow(text: "Primuse")
-
-                Spacer()
-
-                WidgetPanel(padding: 14, cornerRadius: 20) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .fill(WidgetDesign.placeholderGradient(for: 0))
-                                .frame(width: 54, height: 54)
-                            Image(systemName: "waveform.path.ecg")
-                                .font(.system(size: 20, weight: .semibold))
-                                .foregroundStyle(.white.opacity(0.82))
-                        }
-
-                        Text("开始播放")
-                            .font(.system(size: 16, weight: .bold, design: .rounded))
-                            .foregroundStyle(WidgetDesign.strongText)
-                        Text("点开猿音，继续你的音乐旅程")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(WidgetDesign.secondaryText)
-                            .lineLimit(2)
-                    }
-                }
+        WidgetCanvas(padding: 16) {
+            VStack(alignment: .leading, spacing: 10) {
+                WidgetEmptyStateIcon(systemName: "waveform.path.ecg", size: 56)
+                Spacer(minLength: 0)
+                Text("开始播放")
+                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                    .foregroundStyle(WidgetDesign.strongText)
+                Text("点开猿音，继续你的音乐旅程")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(WidgetDesign.secondaryText)
+                    .lineLimit(2)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
     }
 }
 
 private struct MediumEmptyStateView: View {
     var body: some View {
-        WidgetCanvas {
-            WidgetPanel(padding: 14, cornerRadius: 24) {
-                HStack(spacing: 14) {
-                    VStack(spacing: 10) {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                .fill(WidgetDesign.placeholderGradient(for: 0))
-                                .frame(width: 76, height: 76)
-                            Image(systemName: "waveform")
-                                .font(.system(size: 28, weight: .semibold))
-                                .foregroundStyle(.white.opacity(0.84))
-                        }
+        WidgetCanvas(padding: 18) {
+            HStack(spacing: 16) {
+                WidgetEmptyStateIcon(systemName: "waveform", size: 78)
 
-                        HStack(spacing: 5) {
-                            ForEach(0..<3, id: \.self) { _ in
-                                Circle()
-                                    .fill(WidgetDesign.cyan.opacity(0.7))
-                                    .frame(width: 5, height: 5)
-                            }
-                        }
-                    }
-                    .frame(width: 92)
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        WidgetSectionEyebrow(text: "Primuse")
-                        Text("把音乐放到桌面上")
-                            .font(.system(size: 18, weight: .bold, design: .rounded))
-                            .foregroundStyle(WidgetDesign.strongText)
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.9)
-                        Text("开始播放后，当前歌曲和进度会直接出现在这里。")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(WidgetDesign.secondaryText)
-                            .lineLimit(2)
-
-                        HStack(spacing: 6) {
-                            Image(systemName: "play.fill")
-                                .font(.system(size: 10, weight: .bold))
-                            Text("打开猿音开始")
-                                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                        }
-                        .foregroundStyle(WidgetDesign.cyan)
-                        .padding(.top, 2)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("把音乐放到桌面上")
+                        .font(.system(size: 19, weight: .bold, design: .rounded))
+                        .foregroundStyle(WidgetDesign.strongText)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.9)
+                    Text("开始播放后，当前歌曲和进度会直接出现在这里。")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(WidgetDesign.secondaryText)
+                        .lineLimit(3)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
     }
 }
 
 private struct LargeEmptyStateView: View {
     var body: some View {
-        WidgetCanvas(padding: 18) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        WidgetSectionEyebrow(text: "Primuse")
-                        Text("桌面上的私人音乐角落")
-                            .font(.system(size: 22, weight: .bold, design: .rounded))
+        WidgetCanvas(padding: 22) {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 6) {
+                    WidgetSectionEyebrow(text: "猿音")
+                    Text("桌面上的私人音乐角落")
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .foregroundStyle(WidgetDesign.strongText)
+                }
+
+                Spacer(minLength: 0)
+
+                HStack(alignment: .top, spacing: 18) {
+                    WidgetEmptyStateIcon(systemName: "waveform.path", size: 96)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("把音乐放到桌面上")
+                            .font(.system(size: 20, weight: .bold, design: .rounded))
                             .foregroundStyle(WidgetDesign.strongText)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.85)
+                        Text("连接你的音乐源后，这里会显示当前歌曲、播放进度和最近聆听。")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(WidgetDesign.secondaryText)
+                            .lineLimit(4)
                     }
-                    Spacer()
-                    WidgetStatusPill(text: "等待播放", systemImage: "music.note")
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                WidgetPanel(padding: 16, cornerRadius: 26) {
-                    HStack(spacing: 16) {
-                        VStack(spacing: 12) {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                                    .fill(WidgetDesign.placeholderGradient(for: 1))
-                                    .frame(width: 92, height: 92)
-                                Image(systemName: "waveform.path")
-                                    .font(.system(size: 32, weight: .semibold))
-                                    .foregroundStyle(.white.opacity(0.84))
-                            }
-
-                            HStack(spacing: 5) {
-                                ForEach(0..<3, id: \.self) { _ in
-                                    Circle()
-                                        .fill(WidgetDesign.cyan.opacity(0.7))
-                                        .frame(width: 5, height: 5)
-                                }
-                            }
-                        }
-                        .frame(width: 110)
-
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("把音乐放到桌面上")
-                                .font(.system(size: 22, weight: .bold, design: .rounded))
-                                .foregroundStyle(WidgetDesign.strongText)
-                                .lineLimit(2)
-                                .minimumScaleFactor(0.85)
-                            Text("连接你的音乐源后，这里会显示当前歌曲、播放进度和最近聆听。")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(WidgetDesign.secondaryText)
-                                .lineLimit(3)
-
-                            Spacer(minLength: 0)
-
-                            HStack(spacing: 8) {
-                                WidgetStatusPill(text: "当前歌曲", systemImage: "music.note")
-                                WidgetStatusPill(text: "播放进度", systemImage: "chart.bar.fill")
-                            }
-                            .lineLimit(1)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
+                Spacer(minLength: 0)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
     }
 }

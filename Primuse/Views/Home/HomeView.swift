@@ -325,16 +325,19 @@ struct HomeView: View {
 
     private func playAlbum(_ album: Album) {
         // Get songs for the tapped album directly
-        let albumSongs = library.songs(forAlbum: album.id)
-        guard let firstSong = albumSongs.first else { return }
+        var queueSongs = library.songs(forAlbum: album.id)
 
         // Build queue: tapped album's songs first, then supplement
-        var queueSongs = albumSongs
         if queueSongs.count < 20 {
             let existingIDs = Set(queueSongs.map(\.id))
             let extra = library.visibleSongs.filter { !existingIDs.contains($0.id) }.shuffled()
             queueSongs.append(contentsOf: extra)
         }
+        queueSongs = queueSongs.filteredPlayable()
+        // The playable filter may drop the album's first track (cloud
+        // Phase A bare song). Pull `firstSong` from the filtered list so
+        // we never hand the player an entry that isn't in its queue.
+        guard let firstSong = queueSongs.first else { return }
 
         player.shuffleEnabled = false
         player.setQueue(queueSongs, startAt: 0)
@@ -361,19 +364,29 @@ struct HomeView: View {
             queueSongs.append(contentsOf: extra)
         }
 
-        let startIndex = queueSongs.firstIndex(where: { $0.id == song.id }) ?? 0
+        // Drop non-playable entries so auto-advance can't land on a Phase A
+        // bare song. The tapped song itself was already filtered to
+        // playable by SongRowView's tap intercept; if it slipped through
+        // (recently-played list with stale data) bail rather than crash
+        // on an empty queue or play a song that isn't in the queue.
+        queueSongs = queueSongs.filteredPlayable()
+        guard let startIndex = queueSongs.firstIndex(where: { $0.id == song.id }) else {
+            plog("🏠 tapped song dropped by playable filter — skipping")
+            return
+        }
         plog("🏠 setQueue: \(queueSongs.count) songs, startIndex=\(startIndex), songAtIndex='\(queueSongs[startIndex].title)'")
         player.shuffleEnabled = false
         player.setQueue(queueSongs, startAt: startIndex)
-        plog("🏠 calling player.play(song: '\(song.title)')")
-        Task { await player.play(song: song) }
+        let resolved = queueSongs[startIndex]
+        plog("🏠 calling player.play(song: '\(resolved.title)')")
+        Task { await player.play(song: resolved) }
     }
 
     private func playLibrary(shuffled: Bool) {
         // Skip cloud songs that haven't been backfilled yet — they have no
         // duration / cover / metadata and would land in the queue with a
         // blank progress bar. Once backfill catches up they become eligible.
-        let candidates = library.visibleSongs.filter { $0.duration > 0 }
+        let candidates = library.visibleSongs.filteredPlayable()
         guard !candidates.isEmpty else { return }
 
         let queueSongs = shuffled ? candidates.shuffled() : candidates

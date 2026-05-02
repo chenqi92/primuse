@@ -4,6 +4,8 @@ import PrimuseKit
 struct PlaylistDetailView: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
+    @Environment(SourcesStore.self) private var sourcesStore
+    @Environment(MetadataBackfillService.self) private var backfill
     let playlist: Playlist
 
     private var currentPlaylist: Playlist? {
@@ -62,7 +64,8 @@ struct PlaylistDetailView: View {
                         SongRowView(
                             song: song,
                             isPlaying: player.currentSong?.id == song.id,
-                            showsActions: false
+                            showsActions: false,
+                            context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
                         )
                         .padding(.horizontal)
                         .padding(.vertical, 8)
@@ -84,14 +87,16 @@ struct PlaylistDetailView: View {
     }
 
     private func playAll() {
-        guard let first = songs.first else { return }
-        player.setQueue(songs, startAt: 0)
+        let queue = songs.filteredPlayable()
+        guard let first = queue.first else { return }
+        player.setQueue(queue, startAt: 0)
         Task { await player.play(song: first) }
     }
 
     private func playSong(_ song: Song) {
-        guard let index = songs.firstIndex(where: { $0.id == song.id }) else { return }
-        player.setQueue(songs, startAt: index)
+        let queue = songs.filteredPlayable()
+        guard let index = queue.firstIndex(where: { $0.id == song.id }) else { return }
+        player.setQueue(queue, startAt: index)
         Task { await player.play(song: song) }
     }
 }

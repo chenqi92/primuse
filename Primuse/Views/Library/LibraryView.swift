@@ -195,15 +195,16 @@ struct LibraryView: View {
     }
 
     private func playAlbum(_ album: Album) {
-        let albumSongs = library.songs(forAlbum: album.id)
-        guard let first = albumSongs.first else { return }
-        player.setQueue(albumSongs, startAt: 0)
+        let queue = library.songs(forAlbum: album.id).filteredPlayable()
+        guard let first = queue.first else { return }
+        player.setQueue(queue, startAt: 0)
         Task { await player.play(song: first) }
     }
 
     private func playSong(_ song: Song) {
-        guard let index = songs.firstIndex(where: { $0.id == song.id }) else { return }
-        player.setQueue(songs, startAt: index)
+        let queue = songs.filteredPlayable()
+        guard let index = queue.firstIndex(where: { $0.id == song.id }) else { return }
+        player.setQueue(queue, startAt: index)
         Task { await player.play(song: song) }
     }
 }

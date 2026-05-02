@@ -37,6 +37,14 @@ private final class BufferIteratorBox: @unchecked Sendable {
     }
 }
 
+/// Sendable carrier for AVAudioPCMBuffer across task boundaries.
+/// AVAudioPCMBuffer is a reference type marked non-Sendable by AVFoundation,
+/// but we only ever read it after the producing task completes, so the box is
+/// safe in practice.
+private struct PCMBufferBox: @unchecked Sendable {
+    let value: AVAudioPCMBuffer?
+}
+
 @MainActor
 @Observable
 final class AudioPlayerService {
@@ -63,6 +71,12 @@ final class AudioPlayerService {
     // MARK: - Shuffle Order
     private var shuffledIndices: [Int] = []
     private var shufflePosition: Int = 0
+    /// Pre-computed next round used by repeat-all wrap-around. Generated
+    /// when the current round nears its end so `nextSongInQueue` (used
+    /// by prefetch) and `advanceToNextIndex` (the actual advance) agree
+    /// on what plays next at the boundary. Cleared on any structural
+    /// change to `queue` / shuffle state.
+    private var pendingNextShuffleIndices: [Int]?
 
     // MARK: - Decoder Tracking (for seek)
     /// Tracks which decoder pipeline produced the currently-playing audio
@@ -95,6 +109,15 @@ final class AudioPlayerService {
     private var shouldResumeAfterInterruption = false
     private var needsPlaybackRecovery = false
     private var pendingRecoveryTime: TimeInterval = 0
+
+    /// Seconds of buffered audio we let drain before forcibly advancing
+    /// after a mid-stream decode error. Without this cap, the ~100 buffers
+    /// already scheduled to the playerNode play out for ~20s before
+    /// `autoAdvanceAfterFailure` fires — looks like the player is frozen
+    /// (most painfully on CarPlay where the user has no other UI to fall
+    /// back to). 3s is enough that the user hears "this song stuttered"
+    /// rather than a sudden cut, but short enough to feel responsive.
+    private static let midStreamErrorGrace: TimeInterval = 3
 
     let playbackSettings: PlaybackSettingsStore
 
@@ -210,7 +233,7 @@ final class AudioPlayerService {
             plog("Playback URL resolution error: \(error)")
             showPlaybackError(String(localized: "playback_error_connection"))
             isLoading = false
-            await next()
+            await autoAdvanceAfterFailure()
         }
     }
 
@@ -243,7 +266,7 @@ final class AudioPlayerService {
         guard isRemoteURL || isCloudStream || nativeDecoder.canDecode(url: url) else {
             plog("Unsupported format: \(url.pathExtension)")
             isLoading = false
-            if currentIndex < queue.count - 1 { await next() }
+            await autoAdvanceAfterFailure()
             return
         }
 
@@ -281,24 +304,49 @@ final class AudioPlayerService {
                ) {
                 plog("▶️ Using CloudPlaybackSource (streaming SFBInputSource, cache=\(playbackSettings.audioCacheEnabled))")
                 activeDecoderKind = .cloudStream
-                stream = nativeDecoder.decode(from: inputSource, outputFormat: outputFormat)
+                stream = nativeDecoder.decode(from: inputSource, outputFormat: outputFormat, onResolveSourceLength: makeResolveLengthCallback(for: song))
             } else {
                 // Local file path (or fallback when streaming setup failed)
-                stream = nativeDecoder.decode(from: url, outputFormat: outputFormat)
+                stream = nativeDecoder.decode(from: url, outputFormat: outputFormat, onResolveSourceLength: makeResolveLengthCallback(for: song))
             }
             let iteratorBox = BufferIteratorBox(stream.makeAsyncIterator())
 
             // Await first buffer — ensures we have audio data before calling play()
+            // Wrapped in a 35s timeout race so a hung cloud fetch (revoked
+            // dlink that never errors out, account-banned network stall)
+            // doesn't leave the play button spinning forever. The
+            // CloudPlaybackSource serve has its own 30s per-chunk timeout
+            // — this one is the outer safety net.
             let firstBuffer: AVAudioPCMBuffer
             do {
-                guard let buffer = try await iteratorBox.next() else {
+                let box: PCMBufferBox = try await withThrowingTaskGroup(of: PCMBufferBox.self) { group in
+                    group.addTask {
+                        let b = try await iteratorBox.next()
+                        return PCMBufferBox(value: b)
+                    }
+                    group.addTask {
+                        try? await Task.sleep(for: .seconds(35))
+                        throw CancellationError()
+                    }
+                    let first = try await group.next() ?? PCMBufferBox(value: nil)
+                    group.cancelAll()
+                    return first
+                }
+                guard let buffer = box.value else {
                     // Empty stream — skip to next
                     isLoading = false
-                    if currentIndex < queue.count - 1 { await next() }
+                    await autoAdvanceAfterFailure()
                     return
                 }
                 guard playID == id else { return }
                 firstBuffer = buffer
+            } catch is CancellationError {
+                guard !Task.isCancelled, playID == id else { return }
+                plog("⚠️ '\(song.title)' first-buffer timeout (35s) — likely cloud fetch stalled")
+                showPlaybackError(String(localized: "playback_error_connection"))
+                isLoading = false
+                await autoAdvanceAfterFailure()
+                return
             } catch {
                 // Native decode failed on first buffer — try fallback decoder.
                 // Cloud-stream URLs can't be opened by the FFmpeg fallback,
@@ -372,6 +420,7 @@ final class AudioPlayerService {
             decodingTask = Task { [id, iteratorBox] in
                 var lastBuffer: AVAudioPCMBuffer?
                 var scheduledCount = 0
+                var midStreamError = false
 
                 do {
                     while let buffer = try await iteratorBox.next() {
@@ -384,23 +433,39 @@ final class AudioPlayerService {
                         lastBuffer = buffer
                     }
                 } catch {
-                    if !Task.isCancelled, self.playID == id {
-                        plog("⚠️ Decode error mid-stream for '\(song.title)' (scheduled \(scheduledCount) buffers): \(error.localizedDescription)")
-                        // Too few buffers → effectively no audio; stop and skip
-                        if scheduledCount < 3 {
-                            self.showPlaybackError(String(localized: "playback_error_decode"))
-                            self.stop()
-                            if self.currentIndex < self.queue.count - 1 {
-                                await self.next()
-                            }
-                            return
-                        }
+                    guard !Task.isCancelled, self.playID == id else { return }
+                    midStreamError = true
+                    plog("⚠️ Decode error mid-stream for '\(song.title)' (scheduled \(scheduledCount) buffers): \(error.localizedDescription)")
+                    self.showPlaybackError(String(localized: "playback_error_decode"))
+                    if scheduledCount < 3 {
+                        // Too little decoded to be worth playing — bail now.
+                        // Helper handles repeat-one (stop, don't loop broken
+                        // file), shuffle correctness, and stop-when-no-next.
+                        await self.autoAdvanceAfterFailure()
+                        return
                     }
                 }
 
-                // Schedule the final buffer with track-end detection
-                if let finalBuffer = lastBuffer {
-                    guard !Task.isCancelled, self.playID == id else { return }
+                guard !Task.isCancelled, self.playID == id else { return }
+                if midStreamError {
+                    // Cap the post-error grace period at `midStreamErrorGrace`.
+                    // Without the cap, ~100 already-scheduled buffers would
+                    // play out for ~20s before `autoAdvanceAfterFailure`
+                    // fires (via the lastBuffer's `dataPlayedBack`
+                    // completion). On CarPlay that looked like the player
+                    // was frozen — no progress, no skip, until the buffer
+                    // queue finally drained. Spawn a short timer Task that
+                    // hard-cuts the audio engine and advances; whichever
+                    // event happens first wins.
+                    Task { @MainActor [id] in
+                        try? await Task.sleep(for: .seconds(Self.midStreamErrorGrace))
+                        guard self.playID == id else { return }
+                        plog("🛑 mid-stream grace elapsed; stopping engine and advancing")
+                        self.audioEngine.stopPlayback()
+                        await self.autoAdvanceAfterFailure()
+                    }
+                } else if let finalBuffer = lastBuffer {
+                    // Natural EOF — schedule with track-end completion.
                     self.scheduleLastBuffer(finalBuffer, playID: id)
                 }
             }
@@ -408,10 +473,9 @@ final class AudioPlayerService {
             plog("⚠️ Playback error for '\(song.title)': \(error.localizedDescription)")
             showPlaybackError(String(localized: "playback_error_decode"))
             isLoading = false
-            // Auto skip to next on decode failure
-            if currentIndex < queue.count - 1 {
-                await next()
-            }
+            // Auto-skip on decode failure (or stop under repeat-one
+            // instead of looping a broken file).
+            await autoAdvanceAfterFailure()
         }
     }
 
@@ -428,7 +492,7 @@ final class AudioPlayerService {
             guard let firstBuffer = try await iteratorBox.next() else {
                 plog("⚠️ StreamingDownload: empty stream for '\(song.title)'")
                 isLoading = false
-                if currentIndex < queue.count - 1 { await next() }
+                await autoAdvanceAfterFailure()
                 return
             }
             guard playID == id else { return }
@@ -482,10 +546,10 @@ final class AudioPlayerService {
                         plog("⚠️ StreamingDownload decode error (scheduled \(scheduledCount) buffers): \(error.localizedDescription)")
                         if scheduledCount < 3 {
                             self.showPlaybackError(String(localized: "playback_error_decode"))
-                            self.stop()
-                            if self.currentIndex < self.queue.count - 1 {
-                                await self.next()
-                            }
+                            // Helper handles stop()/next()/repeat-one
+                            // semantics — don't pre-stop here, otherwise
+                            // we'd race the next()-→play() restart.
+                            await self.autoAdvanceAfterFailure()
                             return
                         }
                     }
@@ -509,15 +573,79 @@ final class AudioPlayerService {
     /// `CloudPlaybackSource` InputSource. Crossfade/gapless/seek paths all
     /// go through here so they stay correct when the source is a cloud
     /// streaming song.
+    /// Build the duration-rewrite callback for a song. Every decode
+    /// path (fresh play, crossfade prefetch, seek) routes through this
+    /// so the first time SFB sees the full stream we capture the real
+    /// PCM frame count and rewrite the library — backfill's
+    /// 256KB-head estimate (especially for raw MP3) is replaced by
+    /// the authoritative value, and the row's displayed time is
+    /// correct from then on.
+    private func makeResolveLengthCallback(for song: Song) -> @Sendable (TimeInterval) -> Void {
+        let songID = song.id
+        let songTitle = song.title
+        let storedDuration = song.duration
+        let fileSize = song.fileSize
+        let bitRate = song.bitRate
+        let fileFormat = song.fileFormat
+        return { [weak self] resolved in
+            guard resolved > 0 else { return }
+            if Self.isLikelyTruncatedCloudDuration(
+                resolved: resolved,
+                stored: storedDuration,
+                fileSize: fileSize,
+                bitRateKbps: bitRate,
+                format: fileFormat
+            ) {
+                plog(String(format: "⚠️ Ignoring implausible SFB duration for '%@': %.1fs (stored %.1fs, size=%lldKB) — likely partial cloud read",
+                            songTitle, resolved, storedDuration, fileSize / 1024))
+                return
+            }
+            // Skip rewrite when the parser/backfill already had it
+            // right (within 5%) — avoids library churn + UI thrash
+            // for songs with a clean LAME header or m4a `mvhd`.
+            let needsRewrite = storedDuration <= 0
+                || abs(storedDuration - resolved) / max(resolved, 1) > 0.05
+            guard needsRewrite else { return }
+            Task { @MainActor [weak self] in
+                guard let self, let library = self.library else { return }
+                guard var existing = library.songs.first(where: { $0.id == songID }) else { return }
+                existing.duration = resolved
+                library.replaceSong(existing)
+                plog(String(format: "🎵 SFB resolved real duration for '%@': %.1fs (was %.1fs) — rewrote library", songTitle, resolved, storedDuration))
+            }
+        }
+    }
+
+    nonisolated private static func isLikelyTruncatedCloudDuration(
+        resolved: TimeInterval,
+        stored: TimeInterval,
+        fileSize: Int64,
+        bitRateKbps: Int?,
+        format: AudioFormat
+    ) -> Bool {
+        if stored > 30, resolved < stored * 0.5 {
+            return true
+        }
+
+        guard format == .mp3, fileSize > 512 * 1024 else {
+            return false
+        }
+        let effectiveBitRate = max(bitRateKbps ?? 0, 192)
+        let estimatedFromFileSize = Double(fileSize) / (Double(effectiveBitRate) * 125.0)
+        return estimatedFromFileSize > 30 && resolved < estimatedFromFileSize * 0.5
+    }
+
     private func decodeStream(
         for song: Song,
         url: URL,
         outputFormat: AVAudioFormat
     ) async -> AsyncThrowingStream<AVAudioPCMBuffer, Error>? {
+        let onResolveLength = makeResolveLengthCallback(for: song)
+
         if url.scheme == SourceManager.cloudStreamingScheme {
             // Prefer fully-cached file if available (skips streaming overhead).
             if let cached = sourceManager?.cachedURL(for: song) {
-                return nativeDecoder.decode(from: cached, outputFormat: outputFormat)
+                return nativeDecoder.decode(from: cached, outputFormat: outputFormat, onResolveSourceLength: onResolveLength)
             }
             guard let manager = sourceManager,
                   let inputSource = try? await manager.makeStreamingInputSource(
@@ -526,16 +654,20 @@ final class AudioPlayerService {
                   ) else {
                 return nil
             }
-            return nativeDecoder.decode(from: inputSource, outputFormat: outputFormat)
+            return nativeDecoder.decode(from: inputSource, outputFormat: outputFormat, onResolveSourceLength: onResolveLength)
         }
-        return nativeDecoder.decode(from: url, outputFormat: outputFormat)
+        return nativeDecoder.decode(from: url, outputFormat: outputFormat, onResolveSourceLength: onResolveLength)
     }
 
     private func prefetchNextSong() {
         prefetchTask?.cancel()
-        let nextIdx = currentIndex + 1
-        guard nextIdx < queue.count else { return }
-        let nextSong = queue[nextIdx]
+        // Use the same "what plays next" logic as auto-advance / next() so
+        // shuffle and repeat-all prewarm the actually-next song. The old
+        // currentIndex+1 prewarmed the wrong song under shuffle, leaving
+        // real-next playback to pay full dlink + head latency.
+        guard let nextSong = nextSongInQueue() else { return }
+        // Repeat-one re-decodes the current song; nothing to prefetch.
+        if nextSong.id == currentSong?.id { return }
 
         // Already cached? Nothing to do.
         if sourceManager?.cachedURL(for: nextSong) != nil { return }
@@ -552,7 +684,7 @@ final class AudioPlayerService {
             plog("⚠️ No decoder available for '\(song.title)'")
             showPlaybackError(String(localized: "playback_error_format"))
             isLoading = false
-            if currentIndex < queue.count - 1 { await next() }
+            await autoAdvanceAfterFailure()
             return
         }
 
@@ -564,7 +696,7 @@ final class AudioPlayerService {
         do {
             guard let firstBuffer = try await iteratorBox.next() else {
                 isLoading = false
-                if currentIndex < queue.count - 1 { await next() }
+                await autoAdvanceAfterFailure()
                 return
             }
             guard playID == id else { return }
@@ -643,7 +775,7 @@ final class AudioPlayerService {
         } catch {
             plog("⚠️ AssetReader fallback also failed: \(error.localizedDescription)")
             isLoading = false
-            if currentIndex < queue.count - 1 { await next() }
+            await autoAdvanceAfterFailure()
         }
     }
 
@@ -651,17 +783,36 @@ final class AudioPlayerService {
     /// for track-end detection, respecting gapless and crossfade settings.
     private func scheduleLastBuffer(_ buffer: AVAudioPCMBuffer, playID id: UUID) {
         let settings = playbackSettings.snapshot()
+        plog("📍 scheduleLastBuffer for playID=\(id.uuidString.prefix(8)) frames=\(buffer.frameLength)")
 
         // Standard and crossfade modes both use completion callback for track-end detection
         audioEngine.scheduleBuffer(
             buffer,
             completionCallbackType: .dataPlayedBack
         ) { [weak self] _ in
+            plog("🔔 lastBuffer dataPlayedBack fired playID=\(id.uuidString.prefix(8))")
             Task { @MainActor [weak self] in
                 guard let self, self.playID == id else { return }
                 // In crossfade mode, only handle track end if crossfade wasn't triggered
                 if settings.crossfadeEnabled && self.crossfadeTriggered { return }
                 await self.handleTrackEnd()
+            }
+        }
+    }
+
+    /// Schedule the last decoded buffer when the stream errored mid-way.
+    /// Lets the buffered audio drain so the user still hears something, but
+    /// fires `autoAdvanceAfterFailure` on completion instead of
+    /// `handleTrackEnd` — so repeat-one stops on a broken song instead of
+    /// looping it, and the play-count isn't bumped for an aborted track.
+    private func scheduleLastBufferAsFailure(_ buffer: AVAudioPCMBuffer, playID id: UUID) {
+        audioEngine.scheduleBuffer(
+            buffer,
+            completionCallbackType: .dataPlayedBack
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.playID == id else { return }
+                await self.autoAdvanceAfterFailure()
             }
         }
     }
@@ -718,8 +869,10 @@ final class AudioPlayerService {
         updatePlaybackState()
     }
 
-    func next() async {
+    func next(caller: String = #fileID, callerLine: Int = #line) async {
         guard !queue.isEmpty else { return }
+        let callerFile = (caller as NSString).lastPathComponent
+        plog("⏭️ next() called FROM=\(callerFile):\(callerLine) currentIndex=\(currentIndex) queueCount=\(queue.count)")
         advanceToNextIndex()
         await play(song: queue[currentIndex])
     }
@@ -805,9 +958,10 @@ final class AudioPlayerService {
                     seekURL = url
                 }
                 let stream: AsyncThrowingStream<AVAudioPCMBuffer, Error>
+                let onResolveLength = makeResolveLengthCallback(for: song)
                 switch activeDecoderKind {
                 case .native, .streaming:
-                    stream = nativeDecoder.decode(from: seekURL, outputFormat: outputFormat)
+                    stream = nativeDecoder.decode(from: seekURL, outputFormat: outputFormat, onResolveSourceLength: onResolveLength)
                 case .cloudStream:
                     // Build a fresh InputSource for the seek session. The
                     // sparse cache file from the prior session is reused
@@ -816,13 +970,13 @@ final class AudioPlayerService {
                     // rest). If the song has since been fully downloaded
                     // and renamed to the canonical path, prefer that.
                     if let cached = sourceManager?.cachedURL(for: song) {
-                        stream = nativeDecoder.decode(from: cached, outputFormat: outputFormat)
+                        stream = nativeDecoder.decode(from: cached, outputFormat: outputFormat, onResolveSourceLength: onResolveLength)
                     } else if let manager = sourceManager,
                               let inputSource = try? await manager.makeStreamingInputSource(
                                   for: song,
                                   cacheEnabled: playbackSettings.audioCacheEnabled
                               ) {
-                        stream = nativeDecoder.decode(from: inputSource, outputFormat: outputFormat)
+                        stream = nativeDecoder.decode(from: inputSource, outputFormat: outputFormat, onResolveSourceLength: onResolveLength)
                     } else {
                         plog("⚠️ Seek: failed to build cloud streaming InputSource")
                         isLoading = false
@@ -937,6 +1091,10 @@ final class AudioPlayerService {
     func setQueue(_ songs: [Song], startAt index: Int = 0) {
         queue = songs
         currentIndex = min(index, songs.count - 1)
+        // Drop any pre-built next round — the queue itself changed, so
+        // prior shuffle plans (and their indices into the old queue)
+        // are stale and would index out-of-bounds on wrap.
+        pendingNextShuffleIndices = nil
         if shuffleEnabled { rebuildShuffleOrder() }
     }
 
@@ -1068,7 +1226,12 @@ final class AudioPlayerService {
         let settings = playbackSettings.snapshot()
         guard settings.crossfadeEnabled, !crossfadeTriggered else { return }
         guard duration > 0, currentTime >= duration - settings.crossfadeDuration else { return }
-        guard nextSongInQueue() != nil else { return }
+        // Skip under repeat-one — `nextSongInQueue()` returns the
+        // current song there, which would crossfade-to-self. Pre-fix
+        // `currentIndex < queue.count - 1` was always false in the
+        // single-song repeat-one case so crossfade was never enabled;
+        // preserve that.
+        guard repeatMode != .one, nextSongInQueue() != nil else { return }
 
         crossfadeTriggered = true
         Task { await startCrossfade(duration: settings.crossfadeDuration) }
@@ -1259,7 +1422,13 @@ final class AudioPlayerService {
         case .all:
             await next()
         case .off:
-            if currentIndex < queue.count - 1 {
+            // Under shuffle, currentIndex is the queue index of the
+            // currently-playing song, not the shufflePosition — so
+            // comparing it to queue.count - 1 frequently passed (the
+            // last shuffled song often isn't the last in original
+            // order) and auto-advance kept generating fresh shuffle
+            // rounds even though the user picked repeat-off.
+            if nextSongInQueue() != nil {
                 await next()
             } else {
                 stop()
@@ -1269,25 +1438,58 @@ final class AudioPlayerService {
 
     // MARK: - Helpers
 
+    /// Run after a non-recoverable playback failure (unsupported format,
+    /// empty stream, decode error, URL resolve fail, fallback
+    /// exhausted, mid-stream decode crash). Centralises the "what
+    /// happens after failure" rule so every error path stays
+    /// consistent:
+    /// - Under `repeatMode == .one`, `nextSongInQueue()` returns the
+    ///   current song. Calling `next()` from there would either loop the
+    ///   broken file forever (single-song queue) or jump to a different
+    ///   track and silently violate repeat-one (multi-song queue). So
+    ///   we stop and let the user see the error toast that the caller
+    ///   already raised.
+    /// - Otherwise advance if there's a real successor; if not (last
+    ///   track failed, repeat-off), stop so the player exits the
+    ///   half-broken loading/streaming state cleanly instead of
+    ///   leaving the engine wedged with currentSong still set.
+    private func autoAdvanceAfterFailure() async {
+        if repeatMode == .one {
+            stop()
+            return
+        }
+        if nextSongInQueue() != nil {
+            await next()
+        } else {
+            stop()
+        }
+    }
+
     private func nextSongInQueue() -> Song? {
         guard !queue.isEmpty else { return nil }
 
         if repeatMode == .one { return currentSong }
 
-        let nextIndex: Int
         if shuffleEnabled {
             let nextPos = shufflePosition + 1
             if nextPos < shuffledIndices.count {
-                nextIndex = shuffledIndices[nextPos]
+                return queue[shuffledIndices[nextPos]]
             } else if repeatMode == .all {
-                return queue.first // will reshuffle on advanceToNextIndex
+                // Wrap: read the pre-generated next round (lazily built
+                // here so the prefetch path and the real advance path
+                // pick the SAME song — without this they'd disagree
+                // because `advanceToNextIndex` reshuffles fresh and
+                // we'd prewarm a completely different track).
+                let pending = pendingNextShuffleIndices ?? buildPendingNextRound()
+                if pendingNextShuffleIndices == nil { pendingNextShuffleIndices = pending }
+                guard let firstIdx = pending.first else { return queue.first }
+                return queue[firstIdx]
             } else {
                 return nil
             }
-        } else {
-            nextIndex = currentIndex + 1
         }
 
+        let nextIndex = currentIndex + 1
         if nextIndex < queue.count {
             return queue[nextIndex]
         } else if repeatMode == .all {
@@ -1298,25 +1500,50 @@ final class AudioPlayerService {
 
     private func advanceToNextIndex() {
         if shuffleEnabled {
-            shufflePosition += 1
-            if shufflePosition >= shuffledIndices.count {
-                rebuildShuffleOrder()
+            let nextPos = shufflePosition + 1
+            if nextPos < shuffledIndices.count {
+                shufflePosition = nextPos
+                currentIndex = shuffledIndices[shufflePosition]
+            } else {
+                // End of round. Adopt the pre-generated next round
+                // (built earlier by `nextSongInQueue` for prefetch) so
+                // the actual track played matches what was prewarmed.
+                let pending = pendingNextShuffleIndices ?? buildPendingNextRound()
+                pendingNextShuffleIndices = nil
+                shuffledIndices = pending
                 shufflePosition = 0
+                currentIndex = shuffledIndices.isEmpty ? 0 : shuffledIndices[0]
             }
-            currentIndex = shuffledIndices.isEmpty ? 0 : shuffledIndices[shufflePosition]
         } else {
             currentIndex = (currentIndex + 1) % queue.count
         }
     }
 
     private func rebuildShuffleOrder() {
-        guard !queue.isEmpty else { shuffledIndices = []; return }
+        guard !queue.isEmpty else { shuffledIndices = []; pendingNextShuffleIndices = nil; return }
         shuffledIndices = Array(0..<queue.count).shuffled()
         shufflePosition = 0
+        pendingNextShuffleIndices = nil
         // Place current index at position 0 so current song stays first
+        // when shuffle is toggled mid-playback (we don't want to jump
+        // off the current track). Wrap-around uses a different builder.
         if let pos = shuffledIndices.firstIndex(of: currentIndex) {
             shuffledIndices.swapAt(0, pos)
         }
+    }
+
+    /// Build (but don't install) the next round's shuffle order. Used
+    /// by both prefetch and the actual wrap so they pick the same first
+    /// song. Avoids placing the just-finished track at position 0 to
+    /// stop repeat-all from feeling like repeat-one at the boundary.
+    private func buildPendingNextRound() -> [Int] {
+        guard !queue.isEmpty else { return [] }
+        var order = Array(0..<queue.count).shuffled()
+        if queue.count > 1, order.first == currentIndex {
+            let otherPos = Int.random(in: 1..<order.count)
+            order.swapAt(0, otherPos)
+        }
+        return order
     }
 
     private func createSilentBuffer(frameCount: AVAudioFrameCount) -> AVAudioPCMBuffer? {
@@ -1508,9 +1735,11 @@ final class AudioPlayerService {
         center.pauseCommand.addTarget { [weak self] _ in self?.pause(); return .success }
         center.togglePlayPauseCommand.addTarget { [weak self] _ in self?.togglePlayPause(); return .success }
         center.nextTrackCommand.addTarget { [weak self] _ in
+            plog("🎛️ MediaRemote nextTrackCommand fired")
             Task { await self?.next() }; return .success
         }
         center.previousTrackCommand.addTarget { [weak self] _ in
+            plog("🎛️ MediaRemote previousTrackCommand fired")
             Task { await self?.previous() }; return .success
         }
         center.changePlaybackPositionCommand.addTarget { [weak self] event in

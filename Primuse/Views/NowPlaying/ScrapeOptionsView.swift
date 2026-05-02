@@ -514,7 +514,8 @@ struct ScrapeOptionsView: View {
                     year: detail.year ?? song.year,
                     dateAdded: song.dateAdded,
                     coverArtFileName: song.coverArtFileName,
-                    lyricsFileName: song.lyricsFileName
+                    lyricsFileName: song.lyricsFileName,
+                    revision: song.revision
                 )
             }
 
@@ -629,7 +630,8 @@ struct ScrapeOptionsView: View {
             year: (yearChanged && applyYear) ? u.year : song.year,
             dateAdded: song.dateAdded,
             coverArtFileName: coverFileName,
-            lyricsFileName: lyricsFileName
+            lyricsFileName: lyricsFileName,
+            revision: song.revision
         )
 
         library.replaceSong(final)
