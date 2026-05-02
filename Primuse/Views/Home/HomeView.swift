@@ -20,21 +20,31 @@ struct HomeView: View {
     }
 
     var body: some View {
+        #if os(iOS)
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    if hasContent {
-                        contentView
-                    } else {
-                        emptyView
-                    }
-                }
-                .padding(.bottom, 100)
-            }
+            scrollContent
+                .navigationTitle("home_title")
+                .toolbarTitleDisplayMode(.inlineLarge)
+                .navigationDestination(for: Album.self) { AlbumDetailView(album: $0) }
+                .navigationDestination(for: Artist.self) { ArtistDetailView(artist: $0) }
+        }
+        #else
+        // macOS: outer NavigationStack is provided by MacDetailContainer.
+        scrollContent
             .navigationTitle("home_title")
-            .toolbarTitleDisplayMode(.inlineLarge)
-            .navigationDestination(for: Album.self) { AlbumDetailView(album: $0) }
-            .navigationDestination(for: Artist.self) { ArtistDetailView(artist: $0) }
+        #endif
+    }
+
+    private var scrollContent: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                if hasContent {
+                    contentView
+                } else {
+                    emptyView
+                }
+            }
+            .padding(.bottom, 100)
         }
     }
 
@@ -317,8 +327,19 @@ struct HomeView: View {
             }
             Button { switchToSettingsTab?() } label: {
                 Label("manage_sources", systemImage: "externaldrive.badge.plus")
-                    .fontWeight(.semibold).frame(maxWidth: .infinity).padding(.vertical, 14)
-            }.buttonStyle(.borderedProminent).padding(.horizontal, 40)
+                    .fontWeight(.semibold)
+                    #if os(iOS)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    #else
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 8)
+                    #endif
+            }
+            .buttonStyle(.borderedProminent)
+            #if os(iOS)
+            .padding(.horizontal, 40)
+            #endif
             Spacer()
         }.frame(maxWidth: .infinity)
     }

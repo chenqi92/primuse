@@ -1,3 +1,25 @@
+// MARK: - 本地文件夹源（macOS）
+"local_folder" = "本地文件夹";
+"choose_folder" = "选择文件夹";
+"no_folder_selected" = "未选择文件夹";
+
+// MARK: - 菜单栏 / 桌面歌词（macOS）
+"open_main_window" = "打开主窗口";
+"quit_app" = "退出";
+"show_desktop_lyrics" = "显示桌面歌词";
+"hide_desktop_lyrics" = "隐藏桌面歌词";
+"close" = "关闭";
+"trusted_domains_desc" = "下列域名在连接时将跳过 SSL 证书校验。";
+"domain" = "域名";
+"metadata_scraping_desc" = "从在线音乐数据库自动补全歌曲的元数据、封面与歌词。";
+"reset" = "重置";
+"home_empty_mac_hint" = "前往「设置 → 音乐源管理」连接 NAS、WebDAV、本地文件夹或网盘。";
+"sources_count_format" = "共 %d 个";
+"songs_count_inline" = "%d 首";
+"keychain_sync_hint_title" = "音乐源密码通过 iCloud 钥匙串单独同步";
+"keychain_sync_hint_body" = "为安全起见，源密码不随源信息一起同步，而是走 iCloud 钥匙串。如果新设备首次连接时仍提示输密码，请确认「系统设置 → Apple ID → iCloud → 钥匙串」已开启，并等待几分钟同步。";
+"open_keychain_settings" = "打开钥匙串设置";
+
 // MARK: - 标签栏
 "library_title" = "资料库";
 "sources_title" = "音乐源";

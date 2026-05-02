@@ -1,5 +1,8 @@
 import SwiftUI
 import PrimuseKit
+#if os(macOS)
+import AppKit
+#endif
 
 // MARK: - Focus Fields
 
@@ -33,6 +36,11 @@ struct AddSourceView: View {
     @State private var autoConnect = false
     @State private var rememberDevice = false
     @State private var isInitialized = false
+    #if os(macOS)
+    /// Captures the URL chosen via NSOpenPanel so we can persist a
+    /// security-scoped bookmark once the source has an ID.
+    @State private var pendingLocalFolderURL: URL?
+    #endif
 
     @FocusState private var focusedField: SourceFormField?
 
@@ -68,102 +76,17 @@ struct AddSourceView: View {
     }
 
     var body: some View {
+        #if os(iOS)
+        iOSBody
+        #else
+        macOSBody
+        #endif
+    }
+
+    #if os(iOS)
+    private var iOSBody: some View {
         NavigationStack {
-            Form {
-                Section("source_info") {
-                    TextField("source_name", text: $name)
-                        .focused($focusedField, equals: .name)
-                        .submitLabel(.next)
-                        .onSubmit { focusedField = sourceType.requiresHost ? .host : .username }
-                }
-
-                if sourceType.requiresHost {
-                    Section("connection_info") {
-                        TextField("host_address", text: $host)
-                            .focused($focusedField, equals: .host)
-                            .keyboardType(.URL)
-                            .autocorrectionDisabled()
-                            .textInputAutocapitalization(.never)
-                            .submitLabel(.next)
-                            .onSubmit { focusedField = sourceType == .smb ? .shareName : .port }
-                        if sourceType != .smb {
-                            TextField("port", text: $port)
-                                .focused($focusedField, equals: .port)
-                                .keyboardType(.numberPad)
-                        }
-                        if ![MusicSourceType.smb, .ftp, .sftp, .nfs].contains(sourceType) {
-                            Toggle("use_ssl", isOn: $useSsl)
-                        }
-                    }
-                }
-
-                typeSpecificSection
-
-                if sourceType.requiresCredentials {
-                    Section("credentials") {
-                        if sourceType == .sftp || supportsAPIKeyAuth {
-                            Picker("auth_method", selection: $authType) {
-                                Text("password").tag(SourceAuthType.password)
-                                if supportsAPIKeyAuth {
-                                    Text("api_key").tag(SourceAuthType.apiKey)
-                                } else {
-                                    Text("ssh_key").tag(SourceAuthType.sshKey)
-                                }
-                            }
-                            .pickerStyle(.segmented)
-                        }
-                        if authType != .apiKey {
-                            TextField("username", text: $username)
-                                .focused($focusedField, equals: .username)
-                                .autocorrectionDisabled()
-                                .textInputAutocapitalization(.never)
-                                .submitLabel(.next)
-                                .onSubmit { focusedField = .password }
-                        }
-                        if authType == .sshKey && sourceType == .sftp {
-                            ZStack(alignment: .topLeading) {
-                                TextEditor(text: $sshKey)
-                                    .focused($focusedField, equals: .sshKey)
-                                    .frame(minHeight: 80)
-                                    .font(.system(.caption, design: .monospaced))
-                                if sshKey.isEmpty {
-                                    Text("ssh_key_placeholder")
-                                        .foregroundStyle(.tertiary)
-                                        .font(.system(.caption, design: .monospaced))
-                                        .padding(.top, 8).padding(.leading, 5)
-                                        .allowsHitTesting(false)
-                                }
-                            }
-                        } else {
-                            SecureField(authType == .apiKey ? "api_key" : "password", text: $password)
-                                .focused($focusedField, equals: .password)
-                                .submitLabel(.done)
-                                .onSubmit { focusedField = nil }
-                        }
-                        if isEditing {
-                            Text("password_edit_hint").font(.caption).foregroundStyle(.secondary)
-                        }
-                        if sourceType.supportsAnonymous && authType == .password {
-                            Text("anonymous_login_hint").font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-
-                Section("advanced") {
-                    Toggle("auto_connect", isOn: $autoConnect)
-                    if sourceType.supports2FA {
-                        Toggle("remember_device", isOn: $rememberDevice)
-                    }
-                }
-
-                if !isEditing && sourceType.requiresHost {
-                    Section {
-                        Label("save_then_connect_hint", systemImage: "info.circle")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
+            Form { formSections }
             .scrollDismissesKeyboard(.interactively)
             .navigationTitle(isEditing ? String(localized: "edit_source") : sourceType.displayName)
             .navigationBarTitleDisplayMode(.inline)
@@ -184,6 +107,139 @@ struct AddSourceView: View {
                 }
             }
             .onAppear { initializeFields() }
+        }
+    }
+    #else
+    private var macOSBody: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(isEditing ? String(localized: "edit_source") : sourceType.displayName)
+                    .font(.headline)
+                Spacer()
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 18)
+            .padding(.bottom, 12)
+
+            Divider()
+
+            Form { formSections }
+                .formStyle(.grouped)
+
+            Divider()
+
+            HStack(spacing: 8) {
+                Spacer()
+                Button("cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("save") { saveSource() }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(canSave == false)
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 14)
+        }
+        .frame(minWidth: 520, idealWidth: 560, minHeight: 460)
+        .onAppear { initializeFields() }
+    }
+    #endif
+
+    /// Form body extracted so iOS / macOS chrome can share it.
+    @ViewBuilder
+    private var formSections: some View {
+        Section("source_info") {
+            TextField("source_name", text: $name)
+                .focused($focusedField, equals: .name)
+                .submitLabel(.next)
+                .onSubmit { focusedField = sourceType.requiresHost ? .host : .username }
+        }
+
+        if sourceType.requiresHost {
+            Section("connection_info") {
+                TextField("host_address", text: $host)
+                    .focused($focusedField, equals: .host)
+                    .keyboardType(.URL)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .submitLabel(.next)
+                    .onSubmit { focusedField = sourceType == .smb ? .shareName : .port }
+                if sourceType != .smb {
+                    TextField("port", text: $port)
+                        .focused($focusedField, equals: .port)
+                        .keyboardType(.numberPad)
+                }
+                if ![MusicSourceType.smb, .ftp, .sftp, .nfs].contains(sourceType) {
+                    Toggle("use_ssl", isOn: $useSsl)
+                }
+            }
+        }
+
+        typeSpecificSection
+
+        if sourceType.requiresCredentials {
+            Section("credentials") {
+                if sourceType == .sftp || supportsAPIKeyAuth {
+                    Picker("auth_method", selection: $authType) {
+                        Text("password").tag(SourceAuthType.password)
+                        if supportsAPIKeyAuth {
+                            Text("api_key").tag(SourceAuthType.apiKey)
+                        } else {
+                            Text("ssh_key").tag(SourceAuthType.sshKey)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+                if authType != .apiKey {
+                    TextField("username", text: $username)
+                        .focused($focusedField, equals: .username)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .submitLabel(.next)
+                        .onSubmit { focusedField = .password }
+                }
+                if authType == .sshKey && sourceType == .sftp {
+                    ZStack(alignment: .topLeading) {
+                        TextEditor(text: $sshKey)
+                            .focused($focusedField, equals: .sshKey)
+                            .frame(minHeight: 80)
+                            .font(.system(.caption, design: .monospaced))
+                        if sshKey.isEmpty {
+                            Text("ssh_key_placeholder")
+                                .foregroundStyle(.tertiary)
+                                .font(.system(.caption, design: .monospaced))
+                                .padding(.top, 8).padding(.leading, 5)
+                                .allowsHitTesting(false)
+                        }
+                    }
+                } else {
+                    SecureField(authType == .apiKey ? "api_key" : "password", text: $password)
+                        .focused($focusedField, equals: .password)
+                        .submitLabel(.done)
+                        .onSubmit { focusedField = nil }
+                }
+                if isEditing {
+                    Text("password_edit_hint").font(.caption).foregroundStyle(.secondary)
+                }
+                if sourceType.supportsAnonymous && authType == .password {
+                    Text("anonymous_login_hint").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+
+        Section("advanced") {
+            Toggle("auto_connect", isOn: $autoConnect)
+            if sourceType.supports2FA {
+                Toggle("remember_device", isOn: $rememberDevice)
+            }
+        }
+
+        if !isEditing && sourceType.requiresHost {
+            Section {
+                Label("save_then_connect_hint", systemImage: "info.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -234,6 +290,21 @@ struct AddSourceView: View {
                     .autocorrectionDisabled().submitLabel(.next)
                     .onSubmit { focusedField = .username }
             }
+        case .local:
+            #if os(macOS)
+            Section("local_folder") {
+                HStack {
+                    Text(basePath.isEmpty ? String(localized: "no_folder_selected") : basePath)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .foregroundStyle(basePath.isEmpty ? .secondary : .primary)
+                    Spacer()
+                    Button("choose_folder") { pickLocalFolder() }
+                }
+            }
+            #else
+            EmptyView()
+            #endif
         case .nfs:
             Section("nfs_config") {
                 TextField("export_path", text: $exportPath)
@@ -400,7 +471,28 @@ struct AddSourceView: View {
             }
         }
 
+        #if os(macOS)
+        if sourceType == .local, let pickedURL = pendingLocalFolderURL {
+            try? LocalBookmarkStore.save(sourceID: source.id, url: pickedURL)
+        }
+        #endif
+
         onSave(source)
         dismiss()
     }
+
+    #if os(macOS)
+    private func pickLocalFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = String(localized: "choose_folder")
+        if panel.runModal() == .OK, let url = panel.url {
+            pendingLocalFolderURL = url
+            basePath = url.path
+            if name.isEmpty { name = url.lastPathComponent }
+        }
+    }
+    #endif
 }

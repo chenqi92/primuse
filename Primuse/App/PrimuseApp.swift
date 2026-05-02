@@ -97,12 +97,28 @@ import AppKit
 
 /// macOS counterpart of `PrimuseAppDelegate`. macOS has no BGTaskScheduler /
 /// CarPlay / Intents-handler routing — the delegate exists only to forward
-/// CloudKit silent pushes the same way the iOS one does.
+/// CloudKit silent pushes the same way the iOS one does, plus install the
+/// menu bar status item.
 final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
     nonisolated(unsafe) static weak var sync: CloudKitSyncService?
+    @MainActor private var menuBar: MacMenuBarController?
+    @MainActor private var desktopLyrics: DesktopLyricsWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.registerForRemoteNotifications()
+        Task { @MainActor in
+            let bar = MacMenuBarController()
+            bar.install()
+            self.menuBar = bar
+
+            let lyrics = DesktopLyricsWindowController()
+            self.desktopLyrics = lyrics
+        }
+    }
+
+    @MainActor
+    func toggleDesktopLyrics() {
+        desktopLyrics?.toggle()
     }
 
     func application(
@@ -152,24 +168,44 @@ struct PrimuseApp: App {
         _metadataBackfill = State(initialValue: services.metadataBackfill)
     }
 
+    @ViewBuilder
+    private func injectServices<V: View>(@ViewBuilder _ content: () -> V) -> some View {
+        // On macOS we deliberately don't force the global tint to the brand
+        // purple — letting SwiftUI fall through to the user's system accent
+        // makes Toggle / Checkbox / standard buttons look native instead of
+        // blanketed in iOS purple. Hand-built UI elements that need brand
+        // tinting keep `themeService.accentColor` directly.
+        let injected = content()
+            .environment(themeService)
+            .environment(playerService)
+            .environment(playerService.audioEngine)
+            .environment(playerService.equalizerService)
+            .environment(playerService.audioEffectsService)
+            .environment(musicLibrary)
+            .environment(sourcesStore)
+            .environment(sourceManager)
+            .environment(scraperSettingsStore)
+            .environment(scraperService)
+            .environment(playbackSettingsStore)
+            .environment(scanService)
+            .environment(cloudSync)
+            .environment(metadataBackfill)
+        #if os(iOS)
+        return injected.tint(themeService.accentColor)
+        #else
+        return injected
+        #endif
+    }
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .tint(themeService.accentColor)
-                .environment(themeService)
-                .environment(playerService)
-                .environment(playerService.audioEngine)
-                .environment(playerService.equalizerService)
-                .environment(playerService.audioEffectsService)
-                .environment(musicLibrary)
-                .environment(sourcesStore)
-                .environment(sourceManager)
-                .environment(scraperSettingsStore)
-                .environment(scraperService)
-                .environment(playbackSettingsStore)
-                .environment(scanService)
-                .environment(cloudSync)
-                .environment(metadataBackfill)
+            injectServices {
+                #if os(iOS)
+                ContentView()
+                #else
+                MacContentView()
+                #endif
+            }
                 .task {
                     PrimuseAppDelegate.sync = cloudSync
                     if iCloudSyncEnabled { await cloudSync.start() }
@@ -269,5 +305,26 @@ struct PrimuseApp: App {
                     if onWifi { metadataBackfill.start() }
                 }
         }
+        #if os(macOS)
+        .defaultSize(width: 1180, height: 760)
+        .windowResizability(.contentMinSize)
+        .commands {
+            SidebarCommands()
+            ToolbarCommands()
+            CommandGroup(replacing: .newItem) {}
+            CommandGroup(after: .toolbar) {
+                Button("show_desktop_lyrics") {
+                    (NSApp.delegate as? PrimuseAppDelegate)?.toggleDesktopLyrics()
+                }
+                .keyboardShortcut("l", modifiers: [.command])
+            }
+        }
+        #endif
+
+        #if os(macOS)
+        Settings {
+            injectServices { MacSettingsView() }
+        }
+        #endif
     }
 }

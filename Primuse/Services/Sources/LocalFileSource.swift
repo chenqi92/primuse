@@ -4,10 +4,31 @@ import PrimuseKit
 actor LocalFileSource: MusicSourceConnector {
     let sourceID: String
     private let basePath: URL
+    /// macOS sandbox requires holding the security scope across the lifetime
+    /// of the connector — the URL we resolved from the stored bookmark
+    /// stops being readable the moment we release it.
+    private let usesSecurityScope: Bool
 
     init(sourceID: String, basePath: URL) {
         self.sourceID = sourceID
+        #if os(macOS)
+        if let resolved = LocalBookmarkStore.resolve(sourceID: sourceID) {
+            self.basePath = resolved
+            self.usesSecurityScope = resolved.startAccessingSecurityScopedResource()
+        } else {
+            self.basePath = basePath
+            self.usesSecurityScope = false
+        }
+        #else
         self.basePath = basePath
+        self.usesSecurityScope = false
+        #endif
+    }
+
+    deinit {
+        if usesSecurityScope {
+            basePath.stopAccessingSecurityScopedResource()
+        }
     }
 
     func connect() async throws {

@@ -1,3 +1,25 @@
+// MARK: - Local folder source (macOS)
+"local_folder" = "Local Folder";
+"choose_folder" = "Choose Folder…";
+"no_folder_selected" = "No folder selected";
+
+// MARK: - Menu bar / Desktop lyrics (macOS)
+"open_main_window" = "Open Main Window";
+"quit_app" = "Quit";
+"show_desktop_lyrics" = "Show Desktop Lyrics";
+"hide_desktop_lyrics" = "Hide Desktop Lyrics";
+"close" = "Close";
+"trusted_domains_desc" = "Connections to these domains skip SSL certificate validation.";
+"domain" = "Domain";
+"metadata_scraping_desc" = "Auto-fill song metadata, artwork and lyrics from online music databases.";
+"reset" = "Reset";
+"home_empty_mac_hint" = "Open Settings → Music Sources to connect a NAS, WebDAV server, local folder, or cloud drive.";
+"sources_count_format" = "%d total";
+"songs_count_inline" = "%d songs";
+"keychain_sync_hint_title" = "Source passwords sync via iCloud Keychain";
+"keychain_sync_hint_body" = "For security, source passwords are kept out of the regular sync channel and travel through iCloud Keychain instead. If a new device still prompts for the password, make sure System Settings → Apple ID → iCloud → Keychain is on, then give it a few minutes to catch up.";
+"open_keychain_settings" = "Open Keychain Settings";
+
 // MARK: - Tabs
 "library_title" = "Library";
 "sources_title" = "Sources";

@@ -1,5 +1,8 @@
 import SwiftUI
 import PrimuseKit
+#if os(macOS)
+import AppKit
+#endif
 
 struct ContentView: View {
     @Environment(AudioPlayerService.self) private var player
@@ -91,7 +94,13 @@ struct PlayerOverlay: View {
     @State private var isDismissing = false
     @State private var dismissScale: CGFloat = 1
     @State private var dismissOpacity: CGFloat = 1
-    @State private var screenHeight: CGFloat = UIScreen.main.bounds.height
+    @State private var screenHeight: CGFloat = {
+        #if os(iOS)
+        return UIScreen.main.bounds.height
+        #else
+        return NSScreen.main?.frame.height ?? 800
+        #endif
+    }()
 
     /// Device screen corner radius (matches physical display)
     private let deviceCornerRadius: CGFloat = 55

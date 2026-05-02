@@ -17,7 +17,11 @@ struct SourceTypeSelectionView: View {
 
                 // MARK: - Manual source type selection
                 ForEach(MusicSourceType.groupedByCategory, id: \.0) { category, types in
+                    #if os(iOS)
                     let filteredTypes = types.filter { $0 != .local }
+                    #else
+                    let filteredTypes = types
+                    #endif
                     if !filteredTypes.isEmpty {
                         Section(header: Text(category.displayNameFallback)) {
                             ForEach(filteredTypes, id: \.self) { type in

@@ -35,10 +35,9 @@ struct CloudSyncSettingsView: View {
             if enabled {
                 Section("icloud_sync_status") {
                     HStack {
-                        Text("status")
-                        Spacer()
                         statusLabel
                             .foregroundStyle(.secondary)
+                        Spacer()
                     }
 
                     if let lastSyncedAt = sync.lastSyncedAt {
