@@ -258,12 +258,14 @@
 "network" = "网络";
 "cloud_scan_wifi_only" = "仅在 Wi-Fi 下加载云盘详情";
 "cloud_scan_wifi_only_footer" = "扫描云盘时只读取文件名，详情（歌手/专辑/封面/时长）会在后台分批加载。一首歌大约消耗 256KB 流量。开启此项后，遇到蜂窝网络会自动暂停，连上 Wi-Fi 自动继续。";
-"backfill_in_progress" = "正在加载详情";
+"backfill_in_progress" = "读取标签中…";
 "new_songs_added" = "新增 %d 首";
 "no_new_songs" = "暂无新歌";
 "backfill_remaining" = "剩余 %d 首";
-"song_details_loading" = "歌曲详情加载中";
-"song_details_loading_message" = "该歌曲信息正在加载，加载完成后即可正常显示时长和封面。仍可继续播放。";
+"song_details_loading" = "正在读取曲目信息";
+"song_details_loading_message" = "正在从云盘下载这首歌的标签头（约 256 KB），用来解析时长、封面和艺术家。读完后即可加入播放队列。";
+"song_details_unavailable" = "无法读取歌曲详情";
+"song_details_unavailable_message" = "已尝试读取该文件的标签，但无法解析出时长。文件可能已损坏或格式不受支持。";
 
 // MARK: - 音效
 "audio_effects" = "音效";

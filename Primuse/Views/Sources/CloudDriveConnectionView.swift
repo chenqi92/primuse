@@ -8,6 +8,7 @@ struct CloudDriveConnectionView: View {
     @Binding var selectedDirectories: [String]
     @Environment(\.dismiss) private var dismiss
     @Environment(SourceManager.self) private var sourceManager
+    @Environment(SourcesStore.self) private var sourcesStore
 
     @State private var step: FlowStep = .checking
     @State private var errorMessage = ""
@@ -313,6 +314,16 @@ struct CloudDriveConnectionView: View {
                 // Refresh the connector so it picks up the new tokens
                 await sourceManager.refreshConnector(for: source.id)
 
+                // Stage 4a: identify the upstream OAuth account and
+                // link this mount to a CloudAccount entity. Same
+                // upstream account on every device → same account.id
+                // (deterministic SHA-256 of provider:uid). Future
+                // re-OAuth of the same account discovers the existing
+                // record instead of duplicating; the launch migration
+                // (stage 4c) reads cloudAccountID to merge legacy
+                // duplicates.
+                await linkMountToCloudAccount()
+
                 withAnimation { step = .browsing }
             } catch let error as OAuthError {
                 if case .userCancelled = error {
@@ -325,6 +336,39 @@ struct CloudDriveConnectionView: View {
                 errorMessage = error.localizedDescription
                 withAnimation { step = .failed }
             }
+        }
+    }
+
+    /// Resolve `accountIdentifier()` from the freshly-OAuth-ed connector
+    /// and store the resulting `(provider, accountUID)` as a
+    /// `CloudAccount`. The mount's `cloudAccountID` is updated via
+    /// `SourcesStore.update` (which bumps modifiedAt + triggers
+    /// CloudKit push). Failure is non-fatal: the mount keeps
+    /// `cloudAccountID == nil` and the next OAuth attempt re-tries.
+    private func linkMountToCloudAccount() async {
+        let conn = sourceManager.connector(for: source)
+        guard let oauthConn = conn as? OAuthCloudSource else {
+            plog("⚠️ Account link: connector for \(source.type.rawValue) doesn't implement OAuthCloudSource")
+            return
+        }
+        do {
+            let accountUID = try await oauthConn.accountIdentifier()
+            let accountID = CloudAccount.deriveID(provider: source.type, accountUID: accountUID)
+            // Reuse an existing record (same id since derivation is
+            // deterministic) — bumping its modifiedAt via upsert means
+            // the next CloudKit push refreshes the server copy.
+            let existing = sourcesStore.account(provider: source.type, accountUID: accountUID)
+            let account = existing ?? CloudAccount(
+                id: accountID,
+                provider: source.type,
+                accountUID: accountUID,
+                createdAt: Date()
+            )
+            sourcesStore.upsertAccount(account)
+            sourcesStore.update(source.id) { $0.cloudAccountID = account.id }
+            plog("☁️ OAuth account linked: mount=\(source.id) → account=\(accountID) provider=\(source.type.rawValue) uid=\(accountUID) reused=\(existing != nil)")
+        } catch {
+            plog("⚠️ Account link failed for mount=\(source.id) (\(source.type.rawValue)): \(error.localizedDescription)")
         }
     }
 

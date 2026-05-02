@@ -48,7 +48,12 @@ actor ConnectorScanner {
                     // on large cloud trees).
                     let totalCount = 0
                     var allSongs = existingSongs
-                    let existingPaths = Set(existingSongs.map(\.filePath))
+                    var existingByPath: [String: Song] = [:]
+                    existingByPath.reserveCapacity(existingSongs.count)
+                    for song in existingSongs { existingByPath[song.filePath] = song }
+                    var allSongIndexByPath: [String: Int] = [:]
+                    allSongIndexByPath.reserveCapacity(existingSongs.count)
+                    for (i, song) in allSongs.enumerated() { allSongIndexByPath[song.filePath] = i }
                     let initialCount = max(existingSongs.count, startingCount)
                     var scannedCount = totalCount > 0 ? min(initialCount, totalCount) : initialCount
                     var addedCount = 0
@@ -74,11 +79,28 @@ actor ConnectorScanner {
 
                                 for try await scannedSong in stream {
                                     encounteredPaths.insert(scannedSong.song.filePath)
-                                    guard existingPaths.contains(scannedSong.song.filePath) == false else { continue }
+                                    if let existing = existingByPath[scannedSong.song.filePath] {
+                                        // Same path can either be the same file (skip) or
+                                        // a remote replacement (refresh). Decide on size
+                                        // first since lastModified isn't always populated.
+                                        if !songContentChanged(existing: existing, incoming: scannedSong.song) {
+                                            continue
+                                        }
+                                        // Replaced — overwrite the entry already in
+                                        // allSongs so the next library flush sees the
+                                        // fresh size/mtime/sidecars instead of merging
+                                        // back to stale metadata.
+                                        if let idx = allSongIndexByPath[scannedSong.song.filePath] {
+                                            allSongs[idx] = scannedSong.song
+                                        }
+                                        existingByPath[scannedSong.song.filePath] = scannedSong.song
+                                        continue
+                                    }
 
                                     scannedCount += 1
                                     addedCount += 1
                                     allSongs.append(scannedSong.song)
+                                    allSongIndexByPath[scannedSong.song.filePath] = allSongs.count - 1
 
                                     continuation.yield(
                                         ScanUpdate(
@@ -128,10 +150,48 @@ actor ConnectorScanner {
 
                             for try await item in stream {
                                 encounteredPaths.insert(item.path)
-                                guard existingPaths.contains(item.path) == false else { continue }
-
                                 let songID = hash("\(sourceID):\(item.path)")
+
+                                if let existing = existingByPath[item.path] {
+                                    // Same path can either be unchanged (skip) or a
+                                    // remote replacement (emit fresh bare song so
+                                    // backfill re-runs against new bytes). Compare
+                                    // size, mtime, AND provider revision — Baidu /
+                                    // Aliyun / Dropbox listFiles return nil mtime
+                                    // and a same-size overwrite would slip past the
+                                    // first two checks.
+                                    let sizeChanged = item.size > 0 && existing.fileSize > 0 && item.size != existing.fileSize
+                                    let mtimeChanged: Bool = {
+                                        guard let a = item.modifiedDate, let b = existing.lastModified else { return false }
+                                        return a != b
+                                    }()
+                                    let revisionChanged: Bool = {
+                                        guard let a = item.revision, let b = existing.revision else { return false }
+                                        return a != b
+                                    }()
+                                    // First-time backfill of a fingerprint that
+                                    // didn't exist before (user upgraded to a
+                                    // build that reads md5/etag, or to a
+                                    // connector that surfaces mtime). NOT a
+                                    // content change — feed it through the
+                                    // library merge path so revision/mtime
+                                    // sticks for next scan, but no cache
+                                    // invalidation and no failed-set clear.
+                                    let revisionAdded = item.revision != nil && existing.revision == nil
+                                    let mtimeAdded = item.modifiedDate != nil && existing.lastModified == nil
+                                    if !(sizeChanged || mtimeChanged || revisionChanged || revisionAdded || mtimeAdded) {
+                                        continue
+                                    }
+                                    let refreshed = buildBareSong(from: item, songID: songID)
+                                    if let idx = allSongIndexByPath[item.path] {
+                                        allSongs[idx] = refreshed
+                                    }
+                                    existingByPath[item.path] = refreshed
+                                    continue
+                                }
+
                                 allSongs.append(buildBareSong(from: item, songID: songID))
+                                allSongIndexByPath[item.path] = allSongs.count - 1
                                 scannedCount += 1
                                 addedCount += 1
 
@@ -178,6 +238,30 @@ actor ConnectorScanner {
                 }
             }
         }
+    }
+
+    private func songContentChanged(existing: Song, incoming: Song) -> Bool {
+        let sizeChanged = incoming.fileSize > 0
+            && existing.fileSize > 0
+            && incoming.fileSize != existing.fileSize
+        let mtimeChanged: Bool = {
+            guard let a = incoming.lastModified, let b = existing.lastModified else { return false }
+            return a != b
+        }()
+        let revisionChanged: Bool = {
+            guard let a = incoming.revision, let b = existing.revision else { return false }
+            return a != b
+        }()
+        // First-time fingerprint/mtime backfill — not a content change,
+        // but still needs to flow through addSongs so the merge path
+        // refreshes existing.revision / existing.lastModified. Without
+        // this, a connector that newly surfaces revision would see its
+        // updates dropped at the scanner boundary and never reach the
+        // library, leaving same-size overwrite detection permanently
+        // blind on existing rows.
+        let revisionAdded = incoming.revision != nil && existing.revision == nil
+        let mtimeAdded = incoming.lastModified != nil && existing.lastModified == nil
+        return sizeChanged || mtimeChanged || revisionChanged || revisionAdded || mtimeAdded
     }
 
     private struct SidecarRefs {
@@ -233,7 +317,8 @@ actor ConnectorScanner {
             lastModified: item.modifiedDate,
             dateAdded: Date(),
             coverArtFileName: item.sidecarHints?.coverPath,
-            lyricsFileName: item.sidecarHints?.lyricsPath
+            lyricsFileName: item.sidecarHints?.lyricsPath,
+            revision: item.revision
         )
     }
 
@@ -281,7 +366,8 @@ actor ConnectorScanner {
             lastModified: item.modifiedDate,
             dateAdded: Date(),
             coverArtFileName: coverRef,
-            lyricsFileName: lyricsRef
+            lyricsFileName: lyricsRef,
+            revision: item.revision
         )
     }
 

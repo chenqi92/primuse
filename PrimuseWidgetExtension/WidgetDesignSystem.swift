@@ -10,15 +10,21 @@ enum WidgetDesign {
     static let coral = Color(red: 0.98, green: 0.56, blue: 0.43)
     static let lilac = Color(red: 0.58, green: 0.43, blue: 0.98)
 
-    static let canvasGradient = LinearGradient(
-        colors: [
-            Color(red: 0.07, green: 0.09, blue: 0.15),
-            Color(red: 0.11, green: 0.10, blue: 0.20),
-            Color(red: 0.16, green: 0.11, blue: 0.28)
-        ],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-    )
+    /// Brand accent driven by the user's current app icon — the main app
+    /// publishes this into the App Group, the widget reads it on every
+    /// render. Falls back to the default-icon vinyl blue if nothing has
+    /// been published yet (fresh install before the main app first launches).
+    static var brandTint: Color {
+        if let rgb = BrandTintStore.load() {
+            return Color(red: rgb.red, green: rgb.green, blue: rgb.blue)
+        }
+        return Color(red: 0.20, green: 0.50, blue: 0.95)
+    }
+
+    /// Deep base color that the brand-tinted overlay sits on top of. Keeps the
+    /// canvas dark enough to read white text against, no matter what tint the
+    /// user picked.
+    static let canvasBase = Color(red: 0.05, green: 0.06, blue: 0.10)
 
     static let panelGradient = LinearGradient(
         colors: [
@@ -63,47 +69,40 @@ struct WidgetCanvas<Content: View>: View {
     }
 
     var body: some View {
+        let tint = WidgetDesign.brandTint
         ZStack {
-            WidgetDesign.canvasGradient
-
-            Circle()
-                .fill(
-                    RadialGradient(
-                        colors: [WidgetDesign.indigo.opacity(0.55), .clear],
-                        center: .center,
-                        startRadius: 8,
-                        endRadius: 180
-                    )
-                )
-                .frame(width: 240, height: 240)
-                .offset(x: 90, y: -120)
-
-            Circle()
-                .fill(
-                    RadialGradient(
-                        colors: [WidgetDesign.cyan.opacity(0.25), .clear],
-                        center: .center,
-                        startRadius: 4,
-                        endRadius: 140
-                    )
-                )
-                .frame(width: 180, height: 180)
-                .offset(x: -120, y: 110)
-
-            Circle()
-                .fill(
-                    RadialGradient(
-                        colors: [WidgetDesign.coral.opacity(0.18), .clear],
-                        center: .center,
-                        startRadius: 8,
-                        endRadius: 120
-                    )
-                )
-                .frame(width: 160, height: 160)
-                .offset(x: -80, y: -130)
-
+            // Deep tinted dark base — the brand color shifts in subtly from
+            // top-left to bottom-right so the whole canvas reads as the
+            // user's chosen accent, not a fixed purple.
+            WidgetDesign.canvasBase
             LinearGradient(
-                colors: [WidgetDesign.glowHighlight, .clear, Color.black.opacity(0.12)],
+                colors: [
+                    tint.opacity(0.10),
+                    tint.opacity(0.20),
+                    tint.opacity(0.32)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            // Single brand glow in the upper-right corner — anchors the eye
+            // and gives the surface depth without competing color noise.
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [tint.opacity(0.50), .clear],
+                        center: .center,
+                        startRadius: 12,
+                        endRadius: 220
+                    )
+                )
+                .frame(width: 280, height: 280)
+                .offset(x: 80, y: -130)
+                .blendMode(.plusLighter)
+
+            // Frosted-glass highlight that sweeps across the surface.
+            LinearGradient(
+                colors: [WidgetDesign.glowHighlight, .clear, Color.black.opacity(0.18)],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
@@ -116,7 +115,7 @@ struct WidgetCanvas<Content: View>: View {
             RoundedRectangle(cornerRadius: 26, style: .continuous)
                 .strokeBorder(
                     LinearGradient(
-                        colors: [Color.white.opacity(0.16), Color.white.opacity(0.04)],
+                        colors: [Color.white.opacity(0.18), Color.white.opacity(0.04)],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     ),
@@ -186,7 +185,7 @@ struct WidgetArtworkBackdrop: View {
 struct WidgetStatusPill: View {
     let text: String
     let systemImage: String
-    var tint: Color = WidgetDesign.cyan
+    var tint: Color = WidgetDesign.brandTint
 
     var body: some View {
         HStack(spacing: 6) {
@@ -207,6 +206,33 @@ struct WidgetStatusPill: View {
                         .strokeBorder(tint.opacity(0.30), lineWidth: 1)
                 )
         )
+    }
+}
+
+struct WidgetEmptyStateIcon: View {
+    let systemName: String
+    var size: CGFloat = 72
+
+    var body: some View {
+        let tint = WidgetDesign.brandTint
+        ZStack {
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [tint.opacity(0.55), tint.opacity(0.15)],
+                        center: .center,
+                        startRadius: 4,
+                        endRadius: size / 2
+                    )
+                )
+            Circle()
+                .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+            Image(systemName: systemName)
+                .font(.system(size: size * 0.42, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.92))
+        }
+        .frame(width: size, height: size)
+        .shadow(color: tint.opacity(0.30), radius: 12, x: 0, y: 4)
     }
 }
 
@@ -334,8 +360,8 @@ struct RecentAlbumCoverView: View {
 struct WidgetProgressBar: View {
     var value: Double
     var total: Double
-    var tintColor: Color = WidgetDesign.cyan
-    var height: CGFloat = 4
+    var tintColor: Color = WidgetDesign.brandTint
+    var height: CGFloat = 6
 
     var body: some View {
         GeometryReader { geometry in
@@ -347,7 +373,7 @@ struct WidgetProgressBar: View {
                 Capsule(style: .continuous)
                     .fill(
                         LinearGradient(
-                            colors: [tintColor, WidgetDesign.indigo],
+                            colors: [tintColor.opacity(0.55), tintColor],
                             startPoint: .leading,
                             endPoint: .trailing
                         )

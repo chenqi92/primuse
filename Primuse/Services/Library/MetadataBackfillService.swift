@@ -65,6 +65,137 @@ final class MetadataBackfillService {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         self.failedURL = directory.appendingPathComponent("backfill-failed.json")
         loadFailed()
+
+        // One-time migration. Earlier builds had an overly-aggressive
+        // partial-merge rule that marked any song as failed when head
+        // 256KB didn't yield a duration — even if a tail-fetch would
+        // have recovered it (M4A with udta in head, moov at tail are
+        // the common victim). Field reports surfaced ~500 stuck songs
+        // per library. Wipe the persisted set so those songs get a
+        // fresh attempt under the corrected logic. Versioned key
+        // prevents repeating on every launch.
+        let migrationKey = "primuse.backfillFailedReset.v2026_05_partialMerge"
+        if !UserDefaults.standard.bool(forKey: migrationKey), !failedSongIDs.isEmpty {
+            plog("📥 Backfill: wiping \(failedSongIDs.count) failedSongIDs (one-time migration after tail-fetch fix)")
+            failedSongIDs.removeAll()
+            saveFailed()
+        }
+        UserDefaults.standard.set(true, forKey: migrationKey)
+
+        // Second one-time migration. The previous backfill stamped
+        // many songs with SFB's truncated-head duration estimate
+        // (typically 6–12 s for raw MP3s without XING/LAME, since
+        // SFB only saw the first 256 KB). Sweep the library for
+        // songs whose stored duration is < half what (fileSize ×
+        // 8 / bitRate) predicts, reset their duration to 0, and
+        // clear any matching failed mark so they re-enter the
+        // queue. The corrected `correctedDuration` helper now
+        // overwrites bogus parser values on the next pass.
+        let durationFixKey = "primuse.backfillFailedReset.v2026_05_truncatedDuration"
+        if !UserDefaults.standard.bool(forKey: durationFixKey) {
+            var resetSongs: [Song] = []
+            for song in library.songs {
+                guard let bitRate = song.bitRate, bitRate > 0,
+                      song.fileSize > Self.headBytes * 2,
+                      song.duration > 0 else { continue }
+                let bytesPerSec = Double(bitRate) * 125.0
+                let estimatedFromFileSize = Double(song.fileSize) / bytesPerSec
+                if song.duration < estimatedFromFileSize * 0.5 {
+                    var copy = song
+                    copy.duration = 0
+                    resetSongs.append(copy)
+                    failedSongIDs.remove(song.id)
+                }
+            }
+            if !resetSongs.isEmpty {
+                plog("📥 Backfill: resetting \(resetSongs.count) songs with truncated-head duration to re-trigger backfill")
+                library.replaceSongs(resetSongs)
+                saveFailed()
+            }
+            UserDefaults.standard.set(true, forKey: durationFixKey)
+        }
+
+        // Third one-time migration. Some older backfill results stored
+        // `bitRate = 0` alongside the truncated-head MP3 duration, so
+        // the previous sweep (which required a parsed bitrate) missed
+        // exactly the field-reported shape: 3-5 MB MP3s saved as
+        // 10-15 second tracks. Use the same conservative 192kbps
+        // fallback as `correctedDuration` and reset only when the saved
+        // duration is less than half the file-size estimate.
+        let durationFallbackFixKey = "primuse.backfillFailedReset.v2026_05_truncatedDurationFallbackBitrate"
+        if !UserDefaults.standard.bool(forKey: durationFallbackFixKey) {
+            var resetSongs: [Song] = []
+            for song in library.songs {
+                guard song.fileFormat == .mp3,
+                      (song.bitRate ?? 0) <= 0,
+                      song.fileSize > Self.headBytes * 2,
+                      song.duration > 0 else { continue }
+                let bytesPerSec = Double(Self.defaultMP3Bitrate) * 125.0
+                let estimatedFromFileSize = Double(song.fileSize) / bytesPerSec
+                if song.duration < estimatedFromFileSize * 0.5 {
+                    var copy = song
+                    copy.duration = 0
+                    resetSongs.append(copy)
+                    failedSongIDs.remove(song.id)
+                }
+            }
+            if !resetSongs.isEmpty {
+                plog("📥 Backfill: resetting \(resetSongs.count) MP3 songs with truncated duration + missing bitrate")
+                library.replaceSongs(resetSongs)
+                saveFailed()
+            }
+            UserDefaults.standard.set(true, forKey: durationFallbackFixKey)
+        }
+
+        // Fourth one-time migration. Playback used to let SFB rewrite
+        // cloud-stream duration from partial Range reads, so a healthy
+        // 2-4 minute MP3 could regress back to ~8 seconds after the
+        // previous migrations had already run. Reset every implausibly
+        // short MP3 again, using parsed bitrate when available and the
+        // conservative 192kbps fallback otherwise.
+        let streamRewriteFixKey = "primuse.backfillFailedReset.v2026_05_streamDurationRewrite"
+        if !UserDefaults.standard.bool(forKey: streamRewriteFixKey) {
+            var resetSongs: [Song] = []
+            for song in library.songs {
+                guard song.fileFormat == .mp3,
+                      song.fileSize > Self.headBytes * 2,
+                      song.duration > 0 else { continue }
+                let effectiveBitRate = (song.bitRate ?? 0) > 0 ? song.bitRate! : Self.defaultMP3Bitrate
+                let estimatedFromFileSize = Double(song.fileSize) / (Double(effectiveBitRate) * 125.0)
+                if estimatedFromFileSize > 30, song.duration < estimatedFromFileSize * 0.5 {
+                    var copy = song
+                    copy.duration = 0
+                    resetSongs.append(copy)
+                    failedSongIDs.remove(song.id)
+                }
+            }
+            if !resetSongs.isEmpty {
+                plog("📥 Backfill: resetting \(resetSongs.count) MP3 songs after partial stream duration rewrite")
+                library.replaceSongs(resetSongs)
+                saveFailed()
+            }
+            UserDefaults.standard.set(true, forKey: streamRewriteFixKey)
+        }
+
+        // A re-scan that found a path with new bytes wipes the failed
+        // mark so backfill re-attempts the song with the fresh file. The
+        // song's metadata in the library is already reset to bare by
+        // `MusicLibrary.addSongs`, so `start()` will pick it up next pass.
+        NotificationCenter.default.addObserver(
+            forName: .primuseSongContentChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self else { return }
+            let songs = (note.userInfo?["songs"] as? [Song]) ?? []
+            guard !songs.isEmpty else { return }
+            MainActor.assumeIsolated {
+                let ids = Set(songs.map(\.id))
+                self.failedSongIDs.subtract(ids)
+                self.saveFailed()
+                self.start()
+            }
+        }
     }
 
     /// Start (or resume) backfill. Idempotent — if a worker is already
@@ -75,7 +206,14 @@ final class MetadataBackfillService {
     /// early without scheduling work; caller can re-invoke later when the
     /// path changes (we observe NetworkMonitor for that).
     func start() {
-        guard worker == nil else { return }
+        guard worker == nil else {
+            // Worker still in flight — common during initial scan when
+            // multiple onChange events fire. Logging was added because
+            // a "spinner never stops" report initially looked like
+            // start() wasn't being called at all.
+            plog("📥 Backfill: skip (worker already running, gen=\(workerGeneration))")
+            return
+        }
 
         // Cellular gate. Backfill on a 2200-song cloud library is ~550MB —
         // enough to be a problem on metered connections.
@@ -86,7 +224,15 @@ final class MetadataBackfillService {
         }
 
         let needsBackfill = pickNextBatch()
-        guard !needsBackfill.isEmpty else { return }
+        guard !needsBackfill.isEmpty else {
+            // Either every song has metadata OR every bare song is in
+            // failedSongIDs. Surface both numbers so a "spinner stuck"
+            // report can be triaged from the log without app-side
+            // instrumentation.
+            let bareTotal = library.songs.lazy.filter { Self.isBareSong($0) }.count
+            plog("📥 Backfill: skip (no eligible bare songs — total=\(library.songs.count) bare=\(bareTotal) failed=\(failedSongIDs.count))")
+            return
+        }
         pendingCount = needsBackfill.count
         processedCount = 0
         isRunning = true
@@ -133,24 +279,24 @@ final class MetadataBackfillService {
         }
     }
 
-    /// True if a Song is considered "bare" — i.e. nothing was ever
-    /// successfully extracted from it. Mirrors the filter used by
-    /// `pickNextBatch`/`remainingCount`.
+    /// True if a Song still needs backfill. We key on `duration` alone
+    /// because:
+    /// - it's the load-bearing field (drives progress bar, gates the
+    ///   playable-queue filter, prevents SFB from misjudging stream
+    ///   length);
+    /// - other fields (artist/album/genre/year) can be filled by the
+    ///   online scraper without backfill ever running, leaving songs
+    ///   in a "looks fine but no duration" state. The OLD predicate
+    ///   required all six fields to be empty — so any scrape result
+    ///   silently disqualified the song from backfill, the row spinner
+    ///   never stopped, and the queue filter kept it un-playable.
     ///
-    /// **Important**: checks every metadata field, not just duration +
-    /// bitRate. The 256KB head fetch often parses ID3v2 tags (artist,
-    /// album) cleanly even when it can't compute duration (needs more
-    /// frames) or bitRate (needs full file). If we only checked duration
-    /// + bitRate, those partially-resolved songs stayed "bare" forever
-    /// and got re-picked on every worker iteration — burning network
-    /// quota in an infinite loop without any progress.
+    /// Infinite-loop protection: `metadataLooksMissing` after head+tail
+    /// → `markFailed` → `failedSongIDs.contains` short-circuits the
+    /// next pick. So a file genuinely without duration is tried once
+    /// and then skipped forever — no retry storm.
     static func isBareSong(_ song: Song) -> Bool {
-        song.duration == 0
-            && song.bitRate == nil
-            && song.artistID == nil
-            && song.albumID == nil
-            && song.year == nil
-            && song.genre == nil
+        song.duration <= 0
     }
 
     /// True if there are bare songs in the library that backfill could
@@ -170,6 +316,15 @@ final class MetadataBackfillService {
     /// after Phase A added more bare songs mid-backfill.
     var remainingCount: Int {
         remainingCount(forSource: nil)
+    }
+
+    /// True if backfill has given up on this song (extraction failed, or
+    /// the file is parseable but exposes no duration). Used by SongRowView
+    /// to swap the "loading details" spinner for a static "details
+    /// unavailable" hint so the user isn't stuck staring at a forever-
+    /// loading row.
+    func didFail(songID: String) -> Bool {
+        failedSongIDs.contains(songID)
     }
 
     /// Per-source variant — used by the source card so its "remaining"
@@ -200,6 +355,7 @@ final class MetadataBackfillService {
         // already-processed songs still look "bare" in the library and
         // would be picked again, causing duplicate Range fetches and a
         // weird-looking processedCount that grows past pendingCount.
+        var lastSnapshotIDs: Set<String> = []
         while !Task.isCancelled {
             let blockedByCellular = await MainActor.run { [self] in shouldBlockForCellular() }
             if blockedByCellular {
@@ -209,6 +365,21 @@ final class MetadataBackfillService {
 
             let snapshot = await MainActor.run { [self] in pickNextBatch() }
             if snapshot.isEmpty { break }
+
+            // Oscillation guard: if pickNextBatch keeps returning the
+            // exact same set of song IDs after we already processed
+            // them, our writes aren't sticking — replaceSongs failed,
+            // backfill returned duration=0 despite reporting "done", or
+            // some other code path is silently overwriting the merged
+            // result back to bare. Bail to avoid burning quota in an
+            // infinite loop, and surface the diagnostic so we can
+            // pinpoint where the round-trip drops the duration.
+            let snapIDs = Set(snapshot.map(\.id))
+            if !lastSnapshotIDs.isEmpty, snapIDs == lastSnapshotIDs {
+                plog("⚠️ Backfill: pickNextBatch returned the same \(snapIDs.count) IDs after a full round — aborting (writes aren't sticking; check 'duration=' in prior done lines)")
+                break
+            }
+            lastSnapshotIDs = snapIDs
 
             await processSnapshot(snapshot)
         }
@@ -220,48 +391,55 @@ final class MetadataBackfillService {
     private func processSnapshot(_ snapshot: [Song]) async {
         var pendingFlush: [Song] = []
         var lastFlushAt = Date()
-
-        let flush: (_ force: Bool) async -> Void = { [weak self] force in
-            guard let self else { return }
-            let shouldFlush = force
-                || pendingFlush.count >= Self.flushBatchSize
-                || Date().timeIntervalSince(lastFlushAt) >= Self.flushInterval
-            guard shouldFlush, !pendingFlush.isEmpty else { return }
-            let batch = pendingFlush
-            pendingFlush.removeAll(keepingCapacity: true)
-            lastFlushAt = Date()
-            await MainActor.run { [weak self] in
-                self?.library.replaceSongs(batch)
-            }
-        }
+        plog("📥 processSnapshot: starting with \(snapshot.count) songs")
 
         for song in snapshot {
             if Task.isCancelled { break }
 
             // Cellular check between songs — flush what we have and bail
             // so the user's data isn't burned past their setting.
-            let blockedByCellular = await MainActor.run { [self] in shouldBlockForCellular() }
-            if blockedByCellular {
-                await flush(true)
+            if shouldBlockForCellular() {
+                if !pendingFlush.isEmpty {
+                    library.replaceSongs(pendingFlush)
+                    pendingFlush.removeAll(keepingCapacity: true)
+                }
                 return
             }
 
-            let result = await processOne(song)
-            await MainActor.run { [weak self] in
-                guard let self else { return }
-                processedCount += 1
-                if result == nil {
-                    failedSongIDs.insert(song.id)
-                    saveFailed()
-                }
+            let outcome = await processOne(song)
+            processedCount += 1
+            if outcome.markFailed {
+                failedSongIDs.insert(song.id)
+                saveFailed()
             }
-            if let updated = result {
+            if let updated = outcome.song {
                 pendingFlush.append(updated)
             }
-            await flush(false)
+
+            // Flush when the batch is full OR the interval has elapsed.
+            // Inlined (was a closure that Swift 6's actor-isolation
+            // closure handling silently no-op'd — `await flush(...)`
+            // returned without ever entering the body, so songs were
+            // appended forever and `library.replaceSongs` was never
+            // called. Direct call avoids the trap.
+            let shouldFlush = pendingFlush.count >= Self.flushBatchSize
+                || Date().timeIntervalSince(lastFlushAt) >= Self.flushInterval
+            if shouldFlush, !pendingFlush.isEmpty {
+                let batch = pendingFlush
+                pendingFlush.removeAll(keepingCapacity: true)
+                lastFlushAt = Date()
+                library.replaceSongs(batch)
+                plog("📥 flushed \(batch.count) songs to library")
+            }
         }
 
-        await flush(true)
+        // Final flush
+        if !pendingFlush.isEmpty {
+            let batch = pendingFlush
+            pendingFlush.removeAll()
+            library.replaceSongs(batch)
+            plog("📥 final flush: \(batch.count) songs to library")
+        }
     }
 
     private func shouldBlockForCellular() -> Bool {
@@ -269,11 +447,23 @@ final class MetadataBackfillService {
         return wifiOnly && !NetworkMonitor.shared.isOnUnmeteredNetwork
     }
 
-    /// Returns the merged Song on success, nil on failure. Caller is
-    /// responsible for batching the result into the library — this
-    /// method no longer touches `library.replaceSong` directly so we can
-    /// flush many songs at once.
-    private func processOne(_ song: Song) async -> Song? {
+    /// Outcome of one backfill attempt. `song` is the merged result to
+    /// flush into the library when present (preserves whatever fields we
+    /// did parse, e.g. artist+album when duration was unreadable).
+    /// `markFailed` tells the caller to add the original ID to
+    /// `failedSongIDs` so backfill stops retrying — set even on partial
+    /// merges so a duration-less file isn't picked up next pass.
+    struct BackfillOutcome {
+        var song: Song?
+        var markFailed: Bool
+    }
+
+    /// Run one backfill against `song`. Returns a merged Song to flush
+    /// (may be nil if extraction yielded nothing usable) and a flag
+    /// indicating whether the attempt should be remembered as failed —
+    /// the two are independent because some files parse partial tags
+    /// (artist, album) but never expose duration.
+    private func processOne(_ song: Song) async -> BackfillOutcome {
         let started = Date()
         do {
             // Use the SHARED connector (not auxiliary). Backfill is sequential
@@ -293,6 +483,17 @@ final class MetadataBackfillService {
             )
             let fetchElapsed = Date().timeIntervalSince(fetchStarted)
 
+            // Reuse the head bytes we just paid for to prewarm the cloud
+            // playback cache. CloudPlaybackSource will pick up `.partial`
+            // on the first SFB read, so the user's first-buffer latency for
+            // this song drops from "1 chunk + CDN HEAD" to "disk hit".
+            // Only worthwhile for cloud-stream sources — local/file paths
+            // never go through CloudPlaybackSource.
+            if song.fileSize >= Int64(Self.headBytes),
+               await sourceManager.songSupportsRangeStreaming(song) {
+                sourceManager.seedPrewarmCache(song: song, head: headData)
+            }
+
             var metadata = await extractMetadata(
                 from: headData,
                 song: song,
@@ -309,24 +510,45 @@ final class MetadataBackfillService {
                 }
             }
 
-            // Even with both head and tail in hand, some files have no
-            // parseable tags at all (untagged WAV, broken FLACs, weird
-            // encoders). Without this guard, mergeSong writes a Song that
-            // STILL satisfies `bare` (duration=0, bitRate=nil), so the
-            // next worker iteration / next launch keeps re-fetching it
-            // forever. Mark these as failed so they're skipped on retry.
+            // Nothing parseable at all → no merge, mark failed so we
+            // don't burn quota retrying.
             if metadataLooksMissing(metadata) {
                 plog("⚠️ Backfill: '\(song.title)' has no parseable metadata after head+tail; marking failed")
-                return nil
+                return BackfillOutcome(song: nil, markFailed: true)
             }
 
+            // After tightening `metadataLooksMissing` to require
+            // duration > 0, reaching this point means head+tail
+            // produced a usable duration. The old "merged.duration<=0
+            // → markFailed" guard was firing on songs that just hadn't
+            // had tail tried yet — removed.
+            // Only reverse-compute for raw MP3. M4A/MP4/M4B carry
+            // authoritative duration inside `moov.mvhd`; backfill's
+            // tail-fetch already gets it correctly. Applying the
+            // bytes-÷-bitrate heuristic to those formats wrongly
+            // overwrites the correct value because m4a containers
+            // often wrap data far larger than `bitRate × duration / 8`
+            // (multiple tracks, padding, sidecar metadata) — observed
+            // in the field as a 13MB / 198kbps m4a being "corrected"
+            // from the real 177s to a bogus 562s.
+            let ext = (song.filePath as NSString).pathExtension.lowercased()
+            if ext == "mp3" {
+                metadata.duration = correctedDuration(parsed: metadata.duration, bitRateKbps: metadata.bitRate, fileSize: song.fileSize, title: song.title)
+            }
+            let merged = mergeSong(bare: song, metadata: metadata)
             let totalElapsed = Date().timeIntervalSince(started)
-            plog(String(format: "📥 Backfill: '%@' done in %.2fs (fetch %.2fs)", song.title, totalElapsed, fetchElapsed))
-            return mergeSong(bare: song, metadata: metadata)
+            // Include the parsed duration in the log line so an
+            // infinite-loop case (pickNextBatch repeatedly handing back
+            // the same songs) can be diagnosed without re-instrumenting:
+            // duration=0 in the log means mergeSong didn't actually
+            // capture a usable duration despite metadataLooksMissing
+            // returning false → bug in the parser or the gate.
+            plog(String(format: "📥 Backfill: '%@' done in %.2fs (fetch %.2fs) duration=%.1fs", song.title, totalElapsed, fetchElapsed, merged.duration))
+            return BackfillOutcome(song: merged, markFailed: false)
         } catch {
             let elapsed = Date().timeIntervalSince(started)
             plog(String(format: "⚠️ Backfill failed for '%@' after %.2fs: %@", song.title, elapsed, error.localizedDescription))
-            return nil
+            return BackfillOutcome(song: nil, markFailed: true)
         }
     }
 
@@ -351,9 +573,66 @@ final class MetadataBackfillService {
         )
     }
 
+    /// Reverse-compute duration from `(fileSize × 8) / bitRate` when
+    /// SFB's parsed value is implausibly short. Backfill feeds the
+    /// parser only the first 256 KB of the audio file, so for raw MP3s
+    /// without an XING/LAME header the parser estimates duration as
+    /// `truncated_file_size / bitrate` and reports 6–12 seconds for
+    /// what's really a 2–4 minute song. The real `song.fileSize`
+    /// (from the source listing) plus the parsed `bitRate` give us
+    /// the actual duration directly. Only kicks in when:
+    /// - we have a usable bitrate (parser tells us this from frame
+    ///   header — present in head bytes for any sane MP3)
+    /// - the file is materially larger than the head we sent (otherwise
+    ///   the parser saw the whole thing and its number is trustworthy)
+    /// - the parser's value is < half the bytes-based estimate (the
+    ///   unambiguous "truncated input" signal — avoids stomping on a
+    ///   correctly-parsed XING/LAME duration that genuinely matches)
+    /// Default MP3 bitrate when SFB couldn't extract one from the
+    /// truncated 256KB head. 192kbps is the population median across
+    /// modern MP3 libraries (audiobooks lean lower, high-quality music
+    /// lean 256/320). Estimate accuracy: ±25% of true duration —
+    /// good enough to show a recognizable time on the row instead of
+    /// "0:08", and the player rewrites it to the real value after
+    /// the user plays the song once.
+    private static let defaultMP3Bitrate = 192
+
+    private func correctedDuration(parsed: TimeInterval, bitRateKbps: Int?, fileSize: Int64, title: String) -> TimeInterval {
+        guard fileSize > Self.headBytes * 2 else { return parsed }
+        // Use parsed bitRate when available, otherwise fall back to
+        // population median. SFB often returns 0 for raw MP3 without
+        // XING/LAME (it estimates frames from the truncated head and
+        // gives up), which is exactly when we need this most.
+        let effectiveBitRate = (bitRateKbps ?? 0) > 0 ? bitRateKbps! : Self.defaultMP3Bitrate
+        let bytesPerSecond = Double(effectiveBitRate) * 125.0
+        let estimatedFromFileSize = Double(fileSize) / bytesPerSecond
+        // Keep parsed value when it's already in the same ballpark
+        // (parser found the LAME/XING header → trustable). Override
+        // only when parsed is implausibly short — the truncated-head
+        // signature.
+        guard parsed < estimatedFromFileSize * 0.5 else { return parsed }
+        let bitRateLabel = (bitRateKbps ?? 0) > 0 ? "\(bitRateKbps!)kbps parsed" : "\(Self.defaultMP3Bitrate)kbps fallback"
+        plog(String(format: "📥 Backfill: '%@' duration estimate %.1fs → %.1fs (size=%lldKB %@ — real value will land when user plays once)",
+                    title, parsed, estimatedFromFileSize, fileSize / 1024, bitRateLabel))
+        return estimatedFromFileSize
+    }
+
     private func metadataLooksMissing(_ m: MetadataService.SongMetadata) -> Bool {
-        // No artist + no album + no duration ⇒ extraction probably failed.
-        m.artist == nil && m.albumTitle == nil && m.duration <= 0
+        // Duration is the load-bearing field — without it the player
+        // can't draw a progress bar and SFB streaming may decide the
+        // song is shorter than it actually is. We treat duration alone
+        // as the signal for "head fetch was insufficient, try tail".
+        //
+        // Why ignore artist/album: M4A/MP4/M4B commonly put `udta`
+        // (artist/album tags) in the head but `moov` (which carries
+        // duration via `mvhd`/`mdhd`) at the tail. The old rule only
+        // fired tail-fetch when ALL of artist/album/duration were
+        // missing — so these files passed with duration=0 and got
+        // marked failed downstream. Failing on missing duration alone
+        // costs one extra Range request for the small minority of
+        // files that don't expose duration in head, and recovers the
+        // common case where tail has it.
+        m.duration <= 0
     }
 
     private func mergeSong(bare: Song, metadata: MetadataService.SongMetadata) -> Song {
@@ -392,7 +671,8 @@ final class MetadataBackfillService {
             lastModified: bare.lastModified,
             dateAdded: bare.dateAdded,
             coverArtFileName: coverRef,
-            lyricsFileName: lyricsRef
+            lyricsFileName: lyricsRef,
+            revision: bare.revision
         )
     }
 

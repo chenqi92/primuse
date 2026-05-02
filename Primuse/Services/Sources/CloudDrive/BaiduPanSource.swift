@@ -5,7 +5,7 @@ import PrimuseKit
 ///
 /// 注意：百度 xpan API 永远返回 HTTP 200，错误信息在 body 的 errno 里。
 /// 必须显式检查 errno，否则错误会被静默吞掉（list 字段缺失 → 返回空数组 → 扫描 0 首）。
-actor BaiduPanSource: MusicSourceConnector {
+actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
     let sourceID: String
     private let helper: CloudDriveHelper
     private static let apiBase = "https://pan.baidu.com"
@@ -35,6 +35,38 @@ actor BaiduPanSource: MusicSourceConnector {
     /// itself is signed for the user account; existing entries stay valid.
     private var dlinkCache: [String: (url: String, expiresAt: Date)] = [:]
 
+    /// path → (resolved CDN URL, expiry). The CDN URL is the 302 target of
+    /// the dlink (host typically `d.pcs.baidu.com`), pre-signed and good
+    /// for the dlink's lifetime. We resolve it once via HEAD and pin it so
+    /// subsequent range GETs go straight to the CDN with our `pan.baidu.com`
+    /// UA — URLSession does NOT preserve custom headers across the
+    /// `pan.baidu.com → d.pcs.baidu.com` cross-origin redirect, so the
+    /// auto-followed GET would otherwise hit the CDN with the default
+    /// `CFNetwork/...` UA and 403.
+    private var cdnURLCache: [String: (url: URL, expiresAt: Date)] = [:]
+    /// Concurrent fetchRange callers that arrive while the CDN URL is being
+    /// resolved should share the same in-flight HEAD instead of issuing N
+    /// parallel HEADs (which would themselves stampede Baidu).
+    private var cdnURLResolveTasks: [String: Task<URL, Error>] = [:]
+
+    /// path → cooldown-until-this-time. After a 403/410 from a fresh
+    /// dlink, refuse to re-resolve for `dlinkRetryCooldown` seconds —
+    /// otherwise CloudPlaybackSource's prefetch-ahead spawns parallel
+    /// `fetchRange` Tasks per chunk, each failure triggers another
+    /// `invalidate + getDlink` chain, and Baidu's anti-abuse system
+    /// rate-limits the account globally (then even the dlink-resolve
+    /// API starts returning 403 — observed in production as a 1+
+    /// minute "no sound after tap" window plus a logged storm).
+    private var dlinkRetryCooldownUntil: [String: Date] = [:]
+    private static let dlinkRetryCooldown: TimeInterval = 30
+
+    /// Required for any dlink fetch (range or full download). See
+    /// `rangeRequestUsingCachedDlink` — Baidu's CDN refuses or throttles
+    /// to ~10KB/s otherwise, mimicking what alist & openlist's official
+    /// driver pin verbatim ("pan.baidu.com").
+    private static let dlinkUserAgent = "pan.baidu.com"
+    private static let dlinkReferer = "https://pan.baidu.com/"
+
     /// dir → (full paginated listing, expiry).
     /// Lets backfill skip the file/list call entirely for songs that share
     /// a directory with a previously-resolved song. For a typical album
@@ -53,6 +85,22 @@ actor BaiduPanSource: MusicSourceConnector {
     }
 
     func connect() async throws { _ = try await getToken() }
+
+    /// `xpan/nas?method=uinfo` returns the Baidu Pan user record. The
+    /// stable account identifier is `uk` (an Int64 user key, distinct
+    /// from the device id `device_id`). Routed through `callAPI` so it
+    /// inherits the throttle, errno, and 31034 retry handling.
+    func accountIdentifier() async throws -> String {
+        let json = try await callAPI(
+            base: "https://pan.baidu.com/rest/2.0/xpan/nas",
+            queryItems: [.init(name: "method", value: "uinfo")]
+        )
+        if let uk = json["uk"] as? Int64 { return String(uk) }
+        if let uk = json["uk"] as? Int { return String(uk) }
+        if let uk = json["uk"] as? String, !uk.isEmpty { return uk }
+        plog("⚠️ Baidu accountIdentifier: missing 'uk' in response: \(json)")
+        throw CloudDriveError.invalidResponse
+    }
     func disconnect() async {}
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
@@ -88,7 +136,11 @@ actor BaiduPanSource: MusicSourceConnector {
                   let name = item["server_filename"] as? String else { return nil }
             let isDir = (item["isdir"] as? Int ?? 0) == 1
             let size = item["size"] as? Int64 ?? 0
-            return RemoteFileItem(name: name, path: p, isDirectory: isDir, size: size, modifiedDate: nil)
+            // Baidu's list API returns md5 for files. Use it as the
+            // content fingerprint so re-scan can detect overwrites with
+            // the same size (modifiedDate isn't surfaced here either).
+            let md5 = item["md5"] as? String
+            return RemoteFileItem(name: name, path: p, isDirectory: isDir, size: size, modifiedDate: nil, revision: md5)
         }
     }
 
@@ -109,12 +161,133 @@ actor BaiduPanSource: MusicSourceConnector {
     }
 
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+        // Pre-check cooldown BEFORE any network I/O. Without this, every
+        // serve()/prefetch hammers Baidu with a fresh HTTP request just to
+        // catch the 403 inside the do/catch — observed as 100+ HTTP
+        // requests / 500ms when SFB drives parallel reads on a bad path.
+        if let cooldownUntil = dlinkRetryCooldownUntil[path], cooldownUntil > Date() {
+            throw CloudDriveError.apiError(403, "Range request failed (cooldown)")
+        }
+        do {
+            let data = try await rangeRequestUsingCachedCdnURL(path: path, offset: offset, length: length)
+            clearRetryCooldown(for: path)
+            return data
+        } catch CloudDriveError.apiError(let code, _) where code == 401 || code == 403 || code == 410 {
+            // Re-check: another suspended task may have set the cooldown
+            // while we were in flight. If so, fail fast — don't burn a
+            // second HTTP request on a known-bad path.
+            if let cooldownUntil = dlinkRetryCooldownUntil[path], cooldownUntil > Date() {
+                throw CloudDriveError.apiError(code, "Range request failed (cooldown)")
+            }
+            plog("⚠️ Baidu fetchRange got HTTP \(code) for \(path) — invalidating CDN+dlink, retrying once (then 30s cooldown)")
+            invalidateCdnURL(for: path)
+            invalidateDlink(for: path)
+            dlinkRetryCooldownUntil[path] = Date().addingTimeInterval(Self.dlinkRetryCooldown)
+            return try await rangeRequestUsingCachedCdnURL(path: path, offset: offset, length: length)
+        }
+    }
+
+    /// Range GET via the cached CDN URL (the 302 destination of the
+    /// `pan.baidu.com` dlink). Resolving once and pinning the resolved CDN
+    /// URL avoids relying on URLSession to preserve `User-Agent` across the
+    /// cross-origin redirect — which it does NOT do reliably for
+    /// `pan.baidu.com → d.pcs.baidu.com`, leaving the redirected GET with
+    /// the default `CFNetwork/...` UA and a 403 from Baidu's CDN.
+    /// This mirrors alist's `linkOfficial`: HEAD with no-redirect, ship
+    /// the Location to the client, range GET it directly with the UA.
+    private func rangeRequestUsingCachedCdnURL(path: String, offset: Int64, length: Int64) async throws -> Data {
+        plog("☁️ Baidu fetchRange entry path=\(path) offset=\(offset) length=\(length)")
+        let cdnURL = try await getCdnURL(for: path)
+        plog("☁️ Baidu fetchRange got CDN URL for \(path) → \(cdnURL.host ?? "?")\(cdnURL.path.prefix(80))")
+        let data = try await helper.rangeRequest(
+            url: cdnURL,
+            offset: offset,
+            length: length,
+            userAgent: Self.dlinkUserAgent,
+            referer: Self.dlinkReferer
+        )
+        plog("☁️ Baidu fetchRange got \(data.count) bytes for \(path) [offset=\(offset)]")
+        return data
+    }
+
+    private func invalidateDlink(for path: String) {
+        dlinkCache.removeValue(forKey: path)
+    }
+
+    private func invalidateCdnURL(for path: String) {
+        cdnURLCache.removeValue(forKey: path)
+        cdnURLResolveTasks[path]?.cancel()
+        cdnURLResolveTasks[path] = nil
+    }
+
+    /// Resolve `path` to a pre-signed CDN URL by HEAD-ing the dlink with
+    /// `User-Agent: pan.baidu.com` and reading the 302 `Location` header.
+    /// Cached for `dlinkTTL` (matches the dlink lifetime — once dlink is
+    /// stale the CDN sig also is).
+    private func getCdnURL(for path: String) async throws -> URL {
+        if let cached = cdnURLCache[path], cached.expiresAt > Date() {
+            return cached.url
+        }
+        if let inFlight = cdnURLResolveTasks[path] {
+            return try await inFlight.value
+        }
+        let task = Task<URL, Error> { [weak self] in
+            guard let self else { throw CloudDriveError.invalidResponse }
+            return try await self.resolveCdnURL(for: path)
+        }
+        cdnURLResolveTasks[path] = task
+        defer { cdnURLResolveTasks[path] = nil }
+        let resolved = try await task.value
+        cdnURLCache[path] = (resolved, Date().addingTimeInterval(Self.dlinkTTL))
+        return resolved
+    }
+
+    private func resolveCdnURL(for path: String) async throws -> URL {
+        plog("☁️ Baidu resolveCdnURL start path=\(path)")
         let dlink = try await getDlink(for: path)
         let token = try await getToken()
-        guard let url = URL(string: "\(dlink)&access_token=\(token)") else {
+        guard let dlinkURL = URL(string: "\(dlink)&access_token=\(token)") else {
             throw CloudDriveError.invalidResponse
         }
-        return try await helper.rangeRequest(url: url, offset: offset, length: length)
+        plog("☁️ Baidu resolveCdnURL HEAD \(dlinkURL.host ?? "?")\(dlinkURL.path.prefix(80))")
+        var head = URLRequest(url: dlinkURL)
+        head.httpMethod = "HEAD"
+        head.setValue(Self.dlinkUserAgent, forHTTPHeaderField: "User-Agent")
+        head.setValue(Self.dlinkReferer, forHTTPHeaderField: "Referer")
+        head.timeoutInterval = 30
+
+        // Don't auto-follow redirects — we want the Location header.
+        let session = URLSession(configuration: .ephemeral, delegate: NoRedirectURLSessionDelegate(), delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }
+        let (_, response) = try await session.data(for: head)
+        guard let http = response as? HTTPURLResponse else {
+            throw CloudDriveError.invalidResponse
+        }
+        plog("☁️ Baidu resolveCdnURL HEAD status=\(http.statusCode) for \(path)")
+        // 302 → location is the CDN URL. 200 means no redirect (rare,
+        // some test paths) — dlink itself is the CDN URL.
+        switch http.statusCode {
+        case 301, 302, 303, 307, 308:
+            guard let loc = http.value(forHTTPHeaderField: "Location"),
+                  let url = URL(string: loc, relativeTo: dlinkURL)?.absoluteURL else {
+                throw CloudDriveError.invalidResponse
+            }
+            plog("☁️ Baidu resolveCdnURL → \(url.host ?? "?")\(url.path.prefix(80))")
+            return url
+        case 200:
+            return dlinkURL
+        default:
+            plog("⚠️ Baidu dlink HEAD returned HTTP \(http.statusCode) for \(path)")
+            throw CloudDriveError.apiError(http.statusCode, "dlink HEAD failed")
+        }
+    }
+
+    /// Clear cooldown markers — used after a successful range request
+    /// (path is healthy again) and on token refresh (new auth might fix
+    /// the underlying 403). Not currently called automatically; cleanup
+    /// happens passively after the cooldown expires.
+    private func clearRetryCooldown(for path: String) {
+        dlinkRetryCooldownUntil.removeValue(forKey: path)
     }
 
     // MARK: - Private
@@ -124,7 +297,14 @@ actor BaiduPanSource: MusicSourceConnector {
         let dlink = try await getDlink(for: path)
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 300
-        let (fileData, _) = try await URLSession(configuration: config).data(from: URL(string: "\(dlink)&access_token=\(token)")!)
+        guard let url = URL(string: "\(dlink)&access_token=\(token)") else {
+            throw CloudDriveError.invalidResponse
+        }
+        var request = URLRequest(url: url)
+        // Same UA pinning as range path — Baidu throttles / 403s without it.
+        request.setValue(Self.dlinkUserAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue(Self.dlinkReferer, forHTTPHeaderField: "Referer")
+        let (fileData, _) = try await URLSession(configuration: config).data(for: request)
         return fileData
     }
 
@@ -294,5 +474,16 @@ actor BaiduPanSource: MusicSourceConnector {
             // 由 baidu.callback.welape.com 上的中转页 JS 跳回 primuse:// 让 App 收到 code。
             explicitCallbackScheme: CloudOAuthConfig.callbackScheme
         )
+    }
+}
+
+private final class NoRedirectURLSessionDelegate: NSObject, URLSessionTaskDelegate, Sendable {
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest
+    ) async -> URLRequest? {
+        nil
     }
 }

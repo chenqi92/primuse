@@ -33,11 +33,24 @@ struct MiniPlayerView: View {
                     Button {
                         player.togglePlayPause()
                     } label: {
-                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.body)
-                            .contentTransition(.symbolEffect(.replace))
-                            .frame(width: 36, height: 36)
+                        ZStack {
+                            // Keep an invisible icon as the size anchor so the
+                            // button doesn't reflow when swapping spinner ↔ icon.
+                            Image(systemName: "play.fill")
+                                .font(.body)
+                                .opacity(0)
+                            if player.isLoading {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                                    .font(.body)
+                                    .contentTransition(.symbolEffect(.replace))
+                            }
+                        }
+                        .frame(width: 36, height: 36)
                     }
+                    .disabled(player.isLoading)
 
                     Button {
                         Task { await player.next() }

@@ -78,8 +78,9 @@ struct SongListView: View {
     }
 
     private func playSong(_ song: Song) {
-        guard let index = cachedSortedSongs.firstIndex(where: { $0.id == song.id }) else { return }
-        player.setQueue(cachedSortedSongs, startAt: index)
+        let queue = cachedSortedSongs.filteredPlayable()
+        guard let index = queue.firstIndex(where: { $0.id == song.id }) else { return }
+        player.setQueue(queue, startAt: index)
         Task { await player.play(song: song) }
     }
 }

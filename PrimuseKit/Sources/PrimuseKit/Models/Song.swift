@@ -24,6 +24,13 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
     public var dateAdded: Date
     public var coverArtFileName: String?
     public var lyricsFileName: String?
+    /// Provider-supplied content identifier — etag, md5, content_hash,
+    /// `fs_id` + `local_mtime`, etc. Used by re-scan to detect remote
+    /// replacement on cloud drives that don't report a usable
+    /// modifiedDate (Baidu, Aliyun, Dropbox, OneDrive). When non-nil on
+    /// both sides and different, the file is treated as replaced even
+    /// when path and size are identical.
+    public var revision: String?
 
     public init(
         id: String,
@@ -47,7 +54,8 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         lastModified: Date? = nil,
         dateAdded: Date = Date(),
         coverArtFileName: String? = nil,
-        lyricsFileName: String? = nil
+        lyricsFileName: String? = nil,
+        revision: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -71,9 +79,27 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         self.dateAdded = dateAdded
         self.coverArtFileName = coverArtFileName
         self.lyricsFileName = lyricsFileName
+        self.revision = revision
     }
 }
 
 extension Song: FetchableRecord, PersistableRecord {
     public static var databaseTableName: String { "songs" }
+}
+
+public extension Song {
+    /// True when the song has enough metadata to drive normal playback UI
+    /// (progress bar, seek). Cloud-source songs added by the Phase A scan
+    /// stay non-playable until `MetadataBackfillService` fills duration.
+    /// Distinct from `MetadataBackfillService.isBareSong`: backfill stops
+    /// retrying once any field is filled, but the player needs `duration`
+    /// specifically.
+    var isPlayable: Bool { duration > 0 }
+}
+
+public extension Sequence where Element == Song {
+    /// Drop songs that aren't ready for the player queue. Use at every
+    /// `setQueue` call site so auto-advance never lands on a Phase A bare
+    /// song without progress/seek.
+    func filteredPlayable() -> [Song] { filter(\.isPlayable) }
 }

@@ -196,11 +196,21 @@ struct NowPlayingAccessory: View {
                 // Fixed right: transport controls
                 HStack(spacing: isInline ? 0 : 4) {
                     Button { player.togglePlayPause() } label: {
-                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                            .font(isInline ? .subheadline : .body)
-                            .contentTransition(.symbolEffect(.replace))
-                            .frame(width: isInline ? 28 : 32, height: isInline ? 28 : 32)
+                        ZStack {
+                            Image(systemName: "play.fill")
+                                .font(isInline ? .subheadline : .body)
+                                .opacity(0)
+                            if player.isLoading {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                                    .font(isInline ? .subheadline : .body)
+                                    .contentTransition(.symbolEffect(.replace))
+                            }
+                        }
+                        .frame(width: isInline ? 28 : 32, height: isInline ? 28 : 32)
                     }
+                    .disabled(player.isLoading)
 
                     if !isInline {
                         Button { Task { await player.next() } } label: {

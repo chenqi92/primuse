@@ -119,7 +119,53 @@ actor LibraryDatabase {
             }
         }
 
-        try migrator.migrate(dbPool, upTo: "v1_initial")
+        // Song gained `revision` (provider md5/etag/content_hash) so
+        // re-scan can detect same-size, same-mtime overwrites on cloud
+        // drives. Without this column, Song's PersistableRecord save
+        // would throw — Song lists `revision` but the table didn't.
+        migrator.registerMigration("v2_song_revision") { db in
+            try db.alter(table: "songs") { t in
+                t.add(column: "revision", .text)
+            }
+        }
+
+        // Stage 2 of the Account/Mount split: introduce CloudAccount as
+        // a first-class entity that an OAuth-typed MusicSource (now
+        // semantically a "mount") can point at. The unique index on
+        // (provider, accountUID) enforces "one row per upstream account"
+        // at the DB layer — same protection the deterministic id
+        // (sha256(provider:uid)) gives at the model layer, doubled up.
+        // sources gains a nullable `cloudAccountID` FK; nil for
+        // local/NAS sources whose identity is host+credentials. No FK
+        // constraint enforced (cloudAccounts may not exist yet during
+        // stage 4 migration); cleanup is logical, handled by SourcesStore.
+        migrator.registerMigration("v3_cloud_accounts") { db in
+            try db.create(table: "cloudAccounts") { t in
+                t.primaryKey("id", .text)
+                t.column("provider", .text).notNull()
+                t.column("accountUID", .text).notNull()
+                t.column("displayName", .text)
+                t.column("avatarURL", .text)
+                t.column("createdAt", .datetime).notNull()
+                t.column("modifiedAt", .datetime).notNull()
+                t.column("isDeleted", .boolean).notNull().defaults(to: false)
+                t.column("deletedAt", .datetime)
+            }
+            try db.create(
+                index: "cloudAccounts_provider_uid",
+                on: "cloudAccounts",
+                columns: ["provider", "accountUID"],
+                options: .unique
+            )
+            try db.alter(table: "sources") { t in
+                t.add(column: "cloudAccountID", .text)
+            }
+        }
+
+        // Run every registered migration, not just v1 — pinning to
+        // `upTo: "v1_initial"` would silently skip later versions on
+        // upgrade and reintroduce schema drift.
+        try migrator.migrate(dbPool)
     }
 
     // MARK: - Songs

@@ -67,6 +67,15 @@ final class AppServices {
             Set(store.sources.filter { !$0.isEnabled }.map(\.id))
         )
 
+        // Wire the library's tombstone identity resolver. Maps a song's
+        // mount UUID → its CloudAccount id (when available) so deletion
+        // tombstones survive re-OAuth — the user re-adding the same
+        // Baidu account mints a new mount UUID, which would otherwise
+        // change song.id and silently bypass the tombstone set.
+        library.sourceIdentityResolver = { [weak store] sourceID in
+            store?.allSources.first(where: { $0.id == sourceID })?.cloudAccountID
+        }
+
         let pruneThreshold = Date(timeIntervalSinceNow: -30 * 24 * 60 * 60)
         library.prunePlaylists(deletedBefore: pruneThreshold)
         store.pruneSources(deletedBefore: pruneThreshold)

@@ -192,10 +192,22 @@ struct NowPlayingView: View {
                         }.frame(width: 56, height: 56)
                         Spacer()
                         Button { withAnimation(.spring(response: 0.3)) { player.togglePlayPause() } } label: {
-                            Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                                .font(.system(size: 56)).foregroundStyle(.white)
-                                .contentTransition(.symbolEffect(.replace))
+                            ZStack {
+                                // Anchor sizing so the button doesn't reflow.
+                                Image(systemName: "play.circle.fill")
+                                    .font(.system(size: 56)).opacity(0)
+                                if player.isLoading {
+                                    ProgressView()
+                                        .controlSize(.large)
+                                        .tint(.white)
+                                } else {
+                                    Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                                        .font(.system(size: 56)).foregroundStyle(.white)
+                                        .contentTransition(.symbolEffect(.replace))
+                                }
+                            }
                         }
+                        .disabled(player.isLoading)
                         Spacer()
                         Button { Task { await player.next() } } label: {
                             Image(systemName: "forward.fill").font(.title).foregroundStyle(.white)
@@ -330,8 +342,9 @@ struct NowPlayingView: View {
         }
         CachedArtworkView.invalidateCache(for: song.id)
         sourceManager.deleteAudioCache(for: song)
-        // Remove from library
-        library.deleteSong(song)
+        // Remove from library and keep the source badge in sync.
+        let remaining = library.deleteSong(song)
+        sourcesStore.updateLocal(song.sourceID) { $0.songCount = remaining }
     }
 
     // MARK: - More Menu

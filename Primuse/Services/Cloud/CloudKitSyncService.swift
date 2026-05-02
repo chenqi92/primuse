@@ -42,6 +42,7 @@ final class CloudKitSyncService {
     enum RecordType {
         static let playlist = "Playlist"
         static let musicSource = "MusicSource"
+        static let cloudAccount = "CloudAccount"
         static let playbackHistory = "PlaybackHistory"
         static let scraperConfig = "ScraperConfig"
     }
@@ -337,6 +338,26 @@ final class CloudKitSyncService {
             guard let id = note.userInfo?["id"] as? String else { return }
             Task { @MainActor in self?.sourceDeleted(id: id) }
         })
+        // Soft-delete is a different signal than permanent delete: the
+        // local row stays for recycle-bin recovery, but the upstream
+        // CloudKit record must be removed (otherwise fetchChanges would
+        // resurrect it on every sync).
+        observerTokens.append(nc.addObserver(forName: .primuseSourceDidSoftDelete, object: nil, queue: .main) { [weak self] note in
+            guard let id = note.userInfo?["id"] as? String else { return }
+            Task { @MainActor in self?.sourceDeleted(id: id) }
+        })
+        observerTokens.append(nc.addObserver(forName: .primuseCloudAccountsDidChange, object: nil, queue: .main) { [weak self] note in
+            let ids = (note.userInfo?["ids"] as? [String]) ?? []
+            Task { @MainActor in self?.cloudAccountsChanged(ids: ids) }
+        })
+        observerTokens.append(nc.addObserver(forName: .primuseCloudAccountDidSoftDelete, object: nil, queue: .main) { [weak self] note in
+            guard let id = note.userInfo?["id"] as? String else { return }
+            Task { @MainActor in self?.cloudAccountDeleted(id: id) }
+        })
+        observerTokens.append(nc.addObserver(forName: .primuseCloudAccountDidDelete, object: nil, queue: .main) { [weak self] note in
+            guard let id = note.userInfo?["id"] as? String else { return }
+            Task { @MainActor in self?.cloudAccountDeleted(id: id) }
+        })
         observerTokens.append(nc.addObserver(forName: .primuseScraperConfigDidChange, object: nil, queue: .main) { [weak self] note in
             let ids = (note.userInfo?["ids"] as? [String]) ?? []
             Task { @MainActor in self?.scraperConfigsChanged(ids: ids) }
@@ -372,6 +393,19 @@ final class CloudKitSyncService {
         enqueueDeletes(recordType: RecordType.musicSource, ids: [id])
     }
 
+    func cloudAccountsChanged(ids: [String]) {
+        // Cloud accounts piggy-back on the `.sources` sync channel —
+        // they're the same lifecycle (user-managed cloud entities) and
+        // don't deserve a separate user-facing toggle.
+        guard CloudSyncChannel.isEnabled(.sources) else { return }
+        enqueueSaves(recordType: RecordType.cloudAccount, ids: ids)
+    }
+
+    func cloudAccountDeleted(id: String) {
+        guard CloudSyncChannel.isEnabled(.sources) else { return }
+        enqueueDeletes(recordType: RecordType.cloudAccount, ids: [id])
+    }
+
     func scraperConfigsChanged(ids: [String]) {
         guard CloudSyncChannel.isEnabled(.settings) else { return }
         enqueueSaves(recordType: RecordType.scraperConfig, ids: ids)
@@ -405,6 +439,7 @@ final class CloudKitSyncService {
         switch recordType {
         case RecordType.playlist: return .playlists
         case RecordType.musicSource: return .sources
+        case RecordType.cloudAccount: return .sources
         case RecordType.playbackHistory: return .playbackHistory
         case RecordType.scraperConfig: return .settings
         default: return nil
@@ -439,6 +474,7 @@ final class CloudKitSyncService {
     private func scheduleInitialUpload() {
         playlistsChanged(ids: library.allPlaylists.map(\.id))
         sourcesChanged(ids: sourcesStore.allSources.map(\.id))
+        cloudAccountsChanged(ids: sourcesStore.allAccounts.map(\.id))
         scraperConfigsChanged(ids: scraperConfigStore.allConfigsIncludingDeleted.map(\.id))
         // Push history at startup too (bypass the 5-min throttle, but still
         // honour the channel toggle).
@@ -467,6 +503,8 @@ final class CloudKitSyncService {
             return populatePlaylistRecord(record, playlistID: id)
         case RecordType.musicSource:
             return populateSourceRecord(record, sourceID: id)
+        case RecordType.cloudAccount:
+            return populateCloudAccountRecord(record, accountID: id)
         case RecordType.scraperConfig:
             return populateScraperConfigRecord(record, configID: id)
         case RecordType.playbackHistory:
@@ -490,6 +528,8 @@ final class CloudKitSyncService {
             applyPlaylistRecord(record)
         case RecordType.musicSource:
             applySourceRecord(record)
+        case RecordType.cloudAccount:
+            applyCloudAccountRecord(record)
         case RecordType.scraperConfig:
             applyScraperConfigRecord(record)
         case RecordType.playbackHistory:
@@ -524,6 +564,8 @@ final class CloudKitSyncService {
             library.deletePlaylistFromRemote(id: id)
         case RecordType.musicSource:
             sourcesStore.removeFromRemote(id: id)
+        case RecordType.cloudAccount:
+            sourcesStore.removeAccountFromRemote(id: id)
         case RecordType.scraperConfig:
             scraperConfigStore.deleteFromRemote(id: id)
         case RecordType.playbackHistory:
@@ -542,6 +584,8 @@ final class CloudKitSyncService {
             return library.allPlaylists.first(where: { $0.id == id }).map { !$0.isDeleted } ?? false
         case RecordType.musicSource:
             return sourcesStore.allSources.first(where: { $0.id == id }).map { !$0.isDeleted } ?? false
+        case RecordType.cloudAccount:
+            return sourcesStore.allAccounts.first(where: { $0.id == id }).map { !$0.isDeleted } ?? false
         case RecordType.scraperConfig:
             return scraperConfigStore.allConfigsIncludingDeleted
                 .first(where: { $0.id == id })
@@ -601,6 +645,27 @@ final class CloudKitSyncService {
         guard let data = record["payload"] as? Data,
               let syncable = try? JSONDecoder().decode(SyncableSource.self, from: data) else { return }
         sourcesStore.upsertFromRemote(syncable.source)
+    }
+
+    // MARK: - Cloud account mapping
+
+    private func populateCloudAccountRecord(_ record: CKRecord, accountID: String) -> Bool {
+        guard let account = sourcesStore.account(id: accountID) else { return false }
+        do {
+            let data = try JSONEncoder().encode(account)
+            record["payload"] = data
+            record["updatedAt"] = account.modifiedAt
+            return true
+        } catch {
+            plog("CloudKitSync: encode cloudAccount failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private func applyCloudAccountRecord(_ record: CKRecord) {
+        guard let data = record["payload"] as? Data,
+              let account = try? JSONDecoder().decode(CloudAccount.self, from: data) else { return }
+        sourcesStore.upsertAccountFromRemote(account)
     }
 
     // MARK: - Scraper config mapping

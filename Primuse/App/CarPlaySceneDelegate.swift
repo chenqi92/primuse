@@ -187,9 +187,7 @@ extension CarPlaySceneDelegate {
 
 // MARK: - Search
 
-// See note above the CPNowPlayingTemplateObserver conformance for why
-// `@preconcurrency` is needed here.
-extension CarPlaySceneDelegate: @preconcurrency CPSearchTemplateDelegate {
+extension CarPlaySceneDelegate: CPSearchTemplateDelegate {
     func searchTemplate(
         _ searchTemplate: CPSearchTemplate,
         updatedSearchText searchText: String,
@@ -446,9 +444,23 @@ extension CarPlaySceneDelegate {
         // currentSong unset — the user would see a blank Now Playing screen
         // with no way back to the song they were actually playing.
         guard queue.indices.contains(index) else { return }
+        let originalSong = queue[index]
+        // Centralised playable filter — every CarPlay queue (recent /
+        // search / songs / album detail / artist detail / Up Next) flows
+        // through here. Drop Phase A bare cloud songs so auto-advance
+        // can't land on a track the player can't render. The phone-side
+        // SongRowView intercepts taps on these, but CarPlay rows have no
+        // such guard.
+        let filtered = queue.filteredPlayable()
+        guard let newIndex = filtered.firstIndex(where: { $0.id == originalSong.id }) else {
+            // The tapped row was the bare song itself — surface a clear
+            // alert instead of silently doing nothing.
+            presentPlayFailureAlert(songTitle: originalSong.title)
+            return
+        }
         let player = AppServices.shared.playerService
-        player.setQueue(queue, startAt: index)
-        let song = queue[index]
+        player.setQueue(filtered, startAt: newIndex)
+        let song = filtered[newIndex]
         Task { @MainActor [weak self] in
             await player.play(song: song)
             // play() returns once setup is kicked off, but actual playback

@@ -258,12 +258,14 @@
 "network" = "Network";
 "cloud_scan_wifi_only" = "Wi-Fi only for cloud details";
 "cloud_scan_wifi_only_footer" = "Cloud scans only fetch filenames upfront. Track details (artist, album, cover, duration) are loaded in the background — about 256KB per song. With this on, loading pauses on cellular and resumes when you reconnect to Wi-Fi.";
-"backfill_in_progress" = "Loading details";
+"backfill_in_progress" = "Reading tags…";
 "new_songs_added" = "%d new songs";
 "no_new_songs" = "No new songs";
 "backfill_remaining" = "%d remaining";
-"song_details_loading" = "Loading song details";
-"song_details_loading_message" = "Details for this song are still loading. Duration and cover art will appear once it finishes. You can still play it.";
+"song_details_loading" = "Reading track info";
+"song_details_loading_message" = "Downloading this song's tag header (~256 KB) from the cloud to extract duration, cover and artist. Once done it can be added to the play queue.";
+"song_details_unavailable" = "Song details unavailable";
+"song_details_unavailable_message" = "Tags were read but no duration could be extracted. The file may be corrupt or in an unsupported format.";
 
 // MARK: - Audio Effects
 "audio_effects" = "Audio Effects";

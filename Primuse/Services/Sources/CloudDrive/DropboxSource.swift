@@ -2,7 +2,7 @@ import Foundation
 import PrimuseKit
 
 /// Dropbox Source — API v2
-actor DropboxSource: MusicSourceConnector {
+actor DropboxSource: MusicSourceConnector, OAuthCloudSource {
     let sourceID: String
     private let helper: CloudDriveHelper
     private static let apiBase = "https://api.dropboxapi.com/2"
@@ -15,6 +15,31 @@ actor DropboxSource: MusicSourceConnector {
 
     func connect() async throws { _ = try await getToken() }
     func disconnect() async {}
+
+    /// `users/get_current_account` returns the Dropbox account record.
+    /// `account_id` is the stable per-user identifier (format `dbid:...`).
+    /// Note: Dropbox treats this as an RPC call requiring a `null` JSON
+    /// body and `Content-Type: application/json`.
+    func accountIdentifier() async throws -> String {
+        let token = try await getToken()
+        let nullBody = Data("null".utf8)
+        let (data, http) = try await helper.makeAuthorizedRequest(
+            url: URL(string: "\(Self.apiBase)/users/get_current_account")!,
+            method: "POST",
+            body: nullBody,
+            contentType: "application/json",
+            accessToken: token
+        )
+        guard http.statusCode == 200 else {
+            throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+        }
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        guard let id = json["account_id"] as? String, !id.isEmpty else {
+            plog("⚠️ Dropbox accountIdentifier: missing account_id in response: \(json)")
+            throw CloudDriveError.invalidResponse
+        }
+        return id
+    }
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
         let folderPath = (path.isEmpty || path == "/") ? "" : path
@@ -50,7 +75,11 @@ actor DropboxSource: MusicSourceConnector {
         guard let entries = json["entries"] as? [[String: Any]] else { return [] }
         return entries.compactMap { entry in
             guard let name = entry["name"] as? String, let pathDisplay = entry["path_display"] as? String, let tag = entry[".tag"] as? String else { return nil }
-            return RemoteFileItem(name: name, path: pathDisplay, isDirectory: tag == "folder", size: entry["size"] as? Int64 ?? 0, modifiedDate: nil)
+            // Dropbox returns `content_hash` (their custom 4MB-block hash)
+            // for files. `rev` is also stable per file version. Either
+            // works as the revision fingerprint.
+            let revision = entry["content_hash"] as? String ?? entry["rev"] as? String
+            return RemoteFileItem(name: name, path: pathDisplay, isDirectory: tag == "folder", size: entry["size"] as? Int64 ?? 0, modifiedDate: nil, revision: revision)
         }
     }
 

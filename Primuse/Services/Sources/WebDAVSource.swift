@@ -145,6 +145,43 @@ actor WebDAVSource: MusicSourceConnector {
         }
     }
 
+    func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+        var request = URLRequest(url: try fileURL(for: path))
+        request.httpMethod = "GET"
+        if offset < 0 {
+            request.setValue("bytes=\(offset)", forHTTPHeaderField: "Range")
+        } else {
+            request.setValue("bytes=\(offset)-\(offset + length - 1)", forHTTPHeaderField: "Range")
+        }
+        if !username.isEmpty || !password.isEmpty {
+            let credential = Data("\(username):\(password)".utf8).base64EncodedString()
+            request.setValue("Basic \(credential)", forHTTPHeaderField: "Authorization")
+        }
+        request.timeoutInterval = 30
+
+        let session = URLSession(
+            configuration: .default,
+            delegate: SmartSSLDelegate(),
+            delegateQueue: nil
+        )
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw SourceError.connectionFailed("Invalid WebDAV range response")
+        }
+        switch http.statusCode {
+        case 206:
+            return data
+        case 200:
+            let totalSize = Int64(data.count)
+            let actualOffset = offset < 0 ? max(0, totalSize + offset) : offset
+            guard actualOffset < totalSize else { return Data() }
+            let upper = min(actualOffset + length, totalSize)
+            return data.subdata(in: Int(actualOffset)..<Int(upper))
+        default:
+            throw SourceError.connectionFailed("WebDAV range request failed: HTTP \(http.statusCode)")
+        }
+    }
+
     func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
         return AsyncThrowingStream { continuation in
             Task {
@@ -203,5 +240,14 @@ actor WebDAVSource: MusicSourceConnector {
             return baseURL
         }
         return URL(string: absolute + "/") ?? baseURL
+    }
+
+    private func fileURL(for path: String) throws -> URL {
+        var url = try serverURL()
+        let relative = providerRelativePath(path)
+        for component in relative.split(separator: "/") {
+            url.appendPathComponent(String(component), isDirectory: false)
+        }
+        return url
     }
 }

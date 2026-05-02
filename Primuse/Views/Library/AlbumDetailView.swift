@@ -85,8 +85,9 @@ struct AlbumDetailView: View {
     }
 
     private func playAll() {
-        guard let first = songs.first else { return }
-        player.setQueue(songs, startAt: 0)
+        let queue = songs.filteredPlayable()
+        guard let first = queue.first else { return }
+        player.setQueue(queue, startAt: 0)
         Task { await player.play(song: first) }
     }
 
@@ -96,8 +97,9 @@ struct AlbumDetailView: View {
     }
 
     private func playSong(_ song: Song) {
-        guard let index = songs.firstIndex(where: { $0.id == song.id }) else { return }
-        player.setQueue(songs, startAt: index)
+        let queue = songs.filteredPlayable()
+        guard let index = queue.firstIndex(where: { $0.id == song.id }) else { return }
+        player.setQueue(queue, startAt: index)
         Task { await player.play(song: song) }
     }
 

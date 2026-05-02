@@ -6,10 +6,22 @@ struct SongRowView: View {
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(SourceManager.self) private var sourceManager
     @Environment(AudioPlayerService.self) private var player
+    @Environment(MetadataBackfillService.self) private var backfill
     let song: Song
     var isPlaying: Bool = false
     var showAlbum: Bool = true
     var showsActions: Bool = true
+
+    /// Read the song from the library on every render. The `song` param is
+    /// a snapshot from when the parent built the row; backfill updates the
+    /// library in place but SwiftUI does NOT reliably re-invoke the
+    /// NavigationDestination closure that captures it, so the spinner and
+    /// duration text would otherwise stay frozen on the bare snapshot
+    /// forever even after duration is filled. Falling back to `song` keeps
+    /// the row alive if the song was just deleted.
+    private var liveSong: Song {
+        library.song(id: song.id) ?? song
+    }
 
     @State private var showScrapeOptions = false
     @State private var showAddToPlaylist = false
@@ -17,38 +29,54 @@ struct SongRowView: View {
     @State private var showDeleteConfirm = false
     @State private var showBareAlert = false
 
-    /// Cloud songs added by Phase A scan have no metadata until
-    /// `MetadataBackfillService` fills them in. The row dims slightly and
-    /// shows "loading details" where duration would normally appear. Tap
-    /// is intercepted to a hint alert — streaming would still work, but
-    /// the UX is clearer if users wait for details to land.
-    /// Same predicate as `MetadataBackfillService.isBareSong` so both
-    /// stay in sync (a song that's "not bare enough to backfill" is also
-    /// "not bare enough to dim in the list").
-    private var isBare: Bool {
-        MetadataBackfillService.isBareSong(song)
+    /// Cloud songs added by Phase A scan stay non-playable until the
+    /// backfill fills `duration` (needed for the progress bar / seek).
+    /// The row dims and intercepts taps with a hint alert. We key on
+    /// `isPlayable` (duration > 0) rather than the broader bare-song
+    /// predicate — a song with artist/album parsed but duration still
+    /// unknown would otherwise look "ready" but auto-advance to it would
+    /// hand the player a track it can't render properly.
+    private var isBare: Bool { !liveSong.isPlayable }
+
+    /// Backfill ran and gave up — file is parseable but exposes no
+    /// duration. Distinct from "still loading": the row stops the
+    /// spinner and switches to a static "details unavailable" hint so
+    /// the user isn't watching a forever-loading row.
+    private var backfillGaveUp: Bool {
+        isBare && backfill.didFail(songID: song.id)
     }
 
     var body: some View {
-        HStack(spacing: 10) {
+        let live = liveSong
+        return HStack(spacing: 10) {
             // Cover art with playing overlay
             ZStack {
                 CachedArtworkView(
-                    coverRef: song.coverArtFileName,
-                    songID: song.id,
+                    coverRef: live.coverArtFileName,
+                    songID: live.id,
                     size: 44, cornerRadius: 6,
-                    sourceID: song.sourceID,
-                    filePath: song.filePath
+                    sourceID: live.sourceID,
+                    filePath: live.filePath
                 )
 
                 if isPlaying {
                     Color.black.opacity(0.35)
                         .clipShape(RoundedRectangle(cornerRadius: 6))
                         .frame(width: 44, height: 44)
-                    Image(systemName: "waveform")
-                        .font(.caption)
-                        .symbolEffect(.variableColor.iterative)
-                        .foregroundStyle(.white)
+                    // While the player is still loading the active track,
+                    // show a spinner instead of the playing-waveform so the
+                    // user can tell "tap registered, audio is on the way"
+                    // from "audio is actually playing".
+                    if player.isLoading {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(.white)
+                    } else {
+                        Image(systemName: "waveform")
+                            .font(.caption)
+                            .symbolEffect(.variableColor.iterative)
+                            .foregroundStyle(.white)
+                    }
                 }
             }
             .frame(width: 44, height: 44)
@@ -56,7 +84,7 @@ struct SongRowView: View {
 
             // Song info — title and subtitle only, no format/duration clutter
             VStack(alignment: .leading, spacing: 2) {
-                Text(song.title)
+                Text(live.title)
                     .font(.subheadline)
                     .lineLimit(1)
                     .foregroundStyle(isPlaying ? Color.accentColor : Color.primary)
@@ -64,23 +92,29 @@ struct SongRowView: View {
 
                 HStack(spacing: 4) {
                     if isBare {
-                        ProgressView()
-                            .scaleEffect(0.55)
-                            .frame(width: 12, height: 12)
-                        Text("backfill_in_progress")
+                        if backfillGaveUp {
+                            Image(systemName: "exclamationmark.circle")
+                                .font(.caption2)
+                            Text("song_details_unavailable")
+                        } else {
+                            ProgressView()
+                                .scaleEffect(0.55)
+                                .frame(width: 12, height: 12)
+                            Text("backfill_in_progress")
+                        }
                     } else {
-                        if let artist = song.artistName {
+                        if let artist = live.artistName {
                             Text(artist)
                         }
-                        if showAlbum, let album = song.albumTitle {
+                        if showAlbum, let album = live.albumTitle {
                             Text("·")
                             Text(album)
                         }
                         Text("·")
-                        Text(formatDuration(song.duration))
+                        Text(formatDuration(live.duration))
                             .monospacedDigit()
                         if sourcesStore.sources.count > 1,
-                           let source = sourcesStore.source(id: song.sourceID) {
+                           let source = sourcesStore.source(id: live.sourceID) {
                             Text("·")
                             Image(systemName: source.type.iconName)
                             Text(source.name)
@@ -154,10 +188,13 @@ struct SongRowView: View {
                     .onTapGesture { showBareAlert = true }
             }
         }
-        .alert(String(localized: "song_details_loading"), isPresented: $showBareAlert) {
+        .alert(
+            String(localized: backfillGaveUp ? "song_details_unavailable" : "song_details_loading"),
+            isPresented: $showBareAlert
+        ) {
             Button(String(localized: "done"), role: .cancel) {}
         } message: {
-            Text(String(localized: "song_details_loading_message"))
+            Text(String(localized: backfillGaveUp ? "song_details_unavailable_message" : "song_details_loading_message"))
         }
         .contextMenu {
             // Group 1: Actions
@@ -246,8 +283,9 @@ struct SongRowView: View {
         }
         CachedArtworkView.invalidateCache(for: song.id)
         sourceManager.deleteAudioCache(for: song)
-        // Remove from library
-        library.deleteSong(song)
+        // Remove from library and keep the source badge in sync.
+        let remaining = library.deleteSong(song)
+        sourcesStore.updateLocal(song.sourceID) { $0.songCount = remaining }
     }
 
     private func formatDuration(_ duration: TimeInterval) -> String {

@@ -2,7 +2,7 @@ import Foundation
 import PrimuseKit
 
 /// 阿里云盘 Source — PDS API
-actor AliyunDriveSource: MusicSourceConnector {
+actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource {
     let sourceID: String
     private let helper: CloudDriveHelper
     private var driveId: String?
@@ -29,6 +29,27 @@ actor AliyunDriveSource: MusicSourceConnector {
 
     func disconnect() async {}
 
+    /// Aliyun's OIDC `oauth/users/info` endpoint — returns the OAuth
+    /// account UID independent of which drive the user picks. Stable
+    /// across token refresh and across devices.
+    func accountIdentifier() async throws -> String {
+        let token = try await getToken()
+        let (data, http) = try await helper.makeAuthorizedRequest(
+            url: URL(string: "\(Self.oauthBase)/users/info")!,
+            accessToken: token
+        )
+        guard http.statusCode == 200 else {
+            throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+        }
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        // Aliyun returns `id`; `sub` is provided when the response is
+        // a true OIDC token. Accept either to ride out provider drift.
+        if let id = json["id"] as? String, !id.isEmpty { return id }
+        if let sub = json["sub"] as? String, !sub.isEmpty { return sub }
+        plog("⚠️ Aliyun accountIdentifier: missing id/sub in response: \(json)")
+        throw CloudDriveError.invalidResponse
+    }
+
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
         guard let driveId else { throw CloudDriveError.notAuthenticated }
         let parentFileId = path.isEmpty || path == "/" ? "root" : path
@@ -45,7 +66,11 @@ actor AliyunDriveSource: MusicSourceConnector {
             let items = json["items"] as? [[String: Any]] ?? []
             all.append(contentsOf: items.compactMap { item in
                 guard let name = item["name"] as? String, let fileId = item["file_id"] as? String, let type = item["type"] as? String else { return nil }
-                return RemoteFileItem(name: name, path: fileId, isDirectory: type == "folder", size: item["size"] as? Int64 ?? 0, modifiedDate: nil)
+                // Aliyun returns content_hash (sha1 by default) for files;
+                // use it as the revision so re-scan catches same-size,
+                // same-mtime overwrites.
+                let hash = item["content_hash"] as? String
+                return RemoteFileItem(name: name, path: fileId, isDirectory: type == "folder", size: item["size"] as? Int64 ?? 0, modifiedDate: nil, revision: hash)
             })
             let next = json["next_marker"] as? String
             marker = (next?.isEmpty == false) ? next : nil

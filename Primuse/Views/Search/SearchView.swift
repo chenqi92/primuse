@@ -148,8 +148,9 @@ struct SearchView: View {
     }
 
     private func playSong(_ song: Song) {
-        guard let index = searchResults.firstIndex(where: { $0.id == song.id }) else { return }
-        player.setQueue(searchResults, startAt: index)
+        let queue = searchResults.filteredPlayable()
+        guard let index = queue.firstIndex(where: { $0.id == song.id }) else { return }
+        player.setQueue(queue, startAt: index)
         Task { await player.play(song: song) }
         addRecentSearch(searchText)
     }

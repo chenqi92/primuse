@@ -15,6 +15,29 @@ final class SourceManager {
 
     init(sourcesProvider: @escaping @Sendable () async throws -> [MusicSource]) {
         self.sourcesProvider = sourcesProvider
+        // When a re-scan detects that the bytes behind a known path
+        // changed (user replaced the file on the cloud drive), the old
+        // local cache file is now stale. Wipe it so the next play
+        // re-streams against the new bytes instead of decoding the
+        // previous content.
+        NotificationCenter.default.addObserver(
+            forName: .primuseSongContentChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self else { return }
+            let songs = (note.userInfo?["songs"] as? [Song]) ?? []
+            MainActor.assumeIsolated {
+                for song in songs {
+                    self.deleteAudioCache(for: song)
+                    let cache = self.cacheURL(for: song)
+                    let partial = URL(fileURLWithPath: cache.path + ".partial")
+                    try? FileManager.default.removeItem(at: partial)
+                    let marker = URL(fileURLWithPath: cache.path + ".partial.prewarmed")
+                    try? FileManager.default.removeItem(at: marker)
+                }
+            }
+        }
     }
 
     func connector(for source: MusicSource) -> any MusicSourceConnector {
@@ -190,7 +213,7 @@ final class SourceManager {
         // CloudPlaybackSource. Falls back to full download for sources
         // without a usable fileSize (rare; only happens before the first
         // metadata refresh on legacy entries).
-        if source.type.category == .cloudDrive, song.fileSize > 0 {
+        if source.supportsRangeStreaming, song.fileSize > 0 {
             var components = URLComponents()
             components.scheme = Self.cloudStreamingScheme
             components.host = song.sourceID
@@ -291,7 +314,7 @@ final class SourceManager {
                 let conn = connector(for: source)
                 try await conn.connect()
 
-                if source.type.category == .cloudDrive, song.fileSize > 0 {
+                if source.supportsRangeStreaming, song.fileSize > 0 {
                     if cacheEnabled {
                         await prewarmCloudSong(song: song, connector: conn)
                     }
@@ -334,31 +357,85 @@ final class SourceManager {
     /// the actual play session starts — so the very first SFB read hits
     /// disk, not the network. Idempotent on repeat calls.
     private func prewarmCloudSong(song: Song, connector: any MusicSourceConnector) async {
-        let cache = cacheURL(for: song)
-        let partial = URL(fileURLWithPath: cache.path + ".partial")
-
-        // Already prewarmed (file exists at expected head size) — skip.
-        let headSize: Int64 = 256 * 1024
-        if let attrs = try? FileManager.default.attributesOfItem(atPath: partial.path),
-           let size = attrs[.size] as? Int64,
-           size == headSize {
-            return
-        }
-
+        if isPrewarmed(song: song) { return }
         do {
-            let head = try await connector.fetchRange(path: song.filePath, offset: 0, length: headSize)
-            guard !head.isEmpty else { return }
-            try? FileManager.default.createDirectory(
-                at: partial.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            // Atomic write: this either replaces an old/garbage partial or
-            // creates a fresh one. Either way, file size after = head.count,
-            // which the State init uses as the "trustable seed" signal.
-            try head.write(to: partial, options: .atomic)
-            plog("⏩ Prewarm: '\(song.title)' head=\(head.count / 1024)KB cached")
+            let head = try await connector.fetchRange(path: song.filePath, offset: 0, length: Self.prewarmHeadSize)
+            seedPrewarmCache(song: song, head: head)
         } catch {
             plog("⚠️ Prewarm failed for '\(song.title)': \(error.localizedDescription)")
+        }
+    }
+
+    static let prewarmHeadSize: Int64 = 256 * 1024
+
+    /// Same as `prewarmCloudSong` but accepts a Song directly and resolves
+    /// the connector itself. Exposed so `ScanService` can run a serialized
+    /// prewarm sweep over every cloud song in a fresh scan (avoiding the
+    /// fire-and-forget `cacheInBackground` which spawns one Task per song
+    /// and would stampede the connector).
+    func prewarmCloudSongPublic(song: Song) async {
+        guard let sources = try? await sourcesProvider(),
+              let source = sources.first(where: { $0.id == song.sourceID }),
+              source.supportsRangeStreaming else { return }
+        let conn = connector(for: source)
+        do { try await conn.connect() } catch { return }
+        await prewarmCloudSong(song: song, connector: conn)
+    }
+
+    /// True if `song` lives on a source that supports HTTP Range streaming
+    /// (i.e. would go through `CloudPlaybackSource` at play time). Used by
+    /// metadata backfill to decide whether to seed the prewarm cache —
+    /// local/file sources never hit `CloudPlaybackSource`, so writing a
+    /// `.partial` for them would waste disk for nothing.
+    func songSupportsRangeStreaming(_ song: Song) async -> Bool {
+        guard let sources = try? await sourcesProvider() else { return false }
+        return sources.first(where: { $0.id == song.sourceID })?.supportsRangeStreaming ?? false
+    }
+
+    /// Already-prewarmed marker check. Used by both `prewarmCloudSong` and
+    /// any other caller that has the head bytes in hand and wants to skip
+    /// re-writing them.
+    func isPrewarmed(song: Song) -> Bool {
+        let cache = cacheURL(for: song)
+        let partial = URL(fileURLWithPath: cache.path + ".partial")
+        let marker = URL(fileURLWithPath: partial.path + CloudPlaybackSource.prewarmMarkerSuffix)
+        guard FileManager.default.fileExists(atPath: marker.path),
+              let attrs = try? FileManager.default.attributesOfItem(atPath: partial.path),
+              let size = attrs[.size] as? Int64,
+              size == Self.prewarmHeadSize else { return false }
+        return true
+    }
+
+    /// Write `head` to the song's `.partial` cache and place the prewarm
+    /// marker. Used when another path (e.g. metadata backfill) already
+    /// fetched the head bytes — avoids a second network round-trip just to
+    /// pre-populate the disk cache for the next play.
+    func seedPrewarmCache(song: Song, head: Data) {
+        guard head.count >= Int(Self.prewarmHeadSize) else { return }
+        let cache = cacheURL(for: song)
+        let partial = URL(fileURLWithPath: cache.path + ".partial")
+        let marker = URL(fileURLWithPath: partial.path + CloudPlaybackSource.prewarmMarkerSuffix)
+        if FileManager.default.fileExists(atPath: marker.path),
+           let attrs = try? FileManager.default.attributesOfItem(atPath: partial.path),
+           let size = attrs[.size] as? Int64,
+           size == Self.prewarmHeadSize {
+            return  // already seeded
+        }
+        try? FileManager.default.createDirectory(
+            at: partial.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        do {
+            // Atomic write of partial first, then marker — order matters:
+            // if power fails between them, no marker means
+            // CloudPlaybackSource will discard the partial rather than
+            // trusting partial bytes.
+            let trimmed = head.prefix(Int(Self.prewarmHeadSize))
+            try trimmed.write(to: partial, options: .atomic)
+            FileManager.default.createFile(atPath: marker.path, contents: nil)
+            plog("⏩ Prewarm: '\(song.title)' head=\(trimmed.count / 1024)KB cached")
+        } catch {
+            plog("⚠️ Prewarm seed failed for '\(song.title)': \(error.localizedDescription)")
         }
     }
 
@@ -442,5 +519,11 @@ final class SourceManager {
             await connector.disconnect()
         }
         connectors.removeAll()
+    }
+}
+
+private extension MusicSource {
+    var supportsRangeStreaming: Bool {
+        type.category == .cloudDrive || type == .webdav
     }
 }

@@ -23,6 +23,30 @@ final class MusicLibrary {
     }
     private var playlistSongIDs: [String: [String]] = [:]
     private var recentPlaybackSongIDs: [String] = []
+    /// Tombstones for songs the user has explicitly removed via the
+    /// row's "delete song" action. Persisted so the next scan doesn't
+    /// re-add the same path.
+    ///
+    /// Identity key shape: `"<accountID-or-sourceID>:<filePath>"`.
+    /// Using `cloudAccountID` (when available) instead of mount UUID
+    /// is critical — re-OAuth of the same Baidu account mints a new
+    /// `MusicSource.id`, which would change `song.id` and bypass any
+    /// tombstone keyed by that. The CloudAccount id is deterministic
+    /// (sha256(provider:uid)) and survives the re-add, so tombstones
+    /// stick.
+    private(set) var deletedSongIdentities: Set<String> = []
+
+    /// Plug-in to translate a `Song.sourceID` (mount UUID) into its
+    /// canonical identity prefix — usually the source's `cloudAccountID`
+    /// for OAuth mounts, falling back to the sourceID itself for
+    /// local/NAS sources where there's no account concept.
+    /// Set by `AppServices` at startup; nil-safe for tests.
+    var sourceIdentityResolver: ((_ sourceID: String) -> String?)?
+
+    private func identityKey(for song: Song) -> String {
+        let prefix = sourceIdentityResolver?(song.sourceID) ?? song.sourceID
+        return "\(prefix):\(song.filePath)"
+    }
     private(set) var disabledSourceIDs: Set<String> = []
 
     /// Cached filtered views — rebuilt only when songs/disabled state change
@@ -87,8 +111,15 @@ final class MusicLibrary {
         // The previous implementation simply wiped every song from the
         // source and re-appended — which silently undid hours of cloud
         // metadata backfill the moment the user tapped "scan" again.
-        let incomingIDs = Set(newSongs.map(\.id))
-        let sourceIDs = Set(newSongs.map(\.sourceID))
+        //
+        // Filter out paths the user has explicitly deleted. Identity
+        // key is account+path (not mount-UUID+path) — re-OAuth of the
+        // same upstream account mints a new mount.id but the path is
+        // unchanged, and we want the tombstone to keep working. The
+        // user can reverse the tombstone via `restoreDeletedSong`.
+        let filteredNewSongs = newSongs.filter { !deletedSongIdentities.contains(identityKey(for: $0)) }
+        let incomingIDs = Set(filteredNewSongs.map(\.id))
+        let sourceIDs = Set(filteredNewSongs.map(\.sourceID))
 
         songs.removeAll { sourceIDs.contains($0.sourceID) && !incomingIDs.contains($0.id) }
 
@@ -96,9 +127,35 @@ final class MusicLibrary {
         existingIndexByID.reserveCapacity(songs.count)
         for (i, s) in songs.enumerated() { existingIndexByID[s.id] = i }
 
-        for newSong in newSongs {
+        var contentChanged: [Song] = []
+
+        for newSong in filteredNewSongs {
             if let idx = existingIndexByID[newSong.id] {
                 let existing = songs[idx]
+                // Detect remote replacement: same path/ID but different
+                // bytes. Conservative — only triggers when both sides
+                // populate the field. Without this, the merge below
+                // would silently keep the OLD artist/album/duration
+                // backfilled from the previous file.
+                let sizeChanged = newSong.fileSize > 0
+                    && existing.fileSize > 0
+                    && newSong.fileSize != existing.fileSize
+                let mtimeChanged: Bool = {
+                    guard let a = newSong.lastModified, let b = existing.lastModified else { return false }
+                    return a != b
+                }()
+                // Provider revision (md5/etag/content_hash) catches
+                // overwrites that don't change size and that come from
+                // sources without a usable mtime — Baidu/Aliyun/Dropbox.
+                let revisionChanged: Bool = {
+                    guard let a = newSong.revision, let b = existing.revision else { return false }
+                    return a != b
+                }()
+                if sizeChanged || mtimeChanged || revisionChanged {
+                    songs[idx] = newSong
+                    contentChanged.append(newSong)
+                    continue
+                }
                 // "Bare incoming" matches `MetadataBackfillService.isBareSong` —
                 // a Phase A scan that found no metadata. If the existing
                 // entry has any metadata at all, prefer it.
@@ -118,6 +175,12 @@ final class MusicLibrary {
                     var merged = existing
                     merged.fileSize = newSong.fileSize
                     merged.lastModified = newSong.lastModified
+                    // Always refresh revision — when the connector starts
+                    // surfacing a fingerprint that wasn't there before
+                    // (e.g. user upgraded to a build that reads md5), we
+                    // want existing songs to pick it up so the next scan
+                    // can detect overwrites.
+                    if newSong.revision != nil { merged.revision = newSong.revision }
                     // Sidecar from a fresh scan (sibling listing) wins over
                     // backfill's embedded-art reference; if the scan didn't
                     // find any, keep what backfill stored.
@@ -137,14 +200,38 @@ final class MusicLibrary {
         cleanPlaybackHistoryEntries()
         rebuildIndex()
         persistSnapshot()
+
+        if !contentChanged.isEmpty {
+            NotificationCenter.default.post(
+                name: .primuseSongContentChanged,
+                object: nil,
+                userInfo: ["songs": contentChanged]
+            )
+        }
     }
 
     /// Delete a single song and rebuild index
-    func deleteSong(_ song: Song) {
+    @discardableResult
+    func deleteSong(_ song: Song) -> Int {
         songs.removeAll { $0.id == song.id }
+        // Tombstone keyed by canonical identity (account+path, not
+        // mount-UUID+path) so re-adding the same Baidu account on
+        // a fresh source UUID doesn't bypass it.
+        deletedSongIdentities.insert(identityKey(for: song))
         cleanPlaylistEntries()
         cleanPlaybackHistoryEntries()
         rebuildIndex()
+        persistSnapshot()
+        return songs.filter { $0.sourceID == song.sourceID }.count
+    }
+
+    /// Reverse a previous `deleteSong` so the next scan can re-add the
+    /// path. Caller passes the same Song object that was deleted (or
+    /// any Song with the same source/path).
+    func restoreDeletedSong(_ song: Song) {
+        let key = identityKey(for: song)
+        guard deletedSongIdentities.contains(key) else { return }
+        deletedSongIdentities.remove(key)
         persistSnapshot()
     }
 
@@ -155,6 +242,15 @@ final class MusicLibrary {
         cleanPlaybackHistoryEntries()
         rebuildIndex()
         persistSnapshot()
+    }
+
+    /// Look up the current Song by its stable id. Used by row views to
+    /// re-read after backfill mutates the library in place — passing the
+    /// row a snapshot freezes the spinner forever even after duration is
+    /// filled, because SwiftUI doesn't always re-build NavigationDestination
+    /// views from their parent's latest state.
+    func song(id: String) -> Song? {
+        songs.first(where: { $0.id == id })
     }
 
     /// Search songs by query
@@ -402,12 +498,17 @@ final class MusicLibrary {
 
         var lastApplied: Song?
         var appliedIDs: Set<String> = []
+        var missedIDs: [String] = []
         for updated in updatedSongs {
-            guard let index = idToIndex[updated.id] else { continue }
+            guard let index = idToIndex[updated.id] else {
+                missedIDs.append(updated.id)
+                continue
+            }
             songs[index] = updated
             lastApplied = updated
             appliedIDs.insert(updated.id)
         }
+        plog("📚 replaceSongs: requested=\(updatedSongs.count) applied=\(appliedIDs.count) missed=\(missedIDs.count) librarySongs=\(songs.count) missedSampleID=\(missedIDs.first ?? "-") sampleLibID=\(songs.first?.id ?? "-")")
         guard let lastApplied else { return }
         lastReplacedSong = lastApplied
         lastReplacedSongIDs = appliedIDs
@@ -495,6 +596,10 @@ final class MusicLibrary {
         allPlaylists = snapshot.playlists
         playlistSongIDs = snapshot.playlistSongIDs ?? [:]
         recentPlaybackSongIDs = snapshot.recentPlaybackSongIDs ?? []
+        // Old `deletedSongIDs` field stored mount-UUID-derived song.id
+        // tombstones — useless after re-OAuth changes the source UUID.
+        // Drop them silently; new identity-based tombstones replace.
+        deletedSongIdentities = Set(snapshot.deletedSongIdentities ?? [])
         cleanPlaylistEntries()
         cleanPlaybackHistoryEntries()
         rebuildIndex()
@@ -517,7 +622,8 @@ final class MusicLibrary {
             songs: songs,
             playlists: allPlaylists,
             playlistSongIDs: playlistSongIDs,
-            recentPlaybackSongIDs: recentPlaybackSongIDs
+            recentPlaybackSongIDs: recentPlaybackSongIDs,
+            deletedSongIdentities: Array(deletedSongIdentities)
         )
         guard let data = try? encoder.encode(snapshot) else { return }
         try? data.write(to: snapshotURL, options: .atomic)
@@ -557,6 +663,10 @@ final class MusicLibrary {
         var playlists: [Playlist]
         var playlistSongIDs: [String: [String]]?
         var recentPlaybackSongIDs: [String]?
+        /// Account-or-source-prefixed identity keys ("<id>:<filePath>").
+        /// Persisted via Array because Set isn't Codable-stable across
+        /// SDK revs. Optional so old snapshots decode without it.
+        var deletedSongIdentities: [String]?
     }
 }
 
@@ -568,4 +678,25 @@ extension Notification.Name {
     static let primuseSourceDidDelete = Notification.Name("primuse.sourceDidDelete")
     static let primuseScraperConfigDidChange = Notification.Name("primuse.scraperConfigDidChange")
     static let primuseScraperConfigDidDelete = Notification.Name("primuse.scraperConfigDidDelete")
+    /// Posted from `MusicLibrary.addSongs` when a re-scan finds an existing
+    /// path with different size/mtime — i.e. the user replaced the file
+    /// remotely. `userInfo["songs"]` is the `[Song]` of fresh bare songs;
+    /// listeners (SourceManager, MetadataBackfillService) drop stale audio
+    /// caches and clear failed-backfill marks for these IDs.
+    static let primuseSongContentChanged = Notification.Name("primuse.songContentChanged")
+    /// Posted in addition to `primuseSourcesDidChange` when a source is
+    /// soft-deleted locally. CloudKitSyncService listens to this and
+    /// enqueues a real `deleteRecord` instead of pushing the soft-delete
+    /// flag as a `saveRecord` (the latter caused server-side records to
+    /// linger and resurrect on every fetch).
+    static let primuseSourceDidSoftDelete = Notification.Name("primuse.sourceDidSoftDelete")
+    /// CloudAccount upsert (insert / edit / soft-delete bumping
+    /// modifiedAt). Mirror of `primuseSourcesDidChange` for the new
+    /// account record type.
+    static let primuseCloudAccountsDidChange = Notification.Name("primuse.cloudAccountsDidChange")
+    /// CloudAccount soft-delete (push real `deleteRecord` to CloudKit so
+    /// the upstream record clears). Mirror of `primuseSourceDidSoftDelete`.
+    static let primuseCloudAccountDidSoftDelete = Notification.Name("primuse.cloudAccountDidSoftDelete")
+    /// CloudAccount permanent delete (post-30-day prune).
+    static let primuseCloudAccountDidDelete = Notification.Name("primuse.cloudAccountDidDelete")
 }
