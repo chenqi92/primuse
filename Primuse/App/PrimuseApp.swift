@@ -95,30 +95,96 @@ final class PrimuseAppDelegate: NSObject, UIApplicationDelegate {
 #else
 import AppKit
 
+extension Notification.Name {
+    /// 进入全屏播放器时由 PrimuseAppDelegate 发出,MacContentView 收到后
+    /// 自动展开 NowPlaying 视图,让全屏内容直接是播放器而不是歌单。
+    static let primuseRequestExpandNowPlaying = Notification.Name("primuse.expandNowPlaying")
+}
+
 /// macOS counterpart of `PrimuseAppDelegate`. macOS has no BGTaskScheduler /
 /// CarPlay / Intents-handler routing — the delegate exists only to forward
 /// CloudKit silent pushes the same way the iOS one does, plus install the
 /// menu bar status item.
 final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
     nonisolated(unsafe) static weak var sync: CloudKitSyncService?
+    /// SwiftUI macOS 14+ 把自定义 AppDelegate 包了一层,`NSApp.delegate as?
+    /// PrimuseAppDelegate` 会失败(实际是 NSApplicationDelegate 协议类型,
+    /// 不是具体类),导致从 SwiftUI view 里调 AppDelegate 上的方法静默失效。
+    /// 用一个 weak shared 引用绕开这个坑,SwiftUI 视图直接拿。
+    @MainActor static weak var shared: PrimuseAppDelegate?
     @MainActor private var menuBar: MacMenuBarController?
     @MainActor private var desktopLyrics: DesktopLyricsWindowController?
+    @MainActor private var miniPlayer: MiniPlayerWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.registerForRemoteNotifications()
         Task { @MainActor in
+            Self.shared = self
+
             let bar = MacMenuBarController()
             bar.install()
             self.menuBar = bar
 
             let lyrics = DesktopLyricsWindowController()
             self.desktopLyrics = lyrics
+
+            self.miniPlayer = MiniPlayerWindowController()
+            plog("🪟 AppDelegate didFinishLaunching: menuBar=ok lyrics=ok miniPlayer=\(self.miniPlayer == nil ? "nil" : "ok") delegateType=\(type(of: NSApp.delegate as Any))")
         }
     }
 
     @MainActor
     func toggleDesktopLyrics() {
+        plog("🪟 AppDelegate.toggleDesktopLyrics desktopLyrics=\(desktopLyrics == nil ? "nil" : "ok")")
         desktopLyrics?.toggle()
+    }
+
+    @MainActor
+    func showMiniPlayer() {
+        plog("🪟 AppDelegate.showMiniPlayer miniPlayer=\(miniPlayer == nil ? "nil" : "ok")")
+        miniPlayer?.show()
+    }
+
+    @MainActor
+    func toggleFullScreenPlayer() {
+        // 主窗口切到 macOS 全屏 + 自动展开 NowPlaying。退出全屏由用户
+        // 主动按 ⌃⌘F 或绿灯触发,这里只负责进入。
+        guard let window = mainAppWindow() else {
+            plog("⚠️ FullScreen: no main window candidate found, all windows: \(NSApp.windows.map { ($0.title, $0.styleMask.rawValue, $0.canBecomeMain) })")
+            return
+        }
+        // SwiftUI 的 WindowGroup 默认 collectionBehavior 不带
+        // .fullScreenPrimary,导致 toggleFullScreen 静默无效。先补上。
+        if !window.collectionBehavior.contains(.fullScreenPrimary) {
+            window.collectionBehavior.insert(.fullScreenPrimary)
+        }
+        plog("🖥 FullScreen toggle window=\(window.title) isFull=\(window.styleMask.contains(.fullScreen)) cb=\(window.collectionBehavior.rawValue)")
+        if !window.styleMask.contains(.fullScreen) {
+            window.toggleFullScreen(nil)
+        }
+        NotificationCenter.default.post(name: .primuseRequestExpandNowPlaying, object: nil)
+    }
+
+    /// 在所有 NSApp.windows 里挑出 SwiftUI 主窗口(不是 mini player /
+    /// desktop lyrics / popover / panel 等附属窗口)。靠两个特征:
+    /// 是 NSWindow 而非 NSPanel,并且 canBecomeMain。
+    @MainActor
+    private func mainAppWindow() -> NSWindow? {
+        // 优先 mainWindow / keyWindow,如果它符合"非 panel + canBecomeMain"
+        // 就直接用,这是 macOS 标准 mainWindow 选择器。
+        if let main = NSApp.mainWindow, !(main is NSPanel), main.canBecomeMain {
+            return main
+        }
+        if let key = NSApp.keyWindow, !(key is NSPanel), key.canBecomeMain {
+            return key
+        }
+        // fallback: 遍历所有窗口找第一个不是 panel 的可主窗口。
+        return NSApp.windows.first {
+            !($0 is NSPanel) && $0.canBecomeMain &&
+            !$0.styleMask.contains(.utilityWindow) &&
+            $0.frameAutosaveName != "PrimuseMiniPlayer" &&
+            $0.frameAutosaveName != "PrimuseDesktopLyrics"
+        }
     }
 
     func application(
@@ -314,9 +380,20 @@ struct PrimuseApp: App {
             CommandGroup(replacing: .newItem) {}
             CommandGroup(after: .toolbar) {
                 Button("show_desktop_lyrics") {
-                    (NSApp.delegate as? PrimuseAppDelegate)?.toggleDesktopLyrics()
+                    PrimuseAppDelegate.shared?.toggleDesktopLyrics()
                 }
                 .keyboardShortcut("l", modifiers: [.command])
+
+                // 锁定后桌面歌词上的工具条会消失(因为 panel 设了
+                // ignoresMouseEvents 实现"点击穿透"),用户没法再点
+                // 解锁。这条命令 + 快捷键让用户在 Primuse 聚焦时也
+                // 能直接解锁,不必去找菜单栏的 popover。
+                Button("toggle_desktop_lyrics_lock") {
+                    let key = "desktopLyricsLocked"
+                    let locked = UserDefaults.standard.bool(forKey: key)
+                    UserDefaults.standard.set(!locked, forKey: key)
+                }
+                .keyboardShortcut("l", modifiers: [.command, .shift])
             }
         }
         #endif

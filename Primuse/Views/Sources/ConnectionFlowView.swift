@@ -12,15 +12,17 @@ struct ConnectionFlowView: View {
 
     @State private var step: FlowStep = .connecting
     @State private var otpCode = ""
+    @State private var passwordInput = ""
     @State private var errorMessage = ""
     @State private var rememberDevice = true
     @State private var synologyAPI: SynologyAPI?
     @State private var rootItems: [SynologyAPI.FileItem] = []
     @FocusState private var otpFocused: Bool
+    @FocusState private var passwordFocused: Bool
     @State private var sslTrustDomain: String?
     @State private var sslTrustContinuation: CheckedContinuation<Bool, Never>?
 
-    enum FlowStep { case connecting, otp, browsing, failed }
+    enum FlowStep { case connecting, otp, password, browsing, failed }
 
     var body: some View {
         NavigationStack {
@@ -28,6 +30,7 @@ struct ConnectionFlowView: View {
                 switch step {
                 case .connecting: connectingView
                 case .otp: otpView
+                case .password: passwordView
                 case .browsing:
                     RealDirectoryBrowserView(
                         synologyAPI: synologyAPI,
@@ -95,6 +98,7 @@ struct ConnectionFlowView: View {
         switch step {
         case .connecting: return String(localized: "connecting_title")
         case .otp: return String(localized: "two_factor_auth")
+        case .password: return String(localized: "password_required_title")
         case .browsing: return String(localized: "select_directories")
         case .failed: return String(localized: "connection_failed")
         }
@@ -185,6 +189,71 @@ struct ConnectionFlowView: View {
         }
     }
 
+    // MARK: - Password prompt
+    //
+    // 仅在 DSM 真正返回 code=400(账号或密码错误)时才出现。用户输入的
+    // 密码写回本机 Keychain,下次连接自动复用。
+    private var passwordView: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                Spacer().frame(height: 30)
+
+                Image(systemName: "key.fill")
+                    .font(.system(size: 44))
+                    .foregroundStyle(.blue.gradient)
+
+                VStack(spacing: 6) {
+                    Text("password_required_title").font(.title3).fontWeight(.semibold)
+                    Text("\(source.username ?? "") @ \(source.host ?? "")")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .monospaced()
+                }
+
+                SecureField(String(localized: "password"), text: $passwordInput)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($passwordFocused)
+                    .onSubmit { submitPassword() }
+                    .padding(.horizontal, 30)
+
+                if !errorMessage.isEmpty {
+                    Text(errorMessage)
+                        .font(.caption).foregroundStyle(.red)
+                        .padding(.horizontal, 30)
+                        .multilineTextAlignment(.center)
+                }
+
+                Button {
+                    submitPassword()
+                } label: {
+                    Text("connect").fontWeight(.semibold).frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(passwordInput.isEmpty)
+                .padding(.horizontal, 30)
+
+                Spacer().frame(height: 30)
+            }
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { passwordFocused = true }
+        }
+    }
+
+    private func submitPassword() {
+        let pwd = passwordInput
+        guard !pwd.isEmpty else { return }
+        // 顺手写一份到 Keychain (下次免输);但 connectSynology 这一次
+        // 直接用 overridePassword,不依赖 keychain 读回去——否则 keychain
+        // 写失败时密码就丢了。
+        KeychainService.setPassword(pwd, for: source.id)
+        errorMessage = ""
+        passwordInput = ""
+        step = .connecting
+        Task { await connectSynology(otpCode: nil, overridePassword: pwd) }
+    }
+
     // MARK: - Failed
 
     private var failedView: some View {
@@ -218,7 +287,7 @@ struct ConnectionFlowView: View {
         }
     }
 
-    private func connectSynology(otpCode: String?) async {
+    private func connectSynology(otpCode: String?, overridePassword: String? = nil) async {
         let api = SynologyAPI(
             host: source.host ?? "",
             port: source.port ?? 5001,
@@ -226,14 +295,16 @@ struct ConnectionFlowView: View {
         )
         synologyAPI = api
 
-        let password = KeychainService.getPassword(for: source.id) ?? ""
+        // overridePassword 不为空时直接用刚输入的明文,绕开 keychain
+        // 读写中任何潜在的字节损失;否则才回落到 keychain 里上次保存的值。
+        let password = overridePassword ?? KeychainService.getPassword(for: source.id) ?? ""
 
         // If we have a saved deviceId, try login with it (skip OTP)
         let result = await api.login(
             account: source.username ?? "",
             password: password,
             otpCode: otpCode,
-            deviceName: rememberDevice ? "Primuse-iOS" : nil,
+            deviceName: rememberDevice ? AppConstants.trustedDeviceName : nil,
             deviceId: source.deviceId
         )
 
@@ -274,6 +345,19 @@ struct ConnectionFlowView: View {
                     return
                 }
             }
+
+            // 凭据错误（DSM 错误码 400)→ 弹密码输入框让用户重输,而不是
+            // 直接进 failed 页。SynologyAPI 把错误码翻译成中文消息,这里
+            // 用消息内容反查;其他错误(IP 封禁/账号停用/2FA 等）走 failed
+            // 页让用户看到具体原因。
+            if (result.errorMessage ?? "").contains("用户名或密码错误") {
+                await MainActor.run {
+                    errorMessage = String(localized: "password_wrong_hint")
+                    withAnimation { step = .password }
+                }
+                return
+            }
+
             errorMessage = result.errorMessage ?? "Unknown error"
             withAnimation { step = .failed }
         }
@@ -336,8 +420,36 @@ struct RealDirectoryBrowserView: View {
             } else {
                 directoryList
             }
+            // macOS 把"已选择 N 个 / 清除全部"放进上方 toolbar(见
+            // ConnectionFlowView 的 toolbar item),不再叠一条全宽底栏 ——
+            // 那个浮动条是 iOS 的视觉模式,macOS 上挤掉一整行目录看起来也不清爽。
+            #if os(iOS)
             bottomBar
+            #endif
         }
+        #if os(macOS)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                if !selectedDirectories.isEmpty {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.tint)
+                        Text("\(selectedDirectories.count) \(String(localized: "directories_selected"))")
+                            .font(.subheadline).fontWeight(.medium)
+                        Button {
+                            withAnimation { selectedDirectories.removeAll() }
+                        } label: {
+                            Label("clear_all", systemImage: "xmark.circle")
+                                .labelStyle(.iconOnly)
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.borderless)
+                        .help(Text("clear_all"))
+                    }
+                }
+            }
+        }
+        #endif
         .onAppear {
             if currentPath == "/" { items = initialItems }
         }
@@ -385,7 +497,11 @@ struct RealDirectoryBrowserView: View {
                 }
             }
         }
+        #if os(macOS)
+        .listStyle(.inset)
+        #else
         .listStyle(.plain)
+        #endif
     }
 
     private func directoryRow(item: SynologyAPI.FileItem) -> some View {

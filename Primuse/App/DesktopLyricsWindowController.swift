@@ -11,9 +11,18 @@ import PrimuseKit
 final class DesktopLyricsWindowController {
     private var panel: NSPanel?
     @AppStorage("desktopLyricsVisible") private var visible: Bool = false
+    @AppStorage("desktopLyricsLocked") private var locked: Bool = false
 
     init() {
         if visible { show() }
+        // 监听 lock 变化（来自菜单栏 popover 或桌面歌词的悬浮 toolbar）
+        // 同步给 NSPanel,因为 ignoresMouseEvents 是 NSWindow 级别状态。
+        NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.applyLockedState() }
+        }
     }
 
     func toggle() {
@@ -30,11 +39,24 @@ final class DesktopLyricsWindowController {
         }
         panel.orderFrontRegardless()
         visible = true
+        applyLockedState()
     }
 
     func hide() {
         panel?.orderOut(nil)
         visible = false
+    }
+
+    private func applyLockedState() {
+        // 锁定时让 panel 不接收鼠标事件,点击穿透到下方应用。
+        // 解锁路径:
+        //   1) 菜单栏 popover 里的「桌面歌词锁定」开关
+        //   2) 主窗口聚焦时按 ⇧⌘L
+        // 直接读 UserDefaults 而不是 @AppStorage 包装,因为这个类不是
+        // SwiftUI View,@AppStorage 的"自动跟随"在非 View 上下文里
+        // 不一定每次都拿到最新值。
+        let isLocked = UserDefaults.standard.bool(forKey: "desktopLyricsLocked")
+        panel?.ignoresMouseEvents = isLocked
     }
 
     private func makePanel() -> NSPanel {
@@ -55,7 +77,9 @@ final class DesktopLyricsWindowController {
         panel.setFrameAutosaveName("PrimuseDesktopLyrics")
 
         let host = NSHostingController(
-            rootView: DesktopLyricsView().applyPrimuseEnvironments()
+            rootView: DesktopLyricsView(onClose: { [weak self] in
+                self?.hide()
+            }).applyPrimuseEnvironments()
         )
         host.view.frame = panel.contentView?.bounds ?? .zero
         host.view.autoresizingMask = [.width, .height]

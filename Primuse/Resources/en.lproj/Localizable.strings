@@ -503,3 +503,28 @@
 "welcome_back" = "Welcome back";
 "lyrics_font_smaller" = "Smaller Lyrics";
 "lyrics_font_larger" = "Larger Lyrics";
+
+// MARK: - macOS desktop & menu bar
+"more" = "More";
+"play" = "Play";
+"pause" = "Pause";
+"previous_song" = "Previous";
+"next_song" = "Next";
+"single_line_lyrics" = "Single-line lyrics";
+"dual_line_lyrics" = "Two-line lyrics";
+"lock_desktop_lyrics" = "Lock desktop lyrics";
+"desktop_lyrics_locked" = "Desktop lyrics locked";
+"desktop_lyrics_unlocked" = "Desktop lyrics draggable";
+"menu_bar_show_title" = "Show title in menu bar";
+"eq_preset" = "Preset";
+"audio_output_follow_system" = "Follow system";
+"repeat_all" = "Repeat all";
+"repeat_one" = "Repeat one";
+"repeat" = "Repeat";
+"mini_player" = "Mini Player";
+"full_screen_player" = "Full Screen";
+"exit_mini_player" = "Exit Mini Player";
+"lyrics_color" = "Lyrics color";
+"toggle_desktop_lyrics_lock" = "Lock/Unlock Desktop Lyrics";
+"password_required_title" = "Enter password";
+"password_wrong_hint" = "Wrong account or password. Please re-enter.";

@@ -2,10 +2,10 @@
 import SwiftUI
 import AppKit
 
-/// macOS-native iCloud sync pane. Replaces the iOS Form layout (which laid
-/// out as label/value rows but with a `Section` header that doubled the
-/// "状态" label and let the right-aligned values float oddly) with a
-/// LabeledContent grid — the same shape the System Settings panes use.
+/// macOS-native iCloud sync pane. Mirrors Apple Music's settings panes:
+/// a single grouped Form with bold section headers, switches on the right,
+/// helper text under each section. Replaces the earlier VStack-of-GroupBoxes
+/// look so this tab matches Playback / Audio Effects / About visually.
 struct MacCloudSyncSettingsView: View {
     @Environment(CloudKitSyncService.self) private var sync
     @AppStorage("primuse.iCloudSyncEnabled") private var enabled: Bool = true
@@ -17,160 +17,129 @@ struct MacCloudSyncSettingsView: View {
     @State private var isSyncingNow = false
 
     var body: some View {
-        ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("icloud_sync_footer")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 4)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                masterToggle
-
-                if enabled {
-                    statusGroup
-                    channelsGroup
-                    keychainHint
-                    Text("synced_items_footer")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .padding(.horizontal, 4)
+        Form {
+            Section {
+                Toggle(isOn: $enabled) {
+                    Label("icloud_sync_enabled", systemImage: "icloud")
                 }
-            }
-            .padding(20)
-        }
-    }
-
-    // MARK: - Sections
-
-    private var masterToggle: some View {
-        GroupBox {
-            Toggle(isOn: $enabled) {
-                Label("icloud_sync_enabled", systemImage: "icloud")
-            }
-            .toggleStyle(.switch)
-            .onChange(of: enabled) { _, newValue in
-                Task {
-                    if newValue { await sync.start() } else { sync.stop() }
-                }
-            }
-            .padding(.vertical, 4)
-        }
-    }
-
-    private var statusGroup: some View {
-        GroupBox(label: Label("icloud_sync_status", systemImage: "antenna.radiowaves.left.and.right")
-            .font(.headline)
-        ) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .firstTextBaseline) {
-                    statusLabel
-                    Spacer()
-                    if let lastSyncedAt = sync.lastSyncedAt {
-                        Text(lastSyncedAt.formatted(.relative(presentation: .named)))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                .toggleStyle(.switch)
+                .onChange(of: enabled) { _, newValue in
+                    Task {
+                        if newValue { await sync.start() } else { sync.stop() }
                     }
                 }
+            } footer: {
+                Text("icloud_sync_footer")
+            }
 
-                Divider()
+            if enabled {
+                Section("icloud_sync_status") {
+                    LabeledContent {
+                        statusLabel
+                    } label: {
+                        Text("status")
+                    }
 
-                HStack {
-                    if case .accountUnavailable(.noAccount) = sync.status {
+                    if let lastSyncedAt = sync.lastSyncedAt {
+                        LabeledContent {
+                            Text(lastSyncedAt.formatted(.relative(presentation: .named)))
+                                .foregroundStyle(.secondary)
+                        } label: {
+                            Text("last_synced")
+                        }
+                    }
+
+                    HStack {
+                        if case .accountUnavailable(.noAccount) = sync.status {
+                            Button {
+                                if let url = URL(string: "x-apple.systempreferences:com.apple.systempreferences.AppleIDSettings") {
+                                    NSWorkspace.shared.open(url)
+                                }
+                            } label: {
+                                Label("open_system_settings", systemImage: "gear")
+                            }
+                        }
+
+                        Spacer()
+
                         Button {
-                            if let url = URL(string: "x-apple.systempreferences:com.apple.systempreferences.AppleIDSettings") {
-                                NSWorkspace.shared.open(url)
+                            isSyncingNow = true
+                            Task {
+                                await sync.syncNow()
+                                isSyncingNow = false
                             }
                         } label: {
-                            Label("open_system_settings", systemImage: "gear")
-                        }
-                    }
-
-                    Button {
-                        isSyncingNow = true
-                        Task {
-                            await sync.syncNow()
-                            isSyncingNow = false
-                        }
-                    } label: {
-                        if isSyncingNow {
-                            HStack(spacing: 6) {
-                                ProgressView().controlSize(.small)
-                                Text("sync_now")
+                            if isSyncingNow {
+                                HStack(spacing: 6) {
+                                    ProgressView().controlSize(.small)
+                                    Text("sync_now")
+                                }
+                            } else {
+                                Label("sync_now", systemImage: "arrow.triangle.2.circlepath")
                             }
-                        } else {
-                            Label("sync_now", systemImage: "arrow.triangle.2.circlepath")
                         }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(isSyncingNow)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(isSyncingNow)
+                }
 
-                    Spacer()
+                Section {
+                    channelToggle("synced_playlists",
+                                  systemImage: "music.note.list",
+                                  isOn: $syncPlaylists,
+                                  channel: .playlists)
+                    channelToggle("synced_sources",
+                                  systemImage: "externaldrive.connected.to.line.below",
+                                  isOn: $syncSources,
+                                  channel: .sources)
+                    channelToggle("synced_playback_history",
+                                  systemImage: "clock.arrow.circlepath",
+                                  isOn: $syncPlaybackHistory,
+                                  channel: .playbackHistory)
+                    channelToggle("synced_settings",
+                                  systemImage: "slider.horizontal.3",
+                                  isOn: $syncSettings,
+                                  channel: .settings)
+                    channelToggle("synced_credentials",
+                                  systemImage: "lock.shield",
+                                  isOn: $syncCredentials,
+                                  channel: .credentials)
+                } header: {
+                    Text("synced_items")
+                } footer: {
+                    Text("synced_items_footer")
+                }
+
+                Section {
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: "key.icloud")
+                            .font(.title3)
+                            .foregroundStyle(.tint)
+                            .frame(width: 28)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("keychain_sync_hint_title")
+                                .font(.callout)
+                                .fontWeight(.semibold)
+                            Text("keychain_sync_hint_body")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Button {
+                                if let url = URL(string: "x-apple.systempreferences:com.apple.systempreferences.AppleIDSettings") {
+                                    NSWorkspace.shared.open(url)
+                                }
+                            } label: {
+                                Text("open_keychain_settings")
+                            }
+                            .buttonStyle(.link)
+                            .controlSize(.small)
+                            .padding(.top, 2)
+                        }
+                        Spacer(minLength: 0)
+                    }
                 }
             }
-            .padding(.vertical, 4)
         }
-    }
-
-    private var channelsGroup: some View {
-        GroupBox(label: Label("synced_items", systemImage: "checkmark.icloud")
-            .font(.headline)
-        ) {
-            VStack(alignment: .leading, spacing: 14) {
-                channelToggle("synced_playlists",
-                              systemImage: "music.note.list",
-                              isOn: $syncPlaylists,
-                              channel: .playlists)
-                channelToggle("synced_sources",
-                              systemImage: "externaldrive.connected.to.line.below",
-                              isOn: $syncSources,
-                              channel: .sources)
-                channelToggle("synced_playback_history",
-                              systemImage: "clock.arrow.circlepath",
-                              isOn: $syncPlaybackHistory,
-                              channel: .playbackHistory)
-                channelToggle("synced_settings",
-                              systemImage: "slider.horizontal.3",
-                              isOn: $syncSettings,
-                              channel: .settings)
-                channelToggle("synced_credentials",
-                              systemImage: "lock.shield",
-                              isOn: $syncCredentials,
-                              channel: .credentials)
-            }
-            .padding(.vertical, 6)
-        }
-    }
-
-    private var keychainHint: some View {
-        GroupBox {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "key.icloud")
-                    .font(.title3)
-                    .foregroundStyle(.tint)
-                    .frame(width: 28)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("keychain_sync_hint_title")
-                        .font(.callout)
-                        .fontWeight(.semibold)
-                    Text("keychain_sync_hint_body")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Button {
-                        if let url = URL(string: "x-apple.systempreferences:com.apple.systempreferences.AppleIDSettings") {
-                            NSWorkspace.shared.open(url)
-                        }
-                    } label: {
-                        Text("open_keychain_settings")
-                    }
-                    .buttonStyle(.link)
-                    .controlSize(.small)
-                    .padding(.top, 2)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.vertical, 6)
-        }
+        .formStyle(.grouped)
     }
 
     // MARK: - Helpers
@@ -185,7 +154,6 @@ struct MacCloudSyncSettingsView: View {
             Label(titleKey, systemImage: systemImage)
         }
         .toggleStyle(.switch)
-        .controlSize(.small)
         .disabled(!enabled)
         .onChange(of: isOn.wrappedValue) { _, newValue in
             guard newValue, enabled else { return }

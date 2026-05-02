@@ -19,7 +19,7 @@ struct MacSettingsView: View {
 
     var body: some View {
         TabView(selection: $tab) {
-            PlaybackSettingsView().tabPaneSize().topAligned()
+            PlaybackSettingsView().tabPaneSize()
                 .tabItem { Label("playback_settings", systemImage: "play.circle") }
                 .tag(Tab.general)
 
@@ -27,7 +27,7 @@ struct MacSettingsView: View {
                 .tabItem { Label("equalizer", systemImage: "slider.horizontal.3") }
                 .tag(Tab.equalizer)
 
-            AudioEffectsView().tabPaneSize().topAligned()
+            AudioEffectsView().tabPaneSize()
                 .tabItem { Label("audio_effects", systemImage: "waveform.badge.plus") }
                 .tag(Tab.effects)
 
@@ -51,7 +51,7 @@ struct MacSettingsView: View {
                 .tabItem { Label("trusted_domains", systemImage: "lock.shield") }
                 .tag(Tab.security)
 
-            aboutTab.tabPaneSize().topAligned()
+            aboutTab.tabPaneSize()
                 .tabItem { Label("about", systemImage: "info.circle") }
                 .tag(Tab.about)
         }
@@ -79,11 +79,13 @@ private extension View {
             .padding(.vertical, 18)
     }
 
-    /// 给 Settings TabView 每个 tab 钉一个统一的 minSize, 防止切到内容
-    /// 少的 tab (例如 RecentlyDeleted 空列表 / Replay Gain 关闭后的
-    /// Playback Settings) 时整个 NSWindow 突兀缩小。
+    /// 给 Settings TabView 每个 tab 钉一个统一的 minSize,防止切到内容
+    /// 少的 tab 时整个 NSWindow 突兀缩小。`alignment: .top` 关键 —
+    /// 没有它的话短内容（例如关掉 Replay Gain 后的播放设置）会被
+    /// SwiftUI 默认 center 在框里,远离顶部 tab toolbar,看起来非常空旷。
+    /// 参考 Apple Music / System Settings 的做法,内容紧贴顶部。
     func tabPaneSize() -> some View {
-        self.frame(minWidth: 720, minHeight: 520)
+        self.frame(minWidth: 720, minHeight: 520, alignment: .top)
     }
 }
 #endif

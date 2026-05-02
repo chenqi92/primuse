@@ -503,3 +503,28 @@
 "welcome_back" = "欢迎回来";
 "lyrics_font_smaller" = "缩小歌词";
 "lyrics_font_larger" = "放大歌词";
+
+// MARK: - macOS desktop & menu bar
+"more" = "更多";
+"play" = "播放";
+"pause" = "暂停";
+"previous_song" = "上一首";
+"next_song" = "下一首";
+"single_line_lyrics" = "单行歌词";
+"dual_line_lyrics" = "双行歌词";
+"lock_desktop_lyrics" = "锁定桌面歌词";
+"desktop_lyrics_locked" = "桌面歌词已锁定";
+"desktop_lyrics_unlocked" = "桌面歌词可拖动";
+"menu_bar_show_title" = "状态栏显示歌名";
+"eq_preset" = "预设";
+"audio_output_follow_system" = "跟随系统";
+"repeat_all" = "循环播放";
+"repeat_one" = "单曲循环";
+"repeat" = "循环播放";
+"mini_player" = "迷你播放程序";
+"full_screen_player" = "全屏幕";
+"exit_mini_player" = "退出迷你播放";
+"lyrics_color" = "歌词颜色";
+"toggle_desktop_lyrics_lock" = "锁定/解锁桌面歌词";
+"password_required_title" = "请输入密码";
+"password_wrong_hint" = "账号或密码错误,请重新输入";

@@ -30,13 +30,19 @@ struct SourceTypeSelectionView: View {
                                 } label: {
                                     sourceTypeRow(type)
                                 }
+                                .buttonStyle(.plain)
                             }
                         }
                     }
                 }
             }
+            #if os(macOS)
+            .listStyle(.inset)
+            .navigationTitle("select_source_type")
+            #else
             .navigationTitle("select_source_type")
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("cancel") { dismiss() }
@@ -85,12 +91,7 @@ struct SourceTypeSelectionView: View {
                     selectedDevice = device
                 } label: {
                     HStack(spacing: 12) {
-                        Image(systemName: device.sourceType.iconName)
-                            .font(.title3)
-                            .foregroundStyle(.white)
-                            .frame(width: 36, height: 36)
-                            .background(Color.green)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        sourceIcon(systemName: device.sourceType.iconName, tint: .green)
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(device.name)
@@ -109,6 +110,7 @@ struct SourceTypeSelectionView: View {
                             .foregroundStyle(.green)
                     }
                 }
+                .buttonStyle(.plain)
             }
 
             if !discoveryService.isDiscovering && !discoveryService.devices.isEmpty {
@@ -139,12 +141,7 @@ struct SourceTypeSelectionView: View {
 
     private func sourceTypeRow(_ type: MusicSourceType) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: type.iconName)
-                .font(.title3)
-                .foregroundStyle(.white)
-                .frame(width: 36, height: 36)
-                .background(Color.accentColor)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+            sourceIcon(systemName: type.iconName, tint: .accentColor)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(type.displayName)
@@ -168,6 +165,26 @@ struct SourceTypeSelectionView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    /// 跨平台 Icon: iOS 维持原本"白图标 + 彩色圆角方块"的填充观感;
+    /// macOS 用 SF Symbol + tinted 前景色的小图标,贴近 macOS Settings /
+    /// Music 的视觉密度,不再像移动端那样占一大块面积。
+    @ViewBuilder
+    private func sourceIcon(systemName: String, tint: Color) -> some View {
+        #if os(macOS)
+        Image(systemName: systemName)
+            .font(.body)
+            .foregroundStyle(tint)
+            .frame(width: 24, height: 24)
+        #else
+        Image(systemName: systemName)
+            .font(.title3)
+            .foregroundStyle(.white)
+            .frame(width: 36, height: 36)
+            .background(tint)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        #endif
     }
 }
 

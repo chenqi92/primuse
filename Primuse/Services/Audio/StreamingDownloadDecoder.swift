@@ -65,6 +65,17 @@ final class StreamingDownloadDecoder: Sendable {
                     let fileSize = (try? FileManager.default.attributesOfItem(atPath: tempPath)[.size] as? Int64) ?? 0
                     plog("🌊 StreamingDecoder: downloaded \(fileSize / 1024)KB in \(String(format: "%.1f", elapsed))s")
 
+                    // 调试用: 如果 SFBDecoder 抱怨格式不对,多半是 DSM 返回了
+                    // JSON/HTML 错误体而不是音频(SID 过期 / 路径错 / 权限不足
+                    // 等)。打头 80 字节,看到 "{" / "<!DOCTYPE" 一眼就知道。
+                    if fileSize < 4096 || fileSize > 0,
+                       let head = try? FileHandle(forReadingFrom: tempURL).read(upToCount: 80) {
+                        let preview = String(data: head, encoding: .utf8)?
+                            .replacingOccurrences(of: "\n", with: "\\n")
+                            ?? head.map { String(format: "%02x", $0) }.joined()
+                        plog("🌊 StreamingDecoder: head80=\(preview.prefix(120))")
+                    }
+
                     if Task.isCancelled { throw CancellationError() }
 
                     // Step 2: Decode using SFBAudioEngine (supports FLAC, APE, WV, TTA, DSD, etc.)

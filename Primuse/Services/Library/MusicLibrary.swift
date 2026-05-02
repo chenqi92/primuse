@@ -458,8 +458,18 @@ final class MusicLibrary {
         identities: [SongIdentity]? = nil
     ) {
         if let index = allPlaylists.firstIndex(where: { $0.id == playlist.id }) {
+            // Tombstone wins: 本地已软删除的歌单不允许被远端 alive 版本
+            // 复活,跟 SourcesStore.upsertFromRemote 保持同样的同步语义。
+            // 否则在另一台设备改动同名 playlist 时,modifiedAt 永远比这边
+            // 删除时刻新 → 反向覆盖,删了又拉回来。
+            let existing = allPlaylists[index]
+            if existing.isDeleted && !playlist.isDeleted {
+                return
+            }
             allPlaylists[index] = playlist
         } else {
+            // 远端拉到的就是 tombstone? 那本地也不要再创建出来了。
+            if playlist.isDeleted { return }
             allPlaylists.append(playlist)
         }
 
@@ -486,8 +496,14 @@ final class MusicLibrary {
         additionalIdentities: [SongIdentity]
     ) {
         if let index = allPlaylists.firstIndex(where: { $0.id == playlist.id }) {
+            // 同 applyRemotePlaylist: 本地墓碑不允许被远端 alive 版本复活。
+            let existing = allPlaylists[index]
+            if existing.isDeleted && !playlist.isDeleted {
+                return
+            }
             allPlaylists[index] = playlist
         } else {
+            if playlist.isDeleted { return }
             allPlaylists.append(playlist)
         }
 

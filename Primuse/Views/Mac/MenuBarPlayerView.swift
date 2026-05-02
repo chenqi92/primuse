@@ -10,6 +10,10 @@ struct MenuBarPlayerView: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(AudioEngine.self) private var engine
 
+    @AppStorage("desktopLyricsLocked") private var desktopLyricsLocked: Bool = false
+    @AppStorage("desktopLyricsVisible") private var desktopLyricsVisible: Bool = false
+    @AppStorage("menuBarShowTitle") private var menuBarShowTitle: Bool = true
+
     var body: some View {
         VStack(spacing: 14) {
             artwork
@@ -21,12 +25,34 @@ struct MenuBarPlayerView: View {
             Divider()
 
             Button {
-                (NSApp.delegate as? PrimuseAppDelegate)?.toggleDesktopLyrics()
+                PrimuseAppDelegate.shared?.toggleDesktopLyrics()
             } label: {
-                Label("show_desktop_lyrics", systemImage: "text.bubble")
+                Label(desktopLyricsVisible ? "hide_desktop_lyrics" : "show_desktop_lyrics",
+                      systemImage: "text.bubble")
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(.borderless)
+            .font(.caption)
+
+            // 桌面歌词锁定/解锁(穿透鼠标)。锁定后 panel 不接收事件,
+            // 解锁的唯一入口就在这里。
+            if desktopLyricsVisible {
+                Toggle(isOn: $desktopLyricsLocked) {
+                    Label(desktopLyricsLocked ? "desktop_lyrics_locked" : "desktop_lyrics_unlocked",
+                          systemImage: desktopLyricsLocked ? "lock.fill" : "lock.open")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .font(.caption)
+            }
+
+            Toggle(isOn: $menuBarShowTitle) {
+                Label("menu_bar_show_title", systemImage: "textformat")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .toggleStyle(.switch)
+            .controlSize(.mini)
             .font(.caption)
 
             HStack {

@@ -2,52 +2,82 @@
 import SwiftUI
 import PrimuseKit
 
-/// macOS-native metadata scraping pane. Uses a real `List` for the scraper
-/// sources so `.onMove` enables native drag-to-reorder, then drops the
-/// options + scrape-actions blocks underneath as separate GroupBoxes.
+/// macOS-native metadata scraping pane. Wraps the same content as before in a
+/// grouped Form so this tab matches the Apple-Music style of Playback /
+/// Audio Effects / iCloud Sync — bold section headers, system row chrome,
+/// helper text under each section. The drag-to-reorder list is embedded
+/// inside its own Section so users can still reorder priorities.
 struct MacMetadataScrapingView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(ScraperSettingsStore.self) private var scraperSettings
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("metadata_scraping_desc")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 4)
-
-            sourcesList
-
-            optionsBox
-            actionsBox
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    }
-
-    // MARK: - Sources (drag-to-reorder)
-
-    private var sourcesList: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label("scraper_sources", systemImage: "wand.and.stars")
-                .font(.headline)
-                .padding(.horizontal, 4)
-
-            List {
+        @Bindable var settings = scraperSettings
+        Form {
+            Section {
+                // List 不直接放在 Form 里(.onMove 在 grouped Form 里行为
+                // 怪异),用 ForEach 直接渲染条目,拖动顺序用 .onMove。
                 ForEach(scraperSettings.sources) { source in
                     scraperRow(source: source)
                 }
                 .onMove { offsets, dest in
                     scraperSettings.reorderSources(fromOffsets: offsets, toOffset: dest)
                 }
+            } header: {
+                Text("scraper_sources")
+            } footer: {
+                Text("metadata_scraping_desc")
             }
-            .listStyle(.inset)
-            .frame(minHeight: 240)
-            .scrollContentBackground(.hidden)
-            .background(.background.secondary, in: .rect(cornerRadius: 10))
+
+            Section {
+                Toggle("only_fill_missing", isOn: $settings.onlyFillMissingFields)
+
+                LabeledContent {
+                    Button(role: .destructive) {
+                        scraperSettings.resetToDefaults()
+                    } label: {
+                        Text("reset")
+                    }
+                } label: {
+                    Text("reset_scraper_defaults")
+                }
+            } header: {
+                Text("scraper_options")
+            }
+
+            Section {
+                if scraperService.isScraping {
+                    scrapingProgress
+                } else {
+                    HStack {
+                        Button {
+                            scraperService.scrapeMissingMetadata(in: library)
+                        } label: {
+                            Label("scrape_missing_metadata", systemImage: "sparkles")
+                        }
+                        .buttonStyle(.borderedProminent)
+
+                        Button {
+                            scraperService.rescrapeLibrary(in: library)
+                        } label: {
+                            Label("rescrape_library", systemImage: "arrow.clockwise")
+                        }
+                        .buttonStyle(.bordered)
+
+                        Spacer()
+                    }
+                }
+            } header: {
+                Text("scrape_actions")
+            } footer: {
+                Text("scrape_description")
+            }
         }
+        .formStyle(.grouped)
     }
+
+    // MARK: - Rows
 
     private func scraperRow(source: ScraperSourceConfig) -> some View {
         HStack(spacing: 10) {
@@ -68,62 +98,6 @@ struct MacMetadataScrapingView: View {
             .labelsHidden()
             .toggleStyle(.switch)
             .controlSize(.mini)
-        }
-        .padding(.vertical, 2)
-    }
-
-    // MARK: - Options
-
-    private var optionsBox: some View {
-        @Bindable var settings = scraperSettings
-        return GroupBox(label: Label("scraper_options", systemImage: "gearshape").font(.headline)) {
-            VStack(alignment: .leading, spacing: 10) {
-                Toggle("only_fill_missing", isOn: $settings.onlyFillMissingFields)
-                Divider()
-                HStack {
-                    Text("reset_scraper_defaults")
-                    Spacer()
-                    Button(role: .destructive) {
-                        scraperSettings.resetToDefaults()
-                    } label: {
-                        Text("reset")
-                    }
-                }
-            }
-            .padding(.vertical, 4)
-        }
-    }
-
-    // MARK: - Actions
-
-    private var actionsBox: some View {
-        GroupBox(label: Label("scrape_actions", systemImage: "arrow.triangle.2.circlepath").font(.headline)) {
-            if scraperService.isScraping {
-                scrapingProgress.padding(.vertical, 6)
-            } else {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("scrape_description")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    HStack {
-                        Button {
-                            scraperService.scrapeMissingMetadata(in: library)
-                        } label: {
-                            Label("scrape_missing_metadata", systemImage: "sparkles")
-                        }
-                        .buttonStyle(.borderedProminent)
-
-                        Button {
-                            scraperService.rescrapeLibrary(in: library)
-                        } label: {
-                            Label("rescrape_library", systemImage: "arrow.clockwise")
-                        }
-                        .buttonStyle(.bordered)
-                        Spacer()
-                    }
-                }
-                .padding(.vertical, 4)
-            }
         }
     }
 

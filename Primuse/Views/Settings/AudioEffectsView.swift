@@ -167,7 +167,11 @@ struct AudioEffectsView: View {
                 Text("compressor_desc")
             }
         }
+        #if os(macOS)
+        .formStyle(.grouped)
+        #else
         .navigationTitle("audio_effects")
         .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 }

@@ -13,6 +13,7 @@ struct MacContentView: View {
     @State private var selection: MacRoute = .home
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var nowPlayingPresented = false
+    @State private var queuePresented = false
     @State private var searchText = ""
 
     var body: some View {
@@ -42,8 +43,26 @@ struct MacContentView: View {
                     withAnimation(.easeInOut(duration: 0.25)) {
                         nowPlayingPresented.toggle()
                     }
+                },
+                onShowQueue: { queuePresented = true },
+                onMiniPlayer: {
+                    PrimuseAppDelegate.shared?.showMiniPlayer()
+                },
+                onFullScreen: {
+                    PrimuseAppDelegate.shared?.toggleFullScreenPlayer()
                 }
             )
+        }
+        .sheet(isPresented: $queuePresented) {
+            QueueView()
+                .frame(minWidth: 460, idealWidth: 520, minHeight: 480, idealHeight: 600)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .primuseRequestExpandNowPlaying)) { _ in
+            // 全屏请求由 AppDelegate 发出,这里把 NowPlaying 视图展开,
+            // 让全屏内容直接是播放器界面。
+            withAnimation(.easeInOut(duration: 0.25)) {
+                nowPlayingPresented = true
+            }
         }
     }
 }

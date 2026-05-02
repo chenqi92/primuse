@@ -9,11 +9,28 @@ enum KeychainService {
         // Delete any existing entry (both synchronizable and non-synchronizable variants).
         deletePassword(for: account)
 
-        // The `credentials` channel toggle decides whether new writes go to
-        // iCloud Keychain (synchronizable) or stay local. Past entries already
-        // on iCloud Keychain stay there — that's a system-level decision the
-        // user has to revisit in iOS Settings.
-        let synchronizable = CloudSyncChannel.isEnabled(.credentials)
+        // 优先尝试 synchronizable(走 iCloud Keychain),失败回退到本地 keychain。
+        // 沙盒 macOS 在用户没开 iCloud Keychain 时,synchronizable 写入会
+        // 返回 errSecParam/errSecMissingEntitlement,之前没有诊断 + 回退,
+        // 表现就是「密码看似保存了但下次读出来是空」→ 永远 400。
+        let preferSync = CloudSyncChannel.isEnabled(.credentials)
+
+        var status = errSecParam
+        if preferSync {
+            status = addItem(account: account, data: data, synchronizable: true)
+            if status != errSecSuccess {
+                plog("⚠️ Keychain setPassword (sync) status=\(status) — falling back to local")
+            }
+        }
+        if status != errSecSuccess {
+            status = addItem(account: account, data: data, synchronizable: false)
+            if status != errSecSuccess {
+                plog("⚠️ Keychain setPassword (local) status=\(status) account=\(account)")
+            }
+        }
+    }
+
+    private static func addItem(account: String, data: Data, synchronizable: Bool) -> OSStatus {
         let addQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: PrimuseConstants.keychainServiceName,
@@ -22,7 +39,7 @@ enum KeychainService {
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
             kSecAttrSynchronizable as String: synchronizable ? kCFBooleanTrue as Any : kCFBooleanFalse as Any,
         ]
-        SecItemAdd(addQuery as CFDictionary, nil)
+        return SecItemAdd(addQuery as CFDictionary, nil)
     }
 
     static func getPassword(for account: String) -> String? {
@@ -39,6 +56,11 @@ enum KeychainService {
         let status = SecItemCopyMatching(query as CFDictionary, &result)
 
         guard status == errSecSuccess, let data = result as? Data else {
+            // -25300 = item not found,这是正常情况(从未保存过),不打日志。
+            // 其他状态码代表权限/参数问题,值得记录。
+            if status != errSecItemNotFound {
+                plog("⚠️ Keychain getPassword status=\(status) account=\(account)")
+            }
             return nil
         }
 

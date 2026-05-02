@@ -88,6 +88,12 @@ struct ScrapeOptionsView: View {
                 }
             }
         }
+        #if os(macOS)
+        // 之前在 macOS 上裸 Form + 默认 sheet 大小,弹框被压成 ~520x420
+        // 渲染歪斜（标题挤、checkbox 间距怪、自动刮削那一行变成全宽 row）。
+        // 给 sheet 一个明确的 minSize,内容才能舒展开。
+        .frame(minWidth: 520, idealWidth: 580, minHeight: 460, idealHeight: 540)
+        #endif
     }
 
     // MARK: - Options (what to scrape)
@@ -104,6 +110,7 @@ struct ScrapeOptionsView: View {
                             Text(formatDuration(song.duration)).font(.caption2).foregroundStyle(Color.secondary.opacity(0.7))
                         }
                     }
+                    Spacer()
                 }
             }
 
@@ -113,8 +120,11 @@ struct ScrapeOptionsView: View {
                 Toggle("scrape_lyrics_toggle", isOn: $scrapeLyrics)
             }
 
+            // 自动刮削放在自己的 Section,不跟手动搜索挤一起 —— 之前两个
+             // Button 都在同一个 Section 里渲染,grouped Form 视觉上变成两个
+             // 紧邻的 row,看不清边界。各自一个 Section 让 macOS Form 在
+             // 两行之间画 6pt 分隔间距,层次清晰。
             Section {
-                // Auto scrape (preview before apply)
                 Button {
                     Task { await autoScrape() }
                 } label: {
@@ -122,21 +132,28 @@ struct ScrapeOptionsView: View {
                         Label("auto_scrape", systemImage: "wand.and.stars")
                             .fontWeight(.medium)
                         Spacer()
-                        if isScraping { ProgressView() }
+                        if isScraping { ProgressView().controlSize(.small) }
                     }
+                    .frame(maxWidth: .infinity)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
                 .disabled(isScraping || (!scrapeMetadata && !scrapeCover && !scrapeLyrics))
+            }
 
-                // Manual search
+            Section {
                 Button {
                     Task { await manualSearch() }
                 } label: {
                     HStack {
                         Label("manual_scrape", systemImage: "magnifyingglass")
                         Spacer()
-                        if isSearching { ProgressView() }
+                        if isSearching { ProgressView().controlSize(.small) }
                     }
+                    .frame(maxWidth: .infinity)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
                 .disabled(isSearching)
             }
 
@@ -147,6 +164,9 @@ struct ScrapeOptionsView: View {
                 }
             }
         }
+        #if os(macOS)
+        .formStyle(.grouped)
+        #endif
     }
 
     // MARK: - Preview (confirm before applying)
@@ -260,6 +280,9 @@ struct ScrapeOptionsView: View {
                 }
             }
         }
+        #if os(macOS)
+        .formStyle(.grouped)
+        #endif
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("apply_changes") {
@@ -368,11 +391,18 @@ struct ScrapeOptionsView: View {
                                 Text(item.source).font(.caption2).foregroundStyle(.green)
                             }
                         }
-                        .padding(.vertical, 2)
+                        .padding(.vertical, 6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
+                    .listRowSeparator(.visible)
                 }
             }
         }
+        #if os(macOS)
+        .listStyle(.inset)
+        #endif
         .searchable(text: $manualSearchQuery, prompt: Text("search_query"))
         .onSubmit(of: .search) {
             Task { await performManualSearch() }

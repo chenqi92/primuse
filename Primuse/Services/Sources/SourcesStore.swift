@@ -164,13 +164,26 @@ final class SourcesStore {
     /// on the conflict path); the fetch path was the missing half.
     func upsertFromRemote(_ remote: MusicSource) {
         if let existing = allSources.first(where: { $0.id == remote.id }) {
-            // Soft-delete intent must outrank a remote payload that
-            // doesn't know about the deletion. Without this, a stale
-            // server-side record would resurrect a source the user
-            // already deleted. Compare modifiedAt to allow remote
-            // re-create if the user genuinely re-added the source on
-            // another device after deleting here.
-            if existing.isDeleted, existing.modifiedAt >= remote.modifiedAt {
+            // 墓碑胜出 (tombstone wins) —— 一旦本地把源删了,就当作用户
+            // 的明确意图,远端任何「alive」更新都不能让它复活。
+            // 之前用 modifiedAt 比,但 iOS 端如果还在用这个源（扫描时
+            // 更新 songCount 就会 bump modifiedAt),它的更新永远比
+            // Mac 上的删除时刻新,导致每次 fetch 都把删的源拉回来。
+            //
+            // 标准做法 (Apple Notes / Reminders): 软删除的 30 天恢复
+            // 窗口内,墓碑无条件胜出。用户真的想再加同一个源,会通过
+            // AddSource 流程产生一条新 record(新 id),不靠"复用旧 id"。
+            if existing.isDeleted && !remote.isDeleted {
+                return
+            }
+            // 远端也是墓碑 → 用更新的那个时间戳合并 deletedAt,确保
+            // 30 天窗口在所有设备上一致。
+            if existing.isDeleted && remote.isDeleted {
+                if remote.modifiedAt > existing.modifiedAt,
+                   let index = allSources.firstIndex(where: { $0.id == remote.id }) {
+                    allSources[index] = remote
+                    persist()
+                }
                 return
             }
             if existing.modifiedAt > remote.modifiedAt {

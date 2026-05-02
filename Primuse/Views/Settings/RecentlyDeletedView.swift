@@ -12,8 +12,12 @@ struct RecentlyDeletedView: View {
             sourcesSection
             scraperConfigsSection
         }
+        #if os(macOS)
+        .formStyle(.grouped)
+        #else
         .navigationTitle("recently_deleted")
         .navigationBarTitleDisplayMode(.inline)
+        #endif
         .overlay {
             if library.recentlyDeletedPlaylists.isEmpty
                 && sourcesStore.recentlyDeletedSources.isEmpty
@@ -118,7 +122,29 @@ struct RecentlyDeletedView: View {
                 }
             }
             Spacer()
+            // macOS 没法 swipe,inline 给两个按钮(恢复 / 彻底删除)。
+            // iOS 维持 swipeActions,行内不再插按钮以免和滑动冲突。
+            #if os(macOS)
+            Button {
+                restore()
+            } label: {
+                Label("restore", systemImage: "arrow.uturn.backward")
+                    .labelStyle(.iconOnly)
+            }
+            .buttonStyle(.borderless)
+            .help(Text("restore"))
+
+            Button(role: .destructive) {
+                purge()
+            } label: {
+                Label("delete_permanently", systemImage: "trash")
+                    .labelStyle(.iconOnly)
+            }
+            .buttonStyle(.borderless)
+            .help(Text("delete_permanently"))
+            #endif
         }
+        #if os(iOS)
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button(role: .destructive) { purge() } label: {
                 Label("delete_permanently", systemImage: "trash.fill")
@@ -128,6 +154,7 @@ struct RecentlyDeletedView: View {
             }
             .tint(.blue)
         }
+        #endif
     }
 
     private func daysRemaining(from deletedAt: Date) -> String {

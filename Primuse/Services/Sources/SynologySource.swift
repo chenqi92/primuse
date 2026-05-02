@@ -34,7 +34,7 @@ actor SynologySource: MusicSourceConnector {
         guard await api.isLoggedIn == false else { return }
         let result = await api.login(
             account: username, password: password,
-            deviceName: rememberDevice ? "Primuse-iOS" : nil,
+            deviceName: rememberDevice ? AppConstants.trustedDeviceName : nil,
             deviceId: deviceId
         )
         guard result.success else {

@@ -112,6 +112,52 @@ final class AudioEngine {
         isPlaying = false
     }
 
+    // MARK: - Output device routing (macOS only)
+
+    #if os(macOS)
+    /// 把这个 app 的音频输出切到指定的 Core Audio 设备。系统默认输出
+    /// 不变 —— 这只影响 Primuse 自己。设备 ID 来自 AudioOutputDeviceManager,
+    /// 通常对应内置扬声器、AirPlay 接收器(HomePod / Apple TV)、蓝牙
+    /// 耳机等。设备拔掉后会自动回退到系统默认。
+    func setOutputDevice(deviceID: AudioDeviceID) throws {
+        try setUp()
+        guard let engine else { return }
+        let outputUnit = engine.outputNode.audioUnit
+        guard let outputUnit else { return }
+
+        var id = deviceID
+        let status = AudioUnitSetProperty(
+            outputUnit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &id,
+            UInt32(MemoryLayout<AudioDeviceID>.size)
+        )
+        if status != noErr {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status), userInfo: [
+                NSLocalizedDescriptionKey: "Failed to set output device (status=\(status))"
+            ])
+        }
+    }
+
+    /// 取当前 audio unit 在用的设备 ID,用于在 picker 里高亮当前选中项。
+    var currentOutputDeviceID: AudioDeviceID? {
+        guard let engine, let outputUnit = engine.outputNode.audioUnit else { return nil }
+        var id: AudioDeviceID = 0
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = AudioUnitGetProperty(
+            outputUnit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &id,
+            &size
+        )
+        return status == noErr ? id : nil
+    }
+    #endif
+
     // MARK: - Buffer Scheduling (Primary Node)
 
     func scheduleBuffer(_ buffer: AVAudioPCMBuffer) {

@@ -474,8 +474,15 @@ struct PlaybackSettingsView: View {
             }
 
         }
+        #if os(macOS)
+        // macOS Settings 已经把 tab 标题画在窗口顶部,navigationTitle 在
+        // 这里既看不见也会让 SwiftUI 警告。Form 用 grouped 样式才像
+        // System Settings,跟 EqualizerView / AudioEffectsView 保持一致。
+        .formStyle(.grouped)
+        #else
         .navigationTitle("playback_settings")
         .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 }
 

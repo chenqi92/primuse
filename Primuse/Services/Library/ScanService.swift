@@ -256,7 +256,7 @@ final class ScanService {
             let loginResult = await api.login(
                 account: source.username ?? "",
                 password: password,
-                deviceName: source.rememberDevice ? "Primuse-iOS" : nil,
+                deviceName: source.rememberDevice ? AppConstants.trustedDeviceName : nil,
                 deviceId: source.deviceId
             )
 

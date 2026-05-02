@@ -1,71 +1,69 @@
 #if os(macOS)
 import SwiftUI
 
-/// macOS-native trusted domains pane. Replaces the iOS list-with-swipe
-/// approach with a `Table` (multi-select + delete via context menu / button)
-/// and a standard plus button on the toolbar of the table.
+/// macOS-native trusted domains pane. Apple-Music style grouped Form —
+/// section with domains as rows (each with an inline delete), section
+/// footer with help text, and a single + button at the top of the
+/// section header. Replaces the standalone Table + bottom button bar so
+/// the visual matches Playback / iCloud Sync etc.
 struct MacTrustedDomainsView: View {
-    private struct Row: Identifiable, Hashable {
-        let id: String   // domain itself doubles as id
-    }
-
     @State private var newDomain = ""
     @State private var showAddSheet = false
-    @State private var selection = Set<String>()
     /// Bumped after every mutation so SwiftUI re-reads the singleton store.
     @State private var refreshTick: Int = 0
 
-    private var domains: [Row] {
+    private var domains: [String] {
         _ = refreshTick
-        return SSLTrustStore.shared.trustedDomains.map(Row.init)
+        return SSLTrustStore.shared.trustedDomains
     }
-    private var hasDomains: Bool { !SSLTrustStore.shared.trustedDomains.isEmpty }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("trusted_domains_desc")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            Table(domains, selection: $selection) {
-                TableColumn(String(localized: "domain")) { row in
-                    Text(row.id).monospaced()
-                }
-            }
-            .frame(minHeight: 240)
-            .overlay {
-                if !hasDomains {
-                    ContentUnavailableView {
-                        Label("no_trusted_domains", systemImage: "lock.shield")
-                    } description: {
-                        Text("trusted_domains_desc").font(.callout)
+        Form {
+            Section {
+                if domains.isEmpty {
+                    HStack {
+                        Text("no_trusted_domains")
+                            .foregroundStyle(.secondary)
+                            .font(.callout)
+                        Spacer()
+                    }
+                } else {
+                    ForEach(domains, id: \.self) { domain in
+                        HStack {
+                            Image(systemName: "lock.shield")
+                                .foregroundStyle(.tint)
+                                .frame(width: 22)
+                            Text(domain).monospaced()
+                            Spacer()
+                            Button(role: .destructive) {
+                                untrust(domain)
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .buttonStyle(.borderless)
+                            .help(Text("delete"))
+                        }
                     }
                 }
-            }
-
-            HStack(spacing: 8) {
-                Button {
-                    newDomain = ""
-                    showAddSheet = true
-                } label: {
-                    Label("add", systemImage: "plus")
+            } header: {
+                HStack {
+                    Text("trusted_domains")
+                    Spacer()
+                    Button {
+                        newDomain = ""
+                        showAddSheet = true
+                    } label: {
+                        Label("add", systemImage: "plus")
+                            .labelStyle(.iconOnly)
+                    }
+                    .buttonStyle(.borderless)
+                    .help(Text("add_trusted_domain"))
                 }
-                .controlSize(.regular)
-
-                Button(role: .destructive) {
-                    deleteSelected()
-                } label: {
-                    Label("delete", systemImage: "minus")
-                }
-                .controlSize(.regular)
-                .disabled(selection.isEmpty)
-
-                Spacer()
+            } footer: {
+                Text("trusted_domains_desc")
             }
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .formStyle(.grouped)
         .sheet(isPresented: $showAddSheet) { addSheet }
     }
 
@@ -107,11 +105,8 @@ struct MacTrustedDomainsView: View {
         refreshTick &+= 1
     }
 
-    private func deleteSelected() {
-        for domain in selection {
-            SSLTrustStore.shared.untrust(domain: domain)
-        }
-        selection.removeAll()
+    private func untrust(_ domain: String) {
+        SSLTrustStore.shared.untrust(domain: domain)
         refreshTick &+= 1
     }
 }
