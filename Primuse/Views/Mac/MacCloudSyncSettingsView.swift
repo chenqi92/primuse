@@ -18,10 +18,11 @@ struct MacCloudSyncSettingsView: View {
 
     var body: some View {
         ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 14) {
                 Text("icloud_sync_footer")
                     .font(.callout)
                     .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
 
                 masterToggle
 
@@ -32,6 +33,7 @@ struct MacCloudSyncSettingsView: View {
                     Text("synced_items_footer")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 4)
                 }
             }
             .padding(20)
@@ -59,19 +61,14 @@ struct MacCloudSyncSettingsView: View {
         GroupBox(label: Label("icloud_sync_status", systemImage: "antenna.radiowaves.left.and.right")
             .font(.headline)
         ) {
-            VStack(alignment: .leading, spacing: 10) {
-                LabeledContent {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline) {
                     statusLabel
-                } label: {
-                    Text("status")
-                }
-
-                if let lastSyncedAt = sync.lastSyncedAt {
-                    LabeledContent {
+                    Spacer()
+                    if let lastSyncedAt = sync.lastSyncedAt {
                         Text(lastSyncedAt.formatted(.relative(presentation: .named)))
+                            .font(.caption)
                             .foregroundStyle(.secondary)
-                    } label: {
-                        Text("last_synced")
                     }
                 }
 
@@ -118,7 +115,7 @@ struct MacCloudSyncSettingsView: View {
         GroupBox(label: Label("synced_items", systemImage: "checkmark.icloud")
             .font(.headline)
         ) {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 14) {
                 channelToggle("synced_playlists",
                               systemImage: "music.note.list",
                               isOn: $syncPlaylists,
@@ -140,7 +137,7 @@ struct MacCloudSyncSettingsView: View {
                               isOn: $syncCredentials,
                               channel: .credentials)
             }
-            .padding(.vertical, 4)
+            .padding(.vertical, 6)
         }
     }
 
@@ -187,7 +184,7 @@ struct MacCloudSyncSettingsView: View {
             Label(titleKey, systemImage: systemImage)
         }
         .toggleStyle(.switch)
-        .controlSize(.mini)
+        .controlSize(.small)
         .disabled(!enabled)
         .onChange(of: isOn.wrappedValue) { _, newValue in
             guard newValue, enabled else { return }

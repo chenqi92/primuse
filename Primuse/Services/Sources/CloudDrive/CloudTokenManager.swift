@@ -30,14 +30,24 @@ actor CloudTokenManager {
     func getTokens() -> Tokens? {
         guard let data = keychainRead(key: "cloud_tokens_\(sourceID)"),
               let tokens = try? JSONDecoder().decode(Tokens.self, from: data) else {
+            plog("☁️ Keychain getTokens MISS sourceID=\(sourceID)")
             return nil
         }
+        plog("☁️ Keychain getTokens HIT sourceID=\(sourceID) accessTokenLen=\(tokens.accessToken.count) hasRefresh=\(tokens.refreshToken != nil)")
         return tokens
     }
 
     func saveTokens(_ tokens: Tokens) {
         guard let data = try? JSONEncoder().encode(tokens) else { return }
-        keychainWrite(key: "cloud_tokens_\(sourceID)", data: data)
+        let ok = keychainWrite(key: "cloud_tokens_\(sourceID)", data: data)
+        plog("☁️ Keychain saveTokens sourceID=\(sourceID) bytes=\(data.count) ok=\(ok)")
+        if !ok {
+            // Fallback: try writing as a local-only (non-synchronizable) item.
+            // Sandboxed macOS apps without an explicit keychain-access-group
+            // can fail on synchronizable adds with errSecMissingEntitlement.
+            let okLocal = keychainWriteLocal(key: "cloud_tokens_\(sourceID)", data: data)
+            plog("☁️ Keychain saveTokens FALLBACK local-only sourceID=\(sourceID) ok=\(okLocal)")
+        }
     }
 
     func deleteTokens() {
@@ -89,7 +99,12 @@ actor CloudTokenManager {
         return result as? Data
     }
 
-    private func keychainWrite(key: String, data: Data) {
+    /// Returns true on success, false otherwise. Logs the underlying
+    /// `OSStatus` so failures (most often `errSecMissingEntitlement` /
+    /// -34018 on a sandboxed macOS app trying to write a synchronizable
+    /// item) are visible during diagnosis.
+    @discardableResult
+    private func keychainWrite(key: String, data: Data) -> Bool {
         keychainDelete(key: key) // Remove existing (both sync and non-sync variants)
         let synchronizable = CloudSyncChannel.isEnabled(.credentials)
         let query: [String: Any] = [
@@ -100,7 +115,31 @@ actor CloudTokenManager {
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
             kSecAttrSynchronizable as String: synchronizable ? kCFBooleanTrue as Any : kCFBooleanFalse as Any,
         ]
-        SecItemAdd(query as CFDictionary, nil)
+        let status = SecItemAdd(query as CFDictionary, nil)
+        if status != errSecSuccess {
+            plog("☁️ Keychain SecItemAdd FAIL key=\(key) status=\(status) synchronizable=\(synchronizable)")
+        }
+        return status == errSecSuccess
+    }
+
+    /// Local-only fallback for when a synchronizable write fails (often the
+    /// case on sandboxed macOS apps without `keychain-access-groups`).
+    @discardableResult
+    private func keychainWriteLocal(key: String, data: Data) -> Bool {
+        keychainDelete(key: key)
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: key,
+            kSecAttrService as String: Self.serviceName,
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+            kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
+        ]
+        let status = SecItemAdd(query as CFDictionary, nil)
+        if status != errSecSuccess {
+            plog("☁️ Keychain SecItemAdd LOCAL FAIL key=\(key) status=\(status)")
+        }
+        return status == errSecSuccess
     }
 
     private func keychainDelete(key: String) {

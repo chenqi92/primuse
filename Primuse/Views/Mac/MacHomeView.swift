@@ -31,7 +31,10 @@ struct MacHomeView: View {
                 }
             }
             .padding(.horizontal, 32)
-            .padding(.vertical, 28)
+            .padding(.top, 28)
+            // Mini bar (~76pt) sits in the bottom safe area inset; pad
+            // generously so the last row doesn't tuck under it.
+            .padding(.bottom, 96)
         }
     }
 

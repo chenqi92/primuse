@@ -734,13 +734,18 @@ struct SongInfoSheet: View {
                 }
             }
             .navigationTitle(String(localized: "song_info"))
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .confirmationAction) {
                     Button(String(localized: "done")) { dismiss() }
                 }
             }
         }
+        #if os(macOS)
+        .frame(minWidth: 420, idealWidth: 460, minHeight: 480, idealHeight: 540)
+        #endif
     }
 
     private func infoRow(_ label: String, _ value: String) -> some View {

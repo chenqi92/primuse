@@ -65,6 +65,7 @@ struct SongListView: View {
                                 Text(order.label).tag(order)
                             }
                         }
+                        .pickerStyle(.inline)
                     } label: {
                         Image(systemName: "arrow.up.arrow.down")
                     }

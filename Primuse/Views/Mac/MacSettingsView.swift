@@ -44,6 +44,7 @@ struct MacSettingsView: View {
                 .tag(Tab.sync)
 
             RecentlyDeletedView()
+                .frame(minWidth: 720, minHeight: 520)
                 .tabItem { Label("recently_deleted", systemImage: "trash") }
                 .tag(Tab.recentlyDeleted)
 
