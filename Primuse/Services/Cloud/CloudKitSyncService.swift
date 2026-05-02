@@ -628,10 +628,13 @@ final class CloudKitSyncService {
         let coverArtPath = record["coverArtPath"] as? String
         let songIDs = (record["songIDs"] as? [String]) ?? []
         let identities = decodeIdentities(record[Self.songIdentitiesField] as? Data)
-        let resolved = resolveSongIDs(songIDs: songIDs, identities: identities)
+        // Hand the raw payload to the library; it owns the 3-tier resolver
+        // and stashes anything that doesn't match yet as pending so a later
+        // scan can fill it in.
         library.applyRemotePlaylist(
             Playlist(id: id, name: name, createdAt: createdAt, updatedAt: updatedAt, coverArtPath: coverArtPath),
-            songIDs: resolved
+            songIDs: songIDs,
+            identities: identities
         )
     }
 
@@ -714,8 +717,7 @@ final class CloudKitSyncService {
     private func applyPlaybackHistoryRecord(_ record: CKRecord) {
         guard let songIDs = record["songIDs"] as? [String] else { return }
         let identities = decodeIdentities(record[Self.songIdentitiesField] as? Data)
-        let resolved = resolveSongIDs(songIDs: songIDs, identities: identities)
-        library.applyRemotePlaybackHistory(songIDs: resolved)
+        library.applyRemotePlaybackHistory(songIDs: songIDs, identities: identities)
     }
 
     // MARK: - Song identity / cross-device resolution
@@ -754,48 +756,10 @@ final class CloudKitSyncService {
         return try? JSONDecoder().decode([SongIdentity].self, from: data)
     }
 
-    /// Map a synced playlist/history payload to local song IDs.
-    /// Old records (no identities) preserve original behaviour — push the
-    /// raw IDs through and let `songs(forPlaylist:)` filter them at
-    /// display time. New records walk the 3-tier resolver and drop
-    /// entries that have no local match (re-fetching the record after a
-    /// scan completes will pick them up).
-    private func resolveSongIDs(songIDs: [String], identities: [SongIdentity]?) -> [String] {
-        guard let identities, !identities.isEmpty else { return songIDs }
-        return identities.compactMap(resolveLocalSongID(from:))
-    }
-
-    private func resolveLocalSongID(from identity: SongIdentity) -> String? {
-        // Tier 1: same Song.id locally — same mount on both devices, or
-        // raw ID happened to line up.
-        if library.song(id: identity.songID) != nil { return identity.songID }
-        // Tier 2: stable cloud account + file path. CloudAccount.id is
-        // SHA256(provider + accountUID), so the same Baidu / Aliyun /
-        // Dropbox / OneDrive / Google Drive account ties the two devices'
-        // mounts together even though their MusicSource UUIDs differ.
-        if let acc = identity.cloudAccountID, !identity.filePath.isEmpty {
-            let mountIDs = Set(sourcesStore.sources.filter { $0.cloudAccountID == acc }.map(\.id))
-            if !mountIDs.isEmpty,
-               let s = library.songs.first(where: {
-                   mountIDs.contains($0.sourceID) && $0.filePath == identity.filePath
-               }) {
-                return s.id
-            }
-        }
-        // Tier 3: title + duration (+ artist if we have one). Last-resort
-        // for NAS / FTP / SMB / WebDAV / local where identity is host-
-        // bound and the user manually re-mounted on the second device.
-        if !identity.title.isEmpty {
-            if let s = library.songs.first(where: {
-                $0.title == identity.title
-                && abs($0.duration - identity.duration) < 1.0
-                && (identity.artistName == nil || $0.artistName == identity.artistName)
-            }) {
-                return s.id
-            }
-        }
-        return nil
-    }
+    // The cross-device 3-tier resolver lives on `MusicLibrary` — it
+    // owns the songs collection, can use `sourceIdentityResolver` to map
+    // a song's mount UUID back to a stable cloud account, and persists
+    // unresolved identities as pending so a later scan can fill them in.
 }
 
 // MARK: - CKSyncEngineDelegate
@@ -950,21 +914,9 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
     private func mergePlaylistRecord(local: CKRecord, server: CKRecord) {
         guard let id = parseLocalID(from: server.recordID, recordType: RecordType.playlist) else { return }
 
-        // Union of both song lists, preserving local order first then any new
-        // server-only IDs. Stable ordering keeps the UI from jumping around.
-        // Server-side IDs flow through the cross-device resolver (when the
-        // record carries identities) so a different mount UUID doesn't drop
-        // matches that should logically be the same track.
         let localIDs = (local["songIDs"] as? [String]) ?? []
-        let serverIDs: [String] = {
-            let identities = decodeIdentities(server[Self.songIdentitiesField] as? Data)
-            return resolveSongIDs(
-                songIDs: (server["songIDs"] as? [String]) ?? [],
-                identities: identities
-            )
-        }()
-        var seen = Set<String>()
-        let mergedIDs = (localIDs + serverIDs).filter { seen.insert($0).inserted }
+        let serverIdentities = decodeIdentities(server[Self.songIdentitiesField] as? Data)
+        let serverIDs = (server["songIDs"] as? [String]) ?? []
 
         let localUpdated = (local["updatedAt"] as? Date) ?? .distantPast
         let serverUpdated = (server["updatedAt"] as? Date) ?? .distantPast
@@ -974,36 +926,50 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
         let createdAt = (server["createdAt"] as? Date) ?? Date()
         let coverArtPath = (useLocalScalars ? local["coverArtPath"] : server["coverArtPath"]) as? String
         let updatedAt = max(localUpdated, serverUpdated)
+        let mergedPlaylist = Playlist(
+            id: id, name: name,
+            createdAt: createdAt, updatedAt: updatedAt,
+            coverArtPath: coverArtPath
+        )
 
         applyRemoteEnvelope {
-            library.applyRemotePlaylist(
-                Playlist(
-                    id: id,
-                    name: name,
-                    createdAt: createdAt,
-                    updatedAt: updatedAt,
-                    coverArtPath: coverArtPath
-                ),
-                songIDs: mergedIDs
-            )
+            if let serverIdentities {
+                // Identity-aware merge: server entries that resolve are
+                // unioned in; entries that don't go to pending so a later
+                // local scan can fill them. localIDs preserved as the
+                // base list (already resolved on this device).
+                library.mergeRemotePlaylist(
+                    mergedPlaylist,
+                    baseSongIDs: localIDs,
+                    additionalIdentities: serverIdentities
+                )
+            } else {
+                // Legacy record without identities — naive ID union.
+                var seen = Set<String>()
+                let mergedIDs = (localIDs + serverIDs).filter { seen.insert($0).inserted }
+                library.applyRemotePlaylist(mergedPlaylist, songIDs: mergedIDs)
+            }
         }
     }
 
     @MainActor
     private func mergePlaybackHistoryRecord(local: CKRecord, server: CKRecord) {
         let localIDs = (local["songIDs"] as? [String]) ?? []
-        let serverIDs: [String] = {
-            let identities = decodeIdentities(server[Self.songIdentitiesField] as? Data)
-            return resolveSongIDs(
-                songIDs: (server["songIDs"] as? [String]) ?? [],
-                identities: identities
-            )
-        }()
-        var seen = Set<String>()
-        let merged = (localIDs + serverIDs).filter { seen.insert($0).inserted }
-        let capped = Array(merged.prefix(100))
+        let serverIdentities = decodeIdentities(server[Self.songIdentitiesField] as? Data)
+        let serverIDs = (server["songIDs"] as? [String]) ?? []
+
         applyRemoteEnvelope {
-            library.applyRemotePlaybackHistory(songIDs: capped)
+            if let serverIdentities {
+                library.mergeRemotePlaybackHistory(
+                    baseSongIDs: localIDs,
+                    additionalIdentities: serverIdentities
+                )
+            } else {
+                var seen = Set<String>()
+                let merged = (localIDs + serverIDs).filter { seen.insert($0).inserted }
+                let capped = Array(merged.prefix(100))
+                library.applyRemotePlaybackHistory(songIDs: capped)
+            }
         }
     }
 

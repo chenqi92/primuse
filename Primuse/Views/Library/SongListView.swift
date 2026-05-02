@@ -76,19 +76,49 @@ struct SongListView: View {
         }
     }
 
-    /// Decide whether `songs` changed structurally (added/removed) or only
-    /// in metadata (backfill replaced a Song in place). Only the structural
-    /// case warrants a re-sort.
+    /// Decide whether `songs` changed structurally (added/removed), in
+    /// metadata that affects the active sort field, or in metadata that
+    /// doesn't. Only the first two warrant a re-sort:
+    ///
+    /// - ID set changed → re-sort.
+    /// - ID set same, but at least one row's `sortKey` changed (e.g.
+    ///   backfill filled in a previously-empty title while sorted by
+    ///   title) → re-sort, otherwise the visible order would silently
+    ///   diverge from the chosen sort.
+    /// - ID set same, no sortKey changes → in-place patch, preserving
+    ///   order to avoid an O(N log N) localizedCompare on every
+    ///   backfill tick.
     private func updateSortedSongsIfNeeded() {
         let newIDSet = Set(songs.map(\.id))
-        if newIDSet == lastSortedIDSet {
-            // Same set of songs, just metadata updates — patch in place,
-            // preserving the user's current sort order. New title / artist
-            // / duration values flow into rows without a full re-sort.
-            let byID = Dictionary(uniqueKeysWithValues: songs.map { ($0.id, $0) })
-            cachedSortedSongs = cachedSortedSongs.compactMap { byID[$0.id] }
-        } else {
+        guard newIDSet == lastSortedIDSet else {
             recomputeSorted()
+            return
+        }
+        let byID = Dictionary(uniqueKeysWithValues: songs.map { ($0.id, $0) })
+        let sortKeyChanged = cachedSortedSongs.contains { old in
+            guard let new = byID[old.id] else { return false }
+            return sortKey(for: new) != sortKey(for: old)
+        }
+        if sortKeyChanged {
+            recomputeSorted()
+        } else {
+            cachedSortedSongs = cachedSortedSongs.compactMap { byID[$0.id] }
+        }
+    }
+
+    /// The string representation of whichever song field drives the
+    /// active sort. Compared to detect when an in-place metadata update
+    /// invalidates the cached order. `.dateAdded` and `.format` rarely
+    /// change after creation, so those sorts almost always stay on the
+    /// fast path; `.title` / `.artist` / `.album` re-sort during
+    /// backfill, which is exactly the correctness boundary we want.
+    private func sortKey(for song: Song) -> String {
+        switch sortOrder {
+        case .title: return song.title
+        case .artist: return song.artistName ?? ""
+        case .album: return song.albumTitle ?? ""
+        case .dateAdded: return String(song.dateAdded.timeIntervalSince1970)
+        case .format: return song.fileFormat.displayName
         }
     }
 
