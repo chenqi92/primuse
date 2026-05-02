@@ -4,6 +4,8 @@ import PrimuseKit
 struct AlbumDetailView: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
+    @Environment(SourcesStore.self) private var sourcesStore
+    @Environment(MetadataBackfillService.self) private var backfill
     let album: Album
 
     private var songs: [Song] {
@@ -66,7 +68,8 @@ struct AlbumDetailView: View {
                         SongRowView(
                             song: song,
                             isPlaying: player.currentSong?.id == song.id,
-                            showAlbum: false
+                            showAlbum: false,
+                            context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
                         )
                         .padding(.horizontal)
                         .padding(.vertical, 8)

@@ -3,9 +3,18 @@ import PrimuseKit
 
 struct SongListView: View {
     @Environment(AudioPlayerService.self) private var player
+    @Environment(SourcesStore.self) private var sourcesStore
+    @Environment(MetadataBackfillService.self) private var backfill
     let songs: [Song]
     @State private var sortOrder: SongSortOrder = .title
     @State private var cachedSortedSongs: [Song] = []
+    /// ID set the cached order was built from. When `songs` changes by
+    /// metadata only (backfill filling in title/duration on existing IDs)
+    /// we update each row in-place instead of re-running localizedCompare
+    /// across the whole list. Without this, every backfilled track would
+    /// trigger an O(N log N) re-sort on the main thread, and a 1k-song
+    /// list mid-scan would be visibly stuttery.
+    @State private var lastSortedIDSet: Set<String> = []
 
     enum SongSortOrder: String, CaseIterable {
         case title, artist, album, dateAdded, format
@@ -36,7 +45,12 @@ struct SongListView: View {
                     } label: {
                         SongRowView(
                             song: song,
-                            isPlaying: player.currentSong?.id == song.id
+                            isPlaying: player.currentSong?.id == song.id,
+                            context: SongRowView.context(
+                                for: song,
+                                sourcesStore: sourcesStore,
+                                backfill: backfill
+                            )
                         )
                     }
                     .buttonStyle(.plain)
@@ -58,7 +72,23 @@ struct SongListView: View {
             }
             .onAppear { recomputeSorted() }
             .onChange(of: sortOrder) { _, _ in recomputeSorted() }
-            .onChange(of: songs) { _, _ in recomputeSorted() }
+            .onChange(of: songs) { _, _ in updateSortedSongsIfNeeded() }
+        }
+    }
+
+    /// Decide whether `songs` changed structurally (added/removed) or only
+    /// in metadata (backfill replaced a Song in place). Only the structural
+    /// case warrants a re-sort.
+    private func updateSortedSongsIfNeeded() {
+        let newIDSet = Set(songs.map(\.id))
+        if newIDSet == lastSortedIDSet {
+            // Same set of songs, just metadata updates — patch in place,
+            // preserving the user's current sort order. New title / artist
+            // / duration values flow into rows without a full re-sort.
+            let byID = Dictionary(uniqueKeysWithValues: songs.map { ($0.id, $0) })
+            cachedSortedSongs = cachedSortedSongs.compactMap { byID[$0.id] }
+        } else {
+            recomputeSorted()
         }
     }
 
@@ -75,6 +105,7 @@ struct SongListView: View {
         case .format:
             cachedSortedSongs = songs.sorted { $0.fileFormat.displayName < $1.fileFormat.displayName }
         }
+        lastSortedIDSet = Set(cachedSortedSongs.map(\.id))
     }
 
     private func playSong(_ song: Song) {

@@ -7,6 +7,8 @@ struct SearchView: View {
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
+    @Environment(SourcesStore.self) private var sourcesStore
+    @Environment(MetadataBackfillService.self) private var backfill
     @Binding var searchText: String
     @State private var searchResults: [Song] = []
     @State private var recentSearches: [String] = []
@@ -120,7 +122,8 @@ struct SearchView: View {
                 ForEach(searchResults.prefix(30)) { song in
                     SongRowView(
                         song: song,
-                        isPlaying: player.currentSong?.id == song.id
+                        isPlaying: player.currentSong?.id == song.id,
+                        context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
                     )
                     .contentShape(Rectangle())
                     .onTapGesture { playSong(song) }

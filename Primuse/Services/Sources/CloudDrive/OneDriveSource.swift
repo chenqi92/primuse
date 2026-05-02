@@ -106,8 +106,29 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource {
     }
 
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
-        // OneDrive returns a short-lived pre-authenticated downloadUrl per item.
-        // Range requests against that URL don't need our Bearer token.
+        // OneDrive returns a short-lived pre-authenticated downloadUrl per
+        // item. Range requests against that URL don't need our Bearer token.
+        // Cache it for ~50min (Microsoft documents 1h validity, leave margin).
+        let fileURL = try await getDownloadURL(for: path)
+        do {
+            return try await helper.rangeRequest(url: fileURL, offset: offset, length: length)
+        } catch CloudDriveError.apiError(let code, _) where code == 401 || code == 403 || code == 410 {
+            // URL expired between cache and use — invalidate and retry once.
+            invalidateDownloadURL(for: path)
+            let fresh = try await getDownloadURL(for: path)
+            return try await helper.rangeRequest(url: fresh, offset: offset, length: length)
+        }
+    }
+
+    private var downloadURLCache: [String: (url: URL, expiresAt: Date)] = [:]
+    /// Microsoft documents `@microsoft.graph.downloadUrl` as valid for ~1
+    /// hour. Use 50min to leave a safety margin against clock skew.
+    private static let downloadURLTTL: TimeInterval = 50 * 60
+
+    private func getDownloadURL(for path: String) async throws -> URL {
+        if let cached = downloadURLCache[path], cached.expiresAt > Date() {
+            return cached.url
+        }
         let token = try await getToken()
         let (data, http) = try await helper.makeAuthorizedRequest(url: URL(string: "\(Self.graphBase)/me/drive/items/\(path)")!, accessToken: token)
         guard http.statusCode == 200 else { throw CloudDriveError.apiError(http.statusCode, "Item not found") }
@@ -116,7 +137,12 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource {
               let fileURL = URL(string: downloadUrl) else {
             throw CloudDriveError.fileNotFound(path)
         }
-        return try await helper.rangeRequest(url: fileURL, offset: offset, length: length)
+        downloadURLCache[path] = (fileURL, Date().addingTimeInterval(Self.downloadURLTTL))
+        return fileURL
+    }
+
+    private func invalidateDownloadURL(for path: String) {
+        downloadURLCache.removeValue(forKey: path)
     }
 
     private func getToken() async throws -> String {

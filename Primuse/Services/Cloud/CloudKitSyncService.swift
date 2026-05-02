@@ -609,7 +609,14 @@ final class CloudKitSyncService {
         record["createdAt"] = playlist.createdAt
         record["updatedAt"] = playlist.updatedAt
         if let cover = playlist.coverArtPath { record["coverArtPath"] = cover }
-        record["songIDs"] = library.rawSongIDs(forPlaylist: playlistID)
+        let songIDs = library.rawSongIDs(forPlaylist: playlistID)
+        record["songIDs"] = songIDs
+        // Stable cross-device identities — receivers fall back through
+        // (cloudAccountID, filePath) and fuzzy match when the originating
+        // Song.id doesn't line up with the local mount's hash.
+        if let data = encodeIdentities(makeIdentities(forSongIDs: songIDs)) {
+            record[Self.songIdentitiesField] = data
+        }
         return true
     }
 
@@ -620,9 +627,11 @@ final class CloudKitSyncService {
               let updatedAt = record["updatedAt"] as? Date else { return }
         let coverArtPath = record["coverArtPath"] as? String
         let songIDs = (record["songIDs"] as? [String]) ?? []
+        let identities = decodeIdentities(record[Self.songIdentitiesField] as? Data)
+        let resolved = resolveSongIDs(songIDs: songIDs, identities: identities)
         library.applyRemotePlaylist(
             Playlist(id: id, name: name, createdAt: createdAt, updatedAt: updatedAt, coverArtPath: coverArtPath),
-            songIDs: songIDs
+            songIDs: resolved
         )
     }
 
@@ -693,14 +702,99 @@ final class CloudKitSyncService {
     // MARK: - Playback history mapping
 
     private func populatePlaybackHistoryRecord(_ record: CKRecord) -> Bool {
-        record["songIDs"] = library.recentPlaybackSongIDsForSync
+        let songIDs = library.recentPlaybackSongIDsForSync
+        record["songIDs"] = songIDs
         record["updatedAt"] = Date()
+        if let data = encodeIdentities(makeIdentities(forSongIDs: songIDs)) {
+            record[Self.songIdentitiesField] = data
+        }
         return true
     }
 
     private func applyPlaybackHistoryRecord(_ record: CKRecord) {
         guard let songIDs = record["songIDs"] as? [String] else { return }
-        library.applyRemotePlaybackHistory(songIDs: songIDs)
+        let identities = decodeIdentities(record[Self.songIdentitiesField] as? Data)
+        let resolved = resolveSongIDs(songIDs: songIDs, identities: identities)
+        library.applyRemotePlaybackHistory(songIDs: resolved)
+    }
+
+    // MARK: - Song identity / cross-device resolution
+
+    private static let songIdentitiesField = "songIdentities"
+
+    /// Build cross-device identities for a batch of locally-stored song
+    /// IDs. Songs that have already been deleted locally still get a stub
+    /// identity so the receiving device can attempt a fuzzy match — at
+    /// worst it's dropped, which matches the receiver's reality anyway.
+    private func makeIdentities(forSongIDs songIDs: [String]) -> [SongIdentity] {
+        songIDs.map { id in
+            if let song = library.song(id: id) {
+                return SongIdentity(
+                    songID: song.id,
+                    title: song.title,
+                    artistName: song.artistName,
+                    duration: song.duration,
+                    cloudAccountID: sourcesStore.source(id: song.sourceID)?.cloudAccountID,
+                    filePath: song.filePath
+                )
+            }
+            return SongIdentity(
+                songID: id, title: "", artistName: nil,
+                duration: 0, cloudAccountID: nil, filePath: ""
+            )
+        }
+    }
+
+    private func encodeIdentities(_ identities: [SongIdentity]) -> Data? {
+        try? JSONEncoder().encode(identities)
+    }
+
+    private func decodeIdentities(_ data: Data?) -> [SongIdentity]? {
+        guard let data else { return nil }
+        return try? JSONDecoder().decode([SongIdentity].self, from: data)
+    }
+
+    /// Map a synced playlist/history payload to local song IDs.
+    /// Old records (no identities) preserve original behaviour — push the
+    /// raw IDs through and let `songs(forPlaylist:)` filter them at
+    /// display time. New records walk the 3-tier resolver and drop
+    /// entries that have no local match (re-fetching the record after a
+    /// scan completes will pick them up).
+    private func resolveSongIDs(songIDs: [String], identities: [SongIdentity]?) -> [String] {
+        guard let identities, !identities.isEmpty else { return songIDs }
+        return identities.compactMap(resolveLocalSongID(from:))
+    }
+
+    private func resolveLocalSongID(from identity: SongIdentity) -> String? {
+        // Tier 1: same Song.id locally — same mount on both devices, or
+        // raw ID happened to line up.
+        if library.song(id: identity.songID) != nil { return identity.songID }
+        // Tier 2: stable cloud account + file path. CloudAccount.id is
+        // SHA256(provider + accountUID), so the same Baidu / Aliyun /
+        // Dropbox / OneDrive / Google Drive account ties the two devices'
+        // mounts together even though their MusicSource UUIDs differ.
+        if let acc = identity.cloudAccountID, !identity.filePath.isEmpty {
+            let mountIDs = Set(sourcesStore.sources.filter { $0.cloudAccountID == acc }.map(\.id))
+            if !mountIDs.isEmpty,
+               let s = library.songs.first(where: {
+                   mountIDs.contains($0.sourceID) && $0.filePath == identity.filePath
+               }) {
+                return s.id
+            }
+        }
+        // Tier 3: title + duration (+ artist if we have one). Last-resort
+        // for NAS / FTP / SMB / WebDAV / local where identity is host-
+        // bound and the user manually re-mounted on the second device.
+        if !identity.title.isEmpty {
+            if let s = library.songs.first(where: {
+                $0.title == identity.title
+                && abs($0.duration - identity.duration) < 1.0
+                && (identity.artistName == nil || $0.artistName == identity.artistName)
+            }) {
+                return s.id
+            }
+        }
+        return nil
     }
 }
 
@@ -858,8 +952,17 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
 
         // Union of both song lists, preserving local order first then any new
         // server-only IDs. Stable ordering keeps the UI from jumping around.
+        // Server-side IDs flow through the cross-device resolver (when the
+        // record carries identities) so a different mount UUID doesn't drop
+        // matches that should logically be the same track.
         let localIDs = (local["songIDs"] as? [String]) ?? []
-        let serverIDs = (server["songIDs"] as? [String]) ?? []
+        let serverIDs: [String] = {
+            let identities = decodeIdentities(server[Self.songIdentitiesField] as? Data)
+            return resolveSongIDs(
+                songIDs: (server["songIDs"] as? [String]) ?? [],
+                identities: identities
+            )
+        }()
         var seen = Set<String>()
         let mergedIDs = (localIDs + serverIDs).filter { seen.insert($0).inserted }
 
@@ -889,7 +992,13 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
     @MainActor
     private func mergePlaybackHistoryRecord(local: CKRecord, server: CKRecord) {
         let localIDs = (local["songIDs"] as? [String]) ?? []
-        let serverIDs = (server["songIDs"] as? [String]) ?? []
+        let serverIDs: [String] = {
+            let identities = decodeIdentities(server[Self.songIdentitiesField] as? Data)
+            return resolveSongIDs(
+                songIDs: (server["songIDs"] as? [String]) ?? [],
+                identities: identities
+            )
+        }()
         var seen = Set<String>()
         let merged = (localIDs + serverIDs).filter { seen.insert($0).inserted }
         let capped = Array(merged.prefix(100))

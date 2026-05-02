@@ -20,8 +20,14 @@ public enum PrimuseConstants {
     public static let supportedLyricsExtensions = ["lrc"]
     public static let folderCoverNames = ["cover", "folder", "album", "front", "artwork"]
 
+    /// Note: `.mp4` is intentionally excluded — it's primarily a video
+    /// container, and the SFB AAC-in-MP4 decoder is unreliable for the
+    /// kind of mp4 a user typically drops in their music folder (often
+    /// extracted-from-video files with non-standard atom layout). Audio
+    /// MP4 files should use `.m4a`. Including `.mp4` here led to mid-stream
+    /// PCM decode errors that auto-skipped 25%+ of cloud-drive scans.
     public static let supportedAudioExtensions: Set<String> = [
-        "mp3", "aac", "m4a", "mp4", "flac", "wav", "aiff", "aif", "alac",
+        "mp3", "aac", "m4a", "flac", "wav", "aiff", "aif", "alac",
         "ape", "dsf", "dff", "ogg", "opus", "wma", "wv"
     ]
 }

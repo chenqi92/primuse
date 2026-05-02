@@ -2,26 +2,32 @@ import SwiftUI
 import PrimuseKit
 
 struct SongRowView: View {
-    @Environment(MusicLibrary.self) private var library
-    @Environment(SourcesStore.self) private var sourcesStore
     @Environment(SourceManager.self) private var sourceManager
     @Environment(AudioPlayerService.self) private var player
-    @Environment(MetadataBackfillService.self) private var backfill
+    @Environment(MusicLibrary.self) private var library
+    /// Used only inside `deleteSong` (not read in `body`) so it doesn't
+    /// register as a body-time observation dependency. Keeping this as
+    /// `@Environment` lets us update the source badge count without
+    /// drilling through callbacks at every call site.
+    @Environment(SourcesStore.self) private var sourcesStore
+
     let song: Song
     var isPlaying: Bool = false
     var showAlbum: Bool = true
     var showsActions: Bool = true
 
-    /// Read the song from the library on every render. The `song` param is
-    /// a snapshot from when the parent built the row; backfill updates the
-    /// library in place but SwiftUI does NOT reliably re-invoke the
-    /// NavigationDestination closure that captures it, so the spinner and
-    /// duration text would otherwise stay frozen on the bare snapshot
-    /// forever even after duration is filled. Falling back to `song` keeps
-    /// the row alive if the song was just deleted.
-    private var liveSong: Song {
-        library.song(id: song.id) ?? song
-    }
+    /// Source badge — only shown when the parent decides multiple sources
+    /// exist and resolves the song's source. Passing `nil` hides the badge
+    /// without the row needing to observe `SourcesStore` (which would
+    /// otherwise invalidate every visible row whenever any source mutates).
+    var sourceName: String? = nil
+    var sourceIconName: String? = nil
+
+    /// Whether `MetadataBackfillService` gave up on this song. Resolved by
+    /// the parent so the row doesn't observe `failedSongIDs` directly —
+    /// otherwise any backfill failure during a scan would re-evaluate every
+    /// visible row's body.
+    var backfillFailed: Bool = false
 
     @State private var showScrapeOptions = false
     @State private var showAddToPlaylist = false
@@ -36,27 +42,18 @@ struct SongRowView: View {
     /// predicate — a song with artist/album parsed but duration still
     /// unknown would otherwise look "ready" but auto-advance to it would
     /// hand the player a track it can't render properly.
-    private var isBare: Bool { !liveSong.isPlayable }
-
-    /// Backfill ran and gave up — file is parseable but exposes no
-    /// duration. Distinct from "still loading": the row stops the
-    /// spinner and switches to a static "details unavailable" hint so
-    /// the user isn't watching a forever-loading row.
-    private var backfillGaveUp: Bool {
-        isBare && backfill.didFail(songID: song.id)
-    }
+    private var isBare: Bool { !song.isPlayable }
 
     var body: some View {
-        let live = liveSong
-        return HStack(spacing: 10) {
+        HStack(spacing: 10) {
             // Cover art with playing overlay
             ZStack {
                 CachedArtworkView(
-                    coverRef: live.coverArtFileName,
-                    songID: live.id,
+                    coverRef: song.coverArtFileName,
+                    songID: song.id,
                     size: 44, cornerRadius: 6,
-                    sourceID: live.sourceID,
-                    filePath: live.filePath
+                    sourceID: song.sourceID,
+                    filePath: song.filePath
                 )
 
                 if isPlaying {
@@ -84,7 +81,7 @@ struct SongRowView: View {
 
             // Song info — title and subtitle only, no format/duration clutter
             VStack(alignment: .leading, spacing: 2) {
-                Text(live.title)
+                Text(song.title)
                     .font(.subheadline)
                     .lineLimit(1)
                     .foregroundStyle(isPlaying ? Color.accentColor : Color.primary)
@@ -92,7 +89,7 @@ struct SongRowView: View {
 
                 HStack(spacing: 4) {
                     if isBare {
-                        if backfillGaveUp {
+                        if backfillFailed {
                             Image(systemName: "exclamationmark.circle")
                                 .font(.caption2)
                             Text("song_details_unavailable")
@@ -103,21 +100,22 @@ struct SongRowView: View {
                             Text("backfill_in_progress")
                         }
                     } else {
-                        if let artist = live.artistName {
+                        if let artist = song.artistName {
                             Text(artist)
                         }
-                        if showAlbum, let album = live.albumTitle {
+                        if showAlbum, let album = song.albumTitle {
                             Text("·")
                             Text(album)
                         }
                         Text("·")
-                        Text(formatDuration(live.duration))
+                        Text(formatDuration(song.duration))
                             .monospacedDigit()
-                        if sourcesStore.sources.count > 1,
-                           let source = sourcesStore.source(id: live.sourceID) {
+                        if let sourceName {
                             Text("·")
-                            Image(systemName: source.type.iconName)
-                            Text(source.name)
+                            if let sourceIconName {
+                                Image(systemName: sourceIconName)
+                            }
+                            Text(sourceName)
                         }
                     }
                 }
@@ -189,12 +187,12 @@ struct SongRowView: View {
             }
         }
         .alert(
-            String(localized: backfillGaveUp ? "song_details_unavailable" : "song_details_loading"),
+            String(localized: backfillFailed ? "song_details_unavailable" : "song_details_loading"),
             isPresented: $showBareAlert
         ) {
             Button(String(localized: "done"), role: .cancel) {}
         } message: {
-            Text(String(localized: backfillGaveUp ? "song_details_unavailable_message" : "song_details_loading_message"))
+            Text(String(localized: backfillFailed ? "song_details_unavailable_message" : "song_details_loading_message"))
         }
         .contextMenu {
             // Group 1: Actions
@@ -263,13 +261,6 @@ struct SongRowView: View {
         }
     }
 
-    private var songDetailText: String {
-        var parts: [String] = [song.fileFormat.displayName, formatDuration(song.duration)]
-        if let sr = song.sampleRate { parts.append("\(sr / 1000)kHz") }
-        if let bits = song.bitDepth { parts.append("\(bits)bit") }
-        return parts.joined(separator: " · ")
-    }
-
     private func deleteSong() {
         // Stop if currently playing
         if player.currentSong?.id == song.id {
@@ -290,5 +281,48 @@ struct SongRowView: View {
 
     private func formatDuration(_ duration: TimeInterval) -> String {
         duration.formattedDuration
+    }
+}
+
+extension SongRowView {
+    /// Pre-derive per-row metadata from observed stores at the parent
+    /// level. Each call site reads the stores once (registering one
+    /// dependency on the parent body) and threads simple values down to
+    /// the row, so a single source / backfill change only invalidates the
+    /// parent body rather than every visible row.
+    struct RowContext {
+        var sourceName: String?
+        var sourceIconName: String?
+        var backfillFailed: Bool
+    }
+
+    static func context(
+        for song: Song,
+        sourcesStore: SourcesStore,
+        backfill: MetadataBackfillService
+    ) -> RowContext {
+        let showBadge = sourcesStore.sources.count > 1
+        let source = showBadge ? sourcesStore.source(id: song.sourceID) : nil
+        return RowContext(
+            sourceName: source?.name,
+            sourceIconName: source?.type.iconName,
+            backfillFailed: !song.isPlayable && backfill.didFail(songID: song.id)
+        )
+    }
+
+    init(
+        song: Song,
+        isPlaying: Bool = false,
+        showAlbum: Bool = true,
+        showsActions: Bool = true,
+        context: RowContext
+    ) {
+        self.song = song
+        self.isPlaying = isPlaying
+        self.showAlbum = showAlbum
+        self.showsActions = showsActions
+        self.sourceName = context.sourceName
+        self.sourceIconName = context.sourceIconName
+        self.backfillFailed = context.backfillFailed
     }
 }

@@ -3,6 +3,8 @@ import PrimuseKit
 
 struct ArtistDetailView: View {
     @Environment(MusicLibrary.self) private var library
+    @Environment(SourcesStore.self) private var sourcesStore
+    @Environment(MetadataBackfillService.self) private var backfill
     let artist: Artist
 
     private var albums: [Album] {
@@ -67,9 +69,12 @@ struct ArtistDetailView: View {
 
                         LazyVStack(spacing: 0) {
                             ForEach(songs) { song in
-                                SongRowView(song: song)
-                                    .padding(.horizontal)
-                                    .padding(.vertical, 8)
+                                SongRowView(
+                                    song: song,
+                                    context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
+                                )
+                                .padding(.horizontal)
+                                .padding(.vertical, 8)
                                 Divider().padding(.leading, 50)
                             }
                         }

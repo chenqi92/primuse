@@ -164,6 +164,7 @@
 		D2F2F3E1AC1C81D339E70E7A /* FnOSSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F7BABA1441A113623307F2B /* FnOSSource.swift */; };
 		D41AE27EAA6E1A88B0CF1C98 /* LocalFileSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DF35A49EBE68F0FDA253D9A /* LocalFileSource.swift */; };
 		D76BBF35A0ED0B3EE0C0812C /* Song.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34FA9CB76C020D1783D91368 /* Song.swift */; };
+		80685592E5E71D9DCD4664D4 /* SongIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA152789B8E5A68932DF08E6 /* SongIdentity.swift */; };
 		7C151472FC6FAE68AF3A0B87 /* CloudAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D56A9C76747B9D0E342F084 /* CloudAccount.swift */; };
 		B1D4055D907774EDD74FCE4D /* BrandTintStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0236C3B4D0BC8CD5638B2AB7 /* BrandTintStore.swift */; };
 		D84918920C71DB851E51AE09 /* SSLTrustStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AD7C0A9B431AEBEC047E320 /* SSLTrustStore.swift */; };
@@ -296,6 +297,7 @@
 		2FD2BBC1EC1BECCE0D1EEF17 /* S3Source.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = S3Source.swift; sourceTree = "<group>"; };
 		33778B5B75AE878513F91C1B /* ConnectionFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionFlowView.swift; sourceTree = "<group>"; };
 		34FA9CB76C020D1783D91368 /* Song.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Song.swift; sourceTree = "<group>"; };
+		BA152789B8E5A68932DF08E6 /* SongIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongIdentity.swift; sourceTree = "<group>"; };
 		2D56A9C76747B9D0E342F084 /* CloudAccount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudAccount.swift; sourceTree = "<group>"; };
 		0236C3B4D0BC8CD5638B2AB7 /* BrandTintStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrandTintStore.swift; sourceTree = "<group>"; };
 		363F869C6171BAEF3E787B3A /* ArtworkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkView.swift; sourceTree = "<group>"; };
@@ -684,6 +686,7 @@
 				38FB8C7B3EA4A58B80265EDC /* Playlist.swift */,
 				C04638250BE3489928491A07 /* RecentAlbumsStore.swift */,
 				34FA9CB76C020D1783D91368 /* Song.swift */,
+				BA152789B8E5A68932DF08E6 /* SongIdentity.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -1146,6 +1149,7 @@
 				8057E3B6274053DAFEA3F8F7 /* RecentAlbumsStore.swift in Sources */,
 				C067C2586AAA10F3F398296C /* SharedConstants.swift in Sources */,
 				D76BBF35A0ED0B3EE0C0812C /* Song.swift in Sources */,
+				80685592E5E71D9DCD4664D4 /* SongIdentity.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

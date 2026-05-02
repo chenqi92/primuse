@@ -110,7 +110,15 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource {
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
         let token = try await getToken()
         var components = URLComponents(string: "\(Self.apiBase)/files/\(path)")!
-        components.queryItems = [.init(name: "alt", value: "media")]
+        // `acknowledgeAbuse=true` is required for files Google's automated
+        // scanner flagged as "potentially malicious" — without it, large
+        // audio files occasionally come back as an HTML warning page
+        // instead of bytes, which SFB then fails to decode. alist's
+        // driver pins this verbatim too.
+        components.queryItems = [
+            .init(name: "alt", value: "media"),
+            .init(name: "acknowledgeAbuse", value: "true"),
+        ]
         return try await helper.rangeRequest(url: components.url!, offset: offset, length: length, accessToken: token)
     }
 
