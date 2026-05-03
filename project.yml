@@ -82,6 +82,9 @@ targets:
       - path: Primuse
         excludes:
           - "**/.DS_Store"
+          # 防御性 exclude:同样的逻辑反过来,避免 macOS 的 plist 被复制进 iOS bundle。
+          - "Info.plist"
+          - "Info-macOS.plist"
     resources:
       - path: Primuse/Resources
     dependencies:
@@ -265,6 +268,11 @@ targets:
       - path: Primuse
         excludes:
           - "**/.DS_Store"
+          # iOS 的 Info.plist 不能进 mac bundle ── 它会被当成嵌套 bundle
+          # Resources/Info.plist 触发 App Store 上传报 90261/90277/90280。
+          # mac 的 INFOPLIST_FILE 已指向 Info-macOS.plist。
+          - "Info.plist"
+          - "Info-macOS.plist"
     resources:
       - path: Primuse/Resources
     dependencies:
@@ -336,10 +344,14 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon-Mac
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SWIFT_EMIT_LOC_STRINGS: YES
-        PRODUCT_BUNDLE_IDENTIFIER: com.welape.yuanyin.mac
+        # Universal Purchase: 跟 iOS 共用同一个 bundle ID,这样上传后会
+        # 自动落到 App Store Connect 现有"猿音"record 的 macOS 槽位下,
+        # 用户买一次两端都能用,共享评分 / 评论 / 通知池。
+        PRODUCT_BUNDLE_IDENTIFIER: com.welape.yuanyin
         CODE_SIGN_ENTITLEMENTS: Config/PrimuseMac.entitlements
         SWIFT_OBJC_BRIDGING_HEADER: Primuse/Primuse-Bridging-Header.h
-        # macOS 独立版本号 — Mac 是新平台首发，从 1.0.0 起步，
-        # 与 iOS 的 MARKETING_VERSION/CURRENT_PROJECT_VERSION 解耦。
+        # macOS 独立版本号 — Mac 是新平台首发,从 1.0.0 起步,
+        # 与 iOS 的 MARKETING_VERSION/CURRENT_PROJECT_VERSION 解耦
+        # (即使 bundle ID 相同,iOS 和 macOS 在 ASC 内仍是独立版本流)。
         MARKETING_VERSION: "1.0.0"
         CURRENT_PROJECT_VERSION: "1"
