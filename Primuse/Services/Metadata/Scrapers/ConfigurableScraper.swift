@@ -146,6 +146,18 @@ actor ConfigurableScraper: MusicScraper {
 
         guard let dict = parsed as? [String: Any] else { return nil }
 
+        // === 通用二次请求 + 二进制解密分支 ===
+        // 第一步 script 返回 `{_fetchEncryptedLyrics: true, vars: {...}}` 标记后,
+        // framework 用 secrets 提供的 URL 模板拉二进制，再用 secrets 提供的
+        // magic + xorKey 解密、按相对偏移格式转 A2 LRC。
+        //
+        // URL 模板、解密 key 都从用户本地的 `<id>.secrets.json` 旁路加载——
+        // app 二进制不携带任何平台特定常量。
+        if dict["_fetchEncryptedLyrics"] as? Bool == true,
+           let vars = dict["vars"] as? [String: Any] {
+            return await fetchEncryptedLyrics(vars: vars)
+        }
+
         // `wordLevelLrc` 是兼容性字段：JSON 配置同时返回行级 (`lrcContent`) 和字级
         // (`wordLevelLrc`) 让老版本 app 不至于看到带 `<00:01.23>` 标记的丑文本。
         // 新版优先取字级，没有再退回行级。
@@ -156,6 +168,51 @@ actor ConfigurableScraper: MusicScraper {
         guard finalLrc != nil || plainText != nil else { return nil }
 
         return ScraperLyricsResult(source: type, lrcContent: finalLrc, plainText: plainText)
+    }
+
+    /// 通用二次请求：URL 模板和解密参数全部来自 `config.secrets`。
+    /// 所需 secrets 字段：
+    /// - `lyricsFetchUrl`: URL 模板，{{var}} 占位符由 first-step 返回的 vars 填充
+    /// - `lyricsContentField`: JSON 路径取 base64 内容字段名（如 `"content"`）
+    /// - `lyricsMagicHex`: 二进制 magic 前缀的 hex 串
+    /// - `lyricsXorKeyHex`: 异或 key 的 hex 串
+    private func fetchEncryptedLyrics(vars: [String: Any]) async -> ScraperLyricsResult? {
+        guard let secrets = config.secrets,
+              let template = secrets["lyricsFetchUrl"], !template.isEmpty,
+              let contentField = secrets["lyricsContentField"], !contentField.isEmpty,
+              let magicHex = secrets["lyricsMagicHex"], let magic = Data(hexString: magicHex),
+              let xorHex = secrets["lyricsXorKeyHex"], let xorKey = [UInt8](hexString: xorHex)
+        else {
+            plog("⚠️ Encrypted lyrics: missing secrets, skip")
+            return nil
+        }
+
+        var urlString = template
+        for (k, v) in vars {
+            urlString = urlString.replacingOccurrences(of: "{{\(k)}}", with: "\(v)")
+        }
+        let safe = Self.enforceHTTPPolicy(urlString, trustDomains: config.sslTrustDomains ?? [])
+        guard let url = URL(string: safe) else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 10
+
+        do {
+            let (data, _) = try await sessionManager.data(for: request)
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let base64 = json[contentField] as? String, !base64.isEmpty,
+                  let binary = Data(base64Encoded: base64),
+                  let plain = XorZlibLyricsDecoder.decrypt(binary, magicPrefix: magic, xorKey: xorKey) else {
+                plog("⚠️ Encrypted lyrics: decode failed")
+                return nil
+            }
+            let (lineLrc, wordLrc) = XorZlibLyricsDecoder.relativeOffsetToA2(plain)
+            let final = wordLrc.isEmpty ? lineLrc : wordLrc
+            guard !final.isEmpty else { return nil }
+            return ScraperLyricsResult(source: type, lrcContent: final)
+        } catch {
+            plog("⚠️ Encrypted lyrics: network failure \(error.localizedDescription)")
+            return nil
+        }
     }
 
     // MARK: - Request Execution
@@ -264,6 +321,24 @@ actor ConfigurableScraper: MusicScraper {
 
         ScraperNativeResolvers.register(in: context)
 
+        // 把 config.secrets 注入为 JS 全局 `secrets`，让 JSON 配置可以引用
+        // 本地敏感配置（URL 模板 / hash seed 等），而 app 二进制不携带任何
+        // 平台特征。secrets 不存在时 JS 端读到 undefined，需要做 null 检查
+        // 走 fallback。
+        if let secrets = config.secrets, !secrets.isEmpty {
+            context.setObject(secrets, forKeyedSubscript: "secrets" as NSString)
+        }
+
+        // 注入 JS helper：用 secrets 提供的 seed/template 把任意 id 转成 CDN URL。
+        // 如果 secrets 缺字段就返回 null，让 JS 上游 fallback 到 API 直给的 URL。
+        context.evaluateScript("""
+        function nativeCoverUrl(id) {
+          if (!id) return null;
+          if (typeof secrets === 'undefined' || !secrets) return null;
+          if (!secrets.coverSeedHex || !secrets.coverUrlTemplate) return null;
+          return nativeResolver.xorMd5UrlHash(String(id), secrets.coverSeedHex, secrets.coverUrlTemplate);
+        }
+        """)
 
         // Inject response as string and parsed JSON
         let responseText = String(data: data, encoding: .utf8) ?? ""
@@ -784,51 +859,41 @@ final class ScraperSessionManager: NSObject, URLSessionTaskDelegate, @unchecked 
 // MARK: - Native Resolvers
 
 /// Swift-side helpers exposed to scraper JavaScript via the `nativeResolver` global.
-/// Source-specific transforms that would otherwise live as plaintext in shared
-/// scraper JSON are kept here so the public configs stay neutral.
+/// 通用算法工具集——任何平台特定常量（seed / URL / key）都不在本文件出现，
+/// 由 JSON 配置的 `secrets` 字段动态注入。
 enum ScraperNativeResolvers {
     static func register(in context: JSContext) {
         context.evaluateScript("var nativeResolver = nativeResolver || {};")
         guard let resolver = context.objectForKeyedSubscript("nativeResolver") else { return }
 
-        let neteaseCoverBlock: @convention(block) (Any?, Any?) -> String? = { picIdArg, sizeArg in
-            normalizedPicId(picIdArg).flatMap { picId in
-                neteaseCoverURL(picId: picId, size: normalizedSize(sizeArg))
+        // 通用：input → XOR(seed) → MD5 → URL-safe base64 → 套用 URL 模板。
+        // urlTemplate 占位符：{{hash}}（base64 后的 MD5）, {{id}}（原始 input）
+        let xorMd5UrlHashBlock: @convention(block) (Any?, Any?, Any?) -> String? = {
+            inputArg, seedHexArg, templateArg in
+            guard let input = stringValue(inputArg), !input.isEmpty,
+                  let seedHex = stringValue(seedHexArg), let seed = [UInt8](hexString: seedHex), !seed.isEmpty,
+                  let template = stringValue(templateArg), !template.isEmpty else {
+                return nil
             }
+            let src = Array(input.utf8)
+            var mixed = [UInt8](repeating: 0, count: src.count)
+            for i in 0..<src.count {
+                mixed[i] = src[i] ^ seed[i % seed.count]
+            }
+            let digest = Insecure.MD5.hash(data: mixed)
+            let hash = Data(digest).base64EncodedString()
+                .replacingOccurrences(of: "/", with: "_")
+                .replacingOccurrences(of: "+", with: "-")
+            return template
+                .replacingOccurrences(of: "{{hash}}", with: hash)
+                .replacingOccurrences(of: "{{id}}", with: input)
         }
-        resolver.setObject(neteaseCoverBlock, forKeyedSubscript: "neteaseCover" as NSString)
+        resolver.setObject(xorMd5UrlHashBlock, forKeyedSubscript: "xorMd5UrlHash" as NSString)
     }
 
-    private static func normalizedPicId(_ value: Any?) -> String? {
-        if let s = value as? String, !s.isEmpty, s != "0" { return s }
-        if let n = value as? NSNumber, n.int64Value > 0 { return n.stringValue }
+    private static func stringValue(_ value: Any?) -> String? {
+        if let s = value as? String { return s.isEmpty ? nil : s }
+        if let n = value as? NSNumber { return n.stringValue }
         return nil
-    }
-
-    private static func normalizedSize(_ value: Any?) -> Int {
-        if let n = value as? NSNumber { return n.intValue }
-        if let s = value as? String, let v = Int(s) { return v }
-        return 0
-    }
-
-    // Stored as bytes so the literal seed never appears in source as a single string.
-    private static let neteaseCoverSeed: [UInt8] = [
-        0x33, 0x67, 0x6F, 0x38, 0x26, 0x24, 0x38, 0x2A, 0x33,
-        0x2A, 0x33, 0x68, 0x30, 0x6B, 0x28, 0x32, 0x29, 0x32,
-    ]
-
-    private static func neteaseCoverURL(picId: String, size: Int) -> String {
-        let src = Array(picId.utf8)
-        var mixed = [UInt8](repeating: 0, count: src.count)
-        for i in 0..<src.count {
-            mixed[i] = src[i] ^ neteaseCoverSeed[i % neteaseCoverSeed.count]
-        }
-        let digest = Insecure.MD5.hash(data: mixed)
-        let encoded = Data(digest).base64EncodedString()
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "+", with: "-")
-        var url = "https://p1.music.126.net/\(encoded)/\(picId).jpg"
-        if size > 0 { url += "?param=\(size)y\(size)" }
-        return url
     }
 }

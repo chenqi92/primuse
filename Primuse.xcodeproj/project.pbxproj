@@ -64,6 +64,7 @@
 		4ACD5BA7D98E9557368E3ABE /* OAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C85D6EDF29DAED03773957A /* OAuthService.swift */; };
 		4C233E3EE22134B9B5EFD109 /* RecentlyDeletedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCF14896C5977140D504187F /* RecentlyDeletedView.swift */; };
 		4D970484FA45E36B191F0C9D /* ConfigurableScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFBD55481DE18F95FCC74F76 /* ConfigurableScraper.swift */; };
+		B7E1AC95C0FFEE001A2B3C4D /* XorZlibLyricsDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E1AC95C0FFEE001A2B3C4E /* XorZlibLyricsDecoder.swift */; };
 		4D9FDCB6AB92B02FFCFD83D4 /* SourceTypeSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C50B958D5A7FEF1F9E8AD24 /* SourceTypeSelectionView.swift */; };
 		4F666C6937E399679D7AC5D4 /* ThemeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74134D8D32D016D927D59D77 /* ThemeService.swift */; };
 		5087F05D0D7C94B494DD6775 /* SearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF83CE305219EDE25101007A /* SearchView.swift */; };
@@ -435,6 +436,7 @@
 		E8945701E14DEF0FF55A668F /* ScraperSourceConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScraperSourceConfig.swift; sourceTree = "<group>"; };
 		E8F85E53FF87D6A322E1A0A7 /* AppServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppServices.swift; sourceTree = "<group>"; };
 		EFBD55481DE18F95FCC74F76 /* ConfigurableScraper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigurableScraper.swift; sourceTree = "<group>"; };
+		B7E1AC95C0FFEE001A2B3C4E /* XorZlibLyricsDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XorZlibLyricsDecoder.swift; sourceTree = "<group>"; };
 		F10291362C83153950BFA661 /* Artist.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Artist.swift; sourceTree = "<group>"; };
 		F246393058D148228F7BA7B9 /* LibraryDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryDatabase.swift; sourceTree = "<group>"; };
 		F40F5CE9382F37C345E04D5B /* BaiduPanSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaiduPanSource.swift; sourceTree = "<group>"; };
@@ -838,6 +840,7 @@
 			isa = PBXGroup;
 			children = (
 				EFBD55481DE18F95FCC74F76 /* ConfigurableScraper.swift */,
+				B7E1AC95C0FFEE001A2B3C4E /* XorZlibLyricsDecoder.swift */,
 				A1254C88A6F33F2A3A73C2CA /* ITunesScraper.swift */,
 				1AE8A78DAC80BEED65803A6B /* LRCLIBScraper.swift */,
 				992934DD86AE09796F7BC1A3 /* MusicBrainzScraper.swift */,
@@ -1238,6 +1241,7 @@
 				61D6D6E47723FA9A0FF6A72A /* CloudSyncSettingsView.swift in Sources */,
 				B5F0628AAE0C7C40B2803778 /* CloudTokenManager.swift in Sources */,
 				4D970484FA45E36B191F0C9D /* ConfigurableScraper.swift in Sources */,
+				B7E1AC95C0FFEE001A2B3C4D /* XorZlibLyricsDecoder.swift in Sources */,
 				78E6FE1CE7C312E4E5BA76E8 /* ConnectionFlowView.swift in Sources */,
 				04C1D7D8981AB8896412B20A /* ConnectorDirectoryBrowserView.swift in Sources */,
 				AA508472ADFA435CEA0930A3 /* ConnectorScanner.swift in Sources */,

@@ -144,13 +144,16 @@ final class ScraperConfigStore: @unchecked Sendable {
     }
 
     /// Permanently remove a config — drops the file from disk and notifies
-    /// CloudKit sync to delete the record.
+    /// CloudKit sync to delete the record. Also removes the sibling
+    /// `<id>.secrets.json` if present.
     func permanentlyDelete(id: String) {
         lock.lock()
         cache.removeValue(forKey: id)
         lock.unlock()
         let fileURL = configDir.appendingPathComponent("\(id).json")
         try? FileManager.default.removeItem(at: fileURL)
+        let secretsURL = configDir.appendingPathComponent("\(id).secrets.json")
+        try? FileManager.default.removeItem(at: secretsURL)
         NotificationCenter.default.post(
             name: .primuseScraperConfigDidDelete,
             object: nil,
@@ -227,11 +230,33 @@ final class ScraperConfigStore: @unchecked Sendable {
         guard let files = try? FileManager.default.contentsOfDirectory(at: configDir, includingPropertiesForKeys: nil) else {
             return
         }
-        for file in files where file.pathExtension == "json" {
-            if let data = try? Data(contentsOf: file),
-               let config = try? JSONDecoder().decode(ScraperConfig.self, from: data) {
-                cache[config.id] = config
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+
+        for file in files where file.pathExtension == "json" && !file.lastPathComponent.contains(".secrets.") {
+            guard let data = try? Data(contentsOf: file),
+                  var config = try? JSONDecoder().decode(ScraperConfig.self, from: data) else { continue }
+
+            // 主 JSON 里如果不小心带了 secrets（一次性导入流程），自动剥离到旁路文件 +
+            // 重写主 JSON。保证主 JSON 始终干净，不会因后续编辑误传 secrets。
+            if let inlineSecrets = config.secrets, !inlineSecrets.isEmpty {
+                let secretsURL = configDir.appendingPathComponent("\(config.id).secrets.json")
+                if let secretsData = try? encoder.encode(inlineSecrets) {
+                    try? secretsData.write(to: secretsURL, options: .atomic)
+                }
+                if let cleanedData = try? encoder.encode(config) {
+                    try? cleanedData.write(to: file, options: .atomic)
+                }
             }
+
+            // 旁路加载 <id>.secrets.json — 不进同步、不进仓库、不参与 Codable
+            let secretsURL = configDir.appendingPathComponent("\(config.id).secrets.json")
+            if let secretsData = try? Data(contentsOf: secretsURL),
+               let secrets = try? JSONDecoder().decode([String: String].self, from: secretsData) {
+                config.secrets = secrets
+            }
+
+            cache[config.id] = config
         }
     }
 
@@ -270,8 +295,16 @@ final class ScraperConfigStore: @unchecked Sendable {
             // Stamp with import time so conflict resolution can compare wall-clock
             // edit times across devices.
             config.modifiedAt = now
+            // 主 config encode 时 secrets 自动剥离（见 ScraperConfig.encode(to:)）
             let data = try encoder.encode(config)
             try save(config, data: data)
+            // secrets 单独写 <id>.secrets.json — 不进 CloudKit、不参与 encode 导出
+            if let secrets = config.secrets, !secrets.isEmpty {
+                if let secretsData = try? encoder.encode(secrets) {
+                    let secretsURL = configDir.appendingPathComponent("\(config.id).secrets.json")
+                    try? secretsData.write(to: secretsURL, options: .atomic)
+                }
+            }
             lock.lock()
             cache[config.id] = config
             lock.unlock()
