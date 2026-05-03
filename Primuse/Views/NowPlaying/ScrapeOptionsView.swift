@@ -21,6 +21,11 @@ struct ScrapeOptionsView: View {
     @State private var isSearching = false
     @State private var errorMessage: String?
     @State private var manualSearchQuery = ""
+    /// ID of the search-result row currently being fetched. Used to show a
+    /// per-row spinner so users see immediate feedback after tapping —
+    /// `selectManualResult` does network work (detail + cover + lyrics) and
+    /// only flips `mode = .preview` once everything is downloaded.
+    @State private var loadingItemID: String?
 
     // Per-field apply toggles (for preview)
     @State private var applyTitle = true
@@ -350,12 +355,24 @@ struct ScrapeOptionsView: View {
                         Task { await selectManualResult(item) }
                     } label: {
                         HStack(spacing: 10) {
-                            // Cover art thumbnail
+                            // Cover art thumbnail — overlay a spinner once tapped so
+                            // the user sees immediate feedback while the detail /
+                            // cover / lyrics requests are in flight.
                             ScraperCoverThumbnail(
                                 urlString: item.coverUrl,
                                 externalId: item.externalId,
                                 sourceConfig: item.sourceConfig
                             )
+                            .overlay {
+                                if loadingItemID == item.id {
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(Color.black.opacity(0.45))
+                                    ProgressView()
+                                        .controlSize(.small)
+                                        .tint(.white)
+                                }
+                            }
+                            .opacity(loadingItemID == nil || loadingItemID == item.id ? 1 : 0.5)
 
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack {
@@ -389,9 +406,11 @@ struct ScrapeOptionsView: View {
                                     }
                                 }
                             }
+                            .opacity(loadingItemID == nil || loadingItemID == item.id ? 1 : 0.5)
                         }
                         .padding(.vertical, 2)
                     }
+                    .disabled(isScraping)
                 }
             }
         }
@@ -514,6 +533,8 @@ struct ScrapeOptionsView: View {
 
     private func selectManualResult(_ item: SearchResultItem) async {
         isScraping = true
+        loadingItemID = item.id
+        defer { loadingItemID = nil }
 
         do {
             let scraper = MusicScraperFactory.create(for: item.sourceConfig)
