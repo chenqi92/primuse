@@ -2,10 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.welape.yuanyin.scan-resume</string>
+	</array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>猿音</string>
+	<string>Primuse</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -72,9 +76,9 @@
 		<string>_https._tcp.</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>猿音需要访问本地网络以发现和连接您的 NAS 设备、媒体服务器及其他音乐源。</string>
+	<string>Primuse needs local network access to discover and connect to your NAS devices, media servers, and other music sources.</string>
 	<key>NSSiriUsageDescription</key>
-	<string>用 Siri 语音点播、控制猿音播放。</string>
+	<string>Used to start playback and control Primuse with Siri voice commands.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>NSUserActivityTypes</key>
@@ -114,10 +118,6 @@
 			</array>
 		</dict>
 	</dict>
-	<key>BGTaskSchedulerPermittedIdentifiers</key>
-	<array>
-		<string>com.welape.yuanyin.scan-resume</string>
-	</array>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

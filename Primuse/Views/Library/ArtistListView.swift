@@ -3,6 +3,13 @@ import PrimuseKit
 
 struct ArtistListView: View {
     let artists: [Artist]
+    @State private var searchText: String = ""
+
+    private var filteredArtists: [Artist] {
+        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return artists }
+        return artists.filter { $0.name.localizedCaseInsensitiveContains(q) }
+    }
 
     var body: some View {
         if artists.isEmpty {
@@ -12,7 +19,7 @@ struct ArtistListView: View {
                 description: Text("no_artists_desc")
             )
         } else {
-            List(artists) { artist in
+            List(filteredArtists) { artist in
                 NavigationLink(value: artist) {
                     HStack(spacing: 12) {
                         CachedArtworkView(artistID: artist.id, artistName: artist.name,
@@ -30,6 +37,9 @@ struct ArtistListView: View {
                 }
             }
             .listStyle(.plain)
+            .searchable(text: $searchText,
+                        placement: .toolbar,
+                        prompt: Text("search_artists_prompt"))
         }
     }
 }

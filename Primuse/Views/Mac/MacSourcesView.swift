@@ -228,7 +228,9 @@ struct MacSourcesView: View {
     @ViewBuilder
     private func rowActions(source: MusicSource, dirs: [String], scanning: ScanService.ScanState?) -> some View {
         HStack(spacing: 6) {
-            if source.type.isMediaServer {
+            // Apple Music Library 跟 media server 一样:全库自动扫描,不需要
+            // "连接 + 选目录"那一步,直接给一个扫描按钮即可。
+            if source.type.isMediaServer || source.type == .appleMusicLibrary {
                 Button {
                     runScan(source)
                 } label: {
@@ -359,7 +361,10 @@ struct MacSourcesView: View {
 
     private func toggleSourceEnabled(_ source: MusicSource) {
         updateSource(source.id) { $0.isEnabled.toggle() }
-        library.updateDisabledSourceIDs(disabledSourceIDs)
+        library.updateSourceVisibility(
+            activeSourceIDs: Set(sourceStore.sources.map(\.id)),
+            disabledSourceIDs: disabledSourceIDs
+        )
     }
 
     private var disabledSourceIDs: Set<String> {
@@ -372,6 +377,8 @@ struct MacSourcesView: View {
         library.removeSongsForSource(source.id)
         sourceStore.remove(id: source.id)
         scanService.removeSynologyAPI(for: source.id)
+        sourceManager.deleteSourceCaches(sourceID: source.id)
+        LocalBookmarkStore.remove(sourceID: source.id)
         KeychainService.deletePassword(for: source.id)
         if source.type.isCloudDrive {
             Task {

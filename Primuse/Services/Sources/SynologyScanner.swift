@@ -113,15 +113,19 @@ actor SynologyScanner {
         let allNames = Set(items.map(\.name))
         let coverNames = PrimuseConstants.folderCoverNames  // cover.jpg, folder.jpg, etc.
 
-        // Detect folder-level cover sidecar (e.g., cover.jpg in this directory)
+        // Detect folder-level cover sidecar (e.g., cover.jpg in this directory).
+        // A broad library root like /music/cover.jpg should not become every
+        // flat-folder song's cover.
         let coverExts = ["jpg", "jpeg", "png", "webp"]
         var folderCoverPath: String?
-        outer: for name in coverNames {
-            for ext in coverExts {
-                let fileName = "\(name).\(ext)"
-                if allNames.contains(fileName) {
-                    folderCoverPath = (path as NSString).appendingPathComponent(fileName)
-                    break outer
+        if !Self.isGenericMusicDirectory(path) {
+            outer: for name in coverNames {
+                for ext in coverExts {
+                    let fileName = "\(name).\(ext)"
+                    if allNames.contains(fileName) {
+                        folderCoverPath = (path as NSString).appendingPathComponent(fileName)
+                        break outer
+                    }
                 }
             }
         }
@@ -469,6 +473,13 @@ actor SynologyScanner {
     private func generateID(sourceID: String, path: String) -> String {
         let hash = SHA256.hash(data: Data("\(sourceID):\(path)".utf8))
         return hash.prefix(16).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private nonisolated static func isGenericMusicDirectory(_ path: String) -> Bool {
+        let name = (path as NSString).lastPathComponent
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return ["music", "音乐", "songs", "audio", "media", "downloads"].contains(name)
     }
 
     private func cleanup() {

@@ -16,6 +16,7 @@ final class AppServices {
     let themeService: ThemeService
     let scanService: ScanService
     let metadataBackfill: MetadataBackfillService
+    private var observerTokens: [NSObjectProtocol] = []
 
     private init() {
         // Class is @MainActor so this initializer is too — but the static
@@ -65,9 +66,11 @@ final class AppServices {
         self.scanService = ScanService()
         self.metadataBackfill = MetadataBackfillService(library: library, sourceManager: manager)
 
-        library.updateDisabledSourceIDs(
-            Set(store.sources.filter { !$0.isEnabled }.map(\.id))
+        library.updateSourceVisibility(
+            activeSourceIDs: Set(store.sources.map(\.id)),
+            disabledSourceIDs: Set(store.sources.filter { !$0.isEnabled }.map(\.id))
         )
+        library.removeSongsExcludingSources(Set(store.sources.map(\.id)))
 
         // Wire the library's tombstone identity resolver. Maps a song's
         // mount UUID → its CloudAccount id (when available) so deletion
@@ -85,5 +88,32 @@ final class AppServices {
 
         CloudKVSSync.shared.register(key: CloudKVSKey.lyricsFontScale) { }
         CloudKVSSync.shared.register(key: CloudKVSKey.recentSearches) { }
+
+        observerTokens.append(
+            NotificationCenter.default.addObserver(
+                forName: .primuseSourcesDidChange,
+                object: nil,
+                queue: .main
+            ) { [weak store, weak library, weak manager] note in
+                // Pull the needed values out before entering the MainActor task.
+                // Notification itself is not Sendable under strict concurrency.
+                let deletedIDs = (note.userInfo?["ids"] as? [String]) ?? []
+                Task { @MainActor in
+                    guard let store, let library else { return }
+                    let activeSourceIDs = Set(store.sources.map(\.id))
+                    library.updateSourceVisibility(
+                        activeSourceIDs: activeSourceIDs,
+                        disabledSourceIDs: Set(store.sources.filter { !$0.isEnabled }.map(\.id))
+                    )
+                    library.removeSongsExcludingSources(activeSourceIDs)
+                    for id in deletedIDs where !activeSourceIDs.contains(id) {
+                        manager?.deleteSourceCaches(sourceID: id)
+                        #if os(macOS)
+                        LocalBookmarkStore.remove(sourceID: id)
+                        #endif
+                    }
+                }
+            }
+        )
     }
 }

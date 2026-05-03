@@ -75,12 +75,7 @@ private struct SmallNowPlayingView: View {
 
     var body: some View {
         ZStack {
-            WidgetArtworkBackdrop(coverImageName: state.coverImageName, shadeOpacity: 0.18)
-            LinearGradient(
-                colors: [Color.black.opacity(0.05), Color.black.opacity(0.72)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
+            smallBackdrop
 
             VStack(alignment: .leading, spacing: 10) {
                 WidgetStatusPill(
@@ -117,6 +112,32 @@ private struct SmallNowPlayingView: View {
                 }
             }
             .padding(14)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var smallBackdrop: some View {
+        if state.coverImageName?.isEmpty == false {
+            WidgetArtworkBackdrop(coverImageName: state.coverImageName, shadeOpacity: 0.18)
+            LinearGradient(
+                colors: [Color.black.opacity(0.05), Color.black.opacity(0.72)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        } else {
+            WidgetCanvas(padding: 0) {
+                ZStack {
+                    Circle()
+                        .fill(WidgetDesign.brandTint.opacity(0.34))
+                        .frame(width: 118, height: 118)
+                        .offset(x: 54, y: -52)
+                    Image(systemName: state.isPlaying ? "waveform" : "music.note")
+                        .font(.system(size: 46, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.20))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                }
+            }
         }
     }
 }
@@ -291,17 +312,35 @@ private struct LargeNowPlayingView: View {
 
 private struct SmallEmptyStateView: View {
     var body: some View {
-        WidgetCanvas(padding: 16) {
-            VStack(alignment: .leading, spacing: 10) {
-                WidgetEmptyStateIcon(systemName: "waveform.path.ecg", size: 56)
+        WidgetCanvas(padding: 12) {
+            VStack(alignment: .leading, spacing: 8) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(Color.white.opacity(0.10))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                .strokeBorder(Color.white.opacity(0.14), lineWidth: 1)
+                        )
+                    Image(systemName: "waveform.path")
+                        .font(.system(size: 25, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.92))
+                }
+                .frame(width: 48, height: 48)
+
                 Spacer(minLength: 0)
-                Text("开始播放")
-                    .font(.system(size: 17, weight: .bold, design: .rounded))
-                    .foregroundStyle(WidgetDesign.strongText)
-                Text("点开猿音，继续你的音乐旅程")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(WidgetDesign.secondaryText)
-                    .lineLimit(2)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("开始播放")
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .foregroundStyle(WidgetDesign.strongText)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
+                    Text("当前歌曲会显示在这里")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(WidgetDesign.secondaryText)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.85)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }

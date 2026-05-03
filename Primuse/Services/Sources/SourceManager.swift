@@ -67,6 +67,15 @@ final class SourceManager {
                 sourceID: source.id,
                 basePath: URL(fileURLWithPath: source.basePath ?? "/")
             )
+        case .appleMusicLibrary:
+            #if os(macOS)
+            connector = AppleMusicLibrarySource(sourceID: source.id)
+            #else
+            // appleMusicLibrary is filtered out of the iOS source picker; if
+            // a CloudKit-synced source row of this type ever lands on iOS we
+            // surface a stub that errors gracefully instead of crashing.
+            connector = UnsupportedSourceConnector(sourceID: source.id, sourceType: .appleMusicLibrary)
+            #endif
         case .smb:
             connector = SMBSource(
                 sourceID: source.id,
@@ -282,6 +291,26 @@ final class SourceManager {
         try? FileManager.default.removeItem(at: cacheURL)
         let relativePath = "\(song.sourceID)/\(song.filePath.replacingOccurrences(of: "/", with: "_"))"
         Task { await AudioCacheManager.shared.removeEntry(path: relativePath) }
+    }
+
+    func deleteSourceCaches(sourceID: String) {
+        let fileManager = FileManager.default
+        let caches = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let temp = fileManager.temporaryDirectory
+        let paths = [
+            caches.appendingPathComponent(Self.audioCacheDirName).appendingPathComponent(sourceID),
+            caches.appendingPathComponent("primuse_cloud_cache").appendingPathComponent(sourceID),
+            temp.appendingPathComponent("primuse_smb_cache").appendingPathComponent(sourceID),
+            temp.appendingPathComponent("primuse_sftp_cache").appendingPathComponent(sourceID),
+            temp.appendingPathComponent("primuse_ftp_cache").appendingPathComponent(sourceID),
+            temp.appendingPathComponent("primuse_nfs_cache").appendingPathComponent(sourceID),
+            temp.appendingPathComponent("primuse_upnp_cache").appendingPathComponent(sourceID),
+            temp.appendingPathComponent("primuse_scan_\(sourceID)"),
+        ]
+        for path in paths {
+            try? fileManager.removeItem(at: path)
+        }
+        Task { await AudioCacheManager.shared.removeEntries(forSourceID: sourceID) }
     }
 
     func clearAudioCache() {

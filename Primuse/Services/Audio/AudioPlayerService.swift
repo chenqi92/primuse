@@ -10,6 +10,20 @@ import UIKit
 import AppKit
 #endif
 
+#if os(macOS)
+enum MacWidgetSyncSettings {
+    static let isEnabledKey = "primuse.macWidgetSyncEnabled"
+
+    static var isEnabled: Bool {
+        UserDefaults.standard.bool(forKey: isEnabledKey)
+    }
+
+    static func setEnabled(_ enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: isEnabledKey)
+    }
+}
+#endif
+
 /// Mutable counter that can be captured by @Sendable closures (e.g. Timer callbacks wrapped in Task).
 private final class StepCounter: @unchecked Sendable {
     var value = 0
@@ -95,6 +109,11 @@ final class AudioPlayerService {
     var isSleepTimerActive: Bool { sleepTimerEndDate != nil }
 
     private var displayLink: Timer?
+    #if os(macOS)
+    /// ProcessInfo.beginActivity token —— 播放期间 hold 住,防止 App Nap
+    /// 把 main run loop 节流导致 Timer 半天才发一次。stop 时 endActivity。
+    private var appNapToken: NSObjectProtocol?
+    #endif
     private let nativeDecoder = NativeAudioDecoder()
     private let assetReaderDecoder = AssetReaderDecoder()
     private let streamingDecoder = StreamingDownloadDecoder()
@@ -1386,7 +1405,12 @@ final class AudioPlayerService {
 
     private func startTimeUpdater() {
         stopTimeUpdater()
-        displayLink = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+        // Timer.scheduledTimer 默认挂在 .default run loop mode,窗口拖
+        // 拽 / 菜单展开 / SwiftUI 动画期间会暂停发,导致 currentTime
+        // 发布滞后,UI 端 (尤其桌面歌词 NSPanel) 看到歌词卡住,只在
+        // 主窗口聚焦时 syncPlaybackProgressFromEngine() 才"赶上来"。
+        // 改成手动建 Timer 加到 .common 模式,这些场景下也能持续触发。
+        let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if let time = self.audioEngine.currentTime {
@@ -1405,11 +1429,31 @@ final class AudioPlayerService {
                 self.checkCrossfade()
             }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        displayLink = timer
+
+        #if os(macOS)
+        // 播放期间抑制 App Nap,防止后台切到低优先级时 Timer 节流;
+        // 系统休眠不阻止 (idleSystemSleepDisabled),只是别让 macOS 把
+        // 我们 nap 掉。stopTimeUpdater 里释放 token。
+        if appNapToken == nil {
+            appNapToken = ProcessInfo.processInfo.beginActivity(
+                options: [.userInitiated, .latencyCritical],
+                reason: "Primuse audio playback in progress"
+            )
+        }
+        #endif
     }
 
     private func stopTimeUpdater() {
         displayLink?.invalidate()
         displayLink = nil
+        #if os(macOS)
+        if let token = appNapToken {
+            ProcessInfo.processInfo.endActivity(token)
+            appNapToken = nil
+        }
+        #endif
     }
 
     // MARK: - Track End
@@ -1775,7 +1819,15 @@ final class AudioPlayerService {
     /// Coalesces repeated WidgetKit reload requests with identical content.
     private var lastWidgetTimelineSignature: String?
 
+    func publishWidgetStateForMacWidgetSync() {
+        updatePlaybackState()
+    }
+
     private func updatePlaybackState() {
+        #if os(macOS)
+        guard MacWidgetSyncSettings.isEnabled else { return }
+        #endif
+
         var coverName: String?
         var recentAlbumsChanged = false
 

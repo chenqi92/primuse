@@ -1,0 +1,9 @@
+// English-locale overrides for app metadata. Also serves as the canonical
+// fallback for any locale without its own InfoPlist.strings.
+"CFBundleDisplayName" = "Primuse";
+
+// System-permission prompt copy. Apple rejects vague or off-topic wording —
+// each line must clearly describe the actual feature gated by the permission.
+"NSSiriUsageDescription" = "Used to start playback and control Primuse with Siri voice commands.";
+"NSAppleMusicUsageDescription" = "Primuse needs access to your Apple Music / iTunes library to import its local tracks as a playback source.";
+"NSLocalNetworkUsageDescription" = "Primuse needs local network access to discover and connect to your NAS devices, media servers, and other music sources.";

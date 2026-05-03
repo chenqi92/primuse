@@ -8,6 +8,9 @@ import PrimuseKit
 /// 器作用不同,所以这里命名为 `MacMiniPlayerView`。
 struct MacMiniPlayerView: View {
     var onClose: () -> Void = {}
+    /// 由 controller 注入,bottomMode 切换时回调,用来 resize NSWindow
+    /// 高度——展开歌词/队列就拉长窗口,折叠回去就缩成一小块。
+    var onBottomModeChange: ((BottomMode) -> Void)? = nil
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(AudioEngine.self) private var engine
@@ -20,9 +23,11 @@ struct MacMiniPlayerView: View {
     @State private var volumeShown = false
 
     /// 下半部分内容模式 —— 跟 Apple Music 一样,Lyrics / Queue 是互斥的
-    /// 内容面板,工具条上的按钮高亮的就是当前激活模式。
+    /// 内容面板,工具条上的按钮高亮的就是当前激活模式。默认折叠 (.none)
+    /// 时窗口只剩工具条 + 进度条 + 传输键这一小块;点击歌词/队列再让
+    /// controller 把窗口拉高。
     enum BottomMode { case lyrics, queue, none }
-    @State private var bottomMode: BottomMode = .lyrics
+    @State private var bottomMode: BottomMode = .none
 
     var body: some View {
         ZStack {
@@ -31,15 +36,25 @@ struct MacMiniPlayerView: View {
                 topToolbar
                 scrubber
                 transport
-                Divider().opacity(0.3)
-                bottomPanel
+                // 折叠时不渲染分割线和面板,VStack 只剩控件,窗口缩成一
+                // 小块。展开时分割线+面板接在控件下面,窗口高度由 controller
+                // 拉到 540。transition + 顶层 animation 让面板淡入淡出
+                // 跟窗口尺寸动画对齐,看起来一气呵成。
+                if bottomMode != .none {
+                    Divider().opacity(0.3)
+                        .transition(.opacity)
+                    bottomPanel
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
             }
             .padding(.horizontal, 16)
             .padding(.top, 14)
             .padding(.bottom, 16)
+            .animation(.easeInOut(duration: 0.28), value: bottomMode)
         }
         .task(id: player.currentSong?.id) { await reloadLyrics() }
         .onChange(of: player.currentTime) { _, t in updateIndex(time: t) }
+        .onChange(of: bottomMode) { _, new in onBottomModeChange?(new) }
     }
 
     // MARK: - Backdrop

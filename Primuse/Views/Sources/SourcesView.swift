@@ -170,8 +170,9 @@ struct SourcesView: View {
             }
 
             HStack(spacing: 10) {
-                if source.type.isMediaServer {
-                    // Media servers scan all libraries directly — no directory selection needed
+                if source.type.scansEntireLibrary {
+                    // Whole-library sources (media servers, local folder, Apple Music
+                    // library) skip the connect/pick-directory flow and scan directly.
                     Button {
                         scanService.scanSource(
                             source,
@@ -313,7 +314,10 @@ struct SourcesView: View {
 
     private func toggleSourceEnabled(_ source: MusicSource) {
         updateSource(source.id) { $0.isEnabled.toggle() }
-        library.updateDisabledSourceIDs(disabledSourceIDs)
+        library.updateSourceVisibility(
+            activeSourceIDs: Set(sourceStore.sources.map(\.id)),
+            disabledSourceIDs: disabledSourceIDs
+        )
     }
 
     private var disabledSourceIDs: Set<String> {
@@ -327,6 +331,10 @@ struct SourcesView: View {
         library.removeSongsForSource(source.id)
         sourceStore.remove(id: source.id)
         scanService.removeSynologyAPI(for: source.id)
+        sourceManager.deleteSourceCaches(sourceID: source.id)
+        #if os(macOS)
+        LocalBookmarkStore.remove(sourceID: source.id)
+        #endif
         KeychainService.deletePassword(for: source.id)
         if source.type.isCloudDrive {
             Task {

@@ -2,6 +2,8 @@ import SwiftUI
 import PrimuseKit
 
 struct SettingsView: View {
+    @AppStorage(UserNotificationService.notifyLongTasksKey) private var notifyLongTasks: Bool = true
+
     var body: some View {
         NavigationStack {
             List {
@@ -82,18 +84,25 @@ struct SettingsView: View {
                     }
                 }
 
+                Section {
+                    Toggle("notify_long_tasks", isOn: $notifyLongTasks)
+                    Text("notify_long_tasks_hint")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 Section("about") {
                     HStack {
                         Text("version")
                         Spacer()
-                        Text("1.0.0")
+                        Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")
                             .foregroundStyle(.secondary)
                     }
 
                     HStack {
                         Text("build")
                         Spacer()
-                        Text("1")
+                        Text(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—")
                             .foregroundStyle(.secondary)
                     }
 

@@ -76,6 +76,13 @@ actor AudioCacheManager {
         schedulePersist()
     }
 
+    func removeEntries(forSourceID sourceID: String) {
+        ensureInitialized()
+        let prefix = "\(sourceID)/"
+        accessLog = accessLog.filter { key, _ in !key.hasPrefix(prefix) }
+        schedulePersist()
+    }
+
     func clearAll() {
         accessLog.removeAll()
         try? FileManager.default.removeItem(at: logURL)

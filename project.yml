@@ -123,7 +123,9 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        CFBundleDisplayName: "猿音"
+        # Default (English) — overridden per-locale in InfoPlist.strings:
+        # zh-Hans users see "猿音", everyone else falls back to "Primuse".
+        CFBundleDisplayName: "Primuse"
         CFBundleName: "Primuse"
         LSApplicationCategoryType: "public.app-category.music"
         CFBundleURLTypes:
@@ -145,7 +147,8 @@ targets:
         PrimuseOneDriveClientID: "$(ONEDRIVE_CLIENT_ID)"
         UILaunchScreen: {}
         ITSAppUsesNonExemptEncryption: false
-        NSSiriUsageDescription: "用 Siri 语音点播、控制猿音播放。"
+        # English defaults — overridden per-locale in InfoPlist.strings.
+        NSSiriUsageDescription: "Used to start playback and control Primuse with Siri voice commands."
         NSUserActivityTypes:
           - INPlayMediaIntent
         UIApplicationSceneManifest:
@@ -158,7 +161,7 @@ targets:
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
           NSAllowsLocalNetworking: true
-        NSLocalNetworkUsageDescription: "猿音需要访问本地网络以发现和连接您的 NAS 设备、媒体服务器及其他音乐源。"
+        NSLocalNetworkUsageDescription: "Primuse needs local network access to discover and connect to your NAS devices, media servers, and other music sources."
         NSBonjourServices:
           - "_smb._tcp."
           - "_webdav._tcp."
@@ -277,18 +280,21 @@ targets:
       - package: SFBAudioEngine
         product: SFBAudioEngine
       - sdk: AppIntents.framework
+      - sdk: iTunesLibrary.framework
       - target: PrimuseKit
     info:
       path: Primuse/Info-macOS.plist
       properties:
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
-        CFBundleDisplayName: "猿音"
+        # Default (English) — overridden per-locale in InfoPlist.strings.
+        CFBundleDisplayName: "Primuse"
         CFBundleName: "Primuse"
         LSApplicationCategoryType: "public.app-category.music"
         LSMinimumSystemVersion: "$(MACOSX_DEPLOYMENT_TARGET)"
         NSHumanReadableCopyright: "© Welape"
         ITSAppUsesNonExemptEncryption: false
+        NSAppleMusicUsageDescription: "Primuse needs access to your Apple Music / iTunes library to import its local tracks as a playback source."
         CFBundleURLTypes:
           - CFBundleURLSchemes:
               - primuse
@@ -309,7 +315,7 @@ targets:
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
           NSAllowsLocalNetworking: true
-        NSLocalNetworkUsageDescription: "猿音需要访问本地网络以发现和连接您的 NAS 设备、媒体服务器及其他音乐源。"
+        NSLocalNetworkUsageDescription: "Primuse needs local network access to discover and connect to your NAS devices, media servers, and other music sources."
         NSBonjourServices:
           - "_smb._tcp."
           - "_webdav._tcp."
@@ -329,3 +335,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.welape.yuanyin.mac
         CODE_SIGN_ENTITLEMENTS: Config/PrimuseMac.entitlements
         SWIFT_OBJC_BRIDGING_HEADER: Primuse/Primuse-Bridging-Header.h
+        # macOS 独立版本号 — Mac 是新平台首发，从 1.0.0 起步，
+        # 与 iOS 的 MARKETING_VERSION/CURRENT_PROJECT_VERSION 解耦。
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"

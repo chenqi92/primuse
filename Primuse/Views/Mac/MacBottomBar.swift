@@ -11,8 +11,10 @@ import PrimuseKit
 /// 也腾出更多空间给二级控件。
 struct MacBottomBar: View {
     var isExpanded: Bool = false
+    /// 队列侧栏是否打开,用来给 queue 按钮高亮 (Apple Music 行为)。
+    var isQueueShown: Bool = false
     var onToggleNowPlaying: () -> Void = {}
-    var onShowQueue: () -> Void = {}
+    var onToggleQueue: () -> Void = {}
     var onMiniPlayer: () -> Void = {}
     var onFullScreen: () -> Void = {}
 
@@ -279,8 +281,9 @@ struct MacBottomBar: View {
             .buttonStyle(.plain)
             .help(Text("lyrics_word"))
 
-            Button(action: onShowQueue) {
-                secondaryIcon("list.bullet")
+            Button(action: onToggleQueue) {
+                secondaryIcon(isQueueShown ? "list.bullet.indent" : "list.bullet",
+                              tint: isQueueShown ? .accentColor : .secondary)
             }
             .buttonStyle(.plain)
             .help(Text("queue_title"))

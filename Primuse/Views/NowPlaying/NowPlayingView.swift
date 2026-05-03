@@ -280,6 +280,24 @@ struct NowPlayingView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
+        #if os(macOS)
+        .onChange(of: showScrapeOptions) { _, new in
+            guard new, let song = player.currentSong else {
+                if new { showScrapeOptions = false }
+                return
+            }
+            ScrapeWindowController.shared.show(song: song) { u in
+                CachedArtworkView.invalidateCache(for: u.id)
+                if let oldRef = song.coverArtFileName {
+                    CachedArtworkView.invalidateCache(for: oldRef)
+                }
+                player.syncSongMetadata(u)
+                player.forceRefreshNowPlayingArtwork()
+                Task { await loadLyrics() }
+            }
+            showScrapeOptions = false
+        }
+        #else
         .sheet(isPresented: $showScrapeOptions) {
             if let song = player.currentSong {
                 ScrapeOptionsView(song: song) { u in
@@ -295,6 +313,7 @@ struct NowPlayingView: View {
                 .presentationDetents([.medium, .large])
             }
         }
+        #endif
         .sheet(isPresented: $showAddToPlaylist) {
             if let song = player.currentSong {
                 AddToPlaylistSheet(song: song)

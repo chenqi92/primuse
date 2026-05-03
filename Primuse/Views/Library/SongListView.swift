@@ -8,6 +8,7 @@ struct SongListView: View {
     let songs: [Song]
     @State private var sortOrder: SongSortOrder = .title
     @State private var cachedSortedSongs: [Song] = []
+    @State private var searchText: String = ""
     /// ID set the cached order was built from. When `songs` changes by
     /// metadata only (backfill filling in title/duration on existing IDs)
     /// we update each row in-place instead of re-running localizedCompare
@@ -39,7 +40,7 @@ struct SongListView: View {
             )
         } else {
             List {
-                ForEach(cachedSortedSongs) { song in
+                ForEach(filteredSongs) { song in
                     Button {
                         playSong(song)
                     } label: {
@@ -57,6 +58,9 @@ struct SongListView: View {
                 }
             }
             .listStyle(.plain)
+            .searchable(text: $searchText,
+                        placement: .toolbar,
+                        prompt: Text("search_songs_prompt"))
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
@@ -74,6 +78,18 @@ struct SongListView: View {
             .onAppear { recomputeSorted() }
             .onChange(of: sortOrder) { _, _ in recomputeSorted() }
             .onChange(of: songs) { _, _ in updateSortedSongsIfNeeded() }
+        }
+    }
+
+    /// 当前用搜索过滤后的歌曲列表;空字符串时返回完整 cachedSortedSongs。
+    /// 大小写无关,匹配标题/艺术家/专辑任一字段。
+    private var filteredSongs: [Song] {
+        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return cachedSortedSongs }
+        return cachedSortedSongs.filter {
+            $0.title.localizedCaseInsensitiveContains(q)
+            || ($0.artistName?.localizedCaseInsensitiveContains(q) ?? false)
+            || ($0.albumTitle?.localizedCaseInsensitiveContains(q) ?? false)
         }
     }
 

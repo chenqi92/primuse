@@ -12,7 +12,7 @@ import PrimuseKit
 /// into the vertical center of the window and look untethered.
 struct MacSettingsView: View {
     private enum Tab: String, Hashable {
-        case general, equalizer, effects, library, sources, sync, recentlyDeleted, security, about
+        case general, equalizer, effects, library, sources, widgets, sync, recentlyDeleted, security, about
     }
 
     @State private var tab: Tab = .general
@@ -38,6 +38,10 @@ struct MacSettingsView: View {
             MacSourcesView().tabPaneSize()
                 .tabItem { Label("manage_sources", systemImage: "externaldrive.connected.to.line.below") }
                 .tag(Tab.sources)
+
+            MacWidgetSyncSettingsView().tabPaneSize()
+                .tabItem { Label("desktop_widgets", systemImage: "rectangle.grid.2x2") }
+                .tag(Tab.widgets)
 
             MacCloudSyncSettingsView().tabPaneSize()
                 .tabItem { Label("icloud_sync_title", systemImage: "icloud") }
@@ -65,6 +69,63 @@ struct MacSettingsView: View {
             NavigationLink("licenses") { LicensesView() }
         }
         .formStyle(.grouped)
+    }
+}
+
+private struct MacWidgetSyncSettingsView: View {
+    @Environment(AudioPlayerService.self) private var player
+    @AppStorage(MacWidgetSyncSettings.isEnabledKey) private var enabled: Bool = false
+    @State private var showEnableExplanation = false
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle(isOn: Binding(
+                    get: { enabled },
+                    set: { newValue in
+                        if newValue {
+                            showEnableExplanation = true
+                        } else {
+                            enabled = false
+                        }
+                    }
+                )) {
+                    Label("desktop_widget_sync_enabled", systemImage: "rectangle.grid.2x2")
+                }
+                .toggleStyle(.switch)
+            } footer: {
+                Text("desktop_widget_sync_footer")
+            }
+
+            Section {
+                LabeledContent {
+                    Text(enabled ? "desktop_widget_sync_status_enabled" : "desktop_widget_sync_status_disabled")
+                        .foregroundStyle(enabled ? .green : .secondary)
+                } label: {
+                    Text("status")
+                }
+
+                if enabled {
+                    Button {
+                        player.publishWidgetStateForMacWidgetSync()
+                    } label: {
+                        Label("desktop_widget_sync_update_now", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                }
+            } footer: {
+                Text("desktop_widget_sync_privacy_footer")
+            }
+        }
+        .formStyle(.grouped)
+        .alert("desktop_widget_sync_explanation_title", isPresented: $showEnableExplanation) {
+            Button("cancel", role: .cancel) {}
+            Button("desktop_widget_sync_continue") {
+                enabled = true
+                player.publishWidgetStateForMacWidgetSync()
+            }
+        } message: {
+            Text("desktop_widget_sync_explanation_message")
+        }
     }
 }
 

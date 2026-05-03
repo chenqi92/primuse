@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>猿音</string>
+	<string>Primuse</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -60,6 +60,8 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>Primuse needs access to your Apple Music / iTunes library to import its local tracks as a playback source.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_smb._tcp.</string>
@@ -76,7 +78,7 @@
 	<key>NSHumanReadableCopyright</key>
 	<string>© Welape</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>猿音需要访问本地网络以发现和连接您的 NAS 设备、媒体服务器及其他音乐源。</string>
+	<string>Primuse needs local network access to discover and connect to your NAS devices, media servers, and other music sources.</string>
 	<key>PrimuseBaiduClientID</key>
 	<string>$(BAIDU_CLIENT_ID)</string>
 	<key>PrimuseBaiduClientSecret</key>

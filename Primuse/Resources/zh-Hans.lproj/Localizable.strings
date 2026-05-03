@@ -2,6 +2,19 @@
 "local_folder" = "本地文件夹";
 "choose_folder" = "选择文件夹";
 "no_folder_selected" = "未选择文件夹";
+"apple_music_library_hint" = "保存后将请求访问您的 Apple Music / iTunes 资料库，并将其中的本机音乐导入为播放源。";
+
+// MARK: - 系统通知
+"notify_long_tasks" = "长任务完成时通知";
+"notify_long_tasks_hint" = "刮削、整库重刮等耗时任务完成后弹出系统通知。错误通知不受此开关影响。";
+"notify_scrape_missing_done_title" = "元数据补全完成";
+"notify_rescrape_done_title" = "整库重新刮削完成";
+"notify_scrape_done_body" = "已更新 %d 首歌曲的元数据";
+"notify_scrape_done_body_with_failures" = "已更新 %d 首 · %d 首失败";
+"notify_scan_failed_title" = "扫描失败";
+"notify_scan_failed_body" = "音乐源 \"%@\" 扫描失败：%@";
+"notify_cloud_sync_failed_title" = "iCloud 同步失败";
+"icloud_quota_exceeded" = "iCloud 存储空间不足，请清理后重试。";
 
 // MARK: - 菜单栏 / 桌面歌词（macOS）
 "open_main_window" = "打开主窗口";
@@ -528,3 +541,24 @@
 "toggle_desktop_lyrics_lock" = "锁定/解锁桌面歌词";
 "password_required_title" = "请输入密码";
 "password_wrong_hint" = "账号或密码错误,请重新输入";
+"desktop_widgets" = "桌面小组件";
+"desktop_widget_sync_enabled" = "同步到桌面小组件";
+"desktop_widget_sync_footer" = "开启后,猿音会把当前播放、进度和封面写入共享容器,让桌面小组件读取。关闭时 Mac 版不会访问这块共享数据。";
+"desktop_widget_sync_status_enabled" = "已开启";
+"desktop_widget_sync_status_disabled" = "未开启";
+"desktop_widget_sync_update_now" = "立即同步当前播放";
+"desktop_widget_sync_privacy_footer" = "macOS 可能会显示系统权限弹框,提示猿音想访问其他 App 的数据。这是 App Group 共享容器,仅用于猿音和它的小组件之间传递播放信息。";
+"desktop_widget_sync_explanation_title" = "允许桌面小组件读取播放信息?";
+"desktop_widget_sync_explanation_message" = "为了让桌面小组件显示当前歌曲、播放进度和封面,猿音需要访问 App Group 共享容器。接下来 macOS 可能会询问是否允许访问“其他 App 的数据”,这是系统对共享容器的提示。";
+"desktop_widget_sync_continue" = "继续开启";
+
+// MARK: - 资料库内搜索
+"search_songs_prompt" = "搜索歌曲";
+"search_albums_prompt" = "搜索专辑";
+"search_artists_prompt" = "搜索艺术家";
+
+// MARK: - 桌面歌词
+"vertical_lyrics" = "纵向歌词";
+"hide_lyrics_background" = "隐藏背景";
+"show_lyrics_background" = "显示背景";
+"desktop_lyrics_no_song" = "暂无播放";

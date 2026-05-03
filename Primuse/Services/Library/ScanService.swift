@@ -72,10 +72,13 @@ final class ScanService {
     ) {
         guard activeTasks[source.id] == nil else { return }
 
-        // Media servers scan all libraries automatically; other sources need user-selected directories
+        // Media servers / Apple Music Library 都是自动全库扫描,没有"用户选
+        // 目录"这一步,用 "/" 哨兵触发 connector.scanSongs(from: "/") 走全
+        // 量列举。其余 NAS / Cloud / Protocol / Local 都依赖 extraConfig
+        // 里持久化的目录列表。
         let dirs: [String]
-        if source.type.isMediaServer {
-            dirs = ["/"]  // Sentinel: scan all libraries
+        if source.type.isMediaServer || source.type == .appleMusicLibrary {
+            dirs = ["/"]
         } else {
             dirs = decodeDirs(source.extraConfig)
             guard !dirs.isEmpty else { return }
@@ -122,7 +125,7 @@ final class ScanService {
                  .jellyfin, .emby, .plex,
                  .qnap, .ugreen, .fnos, .s3,
                  .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox,
-                 .local:
+                 .local, .appleMusicLibrary:
                 await scanConnectorSource(
                     source: source,
                     directories: normalizedDirs,
@@ -154,6 +157,11 @@ final class ScanService {
             guard activeTasks[sourceID] == nil,
                   let source = sourceStore.source(id: sourceID),
                   source.isEnabled, !source.isDeleted else { continue }
+            // Apple Music Library 扫描会触发 ITLibrary 初始化,弹出"访问其他
+            // App 数据"的 macOS Sandbox 授权对话框。它是读本地 iTunes 数据库
+            // 的全量枚举,没有"接着上次扫到一半的位置"这种增量语义,checkpoint
+            // 没意义。所以启动时不主动恢复,等用户在源列表里手动点扫描再触发。
+            if source.type == .appleMusicLibrary { continue }
             scanSource(
                 source,
                 sourceManager: sourceManager,
@@ -360,6 +368,7 @@ final class ScanService {
                 isScanning: false,
                 currentFile: error.localizedDescription
             )
+            Self.notifyScanFailed(sourceName: source.name, error: error)
         }
     }
 
@@ -453,6 +462,23 @@ final class ScanService {
             scanStates[source.id] = ScanState(
                 isScanning: false,
                 currentFile: error.localizedDescription
+            )
+            Self.notifyScanFailed(sourceName: source.name, error: error)
+        }
+    }
+
+    /// Build & post the "scan failed" error notification. Only the
+    /// localizedDescription leaks to the user — full error chains stay in the
+    /// log via the existing `currentFile` debug field.
+    private static func notifyScanFailed(sourceName: String, error: Error) {
+        let title = String(localized: "notify_scan_failed_title")
+        let format = String(localized: "notify_scan_failed_body")
+        let body = String(format: format, sourceName, error.localizedDescription)
+        Task { @MainActor in
+            await UserNotificationService.shared.postError(
+                category: .scanFailed,
+                title: title,
+                body: body
             )
         }
     }

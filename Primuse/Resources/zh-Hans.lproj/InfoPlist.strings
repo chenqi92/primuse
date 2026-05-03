@@ -1,0 +1,8 @@
+// 简体中文系统下显示的 app 信息覆盖。系统会优先读这里的值，
+// 找不到再 fallback 到 Info.plist 里的默认（英文）。
+"CFBundleDisplayName" = "猿音";
+
+// 系统权限弹窗中显示的用途说明。Apple 强制要求与功能相符。
+"NSSiriUsageDescription" = "用 Siri 语音点播、控制猿音播放。";
+"NSAppleMusicUsageDescription" = "猿音需要访问您的 Apple Music / iTunes 资料库，以将本机音乐导入为播放源。";
+"NSLocalNetworkUsageDescription" = "猿音需要访问本地网络以发现和连接您的 NAS 设备、媒体服务器及其他音乐源。";

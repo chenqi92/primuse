@@ -4,11 +4,26 @@ import PrimuseKit
 struct ScrapeOptionsView: View {
     let song: Song
     var onComplete: ((Song) -> Void)?
+    /// macOS 独立窗口模式下,关闭走 NSWindow 自身的红灯而不是
+    /// SwiftUI 的 .dismiss。callsite 注入这个闭包让 view 在 apply 完
+    /// 之后能主动 close 宿主 window。sheet 模式下保持为 nil,view
+    /// 自动 fallback 到 dismiss()。
+    var onCloseRequest: (() -> Void)?
 
     @Environment(MusicLibrary.self) private var library
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(SourceManager.self) private var sourceManager
     @Environment(\.dismiss) private var dismiss
+
+    /// 关闭当前刮削视图 —— 优先走宿主注入的关闭回调 (window 红灯),
+    /// 没有就回落到 SwiftUI 的环境 dismiss (sheet)。
+    private func performClose() {
+        if let onCloseRequest {
+            onCloseRequest()
+        } else {
+            dismiss()
+        }
+    }
 
     @State private var mode: ScrapeMode = .options
     @State private var previewSource: ScrapeMode = .options
@@ -21,6 +36,11 @@ struct ScrapeOptionsView: View {
     @State private var isSearching = false
     @State private var errorMessage: String?
     @State private var manualSearchQuery = ""
+    /// 当前点了哪一条手动搜索结果。点完到 selectManualResult 完成 (跳到
+    /// preview) 之间有 1~3 秒网络等待,锁住这个 id 来:
+    ///   1) 在被点的 row 上画 ProgressView 提示进度
+    ///   2) 阻止用户重复点其他 row
+    @State private var loadingResultID: String?
 
     // Per-field apply toggles (for preview)
     @State private var applyTitle = true
@@ -73,20 +93,23 @@ struct ScrapeOptionsView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                switch mode {
-                case .options: optionsView
-                case .preview: previewView
-                case .manual: manualSearchView
+            VStack(spacing: 0) {
+                Group {
+                    switch mode {
+                    case .options: optionsView
+                    case .preview: previewView
+                    case .manual: manualSearchView
+                    }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                Divider()
+                bottomActionBar
             }
             .navigationTitle("scrape_song")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("cancel") { dismiss() }
-                }
-            }
+            .toolbarTitleDisplayMode(.inline)
+            .toolbar { toolbarContent }
         }
         #if os(macOS)
         // 之前在 macOS 上裸 Form + 默认 sheet 大小,弹框被压成 ~520x420
@@ -94,6 +117,93 @@ struct ScrapeOptionsView: View {
         // 给 sheet 一个明确的 minSize,内容才能舒展开。
         .frame(minWidth: 520, idealWidth: 580, minHeight: 460, idealHeight: 540)
         #endif
+    }
+
+    /// macOS 上 (走 ScrapeWindowController) 关闭由 NSWindow 红灯负责,
+    /// toolbar 不再放任何 X 按钮,iOS 端用 dismiss + xmark 兜底。
+    /// macOS 下 toolbar 还需要一个 placeholder ToolbarItem 占位,
+    /// 不然 ToolbarContentBuilder 认为整个 builder 空,result builder 报
+    /// "expected expression of type 'Content'"。
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        #if os(macOS)
+        // 占位 —— 实际不渲染任何按钮,关闭走 NSWindow 红灯。
+        ToolbarItem(placement: .automatic) { Color.clear.frame(width: 0, height: 0) }
+        #else
+        ToolbarItem(placement: .cancellationAction) {
+            Button {
+                performClose()
+            } label: {
+                Image(systemName: "xmark")
+            }
+            .help(Text("close"))
+            .keyboardShortcut(.cancelAction)
+        }
+        #endif
+    }
+
+    private var backButtonTitle: LocalizedStringKey {
+        switch mode {
+        case .options: return ""
+        case .preview: return previewSource == .manual ? "back_to_results" : "back_to_options"
+        case .manual: return "back_to_options"
+        }
+    }
+
+    // MARK: - Bottom action bar
+
+    /// 统一底部按钮栏,各级动作集中在这一行:
+    ///   - 左: 返回 (非 options 级)
+    ///   - 右: 当前级的主操作
+    /// 这样无论第几级用户都能在同一位置找到完整的操作,不再需要切到
+    /// toolbar 找按钮,也不会出现"取消/返回错位"的现象。
+    @ViewBuilder
+    private var bottomActionBar: some View {
+        HStack(spacing: 10) {
+            if mode != .options {
+                Button {
+                    switch mode {
+                    case .preview:
+                        mode = (previewSource == .manual) ? .manual : .options
+                    case .manual:
+                        mode = .options
+                    case .options:
+                        break
+                    }
+                } label: {
+                    Label(backButtonTitle, systemImage: "chevron.backward")
+                }
+            }
+
+            Spacer()
+
+            switch mode {
+            case .options:
+                Button("manual_scrape") {
+                    Task { await manualSearch() }
+                }
+                .disabled(isSearching || isScraping)
+
+                Button("auto_scrape") {
+                    Task { await autoScrape() }
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(isScraping || isSearching || (!scrapeMetadata && !scrapeCover && !scrapeLyrics))
+
+            case .preview:
+                Button("apply_changes") { applySelectedChanges() }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                    .fontWeight(.semibold)
+                    .disabled(!hasAnySelectedChange)
+
+            case .manual:
+                EmptyView()
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
     }
 
     // MARK: - Options (what to scrape)
@@ -111,6 +221,9 @@ struct ScrapeOptionsView: View {
                         }
                     }
                     Spacer()
+                    if isScraping || isSearching {
+                        ProgressView().controlSize(.small)
+                    }
                 }
             }
 
@@ -118,43 +231,6 @@ struct ScrapeOptionsView: View {
                 Toggle("scrape_metadata_toggle", isOn: $scrapeMetadata)
                 Toggle("scrape_cover_toggle", isOn: $scrapeCover)
                 Toggle("scrape_lyrics_toggle", isOn: $scrapeLyrics)
-            }
-
-            // 自动刮削放在自己的 Section,不跟手动搜索挤一起 —— 之前两个
-             // Button 都在同一个 Section 里渲染,grouped Form 视觉上变成两个
-             // 紧邻的 row,看不清边界。各自一个 Section 让 macOS Form 在
-             // 两行之间画 6pt 分隔间距,层次清晰。
-            Section {
-                Button {
-                    Task { await autoScrape() }
-                } label: {
-                    HStack {
-                        Label("auto_scrape", systemImage: "wand.and.stars")
-                            .fontWeight(.medium)
-                        Spacer()
-                        if isScraping { ProgressView().controlSize(.small) }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(isScraping || (!scrapeMetadata && !scrapeCover && !scrapeLyrics))
-            }
-
-            Section {
-                Button {
-                    Task { await manualSearch() }
-                } label: {
-                    HStack {
-                        Label("manual_scrape", systemImage: "magnifyingglass")
-                        Spacer()
-                        if isSearching { ProgressView().controlSize(.small) }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(isSearching)
             }
 
             if let error = errorMessage {
@@ -269,29 +345,11 @@ struct ScrapeOptionsView: View {
                             .font(.subheadline).foregroundStyle(.secondary)
                     }
                 }
-
-                Section {
-                    if previewSource == .manual {
-                        Button { mode = .manual } label: {
-                            Text(String(localized: "back_to_results"))
-                        }
-                    }
-                    Button { mode = .options } label: { Text("back_to_options") }
-                }
             }
         }
         #if os(macOS)
         .formStyle(.grouped)
         #endif
-        .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-                Button("apply_changes") {
-                    applySelectedChanges()
-                }
-                .fontWeight(.semibold)
-                .disabled(!hasAnySelectedChange)
-            }
-        }
     }
 
     @ViewBuilder
@@ -353,70 +411,107 @@ struct ScrapeOptionsView: View {
     // MARK: - Manual Search
 
     private var manualSearchView: some View {
-        List {
-            if searchResults.isEmpty && !isSearching {
-                ContentUnavailableView("no_results", systemImage: "magnifyingglass",
-                    description: Text("no_scrape_results_desc"))
-            } else {
-                ForEach(searchResults) { item in
-                    Button {
-                        Task { await selectManualResult(item) }
-                    } label: {
-                        HStack(spacing: 10) {
-                            // Cover art thumbnail
-                            ScraperCoverThumbnail(
-                                urlString: item.coverUrl,
-                                externalId: item.externalId,
-                                sourceConfig: item.sourceConfig
-                            )
+        // 之前在 List 上挂 .searchable,macOS 下系统会把搜索框塞进
+        // window 的 titlebar,跟 .navigationTitle 大标题分到上下两层,
+        // 视觉上"标题/搜索框上下错位"。改成在 List 上方内嵌一个手写的
+        // 搜索栏:跟 list 一起垂直排列,标题归标题、搜索归内容,layout
+        // 跟 macOS 26 / iOS 26 原生 sheet 风格一致。
+        VStack(spacing: 0) {
+            inlineSearchField
+                .padding(.horizontal, 16)
+                .padding(.top, 10)
+                .padding(.bottom, 6)
 
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack {
-                                    Text(item.title).font(.subheadline).fontWeight(.medium).lineLimit(1)
-                                    Spacer()
-                                    if let dur = item.durationText {
-                                        Text(dur).font(.caption).foregroundStyle(.secondary).monospacedDigit()
+            List {
+                if searchResults.isEmpty && !isSearching {
+                    ContentUnavailableView("no_results", systemImage: "magnifyingglass",
+                        description: Text("no_scrape_results_desc"))
+                } else {
+                    ForEach(searchResults) { item in
+                        Button {
+                            // 立刻锁住 row id 让 UI 出反馈;loadingResultID
+                            // 在 selectManualResult 里清掉。
+                            loadingResultID = item.id
+                            Task { await selectManualResult(item) }
+                        } label: {
+                            HStack(spacing: 10) {
+                                ScraperCoverThumbnail(
+                                    urlString: item.coverUrl,
+                                    externalId: item.externalId,
+                                    sourceConfig: item.sourceConfig
+                                )
+
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack {
+                                        Text(item.title).font(.subheadline).fontWeight(.medium).lineLimit(1)
+                                        Spacer()
+                                        if loadingResultID == item.id {
+                                            ProgressView().controlSize(.small)
+                                        } else if let dur = item.durationText {
+                                            Text(dur).font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                                        }
                                     }
+                                    HStack(spacing: 4) {
+                                        if let artist = item.artist {
+                                            Text(artist).font(.caption).foregroundStyle(Color.secondary)
+                                        }
+                                        if let album = item.album {
+                                            Text("·").font(.caption).foregroundStyle(Color.secondary.opacity(0.7))
+                                            Text(album).font(.caption).foregroundStyle(Color.secondary.opacity(0.7))
+                                        }
+                                    }
+                                    .lineLimit(1)
+                                    Text(item.source).font(.caption2).foregroundStyle(.green)
                                 }
-                                HStack(spacing: 4) {
-                                    if let artist = item.artist {
-                                        Text(artist).font(.caption).foregroundStyle(Color.secondary)
-                                    }
-                                    if let album = item.album {
-                                        Text("·").font(.caption).foregroundStyle(Color.secondary.opacity(0.7))
-                                        Text(album).font(.caption).foregroundStyle(Color.secondary.opacity(0.7))
-                                    }
-                                }
-                                .lineLimit(1)
-                                Text(item.source).font(.caption2).foregroundStyle(.green)
                             }
+                            .padding(.vertical, 6)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                            // 当前正在加载的 row 高亮 + 其他 row 半透明,
+                            // 让用户清楚"点击已生效,后台在跑"。
+                            .opacity(loadingResultID == nil || loadingResultID == item.id ? 1 : 0.5)
                         }
-                        .padding(.vertical, 6)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
+                        .buttonStyle(.plain)
+                        .listRowSeparator(.visible)
+                        // 任何 row 在 loading 时整个 list 不接受点击,防止
+                        // 重复触发 selectManualResult。
+                        .disabled(loadingResultID != nil)
                     }
-                    .buttonStyle(.plain)
-                    .listRowSeparator(.visible)
+                }
+            }
+            #if os(macOS)
+            .listStyle(.inset)
+            #endif
+            .overlay {
+                if isSearching {
+                    ProgressView("searching").padding()
                 }
             }
         }
-        #if os(macOS)
-        .listStyle(.inset)
-        #endif
-        .searchable(text: $manualSearchQuery, prompt: Text("search_query"))
-        .onSubmit(of: .search) {
-            Task { await performManualSearch() }
-        }
-        .overlay {
-            if isSearching {
-                ProgressView("searching").padding()
+    }
+
+    /// 手写的搜索栏 —— 用 TextField + capsule 背景而不是 .searchable,
+    /// 因为后者在 macOS 上会被系统挪进 titlebar,跟 navigationTitle 分两行。
+    private var inlineSearchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField(String(localized: "search_query"), text: $manualSearchQuery)
+                .textFieldStyle(.plain)
+                .onSubmit {
+                    Task { await performManualSearch() }
+                }
+            if !manualSearchQuery.isEmpty {
+                Button { manualSearchQuery = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
             }
         }
-        .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-                Button("back_to_options") { mode = .options }
-            }
-        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.background.secondary, in: .capsule)
     }
 
     // MARK: - Logic
@@ -522,9 +617,19 @@ struct ScrapeOptionsView: View {
 
     private func selectManualResult(_ item: SearchResultItem) async {
         isScraping = true
+        // 整个流程结束 (success / fail) 都要解锁 row,defer 兜底。
+        defer {
+            isScraping = false
+            loadingResultID = nil
+        }
 
         do {
             let scraper = MusicScraperFactory.create(for: item.sourceConfig)
+
+            // detail 必须先拿到才知道最终 coverUrl,但 lyrics 可以跟 detail
+            // 并行,缩短一截网络等待。等 detail 回来后再启 cover 下载,
+            // cover 跟 lyrics 也并行。整体从 N1+N2+N3 串行变成 N1 + max(N2,N3)。
+            async let lyricsTask: ScraperLyricsResult? = (try? await scraper.getLyrics(externalId: item.externalId))
             let detail = try await scraper.getDetail(externalId: item.externalId)
 
             var updated = song
@@ -549,26 +654,25 @@ struct ScrapeOptionsView: View {
                 )
             }
 
-            // Download cover art if available (keep in memory, don't store to disk yet)
-            var hasCover = false
-            var coverData: Data?
-            // Prefer search result's coverUrl if detail doesn't have one
+            // 用 detail 的 coverUrl,fallback 到 search result 的 coverUrl。
             let coverUrl = detail?.coverUrl ?? item.coverUrl
-            if let coverUrl,
-               let data = try? await ConfigurableScraper.downloadResource(
-                from: coverUrl,
-                sourceConfig: item.sourceConfig,
-                timeout: 10
-               ) {
-                coverData = data
-                hasCover = true
-            }
+            async let coverTask: Data? = {
+                guard let coverUrl else { return nil }
+                return try? await ConfigurableScraper.downloadResource(
+                    from: coverUrl,
+                    sourceConfig: item.sourceConfig,
+                    timeout: 10
+                )
+            }()
 
-            // Download lyrics if available (keep in memory, don't store to disk yet)
+            let coverData = await coverTask
+            let hasCover = coverData != nil
+
+            // Lyrics
             var hasLyrics = false
             var lyricsCount = 0
             var lyricsLines: [LyricLine]?
-            if let lyricsResult = try? await scraper.getLyrics(externalId: item.externalId),
+            if let lyricsResult = await lyricsTask,
                lyricsResult.hasLyrics,
                let lrc = lyricsResult.lrcContent, !lrc.isEmpty {
                 let parsed = LyricsParser.parse(lrc)
@@ -578,8 +682,6 @@ struct ScrapeOptionsView: View {
                     lyricsCount = parsed.count
                 }
             }
-
-            isScraping = false
 
             previewResult = ScrapePreview(
                 updatedSong: updated, coverData: coverData, lyricsCount: lyricsCount,
@@ -602,7 +704,6 @@ struct ScrapeOptionsView: View {
             previewSource = .manual
             mode = .preview
         } catch {
-            isScraping = false
             errorMessage = error.localizedDescription
         }
     }
@@ -713,7 +814,7 @@ struct ScrapeOptionsView: View {
         }
 
         onComplete?(final)
-        dismiss()
+        performClose()
     }
 
     // MARK: - Helpers

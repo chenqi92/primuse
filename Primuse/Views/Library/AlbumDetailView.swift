@@ -12,6 +12,10 @@ struct AlbumDetailView: View {
         library.songs(forAlbum: album.id)
     }
 
+    private var playableSongs: [Song] {
+        songs.filteredPlayable()
+    }
+
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
@@ -34,8 +38,8 @@ struct AlbumDetailView: View {
                         if let year = album.year {
                             Text("\(year)")
                         }
-                        Text("\(album.songCount) \(String(localized: "songs_count"))")
-                        Text(formatDuration(album.totalDuration))
+                        Text("\(songs.count) \(String(localized: "songs_count"))")
+                        Text(formatDuration(songs.reduce(0) { $0 + $1.duration.sanitizedDuration }))
                     }
                     .font(.caption)
                     .foregroundStyle(.tertiary)
@@ -43,43 +47,42 @@ struct AlbumDetailView: View {
                 .padding(.top, 20)
 
                 // Action buttons
-                HStack(spacing: 16) {
-                    Button {
-                        playAll()
-                    } label: {
-                        Label("play_all", systemImage: "play.fill")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-
-                    Button {
-                        shuffleAll()
-                    } label: {
-                        Label("shuffle", systemImage: "shuffle")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
+                if songs.isEmpty == false {
+                    MediaDetailActionBar(
+                        canPlay: playableSongs.isEmpty == false,
+                        canShuffle: playableSongs.count > 1,
+                        playAction: playAll,
+                        shuffleAction: shuffleAll
+                    )
                 }
-                .padding(.horizontal)
 
                 // Track list
-                LazyVStack(spacing: 0) {
-                    ForEach(songs) { song in
-                        SongRowView(
-                            song: song,
-                            isPlaying: player.currentSong?.id == song.id,
-                            showAlbum: false,
-                            context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
-                        )
-                        .padding(.horizontal)
-                        .padding(.vertical, 8)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            playSong(song)
-                        }
+                if songs.isEmpty {
+                    ContentUnavailableView(
+                        "no_songs",
+                        systemImage: "music.note",
+                        description: Text("no_songs_desc")
+                    )
+                    .padding(.top, 24)
+                } else {
+                    LazyVStack(spacing: 0) {
+                        ForEach(songs) { song in
+                            SongRowView(
+                                song: song,
+                                isPlaying: player.currentSong?.id == song.id,
+                                showAlbum: false,
+                                context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
+                            )
+                            .padding(.horizontal)
+                            .padding(.vertical, 8)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                playSong(song)
+                            }
 
-                        Divider()
-                            .padding(.leading, 50)
+                            Divider()
+                                .padding(.leading, 50)
+                        }
                     }
                 }
             }
@@ -88,7 +91,7 @@ struct AlbumDetailView: View {
     }
 
     private func playAll() {
-        let queue = songs.filteredPlayable()
+        let queue = playableSongs
         guard let first = queue.first else { return }
         player.setQueue(queue, startAt: 0)
         Task { await player.play(song: first) }
@@ -100,7 +103,7 @@ struct AlbumDetailView: View {
     }
 
     private func playSong(_ song: Song) {
-        let queue = songs.filteredPlayable()
+        let queue = playableSongs
         guard let index = queue.firstIndex(where: { $0.id == song.id }) else { return }
         player.setQueue(queue, startAt: index)
         Task { await player.play(song: song) }

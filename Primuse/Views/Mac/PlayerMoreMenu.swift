@@ -52,17 +52,22 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 AddToPlaylistSheet(song: song)
             }
         }
-        .sheet(isPresented: $showScrapeOptions) {
-            if let song = player.currentSong {
-                ScrapeOptionsView(song: song) { u in
-                    CachedArtworkView.invalidateCache(for: u.id)
-                    if let oldRef = song.coverArtFileName {
-                        CachedArtworkView.invalidateCache(for: oldRef)
-                    }
-                    player.syncSongMetadata(u)
-                    player.forceRefreshNowPlayingArtwork()
-                }
+        // macOS 走 ScrapeWindowController 独立 NSWindow,带原生红灯。
+        // showScrapeOptions 仅作为触发开关,window 自己管生命周期。
+        .onChange(of: showScrapeOptions) { _, new in
+            guard new, let song = player.currentSong else {
+                if new { showScrapeOptions = false }
+                return
             }
+            ScrapeWindowController.shared.show(song: song) { u in
+                CachedArtworkView.invalidateCache(for: u.id)
+                if let oldRef = song.coverArtFileName {
+                    CachedArtworkView.invalidateCache(for: oldRef)
+                }
+                player.syncSongMetadata(u)
+                player.forceRefreshNowPlayingArtwork()
+            }
+            showScrapeOptions = false
         }
         .sheet(isPresented: $showSongInfo) {
             if let song = player.currentSong {

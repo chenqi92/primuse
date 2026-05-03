@@ -83,9 +83,9 @@ struct SearchView: View {
                         .foregroundStyle(.secondary)
                     Text("\(library.visibleSongs.count) \(String(localized: "tab_songs"))")
                     Spacer()
-                    Text("\(library.albums.count) \(String(localized: "tab_albums"))")
+                    Text("\(library.visibleAlbums.count) \(String(localized: "tab_albums"))")
                     Text("·")
-                    Text("\(library.artists.count) \(String(localized: "tab_artists"))")
+                    Text("\(library.visibleArtists.count) \(String(localized: "tab_artists"))")
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -98,7 +98,7 @@ struct SearchView: View {
     private var searchResultsView: some View {
         List {
             // Albums matching
-            let matchingAlbums = library.albums.filter {
+            let matchingAlbums = library.visibleAlbums.filter {
                 $0.title.localizedCaseInsensitiveContains(searchText)
                 || ($0.artistName?.localizedCaseInsensitiveContains(searchText) ?? false)
             }

@@ -174,9 +174,23 @@ final class MusicScraperService {
 
         scrapingTask = Task {
             defer {
+                let cancelled = Task.isCancelled
+                let updated = updatedCount
+                let failed = failedCount
                 isScraping = false
                 currentSongTitle = ""
                 scrapingTask = nil
+                // Fire the completion notification only when the run actually
+                // finished — cancellation (user hit "stop") shouldn't pop one.
+                if !cancelled {
+                    Task { @MainActor in
+                        await Self.postScrapeCompletionNotification(
+                            forceRescrape: forceRescrape,
+                            updatedCount: updated,
+                            failedCount: failed
+                        )
+                    }
+                }
             }
 
             let settings = ScraperSettings.load()
@@ -291,6 +305,33 @@ final class MusicScraperService {
                 artistsNeedingImage: artistsNeedingImage
             )
         }
+    }
+
+    /// Builds the user-visible "scrape finished" notification body and posts it.
+    /// Split out so both manual scrape (B1) and full-library rescrape (B2) share
+    /// the same wording / dedup behaviour.
+    private static func postScrapeCompletionNotification(
+        forceRescrape: Bool,
+        updatedCount: Int,
+        failedCount: Int
+    ) async {
+        let titleKey = forceRescrape
+            ? "notify_rescrape_done_title"
+            : "notify_scrape_missing_done_title"
+        let title = String(localized: String.LocalizationValue(titleKey))
+        let body: String
+        if failedCount > 0 {
+            let format = String(localized: "notify_scrape_done_body_with_failures")
+            body = String(format: format, updatedCount, failedCount)
+        } else {
+            let format = String(localized: "notify_scrape_done_body")
+            body = String(format: format, updatedCount)
+        }
+        await UserNotificationService.shared.postLongTaskCompletion(
+            category: forceRescrape ? .rescrapeLibraryDone : .scrapeMissingDone,
+            title: title,
+            body: body
+        )
     }
 
     /// Batch-fetch album covers and artist images for items missing artwork.

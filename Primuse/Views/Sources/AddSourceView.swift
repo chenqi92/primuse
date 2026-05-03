@@ -305,6 +305,12 @@ struct AddSourceView: View {
             #else
             EmptyView()
             #endif
+        case .appleMusicLibrary:
+            Section {
+                Label("apple_music_library_hint", systemImage: "music.note.house")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         case .nfs:
             Section("nfs_config") {
                 TextField("export_path", text: $exportPath)
@@ -387,7 +393,7 @@ struct AddSourceView: View {
             useSsl = device.preferredUseSsl ?? sourceType.defaultSSL
             if sourceType == .plex {
                 authType = .apiKey
-            } else if [.local, .nfs, .upnp].contains(sourceType) {
+            } else if [.local, .appleMusicLibrary, .nfs, .upnp].contains(sourceType) {
                 authType = .none
             }
         } else {
@@ -396,7 +402,7 @@ struct AddSourceView: View {
             useSsl = sourceType.defaultSSL
             if sourceType == .plex {
                 authType = .apiKey
-            } else if [.local, .nfs, .upnp].contains(sourceType) {
+            } else if [.local, .appleMusicLibrary, .nfs, .upnp].contains(sourceType) {
                 authType = .none
             }
         }

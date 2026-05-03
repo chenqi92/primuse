@@ -51,24 +51,23 @@ struct MacNowPlayingView: View {
         ZStack(alignment: .topTrailing) {
             backdrop
 
-            if isWindowFullScreen {
-                fullScreenLayout
-            } else {
-                // 普通展开:左封面 + 右歌词 + 右上浮动按钮
-                HStack(alignment: .top, spacing: 36) {
-                    artworkPane
-                        .frame(width: 380)
-                        .frame(maxHeight: .infinity)
-                    lyricsPane
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-                .padding(.horizontal, 40)
-                .padding(.top, 32)
-                .padding(.bottom, 24)
-
-                floatingControls
-                    .padding(18)
+            // 全屏与普通展开复用同一套「左封面 + 右滚动歌词」布局,
+            // 只是字号 / 间距更大、退出全屏按钮替换关闭按钮。这样
+            // 全屏下也能看到完整滚动歌词,而不是像桌面歌词那样只
+            // 显示当前一两句。
+            HStack(alignment: .top, spacing: isWindowFullScreen ? 56 : 36) {
+                artworkPane
+                    .frame(width: isWindowFullScreen ? 480 : 380)
+                    .frame(maxHeight: .infinity)
+                lyricsPane
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .padding(.horizontal, isWindowFullScreen ? 64 : 40)
+            .padding(.top, isWindowFullScreen ? 56 : 32)
+            .padding(.bottom, isWindowFullScreen ? 48 : 24)
+
+            floatingControls
+                .padding(18)
         }
         .task(id: player.currentSong?.id) { await reloadLyrics() }
         .onChange(of: player.currentTime) { _, t in updateIndex(time: t) }
@@ -94,70 +93,6 @@ struct MacNowPlayingView: View {
                                     set: { if !$0 { scrapeAlertMessage = nil } })) {
             Button("done", role: .cancel) {}
         } message: { Text(scrapeAlertMessage ?? "") }
-    }
-
-    // MARK: - Full screen (Apple Music 风格的极简布局)
-
-    /// 全屏模式 —— 居中超大封面 + 简洁标题/艺人 + 一个右上角退出按钮。
-    /// 不放歌词列表/字号按钮/menu —— 全屏的目标是"沉浸式听歌",任何
-    /// 多余 UI 都干扰。要操作就退出全屏,回到普通模式。
-    private var fullScreenLayout: some View {
-        ZStack(alignment: .topTrailing) {
-            VStack(spacing: 32) {
-                Spacer(minLength: 0)
-                Group {
-                    if let song = player.currentSong {
-                        CachedArtworkView(
-                            coverRef: song.coverArtFileName,
-                            songID: song.id,
-                            size: nil,
-                            cornerRadius: 18,
-                            sourceID: song.sourceID,
-                            filePath: song.filePath
-                        )
-                    } else {
-                        RoundedRectangle(cornerRadius: 18)
-                            .fill(.quaternary)
-                            .overlay {
-                                Image(systemName: "music.note")
-                                    .font(.system(size: 120))
-                                    .foregroundStyle(.tertiary)
-                            }
-                    }
-                }
-                .aspectRatio(1, contentMode: .fit)
-                .frame(maxWidth: 520, maxHeight: 520)
-                .shadow(color: .black.opacity(0.4), radius: 40, y: 16)
-
-                VStack(spacing: 8) {
-                    Text(player.currentSong?.title ?? "")
-                        .font(.system(size: 28, weight: .bold))
-                        .lineLimit(1)
-                    Text(player.currentSong?.artistName ?? "")
-                        .font(.system(size: 18))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(40)
-
-            // 退出全屏按钮 (右上),hover 才浮现,平时隐形。
-            Button {
-                NSApp.keyWindow?.toggleFullScreen(nil)
-            } label: {
-                Image(systemName: "arrow.down.right.and.arrow.up.left")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 36, height: 36)
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .glassEffect(.regular.interactive(), in: .circle)
-            .help(Text("close"))
-            .keyboardShortcut(.cancelAction)
-            .padding(18)
-        }
     }
 
     // MARK: - Sections
@@ -342,9 +277,17 @@ struct MacNowPlayingView: View {
             .glassEffect(.regular.interactive(), in: .circle)
             .help(Text("more"))
 
-            // Close
-            Button(action: onClose) {
-                circleIcon("chevron.down")
+            // Close —— 全屏时改成"退出全屏",非全屏时是"收起歌词"。
+            Button {
+                if isWindowFullScreen {
+                    NSApp.keyWindow?.toggleFullScreen(nil)
+                } else {
+                    onClose()
+                }
+            } label: {
+                circleIcon(isWindowFullScreen
+                           ? "arrow.down.right.and.arrow.up.left"
+                           : "chevron.down")
             }
             .buttonStyle(.plain)
             .glassEffect(.regular.interactive(), in: .circle)

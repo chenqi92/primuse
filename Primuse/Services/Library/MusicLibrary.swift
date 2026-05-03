@@ -69,6 +69,7 @@ final class MusicLibrary {
         return "\(prefix):\(song.filePath)"
     }
     private(set) var disabledSourceIDs: Set<String> = []
+    private(set) var activeSourceIDs: Set<String>?
 
     /// Cached filtered views — rebuilt only when songs/disabled state change
     private(set) var visibleSongs: [Song] = []
@@ -84,22 +85,27 @@ final class MusicLibrary {
         rebuildVisibleCache()
     }
 
+    func updateSourceVisibility(activeSourceIDs: Set<String>, disabledSourceIDs: Set<String>) {
+        self.activeSourceIDs = activeSourceIDs
+        self.disabledSourceIDs = disabledSourceIDs
+        rebuildVisibleCache()
+    }
+
     var songCount: Int { visibleSongs.count }
     var albumCount: Int { visibleAlbums.count }
     var artistCount: Int { visibleArtists.count }
 
     private func rebuildVisibleCache() {
-        if disabledSourceIDs.isEmpty {
-            visibleSongs = songs
-            visibleAlbums = albums
-            visibleArtists = artists
-        } else {
-            visibleSongs = songs.filter { !disabledSourceIDs.contains($0.sourceID) }
-            let visibleAlbumIDs = Set(visibleSongs.compactMap(\.albumID))
-            visibleAlbums = albums.filter { visibleAlbumIDs.contains($0.id) }
-            let visibleArtistIDs = Set(visibleSongs.compactMap(\.artistID))
-            visibleArtists = artists.filter { visibleArtistIDs.contains($0.id) }
+        visibleSongs = songs.filter { song in
+            let sourceExists = activeSourceIDs?.contains(song.sourceID) ?? true
+            return sourceExists && !disabledSourceIDs.contains(song.sourceID)
         }
+
+        let visibleAlbumIDs = Set(visibleSongs.compactMap(\.albumID))
+        visibleAlbums = albums.filter { visibleAlbumIDs.contains($0.id) }
+
+        let visibleArtistIDs = Set(visibleSongs.compactMap(\.artistID))
+        visibleArtists = artists.filter { visibleArtistIDs.contains($0.id) }
     }
 
     init(fileManager: FileManager = .default) {
@@ -262,6 +268,20 @@ final class MusicLibrary {
     /// Remove all songs for a given source
     func removeSongsForSource(_ sourceID: String) {
         songs.removeAll { $0.sourceID == sourceID }
+        cleanPlaylistEntries()
+        cleanPlaybackHistoryEntries()
+        rebuildIndex()
+        persistSnapshot()
+    }
+
+    /// Remove cached song/index data whose source no longer exists.
+    func removeSongsExcludingSources(_ activeSourceIDs: Set<String>) {
+        let oldCount = songs.count
+        songs.removeAll { !activeSourceIDs.contains($0.sourceID) }
+        guard songs.count != oldCount else {
+            rebuildVisibleCache()
+            return
+        }
         cleanPlaylistEntries()
         cleanPlaybackHistoryEntries()
         rebuildIndex()

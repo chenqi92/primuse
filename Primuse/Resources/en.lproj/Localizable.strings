@@ -2,6 +2,19 @@
 "local_folder" = "Local Folder";
 "choose_folder" = "Choose Folder…";
 "no_folder_selected" = "No folder selected";
+"apple_music_library_hint" = "After saving, Primuse will request access to your Apple Music / iTunes library and import its local tracks as a playback source.";
+
+// MARK: - System notifications
+"notify_long_tasks" = "Notify on long-task completion";
+"notify_long_tasks_hint" = "Show a system notification when scraping or full-library rescraping finishes. Error notifications are always shown.";
+"notify_scrape_missing_done_title" = "Metadata fill-in complete";
+"notify_rescrape_done_title" = "Full library rescrape complete";
+"notify_scrape_done_body" = "Updated metadata for %d song(s)";
+"notify_scrape_done_body_with_failures" = "Updated %d song(s) · %d failed";
+"notify_scan_failed_title" = "Scan failed";
+"notify_scan_failed_body" = "Source \"%@\" scan failed: %@";
+"notify_cloud_sync_failed_title" = "iCloud sync failed";
+"icloud_quota_exceeded" = "iCloud storage is full. Please free up space and try again.";
 
 // MARK: - Menu bar / Desktop lyrics (macOS)
 "open_main_window" = "Open Main Window";
@@ -528,3 +541,24 @@
 "toggle_desktop_lyrics_lock" = "Lock/Unlock Desktop Lyrics";
 "password_required_title" = "Enter password";
 "password_wrong_hint" = "Wrong account or password. Please re-enter.";
+"desktop_widgets" = "Desktop Widgets";
+"desktop_widget_sync_enabled" = "Sync to Desktop Widgets";
+"desktop_widget_sync_footer" = "When enabled, Primuse writes the current song, progress and cover art into a shared container so desktop widgets can read them. When disabled, the Mac app does not access that shared data.";
+"desktop_widget_sync_status_enabled" = "Enabled";
+"desktop_widget_sync_status_disabled" = "Not enabled";
+"desktop_widget_sync_update_now" = "Sync Current Playback Now";
+"desktop_widget_sync_privacy_footer" = "macOS may show a system permission dialog saying Primuse wants to access other apps' data. This is the App Group shared container, used only for passing playback info between Primuse and its widgets.";
+"desktop_widget_sync_explanation_title" = "Allow desktop widgets to read playback info?";
+"desktop_widget_sync_explanation_message" = "To show the current song, progress and cover art in desktop widgets, Primuse needs to access its App Group shared container. macOS may next ask whether to allow access to “other apps' data”; that is the system wording for this shared container.";
+"desktop_widget_sync_continue" = "Continue";
+
+// MARK: - In-library search
+"search_songs_prompt" = "Search songs";
+"search_albums_prompt" = "Search albums";
+"search_artists_prompt" = "Search artists";
+
+// MARK: - Desktop lyrics
+"vertical_lyrics" = "Vertical Lyrics";
+"hide_lyrics_background" = "Hide Background";
+"show_lyrics_background" = "Show Background";
+"desktop_lyrics_no_song" = "Nothing playing";

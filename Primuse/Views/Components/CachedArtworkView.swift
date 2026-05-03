@@ -229,6 +229,9 @@ struct CachedArtworkView: View {
         filePath: String?,
         sourceManager: SourceManager
     ) async -> PlatformImage? {
+        let ignoredGenericFolderCover = shouldIgnoreGenericFolderCover(ref: ref, filePath: filePath)
+        let effectiveRef = ignoredGenericFolderCover ? nil : ref
+
         // Album path — ArtworkFetchService
         if let albumID, let albumTitle {
             let data: Data?
@@ -258,15 +261,15 @@ struct CachedArtworkView: View {
         }
 
         // Song path
-        if let data = await loadFromDiskCache(songID: songID, ref: ref) {
+        if let data = await loadFromDiskCache(songID: ignoredGenericFolderCover ? nil : songID, ref: effectiveRef) {
             return finalize(data: data, bucket: bucket, cacheKey: cacheKey)
         }
 
-        let fetchKey = songID ?? ref ?? ""
+        let fetchKey = songID ?? effectiveRef ?? ""
         guard !fetchKey.isEmpty else { return nil }
         let fetched = await inFlightTracker.deduplicated(key: fetchKey) {
             await loadFromSource(
-                ref: ref,
+                ref: effectiveRef,
                 songID: songID,
                 sourceID: sourceID,
                 filePath: filePath,
@@ -304,6 +307,22 @@ struct CachedArtworkView: View {
             return try? Data(contentsOf: url)
         }
         return nil
+    }
+
+    private static func shouldIgnoreGenericFolderCover(ref: String?, filePath: String?) -> Bool {
+        guard let ref, let filePath, ref.contains("/") else { return false }
+        let refName = (ref as NSString).lastPathComponent
+        let refBase = (refName as NSString).deletingPathExtension.lowercased()
+        guard PrimuseConstants.folderCoverNames.contains(refBase) else { return false }
+
+        let refDir = (ref as NSString).deletingLastPathComponent
+        let songDir = (filePath as NSString).deletingLastPathComponent
+        guard refDir.caseInsensitiveCompare(songDir) == .orderedSame else { return false }
+
+        let dirName = (songDir as NSString).lastPathComponent
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return ["music", "音乐", "songs", "audio", "media", "downloads"].contains(dirName)
     }
 
     // MARK: - Source Fetch

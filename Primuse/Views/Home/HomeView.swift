@@ -58,12 +58,12 @@ struct HomeView: View {
             recentlyPlayedSection
 
             // Recently added albums
-            if !library.albums.isEmpty {
+            if !library.visibleAlbums.isEmpty {
                 recentlyAddedAlbumsSection
             }
 
             // Artists
-            if !library.artists.isEmpty {
+            if !library.visibleArtists.isEmpty {
                 artistsSection
             }
         }
@@ -296,7 +296,7 @@ struct HomeView: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 14) {
-                    ForEach(library.artists.prefix(8)) { artist in
+                    ForEach(library.visibleArtists.prefix(8)) { artist in
                         NavigationLink(value: artist) {
                             VStack(spacing: 6) {
                                 CachedArtworkView(artistID: artist.id, artistName: artist.name,

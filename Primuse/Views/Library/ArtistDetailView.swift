@@ -8,13 +8,17 @@ struct ArtistDetailView: View {
     let artist: Artist
 
     private var albums: [Album] {
-        library.albums.filter {
+        library.visibleAlbums.filter {
             $0.artistID == artist.id || $0.artistName == artist.name
         }
     }
 
     private var songs: [Song] {
         library.songs(forArtist: artist.id)
+    }
+
+    private var visibleSongCount: Int {
+        songs.count
     }
 
     private let columns = [
@@ -33,11 +37,20 @@ struct ArtistDetailView: View {
                         .font(.title)
                         .fontWeight(.bold)
 
-                    Text("\(artist.albumCount) \(String(localized: "albums_count")) · \(artist.songCount) \(String(localized: "songs_count"))")
+                    Text("\(albums.count) \(String(localized: "albums_count")) · \(visibleSongCount) \(String(localized: "songs_count"))")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
                 .padding(.top, 20)
+
+                if albums.isEmpty && songs.isEmpty {
+                    ContentUnavailableView(
+                        "no_songs",
+                        systemImage: "music.mic",
+                        description: Text("no_songs_desc")
+                    )
+                    .padding(.top, 24)
+                }
 
                 // Albums
                 if !albums.isEmpty {

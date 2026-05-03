@@ -144,11 +144,13 @@ final class SourcesStore {
         }
     }
 
-    /// Remove a source in response to a remote permanent-delete event. No
-    /// notification fires (which would echo back to CloudKit).
+    /// Remove a source in response to a remote permanent-delete event.
+    /// The notification keeps local UI caches in sync; CloudKit suppresses
+    /// echo saves while applying remote changes.
     func removeFromRemote(id: String) {
         allSources.removeAll { $0.id == id }
         persist()
+        notifyChanged([id])
     }
 
     /// Apply a source pulled from CloudKit. Preserves device-local fields
@@ -206,6 +208,7 @@ final class SourcesStore {
             allSources.sort { $0.name.localizedCompare($1.name) == .orderedAscending }
         }
         persist()
+        notifyChanged([remote.id])
     }
 
     private func notifyChanged(_ ids: [String]) {

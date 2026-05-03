@@ -6,4 +6,8 @@ GOOGLE_CLIENT_ID =
 GOOGLE_REVERSED_CLIENT_ID =
 ONEDRIVE_CLIENT_ID =
 
+// APNs sandbox environment for Debug builds. Substituted into
+// `aps-environment` in entitlements at sign time.
+APS_ENVIRONMENT = development
+
 #include? "Secrets.local.xcconfig"

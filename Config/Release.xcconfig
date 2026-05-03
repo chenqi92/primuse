@@ -6,4 +6,8 @@ GOOGLE_CLIENT_ID =
 GOOGLE_REVERSED_CLIENT_ID =
 ONEDRIVE_CLIENT_ID =
 
+// APNs production environment for Release / TestFlight / App Store builds.
+// Substituted into `aps-environment` in entitlements at sign time.
+APS_ENVIRONMENT = production
+
 #include? "Secrets.local.xcconfig"

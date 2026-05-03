@@ -225,7 +225,7 @@ struct CloudDriveHelper: Sendable {
 
         // 找当前目录里的封面/歌词文件，作为 sidecar 候选
         let nonAudio = items.filter { !$0.isDirectory && !PrimuseConstants.supportedAudioExtensions.contains(($0.name as NSString).pathExtension.lowercased()) }
-        let folderCover = findFolderCover(in: nonAudio)
+        let folderCover = isGenericMusicDirectory(path) ? nil : findFolderCover(in: nonAudio)
 
         // 先把当前目录的音频文件 yield 出去，避免 ConnectorScanner 等子树扫完才开始处理
         for item in items where !item.isDirectory {
@@ -301,6 +301,13 @@ struct CloudDriveHelper: Sendable {
             }
         }
         return nil
+    }
+
+    private func isGenericMusicDirectory(_ path: String) -> Bool {
+        let name = (path as NSString).lastPathComponent
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return ["music", "音乐", "songs", "audio", "media", "downloads"].contains(name)
     }
 
     /// Find `{basename}.{lrc,...}` in the same dir.

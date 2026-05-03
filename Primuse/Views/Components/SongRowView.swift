@@ -171,6 +171,10 @@ struct SongRowView: View {
                         .frame(width: 32, height: 32)
                         .contentShape(Rectangle())
                 }
+                // macOS 默认会在 Menu 旁边再画一个下拉小箭头,跟我们的
+                // ellipsis 图标重复;隐藏它只保留 ⋯,跟 iOS 行为一致。
+                .menuIndicator(.hidden)
+                .fixedSize()
             }
         }
         .contentShape(Rectangle())
@@ -232,6 +236,20 @@ struct SongRowView: View {
                 }
             }
         }
+        #if os(macOS)
+        // macOS 改成独立 NSWindow (ScrapeWindowController) —— 带原生红灯,
+        // 不再走 sheet。showScrapeOptions 只用来触发开窗,然后立刻置 false。
+        .onChange(of: showScrapeOptions) { _, new in
+            guard new else { return }
+            ScrapeWindowController.shared.show(song: song) { updated in
+                CachedArtworkView.invalidateCache(for: updated.id)
+                if let oldRef = song.coverArtFileName {
+                    CachedArtworkView.invalidateCache(for: oldRef)
+                }
+            }
+            showScrapeOptions = false
+        }
+        #else
         .sheet(isPresented: $showScrapeOptions) {
             ScrapeOptionsView(song: song) { updated in
                 CachedArtworkView.invalidateCache(for: updated.id)
@@ -241,6 +259,7 @@ struct SongRowView: View {
             }
             .presentationDetents([.medium, .large])
         }
+        #endif
         .sheet(isPresented: $showAddToPlaylist) {
             AddToPlaylistSheet(song: song)
                 .presentationDetents([.medium, .large])
