@@ -75,7 +75,12 @@ actor CloudTokenManager {
 
     func saveAppCredentials(_ creds: AppCredentials) {
         guard let data = try? JSONEncoder().encode(creds) else { return }
-        keychainWrite(key: "cloud_creds_\(sourceID)", data: data)
+        let ok = keychainWrite(key: "cloud_creds_\(sourceID)", data: data)
+        if !ok {
+            // 与 saveTokens 一致:沙盒 macOS 在没开 iCloud Keychain 时
+            // synchronizable 写会 errSecMissingEntitlement,回退本地。
+            keychainWriteLocal(key: "cloud_creds_\(sourceID)", data: data)
+        }
     }
 
     func deleteAppCredentials() {

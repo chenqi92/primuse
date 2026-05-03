@@ -598,7 +598,87 @@ struct DirectoryCheckRow: View {
 
     private var isSelected: Bool { selectedDirectories.contains(path) }
 
+    private var selectionBinding: Binding<Bool> {
+        Binding(
+            get: { selectedDirectories.contains(path) },
+            set: { newValue in
+                if newValue {
+                    if !selectedDirectories.contains(path) { selectedDirectories.append(path) }
+                } else {
+                    selectedDirectories.removeAll { $0 == path }
+                }
+            }
+        )
+    }
+
     var body: some View {
+        #if os(macOS)
+        macOSBody
+        #else
+        iOSBody
+        #endif
+    }
+
+    #if os(macOS)
+    @State private var isHovering = false
+
+    private var macOSBody: some View {
+        HStack(spacing: 8) {
+            Toggle("", isOn: selectionBinding)
+                .toggleStyle(.checkbox)
+                .labelsHidden()
+
+            Image(systemName: icon).foregroundStyle(iconColor)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(name).fontWeight(isNavigable ? .regular : .medium)
+                if let subtitle {
+                    Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+
+            Spacer()
+
+            if isNavigable {
+                Button { onNavigate?() } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(isHovering ? Color.secondary : Color.gray.opacity(0.45))
+                        .padding(.horizontal, 4)
+                }
+                .buttonStyle(.plain)
+                .help(String(localized: "open_folder"))
+            }
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) {
+            // Finder 风格:双击进入目录;非可导航行双击当作选中。
+            if isNavigable, let onNavigate {
+                onNavigate()
+            } else {
+                toggle()
+            }
+        }
+        .onTapGesture { toggle() }
+        .onHover { isHovering = $0 }
+        .listRowBackground(rowBackground)
+    }
+
+    @ViewBuilder
+    private var rowBackground: some View {
+        if isSelected {
+            Color.accentColor.opacity(0.12)
+        } else if isHovering {
+            Color.primary.opacity(0.05)
+        } else {
+            Color.clear
+        }
+    }
+    #endif
+
+    #if os(iOS)
+    private var iOSBody: some View {
         HStack(spacing: 10) {
             Button { toggle() } label: {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
@@ -636,6 +716,7 @@ struct DirectoryCheckRow: View {
         .listRowBackground(isSelected ? Color.accentColor.opacity(0.08) : Color.clear)
         .animation(.easeInOut(duration: 0.15), value: isSelected)
     }
+    #endif
 
     private func toggle() {
         if selectedDirectories.contains(path) {

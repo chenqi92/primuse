@@ -64,6 +64,10 @@ schemes:
         PrimuseKit: all
     run:
       config: Debug
+      executable: PrimuseMac
+    profile:
+      config: Release
+      executable: PrimuseMac
     archive:
       config: Release
 

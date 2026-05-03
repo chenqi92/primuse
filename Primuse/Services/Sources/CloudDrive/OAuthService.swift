@@ -89,7 +89,29 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
     // MARK: - Step 2: Present Auth Session
 
     private func presentAuthSession(url: URL, callbackScheme: String) async throws -> URL {
-        try await withCheckedThrowingContinuation { continuation in
+        #if os(macOS)
+        // macOS 26 + sandbox 下 ASWebAuthenticationSession 的浏览器窗口经常
+        // 不显示/不加载 URL(已确认设 prefersEphemeralWebBrowserSession 也无效)。
+        // 改成走系统默认浏览器,通过 primuse:// URL Scheme 把 code 回调进 app。
+        // 配合 PrimuseApp.onOpenURL → MacOAuthBridge.handle 完成回调链路。
+        return try await withCheckedThrowingContinuation { continuation in
+            MacOAuthBridge.shared.expectCallback(scheme: callbackScheme) { @Sendable result in
+                switch result {
+                case .success(let url):
+                    continuation.resume(returning: url)
+                case .failure(let err):
+                    continuation.resume(throwing: err)
+                }
+            }
+            plog("☁️ OAuth NSWorkspace.open authURL callbackScheme=\(callbackScheme)")
+            let opened = NSWorkspace.shared.open(url)
+            plog("☁️ OAuth NSWorkspace.open returned \(opened)")
+            if !opened {
+                MacOAuthBridge.shared.cancel(reason: .failure(OAuthError.authSessionFailed("Failed to open browser")))
+            }
+        }
+        #else
+        return try await withCheckedThrowingContinuation { continuation in
             // The completion closure must NOT inherit `@MainActor` from this
             // type — ASWebAuthenticationSession invokes it on its XPC reply
             // queue (`com.apple.NSXPCConnection.m-user.com.apple.SafariLaunchAgent`),
@@ -121,13 +143,14 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
             }
 
             session.presentationContextProvider = self
-            session.prefersEphemeralWebBrowserSession = false // Allow SSO / existing login
+            session.prefersEphemeralWebBrowserSession = false
             self.currentSession = session
 
             if !session.start() {
                 continuation.resume(throwing: OAuthError.authSessionFailed("Failed to start auth session"))
             }
         }
+        #endif
     }
 
     // MARK: - Step 3: Extract Code
@@ -297,7 +320,27 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
             let windowScene = scenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene
             return windowScene?.windows.first(where: \.isKeyWindow) ?? ASPresentationAnchor()
             #else
-            return NSApplication.shared.keyWindow ?? ASPresentationAnchor()
+            // macOS: anchor 选取规则（按优先级）——
+            // 1. 正在挂着 sheet 的非 sheet 窗口（OAuth sheet 实际的父窗口，
+            //    比如 "Manage Sources"），这样 ASWebAuth 的浏览器窗口
+            //    会出现在用户当前看到的窗口上方，不会被遮挡；
+            // 2. 任意可见且非 sheet 的可成为 key 的窗口；
+            // 3. mainWindow / keyWindow / 空 anchor 兜底。
+            let windows = NSApplication.shared.windows
+            plog("☁️ OAuth presentationAnchor: windows=\(windows.map { "[\(type(of: $0))|\($0.title)|sheet=\($0.isSheet)|visible=\($0.isVisible)|key=\($0.canBecomeKey)|attachedSheet=\($0.attachedSheet != nil)]" })")
+            if let host = windows.first(where: { $0.isVisible && !$0.isSheet && $0.attachedSheet != nil }) {
+                plog("☁️ OAuth presentationAnchor → host \(type(of: host)) title=\(host.title)")
+                return host
+            }
+            if let parent = windows.first(where: { $0.isVisible && !$0.isSheet && $0.canBecomeKey }) {
+                plog("☁️ OAuth presentationAnchor → \(type(of: parent)) title=\(parent.title)")
+                return parent
+            }
+            let fallback = NSApplication.shared.mainWindow
+                ?? NSApplication.shared.keyWindow
+                ?? ASPresentationAnchor()
+            plog("☁️ OAuth presentationAnchor fallback → \(type(of: fallback))")
+            return fallback
             #endif
         }
     }
@@ -326,3 +369,51 @@ enum OAuthError: Error, LocalizedError {
         }
     }
 }
+
+#if os(macOS)
+// MARK: - macOS OAuth callback bridge
+
+/// macOS 上 OAuth 走系统浏览器,callback 通过 `primuse://` URL Scheme 回到 app。
+/// PrimuseApp 的 `.onOpenURL` 会把 URL 转给 `handle(_:)`,这里负责唤醒等着
+/// continuation 的 OAuth 请求。同一时间只支持一个未完成的请求(再次 expect
+/// 会取消上一个)。
+@MainActor
+final class MacOAuthBridge {
+    static let shared = MacOAuthBridge()
+
+    private var pending: (@Sendable (Result<URL, Error>) -> Void)?
+    private var expectedScheme: String?
+
+    private init() {}
+
+    func expectCallback(scheme: String, completion: @escaping @Sendable (Result<URL, Error>) -> Void) {
+        if let pending {
+            pending(.failure(OAuthError.userCancelled))
+        }
+        expectedScheme = scheme.lowercased()
+        pending = completion
+    }
+
+    /// 由 `PrimuseApp.onOpenURL` 调用。返回 true 表示已消费这个 URL。
+    @discardableResult
+    func handle(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(),
+              let expected = expectedScheme,
+              scheme == expected else {
+            return false
+        }
+        let cb = pending
+        pending = nil
+        expectedScheme = nil
+        cb?(.success(url))
+        return true
+    }
+
+    func cancel(reason: Result<URL, Error> = .failure(OAuthError.userCancelled)) {
+        let cb = pending
+        pending = nil
+        expectedScheme = nil
+        cb?(reason)
+    }
+}
+#endif

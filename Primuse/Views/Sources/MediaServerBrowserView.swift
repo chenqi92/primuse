@@ -77,24 +77,23 @@ private struct MediaServerLibraryBrowserView: View {
                     libraryList
                 }
 
-                bottomBar
+                BrowserBottomBar(
+                    selectedCount: selectedDirectories.count,
+                    idleIcon: "music.note.list"
+                ) {
+                    withAnimation { selectedDirectories.removeAll() }
+                }
             }
             .navigationTitle(source.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("cancel") {
-                        dismiss()
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("done") {
-                        dismiss()
-                    }
-                    .fontWeight(.semibold)
-                }
+                DirectoryBrowserToolbar(
+                    onCancel: { dismiss() },
+                    onConfirm: { dismiss() }
+                )
             }
         }
+        .directoryBrowserSheetFrame()
         .onAppear {
             guard hasLoadedLibraries == false else { return }
             hasLoadedLibraries = true
@@ -151,42 +150,7 @@ private struct MediaServerLibraryBrowserView: View {
                 }
             }
         }
-        .listStyle(.plain)
-    }
-
-    private var bottomBar: some View {
-        VStack(spacing: 0) {
-            Divider()
-            HStack {
-                if selectedDirectories.isEmpty {
-                    Label("no_dirs_selected", systemImage: "music.note.list")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Label(
-                        "\(selectedDirectories.count) \(String(localized: "directories_selected"))",
-                        systemImage: "checkmark.circle.fill"
-                    )
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .foregroundStyle(Color.accentColor)
-
-                    Spacer()
-
-                    Button("clear_all") {
-                        withAnimation {
-                            selectedDirectories.removeAll()
-                        }
-                    }
-                    .font(.caption)
-                }
-
-                Spacer()
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-        }
-        .background(.bar)
+        .directoryBrowserListStyle()
     }
 
     private func loadLibraries() {

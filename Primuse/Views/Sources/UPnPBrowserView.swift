@@ -38,7 +38,12 @@ private struct UPnPDirectoryBrowserView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                breadcrumbBar
+                DirectoryBreadcrumb(
+                    segments: pathStack.map {
+                        .init(path: $0, title: displayName(for: $0))
+                    },
+                    onSelect: navigateTo
+                )
                 Divider()
 
                 if isLoading {
@@ -68,57 +73,28 @@ private struct UPnPDirectoryBrowserView: View {
                     directoryList
                 }
 
-                bottomBar
+                BrowserBottomBar(
+                    selectedCount: selectedDirectories.count,
+                    idleIcon: "music.note.list"
+                ) {
+                    withAnimation { selectedDirectories.removeAll() }
+                }
             }
             .navigationTitle(source.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("done") { dismiss() }
-                        .fontWeight(.semibold)
-                }
+                DirectoryBrowserToolbar(
+                    onCancel: { dismiss() },
+                    onConfirm: { dismiss() }
+                )
             }
         }
+        .directoryBrowserSheetFrame()
         .onAppear {
             guard hasLoadedRoot == false else { return }
             hasLoadedRoot = true
             loadDirectory()
         }
-    }
-
-    private var breadcrumbBar: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 2) {
-                    ForEach(Array(pathStack.enumerated()), id: \.offset) { index, segment in
-                        if index > 0 {
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.tertiary)
-                        }
-
-                        Button { navigateTo(index: index) } label: {
-                            Text(displayName(for: segment))
-                                .font(.caption)
-                                .fontWeight(index == pathStack.count - 1 ? .semibold : .regular)
-                                .foregroundStyle(index == pathStack.count - 1 ? Color.primary : Color.accentColor)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 4)
-                        }
-                        .id(index)
-                    }
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 6)
-            }
-            .onChange(of: pathStack.count) { _, _ in
-                withAnimation { proxy.scrollTo(pathStack.count - 1, anchor: .trailing) }
-            }
-        }
-        .background(.bar)
     }
 
     private var directoryList: some View {
@@ -158,40 +134,7 @@ private struct UPnPDirectoryBrowserView: View {
                 }
             }
         }
-        .listStyle(.plain)
-    }
-
-    private var bottomBar: some View {
-        VStack(spacing: 0) {
-            Divider()
-            HStack {
-                if selectedDirectories.isEmpty {
-                    Label("no_dirs_selected", systemImage: "music.note.list")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Label(
-                        "\(selectedDirectories.count) \(String(localized: "directories_selected"))",
-                        systemImage: "checkmark.circle.fill"
-                    )
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .foregroundStyle(Color.accentColor)
-
-                    Spacer()
-
-                    Button("clear_all") {
-                        withAnimation { selectedDirectories.removeAll() }
-                    }
-                    .font(.caption)
-                }
-
-                Spacer()
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-        }
-        .background(.bar)
+        .directoryBrowserListStyle()
     }
 
     private func enterDirectory(_ item: RemoteFileItem) {

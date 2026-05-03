@@ -46,9 +46,9 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "FA4505FD14BFFAC74122E1D1"
-            BuildableName = "PrimuseKit.framework"
-            BlueprintName = "PrimuseKit"
+            BlueprintIdentifier = "A421DEB7AD07C5D9B09C3FDE"
+            BuildableName = "PrimuseMac.app"
+            BlueprintName = "PrimuseMac"
             ReferencedContainer = "container:Primuse.xcodeproj">
          </BuildableReference>
       </MacroExpansion>
@@ -65,15 +65,16 @@
       debugDocumentVersioning = "YES"
       debugServiceExtension = "internal"
       allowLocationSimulation = "YES">
-      <MacroExpansion>
+      <BuildableProductRunnable
+         runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "FA4505FD14BFFAC74122E1D1"
-            BuildableName = "PrimuseKit.framework"
-            BlueprintName = "PrimuseKit"
+            BlueprintIdentifier = "A421DEB7AD07C5D9B09C3FDE"
+            BuildableName = "PrimuseMac.app"
+            BlueprintName = "PrimuseMac"
             ReferencedContainer = "container:Primuse.xcodeproj">
          </BuildableReference>
-      </MacroExpansion>
+      </BuildableProductRunnable>
       <CommandLineArguments>
       </CommandLineArguments>
    </LaunchAction>
@@ -83,15 +84,18 @@
       savedToolIdentifier = ""
       useCustomWorkingDirectory = "NO"
       debugDocumentVersioning = "YES">
-      <MacroExpansion>
+      <BuildableProductRunnable
+         runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "FA4505FD14BFFAC74122E1D1"
-            BuildableName = "PrimuseKit.framework"
-            BlueprintName = "PrimuseKit"
+            BlueprintIdentifier = "A421DEB7AD07C5D9B09C3FDE"
+            BuildableName = "PrimuseMac.app"
+            BlueprintName = "PrimuseMac"
             ReferencedContainer = "container:Primuse.xcodeproj">
          </BuildableReference>
-      </MacroExpansion>
+      </BuildableProductRunnable>
+      <CommandLineArguments>
+      </CommandLineArguments>
    </ProfileAction>
    <AnalyzeAction
       buildConfiguration = "Debug">

@@ -54,9 +54,13 @@ struct CloudDriveConnectionView: View {
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("cancel") { dismiss() }
+                            .keyboardShortcut(.cancelAction)
                     }
                 }
             }
+            #if os(macOS)
+            .frame(minWidth: 480, idealWidth: 540, minHeight: 420, idealHeight: 480)
+            #endif
             .onAppear { checkStatus() }
         }
     }
@@ -121,12 +125,20 @@ struct CloudDriveConnectionView: View {
 
     private func guideStep(number: Int, text: String) -> some View {
         HStack(alignment: .top, spacing: 12) {
+            #if os(macOS)
+            // macOS 用 SF Symbol 数字圆,跟系统字号风格一致,颜色用 accent。
+            Image(systemName: "\(number).circle.fill")
+                .font(.system(size: 18))
+                .foregroundStyle(Color.accentColor)
+                .padding(.top, 1)
+            #else
             Text("\(number)")
                 .font(.caption).fontWeight(.bold)
                 .foregroundStyle(.white)
                 .frame(width: 22, height: 22)
                 .background(Color.accentColor.gradient)
                 .clipShape(Circle())
+            #endif
             Text(text)
                 .font(.subheadline)
                 .foregroundStyle(.primary)
@@ -136,6 +148,45 @@ struct CloudDriveConnectionView: View {
     // MARK: - Auth Prompt View
 
     private var authPromptView: some View {
+        #if os(macOS)
+        VStack(spacing: 20) {
+            Spacer()
+
+            Image(systemName: cloudIcon)
+                .font(.system(size: 42))
+                .foregroundStyle(.blue.gradient)
+
+            VStack(spacing: 6) {
+                Text("连接 \(source.type.displayName)")
+                    .font(.title3).fontWeight(.semibold)
+                Text("点击「授权连接」,将在系统浏览器中打开授权页。\n登录并同意授权后会自动返回猿音。")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 36)
+            }
+
+            Button {
+                startOAuth()
+            } label: {
+                Label("授权连接", systemImage: "link.badge.plus")
+                    .frame(maxWidth: 220)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .keyboardShortcut(.defaultAction)
+
+            if !errorMessage.isEmpty {
+                Label(errorMessage, systemImage: "exclamationmark.triangle")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.red)
+                    .padding(.horizontal, 30)
+                    .multilineTextAlignment(.center)
+            }
+
+            Spacer()
+        }
+        #else
         VStack(spacing: 28) {
             Spacer()
 
@@ -173,6 +224,7 @@ struct CloudDriveConnectionView: View {
 
             Spacer()
         }
+        #endif
     }
 
     private var cloudIcon: String {

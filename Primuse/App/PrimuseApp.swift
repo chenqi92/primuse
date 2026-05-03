@@ -329,6 +329,18 @@ struct PrimuseApp: App {
                         songID: updated.id
                     )
                 }
+                #if os(macOS)
+                // macOS OAuth 走系统浏览器,callback 通过 primuse:// URL Scheme
+                // 回到 app。把 URL 转给 OAuthService 的 bridge 唤醒等待中的请求。
+                .onOpenURL { url in
+                    plog("🔗 onOpenURL: \(url.absoluteString)")
+                    if MacOAuthBridge.shared.handle(url) {
+                        plog("🔗 onOpenURL handled by MacOAuthBridge")
+                        return
+                    }
+                    plog("⚠️ Unhandled openURL: \(url.absoluteString)")
+                }
+                #endif
                 .onChange(of: scenePhase) { _, newPhase in
                     switch newPhase {
                     case .background, .inactive:

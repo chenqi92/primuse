@@ -21,10 +21,17 @@ struct MediaDetailActionBar: View {
             }
             .buttonStyle(.bordered)
             .disabled(!canShuffle)
+
+            #if os(macOS)
+            // macOS 详情区按钮靠左,不撑满。
+            Spacer(minLength: 0)
+            #endif
         }
         .controlSize(.regular)
         .labelStyle(.titleAndIcon)
+        #if os(iOS)
         .frame(maxWidth: .infinity)
         .padding(.horizontal)
+        #endif
     }
 }

@@ -63,6 +63,13 @@ final class CloudKitSyncService {
     private let database: CKDatabase
     private(set) var engine: CKSyncEngine?
     private let stateURL: URL
+    private let systemFieldsURL: URL
+    /// `recordName → encoded CKRecord system fields`。用于在重建 CKRecord
+    /// 时复用 server changeTag,否则 saveRecord 每次都被 server 当成 insert,
+    /// 触发 "record to insert already exists" (CKError.serverRecordChanged)
+    /// 死循环。
+    private var systemFieldsCache: [String: Data] = [:]
+    private var systemFieldsCacheLoaded = false
 
     /// In-memory marker so callers know whether a remote update is currently being
     /// applied — local stores can bail out of their own `markChanged` loop.
@@ -118,6 +125,7 @@ final class CloudKitSyncService {
         let directory = appSupport.appendingPathComponent("Primuse", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         self.stateURL = directory.appendingPathComponent("cloudkit-engine-state.bin")
+        self.systemFieldsURL = directory.appendingPathComponent("cloudkit-system-fields.plist")
     }
 
     // MARK: - Lifecycle
@@ -524,6 +532,62 @@ final class CloudKitSyncService {
         try? data.write(to: stateURL, options: .atomic)
     }
 
+    // MARK: - Record system fields cache
+
+    private func loadSystemFieldsCacheIfNeeded() {
+        guard !systemFieldsCacheLoaded else { return }
+        systemFieldsCacheLoaded = true
+        guard let data = try? Data(contentsOf: systemFieldsURL),
+              let dict = try? PropertyListDecoder().decode([String: Data].self, from: data) else {
+            return
+        }
+        systemFieldsCache = dict
+    }
+
+    private func persistSystemFieldsCache() {
+        guard let data = try? PropertyListEncoder().encode(systemFieldsCache) else { return }
+        try? data.write(to: systemFieldsURL, options: .atomic)
+    }
+
+    /// 把 `record` 的 system fields(含 changeTag/etag)序列化下来,以便下次
+    /// 重建 CKRecord 时复用。CKSyncEngine 必须看到带 changeTag 的 record 才会
+    /// 把 saveRecord 翻译成 update,否则 server 直接拒。
+    fileprivate func storeSystemFields(_ record: CKRecord) {
+        loadSystemFieldsCacheIfNeeded()
+        let coder = NSKeyedArchiver(requiringSecureCoding: true)
+        record.encodeSystemFields(with: coder)
+        coder.finishEncoding()
+        let data = coder.encodedData
+        let key = record.recordID.recordName
+        if systemFieldsCache[key] != data {
+            systemFieldsCache[key] = data
+            persistSystemFieldsCache()
+        }
+    }
+
+    fileprivate func removeSystemFields(for recordID: CKRecord.ID) {
+        loadSystemFieldsCacheIfNeeded()
+        if systemFieldsCache.removeValue(forKey: recordID.recordName) != nil {
+            persistSystemFieldsCache()
+        }
+    }
+
+    private func clearSystemFieldsCache() {
+        systemFieldsCache.removeAll()
+        systemFieldsCacheLoaded = true
+        try? FileManager.default.removeItem(at: systemFieldsURL)
+    }
+
+    private func cachedRecord(for recordID: CKRecord.ID) -> CKRecord? {
+        loadSystemFieldsCacheIfNeeded()
+        guard let data = systemFieldsCache[recordID.recordName],
+              let unarchiver = try? NSKeyedUnarchiver(forReadingFrom: data) else {
+            return nil
+        }
+        unarchiver.requiresSecureCoding = true
+        return CKRecord(coder: unarchiver)
+    }
+
     // MARK: - Record (de)serialization
 
     fileprivate func populateRecord(_ record: CKRecord, recordType: String, id: String) -> Bool {
@@ -544,6 +608,10 @@ final class CloudKitSyncService {
     }
 
     fileprivate func applyRemoteRecord(_ record: CKRecord) {
+        // 不论本 channel 是否启用,都先保留 system fields——禁用期间也可能后续
+        // 又开启,届时如果没有 changeTag 还是会撞 "record to insert already exists"。
+        storeSystemFields(record)
+
         if let channel = Self.channel(for: record.recordType),
            !CloudSyncChannel.isEnabled(channel) {
             return
@@ -569,6 +637,9 @@ final class CloudKitSyncService {
     }
 
     fileprivate func applyRemoteDeletion(recordID: CKRecord.ID, recordType: String) {
+        // record 已经从 server 移除,缓存里的 changeTag 也没用了。
+        removeSystemFields(for: recordID)
+
         if let channel = Self.channel(for: recordType),
            !CloudSyncChannel.isEnabled(channel) {
             return
@@ -816,10 +887,17 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
                 plog("CloudKitSync: PrimuseSync zone was deleted remotely — recreating + re-seeding")
                 await MainActor.run {
                     syncEngine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: Self.zoneID))])
+                    self.clearSystemFieldsCache()
                     self.didCompleteInitialUpload = false
                 }
             }
         case .sentRecordZoneChanges(let event):
+            for saved in event.savedRecords {
+                await MainActor.run { self.storeSystemFields(saved) }
+            }
+            for deletedID in event.deletedRecordIDs {
+                await MainActor.run { self.removeSystemFields(for: deletedID) }
+            }
             for failed in event.failedRecordSaves {
                 await MainActor.run {
                     self.handleFailedSave(failed, syncEngine: syncEngine)
@@ -918,6 +996,10 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
             return
         }
 
+        // 不论分支走哪条,都先把 server 的 changeTag 存起来——下一轮 makeRecord
+        // 重建时才能复用,save 才会被识别成 update。
+        storeSystemFields(server)
+
         switch server.recordType {
         case RecordType.playlist:
             mergePlaylistRecord(local: local, server: server)
@@ -1015,7 +1097,9 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
         guard parts.count == 2 else { return nil }
         let recordType = parts[0]
         let localID = parts[1]
-        let record = CKRecord(recordType: recordType, recordID: recordID)
+        // 优先从缓存还原带 changeTag 的 record;否则只能新建 (server 会当成 insert)
+        let record = cachedRecord(for: recordID)
+            ?? CKRecord(recordType: recordType, recordID: recordID)
         guard populateRecord(record, recordType: recordType, id: localID) else {
             return nil
         }
@@ -1034,6 +1118,7 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
             // sync from Settings when they're ready, and the next start() will
             // re-seed CloudKit because we've cleared `didCompleteInitialUpload`.
             try? FileManager.default.removeItem(at: stateURL)
+            clearSystemFieldsCache()
             didCompleteInitialUpload = false
             UserDefaults.standard.set(false, forKey: "primuse.iCloudSyncEnabled")
             stop(updateStatus: true)

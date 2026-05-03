@@ -28,20 +28,11 @@ struct ArtistDetailView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
-                // Artist header
-                VStack(spacing: 8) {
-                    CachedArtworkView(artistID: artist.id, artistName: artist.name,
-                                      size: 120, cornerRadius: 60)
-
-                    Text(artist.name)
-                        .font(.title)
-                        .fontWeight(.bold)
-
-                    Text("\(albums.count) \(String(localized: "albums_count")) · \(visibleSongCount) \(String(localized: "songs_count"))")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.top, 20)
+                #if os(macOS)
+                macHeader
+                #else
+                iosHeader
+                #endif
 
                 if albums.isEmpty && songs.isEmpty {
                     ContentUnavailableView(
@@ -58,7 +49,11 @@ struct ArtistDetailView: View {
                         Text("albums_section")
                             .font(.title3)
                             .fontWeight(.semibold)
+                            #if os(macOS)
+                            .padding(.horizontal, 24)
+                            #else
                             .padding(.horizontal)
+                            #endif
 
                         LazyVGrid(columns: columns, spacing: 16) {
                             ForEach(albums) { album in
@@ -68,7 +63,11 @@ struct ArtistDetailView: View {
                                 .buttonStyle(.plain)
                             }
                         }
+                        #if os(macOS)
+                        .padding(.horizontal, 24)
+                        #else
                         .padding(.horizontal)
+                        #endif
                     }
                 }
 
@@ -78,7 +77,11 @@ struct ArtistDetailView: View {
                         Text("all_songs_section")
                             .font(.title3)
                             .fontWeight(.semibold)
+                            #if os(macOS)
+                            .padding(.horizontal, 24)
+                            #else
                             .padding(.horizontal)
+                            #endif
 
                         LazyVStack(spacing: 0) {
                             ForEach(songs) { song in
@@ -86,9 +89,18 @@ struct ArtistDetailView: View {
                                     song: song,
                                     context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
                                 )
+                                #if os(macOS)
+                                .padding(.horizontal, 24)
+                                #else
                                 .padding(.horizontal)
+                                #endif
                                 .padding(.vertical, 8)
-                                Divider().padding(.leading, 50)
+                                Divider()
+                                    #if os(macOS)
+                                    .padding(.leading, 24 + 50)
+                                    #else
+                                    .padding(.leading, 50)
+                                    #endif
                             }
                         }
                     }
@@ -96,5 +108,49 @@ struct ArtistDetailView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    #if os(macOS)
+    private var macHeader: some View {
+        HStack(alignment: .center, spacing: 20) {
+            CachedArtworkView(
+                artistID: artist.id,
+                artistName: artist.name,
+                size: 140,
+                cornerRadius: 70
+            )
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(artist.name)
+                    .font(.title)
+                    .fontWeight(.bold)
+                    .lineLimit(2)
+
+                Text("\(albums.count) \(String(localized: "albums_count")) · \(visibleSongCount) \(String(localized: "songs_count"))")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 24)
+    }
+    #endif
+
+    private var iosHeader: some View {
+        VStack(spacing: 8) {
+            CachedArtworkView(artistID: artist.id, artistName: artist.name,
+                              size: 120, cornerRadius: 60)
+
+            Text(artist.name)
+                .font(.title)
+                .fontWeight(.bold)
+
+            Text("\(albums.count) \(String(localized: "albums_count")) · \(visibleSongCount) \(String(localized: "songs_count"))")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.top, 20)
     }
 }
