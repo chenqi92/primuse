@@ -269,7 +269,7 @@ struct NowPlayingView: View {
             }
         }
         .task(id: player.currentSong?.id) { await loadLyrics() }
-        .onReceive(Timer.publish(every: 0.3, on: .main, in: .common).autoconnect()) { _ in updateCurrentLine() }
+        .onReceive(Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()) { _ in updateCurrentLine() }
         .sheet(isPresented: $showQueue) {
             QueueView()
                 .presentationDetents([.medium, .large])
@@ -637,7 +637,8 @@ struct NowPlayingView: View {
 
     private func updateCurrentLine() {
         guard !lyrics.isEmpty else { return }
-        let time = player.currentTime
+        // 用插值后的时间，避免 0.5s 引擎采样间隙导致行切换迟钝
+        let time = player.interpolatedTime()
         for (i, line) in lyrics.enumerated().reversed() {
             if time >= line.timestamp { if currentLineIndex != i { currentLineIndex = i }; break }
         }

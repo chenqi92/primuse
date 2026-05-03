@@ -1,122 +1,45 @@
 import SwiftUI
-import UIKit
 import PrimuseKit
 
-/// 渲染单行 **激活态** 字级歌词：底层暗色 Text + 上层亮色 Text 用遮罩裁切扫光。
-/// 由 `TimelineView(.animation)` 驱动，60Hz 平滑刷新。
+/// 渲染单行 **激活态** 字级歌词。用 `AttributedString` 按 syllable 范围分别着色，
+/// 多行 wrap 也能正确显示（mask 方案在多行下会跨行覆盖，已弃用）。
 ///
-/// 进度计算按 **实际字符宽度**——CJK / 拉丁混排都贴合，避免英文歌词扫光跟字宽脱节。
-/// 字宽用 UIFont + NSAttributedString.size 同步测量，按 `(line.id, fontSize)` 缓存。
+/// 由 `TimelineView(.animation)` 30Hz 驱动，配合外部 `timeAt(date)` 拿插值后的
+/// 播放时间。代价：失去字内连续扫光渐变，改为字粒度突变——多行场景的正确性
+/// 优先。
 struct KaraokeLineView: View {
     let line: LyricLine
     let fontSize: CGFloat
     let weight: Font.Weight
     let activeColor: Color
     let inactiveColor: Color
+    /// 把 `TimelineView` 的 `context.date` 翻译为外推后的播放秒数。
     let timeAt: (Date) -> TimeInterval
 
-    @State private var cumulativeWidths: [CGFloat] = []   // [0, w0, w0+w1, ..., total]
-    @State private var measuredFontSize: CGFloat = 0
-
-    private var uiFont: UIFont {
-        UIFont.systemFont(ofSize: fontSize, weight: weight.uiKitWeight)
-    }
-    private var font: Font { Font(uiFont) }
-
     var body: some View {
-        ZStack(alignment: .leading) {
-            Text(line.text)
-                .font(font)
-                .foregroundStyle(inactiveColor)
-
-            TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: false)) { ctx in
-                let progress = computeProgress(at: timeAt(ctx.date))
-                Text(line.text)
-                    .font(font)
-                    .foregroundStyle(activeColor)
-                    .mask(alignment: .leading) {
-                        GeometryReader { geo in
-                            Rectangle()
-                                .frame(width: geo.size.width * progress)
-                        }
-                    }
-            }
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { ctx in
+            Text(attributed(at: timeAt(ctx.date)))
+                .font(.system(size: fontSize, weight: weight))
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .multilineTextAlignment(.leading)
-        .onAppear { ensureMeasured() }
-        .onChange(of: fontSize) { _, _ in ensureMeasured() }
-        .onChange(of: line.id) { _, _ in ensureMeasured() }
     }
 
-    private func ensureMeasured() {
+    private func attributed(at now: TimeInterval) -> AttributedString {
         guard let syllables = line.syllables, !syllables.isEmpty else {
-            cumulativeWidths = []
-            return
+            var s = AttributedString(line.text)
+            s.foregroundColor = inactiveColor
+            return s
         }
-        if measuredFontSize == fontSize, cumulativeWidths.count == syllables.count + 1 {
-            return
-        }
-        let attrs: [NSAttributedString.Key: Any] = [.font: uiFont]
-        var acc: CGFloat = 0
-        var widths: [CGFloat] = [0]
-        widths.reserveCapacity(syllables.count + 1)
+        var result = AttributedString()
         for syl in syllables {
-            let w = (syl.text as NSString).size(withAttributes: attrs).width
-            acc += w
-            widths.append(acc)
+            var piece = AttributedString(syl.text)
+            // 已经过完整字 end → 完全唱过；
+            // 进入字 start 但未完成 → 当前正在唱（保持高亮，不做字内渐变）；
+            // 未到 → 未唱
+            piece.foregroundColor = (now >= syl.start) ? activeColor : inactiveColor
+            result.append(piece)
         }
-        cumulativeWidths = widths
-        measuredFontSize = fontSize
-    }
-
-    /// 当前进度 0...1。按累加宽度数组定位 syllable，字内按时间线性内插。
-    /// 测量未完成（cumulativeWidths 为空）时退化为按字符数比例，避免首帧 0 闪烁。
-    private func computeProgress(at now: TimeInterval) -> CGFloat {
-        guard let syllables = line.syllables, !syllables.isEmpty else { return 0 }
-        if now <= syllables.first!.start { return 0 }
-
-        let useWidths = cumulativeWidths.count == syllables.count + 1 && cumulativeWidths.last! > 0
-        let total: CGFloat = useWidths
-            ? cumulativeWidths.last!
-            : CGFloat(syllables.reduce(0) { $0 + $1.text.count })
-        guard total > 0 else { return 0 }
-
-        for (i, syl) in syllables.enumerated() {
-            if now < syl.start {
-                let prefix: CGFloat = useWidths
-                    ? cumulativeWidths[i]
-                    : CGFloat(syllables.prefix(i).reduce(0) { $0 + $1.text.count })
-                return prefix / total
-            }
-            if now < syl.end {
-                let dur = max(0.01, syl.end - syl.start)
-                let intra = CGFloat((now - syl.start) / dur)
-                let prefix: CGFloat = useWidths
-                    ? cumulativeWidths[i]
-                    : CGFloat(syllables.prefix(i).reduce(0) { $0 + $1.text.count })
-                let sylWidth: CGFloat = useWidths
-                    ? cumulativeWidths[i + 1] - cumulativeWidths[i]
-                    : CGFloat(syl.text.count)
-                return min(1.0, (prefix + sylWidth * intra) / total)
-            }
-        }
-        return 1.0
-    }
-}
-
-private extension Font.Weight {
-    var uiKitWeight: UIFont.Weight {
-        switch self {
-        case .ultraLight: .ultraLight
-        case .thin: .thin
-        case .light: .light
-        case .regular: .regular
-        case .medium: .medium
-        case .semibold: .semibold
-        case .bold: .bold
-        case .heavy: .heavy
-        case .black: .black
-        default: .regular
-        }
+        return result
     }
 }
