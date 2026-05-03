@@ -357,6 +357,8 @@
 "cookie_config" = "Cookie Configuration";
 "cookie_placeholder" = "Paste cookie here";
 "cookie_config_message" = "Optional: provide a cookie to improve access. Leave empty for anonymous access.";
+"lyrics_word_level_badge" = "Word";
+"lyrics_word_level_hint" = "Supports word-level lyrics";
 
 // MARK: - Scraper Source Descriptions
 "scraper_musicbrainz_desc" = "Open music database, metadata and covers";

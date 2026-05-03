@@ -44,6 +44,14 @@ struct ScraperLyricsResult: Sendable {
     let source: MusicScraperType
     var lrcContent: String?
     var plainText: String?
+    var format: LyricsFormat
+
+    init(source: MusicScraperType, lrcContent: String? = nil, plainText: String? = nil) {
+        self.source = source
+        self.lrcContent = lrcContent
+        self.plainText = plainText
+        self.format = LyricsFormat.detect(lrcContent ?? plainText)
+    }
 
     var hasLyrics: Bool {
         (lrcContent != nil && !lrcContent!.isEmpty) ||

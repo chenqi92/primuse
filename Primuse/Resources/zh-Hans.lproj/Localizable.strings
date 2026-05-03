@@ -357,6 +357,8 @@
 "cookie_config" = "Cookie 配置";
 "cookie_placeholder" = "粘贴 Cookie";
 "cookie_config_message" = "可选：提供 Cookie 可改善访问效果。留空则使用匿名访问。";
+"lyrics_word_level_badge" = "逐字";
+"lyrics_word_level_hint" = "支持逐字歌词";
 
 // MARK: - 刮削源描述
 "scraper_musicbrainz_desc" = "开放音乐数据库，支持元数据和封面";

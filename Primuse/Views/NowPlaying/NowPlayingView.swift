@@ -13,6 +13,7 @@ struct NowPlayingView: View {
     @State private var showQueue = false
     @State private var lyrics: [LyricLine] = []
     @State private var currentLineIndex = 0
+    @State private var hasWordLevelLyrics = false
     @State private var isScrapingCurrentSong = false
     @State private var scrapeAlertMessage: String?
     @State private var showScrapeOptions = false
@@ -274,7 +275,7 @@ struct NowPlayingView: View {
             }
         }
         .task(id: player.currentSong?.id) { await loadLyrics() }
-        .onReceive(Timer.publish(every: 0.3, on: .main, in: .common).autoconnect()) { _ in updateCurrentLine() }
+        .onReceive(Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()) { _ in updateCurrentLine() }
         .sheet(isPresented: $showQueue) {
             QueueView()
                 .presentationDetents([.medium, .large])
@@ -479,17 +480,21 @@ struct NowPlayingView: View {
                         }
                         .frame(maxWidth: .infinity)
                     } else {
+                        if hasWordLevelLyrics {
+                            HStack(spacing: 6) {
+                                Image(systemName: "waveform")
+                                    .font(.caption2)
+                                Text("lyrics_word_level_badge")
+                                    .font(.caption2.weight(.semibold))
+                            }
+                            .foregroundStyle(.white.opacity(0.6))
+                            .padding(.horizontal, 8).padding(.vertical, 3)
+                            .background(Capsule().fill(.white.opacity(0.12)))
+                            .padding(.bottom, 4)
+                        }
+
                         ForEach(Array(lyrics.enumerated()), id: \.element.id) { index, line in
-                            let isActive = index == currentLineIndex
-                            let baseSize = isActive ? Self.lyricsActiveBaseSize : Self.lyricsInactiveBaseSize
-                            Text(line.text)
-                                .font(.system(size: baseSize * CGFloat(effectiveLyricsScale)))
-                                .fontWeight(isActive ? .bold : .semibold)
-                                .foregroundStyle(
-                                    isActive ? .white
-                                    : index < currentLineIndex ? .white.opacity(0.25)
-                                    : .white.opacity(0.4)
-                                )
+                            lyricsRow(line: line, index: index)
                                 .id(line.id)
                                 .onTapGesture { player.seek(to: line.timestamp) }
                                 .padding(.vertical, 2)
@@ -523,6 +528,69 @@ struct NowPlayingView: View {
         }
     }
 
+    // MARK: - Lyrics Row
+
+    @ViewBuilder
+    private func lyricsRow(line: LyricLine, index: Int) -> some View {
+        let isActive = index == currentLineIndex
+        let baseSize = isActive ? Self.lyricsActiveBaseSize : Self.lyricsInactiveBaseSize
+        let fontSize = baseSize * CGFloat(effectiveLyricsScale)
+        let weight: Font.Weight = isActive ? .bold : .semibold
+        let alignment: HorizontalAlignment = line.voice == .secondary ? .trailing : .leading
+
+        VStack(alignment: alignment, spacing: 4) {
+            singleLineContent(
+                line: line,
+                isActive: isActive,
+                index: index,
+                fontSize: fontSize,
+                weight: weight
+            )
+
+            if let bgs = line.background {
+                ForEach(bgs) { bg in
+                    singleLineContent(
+                        line: bg,
+                        isActive: isActive,
+                        index: index,
+                        fontSize: fontSize * 0.7,
+                        weight: .medium
+                    )
+                    .opacity(0.7)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: line.voice == .secondary ? .trailing : .leading)
+    }
+
+    @ViewBuilder
+    private func singleLineContent(
+        line: LyricLine,
+        isActive: Bool,
+        index: Int,
+        fontSize: CGFloat,
+        weight: Font.Weight
+    ) -> some View {
+        if isActive, line.isWordLevel {
+            KaraokeLineView(
+                line: line,
+                fontSize: fontSize,
+                weight: weight,
+                activeColor: .white,
+                inactiveColor: .white.opacity(0.4),
+                timeAt: { date in player.interpolatedTime(at: date) }
+            )
+        } else {
+            Text(line.text)
+                .font(.system(size: fontSize, weight: weight))
+                .foregroundStyle(
+                    isActive ? .white
+                    : index < currentLineIndex ? .white.opacity(0.25)
+                    : .white.opacity(0.4)
+                )
+        }
+    }
+
     // MARK: - Helpers
 
     private func ctrlBtn(_ icon: String, active: Bool, action: @escaping () -> Void) -> some View {
@@ -533,15 +601,15 @@ struct NowPlayingView: View {
     }
 
     private func loadLyrics() async {
-        guard let song = player.currentSong else { lyrics = []; return }
+        guard let song = player.currentSong else { setLyrics([]); return }
 
         // Tier 1: Local cache only (no network — never block the connector during playback)
         if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) {
-            lyrics = cached; currentLineIndex = 0; return
+            setLyrics(cached); return
         }
         if let cached = await MetadataAssetStore.shared.lyrics(named: song.lyricsFileName) {
             await MetadataAssetStore.shared.cacheLyrics(cached, forSongID: song.id)
-            lyrics = cached; currentLineIndex = 0; return
+            setLyrics(cached); return
         }
 
         // Tier 2: Check local audio cache for sidecar .lrc (filesystem only, zero network)
@@ -549,11 +617,11 @@ struct NowPlayingView: View {
            let lrcURL = SidecarMetadataLoader.findLyrics(for: cachedAudioURL),
            let parsed = try? LyricsParser.parse(from: lrcURL), !parsed.isEmpty {
             await MetadataAssetStore.shared.cacheLyrics(parsed, forSongID: song.id)
-            lyrics = parsed; currentLineIndex = 0; return
+            setLyrics(parsed); return
         }
 
         // Tier 3: Fetch .lrc from source using an independent connector (parallel with playback)
-        lyrics = []; currentLineIndex = 0
+        setLyrics([])
         let capturedSourceManager = sourceManager
 
         Task {
@@ -576,7 +644,7 @@ struct NowPlayingView: View {
                 await MetadataAssetStore.shared.cacheLyrics(parsed, forSongID: song.id)
                 // Update UI if still on the same song
                 if player.currentSong?.id == song.id {
-                    lyrics = parsed; currentLineIndex = 0
+                    setLyrics(parsed)
                 }
             } catch {
                 // No .lrc file — not an error
@@ -584,11 +652,18 @@ struct NowPlayingView: View {
         }
     }
 
+    private func setLyrics(_ value: [LyricLine]) {
+        lyrics = value
+        currentLineIndex = 0
+        hasWordLevelLyrics = value.contains { $0.isWordLevel }
+    }
+
 
 
     private func updateCurrentLine() {
         guard !lyrics.isEmpty else { return }
-        let time = player.currentTime
+        // 用插值后的时间，避免 0.5s 引擎采样间隙导致行切换迟钝
+        let time = player.interpolatedTime()
         for (i, line) in lyrics.enumerated().reversed() {
             if time >= line.timestamp { if currentLineIndex != i { currentLineIndex = i }; break }
         }

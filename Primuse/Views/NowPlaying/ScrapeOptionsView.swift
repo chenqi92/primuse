@@ -70,6 +70,7 @@ struct ScrapeOptionsView: View {
         var scrapedGenre: String?
         var hasCover: Bool
         var hasLyrics: Bool
+        var lyricsIsWordLevel: Bool { lyricsLines?.contains(where: { $0.isWordLevel }) ?? false }
     }
 
     struct SearchResultItem: Identifiable {
@@ -336,6 +337,15 @@ struct ScrapeOptionsView: View {
                                 if preview.lyricsCount > 0 {
                                     Text("(\(preview.lyricsCount))").font(.caption2).foregroundStyle(.secondary)
                                 }
+                                if preview.lyricsIsWordLevel {
+                                    HStack(spacing: 2) {
+                                        Image(systemName: "waveform").font(.system(size: 9))
+                                        Text("lyrics_word_level_badge").font(.system(size: 10, weight: .semibold))
+                                    }
+                                    .foregroundStyle(Color.accentColor)
+                                    .padding(.horizontal, 5).padding(.vertical, 1)
+                                    .background(Capsule().fill(Color.accentColor.opacity(0.15)))
+                                }
                             }
                         }
                     }
@@ -461,7 +471,19 @@ struct ScrapeOptionsView: View {
                                         }
                                     }
                                     .lineLimit(1)
-                                    Text(item.source).font(.caption2).foregroundStyle(.green)
+                                    HStack(spacing: 4) {
+                                        Text(item.source).font(.caption2).foregroundStyle(.green)
+                                        if item.sourceConfig.type.supportsWordLevelLyrics {
+                                            HStack(spacing: 2) {
+                                                Image(systemName: "waveform").font(.system(size: 8))
+                                                Text("lyrics_word_level_badge")
+                                                    .font(.system(size: 9, weight: .semibold))
+                                            }
+                                            .foregroundStyle(item.sourceConfig.type.themeColor)
+                                            .padding(.horizontal, 5).padding(.vertical, 1)
+                                            .background(Capsule().fill(item.sourceConfig.type.themeColor.opacity(0.15)))
+                                        }
+                                    }
                                 }
                             }
                             .padding(.vertical, 6)
@@ -477,6 +499,7 @@ struct ScrapeOptionsView: View {
                         // 重复触发 selectManualResult。
                         .disabled(loadingResultID != nil)
                     }
+                    .disabled(isScraping)
                 }
             }
             #if os(macOS)

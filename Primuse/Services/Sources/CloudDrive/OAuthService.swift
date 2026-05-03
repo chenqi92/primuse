@@ -115,7 +115,7 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
             // The completion closure must NOT inherit `@MainActor` from this
             // type — ASWebAuthenticationSession invokes it on its XPC reply
             // queue (`com.apple.NSXPCConnection.m-user.com.apple.SafariLaunchAgent`),
-            // and Swift 6 / macOS 26 enforces that a main-actor-isolated
+            // and Swift 6 / iOS 26 enforces that a main-actor-isolated
             // closure is actually running on main. Without `@Sendable`,
             // the runtime trips `_swift_task_checkIsolatedSwift` and the
             // process crashes (SIGTRAP) before the continuation resumes.

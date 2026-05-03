@@ -128,6 +128,15 @@ struct MetadataScrapingView: View {
     @State private var cookieText = ""
     @State private var showImportSheet = false
     @State private var importText = ""
+    #if os(iOS)
+    @State private var shareTarget: ShareTarget?
+
+    /// 分享 sheet 用 — URL 不是 Identifiable，包一层。
+    struct ShareTarget: Identifiable {
+        let id = UUID()
+        let url: URL
+    }
+    #endif
     @State private var importError: String?
     @State private var importMode: ImportMode = .paste
     @State private var editingConfigSource: ScraperSourceConfig?
@@ -151,6 +160,18 @@ struct MetadataScrapingView: View {
                         Text(source.type.displayName)
                             .font(.subheadline)
                             .fontWeight(.medium)
+
+                        if source.type.supportsWordLevelLyrics {
+                            Text("lyrics_word_level_badge")
+                                .font(.caption2.weight(.semibold))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(
+                                    Capsule().fill(source.type.themeColor.opacity(0.15))
+                                )
+                                .foregroundStyle(source.type.themeColor)
+                                .accessibilityLabel(Text("lyrics_word_level_hint"))
+                        }
 
                         Spacer()
 
@@ -195,6 +216,17 @@ struct MetadataScrapingView: View {
                                 Image(systemName: "doc.text")
                             }
                             .tint(.blue)
+
+                            #if os(iOS)
+                            Button {
+                                if let url = makeShareableConfigFile(for: source) {
+                                    shareTarget = ShareTarget(url: url)
+                                }
+                            } label: {
+                                Image(systemName: "square.and.arrow.up")
+                            }
+                            .tint(.green)
+                            #endif
                         }
                     }
                 }
@@ -301,7 +333,45 @@ struct MetadataScrapingView: View {
         .sheet(item: $editingConfigSource) { source in
             editConfigSheet(source: source)
         }
+        #if os(iOS)
+        .sheet(item: $shareTarget) { target in
+            ShareSheet(items: [target.url])
+        }
+        #endif
     }
+
+    #if os(iOS)
+    /// 把指定源的 ScraperConfig（含 secrets）写入临时文件返回 URL，供 ShareSheet 使用。
+    /// 注意：分享出去的 JSON 包含 secrets，因此目标只能是用户私下分享（AirDrop / 信任的私人聊天）。
+    private func makeShareableConfigFile(for source: ScraperSourceConfig) -> URL? {
+        guard case .custom(let configId) = source.type,
+              let config = ScraperConfigStore.shared.config(for: configId) else { return nil }
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        // ScraperConfig.encode(to:) 默认跳 secrets，先编出主体，再 inject secrets 拼成完整 bundle。
+        guard let mainData = try? encoder.encode(config),
+              var dict = (try? JSONSerialization.jsonObject(with: mainData)) as? [String: Any] else { return nil }
+        if let secrets = config.secrets, !secrets.isEmpty {
+            dict["secrets"] = secrets
+        }
+        guard let bundleData = try? JSONSerialization.data(
+            withJSONObject: dict,
+            options: [.prettyPrinted, .sortedKeys]
+        ) else { return nil }
+
+        let safeId = configId.filter { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(safeId.isEmpty ? "scraper" : safeId).json")
+        do {
+            try bundleData.write(to: url, options: .atomic)
+            return url
+        } catch {
+            plog("⚠️ Share scraper config: write temp file failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+    #endif
 
     private var importScraperSheet: some View {
         NavigationStack {
@@ -730,3 +800,22 @@ struct LicensesView: View {
         }
     }
 }
+
+
+// MARK: - Share Sheet
+
+#if os(iOS)
+/// SwiftUI 包装的 `UIActivityViewController`，让任意 view 通过 `.sheet`
+/// 弹出系统分享面板（AirDrop / 微信 / 邮件 / 文件 / 等）。
+/// macOS 端用 NSSharingServicePicker，UI 接入方式不同——后续 MacSettingsView
+/// 单独适配，本通用 ShareSheet 仅 iOS 编译。
+struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
+}
+#endif

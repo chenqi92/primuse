@@ -65,8 +65,10 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         switch self {
         case .synology: return "Synology"
         case .qnap: return "QNAP"
-        case .ugreen: return "绿联 Ugreen"
-        case .fnos: return "飞牛 fnOS"
+        case .ugreen:
+            return String(localized: "src.displayName.ugreen", bundle: Bundle.primuseKit)
+        case .fnos:
+            return String(localized: "src.displayName.fnos", bundle: Bundle.primuseKit)
         case .webdav: return "WebDAV"
         case .smb: return "SMB/CIFS"
         case .ftp: return "FTP"
@@ -77,8 +79,10 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .emby: return "Emby"
         case .plex: return "Plex"
         case .s3: return "S3"
-        case .baiduPan: return "百度网盘"
-        case .aliyunDrive: return "阿里云盘"
+        case .baiduPan:
+            return String(localized: "src.displayName.baiduPan", bundle: Bundle.primuseKit)
+        case .aliyunDrive:
+            return String(localized: "src.displayName.aliyunDrive", bundle: Bundle.primuseKit)
         case .googleDrive: return "Google Drive"
         case .oneDrive: return "OneDrive"
         case .dropbox: return "Dropbox"
@@ -216,7 +220,8 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .synology: return "DSM 6/7, OTP"
         case .qnap: return "QTS/QuTS"
         case .ugreen: return "UGOS"
-        case .fnos: return "飞牛 OS"
+        case .fnos:
+            return String(localized: "src.subtitle.fnos", bundle: Bundle.primuseKit)
         case .webdav: return "HTTPS/HTTP"
         case .smb: return "SMB2/3, CIFS"
         case .ftp: return "FTP/FTPS/FTPES"
@@ -227,8 +232,10 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .emby: return "Media Server"
         case .plex: return "Plex Media"
         case .s3: return "AWS S3 / MinIO / R2"
-        case .baiduPan: return "百度网盘 OAuth"
-        case .aliyunDrive: return "阿里云盘 PDS"
+        case .baiduPan:
+            return String(localized: "src.subtitle.baiduPan", bundle: Bundle.primuseKit)
+        case .aliyunDrive:
+            return String(localized: "src.subtitle.aliyunDrive", bundle: Bundle.primuseKit)
         case .googleDrive: return "Google OAuth"
         case .oneDrive: return "Microsoft Graph"
         case .dropbox: return "Dropbox API v2"

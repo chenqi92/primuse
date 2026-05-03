@@ -1,0 +1,9 @@
+// PrimuseKit framework strings — 简体中文。
+"src.displayName.ugreen"     = "绿联 Ugreen";
+"src.displayName.fnos"       = "飞牛 fnOS";
+"src.displayName.baiduPan"   = "百度网盘";
+"src.displayName.aliyunDrive" = "阿里云盘";
+
+"src.subtitle.fnos"          = "飞牛 OS";
+"src.subtitle.baiduPan"      = "百度网盘 OAuth";
+"src.subtitle.aliyunDrive"   = "阿里云盘 PDS";

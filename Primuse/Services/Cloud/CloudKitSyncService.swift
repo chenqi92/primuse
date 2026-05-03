@@ -533,6 +533,13 @@ final class CloudKitSyncService {
     }
 
     // MARK: - Record system fields cache
+    //
+    // Without this, every save call to CloudKit went up as a fresh insert,
+    // colliding with the existing server record and triggering a
+    // serverRecordChanged → re-queue → re-collide loop. Caching the encoded
+    // system fields (which include the per-record changeTag) lets `makeRecord`
+    // hand the engine an existing-record handle so the save is recognised as
+    // an update.
 
     private func loadSystemFieldsCacheIfNeeded() {
         guard !systemFieldsCacheLoaded else { return }
