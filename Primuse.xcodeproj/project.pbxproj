@@ -24,6 +24,7 @@
 		11CB33E17845B102955BD7D4 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A41F54083A82815533AA0C36 /* SwiftUI.framework */; };
 		14679BA5BB14B1054E5D6265 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 769C39487B88BFC43377D781 /* WidgetKit.framework */; };
 		15DBB04327A405ACF38C9162 /* NowPlayingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A65207E9AE0A7B6C259E92C /* NowPlayingView.swift */; };
+		D7A0CF11C0FFEE000A1B2C3D /* KaraokeLineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7A0CF11C0FFEE000A1B2C3E /* KaraokeLineView.swift */; };
 		17385B54C3275E7F6DBFC4D0 /* GoogleDriveSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FF18B2B6584B7988608C004 /* GoogleDriveSource.swift */; };
 		1794D1037671E0C9091F0E5E /* ArtworkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 363F869C6171BAEF3E787B3A /* ArtworkView.swift */; };
 		184E4A32C4D50AC805AB9DDC /* ScraperTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60D668FE9811EE6FEF380039 /* ScraperTypes.swift */; };
@@ -275,6 +276,7 @@
 		0EA999555F455617E1DF9281 /* EqualizerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EqualizerService.swift; sourceTree = "<group>"; };
 		10930AD1677DFF0C351D43C5 /* LyricLine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricLine.swift; sourceTree = "<group>"; };
 		11180515D910975A39CBE6C5 /* ScrapeOptionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrapeOptionsView.swift; sourceTree = "<group>"; };
+		D7A0CF11C0FFEE000A1B2C3E /* KaraokeLineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaraokeLineView.swift; sourceTree = "<group>"; };
 		111D15C431BBFAC41E4D37B1 /* FileFormatRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileFormatRouter.swift; sourceTree = "<group>"; };
 		128F97B910573229B86FAD8A /* CachedArtworkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CachedArtworkView.swift; sourceTree = "<group>"; };
 		136A0C5EFAF6D7C7056C69A4 /* SharedConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedConstants.swift; sourceTree = "<group>"; };
@@ -680,6 +682,7 @@
 				363F869C6171BAEF3E787B3A /* ArtworkView.swift */,
 				973D5A18BC4228928E42C0C1 /* MiniPlayerView.swift */,
 				5A65207E9AE0A7B6C259E92C /* NowPlayingView.swift */,
+				D7A0CF11C0FFEE000A1B2C3E /* KaraokeLineView.swift */,
 				5D2741FA5052447F5E1B27A4 /* QueueView.swift */,
 				11180515D910975A39CBE6C5 /* ScrapeOptionsView.swift */,
 			);
@@ -1283,6 +1286,7 @@
 				87D3B3265A7CBAA9C3AB046B /* NetworkDiscoveryService.swift in Sources */,
 				1EE5E389A8FE771DA64B8810 /* NetworkMonitor.swift in Sources */,
 				15DBB04327A405ACF38C9162 /* NowPlayingView.swift in Sources */,
+				D7A0CF11C0FFEE000A1B2C3D /* KaraokeLineView.swift in Sources */,
 				4ACD5BA7D98E9557368E3ABE /* OAuthService.swift in Sources */,
 				235C8FC6F296376EB5E6A8F1 /* OneDriveSource.swift in Sources */,
 				ABD88E53839D81C6CB1117A6 /* PlayMediaIntentHandler.swift in Sources */,

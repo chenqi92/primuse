@@ -141,6 +141,18 @@ struct MetadataScrapingView: View {
                             .font(.subheadline)
                             .fontWeight(.medium)
 
+                        if source.type.supportsWordLevelLyrics {
+                            Text("lyrics_word_level_badge")
+                                .font(.caption2.weight(.semibold))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(
+                                    Capsule().fill(source.type.themeColor.opacity(0.15))
+                                )
+                                .foregroundStyle(source.type.themeColor)
+                                .accessibilityLabel(Text("lyrics_word_level_hint"))
+                        }
+
                         Spacer()
 
                         if source.type.supportsCookie {

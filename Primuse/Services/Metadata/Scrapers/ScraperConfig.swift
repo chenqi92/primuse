@@ -30,6 +30,8 @@ struct ScraperConfig: Codable, Sendable, Identifiable {
     var supportsMetadata: Bool { capabilities.contains("metadata") }
     var supportsCover: Bool { capabilities.contains("cover") }
     var supportsLyrics: Bool { capabilities.contains("lyrics") }
+    /// 在 capabilities 里声明 "lyricsWordLevel" 即视为支持逐字歌词
+    var supportsWordLevelLyrics: Bool { capabilities.contains("lyricsWordLevel") }
     var supportsCookie: Bool { cookie != nil || headers?.keys.contains("Cookie") == true }
 }
 

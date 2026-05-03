@@ -113,6 +113,15 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
         }
     }
 
+    /// 是否支持逐字（word-level / karaoke）歌词。
+    /// 内置源里只有 lrclib 偶发，但默认按行级处理；自定义源由 capabilities 声明。
+    var supportsWordLevelLyrics: Bool {
+        switch self {
+        case .musicBrainz, .lrclib, .itunes: false
+        case .custom(let id): ScraperConfigStore.shared.config(for: id)?.supportsWordLevelLyrics ?? false
+        }
+    }
+
     var supportsCookie: Bool {
         switch self {
         case .musicBrainz, .lrclib, .itunes: false

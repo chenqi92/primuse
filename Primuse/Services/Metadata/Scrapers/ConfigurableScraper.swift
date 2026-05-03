@@ -146,11 +146,16 @@ actor ConfigurableScraper: MusicScraper {
 
         guard let dict = parsed as? [String: Any] else { return nil }
 
+        // `wordLevelLrc` 是兼容性字段：JSON 配置同时返回行级 (`lrcContent`) 和字级
+        // (`wordLevelLrc`) 让老版本 app 不至于看到带 `<00:01.23>` 标记的丑文本。
+        // 新版优先取字级，没有再退回行级。
+        let wordLevelLrc = dict["wordLevelLrc"] as? String
         let lrcContent = dict["lrcContent"] as? String
         let plainText = dict["plainText"] as? String
-        guard lrcContent != nil || plainText != nil else { return nil }
+        let finalLrc = (wordLevelLrc?.isEmpty == false) ? wordLevelLrc : lrcContent
+        guard finalLrc != nil || plainText != nil else { return nil }
 
-        return ScraperLyricsResult(source: type, lrcContent: lrcContent, plainText: plainText)
+        return ScraperLyricsResult(source: type, lrcContent: finalLrc, plainText: plainText)
     }
 
     // MARK: - Request Execution

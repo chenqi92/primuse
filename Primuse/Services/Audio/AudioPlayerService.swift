@@ -52,10 +52,27 @@ final class AudioPlayerService {
 
     private(set) var currentSong: Song?
     private(set) var isPlaying = false
-    private(set) var currentTime: TimeInterval = 0
+    /// `currentTimeAnchor` 在 didSet 里自动同步 wall-clock，配合 `interpolatedTime(at:)`
+    /// 在 0.5s 引擎采样间隙内做线性外推，让 60Hz 字级歌词动画无抖。
+    private(set) var currentTime: TimeInterval = 0 {
+        didSet { currentTimeAnchor = Date() }
+    }
     private(set) var duration: TimeInterval = 0
     private(set) var isLoading = false
     private(set) var lastPlaybackError: String?
+
+    private(set) var currentTimeAnchor: Date = Date()
+
+    /// 在 `currentTime` 与下一次 0.5s 采样之间做线性外推。暂停 / 加载中直接返回锚点值。
+    func interpolatedTime(at date: Date = Date()) -> TimeInterval {
+        guard isPlaying, !isLoading else { return currentTime }
+        let elapsed = max(0, date.timeIntervalSince(currentTimeAnchor))
+        // 单次外推不超过 1s——异常情况（后台/中断）出现大间隙时不要漂太远
+        let safeElapsed = min(elapsed, 1.0)
+        let extrapolated = currentTime + safeElapsed
+        if duration > 0 { return min(extrapolated, duration) }
+        return extrapolated
+    }
 
     var queue: [Song] = []
     var currentIndex: Int = 0
