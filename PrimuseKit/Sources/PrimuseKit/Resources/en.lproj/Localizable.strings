@@ -1,0 +1,10 @@
+// PrimuseKit framework strings — English (also used as fallback for any
+// locale without its own .lproj file inside this framework).
+"src.displayName.ugreen"     = "Ugreen";
+"src.displayName.fnos"       = "fnOS";
+"src.displayName.baiduPan"   = "Baidu Pan";
+"src.displayName.aliyunDrive" = "Aliyun Drive";
+
+"src.subtitle.fnos"          = "fnOS";
+"src.subtitle.baiduPan"      = "Baidu Pan OAuth";
+"src.subtitle.aliyunDrive"   = "Aliyun Drive PDS";
