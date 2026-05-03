@@ -16,6 +16,7 @@ struct MacSettingsView: View {
     }
 
     @State private var tab: Tab = .general
+    @State private var showLicenses = false
 
     var body: some View {
         TabView(selection: $tab) {
@@ -64,11 +65,26 @@ struct MacSettingsView: View {
 
     private var aboutTab: some View {
         Form {
-            LabeledContent("version", value: "1.1.0")
-            LabeledContent("build", value: "5")
-            NavigationLink("licenses") { LicensesView() }
+            LabeledContent("version",
+                value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")
+            LabeledContent("build",
+                value: Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—")
+            // macOS Settings TabView 没有 NavigationStack — NavigationLink
+            // 在这里点了完全没反应。改成弹 sheet,既能展示又符合 macOS 习惯。
+            Button("licenses") { showLicenses = true }
         }
         .formStyle(.grouped)
+        .sheet(isPresented: $showLicenses) {
+            NavigationStack {
+                LicensesView()
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("done") { showLicenses = false }
+                        }
+                    }
+            }
+            .frame(minWidth: 480, idealWidth: 520, minHeight: 520, idealHeight: 600)
+        }
     }
 }
 

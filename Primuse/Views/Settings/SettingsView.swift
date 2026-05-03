@@ -715,7 +715,9 @@ struct LicensesView: View {
             }
         }
         .navigationTitle("licenses")
+        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 
     private func licenseRow(_ name: String, _ license: String) -> some View {
