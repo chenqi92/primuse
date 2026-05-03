@@ -52,13 +52,15 @@ final class SourceManager {
         let connector: any MusicSourceConnector
         switch source.type {
         case .synology:
+            let pw = KeychainService.getPassword(for: source.id) ?? ""
+            plog("🔧 SourceManager creating SynologySource id=\(source.id) host=\(source.host ?? "?") userLen=\(source.username?.count ?? 0) pwLen=\(pw.count)")
             connector = SynologySource(
                 sourceID: source.id,
                 host: source.host ?? "",
                 port: source.port ?? 5001,
                 useSsl: source.useSsl,
                 username: source.username ?? "",
-                password: KeychainService.getPassword(for: source.id) ?? "",
+                password: pw,
                 rememberDevice: source.rememberDevice,
                 deviceId: source.deviceId
             )
