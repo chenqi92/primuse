@@ -402,6 +402,7 @@ final class AudioPlayerService {
             isLoading = false
             clearPendingPlaybackRecovery()
             library?.recordPlayback(of: song.id)
+            ScrobbleService.shared.handlePlaybackStarted(song: song)
             startTimeUpdater()
             updateNowPlayingInfo()
             updateNowPlayingArtworkIfNeeded()
@@ -534,6 +535,7 @@ final class AudioPlayerService {
             isLoading = false
             clearPendingPlaybackRecovery()
             library?.recordPlayback(of: song.id)
+            ScrobbleService.shared.handlePlaybackStarted(song: song)
             startTimeUpdater()
             updateNowPlayingInfo()
             updateNowPlayingArtworkIfNeeded()
@@ -797,6 +799,7 @@ final class AudioPlayerService {
             isLoading = false
             clearPendingPlaybackRecovery()
             library?.recordPlayback(of: song.id)
+            ScrobbleService.shared.handlePlaybackStarted(song: song)
             startTimeUpdater()
             updateNowPlayingInfo()
             updateNowPlayingArtworkIfNeeded()
@@ -930,6 +933,7 @@ final class AudioPlayerService {
         duration = 0
         clearPendingPlaybackRecovery()
         stopTimeUpdater()
+        ScrobbleService.shared.handlePlaybackStopped()
         // Clear NowPlaying info so Dynamic Island / Lock Screen also clears
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         updatePlaybackState()
@@ -1490,6 +1494,11 @@ final class AudioPlayerService {
                         await self.handleTrackEnd()
                         return
                     }
+
+                    // Scrobble 进度判断 — 50% 或 4 分钟阈值由 service 内部决定。
+                    // 传 currentTime (已听到这个时间点), seek 后该首歌 elapsed 视为
+                    // 实际的当前 currentTime, Last.fm 协议本身允许这种近似。
+                    ScrobbleService.shared.handleProgressTick(elapsed: self.currentTime)
                 }
                 // Check if crossfade should start
                 self.checkCrossfade()

@@ -485,3 +485,25 @@
 "carplay_search_no_results" = "No results";
 "carplay_play_failed_format" = "Couldn't play %@";
 "carplay_ok" = "OK";
+
+// MARK: - Scrobble (Listening history submission)
+"scrobble_title" = "Scrobble";
+"scrobble_enabled" = "Enable Scrobble";
+"scrobble_send_now_playing" = "Send Now Playing";
+"scrobble_overall_footer" = "Submit listening history to Last.fm / ListenBrainz. Counts after 50% or 4 minutes played.";
+"scrobble_provider_section" = "Service";
+"scrobble_lb_token_placeholder" = "ListenBrainz User Token";
+"scrobble_validate" = "Validate";
+"scrobble_token_valid" = "Valid";
+"scrobble_token_invalid" = "Invalid";
+"scrobble_lb_get_token" = "Get token at ListenBrainz";
+"scrobble_lb_footer" = "Copy your user token from listenbrainz.org/profile and paste it here.";
+"scrobble_lastfm_coming_soon" = "Last.fm not yet available (pending API key registration).";
+"scrobble_lastfm_placeholder_title" = "Last.fm not yet enabled";
+"scrobble_lastfm_placeholder_msg" = "Last.fm integration requires an API key registration. ListenBrainz works now.";
+"scrobble_queue_section" = "Failed Queue";
+"scrobble_pending_count" = "Pending Retry";
+"scrobble_retry_now" = "Retry Now";
+"scrobble_clear_queue" = "Clear Queue";
+"scrobble_clear_queue_confirm" = "Clear all pending listens?";
+"ok" = "OK";

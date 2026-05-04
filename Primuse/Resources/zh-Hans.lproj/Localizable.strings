@@ -485,3 +485,25 @@
 "carplay_search_no_results" = "无匹配结果";
 "carplay_play_failed_format" = "无法播放 %@";
 "carplay_ok" = "好";
+
+// MARK: - Scrobble (听歌记录上报)
+"scrobble_title" = "听歌记录";
+"scrobble_enabled" = "启用听歌记录";
+"scrobble_send_now_playing" = "上报正在播放";
+"scrobble_overall_footer" = "把听歌历史同步到 Last.fm / ListenBrainz 等服务,听够 50% 或 4 分钟才计入。";
+"scrobble_provider_section" = "服务";
+"scrobble_lb_token_placeholder" = "ListenBrainz 用户令牌";
+"scrobble_validate" = "验证";
+"scrobble_token_valid" = "已生效";
+"scrobble_token_invalid" = "无效";
+"scrobble_lb_get_token" = "在 ListenBrainz 获取令牌";
+"scrobble_lb_footer" = "在 listenbrainz.org/profile 复制 user token 粘贴到这里。";
+"scrobble_lastfm_coming_soon" = "Last.fm 暂不可用 (等应用方注册 API key)。";
+"scrobble_lastfm_placeholder_title" = "Last.fm 暂未启用";
+"scrobble_lastfm_placeholder_msg" = "Last.fm 集成需要 API key 注册,后续版本启用。当前请使用 ListenBrainz。";
+"scrobble_queue_section" = "失败队列";
+"scrobble_pending_count" = "待重试";
+"scrobble_retry_now" = "立即重试";
+"scrobble_clear_queue" = "清空队列";
+"scrobble_clear_queue_confirm" = "清空待重试的听歌记录?";
+"ok" = "好";

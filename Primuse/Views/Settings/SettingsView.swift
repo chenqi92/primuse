@@ -78,6 +78,12 @@ struct SettingsView: View {
                     } label: {
                         Label("recently_deleted", systemImage: "trash")
                     }
+
+                    NavigationLink {
+                        ScrobbleSettingsView()
+                    } label: {
+                        Label("scrobble_title", systemImage: "music.note.list")
+                    }
                 }
 
                 Section("about") {
