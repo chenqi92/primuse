@@ -529,3 +529,20 @@
 "lang_fr" = "French";
 "lang_de" = "German";
 "lang_ru" = "Russian";
+
+// MARK: - Duplicate Songs
+"dup_title" = "Duplicate Songs";
+"dup_scanning" = "Scanning...";
+"dup_none_title" = "No Duplicates Found";
+"dup_none_desc" = "Each song in your library has only one version. Nothing to clean up.";
+"dup_groups_count" = "Duplicate Groups";
+"dup_redundant_count" = "Redundant Copies";
+"dup_summary_footer" = "Grouped by title + artist + duration (±1s). The highest-quality version is recommended to keep. Removal only affects the library — your NAS source files are untouched.";
+"dup_clean_all_action" = "Smart Keep (Remove All Redundant)";
+"dup_clean_all_confirm" = "Remove all redundant copies?";
+"dup_clean_all_message_format" = "%d redundant copies will be removed from the library, keeping only the highest-quality version of each group. NAS source files are not affected.";
+"dup_keep_best_action_short" = "Keep Best";
+"dup_keep_best_action_format" = "Keep best, remove %d other version(s)";
+"dup_best_badge" = "Best";
+"dup_action_done_format" = "Removed %d";
+"dup_clean_all_done_format" = "Removed %d redundant copies";

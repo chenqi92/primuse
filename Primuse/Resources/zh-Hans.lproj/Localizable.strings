@@ -530,3 +530,20 @@
 "lang_fr" = "法语";
 "lang_de" = "德语";
 "lang_ru" = "俄语";
+
+// MARK: - Duplicate Songs (重复歌曲管理)
+"dup_title" = "重复歌曲";
+"dup_scanning" = "扫描中...";
+"dup_none_title" = "未发现重复歌曲";
+"dup_none_desc" = "library 里同首歌只有一个版本,无需清理。";
+"dup_groups_count" = "重复分组";
+"dup_redundant_count" = "可删除冗余";
+"dup_summary_footer" = "按标题 + 艺术家 + 时长±1s 分组,标记最高音质版本为推荐保留。删除仅从 library 移除,不影响 NAS 上的源文件。";
+"dup_clean_all_action" = "一键智能保留 (删除所有冗余)";
+"dup_clean_all_confirm" = "确定一键清理所有冗余?";
+"dup_clean_all_message_format" = "将从 library 移除 %d 首冗余歌曲,只保留每组最高音质版本。NAS 上的源文件不受影响。";
+"dup_keep_best_action_short" = "保留最佳";
+"dup_keep_best_action_format" = "保留最佳,删除其余 %d 个版本";
+"dup_best_badge" = "推荐";
+"dup_action_done_format" = "已移除 %d 首";
+"dup_clean_all_done_format" = "已批量移除 %d 首冗余";

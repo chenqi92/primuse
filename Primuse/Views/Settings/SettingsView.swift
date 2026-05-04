@@ -45,6 +45,12 @@ struct SettingsView: View {
                     }
 
                     NavigationLink {
+                        DuplicateSongsView()
+                    } label: {
+                        Label("dup_title", systemImage: "square.stack.3d.up.badge.automatic")
+                    }
+
+                    NavigationLink {
                         StorageManagementView()
                     } label: {
                         Label("storage_management", systemImage: "internaldrive")
