@@ -210,6 +210,15 @@ enum CloudPlaybackSource {
         unregisterActiveState(key: partialPath)
         state.finalizeSession()
     }
+
+    /// 当前所有活跃 streaming session 的 .partial 绝对路径集合。
+    /// 给「存储管理」用 —— 把这些 .partial 标成「正在播放/缓存中」, 跟
+    /// 真正中断废弃的 .partial 区分, 用户就不会以为正在听的歌算 bug。
+    static func activeSessionPaths() -> Set<String> {
+        registryLock.lock()
+        defer { registryLock.unlock() }
+        return Set(activeStates.keys)
+    }
 }
 
 /// Carries fetch result across the async Task → sync semaphore wait.

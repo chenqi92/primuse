@@ -414,6 +414,7 @@
 "persistent_data" = "Persistent Data";
 "cache_clear_footer" = "Cache can be safely cleared. Audio will be re-streamed and images re-downloaded as needed.";
 "cache_completed" = "Fully cached";
+"cache_active" = "Now playing/streaming";
 "cache_prewarm_seed" = "Prewarm seed (head+tail)";
 "cache_partial" = "Incomplete partials";
 "cache_orphaned" = "Removed-source leftovers";

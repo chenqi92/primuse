@@ -731,6 +731,17 @@ struct StorageManagementView: View {
                     .font(.caption).foregroundStyle(.secondary).monospacedDigit()
             }
 
+            if bd.activeBytes > 0 {
+                HStack {
+                    Image(systemName: "play.circle")
+                        .foregroundStyle(.blue).font(.caption)
+                    Text("cache_active").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Text(fmt.string(fromByteCount: bd.activeBytes))
+                        .font(.caption).foregroundStyle(.blue).monospacedDigit()
+                }
+            }
+
             if bd.prewarmSeedBytes > 0 {
                 HStack {
                     Image(systemName: "bolt.circle")

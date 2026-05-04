@@ -284,13 +284,17 @@ final class SourceManager {
     ///   (用户删过源 / source ID 变更), 没人会再访问, 全是垃圾
     struct AudioCacheBreakdown {
         var completedBytes: Int64 = 0
+        /// 「正在播放/缓存中」—— 当前还有活跃 streaming session 的 .partial。
+        /// 用户暂停 / 切到下一首前都算这类, 不该跟「真中断」混在一起让人
+        /// 误以为出问题。session 结束后会自动 finalize / 落入 partialBytes。
+        var activeBytes: Int64 = 0
         /// 「真半成品」—— 用户播到一半切走的, 或下载失败的。下次还有用
         /// (sparse cache 复用) 但用户视角是「中断了」。
         var partialBytes: Int64 = 0
         /// 「预热种子」—— prewarmCloudSong 写的 head + tail (合计 ~1.25MB / 首),
         /// 让下次播首次解码秒出。看着是 .partial 但属于设计内的小种子,
         /// 不应该让用户误以为出问题了。判定方法: `.partial` 旁边有
-        /// `.partial.prewarmed` marker 文件且自身大小 < 2MB。
+        /// `.partial.prewarmed` marker 文件。
         var prewarmSeedBytes: Int64 = 0
         var orphanedBytes: Int64 = 0
         var orphanedSourceIDs: Set<String> = []
@@ -306,6 +310,9 @@ final class SourceManager {
         } else {
             aliveSourceIDs = []
         }
+        // 当前活跃 streaming session 的 .partial 路径, 让 UI 把它们标成
+        // 「正在播放」而不是「中断」。
+        let activeSessionPaths = CloudPlaybackSource.activeSessionPaths()
 
         guard let subdirs = try? FileManager.default.contentsOfDirectory(
             at: basePath, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
@@ -346,12 +353,15 @@ final class SourceManager {
                     // marker 本身, 算到 prewarm 类
                     result.prewarmSeedBytes += size
                 } else if name.hasSuffix(".partial") {
-                    // 旁边有 marker 且本身较小 = prewarm 种子, 否则真半成品
                     let markerPath = fileURL.path + CloudPlaybackSource.prewarmMarkerSuffix
-                    let isSeed = prewarmMarkers.contains(markerPath) && size < 2 * 1024 * 1024
-                    if isSeed {
+                    if activeSessionPaths.contains(fileURL.path) {
+                        // 当前正在播 / 暂停的歌, 不是真"中断"
+                        result.activeBytes += size
+                    } else if prewarmMarkers.contains(markerPath) {
+                        // 旁边有 marker = prewarm 种子 (head+tail sparse), 设计内
                         result.prewarmSeedBytes += size
                     } else {
+                        // 之前播过没下完 + 现在不在活跃 session 里 = 真中断
                         result.partialBytes += size
                     }
                 } else {
