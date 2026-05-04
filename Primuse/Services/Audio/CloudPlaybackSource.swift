@@ -115,7 +115,8 @@ enum CloudPlaybackSource {
         totalLength: Int64,
         connector: any MusicSourceConnector,
         cacheURL: URL,
-        persistOnComplete: Bool = true
+        persistOnComplete: Bool = true,
+        cacheRelativePath: String? = nil
     ) -> InputSource? {
         let partialURL = URL(fileURLWithPath: cacheURL.path + ".partial")
         let markerURL = URL(fileURLWithPath: partialURL.path + prewarmMarkerSuffix)
@@ -155,6 +156,7 @@ enum CloudPlaybackSource {
             totalLength: totalLength,
             initialRanges: initialRanges,
             persistOnComplete: persistOnComplete,
+            cacheRelativePath: cacheRelativePath,
             connectorFetch: connectorFetch
         )
 
@@ -193,6 +195,10 @@ private final class State: @unchecked Sendable {
     /// NSTemporaryDirectory) and never promoted to the canonical cache
     /// path — used when the user has Audio Cache disabled.
     private let persistOnComplete: Bool
+    /// LRU 里这个文件的相对路径 (`<sourceID>/<sanitized>`)。rename 完成
+    /// 后用它去 AudioCacheManager.recordAccess 给本曲打访问时间戳, 让
+    /// 后续 evict 能正确按 LRU 淘汰。nil 表示不持久化 (cache 关掉了)。
+    private let cacheRelativePath: String?
     private let lock = NSLock()
     /// Disjoint sorted byte ranges already in the cache file. Coalesced
     /// after each write.
@@ -224,6 +230,7 @@ private final class State: @unchecked Sendable {
         totalLength: Int64,
         initialRanges: [Range<Int64>] = [],
         persistOnComplete: Bool = true,
+        cacheRelativePath: String? = nil,
         connectorFetch: @escaping @Sendable (Int64, Int64) async throws -> Data
     ) {
         self.label = label
@@ -232,6 +239,7 @@ private final class State: @unchecked Sendable {
         self.activeURL = partialURL
         self.totalLength = totalLength
         self.persistOnComplete = persistOnComplete
+        self.cacheRelativePath = cacheRelativePath
         self.connectorFetch = connectorFetch
         // 排序 + 简单 dedupe (调用方应保证 disjoint, 这里不强行 coalesce)
         self.cachedRanges = initialRanges.sorted { $0.lowerBound < $1.lowerBound }
@@ -536,6 +544,7 @@ private final class State: @unchecked Sendable {
         // When `persistOnComplete` is off (Audio Cache disabled), we skip
         // the rename — the temp file lives in NSTemporaryDirectory and
         // iOS purges it on its own schedule.
+        var renamedRelativePath: String?
         if persistOnComplete,
            activeURL == partialURL,
            cachedRanges.count == 1,
@@ -545,11 +554,20 @@ private final class State: @unchecked Sendable {
             do {
                 try FileManager.default.moveItem(at: partialURL, to: finalURL)
                 activeURL = finalURL
+                renamedRelativePath = cacheRelativePath
             } catch {
                 // Stay on partialURL — next play will re-stream from scratch.
             }
         }
         lock.unlock()
+
+        // 完整下完 + rename 成功后给 LRU 打访问时间戳, 这样后续的
+        // evictIfNeeded 才知道这个文件最近被访问过, 不会优先把它淘汰。
+        // 之前 Range streaming 路径完全不通知 AudioCacheManager, 所以
+        // 2GB 上限对 NAS 全失效。
+        if let path = renamedRelativePath {
+            Task { await AudioCacheManager.shared.recordAccess(path: path) }
+        }
     }
 
     private func mergeRange(_ newRange: Range<Int64>) {

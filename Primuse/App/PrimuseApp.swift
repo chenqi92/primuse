@@ -160,6 +160,11 @@ struct PrimuseApp: App {
                     // scan (cloud sources only download metadata in the
                     // background after Phase A completes).
                     metadataBackfill.start()
+                    // 清掉 7 天没动的 .partial 半成品 —— Range streaming 路径
+                    // 用户跳过 / prewarm 完没接着播的歌会留下大量孤立
+                    // .partial 永久占盘, LRU 看不到这些。同步执行很快
+                    // (只 stat mtime, 不读内容)。
+                    sourceManager.pruneStalePartialFiles()
                     // Re-prewarm any cloud songs whose `.partial` cache or
                     // CDN URL has expired since last launch. Cheap (skips
                     // already-prewarmed via marker check); huge win on the

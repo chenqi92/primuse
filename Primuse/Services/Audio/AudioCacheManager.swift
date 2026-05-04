@@ -76,6 +76,16 @@ actor AudioCacheManager {
         schedulePersist()
     }
 
+    /// 删 LRU 里以 `prefix` 开头的所有记录。配合 SourceManager.purgeAudioCache
+    /// 用 —— 删源时一次清掉所有属于这个 sourceID 的访问时间戳, 不然
+    /// accessLog 里残留的 dead key 越堆越多。
+    func removeAllEntries(forSourcePrefix prefix: String) {
+        ensureInitialized()
+        let keys = accessLog.keys.filter { $0.hasPrefix(prefix) }
+        for key in keys { accessLog[key] = nil }
+        if !keys.isEmpty { schedulePersist() }
+    }
+
     func clearAll() {
         accessLog.removeAll()
         try? FileManager.default.removeItem(at: logURL)

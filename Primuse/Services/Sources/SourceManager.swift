@@ -276,6 +276,84 @@ final class SourceManager {
         return total
     }
 
+    /// 给「存储管理」页用的统计 —— 把 audio cache 拆成三类:
+    /// - completed: 完整下完的歌曲 (rename 成 final 名), 受 2GB LRU 控制
+    /// - partial: `.partial` / `.partial.prewarmed` 半成品 (用户跳过 /
+    ///   prewarm 完没听), 启动时 7 天清一次, 也可以这里手动一键清
+    /// - orphaned: 子目录里的文件, 但 sourceID 已经不在 sources 表里
+    ///   (用户删过源 / source ID 变更), 没人会再访问, 全是垃圾
+    struct AudioCacheBreakdown {
+        var completedBytes: Int64 = 0
+        var partialBytes: Int64 = 0
+        var orphanedBytes: Int64 = 0
+        var orphanedSourceIDs: Set<String> = []
+    }
+
+    func audioCacheBreakdown() async -> AudioCacheBreakdown {
+        var result = AudioCacheBreakdown()
+        let basePath = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+            .appendingPathComponent(Self.audioCacheDirName)
+        let aliveSourceIDs: Set<String>
+        if let sources = try? await sourcesProvider() {
+            aliveSourceIDs = Set(sources.map { $0.id })
+        } else {
+            aliveSourceIDs = []
+        }
+
+        guard let subdirs = try? FileManager.default.contentsOfDirectory(
+            at: basePath, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
+        ) else { return result }
+
+        for sourceDir in subdirs {
+            guard (try? sourceDir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
+            let sid = sourceDir.lastPathComponent
+            let isOrphan = !aliveSourceIDs.contains(sid)
+            if isOrphan { result.orphanedSourceIDs.insert(sid) }
+
+            let enumerator = FileManager.default.enumerator(
+                at: sourceDir, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles]
+            )
+            while let fileURL = enumerator?.nextObject() as? URL {
+                let size = Int64((try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+                let name = fileURL.lastPathComponent
+                let isPartial = name.hasSuffix(".partial") || name.hasSuffix(".partial.prewarmed")
+                if isOrphan {
+                    result.orphanedBytes += size
+                } else if isPartial {
+                    result.partialBytes += size
+                } else {
+                    result.completedBytes += size
+                }
+            }
+        }
+        return result
+    }
+
+    /// 一键清掉所有孤立 sourceID 的整个 cache 子目录。
+    func purgeOrphanedAudioCache() async {
+        let breakdown = await audioCacheBreakdown()
+        for sid in breakdown.orphanedSourceIDs {
+            purgeAudioCache(forSourceID: sid)
+        }
+    }
+
+    /// 一键清掉所有 `.partial` 半成品 (无视 mtime, 等价于用户主动决定
+    /// 「不要任何半下载文件了」)。正在 streaming 的歌会立即变成 cache miss
+    /// 重新下, 但不会丢功能。
+    func purgeAllPartialFiles() {
+        let basePath = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+            .appendingPathComponent(Self.audioCacheDirName)
+        guard let enumerator = FileManager.default.enumerator(
+            at: basePath, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
+        ) else { return }
+        for case let fileURL as URL in enumerator {
+            let name = fileURL.lastPathComponent
+            if name.hasSuffix(".partial") || name.hasSuffix(".partial.prewarmed") {
+                try? FileManager.default.removeItem(at: fileURL)
+            }
+        }
+    }
+
     func deleteAudioCache(for song: Song) {
         let cacheURL = cacheURL(for: song)
         try? FileManager.default.removeItem(at: cacheURL)
@@ -289,6 +367,56 @@ final class SourceManager {
         try? FileManager.default.removeItem(at: basePath)
         try? FileManager.default.removeItem(at: Self.smbCacheDir)
         Task { await AudioCacheManager.shared.clearAll() }
+    }
+
+    /// 启动时清掉超过 `olderThanDays` 没动的 `.partial` 半成品 + 对应的
+    /// `.partial.prewarmed` marker。这些文件平时无人管 —— Range streaming
+    /// 路径只在歌完整下完后 rename, 用户跳过 / prewarm 完没接着播的歌
+    /// 会留下一堆 `.partial` 永久占盘。LRU 也只盯 final 文件, 看不到
+    /// `.partial`。
+    ///
+    /// 只清 mtime 超过阈值的, 现在正在 streaming 的 `.partial` (mtime
+    /// 是新的) 不会被误删。
+    func pruneStalePartialFiles(olderThanDays days: Int = 7) {
+        let basePath = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+            .appendingPathComponent(Self.audioCacheDirName)
+        guard let enumerator = FileManager.default.enumerator(
+            at: basePath,
+            includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+
+        let cutoff = Date().addingTimeInterval(-Double(days) * 86400)
+        var removedBytes: Int64 = 0
+        var removedCount = 0
+        for case let fileURL as URL in enumerator {
+            let name = fileURL.lastPathComponent
+            guard name.hasSuffix(".partial") || name.hasSuffix(".partial.prewarmed") else { continue }
+            guard let values = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
+                  let mtime = values.contentModificationDate,
+                  mtime < cutoff else { continue }
+            let size = Int64(values.fileSize ?? 0)
+            if (try? FileManager.default.removeItem(at: fileURL)) != nil {
+                removedBytes += size
+                removedCount += 1
+            }
+        }
+        if removedCount > 0 {
+            let mb = Double(removedBytes) / 1_048_576
+            plog("🧹 pruned \(removedCount) stale .partial files (\(String(format: "%.1f", mb)) MB)")
+        }
+    }
+
+    /// 删除指定 source 的整个 audio cache 子目录 + LRU 里属于这个源的记录。
+    /// 只在 LibraryService.removeSource() 流程里用 —— 用户主动删源时一并
+    /// 回收磁盘, 不然 caches/primuse_audio_cache/<sourceID>/ 里的整本歌
+    /// + `.partial` 半成品永远没人动。
+    func purgeAudioCache(forSourceID sourceID: String) {
+        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+            .appendingPathComponent(Self.audioCacheDirName)
+            .appendingPathComponent(sourceID)
+        try? FileManager.default.removeItem(at: dir)
+        Task { await AudioCacheManager.shared.removeAllEntries(forSourcePrefix: "\(sourceID)/") }
     }
 
     /// Background-cache a song file (generalized for all sources).
@@ -499,12 +627,27 @@ final class SourceManager {
             ? cacheURL(for: song)
             : URL(fileURLWithPath: NSTemporaryDirectory())
                 .appendingPathComponent("primuse-stream-\(song.id)")
+
+        // 启动 streaming 之前先按预计大小腾位置 —— Range streaming 路径以前
+        // 完全没接 LRU, 缓存可以无限胀。这里做最低限度的 evict (只在持久化
+        // 模式下), 让 2GB 上限对 NAS 也生效。注意是异步, 不阻塞首播 ——
+        // 真正写满前不一定能 evict 完, 但能保证 LRU 不再被绕过。
+        let cacheRelativePath: String?
+        if cacheEnabled {
+            let sanitized = song.filePath.replacingOccurrences(of: "/", with: "_")
+            cacheRelativePath = "\(song.sourceID)/\(sanitized)"
+            await AudioCacheManager.shared.evictIfNeeded(reserveBytes: song.fileSize)
+        } else {
+            cacheRelativePath = nil
+        }
+
         return CloudPlaybackSource.makeInputSource(
             song: song,
             totalLength: song.fileSize,
             connector: conn,
             cacheURL: cache,
-            persistOnComplete: cacheEnabled
+            persistOnComplete: cacheEnabled,
+            cacheRelativePath: cacheRelativePath
         )
     }
 

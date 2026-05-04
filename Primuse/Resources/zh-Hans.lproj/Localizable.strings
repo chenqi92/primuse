@@ -413,6 +413,9 @@
 "cache" = "缓存";
 "persistent_data" = "持久化数据";
 "cache_clear_footer" = "缓存可安全清除。音频将在播放时重新加载，图片将按需重新下载。";
+"cache_completed" = "已完整缓存";
+"cache_partial" = "下载中断的半成品";
+"cache_orphaned" = "已删除音乐源的残留";
 "metadata_clear_footer" = "封面与歌词为持久化存储。清除后需要重新扫描或从音乐源重新获取。";
 "scraping_album_covers" = "正在获取专辑封面...";
 "scraping_artist_images" = "正在获取艺术家图片...";

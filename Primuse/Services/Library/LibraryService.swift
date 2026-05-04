@@ -54,6 +54,10 @@ final class LibraryService {
         try await database.deleteSongs(forSource: id)
         try await database.deleteSource(id: id)
         KeychainService.deletePassword(for: id)
+        // 顺手清掉这个源的整个音频缓存子目录, 不然 caches/primuse_audio_cache/<sourceID>/
+        // 里几 GB 文件 + .partial 永远没人删, 用户在「存储管理」看到的缓存
+        // 大小会一直挂着已删源的存量。
+        sourceManager.purgeAudioCache(forSourceID: id)
         sources = try await database.allSources()
         await loadAll()
     }

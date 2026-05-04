@@ -555,6 +555,9 @@ struct StorageManagementView: View {
     @State private var isClearingAudio = false
     @State private var isClearingImages = false
     @State private var isClearingMetadata = false
+    @State private var audioBreakdown: SourceManager.AudioCacheBreakdown?
+    @State private var isClearingPartials = false
+    @State private var isClearingOrphans = false
 
     var body: some View {
         @Bindable var settings = playbackSettings
@@ -597,6 +600,10 @@ struct StorageManagementView: View {
                         await refreshSizes()
                         isClearingAudio = false
                     }
+                }
+
+                if let bd = audioBreakdown {
+                    audioBreakdownDetail(bd)
                 }
 
                 storageRow(
@@ -671,12 +678,88 @@ struct StorageManagementView: View {
         }
     }
 
+    @ViewBuilder
+    private func audioBreakdownDetail(_ bd: SourceManager.AudioCacheBreakdown) -> some View {
+        let fmt = ByteCountFormatter()
+        let _ = (fmt.countStyle = .file)
+
+        // 缩进 + 小一号字, 提示是 audio cache 的细分
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: "checkmark.circle")
+                    .foregroundStyle(.secondary).font(.caption)
+                Text("cache_completed").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Text(fmt.string(fromByteCount: bd.completedBytes))
+                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+            }
+
+            HStack {
+                Image(systemName: "ellipsis.circle")
+                    .foregroundStyle(.secondary).font(.caption)
+                Text("cache_partial").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Text(fmt.string(fromByteCount: bd.partialBytes))
+                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                if bd.partialBytes > 0 {
+                    Button(role: .destructive) {
+                        isClearingPartials = true
+                        Task {
+                            sourceManager.purgeAllPartialFiles()
+                            await refreshSizes()
+                            isClearingPartials = false
+                        }
+                    } label: {
+                        if isClearingPartials {
+                            ProgressView().controlSize(.mini)
+                        } else {
+                            Image(systemName: "trash").font(.caption2)
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+                    .disabled(isClearingPartials)
+                }
+            }
+
+            if bd.orphanedBytes > 0 {
+                HStack {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange).font(.caption)
+                    Text("cache_orphaned").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Text(fmt.string(fromByteCount: bd.orphanedBytes))
+                        .font(.caption).foregroundStyle(.orange).monospacedDigit()
+                    Button(role: .destructive) {
+                        isClearingOrphans = true
+                        Task {
+                            await sourceManager.purgeOrphanedAudioCache()
+                            await refreshSizes()
+                            isClearingOrphans = false
+                        }
+                    } label: {
+                        if isClearingOrphans {
+                            ProgressView().controlSize(.mini)
+                        } else {
+                            Image(systemName: "trash").font(.caption2)
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+                    .disabled(isClearingOrphans)
+                }
+            }
+        }
+        .padding(.leading, 24)
+    }
+
     private func refreshSizes() async {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
 
         let audio = Int64(sourceManager.audioCacheSize())
         audioCacheSize = formatter.string(fromByteCount: audio)
+        audioBreakdown = await sourceManager.audioCacheBreakdown()
 
         let images = (try? await ImageCache.shared.diskCacheSize()) ?? 0
         imageCacheSize = formatter.string(fromByteCount: images)
