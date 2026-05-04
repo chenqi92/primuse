@@ -34,7 +34,18 @@ struct PlaylistImportView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
-            if preview != nil {
+            if preview == nil {
+                // 没选文件时, 顶部一个明显的「选择文件」入口 —— Form 内的
+                // .borderedProminent 按钮在 iOS 26 偶尔渲染成跟背景同色看
+                // 不见, 工具栏入口更稳。
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showFileImporter = true
+                    } label: {
+                        Label("playlist_import_pick_file", systemImage: "folder")
+                    }
+                }
+            } else {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("playlist_import_create") { confirm() }
                         .fontWeight(.semibold)
@@ -68,13 +79,20 @@ struct PlaylistImportView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
+                // Form section 里的按钮 iOS 26 用 .borderedProminent 偶尔
+                // 渲染成跟背景同色看不见。这里用 plain 按钮 + 显式色块,
+                // 文字始终可见; 顶部工具栏也放了一个 (toolbar) 双重保险。
                 Button {
                     showFileImporter = true
                 } label: {
                     Label("playlist_import_pick_file", systemImage: "folder")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(Color.accentColor))
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.plain)
                 .padding(.top, 8)
             }
             .frame(maxWidth: .infinity)
