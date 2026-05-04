@@ -468,14 +468,11 @@ final class ScanService {
             $0.lastScannedAt = Date()
         }
         scraperService?.enqueueBackgroundEnrichment(for: songs, in: library)
-        // Kick off background prewarm for cloud songs. Each call resolves
-        // the CDN URL once (cached for 30 min in the connector) and stages
-        // the head 256KB into `.partial`. Done one-at-a-time so a
-        // 2k-song library doesn't open 2k concurrent HTTP connections —
-        // the throttle inside `prewarmAllCloudSongs` does the queueing.
-        if let sourceManager {
-            prewarmAllCloudSongs(in: songs, sourceManager: sourceManager)
-        }
+        // 注意: 这里不做整库 prewarm。之前会一首歌拉 1MB head + 256KB tail,
+        // 818 首 ~ 1GB 后台流量, 大部分歌用户根本不会听。删掉, 让 prewarm
+        // 走「按需」路径: AudioPlayerService.play 时调 cacheInBackground
+        // 给当前曲做 prewarm, 启动 task 给 currentSong + 队列做 prewarm。
+        _ = sourceManager  // 参数保留兼容签名, 暂未使用
         // Wipe both checkpoint and live state. The source card now reads
         // `lastScannedAt` for the "scanned X songs" line; without clearing
         // scanStates, `canResume` would read true forever (totalCount is
@@ -484,32 +481,6 @@ final class ScanService {
         checkpoints[sourceID] = nil
         persistCheckpoints()
         scanStates[sourceID] = nil
-    }
-
-    /// Sequentially prewarm every cloud song in `songs` so that future
-    /// `play(song:)` taps skip the CDN-HEAD round trip (~3-20s through a
-    /// proxy) and the first SFB read hits disk instead of the network.
-    /// Uses a single background `Task` with a `for` loop — explicit
-    /// concurrency limit of 1 — so a fresh scan of 2k songs can't fire 2k
-    /// parallel range fetches and trip Baidu's anti-abuse throttle.
-    private func prewarmAllCloudSongs(in songs: [Song], sourceManager: SourceManager) {
-        let candidates = songs.filter { $0.fileSize > 0 }
-        guard !candidates.isEmpty else { return }
-        Task.detached(priority: .background) { [weak sourceManager] in
-            guard let sourceManager else { return }
-            for song in candidates {
-                if Task.isCancelled { return }
-                let alreadyDone = await MainActor.run { sourceManager.isPrewarmed(song: song) }
-                if alreadyDone { continue }
-                guard await sourceManager.songSupportsRangeStreaming(song) else { continue }
-                // `cacheInBackground` already does dedup + connector.connect()
-                // + prewarmCloudSong inside its own Task. We await its
-                // completion by inlining the same body so the for-loop
-                // serialization is honoured (firing it as a fire-and-forget
-                // Task per song would defeat the throttle).
-                await sourceManager.prewarmCloudSongPublic(song: song)
-            }
-        }
     }
 
     // MARK: - Helpers

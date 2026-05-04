@@ -165,16 +165,14 @@ struct PrimuseApp: App {
                     // .partial 永久占盘, LRU 看不到这些。同步执行很快
                     // (只 stat mtime, 不读内容)。
                     sourceManager.pruneStalePartialFiles()
-                    // Re-prewarm any cloud songs whose `.partial` cache or
-                    // CDN URL has expired since last launch. Cheap (skips
-                    // already-prewarmed via marker check); huge win on the
-                    // first play after a cold start where every CDN HEAD
-                    // would otherwise add 3-20s of latency in front of the
-                    // user.
-                    //
-                    // 排序策略:用户冷启动后大概率立刻播 currentSong / queue 里
-                    // 的歌,所以这两类先跑,再跑 library 剩下的。否则 library
-                    // 全表无序遍历下用户想播的歌可能排在很靠后,prewarm 来不及。
+                    // 启动 prewarm —— 只覆盖 currentSong + queue 接下来 5 首。
+                    // 之前还会接着 prewarm 整个 library, 一首歌 1MB head +
+                    // 256KB tail = 1.25MB, 818 首 ≈ 1GB 后台流量, 用户开
+                    // app 听一首歌就发现缓存涨 100MB+。换来的"任意点歌
+                    // 首播 < 200ms"对小库或许值得, 对中大型库性价比极差
+                    // (绝大多数预热的歌不会被听), 所以砍掉。play(song:)
+                    // 路径里的 cacheInBackground 会按需 prewarm 用户实际
+                    // 点的歌, 行为退化为「点啥热啥」, 总体盘可控。
                     Task.detached(priority: .background) {
                         // 1. currentSong (resume): 优先级最高,提到 .userInitiated
                         //    用户立刻按 play 时大概率就是这首
@@ -190,16 +188,6 @@ struct PrimuseApp: App {
                         let resumeID = resumeSong?.id
                         let queueOrder = queueSnapshot.filter { $0.id != resumeID }.prefix(5)
                         for song in queueOrder {
-                            if Task.isCancelled { return }
-                            let done = await MainActor.run { sourceManager.isPrewarmed(song: song) }
-                            if done { continue }
-                            await sourceManager.prewarmCloudSongPublic(song: song)
-                        }
-
-                        // 3. library 剩下的: 走 background 优先级,慢慢跑
-                        let snapshot = await MainActor.run { musicLibrary.songs }
-                        let donePriority = Set(queueOrder.map(\.id) + [resumeID].compactMap { $0 })
-                        for song in snapshot where !donePriority.contains(song.id) {
                             if Task.isCancelled { return }
                             let done = await MainActor.run { sourceManager.isPrewarmed(song: song) }
                             if done { continue }
