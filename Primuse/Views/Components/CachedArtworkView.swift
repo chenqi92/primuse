@@ -291,8 +291,15 @@ struct CachedArtworkView: View {
     // MARK: - Disk Cache
 
     private static func loadFromDiskCache(songID: String?, ref: String?) async -> Data? {
-        // New: songID-based cache (hash cache 现在永远是 sidecar mirror,可信)
-        if let songID {
+        // 当 ref 是 source 端 sidecar 路径(NAS / https)时,NAS sidecar 才是
+        // single source of truth —— 跳过 songID-hash cache。理由:
+        // 1. 治本(MetadataService.trustedSource:false)只防"以后"刮削写脏 cache,
+        //    历史污染的 cache 文件不会自动消失。
+        // 2. cache mirror 和 sidecar 之间存在 stale 风险(用户在 NAS 上手动改过
+        //    cover 文件,cache 不会感知)。
+        // hash cache 仍用于无 NAS sidecar 引用的本地歌(embedded artwork)。
+        let refIsRemote = (ref ?? "").contains("/") || (ref ?? "").contains("://")
+        if let songID, !refIsRemote {
             if let data = await MetadataAssetStore.shared.cachedCoverData(forSongID: songID) {
                 return data
             }

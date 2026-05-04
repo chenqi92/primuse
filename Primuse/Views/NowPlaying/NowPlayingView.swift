@@ -436,13 +436,29 @@ struct NowPlayingView: View {
 
     private func loadLyrics() async {
         guard let song = player.currentSong else { setLyrics([]); return }
+        let loadStart = Date()
 
-        // Tier 1: Local cache only (no network — never block the connector during playback)
-        if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) {
-            setLyrics(cached); return
+        // Tier 1a: songID hash cache —— 即使 NAS path 也读 (stale-while-revalidate)。
+        // 历史污染 cache 现在通过 trustedSource:false + sidecar 写后回写 cache
+        // 在根源上修复, 这里允许 cache hit 立即显示, 后台再校验。
+        if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id), !cached.isEmpty {
+            plog(String(format: "📜 loadLyrics '%@' Tier1a hit (songID hash) in %.0fms (%d lines)", song.title, Date().timeIntervalSince(loadStart) * 1000, cached.count))
+            setLyrics(cached)
+            // NAS path 时, 后台校验 cache 是否 stale (NAS sidecar 才是真相)。
+            // 静默成功 = no-op; 若发现差异会 update UI + cache。
+            if (song.lyricsFileName ?? "").contains("/") {
+                runLyricsTier3Fetch(song: song, currentCache: cached)
+            }
+            return
         }
-        if let cached = await MetadataAssetStore.shared.lyrics(named: song.lyricsFileName) {
+
+        let lyricsRefIsRemote = (song.lyricsFileName ?? "").contains("/")
+
+        // Tier 1b: legacy named ref (only for non-NAS path)
+        if !lyricsRefIsRemote,
+           let cached = await MetadataAssetStore.shared.lyrics(named: song.lyricsFileName) {
             await MetadataAssetStore.shared.cacheLyrics(cached, forSongID: song.id)
+            plog(String(format: "📜 loadLyrics '%@' Tier1b hit (named ref) in %.0fms (%d lines)", song.title, Date().timeIntervalSince(loadStart) * 1000, cached.count))
             setLyrics(cached); return
         }
 
@@ -451,17 +467,29 @@ struct NowPlayingView: View {
            let lrcURL = SidecarMetadataLoader.findLyrics(for: cachedAudioURL),
            let parsed = try? LyricsParser.parse(from: lrcURL), !parsed.isEmpty {
             await MetadataAssetStore.shared.cacheLyrics(parsed, forSongID: song.id)
+            plog(String(format: "📜 loadLyrics '%@' Tier2 hit (audio cache sidecar) in %.0fms (%d lines)", song.title, Date().timeIntervalSince(loadStart) * 1000, parsed.count))
             setLyrics(parsed); return
         }
 
-        // Tier 3: Fetch .lrc from source using an independent connector (parallel with playback)
+        // Tier 3: 首次必走 (无 cache, 无本地 sidecar)
         setLyrics([])
+        plog(String(format: "📜 loadLyrics '%@' miss Tier1+2, falling to Tier3 (NAS fetch)", song.title))
+        runLyricsTier3Fetch(song: song, currentCache: nil)
+    }
+
+    /// Tier 3 NAS fetch + 校验。currentCache != nil 时为 stale-while-revalidate
+    /// 模式: 已 setLyrics(currentCache), 这里只在 fingerprint 不一致时 update UI。
+    private func runLyricsTier3Fetch(song: Song, currentCache: [LyricLine]?) {
         let capturedSourceManager = sourceManager
+        let songID = song.id
+        let songTitle = song.title
+        let isRefresh = currentCache != nil
 
         Task {
+            let tier3Start = Date()
             do {
-                // auxiliaryConnector creates a separate connection — won't block playback
                 let connector = try await capturedSourceManager.auxiliaryConnector(for: song)
+                let connectMs = Date().timeIntervalSince(tier3Start) * 1000
                 let songDir = (song.filePath as NSString).deletingLastPathComponent
                 let baseName = ((song.filePath as NSString).lastPathComponent as NSString).deletingPathExtension
                 let lrcPath: String
@@ -471,19 +499,52 @@ struct NowPlayingView: View {
                     lrcPath = (songDir as NSString).appendingPathComponent("\(baseName).lrc")
                 }
 
-                let lrcLocalURL = try await connector.localURL(for: lrcPath)
-                let parsed = try LyricsParser.parse(from: lrcLocalURL)
-                guard !parsed.isEmpty else { return }
+                let fetchStart = Date()
+                let lrcData = try await connector.fetchRange(path: lrcPath, offset: 0, length: 256 * 1024)
+                let fetchMs = Date().timeIntervalSince(fetchStart) * 1000
+                guard let lrcContent = String(data: lrcData, encoding: .utf8) else {
+                    plog(String(format: "📜 loadLyrics '%@' Tier3 .lrc not utf8 (connect=%.0fms fetch=%.0fms)", songTitle, connectMs, fetchMs))
+                    return
+                }
+                let parsed = LyricsParser.parse(lrcContent)
+                guard !parsed.isEmpty else {
+                    plog(String(format: "📜 loadLyrics '%@' Tier3 .lrc empty after parse (connect=%.0fms fetch=%.0fms %dB)", songTitle, connectMs, fetchMs, lrcData.count))
+                    return
+                }
 
-                await MetadataAssetStore.shared.cacheLyrics(parsed, forSongID: song.id)
-                // Update UI if still on the same song
-                if player.currentSong?.id == song.id {
+                // Refresh 模式: cache 与 NAS 一致就静默退出, 不写盘不 update UI
+                if let currentCache,
+                   Self.lyricsFingerprint(parsed) == Self.lyricsFingerprint(currentCache) {
+                    plog(String(format: "📜 lyrics refresh '%@' cache fresh, no update (%.0fms)", songTitle, Date().timeIntervalSince(tier3Start) * 1000))
+                    return
+                }
+
+                await MetadataAssetStore.shared.cacheLyrics(parsed, forSongID: songID)
+                if isRefresh {
+                    plog(String(format: "📜 lyrics refresh '%@' cache STALE → updated (%.0fms, %d→%d lines)", songTitle, Date().timeIntervalSince(tier3Start) * 1000, currentCache?.count ?? 0, parsed.count))
+                } else {
+                    plog(String(format: "📜 loadLyrics '%@' Tier3 OK in %.0fms (connect=%.0fms fetch=%.0fms %dB %d lines)", songTitle, Date().timeIntervalSince(tier3Start) * 1000, connectMs, fetchMs, lrcData.count, parsed.count))
+                }
+                if player.currentSong?.id == songID {
                     setLyrics(parsed)
                 }
             } catch {
-                // No .lrc file — not an error
+                if isRefresh {
+                    // refresh 失败不影响 user, 已经显示了 cache
+                    plog(String(format: "📜 lyrics refresh '%@' FAILED in %.0fms (cache still shown): %@", songTitle, Date().timeIntervalSince(tier3Start) * 1000, error.localizedDescription))
+                } else {
+                    plog(String(format: "📜 loadLyrics '%@' Tier3 FAILED in %.0fms: %@", songTitle, Date().timeIntervalSince(tier3Start) * 1000, error.localizedDescription))
+                }
             }
         }
+    }
+
+    /// Lyrics 内容 fingerprint, 用于 stale-while-revalidate 比较。
+    /// LyricLine.id 是 UUID() 每次 parse 不同, 不能直接 ==。这里取
+    /// 行数 + 首尾 timestamp + 首尾 text, 足够区分内容差异。
+    private static func lyricsFingerprint(_ lines: [LyricLine]) -> String {
+        guard let first = lines.first, let last = lines.last else { return "empty" }
+        return "\(lines.count)|\(first.timestamp)|\(first.text)|\(last.timestamp)|\(last.text)"
     }
 
     private func setLyrics(_ value: [LyricLine]) {

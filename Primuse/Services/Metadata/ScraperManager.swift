@@ -81,6 +81,7 @@ actor ScraperManager {
 
         // Scrape lyrics from first successful source
         if needs.lyrics {
+            plog("🎤 Lyrics tier: needs.lyrics=true, enabled sources w/ supportsLyrics: \(enabledSources.filter { $0.type.supportsLyrics }.map { $0.type.displayName })")
             for config in enabledSources where config.type.supportsLyrics {
                 do {
                     let scraper = getScraper(for: config)
@@ -106,28 +107,48 @@ actor ScraperManager {
                             in: searchResult.items, title: title, artist: artist,
                             durationMs: durationMs(duration), maxCount: 3
                         )
+                        plog("🎤 [\(config.type.displayName)] lyrics search: \(searchResult.items.count) items → top \(candidates.count) candidates: \(candidates.map { "\($0.title)/\($0.artist ?? "?")" })")
                         var lineLevelFallback: [LyricLine]?
+                        var triedCount = 0
+                        var hasLyricsCount = 0
                         for candidate in candidates {
-                            guard let lyricsResult = try? await scraper.getLyrics(externalId: candidate.externalId),
-                                  lyricsResult.hasLyrics,
-                                  let parsed = parseLyrics(lyricsResult), !parsed.isEmpty else { continue }
-                            if parsed.contains(where: { $0.isWordLevel }) {
-                                result.lyrics = parsed
-                                break
-                            } else if lineLevelFallback == nil {
-                                lineLevelFallback = parsed
+                            triedCount += 1
+                            do {
+                                guard let lyricsResult = try await scraper.getLyrics(externalId: candidate.externalId),
+                                      lyricsResult.hasLyrics else { continue }
+                                hasLyricsCount += 1
+                                guard let parsed = parseLyrics(lyricsResult), !parsed.isEmpty else { continue }
+                                if parsed.contains(where: { $0.isWordLevel }) {
+                                    plog("🎤 [\(config.type.displayName)] picked WORD-level lyrics from '\(candidate.title)' (\(parsed.count) lines)")
+                                    result.lyrics = parsed
+                                    break
+                                } else if lineLevelFallback == nil {
+                                    lineLevelFallback = parsed
+                                }
+                            } catch {
+                                plog("🎤 [\(config.type.displayName)] getLyrics failed for '\(candidate.title)': \(error.localizedDescription)")
                             }
                         }
                         if result.lyrics == nil, let fb = lineLevelFallback {
+                            plog("🎤 [\(config.type.displayName)] picked LINE-level fallback (\(fb.count) lines)")
                             result.lyrics = fb
+                        }
+                        if result.lyrics == nil {
+                            plog("🎤 [\(config.type.displayName)] NO lyrics found: tried=\(triedCount) hasLyrics=\(hasLyricsCount) — moving to next source")
                         }
                         if result.lyrics != nil { break }
                     }
                 } catch {
+                    plog("🎤 [\(config.type.displayName)] lyrics tier ERROR: \(error.localizedDescription)")
                     await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
                     result.errors.append("[\(config.type.displayName)] lyrics: \(error.localizedDescription)")
                 }
             }
+            if result.lyrics == nil {
+                plog("🎤 Lyrics tier: NO source returned lyrics, result.lyrics=nil")
+            }
+        } else {
+            plog("🎤 Lyrics tier: needs.lyrics=false, skipped")
         }
 
         return result
