@@ -83,5 +83,8 @@ final class AppServices {
 
         CloudKVSSync.shared.register(key: CloudKVSKey.lyricsFontScale) { }
         CloudKVSSync.shared.register(key: CloudKVSKey.recentSearches) { }
+
+        // 把 player 绑到 LyricsBroadcaster, 让歌词跟踪在锁屏 / 后台都能跑。
+        LyricsBroadcaster.shared.attachPlayer(player)
     }
 }

@@ -403,6 +403,7 @@ final class AudioPlayerService {
             clearPendingPlaybackRecovery()
             library?.recordPlayback(of: song.id)
             ScrobbleService.shared.handlePlaybackStarted(song: song)
+            LiveActivityManager.shared.startActivity(song: song, isPlaying: true)
             startTimeUpdater()
             updateNowPlayingInfo()
             updateNowPlayingArtworkIfNeeded()
@@ -536,6 +537,7 @@ final class AudioPlayerService {
             clearPendingPlaybackRecovery()
             library?.recordPlayback(of: song.id)
             ScrobbleService.shared.handlePlaybackStarted(song: song)
+            LiveActivityManager.shared.startActivity(song: song, isPlaying: true)
             startTimeUpdater()
             updateNowPlayingInfo()
             updateNowPlayingArtworkIfNeeded()
@@ -800,6 +802,7 @@ final class AudioPlayerService {
             clearPendingPlaybackRecovery()
             library?.recordPlayback(of: song.id)
             ScrobbleService.shared.handlePlaybackStarted(song: song)
+            LiveActivityManager.shared.startActivity(song: song, isPlaying: true)
             startTimeUpdater()
             updateNowPlayingInfo()
             updateNowPlayingArtworkIfNeeded()
@@ -894,6 +897,9 @@ final class AudioPlayerService {
         stopTimeUpdater()
         updateNowPlayingInfo()
         updatePlaybackState()
+        Task { [t = self.currentTime] in
+            await LiveActivityManager.shared.updateActivity(isPlaying: false, elapsedTime: t)
+        }
     }
 
     func resume() {
@@ -910,6 +916,9 @@ final class AudioPlayerService {
         startTimeUpdater()
         updateNowPlayingInfo()
         updatePlaybackState()
+        Task { [t = self.currentTime] in
+            await LiveActivityManager.shared.updateActivity(isPlaying: true, elapsedTime: t)
+        }
     }
 
     func togglePlayPause() {
@@ -934,6 +943,8 @@ final class AudioPlayerService {
         clearPendingPlaybackRecovery()
         stopTimeUpdater()
         ScrobbleService.shared.handlePlaybackStopped()
+        LyricsBroadcaster.shared.reset()
+        Task { await LiveActivityManager.shared.endActivity() }
         // Clear NowPlaying info so Dynamic Island / Lock Screen also clears
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         updatePlaybackState()
@@ -1499,6 +1510,13 @@ final class AudioPlayerService {
                     // 传 currentTime (已听到这个时间点), seek 后该首歌 elapsed 视为
                     // 实际的当前 currentTime, Last.fm 协议本身允许这种近似。
                     ScrobbleService.shared.handleProgressTick(elapsed: self.currentTime)
+
+                    // Live Activity 进度同步 — 节流由 LiveActivityManager 内部控制。
+                    Task { [isPlaying = self.isPlaying, currentTime = self.currentTime] in
+                        await LiveActivityManager.shared.updateActivity(
+                            isPlaying: isPlaying, elapsedTime: currentTime
+                        )
+                    }
                 }
                 // Check if crossfade should start
                 self.checkCrossfade()

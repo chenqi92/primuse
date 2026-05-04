@@ -552,6 +552,10 @@ struct NowPlayingView: View {
         lyrics = value
         // currentLineIndex / hasWordLevelLyrics 已迁移到 LyricsScrollView 子 view,
         // 子 view 自己 onChange(of: songID) 重置 + computed property 算 hasWord。
+
+        // 同步到 LyricsBroadcaster 让歌词跟踪走 service 层 — 锁屏 / 切到
+        // home / 后台时仍持续更新, Live Activity 才能看见实时歌词。
+        LyricsBroadcaster.shared.setLyrics(value, for: player.currentSong?.id)
     }
 
 
@@ -846,7 +850,11 @@ fileprivate struct LyricsScrollView: View {
     @AppStorage("lyricsFontScale") private var lyricsFontScale: Double = 1.0
     @State private var lyricsPinchScale: CGFloat = 1.0
     @State private var isPinchingLyrics = false
-    @State private var currentLineIndex = 0
+
+    /// 当前行索引 — 之前是 view 内 @State + 自己跑 timer, 现在改成订阅
+    /// LyricsBroadcaster 让锁屏 / 后台跟踪也持续。view 内只读不写。
+    @State private var broadcaster = LyricsBroadcaster.shared
+    private var currentLineIndex: Int { broadcaster.currentLineIndex }
 
     // Translation —— Apple Translation Framework (iOS 17.4+ / macOS 14.4+)
     // 离线 + 免费, 翻译结果走 LyricsTranslationCache 持久化, 切歌时按当前
@@ -926,19 +934,17 @@ fileprivate struct LyricsScrollView: View {
                     }
             )
             .onChange(of: currentLineIndex) { _, idx in
-                guard !isPinchingLyrics, idx < lyrics.count else { return }
+                guard idx < lyrics.count, !isPinchingLyrics else { return }
                 withAnimation(.easeInOut(duration: 0.4)) {
                     proxy.scrollTo(lyrics[idx].id, anchor: .center)
                 }
+                // Live Activity 歌词 push 由 LyricsBroadcaster 在 service 层做,
+                // view 不再重复 push 避免双发 + 让锁屏 / 后台也能跟。
             }
         }
-        .onReceive(Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()) { _ in
-            updateCurrentLine()
-        }
         .onChange(of: songID) { _, _ in
-            // 切歌时把行索引清零 + 让自动滚动重新 anchor
-            currentLineIndex = 0
-            // 切歌后把已翻译的清掉 + 触发新一轮翻译
+            // 切歌后把已翻译的清掉 + 触发新一轮翻译。
+            // currentLineIndex 由 LyricsBroadcaster 自动重置 (setLyrics 时清 0)。
             translatedTextByLineID = [:]
             refreshTranslationConfig()
         }
@@ -1094,23 +1100,8 @@ fileprivate struct LyricsScrollView: View {
         }
     }
 
-    /// 行级歌词 LRC 文件的 timestamp 通常是「演唱开始那一刻」,但 LRC 制作过程
-    /// 中作者按 spacebar 记录会有人为反应延迟(常见 200-400ms),用户感受是
-    /// 「头两个字唱完才高亮这一行」。给行级判断加 250ms lookahead 提前切换。
-    /// 字级歌词 syllable 粒度精度本来就高,不用补偿。
-    private static let lineLevelLookahead: TimeInterval = 0.25
-
-    private func updateCurrentLine() {
-        guard !lyrics.isEmpty else { return }
-        let time = player.interpolatedTime()
-        for (i, line) in lyrics.enumerated().reversed() {
-            let lookahead: TimeInterval = line.isWordLevel ? 0 : Self.lineLevelLookahead
-            if time + lookahead >= line.timestamp {
-                if currentLineIndex != i { currentLineIndex = i }
-                break
-            }
-        }
-    }
+    // updateCurrentLine + Timer 已移到 LyricsBroadcaster service 层 — view
+    // 不再自己跑 timer, 让锁屏 / 后台时歌词跟踪也持续。
 }
 
 // MARK: - PlaybackProgressBar (隔离 player.currentTime 高频读)
