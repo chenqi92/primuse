@@ -603,7 +603,6 @@
 "stats_range_week" = "本周";
 "stats_range_month" = "本月";
 "stats_range_year" = "本年";
-"stats_range_all" = "全部";
 "stats_total_plays" = "播放次数";
 "stats_total_time" = "总听歌时长";
 "stats_active_days" = "活跃天数";

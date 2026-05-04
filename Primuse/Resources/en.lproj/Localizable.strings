@@ -602,7 +602,6 @@
 "stats_range_week" = "This Week";
 "stats_range_month" = "This Month";
 "stats_range_year" = "This Year";
-"stats_range_all" = "All";
 "stats_total_plays" = "Plays";
 "stats_total_time" = "Total Time";
 "stats_active_days" = "Active Days";
