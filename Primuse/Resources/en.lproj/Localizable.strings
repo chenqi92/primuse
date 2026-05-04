@@ -485,6 +485,29 @@
 "carplay_empty_playlists_title" = "No playlists yet";
 "carplay_empty_playlists_subtitle" = "Create playlists on your iPhone to listen in the car";
 "carplay_empty_playlist_title" = "Empty playlist";
+
+// MARK: - Playlist Import / Export
+"playlist_export_m3u8" = "Export as M3U8";
+"playlist_export_json" = "Export as Primuse JSON";
+"playlist_export_failed_title" = "Export Failed";
+"playlist_import_title" = "Import Playlist";
+"playlist_import_intro_title" = "Pick an m3u8 or Primuse JSON file";
+"playlist_import_intro_desc" = "Playlist files received via Files / AirDrop will be matched against your library by filename + title/artist.";
+"playlist_import_pick_file" = "Pick File";
+"playlist_import_create" = "Create";
+"playlist_import_matched" = "Matched in library";
+"playlist_import_missing" = "Not found";
+"playlist_import_missing_footer" = "Unmatched tracks are skipped — your library has no song with the same filename or title/artist.";
+"playlist_import_name_header" = "Playlist name";
+"playlist_name" = "Playlist Name";
+"playlist_import_entries_header" = "Entries";
+"playlist_import_kind_id" = "ID match";
+"playlist_import_kind_path" = "Filename";
+"playlist_import_kind_fuzzy" = "Fuzzy";
+"playlist_import_err_title" = "Import Failed";
+"playlist_import_err_format" = "Unsupported file format (only .m3u/.m3u8/.json accepted)";
+"playlist_import_err_malformed_format" = "Malformed file: %@";
+"playlist_import_err_empty" = "Playlist has no tracks";
 "carplay_recent_title" = "Recently Added";
 "carplay_albums_title" = "Albums";
 "carplay_artists_title" = "Artists";

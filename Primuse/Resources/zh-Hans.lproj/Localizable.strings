@@ -485,6 +485,29 @@
 "carplay_empty_playlists_title" = "还没有歌单";
 "carplay_empty_playlists_subtitle" = "在 iPhone 上创建歌单即可在车里收听";
 "carplay_empty_playlist_title" = "歌单为空";
+
+// MARK: - Playlist Import / Export
+"playlist_export_m3u8" = "导出为 M3U8";
+"playlist_export_json" = "导出为 Primuse JSON";
+"playlist_export_failed_title" = "导出失败";
+"playlist_import_title" = "导入歌单";
+"playlist_import_intro_title" = "选择 m3u8 或 Primuse JSON";
+"playlist_import_intro_desc" = "Files / AirDrop 收到的歌单文件,会按文件名 + 标题艺术家匹配你库里的歌曲。";
+"playlist_import_pick_file" = "选择文件";
+"playlist_import_create" = "创建";
+"playlist_import_matched" = "已匹配到歌曲";
+"playlist_import_missing" = "未找到";
+"playlist_import_missing_footer" = "未匹配的歌曲会被跳过 — 你的库里没有同名 / 同标题艺术家的曲目。";
+"playlist_import_name_header" = "歌单名";
+"playlist_name" = "歌单名";
+"playlist_import_entries_header" = "条目";
+"playlist_import_kind_id" = "ID 匹配";
+"playlist_import_kind_path" = "文件名";
+"playlist_import_kind_fuzzy" = "模糊";
+"playlist_import_err_title" = "导入失败";
+"playlist_import_err_format" = "不支持的文件格式 (只接受 .m3u/.m3u8/.json)";
+"playlist_import_err_malformed_format" = "文件格式有误: %@";
+"playlist_import_err_empty" = "歌单里一首歌都没有";
 "carplay_recent_title" = "最近添加";
 "carplay_albums_title" = "专辑";
 "carplay_artists_title" = "艺人";

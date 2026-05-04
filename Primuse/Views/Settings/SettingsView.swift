@@ -51,6 +51,12 @@ struct SettingsView: View {
                     }
 
                     NavigationLink {
+                        PlaylistImportView()
+                    } label: {
+                        Label("playlist_import_title", systemImage: "tray.and.arrow.down")
+                    }
+
+                    NavigationLink {
                         StorageManagementView()
                     } label: {
                         Label("storage_management", systemImage: "internaldrive")
