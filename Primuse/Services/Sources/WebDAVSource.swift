@@ -13,6 +13,17 @@ actor WebDAVSource: MusicSourceConnector {
     private var provider: WebDAVFileProvider?
     private let cacheDirectory: URL
 
+    /// 长生命周期 session, 让 fetchRange 复用 HTTP keep-alive 连接,
+    /// 避免每次 chunk fetch 都重新 SSL handshake。
+    /// 8 路并发: 配合 CloudPlaybackSource 小文件全 prefetch 时多 chunk 并发。
+    private lazy var rangeSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 60
+        config.timeoutIntervalForResource = 600
+        config.httpMaximumConnectionsPerHost = 8
+        return URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+    }()
+
     init(
         sourceID: String,
         host: String,
@@ -159,12 +170,7 @@ actor WebDAVSource: MusicSourceConnector {
         }
         request.timeoutInterval = 30
 
-        let session = URLSession(
-            configuration: .default,
-            delegate: SmartSSLDelegate(),
-            delegateQueue: nil
-        )
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await rangeSession.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw SourceError.connectionFailed("Invalid WebDAV range response")
         }

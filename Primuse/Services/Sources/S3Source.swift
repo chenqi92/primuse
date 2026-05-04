@@ -14,6 +14,16 @@ actor S3Source: MusicSourceConnector {
     private let useSsl: Bool
     private let cacheDirectory: URL
 
+    /// 长生命周期 session, fetchRange 复用 HTTP keep-alive。
+    /// S3 协议天然支持 Range header (GetObject with Range), 不需要签名。
+    private lazy var rangeSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 60
+        config.timeoutIntervalForResource = 600
+        config.httpMaximumConnectionsPerHost = 8
+        return URLSession(configuration: config)
+    }()
+
     init(
         sourceID: String, endpoint: String, region: String,
         bucket: String, accessKey: String, secretKey: String, useSsl: Bool
@@ -82,6 +92,40 @@ actor S3Source: MusicSourceConnector {
         try? FileManager.default.removeItem(at: cachedURL)
         try FileManager.default.moveItem(at: tempURL, to: cachedURL)
         return cachedURL
+    }
+
+    /// HTTP Range GET on S3 GetObject。S3 协议规范支持 Range header
+    /// (RFC 7233), 不算 signed header 不影响签名。让 CloudPlaybackSource
+    /// 边下边播替代整文件下载。
+    func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+        let scheme = useSsl ? "https" : "http"
+        let encodedPath = path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? path
+        guard let url = URL(string: "\(scheme)://\(endpoint)/\(bucket)/\(encodedPath)") else {
+            throw SourceError.fileNotFound(path)
+        }
+        var request = try signedRequest(url: url, method: "GET")
+        let rangeHeader = offset < 0
+            ? "bytes=\(offset)"
+            : "bytes=\(offset)-\(offset + length - 1)"
+        request.setValue(rangeHeader, forHTTPHeaderField: "Range")
+        request.timeoutInterval = 60
+
+        let (data, response) = try await rangeSession.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw SourceError.connectionFailed("Invalid S3 range response")
+        }
+        switch http.statusCode {
+        case 206:
+            return data
+        case 200:
+            let total = Int64(data.count)
+            let actualOffset = offset < 0 ? max(0, total + offset) : offset
+            guard actualOffset < total else { return Data() }
+            let upper = min(actualOffset + length, total)
+            return data.subdata(in: Int(actualOffset)..<Int(upper))
+        default:
+            throw SourceError.connectionFailed("S3 range request failed: HTTP \(http.statusCode)")
+        }
     }
 
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {

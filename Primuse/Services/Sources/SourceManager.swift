@@ -563,6 +563,12 @@ final class SourceManager {
 
 private extension MusicSource {
     var supportsRangeStreaming: Bool {
-        type.category == .cloudDrive || type == .webdav || type == .synology
+        type.category == .cloudDrive
+            || type == .webdav
+            || type == .synology
+            || type == .qnap
+            || type == .ugreen
+            || type == .fnos
+            || type == .s3
     }
 }
