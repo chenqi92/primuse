@@ -130,7 +130,8 @@ final class MusicScraperService {
                             // 是行级备份, 字级数据只在本地 hash JSON 里。
                             // 仍把内容回写到本地 cache 让 hash JSON 跟 NAS
                             // 一致。
-                            await MetadataAssetStore.shared.cacheLyrics(lyricsLines, forSongID: songID)
+                            // 用户动作 (scrape) 触发的 sidecar 镜像写回, 强制覆盖
+                            await MetadataAssetStore.shared.cacheLyrics(lyricsLines, forSongID: songID, force: true)
                         }
 
                         if needsUpdate {
@@ -264,7 +265,8 @@ final class MusicScraperService {
                                     if writeResult.lyricsWritten, let lyricsLines {
                                         // 同上: 不指向 NAS .lrc, 字级数据只在
                                         // 本地 hash JSON。
-                                        await MetadataAssetStore.shared.cacheLyrics(lyricsLines, forSongID: songID)
+                                        // 用户动作 (scrape) 触发的 sidecar 镜像写回, 强制覆盖
+                            await MetadataAssetStore.shared.cacheLyrics(lyricsLines, forSongID: songID, force: true)
                                     }
 
                                     if needsUpdate {

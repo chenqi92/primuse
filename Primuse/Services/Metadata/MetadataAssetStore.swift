@@ -80,16 +80,18 @@ actor MetadataAssetStore {
     /// 写歌词到本地缓存。
     ///
     /// - parameter force: 用户动作 (刮削) 传 true, **任何级别都覆盖**;
-    ///                    后台自动 (扫描读 USLT / sidecar .lrc) 传 false,
-    ///                    **不覆盖已有数据**, 让用户刮削过的字级不被
-    ///                    后续自动扫描回退。
+    ///                    后台自动 (扫描 USLT / Tier3 stale-while-revalidate)
+    ///                    传 false, **拒绝把已有的字级降级成行级**, 但允许
+    ///                    同级别刷新内容 (字→字 / 行→行)。
     ///
-    /// 语义对齐用户预期: 「最新刮削 (用户动作) 为准, 扫描不动用户结果」。
+    /// 语义: 用户刮削结果 = 最高权威, 自动路径不能擅自降级用户的字级数据。
+    /// 但允许用户手动改 NAS .lrc 后被自动路径同步 (字→字 / 行→行 都允许)。
     func storeLyrics(_ lines: [LyricLine], for key: String, force: Bool = false) -> String? {
         let fileName = hashedFileName(for: key, pathExtension: "json")
         let fileURL = lyricsDirectory.appendingPathComponent(fileName)
-        if !force && FileManager.default.fileExists(atPath: fileURL.path) {
-            return fileName  // 后台扫描 + 已有缓存 → 跳过, 别动用户数据
+        if !force && wouldDowngrade(at: fileURL, against: lines) {
+            plog("📝 storeLyrics skip downgrade key=\(key.prefix(8))")
+            return fileName
         }
         guard let data = try? encoder.encode(lines) else { return nil }
         do {
@@ -98,6 +100,19 @@ actor MetadataAssetStore {
         } catch {
             return nil
         }
+    }
+
+    /// 「会不会让现存的字级缓存被降级成行级」—— true 表示该跳过本次写入。
+    /// 同级别写入 (字→字 / 行→行) 永远允许 (能刷新内容)。
+    nonisolated private func wouldDowngrade(at url: URL, against incoming: [LyricLine]) -> Bool {
+        guard FileManager.default.fileExists(atPath: url.path),
+              let data = try? Data(contentsOf: url),
+              let existing = try? JSONDecoder().decode([LyricLine].self, from: data) else {
+            return false
+        }
+        let existingHasSyllables = existing.contains(where: { $0.isWordLevel })
+        let incomingHasSyllables = incoming.contains(where: { $0.isWordLevel })
+        return existingHasSyllables && !incomingHasSyllables
     }
 
     func lyrics(named fileName: String?) -> [LyricLine]? {
@@ -127,11 +142,26 @@ actor MetadataAssetStore {
     }
 
     /// Cache lyrics using song ID as the cache key.
-    func cacheLyrics(_ lines: [LyricLine], forSongID songID: String) {
-        guard let data = try? encoder.encode(lines) else { return }
+    ///
+    /// - parameter force: 用户动作 (刮削 sidecar 镜像回写) 传 true; 自动路径
+    ///                    (Tier3 stale-while-revalidate) 传 false 拒绝降级。
+    /// - returns: true 表示写入了 / false 跳过 (downgrade 或编码失败)。调用
+    ///   方根据返回值决定要不要更新 UI —— skip 了就 UI 保持现状。
+    @discardableResult
+    func cacheLyrics(_ lines: [LyricLine], forSongID songID: String, force: Bool = false) -> Bool {
         let fileName = hashedFileName(for: songID, pathExtension: "json")
         let fileURL = lyricsDirectory.appendingPathComponent(fileName)
-        try? data.write(to: fileURL, options: .atomic)
+        if !force && wouldDowngrade(at: fileURL, against: lines) {
+            plog("📝 cacheLyrics skip downgrade songID=\(songID.prefix(8))")
+            return false
+        }
+        guard let data = try? encoder.encode(lines) else { return false }
+        do {
+            try data.write(to: fileURL, options: .atomic)
+            return true
+        } catch {
+            return false
+        }
     }
 
     /// Read cached lyrics by song ID.
@@ -267,14 +297,27 @@ actor MetadataAssetStore {
     }
 
     /// 同步版 storeLyrics, 给 ScrapeOptionsView 等不便 await actor 的同步
-    /// UI 路径用。语义跟 async 版一致, **默认强制覆盖** (调用方都是用户
-    /// 动作)。
+    /// UI 路径用。语义跟 async 版一致 (force=false 拒绝降级)。默认 force=true
+    /// 因为现有 caller 都是用户的刮削动作。
     nonisolated func storeLyricsSync(_ lines: [LyricLine], for key: String, force: Bool = true) {
         let fileName = expectedLyricsFileName(for: key)
         let fileURL = lyricsDirectory.appendingPathComponent(fileName)
-        if !force && FileManager.default.fileExists(atPath: fileURL.path) { return }
+        let wordLevel = lines.contains(where: { $0.isWordLevel })
+        plog("📝 storeLyricsSync key=\(key.prefix(8)) lines=\(lines.count) wordLevel=\(wordLevel) force=\(force)")
+        if !force && wouldDowngrade(at: fileURL, against: lines) {
+            plog("📝 storeLyricsSync skip downgrade")
+            return
+        }
         let encoder = JSONEncoder()
-        guard let data = try? encoder.encode(lines) else { return }
-        try? data.write(to: fileURL, options: .atomic)
+        guard let data = try? encoder.encode(lines) else {
+            plog("⚠️ storeLyricsSync encode failed")
+            return
+        }
+        do {
+            try data.write(to: fileURL, options: .atomic)
+            plog("📝 storeLyricsSync wrote \(data.count)B → \(fileName)")
+        } catch {
+            plog("⚠️ storeLyricsSync write failed: \(error.localizedDescription)")
+        }
     }
 }

@@ -523,7 +523,13 @@ struct NowPlayingView: View {
                     return
                 }
 
-                await MetadataAssetStore.shared.cacheLyrics(parsed, forSongID: songID)
+                let wrote = await MetadataAssetStore.shared.cacheLyrics(parsed, forSongID: songID)
+                if !wrote {
+                    // 写入被「不降级」拦截 (现存字级, NAS 是行级 sidecar 自动
+                    // 写回的) —— UI 保持原 cache 显示, 不切到行级。
+                    plog(String(format: "📜 lyrics refresh '%@' SKIP downgrade (%.0fms, cache word-level kept)", songTitle, Date().timeIntervalSince(tier3Start) * 1000))
+                    return
+                }
                 if isRefresh {
                     plog(String(format: "📜 lyrics refresh '%@' cache STALE → updated (%.0fms, %d→%d lines)", songTitle, Date().timeIntervalSince(tier3Start) * 1000, currentCache?.count ?? 0, parsed.count))
                 } else {
