@@ -266,7 +266,10 @@ struct NowPlayingView: View {
                     player.forceRefreshNowPlayingArtwork()
                     Task { await loadLyrics() }
                 }
-                .presentationDetents([.medium, .large])
+                // 默认全屏 (`.large`) — medium 半屏会把"自动/手动刮削"按钮和
+                // 搜索数量 picker 挤到下方, 用户不知道要上滑会误以为功能消失。
+                // 想看下面的 NowPlaying 时下拉关闭 sheet 即可。
+                .presentationDetents([.large])
             }
         }
         .sheet(isPresented: $showAddToPlaylist) {

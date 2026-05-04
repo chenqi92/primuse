@@ -8,32 +8,38 @@ struct ContentView: View {
     @State private var searchText = ""
     @State private var showNowPlaying = false
 
+    @ViewBuilder
+    private var tabRoot: some View {
+        TabView(selection: $selectedTab) {
+            Tab(String(localized: "home_title"), systemImage: "house.fill", value: 0) {
+                HomeView(switchToSettingsTab: { selectedTab = 3 })
+            }
+            Tab(String(localized: "library_title"), systemImage: "books.vertical", value: 1) {
+                LibraryView()
+            }
+            Tab(String(localized: "search_title"), systemImage: "magnifyingglass", value: 2, role: .search) {
+                SearchView(searchText: $searchText)
+            }
+            Tab(String(localized: "settings_title"), systemImage: "gearshape", value: 3) {
+                SettingsView()
+            }
+        }
+    }
+
     var body: some View {
         ZStack {
-            TabView(selection: $selectedTab) {
-                Tab(String(localized: "home_title"), systemImage: "house.fill", value: 0) {
-                    HomeView(
-                        switchToSettingsTab: { selectedTab = 3 }
-                    )
-                }
-
-                Tab(String(localized: "library_title"), systemImage: "books.vertical", value: 1) {
-                    LibraryView()
-                }
-
-                Tab(String(localized: "search_title"), systemImage: "magnifyingglass", value: 2, role: .search) {
-                    SearchView(searchText: $searchText)
-                }
-
-                Tab(String(localized: "settings_title"), systemImage: "gearshape", value: 3) {
-                    SettingsView()
-                }
-            }
-            .tabBarMinimizeBehavior(player.currentSong != nil ? .onScrollDown : .never)
-            .tabViewBottomAccessory(isEnabled: player.currentSong != nil) {
-                NowPlayingAccessory(onTap: {
-                    showNowPlaying = true
-                })
+            // iOS 26 tabViewBottomAccessory modifier 一旦挂上, 即使闭包返回
+            // EmptyView 也会保留 accessory 的视觉占位 (底部一条透明空白)。
+            // 所以这里走 if/else 分支, currentSong 为 nil 时整个 modifier
+            // 不挂, 让 TabBar 紧贴底部。
+            if player.currentSong != nil {
+                tabRoot
+                    .tabBarMinimizeBehavior(.onScrollDown)
+                    .tabViewBottomAccessory {
+                        NowPlayingAccessory(onTap: { showNowPlaying = true })
+                    }
+            } else {
+                tabRoot
             }
 
             // Player overlay — mounted on demand. NowPlayingView holds heavy
