@@ -62,14 +62,14 @@ actor AudioCacheManager {
 
         if let enumerator = FileManager.default.enumerator(
             at: basePath,
-            includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey],
+            includingPropertiesForKeys: [.totalFileAllocatedSizeKey, .contentModificationDateKey, .isRegularFileKey],
             options: [.skipsHiddenFiles]
         ) {
             for case let fileURL as URL in enumerator {
                 guard let values = try? fileURL.resourceValues(
-                    forKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey]
+                    forKeys: [.totalFileAllocatedSizeKey, .contentModificationDateKey, .isRegularFileKey]
                 ), values.isRegularFile == true else { continue }
-                let size = Int64(values.fileSize ?? 0)
+                let size = Int64(values.totalFileAllocatedSize ?? 0)
                 guard size > 0 else { continue }
                 let relative = fileURL.path.hasPrefix(basePathPrefix)
                     ? String(fileURL.path.dropFirst(basePathPrefix.count))
@@ -133,11 +133,11 @@ actor AudioCacheManager {
 
     private func totalCacheSizeSync() -> Int64 {
         guard let enumerator = FileManager.default.enumerator(
-            at: basePath, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles]
+            at: basePath, includingPropertiesForKeys: [.totalFileAllocatedSizeKey], options: [.skipsHiddenFiles]
         ) else { return 0 }
         var total: Int64 = 0
         for case let fileURL as URL in enumerator {
-            if let size = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize {
+            if let size = try? fileURL.resourceValues(forKeys: [.totalFileAllocatedSizeKey]).totalFileAllocatedSize {
                 total += Int64(size)
             }
         }
@@ -145,8 +145,8 @@ actor AudioCacheManager {
     }
 
     private func fileSize(at url: URL) -> Int64? {
-        guard let values = try? url.resourceValues(forKeys: [.fileSizeKey]),
-              let size = values.fileSize else { return nil }
+        guard let values = try? url.resourceValues(forKeys: [.totalFileAllocatedSizeKey]),
+              let size = values.totalFileAllocatedSize else { return nil }
         return Int64(size)
     }
 

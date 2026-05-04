@@ -265,10 +265,10 @@ final class SourceManager {
         ]
         for basePath in dirs {
             guard let enumerator = FileManager.default.enumerator(
-                at: basePath, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles]
+                at: basePath, includingPropertiesForKeys: [.totalFileAllocatedSizeKey], options: [.skipsHiddenFiles]
             ) else { continue }
             for case let fileURL as URL in enumerator {
-                if let size = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize {
+                if let size = try? fileURL.resourceValues(forKeys: [.totalFileAllocatedSizeKey]).totalFileAllocatedSize {
                     total += Int64(size)
                 }
             }
@@ -333,10 +333,10 @@ final class SourceManager {
             if isOrphan { result.orphanedSourceIDs.insert(sid) }
 
             let enumerator = fm.enumerator(
-                at: sourceDir, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles]
+                at: sourceDir, includingPropertiesForKeys: [.totalFileAllocatedSizeKey], options: [.skipsHiddenFiles]
             )
             while let fileURL = enumerator?.nextObject() as? URL {
-                let size = Int64((try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+                let size = Int64((try? fileURL.resourceValues(forKeys: [.totalFileAllocatedSizeKey]).totalFileAllocatedSize) ?? 0)
                 let name = fileURL.lastPathComponent
                 if isOrphan {
                     result.orphanedBytes += size
@@ -380,13 +380,13 @@ final class SourceManager {
         var freed: Int64 = 0
         var failed = 0
         guard let enumerator = FileManager.default.enumerator(
-            at: basePath, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles]
+            at: basePath, includingPropertiesForKeys: [.totalFileAllocatedSizeKey], options: [.skipsHiddenFiles]
         ) else { return (0, 0) }
         var partials: [(URL, Int64)] = []
         for case let fileURL as URL in enumerator {
             let name = fileURL.lastPathComponent
             guard name.hasSuffix(".partial") || name.hasSuffix(".partial.prewarmed") else { continue }
-            let size = Int64((try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+            let size = Int64((try? fileURL.resourceValues(forKeys: [.totalFileAllocatedSizeKey]).totalFileAllocatedSize) ?? 0)
             partials.append((fileURL, size))
         }
         for (url, size) in partials {
@@ -425,16 +425,16 @@ final class SourceManager {
         for dir in [basePath, Self.smbCacheDir] {
             guard let enumerator = FileManager.default.enumerator(
                 at: dir,
-                includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey],
+                includingPropertiesForKeys: [.totalFileAllocatedSizeKey, .isRegularFileKey],
                 options: [.skipsHiddenFiles]
             ) else { continue }
 
             // 先收集再删, 避免 enumerator 边删边遍历崩。
             var files: [(URL, Int64)] = []
             for case let fileURL as URL in enumerator {
-                guard let values = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
+                guard let values = try? fileURL.resourceValues(forKeys: [.totalFileAllocatedSizeKey, .isRegularFileKey]),
                       values.isRegularFile == true else { continue }
-                files.append((fileURL, Int64(values.fileSize ?? 0)))
+                files.append((fileURL, Int64(values.totalFileAllocatedSize ?? 0)))
             }
             for (url, size) in files {
                 do {
@@ -468,7 +468,7 @@ final class SourceManager {
             .appendingPathComponent(Self.audioCacheDirName)
         guard let enumerator = FileManager.default.enumerator(
             at: basePath,
-            includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey],
+            includingPropertiesForKeys: [.contentModificationDateKey, .totalFileAllocatedSizeKey],
             options: [.skipsHiddenFiles]
         ) else { return }
 
@@ -478,10 +478,10 @@ final class SourceManager {
         for case let fileURL as URL in enumerator {
             let name = fileURL.lastPathComponent
             guard name.hasSuffix(".partial") || name.hasSuffix(".partial.prewarmed") else { continue }
-            guard let values = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
+            guard let values = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey, .totalFileAllocatedSizeKey]),
                   let mtime = values.contentModificationDate,
                   mtime < cutoff else { continue }
-            let size = Int64(values.fileSize ?? 0)
+            let size = Int64(values.totalFileAllocatedSize ?? 0)
             if (try? FileManager.default.removeItem(at: fileURL)) != nil {
                 removedBytes += size
                 removedCount += 1
