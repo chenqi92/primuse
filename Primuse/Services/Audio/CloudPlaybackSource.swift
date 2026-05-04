@@ -223,6 +223,10 @@ private final class State: @unchecked Sendable {
     private var fetchTotalElapsed: TimeInterval = 0
     private var fetchTotalBytes: Int = 0
 
+    /// 「补全 trailing 缺口」任务是否已经派出去过。每个 session 只跑一次,
+    /// 防止 writeToCache 反复触发 + 多个 in-flight fill 互相打架。
+    private var trailingFillScheduled: Bool = false
+
     init(
         label: String,
         partialURL: URL,
@@ -545,6 +549,7 @@ private final class State: @unchecked Sendable {
         // the rename — the temp file lives in NSTemporaryDirectory and
         // iOS purges it on its own schedule.
         var renamedRelativePath: String?
+        var fillRequest: (offset: Int64, length: Int64)?
         if persistOnComplete,
            activeURL == partialURL,
            cachedRanges.count == 1,
@@ -558,8 +563,48 @@ private final class State: @unchecked Sendable {
             } catch {
                 // Stay on partialURL — next play will re-stream from scratch.
             }
+        } else if persistOnComplete,
+                  activeURL == partialURL,
+                  !trailingFillScheduled,
+                  cachedRanges.first?.lowerBound == 0 {
+            // 「就差一小段就能 rename」的常见模式:
+            // 1) 单段 [0, X), X 接近 totalLength — 用户播完歌但 SFB 没读
+            //    最末尾几 KB (e.g., mp3 ID3v1 trailing); 缺 [X, totalLength)
+            // 2) 双段 [0, X) + [Y, totalLength), Y - X 较小 — 顺序播没追上
+            //    prewarm tail; 缺 [X, Y)
+            //
+            // 只在缺口 < 5MB 时主动补, 避免对真正大段没下完的歌 (用户跳过)
+            // 还浪费带宽硬下完。补完 writeToCache 会再回来走 rename 分支。
+            let firstUpper = cachedRanges[0].upperBound
+            if cachedRanges.count == 1,
+               firstUpper < totalLength,
+               (totalLength - firstUpper) < 5 * 1024 * 1024 {
+                fillRequest = (firstUpper, totalLength - firstUpper)
+                trailingFillScheduled = true
+            } else if cachedRanges.count == 2,
+                      cachedRanges[1].upperBound == totalLength,
+                      (cachedRanges[1].lowerBound - firstUpper) < 5 * 1024 * 1024 {
+                fillRequest = (firstUpper, cachedRanges[1].lowerBound - firstUpper)
+                trailingFillScheduled = true
+            }
         }
         lock.unlock()
+
+        if let req = fillRequest {
+            // background 跑, 不阻塞当前 serve / SFB read。失败也不要紧 ——
+            // 下次播这首歌走 stream 再尝试, 或者被 pruneStalePartialFiles 清掉。
+            Task { [weak self, connectorFetch, label] in
+                guard let self else { return }
+                do {
+                    let data = try await connectorFetch(req.offset, req.length)
+                    if !data.isEmpty {
+                        self.writeToCache(offset: req.offset, data: data)
+                    }
+                } catch {
+                    plog("⚠️ Cloud stream '\(label)' trailing fill failed: \(error.localizedDescription)")
+                }
+            }
+        }
 
         // 完整下完 + rename 成功后给 LRU 打访问时间戳, 这样后续的
         // evictIfNeeded 才知道这个文件最近被访问过, 不会优先把它淘汰。
