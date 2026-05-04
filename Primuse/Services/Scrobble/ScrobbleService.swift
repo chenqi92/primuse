@@ -259,10 +259,10 @@ final class ScrobbleService {
                     result.append(ListenBrainzProvider(userToken: token))
                 }
             case .lastFm:
-                // Last.fm 三件套都齐了才能 sign + 发请求。任何一个缺都跳过,
-                // 让 settings UI 提示用户去补。
-                let apiKey = LastFmCredentialsStore.loadAPIKey()
-                let apiSecret = LastFmCredentialsStore.loadAPISecret()
+                // 三件套都齐了才能 sign + 发请求。effective getter 自动
+                // 在「用户自己粘的 key」和「app 内置 default」之间挑。
+                let apiKey = LastFmCredentialsStore.effectiveAPIKey()
+                let apiSecret = LastFmCredentialsStore.effectiveAPISecret()
                 let sessionKey = LastFmCredentialsStore.loadSessionKey()
                 if !apiKey.isEmpty, !apiSecret.isEmpty, !sessionKey.isEmpty {
                     result.append(LastFmProvider(

@@ -19,6 +19,9 @@ struct ScrobbleSettingsView: View {
     @State private var isLoggingInLastFm: Bool = false
     @State private var lastFmError: String?
     @State private var showLastFmSignOutConfirm = false
+    /// 「使用自己的 application」高级区是否展开。如果用户已经粘过自己的
+    /// key, 默认展开让他们能看见; 否则收起 (大部分人用 app 内置 default)。
+    @State private var showLastFmAdvanced = false
 
     @State private var showClearQueueConfirm = false
 
@@ -156,20 +159,8 @@ struct ScrobbleSettingsView: View {
                         Label("scrobble_lastfm_signout", systemImage: "rectangle.portrait.and.arrow.right")
                     }
                 } else {
-                    // 未登录: 收 API Key + Secret, 然后授权
-                    SecureField("scrobble_lastfm_api_key_placeholder", text: $lastFmAPIKey)
-                        .textContentType(.password)
-                        .autocorrectionDisabled()
-                        .onChange(of: lastFmAPIKey) { _, newVal in
-                            LastFmCredentialsStore.saveAPIKey(newVal)
-                        }
-                    SecureField("scrobble_lastfm_api_secret_placeholder", text: $lastFmAPISecret)
-                        .textContentType(.password)
-                        .autocorrectionDisabled()
-                        .onChange(of: lastFmAPISecret) { _, newVal in
-                            LastFmCredentialsStore.saveAPISecret(newVal)
-                        }
-
+                    // 未登录: 优先用 app 内置 default key 让用户开箱即用,
+                    // 想用自己的 application 走「高级」区覆盖。
                     Button {
                         Task { await loginLastFm() }
                     } label: {
@@ -182,11 +173,36 @@ struct ScrobbleSettingsView: View {
                             Text("scrobble_lastfm_connect")
                         }
                     }
-                    .disabled(lastFmAPIKey.isEmpty || lastFmAPISecret.isEmpty || isLoggingInLastFm)
+                    .disabled(isLoggingInLastFm
+                              || (LastFmCredentialsStore.effectiveAPIKey().isEmpty)
+                              || (LastFmCredentialsStore.effectiveAPISecret().isEmpty))
 
-                    Link(destination: URL(string: "https://www.last.fm/api/account/create")!) {
-                        Label("scrobble_lastfm_register_app", systemImage: "arrow.up.right.square")
-                            .font(.caption)
+                    DisclosureGroup(isExpanded: $showLastFmAdvanced) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("scrobble_lastfm_advanced_hint")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            SecureField("scrobble_lastfm_api_key_placeholder", text: $lastFmAPIKey)
+                                .textContentType(.password)
+                                .autocorrectionDisabled()
+                                .onChange(of: lastFmAPIKey) { _, newVal in
+                                    LastFmCredentialsStore.saveAPIKey(newVal)
+                                }
+                            SecureField("scrobble_lastfm_api_secret_placeholder", text: $lastFmAPISecret)
+                                .textContentType(.password)
+                                .autocorrectionDisabled()
+                                .onChange(of: lastFmAPISecret) { _, newVal in
+                                    LastFmCredentialsStore.saveAPISecret(newVal)
+                                }
+                            Link(destination: URL(string: "https://www.last.fm/api/account/create")!) {
+                                Label("scrobble_lastfm_register_app", systemImage: "arrow.up.right.square")
+                                    .font(.caption)
+                            }
+                        }
+                        .padding(.top, 4)
+                    } label: {
+                        Label("scrobble_lastfm_advanced_title", systemImage: "key")
+                            .font(.subheadline)
                     }
                 }
             }
@@ -194,7 +210,7 @@ struct ScrobbleSettingsView: View {
             Text("Last.fm")
         } footer: {
             if settings.enabledProviders.contains(.lastFm), !lastFmConnected {
-                Text("scrobble_lastfm_setup_footer")
+                Text("scrobble_lastfm_default_footer")
             }
         }
     }
@@ -202,9 +218,6 @@ struct ScrobbleSettingsView: View {
     private func loginLastFm() async {
         isLoggingInLastFm = true
         defer { isLoggingInLastFm = false }
-        // onChange 已经存过, 这里再保险存一下 (防止用户没触发 onChange 直接点)
-        LastFmCredentialsStore.saveAPIKey(lastFmAPIKey)
-        LastFmCredentialsStore.saveAPISecret(lastFmAPISecret)
         do {
             let username = try await LastFmAuthService.shared.performLogin()
             lastFmUsername = username
@@ -261,6 +274,8 @@ struct ScrobbleSettingsView: View {
         lastFmAPIKey = LastFmCredentialsStore.loadAPIKey()
         lastFmAPISecret = LastFmCredentialsStore.loadAPISecret()
         lastFmConnected = LastFmCredentialsStore.isConnected()
+        // 用户已经粘过自己的 key, 默认展开高级让他们看见; 否则收起
+        showLastFmAdvanced = LastFmCredentialsStore.usingCustomKeys
     }
 
     private func saveListenBrainzToken() {

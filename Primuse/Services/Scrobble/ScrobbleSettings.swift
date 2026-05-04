@@ -119,9 +119,39 @@ enum LastFmCredentialsStore {
     static func loadAPISecret() -> String { KeychainService.getPassword(for: apiSecretAccount) ?? "" }
     static func loadSessionKey() -> String { KeychainService.getPassword(for: sessionKeyAccount) ?? "" }
 
-    /// 完整登录态 = 三件套都有。任何一个空都视为未连接。
+    /// 实际使用的 API key — 用户在 Settings 高级里粘了自己的就用自己的,
+    /// 没粘就 fallback 到 app 内置的 default (`AppSecrets.lastFmAPIKey`)。
+    /// 让普通用户开箱即用, 同时保留「我想用自己的 application 配额」的逃生口。
+    static func effectiveAPIKey() -> String {
+        let user = loadAPIKey()
+        if !user.isEmpty { return user }
+        return AppSecrets.lastFmAPIKey
+    }
+
+    static func effectiveAPISecret() -> String {
+        let user = loadAPISecret()
+        if !user.isEmpty { return user }
+        return AppSecrets.lastFmAPISecret
+    }
+
+    /// app 是否内置了可用的 default key (空字符串 = 没内置, UI 要让
+    /// 用户必须粘自己的 key 才能登录)。
+    static var hasDefaultKeys: Bool {
+        !AppSecrets.lastFmAPIKey.isEmpty && !AppSecrets.lastFmAPISecret.isEmpty
+    }
+
+    /// 用户是否在使用自己的 application key (而不是 app 内置的 default)。
+    /// UI 用来切换「显示高级覆盖区」的初始展开态。
+    static var usingCustomKeys: Bool {
+        !loadAPIKey().isEmpty || !loadAPISecret().isEmpty
+    }
+
+    /// 完整登录态 = effective key/secret 都有 + sessionKey 已拿到。
+    /// 注意是 effective —— 用户没粘自己 key 时也算 connected (用 default)。
     static func isConnected() -> Bool {
-        !loadAPIKey().isEmpty && !loadAPISecret().isEmpty && !loadSessionKey().isEmpty
+        !effectiveAPIKey().isEmpty
+            && !effectiveAPISecret().isEmpty
+            && !loadSessionKey().isEmpty
     }
 
     /// Sign-out — 只清 sessionKey 不清 apiKey/apiSecret, 让用户能直接

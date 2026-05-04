@@ -510,6 +510,9 @@
 "scrobble_lastfm_signout_confirm" = "断开 Last.fm 连接? API Key/Secret 会保留, 重新连接不用再粘。";
 "scrobble_lastfm_register_app" = "去 last.fm 注册一个 application 拿 key";
 "scrobble_lastfm_setup_footer" = "首次使用请到 last.fm/api/account/create 注册一个 application, 把 API Key 和 Shared Secret 粘到上面 (Callback URL 填 primuse://lastfm-auth), 然后点连接走授权。";
+"scrobble_lastfm_default_footer" = "点连接, 用 Primuse 内置的 application 走 Last.fm 网页授权, 同意后自动跳回。";
+"scrobble_lastfm_advanced_title" = "使用我自己的 application";
+"scrobble_lastfm_advanced_hint" = "想用自己注册的 Last.fm application (独立配额) 在这里粘 API Key + Shared Secret, 留空就用 app 内置的。";
 "scrobble_lastfm_err_title" = "Last.fm 错误";
 "scrobble_lastfm_err_missing_creds" = "请先填写 API Key 和 API Secret。";
 "scrobble_lastfm_err_config" = "Last.fm 配置异常, 检查 API Key 是否正确。";

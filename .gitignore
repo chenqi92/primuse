@@ -17,3 +17,6 @@ DerivedData/
 .claude/
 ScraperConfigs/**
 Config/Secrets.local.xcconfig
+
+# 应用方密钥 (Last.fm API key 等), 克隆后复制 AppSecrets.example.swift 配置
+Primuse/Services/Scrobble/AppSecrets.swift

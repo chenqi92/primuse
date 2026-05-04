@@ -29,8 +29,8 @@ final class LastFmAuthService: NSObject, ASWebAuthenticationPresentationContextP
     /// 返回成功后的用户名 (从 sessionKey 拿不到 username, 再调 user.getInfo
     /// 拿一下当 UI 反馈)。失败抛 error。
     func performLogin() async throws -> String {
-        let apiKey = LastFmCredentialsStore.loadAPIKey()
-        let apiSecret = LastFmCredentialsStore.loadAPISecret()
+        let apiKey = LastFmCredentialsStore.effectiveAPIKey()
+        let apiSecret = LastFmCredentialsStore.effectiveAPISecret()
         guard !apiKey.isEmpty, !apiSecret.isEmpty else {
             throw LastFmAuthError.missingCredentials
         }
