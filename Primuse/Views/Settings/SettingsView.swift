@@ -731,6 +731,17 @@ struct StorageManagementView: View {
                     .font(.caption).foregroundStyle(.secondary).monospacedDigit()
             }
 
+            if bd.prewarmSeedBytes > 0 {
+                HStack {
+                    Image(systemName: "bolt.circle")
+                        .foregroundStyle(.secondary).font(.caption)
+                    Text("cache_prewarm_seed").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Text(fmt.string(fromByteCount: bd.prewarmSeedBytes))
+                        .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                }
+            }
+
             HStack {
                 Image(systemName: "ellipsis.circle")
                     .foregroundStyle(.secondary).font(.caption)

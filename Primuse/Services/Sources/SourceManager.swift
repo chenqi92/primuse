@@ -284,7 +284,14 @@ final class SourceManager {
     ///   (用户删过源 / source ID 变更), 没人会再访问, 全是垃圾
     struct AudioCacheBreakdown {
         var completedBytes: Int64 = 0
+        /// 「真半成品」—— 用户播到一半切走的, 或下载失败的。下次还有用
+        /// (sparse cache 复用) 但用户视角是「中断了」。
         var partialBytes: Int64 = 0
+        /// 「预热种子」—— prewarmCloudSong 写的 head + tail (合计 ~1.25MB / 首),
+        /// 让下次播首次解码秒出。看着是 .partial 但属于设计内的小种子,
+        /// 不应该让用户误以为出问题了。判定方法: `.partial` 旁边有
+        /// `.partial.prewarmed` marker 文件且自身大小 < 2MB。
+        var prewarmSeedBytes: Int64 = 0
         var orphanedBytes: Int64 = 0
         var orphanedSourceIDs: Set<String> = []
     }
@@ -304,23 +311,49 @@ final class SourceManager {
             at: basePath, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
         ) else { return result }
 
+        // 先收集所有 .partial.prewarmed marker 路径, 后面判断 .partial 是否
+        // 是「预热种子」时用。
+        let fm = FileManager.default
+        var prewarmMarkers: Set<String> = []
+        for sourceDir in subdirs {
+            guard (try? sourceDir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
+            if let e = fm.enumerator(at: sourceDir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
+                while let fileURL = e.nextObject() as? URL {
+                    if fileURL.lastPathComponent.hasSuffix(".partial.prewarmed") {
+                        prewarmMarkers.insert(fileURL.path)
+                    }
+                }
+            }
+        }
+
         for sourceDir in subdirs {
             guard (try? sourceDir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
             let sid = sourceDir.lastPathComponent
             let isOrphan = !aliveSourceIDs.contains(sid)
             if isOrphan { result.orphanedSourceIDs.insert(sid) }
 
-            let enumerator = FileManager.default.enumerator(
+            let enumerator = fm.enumerator(
                 at: sourceDir, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles]
             )
             while let fileURL = enumerator?.nextObject() as? URL {
                 let size = Int64((try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
                 let name = fileURL.lastPathComponent
-                let isPartial = name.hasSuffix(".partial") || name.hasSuffix(".partial.prewarmed")
                 if isOrphan {
                     result.orphanedBytes += size
-                } else if isPartial {
-                    result.partialBytes += size
+                    continue
+                }
+                if name.hasSuffix(".partial.prewarmed") {
+                    // marker 本身, 算到 prewarm 类
+                    result.prewarmSeedBytes += size
+                } else if name.hasSuffix(".partial") {
+                    // 旁边有 marker 且本身较小 = prewarm 种子, 否则真半成品
+                    let markerPath = fileURL.path + CloudPlaybackSource.prewarmMarkerSuffix
+                    let isSeed = prewarmMarkers.contains(markerPath) && size < 2 * 1024 * 1024
+                    if isSeed {
+                        result.prewarmSeedBytes += size
+                    } else {
+                        result.partialBytes += size
+                    }
                 } else {
                     result.completedBytes += size
                 }

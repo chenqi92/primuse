@@ -414,6 +414,7 @@
 "persistent_data" = "持久化数据";
 "cache_clear_footer" = "缓存可安全清除。音频将在播放时重新加载，图片将按需重新下载。";
 "cache_completed" = "已完整缓存";
+"cache_prewarm_seed" = "预热种子 (head+tail)";
 "cache_partial" = "下载中断的半成品";
 "cache_orphaned" = "已删除音乐源的残留";
 "cache_clear_done_format" = "已清理 %@";
