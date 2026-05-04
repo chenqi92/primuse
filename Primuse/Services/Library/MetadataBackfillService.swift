@@ -566,10 +566,14 @@ final class MetadataBackfillService {
             .appendingPathComponent("backfill-\(cacheKey).\(ext)")
         try? data.write(to: tempURL)
         defer { try? FileManager.default.removeItem(at: tempURL) }
+        // tempURL 是 backfill-<hash>.<ext> 形式, 没意义。caller 传 song 原始
+        // 文件名当 fallbackTitle, 嵌入 title 缺失时显示得正常。
+        let originalFileBaseName = ((song.filePath as NSString).lastPathComponent as NSString).deletingPathExtension
         return await metadataService.loadMetadata(
             for: tempURL,
             cacheKey: cacheKey,
-            allowOnlineFetch: false
+            allowOnlineFetch: false,
+            fallbackTitle: originalFileBaseName
         )
     }
 

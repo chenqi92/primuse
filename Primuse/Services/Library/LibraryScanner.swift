@@ -62,10 +62,14 @@ actor LibraryScanner {
 
                         let localURL = try await connector.localURL(for: file.path)
                         let songID = generateID(sourceID: source.id, path: file.path)
+                        // localURL 是 cache 内的 sanitized 名 (路径里的 / 换成 _),
+                        // fallback title 用原始 file.path 的 basename 才正常。
+                        let originalBaseName = ((file.path as NSString).lastPathComponent as NSString).deletingPathExtension
                         let metadata = await metadataService.loadMetadata(
                             for: localURL,
                             cacheKey: songID,
-                            allowOnlineFetch: false
+                            allowOnlineFetch: false,
+                            fallbackTitle: originalBaseName
                         )
                         let artistID = metadata.artist.map { generateArtistID(name: $0) }
                         let albumID: String? = if let album = metadata.albumTitle, let artist = metadata.artist {

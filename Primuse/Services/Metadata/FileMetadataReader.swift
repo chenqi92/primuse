@@ -135,10 +135,11 @@ enum FileMetadataReader {
             }
         }
 
-        // Use filename as title fallback
-        if metadata.title == nil {
-            metadata.title = url.deletingPathExtension().lastPathComponent
-        }
+        // 注意: 不在这里用 url filename 兜底 title。
+        // 调用方 (MetadataService) 自己决定 fallback 名 (走原始 NAS 文件名),
+        // 这里要保持 metadata.title == nil 真实反映「文件里没有 TIT2」。
+        // 否则 cache 内 sanitized 文件名 (如 "_music_xxx") 会被当成嵌入标题,
+        // 污染 scrape 查询和 UI 预览。
 
         return metadata
     }

@@ -15,6 +15,7 @@ DerivedData/
 
 # Local tooling
 .claude/
+.idea/
 ScraperConfigs/**
 Config/Secrets.local.xcconfig
 

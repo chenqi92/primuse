@@ -34,14 +34,30 @@ actor MetadataService {
         for url: URL,
         cacheKey: String? = nil,
         allowOnlineFetch: Bool = true,
-        trustedSource: Bool = true
+        trustedSource: Bool = true,
+        fallbackTitle: String? = nil
     ) async -> SongMetadata {
         // 1. Read embedded metadata
         let embedded = await FileMetadataReader.read(from: url)
         NSLog("📖 FileMetadataReader: title=\(embedded.title ?? "nil") cover=\(embedded.coverArtData?.count ?? 0)bytes lyrics=\(embedded.lyricsText?.prefix(30) ?? "nil") file=\(url.lastPathComponent)")
 
+        // url.lastPathComponent 在 scrape 路径下是 cache 的 sanitized 名
+        // 丑名字。caller 传原始文件名当 fallbackTitle 优先用。
+        let urlBasedFallback = url.deletingPathExtension().lastPathComponent
+        let titleFallback = fallbackTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? fallbackTitle!
+            : urlBasedFallback
+
+        // 防御: 历史上 FileMetadataReader 在没 TIT2 时会自动把 url basename
+        // 塞进 embedded.title。这里再校一次, 万一别的读取路径返回 sanitized
+        // 名 (如 "_music_xxx") 也当成空, 走真正的 fallback。
+        let trustedEmbeddedTitle: String? = {
+            guard let t = embedded.title?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty else { return nil }
+            return t == urlBasedFallback ? nil : embedded.title
+        }()
+
         var result = SongMetadata(
-            title: embedded.title ?? url.deletingPathExtension().lastPathComponent,
+            title: trustedEmbeddedTitle ?? titleFallback,
             artist: embedded.artist,
             albumTitle: embedded.albumTitle,
             trackNumber: embedded.trackNumber,

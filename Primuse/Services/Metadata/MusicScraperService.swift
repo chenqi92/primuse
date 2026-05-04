@@ -372,10 +372,14 @@ final class MusicScraperService {
         // trustedSource: false —— scrape 路径下 online 结果可能错配,
         // 不让 loadMetadata 直接写 hash cache。等 sidecar 写到 source
         // 成功后再回写 cache（在 scrapeSingle / startScraping 的 Task 里做）。
+        // fallbackTitle 用 song.filePath 的原始文件名 (NAS 真实名), 不让
+        // loadMetadata 在嵌入元数据缺失时退化到 cache 的 sanitized 名
+        let originalFileBaseName = ((song.filePath as NSString).lastPathComponent as NSString).deletingPathExtension
         let metadata = await metadataService.loadMetadata(
             for: fileURL,
             cacheKey: storeAssets ? song.id : nil,
-            trustedSource: false
+            trustedSource: false,
+            fallbackTitle: originalFileBaseName
         )
         let merged = mergedSong(
             song,

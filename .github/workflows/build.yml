@@ -117,6 +117,15 @@ jobs:
           echo "Available simulators:"
           xcodebuild -showsdks | grep -i ios
 
+      # AppSecrets.swift 在 .gitignore 内不入仓库 (持有第三方 API key /
+      # 解密参数), CI 没这个文件直接 build 失败。从 example 复制一份
+      # 空 stub, 让 build 通过。CI 产物里所有依赖 secret 的功能都
+      # fallback 到「让用户自己配」, 不影响其他流程。
+      - name: Stub AppSecrets for CI
+        run: |
+          cp Primuse/Services/Scrobble/AppSecrets.example.swift \
+             Primuse/Services/Scrobble/AppSecrets.swift
+
       - name: Resolve packages
         run: |
           xcodebuild -resolvePackageDependencies \
@@ -154,6 +163,11 @@ jobs:
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: latest-stable
+
+      - name: Stub AppSecrets for CI
+        run: |
+          cp Primuse/Services/Scrobble/AppSecrets.example.swift \
+             Primuse/Services/Scrobble/AppSecrets.swift
 
       - name: Resolve packages
         run: |
