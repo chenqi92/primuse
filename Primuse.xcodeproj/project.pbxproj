@@ -122,6 +122,8 @@
 		83D5D5AEB6EA850B28E6B5D2 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = C39C5A4CDC0E68A52651A1DB /* GRDB */; };
 		83FBC7E697D9FB957F5CFFE7 /* FileMetadataReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8607E666A6AB28E00D1C257 /* FileMetadataReader.swift */; };
 		8457016E2EBE033A08C38A33 /* DuplicateDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2117016184001B6F46168B00 /* DuplicateDetector.swift */; };
+		0E7D9B4EB3CB4630A559787B /* PlayHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F1A6C3E23E448A0B56436F9 /* PlayHistoryStore.swift */; };
+		FB5A69FBD1264FFB90F60661 /* ListeningStatsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46CC537F579A491085DFA163 /* ListeningStatsView.swift */; };
 		84ECB1EB9771EBDA278129BC /* AudioEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39F6AE35FC2EC095FBF1EA0E /* AudioEngine.swift */; };
 		87D3B3265A7CBAA9C3AB046B /* NetworkDiscoveryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 491A850F03AC46FECF60ADFD /* NetworkDiscoveryService.swift */; };
 		87FF2436F5492C7D7D1D1A26 /* WebDAVBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 637B2519A8207FCB3ABC3E34 /* WebDAVBrowserView.swift */; };
@@ -301,6 +303,8 @@
 		1EFD66532368B5A1564BE462 /* ArtistDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtistDetailView.swift; sourceTree = "<group>"; };
 		1F7BABA1441A113623307F2B /* FnOSSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FnOSSource.swift; sourceTree = "<group>"; };
 		2117016184001B6F46168B00 /* DuplicateDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicateDetector.swift; sourceTree = "<group>"; };
+		1F1A6C3E23E448A0B56436F9 /* PlayHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayHistoryStore.swift; sourceTree = "<group>"; };
+		46CC537F579A491085DFA163 /* ListeningStatsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListeningStatsView.swift; sourceTree = "<group>"; };
 		21727E0AB276B85CA9B19BE9 /* CloudDriveConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDriveConnectionView.swift; sourceTree = "<group>"; };
 		2307E7F4A6A9B42D29CB7F9D /* ListenBrainzProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListenBrainzProvider.swift; sourceTree = "<group>"; };
 		23F224C180F61FD6AD00DD7B /* AssetReaderDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetReaderDecoder.swift; sourceTree = "<group>"; };
@@ -819,6 +823,7 @@
 			isa = PBXGroup;
 			children = (
 				2117016184001B6F46168B00 /* DuplicateDetector.swift */,
+				1F1A6C3E23E448A0B56436F9 /* PlayHistoryStore.swift */,
 				F246393058D148228F7BA7B9 /* LibraryDatabase.swift */,
 				6D84632D6A2887E8E174E87C /* LibraryScanner.swift */,
 				CA3A196D13D6AB09FFF51545 /* LibraryService.swift */,
@@ -994,6 +999,7 @@
 				77F4CE0ADBC65CBECCD665AC /* AudioEffectsView.swift */,
 				466AF990FCB1B871B4D60DE5 /* CloudSyncSettingsView.swift */,
 				A41D663BB9CFFF6AF3D062D6 /* DuplicateSongsView.swift */,
+				46CC537F579A491085DFA163 /* ListeningStatsView.swift */,
 				181EE28124D9CD151E0338E1 /* EqualizerView.swift */,
 				4EE3B2E6C5B0B89258193D97 /* LyricsTranslationSettingsView.swift */,
 				DCF14896C5977140D504187F /* RecentlyDeletedView.swift */,
@@ -1299,6 +1305,8 @@
 				41E2CB041331ED42FF45E5CD /* DropboxSource.swift in Sources */,
 				8457016E2EBE033A08C38A33 /* DuplicateDetector.swift in Sources */,
 				F6252DF57585604301CB0CF7 /* DuplicateSongsView.swift in Sources */,
+				0E7D9B4EB3CB4630A559787B /* PlayHistoryStore.swift in Sources */,
+				FB5A69FBD1264FFB90F60661 /* ListeningStatsView.swift in Sources */,
 				7228D937586E66F92F267E8D /* EqualizerService.swift in Sources */,
 				7BEE5E7E46EDB36D5E7C34C2 /* EqualizerView.swift in Sources */,
 				88744C4DE23E697ACA4B7337 /* FFmpegAudioDecoder.swift in Sources */,

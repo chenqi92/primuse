@@ -550,3 +550,36 @@
 "dup_best_badge" = "推荐";
 "dup_action_done_format" = "已移除 %d 首";
 "dup_clean_all_done_format" = "已批量移除 %d 首冗余";
+
+// MARK: - Listening Stats (听歌统计)
+"stats_title" = "听歌统计";
+"stats_range" = "时间范围";
+"stats_range_week" = "本周";
+"stats_range_month" = "本月";
+"stats_range_year" = "本年";
+"stats_range_all" = "全部";
+"stats_total_plays" = "播放次数";
+"stats_total_time" = "总听歌时长";
+"stats_active_days" = "活跃天数";
+"stats_unique_songs" = "听过的曲目";
+"stats_heatmap_title" = "每日活跃度";
+"stats_heatmap_footer" = "每个方块代表一天,颜色越深代表当天播放次数越多。";
+"stats_legend_less" = "少";
+"stats_legend_more" = "多";
+"stats_legend_max_format" = "峰值 %d 次";
+"stats_top_header" = "Top 排行";
+"stats_rank_songs" = "歌曲";
+"stats_rank_artists" = "艺术家";
+"stats_rank_albums" = "专辑";
+"stats_rank_empty" = "这个时间段还没数据";
+"stats_play_count_format" = "%d 次";
+"stats_unique_songs_format" = "%d 首不同歌曲";
+"stats_seconds_format" = "%d 秒";
+"stats_minutes_format" = "%d 分钟";
+"stats_hours_minutes_format" = "%dh %dmin";
+"stats_empty_title" = "暂无听歌记录";
+"stats_empty_desc" = "听满 30 秒以上的歌会自动计入统计。继续听一会再回来看看。";
+"stats_clear_action" = "清除所有听歌记录";
+"stats_clear_confirm" = "清除听歌历史?";
+"stats_clear_message" = "本地保存的所有播放记录将被永久删除,无法恢复。Top 排行和热力图会清零。";
+"stats_privacy_footer" = "听歌记录仅保存在本设备本地,不会上传到云端,也不会同步到其他设备。";

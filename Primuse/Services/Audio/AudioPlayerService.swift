@@ -413,7 +413,7 @@ final class AudioPlayerService {
             isLoading = false
             clearPendingPlaybackRecovery()
             library?.recordPlayback(of: song.id)
-            ScrobbleService.shared.handlePlaybackStarted(song: song)
+            ScrobbleService.shared.handlePlaybackStarted(song: song); PlayHistoryStore.shared.beginSession(song: song)
             startTimeUpdater()
             updateNowPlayingInfo()
             updateNowPlayingArtworkIfNeeded()
@@ -546,7 +546,7 @@ final class AudioPlayerService {
             isLoading = false
             clearPendingPlaybackRecovery()
             library?.recordPlayback(of: song.id)
-            ScrobbleService.shared.handlePlaybackStarted(song: song)
+            ScrobbleService.shared.handlePlaybackStarted(song: song); PlayHistoryStore.shared.beginSession(song: song)
             startTimeUpdater()
             updateNowPlayingInfo()
             updateNowPlayingArtworkIfNeeded()
@@ -810,7 +810,7 @@ final class AudioPlayerService {
             isLoading = false
             clearPendingPlaybackRecovery()
             library?.recordPlayback(of: song.id)
-            ScrobbleService.shared.handlePlaybackStarted(song: song)
+            ScrobbleService.shared.handlePlaybackStarted(song: song); PlayHistoryStore.shared.beginSession(song: song)
             startTimeUpdater()
             updateNowPlayingInfo()
             updateNowPlayingArtworkIfNeeded()
@@ -953,7 +953,7 @@ final class AudioPlayerService {
         duration = 0
         clearPendingPlaybackRecovery()
         stopTimeUpdater()
-        ScrobbleService.shared.handlePlaybackStopped()
+        ScrobbleService.shared.handlePlaybackStopped(); PlayHistoryStore.shared.endSession()
         // Clear NowPlaying info so Dynamic Island / Lock Screen also clears
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         updatePlaybackState()
@@ -980,7 +980,7 @@ final class AudioPlayerService {
         currentTime = 0
         clearPendingPlaybackRecovery()
         stopTimeUpdater()
-        ScrobbleService.shared.handlePlaybackStopped()
+        ScrobbleService.shared.handlePlaybackStopped(); PlayHistoryStore.shared.endSession()
         // 锁屏 / Dynamic Island 显示「停在 0:00」状态, 不清空 ——
         // 这样用户从锁屏点 play 也能直接重放当前曲。
         updateNowPlayingInfo()
@@ -1549,7 +1549,7 @@ final class AudioPlayerService {
                     // Scrobble 进度判断 — 50% 或 4 分钟阈值由 service 内部决定。
                     // 传 currentTime (已听到这个时间点), seek 后该首歌 elapsed 视为
                     // 实际的当前 currentTime, Last.fm 协议本身允许这种近似。
-                    ScrobbleService.shared.handleProgressTick(elapsed: self.currentTime)
+                    ScrobbleService.shared.handleProgressTick(elapsed: self.currentTime); PlayHistoryStore.shared.tick(elapsed: self.currentTime)
                 }
                 // Check if crossfade should start
                 self.checkCrossfade()

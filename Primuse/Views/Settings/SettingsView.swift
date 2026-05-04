@@ -92,6 +92,12 @@ struct SettingsView: View {
                     }
 
                     NavigationLink {
+                        ListeningStatsView()
+                    } label: {
+                        Label("stats_title", systemImage: "chart.bar.xaxis")
+                    }
+
+                    NavigationLink {
                         ScrobbleSettingsView()
                     } label: {
                         Label("scrobble_title", systemImage: "music.note.list")

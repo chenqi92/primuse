@@ -549,3 +549,36 @@
 "dup_best_badge" = "Best";
 "dup_action_done_format" = "Removed %d";
 "dup_clean_all_done_format" = "Removed %d redundant copies";
+
+// MARK: - Listening Stats
+"stats_title" = "Listening Stats";
+"stats_range" = "Range";
+"stats_range_week" = "This Week";
+"stats_range_month" = "This Month";
+"stats_range_year" = "This Year";
+"stats_range_all" = "All";
+"stats_total_plays" = "Plays";
+"stats_total_time" = "Total Time";
+"stats_active_days" = "Active Days";
+"stats_unique_songs" = "Unique Songs";
+"stats_heatmap_title" = "Daily Activity";
+"stats_heatmap_footer" = "Each cell is one day. Darker = more plays that day.";
+"stats_legend_less" = "Less";
+"stats_legend_more" = "More";
+"stats_legend_max_format" = "peak %d";
+"stats_top_header" = "Top";
+"stats_rank_songs" = "Songs";
+"stats_rank_artists" = "Artists";
+"stats_rank_albums" = "Albums";
+"stats_rank_empty" = "No data for this range yet.";
+"stats_play_count_format" = "%d plays";
+"stats_unique_songs_format" = "%d unique songs";
+"stats_seconds_format" = "%ds";
+"stats_minutes_format" = "%d min";
+"stats_hours_minutes_format" = "%dh %dmin";
+"stats_empty_title" = "No History Yet";
+"stats_empty_desc" = "Songs you listen to for 30 seconds or more will be counted here. Come back after listening for a bit.";
+"stats_clear_action" = "Clear All History";
+"stats_clear_confirm" = "Clear listening history?";
+"stats_clear_message" = "All locally-stored play records will be permanently deleted. Top charts and heatmap will reset.";
+"stats_privacy_footer" = "Listening history is stored only on this device. It is never uploaded to the cloud or synced to other devices.";
