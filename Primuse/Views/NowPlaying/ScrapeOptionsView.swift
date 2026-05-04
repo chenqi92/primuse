@@ -21,6 +21,11 @@ struct ScrapeOptionsView: View {
     @State private var isSearching = false
     @State private var errorMessage: String?
     @State private var manualSearchQuery = ""
+    /// 手动刮削时每个源单次返回的搜索结果上限,持久化保存,默认 20。
+    /// 在选项页"手动刮削"按钮上方可调,避免搜出来不够看 / 拉太多浪费。
+    /// 自动刮削不用这个参数(每个源固定取 first item, 拉 15 候选写死, limit
+    /// 大没意义)。
+    @AppStorage("scraperSearchLimit") private var searchLimit: Int = 20
     /// ID of the search-result row currently being fetched. Used to show a
     /// per-row spinner so users see immediate feedback after tapping —
     /// `selectManualResult` does network work (detail + cover + lyrics) and
@@ -28,13 +33,17 @@ struct ScrapeOptionsView: View {
     @State private var loadingItemID: String?
 
     // Per-field apply toggles (for preview)
-    @State private var applyTitle = true
-    @State private var applyArtist = true
-    @State private var applyAlbum = true
-    @State private var applyYear = true
-    @State private var applyGenre = true
-    @State private var applyCover = true
-    @State private var applyLyrics = true
+    // 默认值：跟本地相同(unchanged)的字段不勾,跟本地不同(changed)的字段勾上,
+    // 实际值在 autoScrape / selectManualResult 拉到结果后基于 changed 重新设。
+    // 字段命中默认 true 是为了保留"跨设备/重刮覆盖旧值"的常见用法,避免每次
+    // 都要手动勾 4-5 项。
+    @State private var applyTitle = false
+    @State private var applyArtist = false
+    @State private var applyAlbum = false
+    @State private var applyYear = false
+    @State private var applyGenre = false
+    @State private var applyCover = false
+    @State private var applyLyrics = false
 
     enum ScrapeMode {
         case options
@@ -144,6 +153,13 @@ struct ScrapeOptionsView: View {
                     }
                 }
                 .disabled(isSearching)
+
+                // 手动搜索每个源返回上限 — 持久化到 AppStorage
+                Picker(selection: $searchLimit) {
+                    ForEach([10, 20, 30, 50, 100], id: \.self) { Text("\($0)").tag($0) }
+                } label: {
+                    Label("search_limit_per_source", systemImage: "list.number")
+                }
             }
 
             if let error = errorMessage {
@@ -428,6 +444,13 @@ struct ScrapeOptionsView: View {
                 Button("back_to_options") { mode = .options }
             }
         }
+        .onChange(of: searchLimit) { _, _ in
+            // 用户在选项页改了 limit 后回来再搜,自动用新值;此处保险:已搜过
+            // 的话立刻重搜让结果数量同步。
+            if !manualSearchQuery.isEmpty {
+                Task { await performManualSearch() }
+            }
+        }
     }
 
     // MARK: - Logic
@@ -454,14 +477,14 @@ struct ScrapeOptionsView: View {
                 hasLyrics: lyricsLines != nil && !lyricsLines!.isEmpty
             )
 
-            // Default all toggles to on for changed fields, off for unchanged
+            // 跟本地相同的字段(unchanged)默认不勾,跟本地不同的(changed)默认勾。
             applyTitle = updated.title != song.title
             applyArtist = updated.artistName != song.artistName
             applyAlbum = updated.albumTitle != song.albumTitle
             applyYear = updated.year != song.year && updated.year != nil
             applyGenre = updated.genre != song.genre && updated.genre != nil
-            applyCover = true
-            applyLyrics = true
+            applyCover = coverData != nil
+            applyLyrics = lyricsLines != nil && !lyricsLines!.isEmpty
 
             previewSource = .options
             mode = .preview
@@ -496,7 +519,7 @@ struct ScrapeOptionsView: View {
             do {
                 let scraper = MusicScraperFactory.create(for: config)
                 let result = try await scraper.search(
-                    query: manualSearchQuery, artist: nil, album: nil, limit: 30
+                    query: manualSearchQuery, artist: nil, album: nil, limit: searchLimit
                 )
                 for item in result.items {
                     plog("🔍 Search result: \(config.type.rawValue) '\(item.title)' coverUrl=\(item.coverUrl ?? "nil")")
@@ -536,9 +559,12 @@ struct ScrapeOptionsView: View {
         loadingItemID = item.id
         defer { loadingItemID = nil }
 
+        plog("👉 selectManualResult: src=\(item.sourceConfig.type.rawValue) title='\(item.title)' externalId=\(item.externalId.prefix(60))")
+
         do {
             let scraper = MusicScraperFactory.create(for: item.sourceConfig)
             let detail = try await scraper.getDetail(externalId: item.externalId)
+            plog("👉 detail returned: title='\(detail?.title ?? "nil")' artist='\(detail?.artist ?? "nil")'")
 
             var updated = song
             if let detail {
@@ -581,10 +607,13 @@ struct ScrapeOptionsView: View {
             var hasLyrics = false
             var lyricsCount = 0
             var lyricsLines: [LyricLine]?
-            if let lyricsResult = try? await scraper.getLyrics(externalId: item.externalId),
+            let lyricsResult = try? await scraper.getLyrics(externalId: item.externalId)
+            plog("👉 getLyrics returned: hasResult=\(lyricsResult != nil) hasLyrics=\(lyricsResult?.hasLyrics ?? false) lrcLen=\(lyricsResult?.lrcContent?.count ?? 0)")
+            if let lyricsResult,
                lyricsResult.hasLyrics,
                let lrc = lyricsResult.lrcContent, !lrc.isEmpty {
                 let parsed = LyricsParser.parse(lrc)
+                plog("👉 LyricsParser parsed \(parsed.count) lines, wordLevel=\(parsed.contains { $0.isWordLevel })")
                 if !parsed.isEmpty {
                     lyricsLines = parsed
                     hasLyrics = true
@@ -605,6 +634,7 @@ struct ScrapeOptionsView: View {
                 hasCover: hasCover,
                 hasLyrics: hasLyrics
             )
+            // 跟本地相同的字段(unchanged)默认不勾,跟本地不同的(changed)默认勾。
             applyTitle = updated.title != song.title
             applyArtist = updated.artistName != song.artistName
             applyAlbum = updated.albumTitle != song.albumTitle

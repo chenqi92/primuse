@@ -291,7 +291,7 @@ struct CachedArtworkView: View {
     // MARK: - Disk Cache
 
     private static func loadFromDiskCache(songID: String?, ref: String?) async -> Data? {
-        // New: songID-based cache
+        // New: songID-based cache (hash cache 现在永远是 sidecar mirror,可信)
         if let songID {
             if let data = await MetadataAssetStore.shared.cachedCoverData(forSongID: songID) {
                 return data

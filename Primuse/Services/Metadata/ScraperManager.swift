@@ -31,10 +31,10 @@ actor ScraperManager {
                     NSLog("🔍 Scraping metadata from \(config.type.displayName) for '\(cleanedTitle)'")
                     let scraper = getScraper(for: config)
                     let searchResult = try await scraper.search(
-                        query: cleanedTitle, artist: artist, album: nil, limit: 15
+                        query: cleanedTitle, artist: artist, album: nil, limit: Self.autoScrapeLimit
                     )
                     NSLog("🔍 \(config.type.displayName) returned \(searchResult.items.count) results")
-                    if let best = searchResult.items.first {
+                    if let best = Self.bestMatch(in: searchResult.items, title: title, artist: artist, durationMs: durationMs(duration)) {
                         result.detail = try await scraper.getDetail(externalId: best.externalId)
                         if result.detail != nil { break }
                     }
@@ -62,9 +62,9 @@ actor ScraperManager {
 
                     // Otherwise search and get cover
                     let searchResult = try await scraper.search(
-                        query: cleanedTitle, artist: artist, album: nil, limit: 15
+                        query: cleanedTitle, artist: artist, album: nil, limit: Self.autoScrapeLimit
                     )
-                    if let best = searchResult.items.first {
+                    if let best = Self.bestMatch(in: searchResult.items, title: title, artist: artist, durationMs: durationMs(duration)) {
                         let covers = try await scraper.getCoverArt(externalId: best.externalId)
                         if let coverUrl = covers.first?.coverUrl,
                            let data = try await downloadImage(url: coverUrl, sourceConfig: config) {
@@ -96,16 +96,32 @@ actor ScraperManager {
                         }
                     } else {
                         // Standard search → getLyrics flow
+                        // 选 top-3 候选依次 try, 优先返字级歌词的; 都没字级才
+                        // 用第一个行级 fallback。这样同源内 score 相同的几个
+                        // 候选(常见: title+duration 都接近)能挑到带逐字的版本。
                         let searchResult = try await scraper.search(
-                            query: cleanedTitle, artist: artist, album: nil, limit: 15
+                            query: cleanedTitle, artist: artist, album: nil, limit: Self.autoScrapeLimit
                         )
-                        if let best = searchResult.items.first {
-                            if let lyricsResult = try await scraper.getLyrics(externalId: best.externalId),
-                               lyricsResult.hasLyrics {
-                                result.lyrics = parseLyrics(lyricsResult)
-                                if result.lyrics != nil { break }
+                        let candidates = Self.topMatches(
+                            in: searchResult.items, title: title, artist: artist,
+                            durationMs: durationMs(duration), maxCount: 3
+                        )
+                        var lineLevelFallback: [LyricLine]?
+                        for candidate in candidates {
+                            guard let lyricsResult = try? await scraper.getLyrics(externalId: candidate.externalId),
+                                  lyricsResult.hasLyrics,
+                                  let parsed = parseLyrics(lyricsResult), !parsed.isEmpty else { continue }
+                            if parsed.contains(where: { $0.isWordLevel }) {
+                                result.lyrics = parsed
+                                break
+                            } else if lineLevelFallback == nil {
+                                lineLevelFallback = parsed
                             }
                         }
+                        if result.lyrics == nil, let fb = lineLevelFallback {
+                            result.lyrics = fb
+                        }
+                        if result.lyrics != nil { break }
                     }
                 } catch {
                     await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
@@ -115,6 +131,90 @@ actor ScraperManager {
         }
 
         return result
+    }
+
+    /// 自动刮削每个源拉这么多候选,然后用 `bestMatch` 多维度选最优。
+    /// 之前是 15 + 取首位,实测经常错配（"冷酷到底"被刮成 Amrit Maan 那种）。
+    /// 5 个候选下 server 通常会把官方主推排前面,且足够 scoring 区分。
+    private static let autoScrapeLimit = 5
+
+    private nonisolated func durationMs(_ d: TimeInterval?) -> Int? {
+        guard let d, d > 0 else { return nil }
+        return Int(d * 1000)
+    }
+
+    /// 多维度评分挑最佳候选:
+    /// - duration 接近度（最强信号,误差 < 2s 满分,2-5s 中等,5-10s 弱）
+    /// - title 完全相等 / 互相包含
+    /// - artist 命中
+    ///
+    /// 全部维度都没匹配上时,fallback 取 `items.first`(server 默认顺序)。
+    static func bestMatch(
+        in items: [ScraperSearchItem],
+        title: String,
+        artist: String?,
+        durationMs targetMs: Int?
+    ) -> ScraperSearchItem? {
+        topMatches(in: items, title: title, artist: artist, durationMs: targetMs, maxCount: 1).first
+    }
+
+    /// 评分后取前 N 个候选(按分数降序)。供 lyrics 阶段依次 try、优先字级使用。
+    /// 全部都 0 分时 fallback 用 server 默认顺序。
+    static func topMatches(
+        in items: [ScraperSearchItem],
+        title: String,
+        artist: String?,
+        durationMs targetMs: Int?,
+        maxCount: Int
+    ) -> [ScraperSearchItem] {
+        guard !items.isEmpty else { return [] }
+        let normTitle = normalizeComparableText(title)
+        let normArtist = normalizeComparableText(artist)
+
+        let scored = items.map { item -> (ScraperSearchItem, Int) in
+            (item, score(item: item, normTitle: normTitle, normArtist: normArtist, targetMs: targetMs))
+        }
+        // 全部 0 分 = 没任何维度匹配上,直接用 server 顺序
+        if scored.allSatisfy({ $0.1 == 0 }) {
+            return Array(items.prefix(maxCount))
+        }
+        return scored.sorted { $0.1 > $1.1 }.prefix(maxCount).map(\.0)
+    }
+
+    private static func score(
+        item: ScraperSearchItem,
+        normTitle: String,
+        normArtist: String,
+        targetMs: Int?
+    ) -> Int {
+        var s = 0
+
+        // duration 维度（最强信号）— 准确性最高,放最大权重
+        if let target = targetMs, let itemMs = item.durationMs {
+            let diff = abs(itemMs - target)
+            if diff < 2000 { s += 50 }
+            else if diff < 5000 { s += 30 }
+            else if diff < 10000 { s += 10 }
+            else { s -= 20 }     // 差距超 10s 直接扣分,大概率不是同一首
+        }
+
+        // title 维度
+        let itemTitle = normalizeComparableText(item.title)
+        if itemTitle == normTitle { s += 30 }
+        else if !itemTitle.isEmpty && !normTitle.isEmpty {
+            if itemTitle.contains(normTitle) || normTitle.contains(itemTitle) { s += 15 }
+        }
+
+        // artist 维度
+        if !normArtist.isEmpty, let itemArtist = item.artist {
+            let itemNormArtist = normalizeComparableText(itemArtist)
+            if !itemNormArtist.isEmpty {
+                if itemNormArtist == normArtist { s += 20 }
+                else if itemNormArtist.contains(normArtist) || normArtist.contains(itemNormArtist) { s += 10 }
+            }
+        }
+
+        return s
     }
 
     // MARK: - Helpers

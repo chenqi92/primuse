@@ -323,7 +323,12 @@
 "cookie_placeholder" = "Paste cookie here";
 "cookie_config_message" = "Optional: provide a cookie to improve access. Leave empty for anonymous access.";
 "lyrics_word_level_badge" = "Word";
+"search_limit_per_source" = "Results per source";
 "lyrics_word_level_hint" = "Supports word-level lyrics";
+"lyrics_offset" = "Lyrics Offset";
+"lyrics_offset_hint" = "Positive = delay";
+"lyrics_offset_desc" = "Compensates audio output latency (a few hundred ms for Bluetooth, ~30 ms for built-in speaker). If lyrics appear ahead of vocals, increase positive value; if behind, decrease or use negative.";
+"reset" = "Reset";
 
 // MARK: - Scraper Source Descriptions
 "scraper_musicbrainz_desc" = "Open music database, metadata and covers";

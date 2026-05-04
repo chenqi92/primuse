@@ -63,7 +63,8 @@ final class AudioPlayerService {
 
     private(set) var currentTimeAnchor: Date = Date()
 
-    /// 在 `currentTime` 与下一次 0.5s 采样之间做线性外推。暂停 / 加载中直接返回锚点值。
+    /// 在 `currentTime` 与下一次 0.5s 采样之间做线性外推，每次 currentTime
+    /// 真实更新（didSet 重置 anchor）就跟引擎报告时间校准一次,不会累积漂移。
     func interpolatedTime(at date: Date = Date()) -> TimeInterval {
         guard isPlaying, !isLoading else { return currentTime }
         let elapsed = max(0, date.timeIntervalSince(currentTimeAnchor))

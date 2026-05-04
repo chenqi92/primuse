@@ -12,8 +12,6 @@ struct NowPlayingView: View {
     @State private var showLyrics = false
     @State private var showQueue = false
     @State private var lyrics: [LyricLine] = []
-    @State private var currentLineIndex = 0
-    @State private var hasWordLevelLyrics = false
     @State private var isScrapingCurrentSong = false
     @State private var scrapeAlertMessage: String?
     @State private var showScrapeOptions = false
@@ -23,20 +21,9 @@ struct NowPlayingView: View {
     @State private var showDeleteConfirm = false
     @Environment(ThemeService.self) private var theme
 
-    // Lyrics font scaling — persisted across launches; live pinch overlay during a gesture
+    // 父持有 @AppStorage 仅为了 onChange 触发 CloudKVS 同步;实际渲染字号由
+    // LyricsScrollView 子 view 自己读 AppStorage("lyricsFontScale")。
     @AppStorage("lyricsFontScale") private var lyricsFontScale: Double = 1.0
-    @State private var lyricsPinchScale: CGFloat = 1.0
-    @State private var isPinchingLyrics = false
-
-    private static let lyricsMinScale: Double = 0.7
-    private static let lyricsMaxScale: Double = 1.8
-    private static let lyricsActiveBaseSize: CGFloat = 28
-    private static let lyricsInactiveBaseSize: CGFloat = 22
-
-    private var effectiveLyricsScale: Double {
-        let combined = lyricsFontScale * Double(lyricsPinchScale)
-        return min(max(combined, Self.lyricsMinScale), Self.lyricsMaxScale)
-    }
 
     /// Whether the current song is in any playlist (not a dedicated "favorites" concept)
     private var isInAnyPlaylist: Bool {
@@ -168,20 +155,12 @@ struct NowPlayingView: View {
                         .padding(.horizontal, 26).padding(.top, 12)
                     }
 
-                    // Progress — custom thin slider
-                    VStack(spacing: 4) {
-                        ProgressSlider(
-                            value: player.currentTime,
-                            total: player.duration,
-                            onSeek: { player.seek(to: $0) }
-                        )
-                        HStack {
-                            Text(fmt(player.currentTime)); Spacer()
-                            Text("-\(fmt(max(0, player.duration - player.currentTime)))")
-                        }
-                        .font(.caption2).foregroundStyle(.white.opacity(0.5)).monospacedDigit()
-                    }
-                    .padding(.horizontal, 26).padding(.top, 8)
+                    // Progress — 抽成独立子 view 隔离 player.currentTime 的高频
+                    // 重算,避免触发父 body re-render(进而让 toolbar Menu 的 submenu
+                    // 被强制关闭)。SwiftUI Observation 是 per-body 追踪——子 view
+                    // 自己读 player.currentTime,父 view body 完全不读高频属性。
+                    PlaybackProgressBar()
+                        .padding(.horizontal, 26).padding(.top, 8)
 
                     // Controls
                     HStack(spacing: 0) {
@@ -269,7 +248,6 @@ struct NowPlayingView: View {
             }
         }
         .task(id: player.currentSong?.id) { await loadLyrics() }
-        .onReceive(Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()) { _ in updateCurrentLine() }
         .sheet(isPresented: $showQueue) {
             QueueView()
                 .presentationDetents([.medium, .large])
@@ -380,7 +358,7 @@ struct NowPlayingView: View {
                 }
             }
 
-            // 阅读偏好（仅歌词模式可见，submenu 形式：父行显示当前字号，点开 4 项带勾选）
+            // 阅读偏好（仅歌词模式可见）—— Picker(.menu) submenu 形式
             if showLyrics {
                 Section {
                     Picker(selection: $lyricsFontScale) {
@@ -438,132 +416,13 @@ struct NowPlayingView: View {
     // MARK: - Full Lyrics (Apple Music style: large text, no frame constraint)
 
     private var lyricsFullView: some View {
-        ScrollViewReader { proxy in
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Spacer().frame(height: 20)
-
-                    if lyrics.isEmpty {
-                        VStack(spacing: 12) {
-                            Spacer().frame(height: 60)
-                            Text("no_lyrics").font(.title3).foregroundStyle(.white.opacity(0.3))
-                            Button { Task { await scrapeCurrentSong() } } label: {
-                                Label("scrape_song", systemImage: "wand.and.stars").font(.subheadline)
-                            }
-                            .buttonStyle(.bordered).tint(.white)
-                            .disabled(isScrapingCurrentSong)
-                        }
-                        .frame(maxWidth: .infinity)
-                    } else {
-                        if hasWordLevelLyrics {
-                            HStack(spacing: 6) {
-                                Image(systemName: "waveform")
-                                    .font(.caption2)
-                                Text("lyrics_word_level_badge")
-                                    .font(.caption2.weight(.semibold))
-                            }
-                            .foregroundStyle(.white.opacity(0.6))
-                            .padding(.horizontal, 8).padding(.vertical, 3)
-                            .background(Capsule().fill(.white.opacity(0.12)))
-                            .padding(.bottom, 4)
-                        }
-
-                        ForEach(Array(lyrics.enumerated()), id: \.element.id) { index, line in
-                            lyricsRow(line: line, index: index)
-                                .id(line.id)
-                                .onTapGesture { player.seek(to: line.timestamp) }
-                                .padding(.vertical, 2)
-                        }
-                    }
-
-                    Spacer().frame(height: 80)
-                }
-                .padding(.horizontal, 24)
-            }
-            .simultaneousGesture(
-                MagnifyGesture()
-                    .onChanged { value in
-                        isPinchingLyrics = true
-                        lyricsPinchScale = value.magnification
-                    }
-                    .onEnded { value in
-                        let next = lyricsFontScale * Double(value.magnification)
-                        lyricsFontScale = min(max(next, Self.lyricsMinScale), Self.lyricsMaxScale)
-                        lyricsPinchScale = 1.0
-                        isPinchingLyrics = false
-                    }
-            )
-            .onChange(of: currentLineIndex) { _, idx in
-                // Don't fight the user's pinch — auto-scroll resumes once they let go
-                guard !isPinchingLyrics, idx < lyrics.count else { return }
-                withAnimation(.easeInOut(duration: 0.4)) {
-                    proxy.scrollTo(lyrics[idx].id, anchor: .center)
-                }
-            }
-        }
-    }
-
-    // MARK: - Lyrics Row
-
-    @ViewBuilder
-    private func lyricsRow(line: LyricLine, index: Int) -> some View {
-        let isActive = index == currentLineIndex
-        let baseSize = isActive ? Self.lyricsActiveBaseSize : Self.lyricsInactiveBaseSize
-        let fontSize = baseSize * CGFloat(effectiveLyricsScale)
-        let weight: Font.Weight = isActive ? .bold : .semibold
-        let alignment: HorizontalAlignment = line.voice == .secondary ? .trailing : .leading
-
-        VStack(alignment: alignment, spacing: 4) {
-            singleLineContent(
-                line: line,
-                isActive: isActive,
-                index: index,
-                fontSize: fontSize,
-                weight: weight
-            )
-
-            if let bgs = line.background {
-                ForEach(bgs) { bg in
-                    singleLineContent(
-                        line: bg,
-                        isActive: isActive,
-                        index: index,
-                        fontSize: fontSize * 0.7,
-                        weight: .medium
-                    )
-                    .opacity(0.7)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: line.voice == .secondary ? .trailing : .leading)
-    }
-
-    @ViewBuilder
-    private func singleLineContent(
-        line: LyricLine,
-        isActive: Bool,
-        index: Int,
-        fontSize: CGFloat,
-        weight: Font.Weight
-    ) -> some View {
-        if isActive, line.isWordLevel {
-            KaraokeLineView(
-                line: line,
-                fontSize: fontSize,
-                weight: weight,
-                activeColor: .white,
-                inactiveColor: .white.opacity(0.4),
-                timeAt: { date in player.interpolatedTime(at: date) }
-            )
-        } else {
-            Text(line.text)
-                .font(.system(size: fontSize, weight: weight))
-                .foregroundStyle(
-                    isActive ? .white
-                    : index < currentLineIndex ? .white.opacity(0.25)
-                    : .white.opacity(0.4)
-                )
-        }
+        LyricsScrollView(
+            lyrics: lyrics,
+            player: player,
+            songID: player.currentSong?.id,
+            isScrapingCurrentSong: isScrapingCurrentSong,
+            onScrape: { Task { await scrapeCurrentSong() } }
+        )
     }
 
     // MARK: - Helpers
@@ -629,20 +488,11 @@ struct NowPlayingView: View {
 
     private func setLyrics(_ value: [LyricLine]) {
         lyrics = value
-        currentLineIndex = 0
-        hasWordLevelLyrics = value.contains { $0.isWordLevel }
+        // currentLineIndex / hasWordLevelLyrics 已迁移到 LyricsScrollView 子 view,
+        // 子 view 自己 onChange(of: songID) 重置 + computed property 算 hasWord。
     }
 
 
-
-    private func updateCurrentLine() {
-        guard !lyrics.isEmpty else { return }
-        // 用插值后的时间，避免 0.5s 引擎采样间隙导致行切换迟钝
-        let time = player.interpolatedTime()
-        for (i, line) in lyrics.enumerated().reversed() {
-            if time >= line.timestamp { if currentLineIndex != i { currentLineIndex = i }; break }
-        }
-    }
 
     private func scrapeCurrentSong() async {
         guard let song = player.currentSong else { return }
@@ -914,4 +764,203 @@ struct AirPlayButton: UIViewRepresentable {
         return v
     }
     func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
+}
+
+// MARK: - LyricsScrollView (隔离的歌词渲染子 view)
+
+/// 把歌词渲染抽出来作为独立 View,避免行切换 (`currentLineIndex` 变化) 让
+/// 整个 NowPlayingView 的 body 重算,从而触发 SwiftUI Menu 内嵌的 Picker(.menu)
+/// submenu 在父重算时被强制关闭(选字号弹框还没来得及选就消失)。
+///
+/// 通过把 currentLineIndex 等内部状态封装在子 view 里,行切换只让本 view 重算,
+/// 父 view 的 Menu / sheet 不受影响。
+fileprivate struct LyricsScrollView: View {
+    let lyrics: [LyricLine]
+    let player: AudioPlayerService
+    let songID: String?
+    let isScrapingCurrentSong: Bool
+    let onScrape: () -> Void
+
+    @AppStorage("lyricsFontScale") private var lyricsFontScale: Double = 1.0
+    @State private var lyricsPinchScale: CGFloat = 1.0
+    @State private var isPinchingLyrics = false
+    @State private var currentLineIndex = 0
+
+    private static let lyricsMinScale: Double = 0.7
+    private static let lyricsMaxScale: Double = 1.8
+    private static let lyricsActiveBaseSize: CGFloat = 28
+    private static let lyricsInactiveBaseSize: CGFloat = 22
+
+    private var effectiveLyricsScale: Double {
+        let combined = lyricsFontScale * Double(lyricsPinchScale)
+        return min(max(combined, Self.lyricsMinScale), Self.lyricsMaxScale)
+    }
+
+    private var hasWordLevelLyrics: Bool {
+        lyrics.contains { $0.isWordLevel }
+    }
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Spacer().frame(height: 20)
+
+                    if lyrics.isEmpty {
+                        VStack(spacing: 12) {
+                            Spacer().frame(height: 60)
+                            Text("no_lyrics").font(.title3).foregroundStyle(.white.opacity(0.3))
+                            Button { onScrape() } label: {
+                                Label("scrape_song", systemImage: "wand.and.stars").font(.subheadline)
+                            }
+                            .buttonStyle(.bordered).tint(.white)
+                            .disabled(isScrapingCurrentSong)
+                        }
+                        .frame(maxWidth: .infinity)
+                    } else {
+                        if hasWordLevelLyrics {
+                            HStack(spacing: 6) {
+                                Image(systemName: "waveform")
+                                    .font(.caption2)
+                                Text("lyrics_word_level_badge")
+                                    .font(.caption2.weight(.semibold))
+                            }
+                            .foregroundStyle(.white.opacity(0.6))
+                            .padding(.horizontal, 8).padding(.vertical, 3)
+                            .background(Capsule().fill(.white.opacity(0.12)))
+                            .padding(.bottom, 4)
+                        }
+
+                        ForEach(Array(lyrics.enumerated()), id: \.element.id) { index, line in
+                            lyricsRow(line: line, index: index)
+                                .id(line.id)
+                                .onTapGesture { player.seek(to: line.timestamp) }
+                                .padding(.vertical, 2)
+                        }
+                    }
+
+                    Spacer().frame(height: 80)
+                }
+                .padding(.horizontal, 24)
+            }
+            .simultaneousGesture(
+                MagnifyGesture()
+                    .onChanged { value in
+                        isPinchingLyrics = true
+                        lyricsPinchScale = value.magnification
+                    }
+                    .onEnded { value in
+                        let next = lyricsFontScale * Double(value.magnification)
+                        lyricsFontScale = min(max(next, Self.lyricsMinScale), Self.lyricsMaxScale)
+                        lyricsPinchScale = 1.0
+                        isPinchingLyrics = false
+                    }
+            )
+            .onChange(of: currentLineIndex) { _, idx in
+                guard !isPinchingLyrics, idx < lyrics.count else { return }
+                withAnimation(.easeInOut(duration: 0.4)) {
+                    proxy.scrollTo(lyrics[idx].id, anchor: .center)
+                }
+            }
+        }
+        .onReceive(Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()) { _ in
+            updateCurrentLine()
+        }
+        .onChange(of: songID) { _, _ in
+            // 切歌时把行索引清零 + 让自动滚动重新 anchor
+            currentLineIndex = 0
+        }
+    }
+
+    @ViewBuilder
+    private func lyricsRow(line: LyricLine, index: Int) -> some View {
+        let isActive = index == currentLineIndex
+        let baseSize = isActive ? Self.lyricsActiveBaseSize : Self.lyricsInactiveBaseSize
+        let fontSize = baseSize * CGFloat(effectiveLyricsScale)
+        let weight: Font.Weight = isActive ? .bold : .semibold
+        let alignment: HorizontalAlignment = line.voice == .secondary ? .trailing : .leading
+
+        VStack(alignment: alignment, spacing: 4) {
+            singleLineContent(line: line, isActive: isActive, index: index, fontSize: fontSize, weight: weight)
+
+            if let bgs = line.background {
+                ForEach(bgs) { bg in
+                    singleLineContent(line: bg, isActive: isActive, index: index, fontSize: fontSize * 0.7, weight: .medium)
+                        .opacity(0.7)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: line.voice == .secondary ? .trailing : .leading)
+    }
+
+    @ViewBuilder
+    private func singleLineContent(
+        line: LyricLine,
+        isActive: Bool,
+        index: Int,
+        fontSize: CGFloat,
+        weight: Font.Weight
+    ) -> some View {
+        if isActive, line.isWordLevel {
+            KaraokeLineView(
+                line: line,
+                fontSize: fontSize,
+                weight: weight,
+                activeColor: .white,
+                inactiveColor: .white.opacity(0.4),
+                timeAt: { date in player.interpolatedTime(at: date) }
+            )
+        } else {
+            Text(line.text)
+                .font(.system(size: fontSize, weight: weight))
+                .foregroundStyle(
+                    isActive ? .white
+                    : index < currentLineIndex ? .white.opacity(0.25)
+                    : .white.opacity(0.4)
+                )
+        }
+    }
+
+    /// 行级歌词 LRC 文件的 timestamp 通常是「演唱开始那一刻」,但 LRC 制作过程
+    /// 中作者按 spacebar 记录会有人为反应延迟(常见 200-400ms),用户感受是
+    /// 「头两个字唱完才高亮这一行」。给行级判断加 250ms lookahead 提前切换。
+    /// 字级歌词 syllable 粒度精度本来就高,不用补偿。
+    private static let lineLevelLookahead: TimeInterval = 0.25
+
+    private func updateCurrentLine() {
+        guard !lyrics.isEmpty else { return }
+        let time = player.interpolatedTime()
+        for (i, line) in lyrics.enumerated().reversed() {
+            let lookahead: TimeInterval = line.isWordLevel ? 0 : Self.lineLevelLookahead
+            if time + lookahead >= line.timestamp {
+                if currentLineIndex != i { currentLineIndex = i }
+                break
+            }
+        }
+    }
+}
+
+// MARK: - PlaybackProgressBar (隔离 player.currentTime 高频读)
+
+/// 进度条 + 双端时间标签。父 NowPlayingView body 不直接读 `player.currentTime`,
+/// 把高频属性的 Observation 追踪限制在本 view 内。这样 currentTime 每 0.5s 变化
+/// 只重算本 view,不会让父 body 重算 → 父 view 里的 SwiftUI Menu submenu (字号
+/// 选择)在用户操作期间不会被强制关闭。
+fileprivate struct PlaybackProgressBar: View {
+    @Environment(AudioPlayerService.self) private var player
+
+    var body: some View {
+        VStack(spacing: 4) {
+            ProgressSlider(
+                value: player.currentTime,
+                total: player.duration,
+                onSeek: { player.seek(to: $0) }
+            )
+            HStack {
+                Text(player.currentTime.formattedDuration); Spacer()
+                Text("-\(max(0, player.duration - player.currentTime).formattedDuration)")
+            }
+            .font(.caption2).foregroundStyle(.white.opacity(0.5)).monospacedDigit()
+        }
+    }
 }

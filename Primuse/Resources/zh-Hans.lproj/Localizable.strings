@@ -323,7 +323,12 @@
 "cookie_placeholder" = "粘贴 Cookie";
 "cookie_config_message" = "可选：提供 Cookie 可改善访问效果。留空则使用匿名访问。";
 "lyrics_word_level_badge" = "逐字";
+"search_limit_per_source" = "每个源结果上限";
 "lyrics_word_level_hint" = "支持逐字歌词";
+"lyrics_offset" = "歌词偏移";
+"lyrics_offset_hint" = "正值=推迟显示";
+"lyrics_offset_desc" = "用来补偿音频输出延迟（蓝牙耳机几百毫秒、内置扬声器约 30 ms）。如果歌词显得领先实际人声，调大正值；落后则调小或负值。";
+"reset" = "重置";
 
 // MARK: - 刮削源描述
 "scraper_musicbrainz_desc" = "开放音乐数据库，支持元数据和封面";
