@@ -93,6 +93,13 @@ final class MusicScraperService {
                 let sourceManager = self.sourceManager
                 let songID = updatedSong.id
                 Task { @MainActor in
+                    // 写 sidecar **前**先清旧 cache —— 避免 race window 内
+                    // NowPlayingView/CachedArtworkView 读到上次刮削写入的污染数据。
+                    // 短窗口内 cache miss 会自然 fall through 到 source connector。
+                    await MetadataAssetStore.shared.invalidateCoverCache(forSongID: songID)
+                    await MetadataAssetStore.shared.invalidateLyricsCache(forSongID: songID)
+                    CachedArtworkView.invalidateCache(for: songID)
+
                     do {
                         plog("📝 Sidecar: getting auxiliary connector for '\(songForWrite.title)' source=\(songForWrite.sourceID)")
                         let connector = try await sourceManager.auxiliaryConnector(for: songForWrite)
@@ -112,14 +119,18 @@ final class MusicScraperService {
                         if writeResult.coverWritten {
                             let coverPath = (songDir as NSString).appendingPathComponent("\(baseNameNoExt)-cover.jpg")
                             refSong.coverArtFileName = coverPath
-                            // Invalidate both disk and memory cache so views refetch from source
-                            await MetadataAssetStore.shared.invalidateCoverCache(forSongID: songID)
-                            CachedArtworkView.invalidateCache(for: songID)
+                            // sidecar 已落盘 —— 现在回写 hash cache 作为可信 mirror
+                            if let coverData {
+                                await MetadataAssetStore.shared.cacheCover(coverData, forSongID: songID)
+                            }
                             needsUpdate = true
                         }
                         if writeResult.lyricsWritten {
                             let lrcPath = (songDir as NSString).appendingPathComponent("\(baseNameNoExt).lrc")
                             refSong.lyricsFileName = lrcPath
+                            if let lyricsLines {
+                                await MetadataAssetStore.shared.cacheLyrics(lyricsLines, forSongID: songID)
+                            }
                             needsUpdate = true
                         }
 
@@ -239,6 +250,11 @@ final class MusicScraperService {
 
                             // Write sidecar files to source asynchronously (don't block scraping loop)
                             Task { @MainActor in
+                                // 同 scrapeSingle:写 sidecar 前清旧 cache、写后回写
+                                await MetadataAssetStore.shared.invalidateCoverCache(forSongID: songID)
+                                await MetadataAssetStore.shared.invalidateLyricsCache(forSongID: songID)
+                                CachedArtworkView.invalidateCache(for: songID)
+
                                 do {
                                     let connector = try await sourceManager.auxiliaryConnector(for: songForWrite)
                                     let writeResult = await SidecarWriteService.shared.writeSidecars(
@@ -255,14 +271,17 @@ final class MusicScraperService {
                                     if writeResult.coverWritten {
                                         let coverPath = (songDir as NSString).appendingPathComponent("\(baseNameNoExt)-cover.jpg")
                                         refSong.coverArtFileName = coverPath
-                                        // Invalidate both disk and memory cache so views refetch from source
-                                        await MetadataAssetStore.shared.invalidateCoverCache(forSongID: songID)
-                                        CachedArtworkView.invalidateCache(for: songID)
+                                        if let coverData {
+                                            await MetadataAssetStore.shared.cacheCover(coverData, forSongID: songID)
+                                        }
                                         needsUpdate = true
                                     }
                                     if writeResult.lyricsWritten {
                                         let lrcPath = (songDir as NSString).appendingPathComponent("\(baseNameNoExt).lrc")
                                         refSong.lyricsFileName = lrcPath
+                                        if let lyricsLines {
+                                            await MetadataAssetStore.shared.cacheLyrics(lyricsLines, forSongID: songID)
+                                        }
                                         needsUpdate = true
                                     }
 
@@ -385,7 +404,14 @@ final class MusicScraperService {
             return nil
         }
 
-        let metadata = await metadataService.loadMetadata(for: fileURL, cacheKey: storeAssets ? song.id : nil)
+        // trustedSource: false —— scrape 路径下 online 结果可能错配,
+        // 不让 loadMetadata 直接写 hash cache。等 sidecar 写到 source
+        // 成功后再回写 cache（在 scrapeSingle / startScraping 的 Task 里做）。
+        let metadata = await metadataService.loadMetadata(
+            for: fileURL,
+            cacheKey: storeAssets ? song.id : nil,
+            trustedSource: false
+        )
         let merged = mergedSong(
             song,
             with: metadata,

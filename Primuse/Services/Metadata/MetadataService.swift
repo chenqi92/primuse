@@ -24,10 +24,17 @@ actor MetadataService {
     }
 
     /// Load metadata with priority: sidecar → embedded → online
+    ///
+    /// `trustedSource`: 是否把结果直接写入 hash cache。
+    /// - true（默认）: LibraryScanner / Backfill 路径,数据来自 embedded/sidecar,可信。
+    /// - false: ScraperService 路径,可能错配,**不写 cache**。
+    ///   等 sidecar 真正写到 source 成功后,由 ScraperService 自己回写 cache。
+    ///   这样 hash cache 永远只是 sidecar 的镜像,杜绝错配数据污染缓存。
     func loadMetadata(
         for url: URL,
         cacheKey: String? = nil,
-        allowOnlineFetch: Bool = true
+        allowOnlineFetch: Bool = true,
+        trustedSource: Bool = true
     ) async -> SongMetadata {
         // 1. Read embedded metadata
         let embedded = await FileMetadataReader.read(from: url)
@@ -82,10 +89,20 @@ actor MetadataService {
 
         if let cacheKey {
             if let coverArtData = result.coverArtData {
-                result.coverArtFileName = await assetStore.storeCover(coverArtData, for: cacheKey)
+                if trustedSource {
+                    result.coverArtFileName = await assetStore.storeCover(coverArtData, for: cacheKey)
+                } else {
+                    // 仅占位 ref,不写 cache 文件 —— 留给 ScraperService 在 sidecar
+                    // 写到 source 成功后再回写,确保 hash cache 永远不存错配数据。
+                    result.coverArtFileName = assetStore.expectedCoverFileName(for: cacheKey)
+                }
             }
             if let lyrics = result.lyrics {
-                result.lyricsFileName = await assetStore.storeLyrics(lyrics, for: cacheKey)
+                if trustedSource {
+                    result.lyricsFileName = await assetStore.storeLyrics(lyrics, for: cacheKey)
+                } else {
+                    result.lyricsFileName = assetStore.expectedLyricsFileName(for: cacheKey)
+                }
             }
         }
 

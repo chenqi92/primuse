@@ -153,9 +153,24 @@ actor ConfigurableScraper: MusicScraper {
         //
         // URL 模板、解密 key 都从用户本地的 `<id>.secrets.json` 旁路加载——
         // app 二进制不携带任何平台特定常量。
-        if dict["_fetchEncryptedLyrics"] as? Bool == true,
-           let vars = dict["vars"] as? [String: Any] {
-            return await fetchEncryptedLyrics(vars: vars)
+        if dict["_fetchEncryptedLyrics"] as? Bool == true {
+            // vars 支持两种形式:
+            // - dict（单个 candidate）: 直接 fetch
+            // - array（多个 candidate）: 依次 try, 选 lrcContent 最长的（kugou 的
+            //   candidates 按 score 排但 score 高 ≠ 完整,常出现"官方推荐 4 行残缺,
+            //   ugc 投稿版才是全曲"的情况）
+            if let varsList = dict["vars"] as? [[String: Any]], !varsList.isEmpty {
+                plog("🔐 \(config.id) getLyrics → _fetchEncryptedLyrics with \(varsList.count) candidates")
+                let result = await fetchBestEncryptedLyrics(varsList: varsList)
+                plog("🔐 \(config.id) fetchBestEncryptedLyrics result: hasResult=\(result != nil) lrcLen=\(result?.lrcContent?.count ?? 0)")
+                return result
+            }
+            if let vars = dict["vars"] as? [String: Any] {
+                plog("🔐 \(config.id) getLyrics → _fetchEncryptedLyrics with vars=\(vars)")
+                let result = await fetchEncryptedLyrics(vars: vars)
+                plog("🔐 \(config.id) fetchEncryptedLyrics result: hasResult=\(result != nil) lrcLen=\(result?.lrcContent?.count ?? 0)")
+                return result
+            }
         }
 
         // `wordLevelLrc` 是兼容性字段：JSON 配置同时返回行级 (`lrcContent`) 和字级
@@ -168,6 +183,23 @@ actor ConfigurableScraper: MusicScraper {
         guard finalLrc != nil || plainText != nil else { return nil }
 
         return ScraperLyricsResult(source: type, lrcContent: finalLrc, plainText: plainText)
+    }
+
+    /// 多候选版本:依次 try, 选解密后 plain text 最长的那个 (= 最完整歌词)。
+    /// kugou 等源 candidates 按 score 排但 score 高 ≠ 内容全, 第一个常是 4 行
+    /// 残缺版, 第 2-3 个 ugc 投稿才是全曲。最多 try 5 个避免拉太多。
+    private func fetchBestEncryptedLyrics(varsList: [[String: Any]]) async -> ScraperLyricsResult? {
+        var best: ScraperLyricsResult?
+        var bestLen = 0
+        for vars in varsList.prefix(5) {
+            guard let result = await fetchEncryptedLyrics(vars: vars) else { continue }
+            let len = result.lrcContent?.count ?? 0
+            if len > bestLen {
+                bestLen = len
+                best = result
+            }
+        }
+        return best
     }
 
     /// 通用二次请求：URL 模板和解密参数全部来自 `config.secrets`。
@@ -198,15 +230,26 @@ actor ConfigurableScraper: MusicScraper {
 
         do {
             let (data, _) = try await sessionManager.data(for: request)
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let base64 = json[contentField] as? String, !base64.isEmpty,
-                  let binary = Data(base64Encoded: base64),
-                  let plain = XorZlibLyricsDecoder.decrypt(binary, magicPrefix: magic, xorKey: xorKey) else {
-                plog("⚠️ Encrypted lyrics: decode failed")
+            plog("🔐 Encrypted lyrics: fetched \(data.count) bytes from \(safe.prefix(80))")
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                plog("⚠️ Encrypted lyrics: response not JSON, head=\(String(data: data.prefix(200), encoding: .utf8) ?? "?")")
+                return nil
+            }
+            guard let base64 = json[contentField] as? String, !base64.isEmpty else {
+                plog("⚠️ Encrypted lyrics: missing/empty contentField '\(contentField)' in response keys=\(Array(json.keys))")
+                return nil
+            }
+            guard let binary = Data(base64Encoded: base64) else {
+                plog("⚠️ Encrypted lyrics: base64 decode failed (len=\(base64.count))")
+                return nil
+            }
+            guard let plain = XorZlibLyricsDecoder.decrypt(binary, magicPrefix: magic, xorKey: xorKey) else {
+                plog("⚠️ Encrypted lyrics: xor+zlib decrypt failed (binary len=\(binary.count) magicMatch=\(binary.prefix(magic.count) == magic))")
                 return nil
             }
             let (lineLrc, wordLrc) = XorZlibLyricsDecoder.relativeOffsetToA2(plain)
             let final = wordLrc.isEmpty ? lineLrc : wordLrc
+            plog("🔐 Encrypted lyrics: decoded plain=\(plain.count) chars → wordLrc=\(wordLrc.count) lineLrc=\(lineLrc.count)")
             guard !final.isEmpty else { return nil }
             return ScraperLyricsResult(source: type, lrcContent: final)
         } catch {
@@ -229,9 +272,7 @@ actor ConfigurableScraper: MusicScraper {
 
         // Build URL with variable substitution
         var urlString = endpoint.url
-        for (key, value) in vars {
-            urlString = urlString.replacingOccurrences(of: "{{\(key)}}", with: value)
-        }
+        urlString = Self.applyTemplate(urlString, vars: vars)
 
         // Enforce HTTPS unless domain is in sslTrustDomains or is a local network address
         urlString = Self.enforceHTTPPolicy(urlString, trustDomains: config.sslTrustDomains ?? [])
@@ -253,10 +294,7 @@ actor ConfigurableScraper: MusicScraper {
 
             if let bodyTemplate = endpoint.bodyTemplate {
                 // Use body template with variable substitution
-                var body = bodyTemplate
-                for (key, value) in vars {
-                    body = body.replacingOccurrences(of: "{{\(key)}}", with: value)
-                }
+                let body = Self.applyTemplate(bodyTemplate, vars: vars)
                 request.httpBody = body.data(using: .utf8)
                 if request.value(forHTTPHeaderField: "Content-Type") == nil {
                     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -265,11 +303,7 @@ actor ConfigurableScraper: MusicScraper {
                 // Build JSON body from params
                 var bodyDict: [String: String] = [:]
                 for (k, v) in params {
-                    var val = v
-                    for (vk, vv) in vars {
-                        val = val.replacingOccurrences(of: "{{\(vk)}}", with: vv)
-                    }
-                    bodyDict[k] = val
+                    bodyDict[k] = Self.applyTemplate(v, vars: vars)
                 }
                 request.httpBody = try JSONSerialization.data(withJSONObject: bodyDict)
                 if request.value(forHTTPHeaderField: "Content-Type") == nil {
@@ -285,11 +319,7 @@ actor ConfigurableScraper: MusicScraper {
             if let params = endpoint.params {
                 var queryItems = components?.queryItems ?? []
                 for (k, v) in params {
-                    var val = v
-                    for (vk, vv) in vars {
-                        val = val.replacingOccurrences(of: "{{\(vk)}}", with: vv)
-                    }
-                    queryItems.append(URLQueryItem(name: k, value: val))
+                    queryItems.append(URLQueryItem(name: k, value: Self.applyTemplate(v, vars: vars)))
                 }
                 components?.queryItems = queryItems
             }
@@ -306,6 +336,41 @@ actor ConfigurableScraper: MusicScraper {
             let (data, _) = try await sessionManager.data(for: request)
             return data
         }
+    }
+
+    // MARK: - Template Substitution
+
+    /// 把 `{{key}}` 和 `{{key[N]}}` 占位符替换成 vars 里的值。
+    ///   - `{{key}}` 整体替换
+    ///   - `{{key[N]}}` 把 vars[key] 按 `|` 切分,取第 N 段(0 起);N 越界则空串
+    /// 用 `{{key[N]}}` 是为了能从复合 externalId（如 kugou 的
+    /// `hash|albumId|songname|singer|duration|cover`）里精确取字段,而不是
+    /// 把整串当 keyword 传给服务端。
+    nonisolated static func applyTemplate(_ template: String, vars: [String: String]) -> String {
+        var result = template
+        // 先处理带索引的：`{{key[N]}}`
+        let indexedPattern = #"\{\{(\w+)\[(\d+)\]\}\}"#
+        if let regex = try? NSRegularExpression(pattern: indexedPattern) {
+            // 多次扫描直到没有匹配
+            while true {
+                let nsResult = result as NSString
+                let range = NSRange(location: 0, length: nsResult.length)
+                guard let match = regex.firstMatch(in: result, range: range),
+                      match.numberOfRanges >= 3 else { break }
+                let key = nsResult.substring(with: match.range(at: 1))
+                let idxStr = nsResult.substring(with: match.range(at: 2))
+                let idx = Int(idxStr) ?? 0
+                let raw = vars[key] ?? ""
+                let parts = raw.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+                let value = (idx >= 0 && idx < parts.count) ? parts[idx] : ""
+                result = nsResult.replacingCharacters(in: match.range, with: value)
+            }
+        }
+        // 再处理整体 `{{key}}`
+        for (key, value) in vars {
+            result = result.replacingOccurrences(of: "{{\(key)}}", with: value)
+        }
+        return result
     }
 
     // MARK: - JavaScript Execution

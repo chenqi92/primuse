@@ -163,6 +163,43 @@ actor SFTPSource: MusicSourceConnector {
         }
     }
 
+    /// SFTP READ via Citadel's `SFTPFile.read(from:length:)`。SFTP 协议级支持
+    /// 任意 offset 读, 让 CloudPlaybackSource 边下边播替代整文件下载。
+    /// 每次开关 file handle 一次 (SSH 连接复用), 8 路并发 prefetch 时
+     /// 同时开多个 file 也安全。
+    func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+        guard let sftp else {
+            throw SourceError.connectionFailed("Not connected")
+        }
+        let remotePath = resolvedRemotePath(for: path)
+
+        // offset < 0 表示从末尾倒数 (suffix range), 先 stat 拿 size 转正
+        let actualOffset: UInt64
+        let actualLength: UInt32
+        if offset < 0 {
+            let attrs = try await sftp.getAttributes(at: remotePath)
+            let total = Int64(attrs.size ?? 0)
+            let start = max(0, total + offset)
+            let avail = max(0, total - start)
+            actualOffset = UInt64(start)
+            actualLength = UInt32(min(length, avail, Int64(UInt32.max)))
+        } else {
+            actualOffset = UInt64(offset)
+            actualLength = UInt32(min(length, Int64(UInt32.max)))
+        }
+        guard actualLength > 0 else { return Data() }
+
+        let file = try await sftp.openFile(filePath: remotePath, flags: .read)
+        do {
+            var buffer = try await file.read(from: actualOffset, length: actualLength)
+            try await file.close()
+            return buffer.readData(length: buffer.readableBytes) ?? Data()
+        } catch {
+            try? await file.close()
+            throw error
+        }
+    }
+
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
         let localURL = try await localURL(for: path)
         return AsyncThrowingStream { continuation in

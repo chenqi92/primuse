@@ -8,6 +8,16 @@ actor FnOSSource: MusicSourceConnector {
     private let password: String
     private let cacheDirectory: URL
 
+    /// 长生命周期 session, 让 fetchRange 复用 HTTP keep-alive 连接,
+    /// 避免每次 chunk fetch 都重新 SSL handshake。
+    private lazy var rangeSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 60
+        config.timeoutIntervalForResource = 600
+        config.httpMaximumConnectionsPerHost = 8
+        return URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+    }()
+
     init(sourceID: String, host: String, port: Int, useSsl: Bool,
          username: String, password: String) {
         self.sourceID = sourceID
@@ -53,6 +63,43 @@ actor FnOSSource: MusicSourceConnector {
         try? FileManager.default.removeItem(at: fileURL)
         try FileManager.default.moveItem(at: tempURL, to: fileURL)
         return fileURL
+    }
+
+    /// HTTP Range GET on fnOS download URL。fnOS 走 HTTP, 标准 Range header
+    /// 直接生效, 让 CloudPlaybackSource 边下边播替代整文件下载。
+    func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+        try await connect()
+        guard let url = await api.downloadURL(path: path) else {
+            throw SourceError.fileNotFound(path)
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        let rangeHeader = offset < 0
+            ? "bytes=\(offset)"  // suffix-byte form: bytes=-N
+            : "bytes=\(offset)-\(offset + length - 1)"
+        request.setValue(rangeHeader, forHTTPHeaderField: "Range")
+        if let token = await api.token {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        request.timeoutInterval = 60
+
+        let (data, response) = try await rangeSession.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw SourceError.connectionFailed("Invalid fnOS range response")
+        }
+        switch http.statusCode {
+        case 206:
+            return data
+        case 200:
+            // Server didn't honor Range — slice the returned full body.
+            let total = Int64(data.count)
+            let actualOffset = offset < 0 ? max(0, total + offset) : offset
+            guard actualOffset < total else { return Data() }
+            let upper = min(actualOffset + length, total)
+            return data.subdata(in: Int(actualOffset)..<Int(upper))
+        default:
+            throw SourceError.connectionFailed("fnOS range request failed: HTTP \(http.statusCode)")
+        }
     }
 
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {

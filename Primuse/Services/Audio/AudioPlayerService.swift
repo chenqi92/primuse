@@ -81,7 +81,8 @@ final class AudioPlayerService {
 
     private(set) var currentTimeAnchor: Date = Date()
 
-    /// 在 `currentTime` 与下一次 0.5s 采样之间做线性外推。暂停 / 加载中直接返回锚点值。
+    /// 在 `currentTime` 与下一次 0.5s 采样之间做线性外推，每次 currentTime
+    /// 真实更新（didSet 重置 anchor）就跟引擎报告时间校准一次,不会累积漂移。
     func interpolatedTime(at date: Date = Date()) -> TimeInterval {
         guard isPlaying, !isLoading else { return currentTime }
         let elapsed = max(0, date.timeIntervalSince(currentTimeAnchor))
@@ -697,21 +698,73 @@ final class AudioPlayerService {
 
     private func prefetchNextSong() {
         prefetchTask?.cancel()
-        // Use the same "what plays next" logic as auto-advance / next() so
-        // shuffle and repeat-all prewarm the actually-next song. The old
-        // currentIndex+1 prewarmed the wrong song under shuffle, leaving
-        // real-next playback to pay full dlink + head latency.
-        guard let nextSong = nextSongInQueue() else { return }
-        // Repeat-one re-decodes the current song; nothing to prefetch.
-        if nextSong.id == currentSong?.id { return }
-
-        // Already cached? Nothing to do.
-        if sourceManager?.cachedURL(for: nextSong) != nil { return }
+        // Prefetch 接下来 3 首,而不是只 1 首 —— 用户连续 next 切歌时
+        // (4-5s/次), 单首 prefetch chain 来不及, 第 2、3 首切到时 partial
+        // 还是空, SFB 现拉 1MB chunk 卡 2-3s。3 首并发 prewarm 流量是
+        // 3 * 1.25MB = 3.75MB, NAS 内网完全 cover 得了。
+        let nextSongs = nextSongsInQueue(count: 3)
+        guard !nextSongs.isEmpty else { return }
 
         prefetchTask = Task {
-            plog("⏩ Prefetching next song: \(nextSong.title)")
-            sourceManager?.cacheInBackground(song: nextSong, cacheEnabled: playbackSettings.audioCacheEnabled)
+            for song in nextSongs {
+                if Task.isCancelled { return }
+                if song.id == currentSong?.id { continue }
+                if sourceManager?.cachedURL(for: song) != nil { continue }
+                plog("⏩ Prefetching next song: \(song.title)")
+                sourceManager?.cacheInBackground(song: song, cacheEnabled: playbackSettings.audioCacheEnabled)
+            }
         }
+    }
+
+    /// 返回 queue 接下来 N 首 (考虑 shuffle / repeat all)。N 首之间不重复。
+    /// 用于 prefetch chain — 让用户连续 next 时也能命中 prewarm。
+    private func nextSongsInQueue(count: Int) -> [Song] {
+        guard !queue.isEmpty, count > 0 else { return [] }
+        if repeatMode == .one { return [] }
+
+        var result: [Song] = []
+        var seenIDs = Set<String>()
+        if let cur = currentSong { seenIDs.insert(cur.id) }
+
+        if shuffleEnabled {
+            var localPending: [Int]? = nil
+            for offset in 1...count {
+                let pos = shufflePosition + offset
+                let song: Song?
+                if pos < shuffledIndices.count {
+                    song = queue[shuffledIndices[pos]]
+                } else if repeatMode == .all {
+                    let pending = localPending ?? pendingNextShuffleIndices ?? buildPendingNextRound()
+                    if pendingNextShuffleIndices == nil { pendingNextShuffleIndices = pending }
+                    localPending = pending
+                    let pos2 = pos - shuffledIndices.count
+                    song = pos2 < pending.count ? queue[pending[pos2]] : nil
+                } else {
+                    song = nil
+                }
+                if let s = song, !seenIDs.contains(s.id) {
+                    result.append(s)
+                    seenIDs.insert(s.id)
+                }
+            }
+        } else {
+            for offset in 1...count {
+                let raw = currentIndex + offset
+                let idx: Int?
+                if raw < queue.count {
+                    idx = raw
+                } else if repeatMode == .all {
+                    idx = raw % queue.count
+                } else {
+                    idx = nil
+                }
+                if let i = idx, !seenIDs.contains(queue[i].id) {
+                    result.append(queue[i])
+                    seenIDs.insert(queue[i].id)
+                }
+            }
+        }
+        return result
     }
 
     /// Fallback playback using AVAssetReader when native decoder fails.
@@ -910,6 +963,17 @@ final class AudioPlayerService {
         let callerFile = (caller as NSString).lastPathComponent
         plog("⏭️ next() called FROM=\(callerFile):\(callerLine) currentIndex=\(currentIndex) queueCount=\(queue.count)")
         advanceToNextIndex()
+        // 跳过相邻同 title+artist 的"重复歌曲" —— NAS 上同一首歌有多个版本
+        // (mp3 + flac, 不同目录) scan 后是不同 song.id, 但用户看就是同一首,
+        // 自动 next 跳到 "下一首是自己" 体验很怪。最多跳 1 次, 防止整个
+        // queue 全是同一首时死循环。
+        if let cur = currentSong, queue.count > 2 {
+            let candidate = queue[currentIndex]
+            if candidate.title == cur.title && candidate.artistName == cur.artistName {
+                plog("⏭️ next: skipping duplicate '\(candidate.title)' (same title+artist as current)")
+                advanceToNextIndex()
+            }
+        }
         await play(song: queue[currentIndex])
     }
 
@@ -1155,7 +1219,7 @@ final class AudioPlayerService {
             plog("🔄 gaplessPreload: ABORTED (playID mismatch)")
             return
         }
-        guard let nextSong = nextSongInQueue() else {
+        guard var nextSong = nextSongInQueue() else {
             // No next song — use completion callback to detect track end
             scheduleEndDetection(id: id)
             return
@@ -1165,6 +1229,19 @@ final class AudioPlayerService {
         if repeatMode == .one {
             scheduleEndDetection(id: id)
             return
+        }
+
+        // 跳过相邻同 title+artist 重复 (NAS 上同首歌的多版本)。
+        // gapless 路径 bypass 了 next() 函数, 所以这里也要 dedup。
+        if let cur = currentSong, queue.count > 2,
+           nextSong.title == cur.title, nextSong.artistName == cur.artistName {
+            plog("🔄 gaplessPreload: skip duplicate '\(nextSong.title)', advance one more")
+            advanceToNextIndex()
+            guard let after = nextSongInQueue() else {
+                scheduleEndDetection(id: id)
+                return
+            }
+            nextSong = after
         }
 
         do {

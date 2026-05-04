@@ -251,9 +251,13 @@ final class ScraperConfigStore: @unchecked Sendable {
 
             // 旁路加载 <id>.secrets.json — 不进同步、不进仓库、不参与 Codable
             let secretsURL = configDir.appendingPathComponent("\(config.id).secrets.json")
+            let secretsExists = FileManager.default.fileExists(atPath: secretsURL.path)
             if let secretsData = try? Data(contentsOf: secretsURL),
                let secrets = try? JSONDecoder().decode([String: String].self, from: secretsData) {
                 config.secrets = secrets
+                plog("📦 ScraperConfigStore loadAll: \(config.id) v\(config.version) + secrets keys=\(Array(secrets.keys))")
+            } else {
+                plog("📦 ScraperConfigStore loadAll: \(config.id) v\(config.version) NO secrets (file exists=\(secretsExists))")
             }
 
             cache[config.id] = config

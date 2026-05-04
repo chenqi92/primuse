@@ -296,9 +296,35 @@ struct PrimuseApp: App {
                     // first play after a cold start where every CDN HEAD
                     // would otherwise add 3-20s of latency in front of the
                     // user.
+                    //
+                    // 排序策略:用户冷启动后大概率立刻播 currentSong / queue 里
+                    // 的歌,所以这两类先跑,再跑 library 剩下的。否则 library
+                    // 全表无序遍历下用户想播的歌可能排在很靠后,prewarm 来不及。
                     Task.detached(priority: .background) {
+                        // 1. currentSong (resume): 优先级最高,提到 .userInitiated
+                        //    用户立刻按 play 时大概率就是这首
+                        let resumeSong = await MainActor.run { playerService.currentSong }
+                        if let song = resumeSong {
+                            await Task.detached(priority: .userInitiated) {
+                                await sourceManager.prewarmCloudSongPublic(song: song)
+                            }.value
+                        }
+
+                        // 2. queue 接下来的歌: 已经摆好播放队列时,继续往后跑很可能
+                        let queueSnapshot = await MainActor.run { playerService.queue }
+                        let resumeID = resumeSong?.id
+                        let queueOrder = queueSnapshot.filter { $0.id != resumeID }.prefix(5)
+                        for song in queueOrder {
+                            if Task.isCancelled { return }
+                            let done = await MainActor.run { sourceManager.isPrewarmed(song: song) }
+                            if done { continue }
+                            await sourceManager.prewarmCloudSongPublic(song: song)
+                        }
+
+                        // 3. library 剩下的: 走 background 优先级,慢慢跑
                         let snapshot = await MainActor.run { musicLibrary.songs }
-                        for song in snapshot {
+                        let donePriority = Set(queueOrder.map(\.id) + [resumeID].compactMap { $0 })
+                        for song in snapshot where !donePriority.contains(song.id) {
                             if Task.isCancelled { return }
                             let done = await MainActor.run { sourceManager.isPrewarmed(song: song) }
                             if done { continue }

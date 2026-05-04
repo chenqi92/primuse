@@ -214,16 +214,11 @@ final class SourceManager {
         if let cached = cachedURL(for: song) {
             return cached
         }
-        // Priority 2: Streaming URL (Synology and similar — direct HTTP URL)
-        if let streamURL = try await conn.streamingURL(for: song.filePath) {
-            return streamURL
-        }
-        // Priority 3: Cloud-drive sources with a known fileSize go through
-        // the streaming SFBInputSource — instant playback, lazy on-disk
-        // caching. AudioPlayerService spots the custom scheme and uses
-        // CloudPlaybackSource. Falls back to full download for sources
-        // without a usable fileSize (rare; only happens before the first
-        // metadata refresh on legacy entries).
+        // Priority 2: Range streaming via CloudPlaybackSource — 边下边播,
+        // ~500ms 出首个 PCM buffer。AudioPlayerService 看到 cloud-stream://
+        // scheme 后会调 makeStreamingInputSource 走 sparse cache。
+        // 比 Priority 3 的 plain streamingURL 优先,因为后者会触发
+        // StreamingDownloadDecoder 整文件下载(40MB flac 等 6.1s)。
         if source.supportsRangeStreaming, song.fileSize > 0 {
             var components = URLComponents()
             components.scheme = Self.cloudStreamingScheme
@@ -233,8 +228,12 @@ final class SourceManager {
                 return url
             }
         }
-        // Priority 4: Download to local (legacy path; still required for
-        // sources without Range support).
+        // Priority 3: Streaming URL (sources without Range support, 或
+        // fileSize 未知的 legacy 条目)。走 StreamingDownloadDecoder 整下。
+        if let streamURL = try await conn.streamingURL(for: song.filePath) {
+            return streamURL
+        }
+        // Priority 4: Download to local (sources without streaming URL).
         return try await conn.localURL(for: song.filePath)
     }
 
@@ -389,15 +388,26 @@ final class SourceManager {
     /// disk, not the network. Idempotent on repeat calls.
     private func prewarmCloudSong(song: Song, connector: any MusicSourceConnector) async {
         if isPrewarmed(song: song) { return }
+        let fileSize = song.fileSize
+        guard fileSize > 0 else { return }
         do {
-            let head = try await connector.fetchRange(path: song.filePath, offset: 0, length: Self.prewarmHeadSize)
-            seedPrewarmCache(song: song, head: head)
+            // 并发拉 head + tail —— SFB.open() 必读 mp3 ID3v1 (tail 128B),
+            // 不预热 tail 就会触发 1-2s 的 user-facing fetch 卡顿。
+            // 短文件 (head + tail overlap) 时 tail 直接为空。
+            let tailSize = min(Self.prewarmTailSize, max(0, fileSize - Self.prewarmHeadSize))
+            async let headData = connector.fetchRange(path: song.filePath, offset: 0, length: Self.prewarmHeadSize)
+            async let tailData: Data = tailSize > 0
+                ? connector.fetchRange(path: song.filePath, offset: fileSize - tailSize, length: tailSize)
+                : Data()
+            let (head, tail) = try await (headData, tailData)
+            seedPrewarmCache(song: song, head: head, tail: tail, fileSize: fileSize)
         } catch {
             plog("⚠️ Prewarm failed for '\(song.title)': \(error.localizedDescription)")
         }
     }
 
-    static let prewarmHeadSize: Int64 = 256 * 1024
+    static let prewarmHeadSize: Int64 = CloudPlaybackSource.prewarmHeadBytes
+    static let prewarmTailSize: Int64 = CloudPlaybackSource.prewarmTailBytes
 
     /// Same as `prewarmCloudSong` but accepts a Song directly and resolves
     /// the connector itself. Exposed so `ScanService` can run a serialized
@@ -423,48 +433,75 @@ final class SourceManager {
         return sources.first(where: { $0.id == song.sourceID })?.supportsRangeStreaming ?? false
     }
 
-    /// Already-prewarmed marker check. Used by both `prewarmCloudSong` and
-    /// any other caller that has the head bytes in hand and wants to skip
-    /// re-writing them.
+    /// Already-prewarmed marker check. Marker JSON 存在 + partial 文件
+    /// 大小覆盖所有 listed ranges + head range 长度 >= 当前 prewarmHeadSize
+    /// 才算 prewarm。head 长度检查让 prewarm head 调大后旧 partial 自然
+    /// 重新 prewarm (不会被旧 256KB head 短路)。
     func isPrewarmed(song: Song) -> Bool {
         let cache = cacheURL(for: song)
         let partial = URL(fileURLWithPath: cache.path + ".partial")
         let marker = URL(fileURLWithPath: partial.path + CloudPlaybackSource.prewarmMarkerSuffix)
-        guard FileManager.default.fileExists(atPath: marker.path),
+        guard let m = CloudPlaybackSource.PrewarmMarker.read(from: marker),
+              FileManager.default.fileExists(atPath: partial.path),
               let attrs = try? FileManager.default.attributesOfItem(atPath: partial.path),
               let size = attrs[.size] as? Int64,
-              size == Self.prewarmHeadSize else { return false }
+              let maxEnd = m.swiftRanges.map(\.upperBound).max(),
+              size >= maxEnd,
+              let firstRange = m.swiftRanges.first,
+              firstRange.lowerBound == 0,
+              (firstRange.upperBound - firstRange.lowerBound) >= Self.prewarmHeadSize
+        else { return false }
         return true
     }
 
-    /// Write `head` to the song's `.partial` cache and place the prewarm
-    /// marker. Used when another path (e.g. metadata backfill) already
-    /// fetched the head bytes — avoids a second network round-trip just to
-    /// pre-populate the disk cache for the next play.
+    /// 兼容旧调用方 (MetadataBackfillService 拿到 head bytes 时只 seed head)。
+    /// 新代码应使用 `seedPrewarmCache(song:head:tail:fileSize:)`。
     func seedPrewarmCache(song: Song, head: Data) {
-        guard head.count >= Int(Self.prewarmHeadSize) else { return }
+        seedPrewarmCache(song: song, head: head, tail: Data(), fileSize: 0)
+    }
+
+    /// Write `head` (+ optional `tail`) to the song's sparse `.partial` cache
+    /// and place the prewarm marker JSON. Used by `prewarmCloudSong` and
+    /// MetadataBackfillService (head-only, via the compatibility overload).
+    /// fileSize=0 means "tail unknown, only seed head".
+    func seedPrewarmCache(song: Song, head: Data, tail: Data, fileSize: Int64) {
+        guard !head.isEmpty else { return }
         let cache = cacheURL(for: song)
         let partial = URL(fileURLWithPath: cache.path + ".partial")
         let marker = URL(fileURLWithPath: partial.path + CloudPlaybackSource.prewarmMarkerSuffix)
-        if FileManager.default.fileExists(atPath: marker.path),
-           let attrs = try? FileManager.default.attributesOfItem(atPath: partial.path),
-           let size = attrs[.size] as? Int64,
-           size == Self.prewarmHeadSize {
-            return  // already seeded
+
+        // Already seeded with at least equivalent ranges? Skip.
+        if isPrewarmed(song: song) {
+            return
         }
+
         try? FileManager.default.createDirectory(
             at: partial.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
+        try? FileManager.default.removeItem(at: partial)
+        try? FileManager.default.removeItem(at: marker)
+
         do {
-            // Atomic write of partial first, then marker — order matters:
-            // if power fails between them, no marker means
-            // CloudPlaybackSource will discard the partial rather than
-            // trusting partial bytes.
-            let trimmed = head.prefix(Int(Self.prewarmHeadSize))
-            try trimmed.write(to: partial, options: .atomic)
-            FileManager.default.createFile(atPath: marker.path, contents: nil)
-            plog("⏩ Prewarm: '\(song.title)' head=\(trimmed.count / 1024)KB cached")
+            // 写 sparse partial: head 在 offset 0, tail 在 fileSize-tail.count
+            // (中间 byte hole, file system 自动 sparse, 不占实际空间)
+            FileManager.default.createFile(atPath: partial.path, contents: nil)
+            let handle = try FileHandle(forWritingTo: partial)
+            try handle.write(contentsOf: head)
+            var ranges: [[Int64]] = [[0, Int64(head.count)]]
+            if !tail.isEmpty, fileSize > Int64(head.count) {
+                let tailOffset = fileSize - Int64(tail.count)
+                if tailOffset >= Int64(head.count) {  // 不覆盖 head
+                    try handle.seek(toOffset: UInt64(tailOffset))
+                    try handle.write(contentsOf: tail)
+                    ranges.append([tailOffset, fileSize])
+                }
+            }
+            try handle.close()
+            // marker JSON 必须最后写 —— 如果中间崩溃, 没 marker 就不信任 partial。
+            let m = CloudPlaybackSource.PrewarmMarker(v: CloudPlaybackSource.PrewarmMarker.currentVersion, ranges: ranges)
+            try m.write(to: marker)
+            plog("⏩ Prewarm: '\(song.title)' head=\(head.count / 1024)KB tail=\(tail.count / 1024)KB cached")
         } catch {
             plog("⚠️ Prewarm seed failed for '\(song.title)': \(error.localizedDescription)")
         }
@@ -513,16 +550,18 @@ final class SourceManager {
         return conn
     }
 
-    /// Create a **separate** connector instance for auxiliary tasks (lyrics, cover art).
-    /// This avoids blocking the shared playback connector's actor queue.
+    /// Lyrics / cover / scrape 都直接复用 playback connector(cached pool)。
+    /// 之前用独立 instance"避免 actor blocking",但实测 connector 内 fetchRange
+    /// 全是 await 点(让出 actor), 多个调用交错执行不会真 serial block。
+    /// 复用 main connector 的最大好处: prewarm 阶段已经 connect 过, lyrics
+    /// Tier3 第一首歌的 connect() 直接走 isLoggedIn 短路,免去 SSL+login 2-3s。
     func auxiliaryConnector(for song: Song) async throws -> any MusicSourceConnector {
         let sources = try await sourcesProvider()
         guard let source = sources.first(where: { $0.id == song.sourceID }) else {
             throw SourceError.fileNotFound("Source not found for song: \(song.title)")
         }
-        // Create a fresh connector — not cached, independent actor instance
-        let conn = connector(for: source, cache: false)
-        try await conn.connect()
+        let conn = connector(for: source)  // cache: true, 复用
+        try await conn.connect()  // idempotent on isLoggedIn
         return conn
     }
 
@@ -555,6 +594,16 @@ final class SourceManager {
 
 private extension MusicSource {
     var supportsRangeStreaming: Bool {
-        type.category == .cloudDrive || type == .webdav
+        type.category == .cloudDrive
+            || type == .webdav
+            || type == .synology
+            || type == .qnap
+            || type == .ugreen
+            || type == .fnos
+            || type == .s3
+            || type == .smb
+            || type == .sftp
+            || type == .ftp
+            || type == .nfs
     }
 }
