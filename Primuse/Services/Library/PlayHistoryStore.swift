@@ -221,16 +221,35 @@ final class PlayHistoryStore {
 
     /// 按天聚合的播放数 (热力图用)。返回 [日期: 当天播放次数],
     /// 跨度从 `range` 起点到今天, 缺失的日子值为 0。
+    ///
+    /// `.all` range 的起点本来是 .distantPast (年份 0001), 直接生成每日格子
+    /// 会有 70 万+ 天 → 立即 OOM。这里改成「以最早一条 entry 为起点」, 保证
+    /// 格子数 = 实际听歌天数, 不会爆。
     func dailyPlayCounts(in range: Range, now: Date = Date()) -> [(date: Date, count: Int)] {
         let cal = Calendar.current
-        let start = cal.startOfDay(for: range.startDate(now: now))
-        let end = cal.startOfDay(for: now)
         let scoped = entries(in: range)
+        let end = cal.startOfDay(for: now)
+        // 起点: 取 range 起点 与 实际最早 entry 中较晚的, 保证不会回到 .distantPast
+        let earliestEntry = scoped.map(\.playedAt).min() ?? now
+        let rangeStart = range.startDate(now: now)
+        let effectiveStart = max(rangeStart, earliestEntry)
+        let start = cal.startOfDay(for: effectiveStart)
+        // 再加一道安全锁: 即便聚合算错也不让格子超过 ~5 年, 防止任何边界
+        // 情况把 UI 卡死。5 年 ≈ 1825 天, 7 行 × 261 列, 横向滚动还吃得消。
+        let maxDays = 365 * 5
+        let safeStart: Date = {
+            let span = cal.dateComponents([.day], from: start, to: end).day ?? 0
+            if span > maxDays {
+                return cal.date(byAdding: .day, value: -maxDays, to: end) ?? start
+            }
+            return start
+        }()
+
         let bucketed = Dictionary(grouping: scoped) {
             cal.startOfDay(for: $0.playedAt)
         }.mapValues(\.count)
         var result: [(Date, Int)] = []
-        var cursor = start
+        var cursor = safeStart
         while cursor <= end {
             result.append((cursor, bucketed[cursor] ?? 0))
             cursor = cal.date(byAdding: .day, value: 1, to: cursor) ?? cursor.addingTimeInterval(86400)

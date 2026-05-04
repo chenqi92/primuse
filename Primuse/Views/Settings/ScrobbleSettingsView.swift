@@ -223,8 +223,6 @@ struct ScrobbleSettingsView: View {
             lastFmUsername = username
             lastFmConnected = true
             NotificationCenter.default.post(name: .scrobbleSettingsChanged, object: nil)
-        } catch LastFmAuthError.userCancelled {
-            // 用户主动取消, 静默不报错
         } catch {
             lastFmError = error.localizedDescription
         }
