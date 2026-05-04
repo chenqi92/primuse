@@ -573,6 +573,16 @@ final class SourceManager {
         await prewarmCloudSong(song: song, connector: conn)
     }
 
+    /// 主动结束 `song` 对应的 streaming session: 把 .partial 推向 final
+    /// (如果缺口在自动补齐阈值内) 或者保持原状。AudioPlayerService 在
+    /// 切歌 / stop / 播完时调, 让 .partial 不依赖 SFB 是否还会读字节就能
+    /// 走完应有的 rename 路径。
+    func finalizeStreamingSession(for song: Song) {
+        let cache = cacheURL(for: song)
+        let partialPath = cache.path + ".partial"
+        CloudPlaybackSource.finalizeSession(partialPath: partialPath)
+    }
+
     /// True if `song` lives on a source that supports HTTP Range streaming
     /// (i.e. would go through `CloudPlaybackSource` at play time). Used by
     /// metadata backfill to decide whether to seed the prewarm cache —

@@ -230,6 +230,12 @@ final class AudioPlayerService {
         let callerFile = (caller as NSString).lastPathComponent
         plog("▶️ play(song: \(song.title)) playID=\(id.uuidString.prefix(8)) FROM=\(callerFile):\(callerLine)")
 
+        // 切到新歌前主动触发上一首的 streaming session finalize, 让它有机会
+        // 把 .partial 转成 final (如果缺口在 50MB 自动补齐阈值内)。
+        if let prev = currentSong, prev.id != song.id {
+            sourceManager?.finalizeStreamingSession(for: prev)
+        }
+
         // Stop current playback
         decodingTask?.cancel()
         decodingTask = nil
@@ -936,6 +942,11 @@ final class AudioPlayerService {
     }
 
     func stop() {
+        // 主动结束当前 streaming session (切走 / 用户点停止时), 让 .partial
+        // 有机会转 final。
+        if let cur = currentSong {
+            sourceManager?.finalizeStreamingSession(for: cur)
+        }
         decodingTask?.cancel()
         decodingTask = nil
         crossfadeDecodingTask?.cancel()
@@ -965,6 +976,11 @@ final class AudioPlayerService {
     /// (sheet 白屏 / mini player 闪一下消失)。用户再点 play 可以从头重放
     /// (resume() 检测到 isAtTrackEnd 会走 play(song:) 重新解码)。
     private func stopAtTrackEnd() {
+        // 自然播完一首歌, 触发 finalize —— 这是 .partial → final 最关键的
+        // 时机, 用户期望「听完一整首」就该是完整缓存。
+        if let cur = currentSong {
+            sourceManager?.finalizeStreamingSession(for: cur)
+        }
         decodingTask?.cancel()
         decodingTask = nil
         crossfadeDecodingTask?.cancel()

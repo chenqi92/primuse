@@ -159,6 +159,7 @@ enum CloudPlaybackSource {
             cacheRelativePath: cacheRelativePath,
             connectorFetch: connectorFetch
         )
+        registerActiveState(state, key: partialURL.path)
 
         let block: CloudInputFetchBlock = { offset, length, errorOut in
             return state.serve(offset: offset, length: length, errorOut: errorOut)
@@ -169,6 +170,45 @@ enum CloudPlaybackSource {
             totalLength: totalLength,
             fetch: block
         )
+    }
+
+    // MARK: - Active session registry
+
+    /// 当前活跃的 streaming session 列表 (key = partialURL.path)。
+    /// 用 NSLock 保护, 不用 @MainActor —— 注册和访问都可能从 SFB
+    /// decode thread / main thread 同时进入。
+    private static let registryLock = NSLock()
+    nonisolated(unsafe) private static var activeStates: [String: State] = [:]
+
+    private static func registerActiveState(_ state: State, key: String) {
+        registryLock.lock()
+        activeStates[key] = state
+        registryLock.unlock()
+    }
+
+    private static func lookupActiveState(key: String) -> State? {
+        registryLock.lock()
+        defer { registryLock.unlock() }
+        return activeStates[key]
+    }
+
+    private static func unregisterActiveState(key: String) {
+        registryLock.lock()
+        activeStates[key] = nil
+        registryLock.unlock()
+    }
+
+    /// AudioPlayerService 在切歌 / 停止时调, 主动结束对应的 streaming session:
+    /// - 如果 cachedRanges 已经合得拢 (单段从 0 到 totalLength), 走 rename
+    /// - 如果就差小段缺口, 后台拉补完后 rename
+    /// - 如果差太多 (用户跳过没听完), 不动 .partial 让 LRU / pruneStalePartialFiles
+    ///   后续清理
+    /// 核心目的: 不再依赖 writeToCache 被反复触发, 让会话结束后 .partial
+    /// 能确定性地走完该走的路径。
+    static func finalizeSession(partialPath: String) {
+        guard let state = lookupActiveState(key: partialPath) else { return }
+        unregisterActiveState(key: partialPath)
+        state.finalizeSession()
     }
 }
 
@@ -226,6 +266,11 @@ private final class State: @unchecked Sendable {
     /// 「补全 trailing 缺口」任务是否已经派出去过。每个 session 只跑一次,
     /// 防止 writeToCache 反复触发 + 多个 in-flight fill 互相打架。
     private var trailingFillScheduled: Bool = false
+
+    /// 自动补齐缺口的阈值 — 缺口比这个小才主动拉。50MB 覆盖大部分
+    /// 「播完但 trailing 没读到」的真实场景, 同时避免给那些 user 实际
+    /// 只听了开头的歌强行下完整首。
+    fileprivate static let autoFillThreshold: Int64 = 50 * 1024 * 1024
 
     init(
         label: String,
@@ -573,17 +618,18 @@ private final class State: @unchecked Sendable {
             // 2) 双段 [0, X) + [Y, totalLength), Y - X 较小 — 顺序播没追上
             //    prewarm tail; 缺 [X, Y)
             //
-            // 只在缺口 < 5MB 时主动补, 避免对真正大段没下完的歌 (用户跳过)
-            // 还浪费带宽硬下完。补完 writeToCache 会再回来走 rename 分支。
+            // 只在缺口 < autoFillThreshold 时主动补, 避免对真正大段没下完
+            // 的歌 (用户跳过) 还浪费带宽硬下完。补完 writeToCache 会再回来
+            // 走 rename 分支。
             let firstUpper = cachedRanges[0].upperBound
             if cachedRanges.count == 1,
                firstUpper < totalLength,
-               (totalLength - firstUpper) < 5 * 1024 * 1024 {
+               (totalLength - firstUpper) < Self.autoFillThreshold {
                 fillRequest = (firstUpper, totalLength - firstUpper)
                 trailingFillScheduled = true
             } else if cachedRanges.count == 2,
                       cachedRanges[1].upperBound == totalLength,
-                      (cachedRanges[1].lowerBound - firstUpper) < 5 * 1024 * 1024 {
+                      (cachedRanges[1].lowerBound - firstUpper) < Self.autoFillThreshold {
                 fillRequest = (firstUpper, cachedRanges[1].lowerBound - firstUpper)
                 trailingFillScheduled = true
             }
@@ -612,6 +658,60 @@ private final class State: @unchecked Sendable {
         // 2GB 上限对 NAS 全失效。
         if let path = renamedRelativePath {
             Task { await AudioCacheManager.shared.recordAccess(path: path) }
+        }
+    }
+
+    /// 由 AudioPlayerService 切歌 / 停止时通过 finalizeSession(partialPath:)
+    /// 触发, 主动结束这个 session 的 .partial 状态。三种结果:
+    /// - 已经是 final: 啥也不做
+    /// - 缺口在 autoFillThreshold 内: 后台拉缺失字节, 拉完 writeToCache
+    ///   会自动 rename。这里只触发, 不等待。
+    /// - 缺口太大 (用户跳过没听到那段): 不动, .partial 留着 LRU / pruneStale
+    ///   后续清理。
+    fileprivate func finalizeSession() {
+        lock.lock()
+        // 已经 rename 过了, 啥也不做。
+        if activeURL == finalURL {
+            lock.unlock()
+            return
+        }
+        // 已经派发过 trailing fill task, 不重复触发。
+        if trailingFillScheduled {
+            lock.unlock()
+            return
+        }
+        guard !cachedRanges.isEmpty,
+              cachedRanges[0].lowerBound == 0 else {
+            lock.unlock()
+            return
+        }
+        var fillRequest: (offset: Int64, length: Int64)?
+        let firstUpper = cachedRanges[0].upperBound
+        if cachedRanges.count == 1,
+           firstUpper < totalLength,
+           (totalLength - firstUpper) < Self.autoFillThreshold {
+            fillRequest = (firstUpper, totalLength - firstUpper)
+            trailingFillScheduled = true
+        } else if cachedRanges.count == 2,
+                  cachedRanges[1].upperBound == totalLength,
+                  (cachedRanges[1].lowerBound - firstUpper) < Self.autoFillThreshold {
+            fillRequest = (firstUpper, cachedRanges[1].lowerBound - firstUpper)
+            trailingFillScheduled = true
+        }
+        lock.unlock()
+
+        guard let req = fillRequest else { return }
+        plog("☁️ finalizeSession '\(label)' fill missing range [\(req.offset)..\(req.offset + req.length)) (\(req.length / 1024)KB)")
+        Task { [weak self, connectorFetch, label] in
+            guard let self else { return }
+            do {
+                let data = try await connectorFetch(req.offset, req.length)
+                if !data.isEmpty {
+                    self.writeToCache(offset: req.offset, data: data)
+                }
+            } catch {
+                plog("⚠️ Cloud stream '\(label)' finalize fill failed: \(error.localizedDescription)")
+            }
         }
     }
 
