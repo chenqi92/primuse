@@ -79,9 +79,102 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
     /// enough that a user who adds files to Baidu sees them re-listed.
     private static let dirListingTTL: TimeInterval = 5 * 60
 
+    /// Lazy-load 标志:第一次 dlink/cdnURL 读写时从磁盘 load 一次。
+    /// 不能在 init 里做(actor init 不能 await)。
+    private var didLoadPersistedDlinks = false
+
+    /// Debounced save task。命中频繁的播放会触发多次 cache 写入,
+    /// 用 2s 节流避免每次都写盘。
+    private var dlinkPersistTask: Task<Void, Never>?
+
     init(sourceID: String) {
         self.sourceID = sourceID
         self.helper = CloudDriveHelper(sourceID: sourceID)
+    }
+
+    // MARK: - Persisted dlink cache
+
+    /// 持久化条目。dlink 和 cdnURL 共享 expiresAt(取两者较晚者)。
+    /// 启动时同时 load,跳过 cold-start 第一首歌的 300-800ms dlink resolve。
+    private struct PersistedDlinkEntry: Codable {
+        let path: String
+        let dlink: String?
+        let cdnURL: String?
+        let expiresAt: Date
+    }
+
+    private var dlinkPersistFileURL: URL {
+        helper.cacheDirectory.appendingPathComponent("dlink_cache.json")
+    }
+
+    /// 第一次访问 dlink/cdnURL 时从 disk load。expired 的条目跳过。
+    private func loadPersistedDlinksIfNeeded() {
+        guard !didLoadPersistedDlinks else { return }
+        didLoadPersistedDlinks = true
+
+        let url = dlinkPersistFileURL
+        guard let data = try? Data(contentsOf: url) else { return }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let entries = try? decoder.decode([PersistedDlinkEntry].self, from: data) else {
+            plog("⚠️ Baidu dlink cache decode failed at \(url.path)")
+            return
+        }
+        let now = Date()
+        var loadedDlink = 0
+        var loadedCdn = 0
+        for entry in entries where entry.expiresAt > now {
+            if let dlink = entry.dlink {
+                dlinkCache[entry.path] = (dlink, entry.expiresAt)
+                loadedDlink += 1
+            }
+            if let cdnStr = entry.cdnURL, let url = URL(string: cdnStr) {
+                cdnURLCache[entry.path] = (url, entry.expiresAt)
+                loadedCdn += 1
+            }
+        }
+        plog("☁️ Baidu loaded persisted dlink cache: \(loadedDlink) dlinks, \(loadedCdn) CDN URLs (\(entries.count - loadedDlink) expired skipped)")
+    }
+
+    /// Debounce 2s 后写盘。频繁刮削 / 播放时多次触发只写一次。
+    private func scheduleDlinkPersist() {
+        dlinkPersistTask?.cancel()
+        dlinkPersistTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            await self?.persistDlinksNow()
+        }
+    }
+
+    private func persistDlinksNow() {
+        let now = Date()
+        var entries: [PersistedDlinkEntry] = []
+        let allPaths = Set(dlinkCache.keys).union(cdnURLCache.keys)
+        for path in allPaths {
+            let dlinkEntry = dlinkCache[path]
+            let cdnEntry = cdnURLCache[path]
+            let expiresAt = max(
+                dlinkEntry?.expiresAt ?? .distantPast,
+                cdnEntry?.expiresAt ?? .distantPast
+            )
+            guard expiresAt > now else { continue }
+            entries.append(PersistedDlinkEntry(
+                path: path,
+                dlink: dlinkEntry?.url,
+                cdnURL: cdnEntry?.url.absoluteString,
+                expiresAt: expiresAt
+            ))
+        }
+        let url = dlinkPersistFileURL
+        do {
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            let data = try encoder.encode(entries)
+            try data.write(to: url, options: .atomic)
+            plog("☁️ Baidu persisted \(entries.count) dlink entries to \(url.lastPathComponent)")
+        } catch {
+            plog("⚠️ Baidu failed to persist dlink cache: \(error.localizedDescription)")
+        }
     }
 
     func connect() async throws { _ = try await getToken() }
@@ -212,12 +305,14 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
 
     private func invalidateDlink(for path: String) {
         dlinkCache.removeValue(forKey: path)
+        scheduleDlinkPersist()
     }
 
     private func invalidateCdnURL(for path: String) {
         cdnURLCache.removeValue(forKey: path)
         cdnURLResolveTasks[path]?.cancel()
         cdnURLResolveTasks[path] = nil
+        scheduleDlinkPersist()
     }
 
     /// Resolve `path` to a pre-signed CDN URL by HEAD-ing the dlink with
@@ -225,6 +320,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
     /// Cached for `dlinkTTL` (matches the dlink lifetime — once dlink is
     /// stale the CDN sig also is).
     private func getCdnURL(for path: String) async throws -> URL {
+        loadPersistedDlinksIfNeeded()
         if let cached = cdnURLCache[path], cached.expiresAt > Date() {
             return cached.url
         }
@@ -239,6 +335,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
         defer { cdnURLResolveTasks[path] = nil }
         let resolved = try await task.value
         cdnURLCache[path] = (resolved, Date().addingTimeInterval(Self.dlinkTTL))
+        scheduleDlinkPersist()
         return resolved
     }
 
@@ -315,6 +412,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
     ///   directory listing is shared with any sibling song that needs
     ///   resolution within `dirListingTTL`
     private func getDlink(for path: String) async throws -> String {
+        loadPersistedDlinksIfNeeded()
         if let cached = dlinkCache[path], cached.expiresAt > Date() {
             return cached.url
         }
@@ -340,6 +438,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
             throw CloudDriveError.fileNotFound(path)
         }
         dlinkCache[path] = (dlink, Date().addingTimeInterval(Self.dlinkTTL))
+        scheduleDlinkPersist()
         return dlink
     }
 
