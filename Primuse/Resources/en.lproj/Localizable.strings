@@ -507,3 +507,25 @@
 "scrobble_clear_queue" = "Clear Queue";
 "scrobble_clear_queue_confirm" = "Clear all pending listens?";
 "ok" = "OK";
+
+// MARK: - Lyrics Translation
+"lyrics_translation_title" = "Lyrics Translation";
+"lyrics_translation_enabled" = "Enable Translation";
+"lyrics_translation_overall_footer" = "Translate lyrics offline using Apple's Translation framework. Translation appears under each line. The system will download a language pack on first use.";
+"lyrics_translation_target_language" = "Target Language";
+"lyrics_translation_target" = "Translate to";
+"lyrics_translation_cache_section" = "Translation Cache";
+"lyrics_translation_cached" = "Cached Entries";
+"lyrics_translation_cache_footer" = "Translated lines are cached locally for instant retrieval next time.";
+"lyrics_translation_clear_cache" = "Clear Translation Cache";
+"lyrics_translation_clear_confirm" = "Clear all cached translations?";
+
+"lang_zh_hans" = "Chinese (Simplified)";
+"lang_zh_hant" = "Chinese (Traditional)";
+"lang_en" = "English";
+"lang_ja" = "Japanese";
+"lang_ko" = "Korean";
+"lang_es" = "Spanish";
+"lang_fr" = "French";
+"lang_de" = "German";
+"lang_ru" = "Russian";

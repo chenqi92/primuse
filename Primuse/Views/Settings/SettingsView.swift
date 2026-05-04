@@ -39,6 +39,12 @@ struct SettingsView: View {
                     }
 
                     NavigationLink {
+                        LyricsTranslationSettingsView()
+                    } label: {
+                        Label("lyrics_translation_title", systemImage: "character.bubble")
+                    }
+
+                    NavigationLink {
                         StorageManagementView()
                     } label: {
                         Label("storage_management", systemImage: "internaldrive")
