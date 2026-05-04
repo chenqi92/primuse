@@ -416,6 +416,8 @@
 "cache_completed" = "Fully cached";
 "cache_partial" = "Incomplete partials";
 "cache_orphaned" = "Removed-source leftovers";
+"cache_clear_done_format" = "Cleared %@";
+"cache_clear_partial_format" = "Cleared %@, but %d file(s) in use couldn't be removed. Pause playback and try again.";
 "metadata_clear_footer" = "Cover art and lyrics are stored persistently. Clearing will require re-scanning or re-fetching from your music sources.";
 "scraping_album_covers" = "Fetching album covers...";
 "scraping_artist_images" = "Fetching artist images...";

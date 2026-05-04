@@ -340,18 +340,32 @@ final class SourceManager {
     /// 一键清掉所有 `.partial` 半成品 (无视 mtime, 等价于用户主动决定
     /// 「不要任何半下载文件了」)。正在 streaming 的歌会立即变成 cache miss
     /// 重新下, 但不会丢功能。
-    func purgeAllPartialFiles() {
+    @discardableResult
+    func purgeAllPartialFiles() -> (freedBytes: Int64, failedCount: Int) {
         let basePath = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
             .appendingPathComponent(Self.audioCacheDirName)
+        var freed: Int64 = 0
+        var failed = 0
         guard let enumerator = FileManager.default.enumerator(
-            at: basePath, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
-        ) else { return }
+            at: basePath, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles]
+        ) else { return (0, 0) }
+        var partials: [(URL, Int64)] = []
         for case let fileURL as URL in enumerator {
             let name = fileURL.lastPathComponent
-            if name.hasSuffix(".partial") || name.hasSuffix(".partial.prewarmed") {
-                try? FileManager.default.removeItem(at: fileURL)
+            guard name.hasSuffix(".partial") || name.hasSuffix(".partial.prewarmed") else { continue }
+            let size = Int64((try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+            partials.append((fileURL, size))
+        }
+        for (url, size) in partials {
+            do {
+                try FileManager.default.removeItem(at: url)
+                freed += size
+            } catch {
+                failed += 1
             }
         }
+        plog("🧹 purgeAllPartialFiles: freed \(freed / 1024 / 1024)MB, failed=\(failed)")
+        return (freed, failed)
     }
 
     func deleteAudioCache(for song: Song) {
@@ -361,12 +375,51 @@ final class SourceManager {
         Task { await AudioCacheManager.shared.removeEntry(path: relativePath) }
     }
 
-    func clearAudioCache() {
+    /// 清空所有音频缓存。返回 (成功删除字节数, 失败文件数)。
+    ///
+    /// 之前的版本对整个目录调一次 removeItem(at:), 任何一个文件 handle
+    /// 没释放 (audio engine 正在读, NSURLSession 还在写) 就整个失败,
+    /// `try?` 又吞错误 — 用户以为清了实际没动。现在先递归枚举每个文件
+    /// 单独删, 把 in-flight 文件之外的都干掉, 只对 cache 目录的整个
+    /// removeItem 是 best-effort 的最后一步。
+    @discardableResult
+    func clearAudioCache() -> (freedBytes: Int64, failedCount: Int) {
         let basePath = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
             .appendingPathComponent(Self.audioCacheDirName)
-        try? FileManager.default.removeItem(at: basePath)
-        try? FileManager.default.removeItem(at: Self.smbCacheDir)
+        var freed: Int64 = 0
+        var failed = 0
+
+        for dir in [basePath, Self.smbCacheDir] {
+            guard let enumerator = FileManager.default.enumerator(
+                at: dir,
+                includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey],
+                options: [.skipsHiddenFiles]
+            ) else { continue }
+
+            // 先收集再删, 避免 enumerator 边删边遍历崩。
+            var files: [(URL, Int64)] = []
+            for case let fileURL as URL in enumerator {
+                guard let values = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
+                      values.isRegularFile == true else { continue }
+                files.append((fileURL, Int64(values.fileSize ?? 0)))
+            }
+            for (url, size) in files {
+                do {
+                    try FileManager.default.removeItem(at: url)
+                    freed += size
+                } catch {
+                    failed += 1
+                    plog("⚠️ clearAudioCache: cannot remove \(url.lastPathComponent): \(error.localizedDescription)")
+                }
+            }
+            // 文件都删完了, 子目录就空了, 一把删掉; 失败也不要紧 (可能仍有
+            // in-flight 文件, 下次 clear 再清)。
+            try? FileManager.default.removeItem(at: dir)
+        }
+
         Task { await AudioCacheManager.shared.clearAll() }
+        plog("🧹 clearAudioCache: freed \(freed / 1024 / 1024)MB, failed=\(failed)")
+        return (freed, failed)
     }
 
     /// 启动时清掉超过 `olderThanDays` 没动的 `.partial` 半成品 + 对应的

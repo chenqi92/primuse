@@ -564,6 +564,8 @@ struct StorageManagementView: View {
     @State private var audioBreakdown: SourceManager.AudioCacheBreakdown?
     @State private var isClearingPartials = false
     @State private var isClearingOrphans = false
+    /// 清理结果提示 — 失败时让用户知道为什么没全清掉 (通常是当前正在播放的歌)。
+    @State private var cacheActionToast: String?
 
     var body: some View {
         @Bindable var settings = playbackSettings
@@ -602,9 +604,10 @@ struct StorageManagementView: View {
                 ) {
                     isClearingAudio = true
                     Task {
-                        sourceManager.clearAudioCache()
+                        let result = sourceManager.clearAudioCache()
                         await refreshSizes()
                         isClearingAudio = false
+                        flashCacheToast(freed: result.freedBytes, failed: result.failedCount)
                     }
                 }
 
@@ -656,6 +659,34 @@ struct StorageManagementView: View {
         .navigationTitle("storage_management")
         .navigationBarTitleDisplayMode(.inline)
         .task { await refreshSizes() }
+        .overlay(alignment: .bottom) {
+            if let msg = cacheActionToast {
+                Text(msg)
+                    .font(.subheadline)
+                    .padding(.horizontal, 16).padding(.vertical, 10)
+                    .background(.thinMaterial, in: Capsule())
+                    .padding(.bottom, 24)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+    }
+
+    private func flashCacheToast(freed: Int64, failed: Int) {
+        let fmt = ByteCountFormatter()
+        fmt.countStyle = .file
+        let freedStr = fmt.string(fromByteCount: freed)
+        let msg: String
+        if failed > 0 {
+            // 通常是当前正在播放的歌锁住了文件 — 提示一下用户暂停后重试
+            msg = String(format: String(localized: "cache_clear_partial_format"), freedStr, failed)
+        } else {
+            msg = String(format: String(localized: "cache_clear_done_format"), freedStr)
+        }
+        withAnimation { cacheActionToast = msg }
+        Task {
+            try? await Task.sleep(for: .seconds(3))
+            withAnimation { cacheActionToast = nil }
+        }
     }
 
     private func storageRow(
@@ -711,9 +742,10 @@ struct StorageManagementView: View {
                     Button(role: .destructive) {
                         isClearingPartials = true
                         Task {
-                            sourceManager.purgeAllPartialFiles()
+                            let result = sourceManager.purgeAllPartialFiles()
                             await refreshSizes()
                             isClearingPartials = false
+                            flashCacheToast(freed: result.freedBytes, failed: result.failedCount)
                         }
                     } label: {
                         if isClearingPartials {

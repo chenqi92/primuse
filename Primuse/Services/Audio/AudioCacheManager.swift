@@ -37,6 +37,15 @@ actor AudioCacheManager {
     }
 
     /// Evict oldest files until there is room for `reserveBytes` additional data.
+    ///
+    /// 之前的版本只看 `accessLog` 的文件 — 但 `.partial` 半成品 (Range
+    /// streaming 中途没下完, 或者只 prewarm 的 head+tail) 永远不进
+    /// accessLog (因为 recordAccess 只在完整 rename 后调)。结果 LRU
+    /// 看不见 .partial, 完整文件被压在 2GB 但 .partial 无限堆 —— 用户
+    /// 实际见到 5GB+ 缓存。
+    ///
+    /// 现在改成扫整个 cache 目录, 对没记录的 .partial / orphan 用 mtime
+    /// 当 access time 兜底, 一并参与 LRU 排序 + eviction。
     func evictIfNeeded(reserveBytes: Int64) {
         ensureInitialized()
         let reserve = reserveBytes > 0 ? reserveBytes : 10_485_760 // default 10 MB estimate
@@ -45,20 +54,48 @@ actor AudioCacheManager {
 
         guard currentSize > target else { return }
 
-        // Sort by access time ascending (oldest first)
-        let sorted = accessLog.sorted { $0.value < $1.value }
-        var freed: Int64 = 0
-        let needed = currentSize - target
+        // 扫整个 cache 目录, 给 accessLog 没覆盖的文件 (主要是 .partial /
+        // .partial.prewarmed) 用 mtime 当 access 时间兜底。
+        struct EvictCandidate { let url: URL; let relativePath: String; let size: Int64; let lastUsed: Date }
+        var candidates: [EvictCandidate] = []
+        let basePathPrefix = basePath.path + "/"
 
-        for (path, _) in sorted {
-            guard freed < needed else { break }
-            let fileURL = basePath.appendingPathComponent(path)
-            if let size = fileSize(at: fileURL) {
-                try? FileManager.default.removeItem(at: fileURL)
-                freed += size
-                accessLog[path] = nil
+        if let enumerator = FileManager.default.enumerator(
+            at: basePath,
+            includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            for case let fileURL as URL in enumerator {
+                guard let values = try? fileURL.resourceValues(
+                    forKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey]
+                ), values.isRegularFile == true else { continue }
+                let size = Int64(values.fileSize ?? 0)
+                guard size > 0 else { continue }
+                let relative = fileURL.path.hasPrefix(basePathPrefix)
+                    ? String(fileURL.path.dropFirst(basePathPrefix.count))
+                    : fileURL.lastPathComponent
+                let lastUsed = accessLog[relative] ?? values.contentModificationDate ?? .distantPast
+                candidates.append(EvictCandidate(
+                    url: fileURL, relativePath: relative, size: size, lastUsed: lastUsed
+                ))
             }
         }
+
+        // 最旧的优先 evict
+        candidates.sort { $0.lastUsed < $1.lastUsed }
+        var freed: Int64 = 0
+        let needed = currentSize - target
+        for cand in candidates {
+            if freed >= needed { break }
+            do {
+                try FileManager.default.removeItem(at: cand.url)
+                freed += cand.size
+                accessLog[cand.relativePath] = nil
+            } catch {
+                plog("⚠️ evictIfNeeded: failed to remove \(cand.relativePath): \(error.localizedDescription)")
+            }
+        }
+        plog("🧹 evictIfNeeded: freed \(freed / 1024 / 1024)MB / needed \(needed / 1024 / 1024)MB")
 
         schedulePersist()
     }
