@@ -156,9 +156,9 @@ actor ConfigurableScraper: MusicScraper {
         if dict["_fetchEncryptedLyrics"] as? Bool == true {
             // vars 支持两种形式:
             // - dict（单个 candidate）: 直接 fetch
-            // - array（多个 candidate）: 依次 try, 选 lrcContent 最长的（kugou 的
-            //   candidates 按 score 排但 score 高 ≠ 完整,常出现"官方推荐 4 行残缺,
-            //   ugc 投稿版才是全曲"的情况）
+            // - array（多个 candidate）: 依次 try, 选 lrcContent 最长的 (有些
+            //   源 candidates 按 score 排但 score 高 ≠ 完整, 常出现"官方推荐
+            //   4 行残缺, ugc 投稿版才是全曲"的情况)
             if let varsList = dict["vars"] as? [[String: Any]], !varsList.isEmpty {
                 plog("🔐 \(config.id) getLyrics → _fetchEncryptedLyrics with \(varsList.count) candidates")
                 let result = await fetchBestEncryptedLyrics(varsList: varsList)
@@ -186,7 +186,7 @@ actor ConfigurableScraper: MusicScraper {
     }
 
     /// 多候选版本:依次 try, 选解密后 plain text 最长的那个 (= 最完整歌词)。
-    /// kugou 等源 candidates 按 score 排但 score 高 ≠ 内容全, 第一个常是 4 行
+    /// 有些源 candidates 按 score 排但 score 高 ≠ 内容全, 第一个常是 4 行
     /// 残缺版, 第 2-3 个 ugc 投稿才是全曲。最多 try 5 个避免拉太多。
     private func fetchBestEncryptedLyrics(varsList: [[String: Any]]) async -> ScraperLyricsResult? {
         var best: ScraperLyricsResult?
@@ -343,9 +343,9 @@ actor ConfigurableScraper: MusicScraper {
     /// 把 `{{key}}` 和 `{{key[N]}}` 占位符替换成 vars 里的值。
     ///   - `{{key}}` 整体替换
     ///   - `{{key[N]}}` 把 vars[key] 按 `|` 切分,取第 N 段(0 起);N 越界则空串
-    /// 用 `{{key[N]}}` 是为了能从复合 externalId（如 kugou 的
-    /// `hash|albumId|songname|singer|duration|cover`）里精确取字段,而不是
-    /// 把整串当 keyword 传给服务端。
+    /// 用 `{{key[N]}}` 是为了能从复合 externalId (例如某些源的
+    /// `hash|albumId|songname|singer|duration|cover` 格式) 里精确取字段,
+    /// 而不是把整串当 keyword 传给服务端。
     nonisolated static func applyTemplate(_ template: String, vars: [String: String]) -> String {
         var result = template
         // 先处理带索引的：`{{key[N]}}`

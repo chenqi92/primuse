@@ -17,9 +17,10 @@ final class FileLogger: @unchecked Sendable {
         let docs = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
         fileURL = docs.appendingPathComponent("primuse_debug.log")
 
-        // Rotate: if log > 2MB, truncate
+        // Rotate: 上限 10MB (2MB 时一会儿就被刷屏, 用户拉日志诊断时只能看到
+        // 最近一小段。10MB 大概能放几小时密集播放 + 刮削的全量日志, 够诊断。)
         if let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
-           let size = attrs[.size] as? Int, size > 2_000_000 {
+           let size = attrs[.size] as? Int, size > 10_000_000 {
             try? FileManager.default.removeItem(at: fileURL)
         }
 

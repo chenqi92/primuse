@@ -126,6 +126,19 @@ struct ListeningStatsView: View {
         } footer: {
             Text("stats_heatmap_footer")
         }
+        // 把每次 range 切换后的格子数 / 列数 dump 到日志, 用户拉日志能看到。
+        .task(id: range) { logHeatmapStats() }
+    }
+
+    private func logHeatmapStats() {
+        let counts = store.dailyPlayCounts(in: range)
+        let cal = Calendar.current
+        let weeks = Set(counts.map { cell -> Int in
+            let comp = cal.dateComponents([.weekOfYear, .yearForWeekOfYear], from: cell.date)
+            return (comp.yearForWeekOfYear ?? 0) * 100 + (comp.weekOfYear ?? 0)
+        }).count
+        let nonZero = counts.filter { $0.count > 0 }.count
+        plog("📊 stats heatmap range=\(range.rawValue) cells=\(counts.count) weekCols=\(weeks) activeDays=\(nonZero)")
     }
 
     @ViewBuilder

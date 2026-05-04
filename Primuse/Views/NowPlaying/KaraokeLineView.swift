@@ -4,7 +4,7 @@ import PrimuseKit
 /// 渲染单行 **激活态** 字级歌词。每个 syllable 是独立的 Text, 走自定义
 /// flow layout 自动换行。每帧由 60Hz `TimelineView(.animation)` 驱动。
 ///
-/// 视觉细节 (向 Apple Music / 网易云对齐):
+/// 视觉细节 (向主流音乐 app 的字级歌词手感对齐):
 /// - **字内 mask 扫光**: 每个 syllable 由两层 Text 叠加 — 底层 inactive 色,
 ///   顶层 active 色 + LinearGradient mask, mask 的「可见区」随 progress 从
 ///   左扫到右。单字内部能看到「左半亮右半暗」的过渡边一路扫过, 不再是

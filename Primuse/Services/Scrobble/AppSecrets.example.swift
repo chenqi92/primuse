@@ -12,4 +12,10 @@ import Foundation
 enum AppSecrets {
     static let lastFmAPIKey = "YOUR_LASTFM_API_KEY"
     static let lastFmAPISecret = "YOUR_LASTFM_SHARED_SECRET"
+
+    /// 部分自定义 scraper 源的字级歌词需要二进制 payload 解密 (XOR + zlib),
+    /// 这里按 scraper id 配 4 个 secret 字段 (URL 模板 / contentField /
+    /// magicHex / xorKeyHex)。详见 `Primuse/Services/Scrobble/AppSecrets.swift`
+    /// (gitignored 不入仓库)。
+    static let scraperSecrets: [String: [String: String]] = [:]
 }

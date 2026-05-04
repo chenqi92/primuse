@@ -559,6 +559,8 @@ struct NowPlayingView: View {
 
     private func setLyrics(_ value: [LyricLine]) {
         lyrics = value
+        let wordLevelCount = value.filter { $0.isWordLevel }.count
+        plog("📜 setLyrics: lines=\(value.count) wordLevelLines=\(wordLevelCount) firstSyllables=\(value.first?.syllables?.count ?? -1)")
         // currentLineIndex / hasWordLevelLyrics 已迁移到 LyricsScrollView 子 view,
         // 子 view 自己 onChange(of: songID) 重置 + computed property 算 hasWord。
     }

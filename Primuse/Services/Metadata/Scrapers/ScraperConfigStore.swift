@@ -255,7 +255,12 @@ final class ScraperConfigStore: @unchecked Sendable {
             if let secretsData = try? Data(contentsOf: secretsURL),
                let secrets = try? JSONDecoder().decode([String: String].self, from: secretsData) {
                 config.secrets = secrets
-                plog("📦 ScraperConfigStore loadAll: \(config.id) v\(config.version) + secrets keys=\(Array(secrets.keys))")
+                plog("📦 ScraperConfigStore loadAll: \(config.id) v\(config.version) + secrets file keys=\(Array(secrets.keys))")
+            } else if let bundled = AppSecrets.scraperSecrets[config.id] {
+                // Fallback: 用户没手动放 secrets 文件, 但 AppSecrets 内置了
+                // 一份解密参数, 自动注入让用户开箱即用。
+                config.secrets = bundled
+                plog("📦 ScraperConfigStore loadAll: \(config.id) v\(config.version) + secrets builtin keys=\(Array(bundled.keys))")
             } else {
                 plog("📦 ScraperConfigStore loadAll: \(config.id) v\(config.version) NO secrets (file exists=\(secretsExists))")
             }

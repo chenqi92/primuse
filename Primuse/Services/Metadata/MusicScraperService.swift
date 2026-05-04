@@ -82,22 +82,30 @@ final class MusicScraperService {
         }
 
         if !dryRun && updatedSong != song {
+            // 拿到 lyrics 立即写 hash JSON cache + 把 song.lyricsFileName 改成
+            // hash filename (不是 NAS .lrc path) —— 否则 NowPlayingView.loadLyrics
+            // 立即跑时, Tier1a cache miss + Tier1b 看 lyricsFileName 含 "/" 走
+            // Tier3 从 NAS 拉 line-level .lrc, 用户看到 line-level, 等后续 sidecar
+            // task 写 cache 已经晚了 (UI 不会再 reload)。
+            let lyricsLines = result.lyricsLines
+            let coverData = result.coverData
+            if let lyricsLines, !lyricsLines.isEmpty {
+                await MetadataAssetStore.shared.cacheLyrics(lyricsLines, forSongID: updatedSong.id, force: true)
+                updatedSong.lyricsFileName = MetadataAssetStore.shared.expectedLyricsFileName(for: updatedSong.id)
+            }
             library.replaceSong(updatedSong)
 
             // Write sidecar files to source (cover.jpg, .lrc) and update Song refs
-            let coverData = result.coverData
-            let lyricsLines = result.lyricsLines
             plog("📝 Sidecar: coverData=\(coverData?.count ?? 0)B lyricsLines=\(lyricsLines?.count ?? 0) for '\(updatedSong.title)'")
             if coverData != nil || lyricsLines != nil {
                 let songForWrite = updatedSong
                 let sourceManager = self.sourceManager
                 let songID = updatedSong.id
                 Task { @MainActor in
-                    // 写 sidecar **前**先清旧 cache —— 避免 race window 内
-                    // NowPlayingView/CachedArtworkView 读到上次刮削写入的污染数据。
-                    // 短窗口内 cache miss 会自然 fall through 到 source connector。
+                    // 之前刮削过的 cover cache 可能仍然存在, 在 sidecar 写完前
+                    // 失效避免 UI 拿到上次的污染数据。lyrics 不在这里 invalidate
+                    // 因为我们刚刚已经写过新的字级 cache (上面那段)。
                     await MetadataAssetStore.shared.invalidateCoverCache(forSongID: songID)
-                    await MetadataAssetStore.shared.invalidateLyricsCache(forSongID: songID)
                     CachedArtworkView.invalidateCache(for: songID)
 
                     do {

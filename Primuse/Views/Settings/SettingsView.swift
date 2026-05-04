@@ -114,14 +114,14 @@ struct SettingsView: View {
                     HStack {
                         Text("version")
                         Spacer()
-                        Text("1.0.0")
+                        Text(Bundle.main.appVersion)
                             .foregroundStyle(.secondary)
                     }
 
                     HStack {
                         Text("build")
                         Spacer()
-                        Text("1")
+                        Text(Bundle.main.appBuildNumber)
                             .foregroundStyle(.secondary)
                     }
 
@@ -572,6 +572,12 @@ struct StorageManagementView: View {
     @State private var isClearingOrphans = false
     /// 清理结果提示 — 失败时让用户知道为什么没全清掉 (通常是当前正在播放的歌)。
     @State private var cacheActionToast: String?
+    @State private var logShareItem: LogShareItem?
+
+    struct LogShareItem: Identifiable {
+        let id = UUID()
+        let url: URL
+    }
 
     var body: some View {
         @Bindable var settings = playbackSettings
@@ -661,6 +667,25 @@ struct StorageManagementView: View {
             } footer: {
                 Text("metadata_clear_footer")
             }
+
+            // Debug 区只在 Debug 构建里显示 —— 生产 Release 不出现这个入口,
+            // 普通用户看不到 (避免误触把开发日志泄露)。
+            #if DEBUG
+            Section {
+                Button {
+                    logShareItem = LogShareItem(url: FileLogger.shared.logFileURL)
+                } label: {
+                    Label("storage_export_log", systemImage: "square.and.arrow.up.on.square")
+                }
+            } header: {
+                Text("debug")
+            } footer: {
+                Text("storage_export_log_footer")
+            }
+            #endif
+        }
+        .sheet(item: $logShareItem) { item in
+            ShareSheet(items: [item.url])
         }
         .navigationTitle("storage_management")
         .navigationBarTitleDisplayMode(.inline)

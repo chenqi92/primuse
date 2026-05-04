@@ -127,6 +127,11 @@ final class AudioPlayerService {
     private var crossfadeDecodingTask: Task<Void, Never>?
     private var crossfadeTimer: Timer?
     private var crossfadeTriggered = false
+    /// crossfade 进行中 —— 用来让 startTimeUpdater 跳过 currentTime 更新。
+    /// crossfade 期间 audioEngine.currentTime 还是旧曲的 primary node 时间,
+    /// 但 UI 已经切到新曲, 这两值对不上, 直接刷会让进度条乱跳。crossfade
+    /// 完成 swap 后 isCrossfading 清零, currentTime 跟随新 primary node。
+    private var isCrossfading = false
     private var playID: UUID?
 
     private var errorDismissTask: Task<Void, Never>?
@@ -288,7 +293,7 @@ final class AudioPlayerService {
         isLoading = true
         isPlaying = false
         audioEngine.sampleTimeOffset = 0
-        crossfadeTriggered = false
+        crossfadeTriggered = false; isCrossfading = false
         activeDecoderKind = .native
 
         let isRemoteURL = url.scheme == "http" || url.scheme == "https"
@@ -953,7 +958,7 @@ final class AudioPlayerService {
         crossfadeDecodingTask = nil
         crossfadeTimer?.invalidate()
         crossfadeTimer = nil
-        crossfadeTriggered = false
+        crossfadeTriggered = false; isCrossfading = false
         audioEngine.stopPlayback()
         audioEngine.stopCrossfadeNode()
         audioEngine.resetPlayerVolume()
@@ -987,7 +992,7 @@ final class AudioPlayerService {
         crossfadeDecodingTask = nil
         crossfadeTimer?.invalidate()
         crossfadeTimer = nil
-        crossfadeTriggered = false
+        crossfadeTriggered = false; isCrossfading = false
         audioEngine.stopPlayback()
         audioEngine.stopCrossfadeNode()
         audioEngine.resetPlayerVolume()
@@ -1309,7 +1314,7 @@ final class AudioPlayerService {
             currentSong = nextSong
             duration = nextSong.duration
             currentTime = 0
-            crossfadeTriggered = false
+            crossfadeTriggered = false; isCrossfading = false
             library?.recordPlayback(of: nextSong.id)
 
             // Apply ReplayGain for next track
@@ -1400,7 +1405,7 @@ final class AudioPlayerService {
 
     private func startCrossfade(duration crossfadeDuration: Double) async {
         guard let nextSong = nextSongInQueue() else {
-            crossfadeTriggered = false
+            crossfadeTriggered = false; isCrossfading = false
             return
         }
 
@@ -1408,16 +1413,33 @@ final class AudioPlayerService {
             let nextURL = try await resolvedURL(for: nextSong)
             guard nativeDecoder.canDecode(url: nextURL),
                   let outputFormat = audioEngine.outputFormat else {
-                crossfadeTriggered = false
+                crossfadeTriggered = false; isCrossfading = false
                 return
             }
+
+            // crossfade 一开始就把 UI 切到下一首 —— 用户听到的主音是 next
+            // 在淡入接管, 看到的应该跟着是 next。之前要等 ramp 跑完才切,
+            // 出现「下一首歌的声音出来了但播放器还显示上一首」的不一致。
+            // 期间 currentTime 暂停更新 (isCrossfading=true), 直到 swap
+            // 完成跟随新 primary node。
+            isCrossfading = true
+            advanceToNextIndex()
+            currentSong = nextSong
+            currentTime = 0
+            duration = nextSong.duration.sanitizedDuration
+            library?.recordPlayback(of: nextSong.id)
+            ScrobbleService.shared.handlePlaybackStarted(song: nextSong)
+            PlayHistoryStore.shared.beginSession(song: nextSong)
+            updateNowPlayingInfo()
+            updateNowPlayingArtworkIfNeeded()
+            updatePlaybackState()
 
             // Note: ReplayGain for crossfade node would need per-node volume tracking
             // For now, apply after swap
 
             // Decode into crossfade node — schedule first buffer before play
             guard let stream = await decodeStream(for: nextSong, url: nextURL, outputFormat: outputFormat) else {
-                crossfadeTriggered = false
+                crossfadeTriggered = false; isCrossfading = false
                 return
             }
             let iteratorBox = BufferIteratorBox(stream.makeAsyncIterator())
@@ -1447,7 +1469,7 @@ final class AudioPlayerService {
             }
         } catch {
             plog("Crossfade start error: \(error)")
-            crossfadeTriggered = false
+            crossfadeTriggered = false; isCrossfading = false
         }
     }
 
@@ -1496,15 +1518,14 @@ final class AudioPlayerService {
         decodingTask = crossfadeDecodingTask
         crossfadeDecodingTask = nil
 
-        // Update state — also update playID so this becomes the authoritative session
+        // 注意: currentSong / queue index / scrobble session 已经在
+        // startCrossfade 早期设置好了, 不在这里重复 (重复会让 ScrobbleService
+        // 误以为又开了一首新歌, 重新计时)。
         let newID = UUID()
         playID = newID
-        advanceToNextIndex()
-        plog("🔄 completeCrossfade: currentSong → \(nextSong.title)")
-        currentSong = nextSong
-        currentTime = 0
-        crossfadeTriggered = false
-        library?.recordPlayback(of: nextSong.id)
+        crossfadeTriggered = false; isCrossfading = false
+        isCrossfading = false
+        plog("🔄 completeCrossfade: swap done, currentSong=\(nextSong.title)")
 
         // Apply ReplayGain (now on the swapped primary node)
         let settings = playbackSettings.snapshot()
@@ -1519,7 +1540,6 @@ final class AudioPlayerService {
         }
 
         updateNowPlayingInfo()
-        updateNowPlayingArtworkIfNeeded()
         updatePlaybackState()
     }
 
@@ -1550,6 +1570,10 @@ final class AudioPlayerService {
         displayLink = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                // crossfade 期间 audioEngine 报的还是旧曲 primary node 时间,
+                // 但 UI 已经切到新曲, 直接刷会让进度条乱跳。等 swap 完成
+                // (isCrossfading=false) 再继续。
+                if self.isCrossfading { return }
                 if let time = self.audioEngine.currentTime {
                     self.currentTime = time.sanitizedDuration
 

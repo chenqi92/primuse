@@ -679,6 +679,8 @@ struct ScrapeOptionsView: View {
         }
 
         if preview.hasLyrics && applyLyrics, let lines = preview.lyricsLines {
+            let wordLevel = lines.filter { $0.isWordLevel }.count
+            plog("👉 ScrapeOptionsView.apply lyrics=\(lines.count) wordLevelLines=\(wordLevel) firstSyllables=\(lines.first?.syllables?.count ?? -1)")
             MetadataAssetStore.shared.storeLyricsSync(lines, for: song.id)
             lyricsFileName = MetadataAssetStore.shared.expectedLyricsFileName(for: song.id)
         }

@@ -7,7 +7,6 @@ struct HomeView: View {
     @Environment(MusicLibrary.self) private var library
 
     private var hasContent: Bool { !library.visibleSongs.isEmpty }
-    private var heroPreviewAlbums: [Album] { Array(library.recentlyAddedAlbums(limit: 3)) }
 
     private var greeting: String {
         let hour = Calendar.current.component(.hour, from: Date())
@@ -61,148 +60,132 @@ struct HomeView: View {
 
     // MARK: - Library Hero
 
+    /// 用户库里随机抽 4 首带封面的歌, 在 hero 右侧错落拼贴。每次进入页面
+    /// 重新洗一组, 让 hero 有「在看自己音乐」的存在感。挑过封面的, 没封面
+    /// 的歌跳过 (放占位太单调)。
+    @State private var heroCoverSongs: [Song] = []
+
+    /// 顶部欢迎区 —— 左侧 问候 + 标题 + 操作按钮, 右侧错落叠 4 张封面 (从
+    /// 库里抽), 背景用 thinMaterial 跟系统融合。比纯按钮丰富, 又比之前的
+    /// 大渐变卡片低调。「随机播放」突出 (主色填色胶囊), 「播放全部」次要
+    /// (描边)。
     private var libraryHeroSection: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .top, spacing: 16) {
-                VStack(alignment: .leading, spacing: 8) {
+        VStack(spacing: 14) {
+            // 顶部一行: 左标题 + 右封面拼贴。两边对齐 .center, 高度由
+            // 内容决定。
+            HStack(alignment: .center, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text(greeting)
-                        .font(.headline)
-                        .foregroundStyle(.white.opacity(0.82))
-
-                    Text("home_library_mix_title")
-                        .font(.title2)
-                        .fontWeight(.bold)
-                        .foregroundStyle(.white)
-
-                    Text("home_library_mix_subtitle")
                         .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.78))
+                        .foregroundStyle(.secondary)
+                    Text("home_library_mix_title")
+                        .font(.title3)
+                        .fontWeight(.bold)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.85)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                Spacer(minLength: 0)
-                heroArtworkPreview
+                heroCoverCollage
             }
 
+            // 按钮单独一行, 占满宽度, 不被封面挤变形
             HStack(spacing: 10) {
-                heroStatCard(symbol: "music.note.list", value: library.songCount, label: String(localized: "songs_count"))
-                heroStatCard(symbol: "square.stack.fill", value: library.albumCount, label: String(localized: "albums_count"))
-                heroStatCard(symbol: "music.mic", value: library.artistCount, label: String(localized: "artists_count"))
-            }
-
-            HStack(spacing: 12) {
-                Button { playLibrary(shuffled: true) } label: {
+                Button {
+                    playLibrary(shuffled: true)
+                } label: {
                     Label("shuffle", systemImage: "shuffle")
-                        .fontWeight(.semibold)
+                        .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .foregroundStyle(.black)
-                        .background(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .padding(.vertical, 11)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderedProminent)
+                .clipShape(Capsule())
 
-                Button { playLibrary(shuffled: false) } label: {
+                Button {
+                    playLibrary(shuffled: false)
+                } label: {
                     Label("play_all", systemImage: "play.fill")
-                        .fontWeight(.semibold)
+                        .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .foregroundStyle(.white)
-                        .background(.white.opacity(0.14))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .stroke(.white.opacity(0.14), lineWidth: 1)
-                        }
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .padding(.vertical, 11)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.bordered)
+                .clipShape(Capsule())
             }
-
-            Text("home_library_mix_hint")
-                .font(.caption)
-                .foregroundStyle(.white.opacity(0.72))
         }
-        .padding(20)
+        .padding(16)
         .background {
-            ZStack {
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color.accentColor.opacity(0.95),
-                                Color.blue.opacity(0.82),
-                                Color.black.opacity(0.72)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-
-                Circle()
-                    .fill(.white.opacity(0.14))
-                    .frame(width: 180, height: 180)
-                    .offset(x: 110, y: -90)
-
-                Circle()
-                    .fill(.white.opacity(0.08))
-                    .frame(width: 150, height: 150)
-                    .offset(x: -120, y: 90)
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(.thinMaterial)
         }
         .padding(.horizontal, 16)
+        .task { refreshHeroCovers() }
     }
 
-    private var heroArtworkPreview: some View {
+    /// 4 张封面错落叠放 — 用 ZStack 加旋转 + 偏移, 跟 Spotify Mix /
+    /// Apple Music「For You」拼贴风格一致。封面来自最近添加 + 最近播放
+    /// 的随机抽样, 每次 view 出现重洗一次。
+    @ViewBuilder
+    private var heroCoverCollage: some View {
+        let size: CGFloat = 50
+        let radius: CGFloat = 8
         ZStack {
-            if heroPreviewAlbums.isEmpty {
-                Image(systemName: "music.note")
-                    .font(.system(size: 28, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.86))
-                    .frame(width: 92, height: 92)
-                    .background(.white.opacity(0.14))
-                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-            } else {
-                ForEach(Array(heroPreviewAlbums.enumerated()), id: \.offset) { index, album in
-                    let song = library.songs(forAlbum: album.id).first
-
-                    CachedArtworkView(
-                        coverRef: song?.coverArtFileName,
-                        songID: song?.id ?? "",
-                        size: 72,
-                        cornerRadius: 18,
-                        sourceID: song?.sourceID,
-                        filePath: song?.filePath
-                    )
-                    .rotationEffect(.degrees(index == 0 ? -8 : (index == 1 ? 0 : 8)))
-                    .offset(x: CGFloat(index * 18 - 18), y: index == 1 ? 0 : 10)
-                    .shadow(color: .black.opacity(0.18), radius: 12, y: 6)
-                    .zIndex(index == 1 ? 1 : 0)
-                }
+            // 4 张依次叠, 角度 + 偏移让它们看起来散开
+            ForEach(Array(heroCoverSongs.prefix(4).enumerated()), id: \.element.id) { index, song in
+                CachedArtworkView(
+                    coverRef: song.coverArtFileName,
+                    songID: song.id,
+                    size: size,
+                    cornerRadius: radius,
+                    sourceID: song.sourceID,
+                    filePath: song.filePath
+                )
+                .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+                .rotationEffect(.degrees(coverRotation(for: index)))
+                .offset(coverOffset(for: index))
+                .zIndex(Double(4 - index))
+            }
+            if heroCoverSongs.isEmpty {
+                Image(systemName: "music.note.list")
+                    .font(.title)
+                    .foregroundStyle(.secondary)
             }
         }
-        .frame(width: 110, height: 96)
+        .frame(width: 110, height: 80)
     }
 
-    private func heroStatCard(symbol: String, value: Int, label: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Image(systemName: symbol)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.82))
-
-            Text("\(value)")
-                .font(.headline)
-                .fontWeight(.semibold)
-                .foregroundStyle(.white)
-
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(.white.opacity(0.7))
-                .lineLimit(1)
+    private func coverRotation(for index: Int) -> Double {
+        switch index {
+        case 0: return -10
+        case 1: return -3
+        case 2: return 5
+        case 3: return 12
+        default: return 0
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(.white.opacity(0.12))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func coverOffset(for index: Int) -> CGSize {
+        switch index {
+        case 0: return CGSize(width: -28, height: 0)
+        case 1: return CGSize(width: -10, height: -4)
+        case 2: return CGSize(width: 10, height: 2)
+        case 3: return CGSize(width: 28, height: 0)
+        default: return .zero
+        }
+    }
+
+    private func refreshHeroCovers() {
+        // 优先最近播放, 不够再补最近添加, 都过滤出有 cover 的歌, 最后随机
+        // 抽 4 首。每次 task 触发重洗 (即每次进首页)。
+        let recent = library.recentlyPlayedSongs(limit: 30)
+        let added = library.visibleSongs.sorted { $0.dateAdded > $1.dateAdded }.prefix(60)
+        var pool: [Song] = recent
+        for song in added where !pool.contains(where: { $0.id == song.id }) {
+            pool.append(song)
+        }
+        let withCover = pool.filter { $0.coverArtFileName?.isEmpty == false }
+        heroCoverSongs = Array(withCover.shuffled().prefix(4))
     }
 
     // MARK: - Recently Played

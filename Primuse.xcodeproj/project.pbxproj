@@ -52,6 +52,7 @@
 		389FD71E5AB9C4E87852B1FB /* SourcesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6723FC0B92EDA2CC1B5E3C83 /* SourcesView.swift */; };
 		38E0E189263F5CC02A9DD486 /* AddSourceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7BBFA50461FE980684501FA /* AddSourceView.swift */; };
 		38F1CB896290BA69CF5682C3 /* TimeInterval+Format.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02C67038ECF67BC44982A1C8 /* TimeInterval+Format.swift */; };
+		DF809BD5EB934063B6FE62C2 /* Bundle+AppVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = B21079D01606402FB6D187A7 /* Bundle+AppVersion.swift */; };
 		3997C4EE7DF9D36DA1851230 /* CloudDriveBase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94FE18AA29D7F79EE4D6BDE5 /* CloudDriveBase.swift */; };
 		3A6E9DCA68049541941DF61A /* FilesProvider in Frameworks */ = {isa = PBXBuildFile; productRef = 3A537C7C5A22FAD8101B5ADA /* FilesProvider */; };
 		3DB35BA7BA5DF8173F45CA98 /* ImageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92713492CA49F4357602CCA3 /* ImageCache.swift */; };
@@ -283,6 +284,7 @@
 
 /* Begin PBXFileReference section */
 		02C67038ECF67BC44982A1C8 /* TimeInterval+Format.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TimeInterval+Format.swift"; sourceTree = "<group>"; };
+		B21079D01606402FB6D187A7 /* Bundle+AppVersion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Bundle+AppVersion.swift"; sourceTree = "<group>"; };
 		02F0CA17DCBE23FCB6FF6791 /* ArtistListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtistListView.swift; sourceTree = "<group>"; };
 		04E02F82BB81A881C4607BDC /* FnOSAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FnOSAPI.swift; sourceTree = "<group>"; };
 		08C701D152027AB58C6C5B14 /* BundleToken.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BundleToken.swift; sourceTree = "<group>"; };
@@ -802,6 +804,7 @@
 			isa = PBXGroup;
 			children = (
 				02C67038ECF67BC44982A1C8 /* TimeInterval+Format.swift */,
+				B21079D01606402FB6D187A7 /* Bundle+AppVersion.swift */,
 				81BF3B3BCA7A1454E6731DDC /* URL+AudioFormat.swift */,
 			);
 			path = Extensions;
@@ -1429,6 +1432,7 @@
 				996C1B4150BF531114D218FD /* SynologySource.swift in Sources */,
 				4F666C6937E399679D7AC5D4 /* ThemeService.swift in Sources */,
 				38F1CB896290BA69CF5682C3 /* TimeInterval+Format.swift in Sources */,
+				DF809BD5EB934063B6FE62C2 /* Bundle+AppVersion.swift in Sources */,
 				34C3EC5C161A5BB8301D2562 /* UPnPBrowserView.swift in Sources */,
 				09AED938D1C5CFDD279BCB08 /* UPnPSource.swift in Sources */,
 				CC3A1BFFBC9A8DD1D551B632 /* URL+AudioFormat.swift in Sources */,
