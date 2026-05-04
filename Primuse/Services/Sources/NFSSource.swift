@@ -211,6 +211,52 @@ actor NFSSource: MusicSourceConnector {
         }
     }
 
+    /// NFS3/4 READ via NFSKit's `contents(atPath:range:progress:)`。底层是 libnfs
+    /// 的 NFS_READ RPC (offset + count), 协议级支持任意 offset 读, 让
+    /// CloudPlaybackSource 边下边播替代整文件下载。
+    func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+        let selection = try resolveSelectionPath(for: path)
+        let client = try resolveClient()
+        try await ensureConnected(to: selection.exportPath)
+
+        // offset < 0 表示从末尾倒数, 先 stat 拿 size 转正。用 callback 版本
+        // 包 continuation, 避免直接 await NFSClient async 方法触发
+        // Swift 6 actor isolation 警告 (NFSClient 不是 Sendable)。
+        let actualRange: Range<Int64>
+        if offset < 0 {
+            let total: Int64 = try await withCheckedThrowingContinuation { continuation in
+                client.attributesOfItem(atPath: selection.relativePath) { result in
+                    switch result {
+                    case .success(let attrs):
+                        let total = (attrs[.fileSizeKey] as? Int64)
+                            ?? (attrs[.fileSizeKey] as? Int).map { Int64($0) }
+                            ?? 0
+                        continuation.resume(returning: total)
+                    case .failure(let error):
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+            let start = max(0, total + offset)
+            let end = min(total, start + length)
+            guard start < end else { return Data() }
+            actualRange = start..<end
+        } else {
+            actualRange = offset..<(offset + length)
+        }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            client.contents(atPath: selection.relativePath, range: actualRange, progress: nil) { result in
+                switch result {
+                case .success(let data):
+                    continuation.resume(returning: data)
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
         let localURL = try await localURL(for: path)
         return AsyncThrowingStream { continuation in

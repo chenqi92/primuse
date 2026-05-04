@@ -570,5 +570,9 @@ private extension MusicSource {
             || type == .ugreen
             || type == .fnos
             || type == .s3
+            || type == .smb
+            || type == .sftp
+            || type == .ftp
+            || type == .nfs
     }
 }

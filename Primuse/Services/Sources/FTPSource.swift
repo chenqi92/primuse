@@ -130,6 +130,49 @@ actor FTPSource: MusicSourceConnector {
         }
     }
 
+    /// FTP REST + RETR via FilesProvider's `contents(path:offset:length:)`。
+    /// FTP 协议支持 REST 命令断点续传, FilesProvider 内部用 REST + RETR
+    /// 实现 byte range, 让 CloudPlaybackSource 边下边播替代整文件下载。
+    func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+        guard let provider else { throw SourceError.connectionFailed("Not connected") }
+
+        // offset < 0 表示从末尾倒数, 先 stat 拿 size 转正
+        let actualOffset: Int64
+        let actualLength: Int
+        if offset < 0 {
+            let total = try await ftpFileSize(provider: provider, path: path)
+            let start = max(0, total + offset)
+            actualOffset = start
+            actualLength = Int(min(length, total - start, Int64(Int.max)))
+        } else {
+            actualOffset = offset
+            actualLength = Int(min(length, Int64(Int.max)))
+        }
+        guard actualLength > 0 else { return Data() }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            _ = provider.contents(path: path, offset: actualOffset, length: actualLength) { data, error in
+                if let error {
+                    continuation.resume(throwing: SourceError.connectionFailed(error.localizedDescription))
+                } else {
+                    continuation.resume(returning: data ?? Data())
+                }
+            }
+        }
+    }
+
+    private func ftpFileSize(provider: FTPFileProvider, path: String) async throws -> Int64 {
+        try await withCheckedThrowingContinuation { continuation in
+            provider.attributesOfItem(path: path) { obj, error in
+                if let error {
+                    continuation.resume(throwing: SourceError.connectionFailed(error.localizedDescription))
+                } else {
+                    continuation.resume(returning: obj?.size ?? 0)
+                }
+            }
+        }
+    }
+
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
         let localURL = try await localURL(for: path)
         return AsyncThrowingStream { continuation in

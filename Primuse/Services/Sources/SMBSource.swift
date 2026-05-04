@@ -133,6 +133,37 @@ actor SMBSource: MusicSourceConnector {
         return localURL
     }
 
+    /// SMB2 READ command via AMSMB2's `contents(atPath:range:)`。底层是 libsmb2
+     /// 的 SMB2 READ (8-byte offset), 协议级支持 byte range, 让 CloudPlaybackSource
+     /// 边下边播替代整文件下载。
+    func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+        let normalizedPath = Self.normalizeRemotePath(path)
+        let resolvedPath = try resolve(path: normalizedPath)
+        guard case let .share(shareName, relativePath) = resolvedPath else {
+            throw SourceError.connectionFailed("SMB share not selected")
+        }
+
+        return try await runWithRetry {
+            let client = try await self.ensureConnectedShare(named: shareName)
+            // offset < 0 表示从文件末尾倒数 (suffix range), AMSMB2 的 RangeExpression
+            // 接受 UInt64 所以负 offset 需要先拿 fileSize 转换。
+            if offset < 0 {
+                let attrs = try await client.attributesOfItem(atPath: relativePath)
+                let total = (attrs[.fileSizeKey] as? Int64)
+                    ?? (attrs[.fileSizeKey] as? Int).map { Int64($0) }
+                    ?? 0
+                let start = max(0, total + offset)
+                let end = min(total, start + length)
+                guard start < end else { return Data() }
+                return try await client.contents(atPath: relativePath, range: UInt64(start)..<UInt64(end))
+            }
+            return try await client.contents(
+                atPath: relativePath,
+                range: UInt64(offset)..<UInt64(offset + length)
+            )
+        }
+    }
+
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
         let localURL = try await localURL(for: path)
         return AsyncThrowingStream { continuation in
