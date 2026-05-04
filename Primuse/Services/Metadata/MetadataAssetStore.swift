@@ -77,14 +77,19 @@ actor MetadataAssetStore {
         }
     }
 
-    func storeLyrics(_ lines: [LyricLine], for key: String) -> String? {
+    /// 写歌词到本地缓存。
+    ///
+    /// - parameter force: 用户动作 (刮削) 传 true, **任何级别都覆盖**;
+    ///                    后台自动 (扫描读 USLT / sidecar .lrc) 传 false,
+    ///                    **不覆盖已有数据**, 让用户刮削过的字级不被
+    ///                    后续自动扫描回退。
+    ///
+    /// 语义对齐用户预期: 「最新刮削 (用户动作) 为准, 扫描不动用户结果」。
+    func storeLyrics(_ lines: [LyricLine], for key: String, force: Bool = false) -> String? {
         let fileName = hashedFileName(for: key, pathExtension: "json")
         let fileURL = lyricsDirectory.appendingPathComponent(fileName)
-        // 保护已有的字级歌词不被行级覆盖 —— 用户刮削过 word-level 后,
-        // NAS 重扫 / 嵌入 USLT 重读出来的都是行级 (标准 LRC), 直接覆盖
-        // 会让用户辛苦刮削的字时间数据丢失。
-        if shouldPreserveExisting(at: fileURL, against: lines) {
-            return fileName
+        if !force && FileManager.default.fileExists(atPath: fileURL.path) {
+            return fileName  // 后台扫描 + 已有缓存 → 跳过, 别动用户数据
         }
         guard let data = try? encoder.encode(lines) else { return nil }
         do {
@@ -93,20 +98,6 @@ actor MetadataAssetStore {
         } catch {
             return nil
         }
-    }
-
-    /// 判断现存的 lyrics 文件是否「比新写入的更详细」。当现存包含 syllable
-    /// (字级) 数据但新写入的是纯行级时, 返回 true 让 caller 跳过覆盖。
-    /// 反向: 行级覆盖行级 / 字级覆盖字级 / 字级覆盖行级 都允许 (后者升级)。
-    nonisolated private func shouldPreserveExisting(at url: URL, against incoming: [LyricLine]) -> Bool {
-        guard FileManager.default.fileExists(atPath: url.path),
-              let existingData = try? Data(contentsOf: url),
-              let existing = try? JSONDecoder().decode([LyricLine].self, from: existingData) else {
-            return false
-        }
-        let existingHasSyllables = existing.contains(where: { $0.isWordLevel })
-        let incomingHasSyllables = incoming.contains(where: { $0.isWordLevel })
-        return existingHasSyllables && !incomingHasSyllables
     }
 
     func lyrics(named fileName: String?) -> [LyricLine]? {
@@ -275,10 +266,13 @@ actor MetadataAssetStore {
         try? data.write(to: fileURL, options: .atomic)
     }
 
-    nonisolated func storeLyricsSync(_ lines: [LyricLine], for key: String) {
+    /// 同步版 storeLyrics, 给 ScrapeOptionsView 等不便 await actor 的同步
+    /// UI 路径用。语义跟 async 版一致, **默认强制覆盖** (调用方都是用户
+    /// 动作)。
+    nonisolated func storeLyricsSync(_ lines: [LyricLine], for key: String, force: Bool = true) {
         let fileName = expectedLyricsFileName(for: key)
         let fileURL = lyricsDirectory.appendingPathComponent(fileName)
-        if shouldPreserveExisting(at: fileURL, against: lines) { return }
+        if !force && FileManager.default.fileExists(atPath: fileURL.path) { return }
         let encoder = JSONEncoder()
         guard let data = try? encoder.encode(lines) else { return }
         try? data.write(to: fileURL, options: .atomic)
