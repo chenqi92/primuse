@@ -125,13 +125,12 @@ final class MusicScraperService {
                             }
                             needsUpdate = true
                         }
-                        if writeResult.lyricsWritten {
-                            let lrcPath = (songDir as NSString).appendingPathComponent("\(baseNameNoExt).lrc")
-                            refSong.lyricsFileName = lrcPath
-                            if let lyricsLines {
-                                await MetadataAssetStore.shared.cacheLyrics(lyricsLines, forSongID: songID)
-                            }
-                            needsUpdate = true
+                        if writeResult.lyricsWritten, let lyricsLines {
+                            // 不让 song.lyricsFileName 指向 NAS .lrc —— .lrc
+                            // 是行级备份, 字级数据只在本地 hash JSON 里。
+                            // 仍把内容回写到本地 cache 让 hash JSON 跟 NAS
+                            // 一致。
+                            await MetadataAssetStore.shared.cacheLyrics(lyricsLines, forSongID: songID)
                         }
 
                         if needsUpdate {
@@ -262,13 +261,10 @@ final class MusicScraperService {
                                         }
                                         needsUpdate = true
                                     }
-                                    if writeResult.lyricsWritten {
-                                        let lrcPath = (songDir as NSString).appendingPathComponent("\(baseNameNoExt).lrc")
-                                        refSong.lyricsFileName = lrcPath
-                                        if let lyricsLines {
-                                            await MetadataAssetStore.shared.cacheLyrics(lyricsLines, forSongID: songID)
-                                        }
-                                        needsUpdate = true
+                                    if writeResult.lyricsWritten, let lyricsLines {
+                                        // 同上: 不指向 NAS .lrc, 字级数据只在
+                                        // 本地 hash JSON。
+                                        await MetadataAssetStore.shared.cacheLyrics(lyricsLines, forSongID: songID)
                                     }
 
                                     if needsUpdate {

@@ -78,15 +78,35 @@ actor MetadataAssetStore {
     }
 
     func storeLyrics(_ lines: [LyricLine], for key: String) -> String? {
-        guard let data = try? encoder.encode(lines) else { return nil }
         let fileName = hashedFileName(for: key, pathExtension: "json")
         let fileURL = lyricsDirectory.appendingPathComponent(fileName)
+        // 保护已有的字级歌词不被行级覆盖 —— 用户刮削过 word-level 后,
+        // NAS 重扫 / 嵌入 USLT 重读出来的都是行级 (标准 LRC), 直接覆盖
+        // 会让用户辛苦刮削的字时间数据丢失。
+        if shouldPreserveExisting(at: fileURL, against: lines) {
+            return fileName
+        }
+        guard let data = try? encoder.encode(lines) else { return nil }
         do {
             try data.write(to: fileURL, options: .atomic)
             return fileName
         } catch {
             return nil
         }
+    }
+
+    /// 判断现存的 lyrics 文件是否「比新写入的更详细」。当现存包含 syllable
+    /// (字级) 数据但新写入的是纯行级时, 返回 true 让 caller 跳过覆盖。
+    /// 反向: 行级覆盖行级 / 字级覆盖字级 / 字级覆盖行级 都允许 (后者升级)。
+    nonisolated private func shouldPreserveExisting(at url: URL, against incoming: [LyricLine]) -> Bool {
+        guard FileManager.default.fileExists(atPath: url.path),
+              let existingData = try? Data(contentsOf: url),
+              let existing = try? JSONDecoder().decode([LyricLine].self, from: existingData) else {
+            return false
+        }
+        let existingHasSyllables = existing.contains(where: { $0.isWordLevel })
+        let incomingHasSyllables = incoming.contains(where: { $0.isWordLevel })
+        return existingHasSyllables && !incomingHasSyllables
     }
 
     func lyrics(named fileName: String?) -> [LyricLine]? {
@@ -256,10 +276,11 @@ actor MetadataAssetStore {
     }
 
     nonisolated func storeLyricsSync(_ lines: [LyricLine], for key: String) {
-        let encoder = JSONEncoder()
-        guard let data = try? encoder.encode(lines) else { return }
         let fileName = expectedLyricsFileName(for: key)
         let fileURL = lyricsDirectory.appendingPathComponent(fileName)
+        if shouldPreserveExisting(at: fileURL, against: lines) { return }
+        let encoder = JSONEncoder()
+        guard let data = try? encoder.encode(lines) else { return }
         try? data.write(to: fileURL, options: .atomic)
     }
 }

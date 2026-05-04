@@ -738,11 +738,13 @@ struct ScrapeOptionsView: View {
                         await MetadataAssetStore.shared.invalidateCoverCache(forSongID: songID)
                         needsUpdate = true
                     }
-                    if writeResult.lyricsWritten {
-                        let lrcPath = (songDir as NSString).appendingPathComponent("\(baseNameNoExt).lrc")
-                        refSong.lyricsFileName = lrcPath
-                        needsUpdate = true
-                    }
+                    // 不要把 song.lyricsFileName 改成 NAS 的 .lrc 路径 ——
+                    // 那只是给其他播放器看的备份, 内容是行级 (没字时间)。
+                    // 字级数据在本地 App Support hash JSON 里, song 必须
+                    // 一直指向那个, 否则下次读会从 NAS .lrc 拿行级歌词,
+                    // 字级丢了。`writeResult.lyricsWritten` 仍然有效:
+                    // sidecar 写到 NAS 是为了被别的设备 / 别的播放器读到,
+                    // Primuse 自己用本地 cache。
                     if needsUpdate {
                         lib.replaceSong(refSong)
                     }
