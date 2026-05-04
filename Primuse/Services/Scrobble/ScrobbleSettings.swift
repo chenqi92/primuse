@@ -79,3 +79,54 @@ public enum ScrobbleProviderID: String, Codable, Sendable, CaseIterable {
     /// 用于 Keychain 存 token / sessionKey 的 account 字段。
     var keychainAccount: String { "scrobble.\(rawValue)" }
 }
+
+/// Last.fm 需要 3 个 Keychain 字段才能完整工作 (Last.fm 协议要求 client
+/// 端持有 api_key + api_secret 才能签 api_sig, 不像 ListenBrainz 一个 token
+/// 就够)。这里把读写集中, 让 Settings UI 和 ScrobbleService 共用一套
+/// 帐户命名, 避免散落各处拼字符串。
+enum LastFmCredentialsStore {
+    private static let apiKeyAccount = "scrobble.lastFm.apiKey"
+    private static let apiSecretAccount = "scrobble.lastFm.apiSecret"
+    private static let sessionKeyAccount = ScrobbleProviderID.lastFm.keychainAccount
+
+    static func saveAPIKey(_ key: String) {
+        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            KeychainService.deletePassword(for: apiKeyAccount)
+        } else {
+            KeychainService.setPassword(trimmed, for: apiKeyAccount)
+        }
+    }
+
+    static func saveAPISecret(_ secret: String) {
+        let trimmed = secret.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            KeychainService.deletePassword(for: apiSecretAccount)
+        } else {
+            KeychainService.setPassword(trimmed, for: apiSecretAccount)
+        }
+    }
+
+    static func saveSessionKey(_ session: String) {
+        if session.isEmpty {
+            KeychainService.deletePassword(for: sessionKeyAccount)
+        } else {
+            KeychainService.setPassword(session, for: sessionKeyAccount)
+        }
+    }
+
+    static func loadAPIKey() -> String { KeychainService.getPassword(for: apiKeyAccount) ?? "" }
+    static func loadAPISecret() -> String { KeychainService.getPassword(for: apiSecretAccount) ?? "" }
+    static func loadSessionKey() -> String { KeychainService.getPassword(for: sessionKeyAccount) ?? "" }
+
+    /// 完整登录态 = 三件套都有。任何一个空都视为未连接。
+    static func isConnected() -> Bool {
+        !loadAPIKey().isEmpty && !loadAPISecret().isEmpty && !loadSessionKey().isEmpty
+    }
+
+    /// Sign-out — 只清 sessionKey 不清 apiKey/apiSecret, 让用户能直接
+    /// 重新走 web auth 不用再粘一次 key。
+    static func signOut() {
+        KeychainService.deletePassword(for: sessionKeyAccount)
+    }
+}

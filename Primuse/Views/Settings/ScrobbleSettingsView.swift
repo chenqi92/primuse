@@ -12,7 +12,14 @@ struct ScrobbleSettingsView: View {
     @State private var listenBrainzValid: Bool? = nil  // nil=未测试, true=有效, false=无效
     @State private var isValidatingLB = false
 
-    @State private var showLastFmPlaceholderAlert = false
+    @State private var lastFmAPIKey: String = ""
+    @State private var lastFmAPISecret: String = ""
+    @State private var lastFmConnected: Bool = false
+    @State private var lastFmUsername: String = ""
+    @State private var isLoggingInLastFm: Bool = false
+    @State private var lastFmError: String?
+    @State private var showLastFmSignOutConfirm = false
+
     @State private var showClearQueueConfirm = false
 
     var body: some View {
@@ -37,11 +44,20 @@ struct ScrobbleSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .onAppear { loadStoredTokens() }
-        .alert("scrobble_lastfm_placeholder_title", isPresented: $showLastFmPlaceholderAlert) {
-            Button("ok", role: .cancel) {}
-        } message: {
-            Text("scrobble_lastfm_placeholder_msg")
+        .alert("scrobble_lastfm_signout_confirm", isPresented: $showLastFmSignOutConfirm) {
+            Button("scrobble_lastfm_signout", role: .destructive) {
+                LastFmCredentialsStore.signOut()
+                lastFmConnected = false
+                lastFmUsername = ""
+                NotificationCenter.default.post(name: .scrobbleSettingsChanged, object: nil)
+            }
+            Button("cancel", role: .cancel) {}
         }
+        .alert(String(localized: "scrobble_lastfm_err_title"),
+               isPresented: Binding(get: { lastFmError != nil },
+                                    set: { if !$0 { lastFmError = nil } })) {
+            Button("ok", role: .cancel) {}
+        } message: { Text(lastFmError ?? "") }
         .confirmationDialog("scrobble_clear_queue_confirm", isPresented: $showClearQueueConfirm, titleVisibility: .visible) {
             Button("clear_all", role: .destructive) {
                 service.clearQueue()
@@ -109,7 +125,7 @@ struct ScrobbleSettingsView: View {
         }
     }
 
-    // MARK: - Last.fm (placeholder, 等 API key)
+    // MARK: - Last.fm
 
     private var lastFmSection: some View {
         Section {
@@ -119,21 +135,85 @@ struct ScrobbleSettingsView: View {
                 Text("Last.fm")
                     .fontWeight(.medium)
                 Spacer()
-                Toggle("", isOn: Binding(
-                    get: { settings.enabledProviders.contains(.lastFm) },
-                    set: { newVal in
-                        if newVal {
-                            // 还没有 API key, 不让真启用 — 弹一个说明 alert。
-                            showLastFmPlaceholderAlert = true
-                        } else {
-                            settings.enabledProviders.remove(.lastFm)
+                Toggle("", isOn: providerToggleBinding(.lastFm))
+                    .labelsHidden()
+            }
+
+            if settings.enabledProviders.contains(.lastFm) {
+                if lastFmConnected {
+                    // 已登录: 显示用户名 + 登出
+                    HStack {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                        Text(lastFmUsername.isEmpty
+                             ? String(localized: "scrobble_lastfm_connected")
+                             : String(format: String(localized: "scrobble_lastfm_connected_as_format"), lastFmUsername))
+                            .font(.subheadline)
+                        Spacer()
+                    }
+                    Button(role: .destructive) {
+                        showLastFmSignOutConfirm = true
+                    } label: {
+                        Label("scrobble_lastfm_signout", systemImage: "rectangle.portrait.and.arrow.right")
+                    }
+                } else {
+                    // 未登录: 收 API Key + Secret, 然后授权
+                    SecureField("scrobble_lastfm_api_key_placeholder", text: $lastFmAPIKey)
+                        .textContentType(.password)
+                        .autocorrectionDisabled()
+                        .onChange(of: lastFmAPIKey) { _, newVal in
+                            LastFmCredentialsStore.saveAPIKey(newVal)
+                        }
+                    SecureField("scrobble_lastfm_api_secret_placeholder", text: $lastFmAPISecret)
+                        .textContentType(.password)
+                        .autocorrectionDisabled()
+                        .onChange(of: lastFmAPISecret) { _, newVal in
+                            LastFmCredentialsStore.saveAPISecret(newVal)
+                        }
+
+                    Button {
+                        Task { await loginLastFm() }
+                    } label: {
+                        HStack {
+                            if isLoggingInLastFm {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Image(systemName: "person.badge.shield.checkmark")
+                            }
+                            Text("scrobble_lastfm_connect")
                         }
                     }
-                ))
-                .labelsHidden()
+                    .disabled(lastFmAPIKey.isEmpty || lastFmAPISecret.isEmpty || isLoggingInLastFm)
+
+                    Link(destination: URL(string: "https://www.last.fm/api/account/create")!) {
+                        Label("scrobble_lastfm_register_app", systemImage: "arrow.up.right.square")
+                            .font(.caption)
+                    }
+                }
             }
+        } header: {
+            Text("Last.fm")
         } footer: {
-            Text("scrobble_lastfm_coming_soon")
+            if settings.enabledProviders.contains(.lastFm), !lastFmConnected {
+                Text("scrobble_lastfm_setup_footer")
+            }
+        }
+    }
+
+    private func loginLastFm() async {
+        isLoggingInLastFm = true
+        defer { isLoggingInLastFm = false }
+        // onChange 已经存过, 这里再保险存一下 (防止用户没触发 onChange 直接点)
+        LastFmCredentialsStore.saveAPIKey(lastFmAPIKey)
+        LastFmCredentialsStore.saveAPISecret(lastFmAPISecret)
+        do {
+            let username = try await LastFmAuthService.shared.performLogin()
+            lastFmUsername = username
+            lastFmConnected = true
+            NotificationCenter.default.post(name: .scrobbleSettingsChanged, object: nil)
+        } catch LastFmAuthError.userCancelled {
+            // 用户主动取消, 静默不报错
+        } catch {
+            lastFmError = error.localizedDescription
         }
     }
 
@@ -177,6 +257,10 @@ struct ScrobbleSettingsView: View {
         if !listenBrainzToken.isEmpty {
             listenBrainzValid = true
         }
+
+        lastFmAPIKey = LastFmCredentialsStore.loadAPIKey()
+        lastFmAPISecret = LastFmCredentialsStore.loadAPISecret()
+        lastFmConnected = LastFmCredentialsStore.isConnected()
     }
 
     private func saveListenBrainzToken() {

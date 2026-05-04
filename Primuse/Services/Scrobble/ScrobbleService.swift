@@ -259,10 +259,17 @@ final class ScrobbleService {
                     result.append(ListenBrainzProvider(userToken: token))
                 }
             case .lastFm:
-                // Last.fm 还需要 apiKey/apiSecret — 这里先 placeholder, 实际用
-                // 时配上后再启用。
-                if let session = KeychainService.getPassword(for: pid.keychainAccount), !session.isEmpty {
-                    result.append(LastFmProvider(apiKey: "", apiSecret: "", sessionKey: session))
+                // Last.fm 三件套都齐了才能 sign + 发请求。任何一个缺都跳过,
+                // 让 settings UI 提示用户去补。
+                let apiKey = LastFmCredentialsStore.loadAPIKey()
+                let apiSecret = LastFmCredentialsStore.loadAPISecret()
+                let sessionKey = LastFmCredentialsStore.loadSessionKey()
+                if !apiKey.isEmpty, !apiSecret.isEmpty, !sessionKey.isEmpty {
+                    result.append(LastFmProvider(
+                        apiKey: apiKey,
+                        apiSecret: apiSecret,
+                        sessionKey: sessionKey
+                    ))
                 }
             }
         }
