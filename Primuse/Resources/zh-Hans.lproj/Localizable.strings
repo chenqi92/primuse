@@ -479,6 +479,12 @@
 "carplay_tab_albums" = "专辑";
 "carplay_tab_artists" = "艺人";
 "carplay_tab_songs" = "歌曲";
+"carplay_tab_playlists" = "歌单";
+"carplay_playlists_title" = "我的歌单";
+"carplay_playlist_song_count_format" = "%d 首";
+"carplay_empty_playlists_title" = "还没有歌单";
+"carplay_empty_playlists_subtitle" = "在 iPhone 上创建歌单即可在车里收听";
+"carplay_empty_playlist_title" = "歌单为空";
 "carplay_recent_title" = "最近添加";
 "carplay_albums_title" = "专辑";
 "carplay_artists_title" = "艺人";

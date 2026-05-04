@@ -11,6 +11,7 @@ final class CarPlaySceneDelegate: UIResponder {
     private var interfaceController: CPInterfaceController?
 
     private var recentTemplate: CPListTemplate?
+    private var playlistsTemplate: CPListTemplate?
     private var albumsTemplate: CPListTemplate?
     private var artistsTemplate: CPListTemplate?
     private var songsTemplate: CPListTemplate?
@@ -58,6 +59,7 @@ extension CarPlaySceneDelegate: CPTemplateApplicationSceneDelegate {
         CPNowPlayingTemplate.shared.remove(self)
         self.interfaceController = nil
         recentTemplate = nil
+        playlistsTemplate = nil
         albumsTemplate = nil
         artistsTemplate = nil
         songsTemplate = nil
@@ -100,18 +102,21 @@ extension CarPlaySceneDelegate: @preconcurrency CPNowPlayingTemplateObserver {
 extension CarPlaySceneDelegate {
     private func makeRootTabBar() -> CPTabBarTemplate {
         let recent = makeRecentTemplate()
+        let playlists = makePlaylistsTemplate()
         let albums = makeAlbumsTemplate()
         let artists = makeArtistsTemplate()
         let songs = makeSongsTemplate()
         recentTemplate = recent
+        playlistsTemplate = playlists
         albumsTemplate = albums
         artistsTemplate = artists
         songsTemplate = songs
         // CPTabBarTemplate only accepts CPListTemplate / CPGridTemplate /
-        // CPInformationTemplate — putting a CPSearchTemplate here throws
+        // CPInformationTemplate — putting 一个 CPSearchTemplate here throws
         // an NSException at init. Search is exposed via a magnifying-glass
         // bar button on every list template instead (see makeSearchBarButton).
-        return CPTabBarTemplate(templates: [recent, albums, artists, songs])
+        // 5 个 tab 是上限, 顺序按车里使用频率: 最近 / 歌单 / 专辑 / 艺术家 / 歌曲
+        return CPTabBarTemplate(templates: [recent, playlists, albums, artists, songs])
     }
 
     private func makeSearchBarButton() -> CPBarButton {
@@ -181,6 +186,19 @@ extension CarPlaySceneDelegate {
         template.tabTitle = String(localized: "carplay_tab_songs")
         template.tabImage = UIImage(systemName: "music.note.list")
         template.trailingNavigationBarButtons = [makeSearchBarButton()]
+        return template
+    }
+
+    private func makePlaylistsTemplate() -> CPListTemplate {
+        let template = CPListTemplate(
+            title: String(localized: "carplay_playlists_title"),
+            sections: playlistsSections()
+        )
+        template.tabTitle = String(localized: "carplay_tab_playlists")
+        template.tabImage = UIImage(systemName: "music.note.list")
+        template.trailingNavigationBarButtons = [makeSearchBarButton()]
+        template.emptyViewTitleVariants = [String(localized: "carplay_empty_playlists_title")]
+        template.emptyViewSubtitleVariants = [String(localized: "carplay_empty_playlists_subtitle")]
         return template
     }
 }
@@ -317,6 +335,28 @@ extension CarPlaySceneDelegate {
             self.songItem(song, queueProvider: { (songs, indexByID[song.id] ?? 0) })
         }
     }
+
+    private func playlistsSections() -> [CPListSection] {
+        let library = AppServices.shared.musicLibrary
+        // 已删除 (.isDeleted) 的歌单不出现在 CarPlay (跟手机端 .playlists 一致)。
+        // 按更新时间倒序: 最近编辑的歌单一般是用户最近在听的。
+        let playlists = library.playlists
+            .sorted { $0.updatedAt > $1.updatedAt }
+        let items = playlists.map { playlist -> CPListItem in
+            let songs = library.songs(forPlaylist: playlist.id)
+            let item = CPListItem(
+                text: playlist.name,
+                detailText: String(format: String(localized: "carplay_playlist_song_count_format"), songs.count),
+                image: UIImage(systemName: "music.note.list")
+            )
+            item.handler = { [weak self] _, completion in
+                self?.pushPlaylistDetail(playlist)
+                completion()
+            }
+            return item
+        }
+        return [CPListSection(items: items)]
+    }
 }
 
 // MARK: - Section indexing (A-Z + # bucket, with pinyin for CJK)
@@ -369,6 +409,7 @@ extension CarPlaySceneDelegate {
     fileprivate enum DetailContext: Sendable {
         case album(String)   // album.id
         case artist(String)  // artist.id
+        case playlist(String) // playlist.id
     }
 
     private func pushAlbumDetail(_ album: Album) {
@@ -381,6 +422,25 @@ extension CarPlaySceneDelegate {
         let template = CPListTemplate(title: artist.name, sections: [artistDetailSection(artistID: artist.id)])
         template.userInfo = DetailContext.artist(artist.id)
         safePush(template, label: "ArtistDetail")
+    }
+
+    private func pushPlaylistDetail(_ playlist: Playlist) {
+        let template = CPListTemplate(
+            title: playlist.name,
+            sections: [playlistDetailSection(playlistID: playlist.id)]
+        )
+        template.userInfo = DetailContext.playlist(playlist.id)
+        template.emptyViewTitleVariants = [String(localized: "carplay_empty_playlist_title")]
+        safePush(template, label: "PlaylistDetail")
+    }
+
+    private func playlistDetailSection(playlistID: String) -> CPListSection {
+        // playlistSongIDs 已经按用户排序保留, 不需要再 sort。
+        let songs = AppServices.shared.musicLibrary.songs(forPlaylist: playlistID)
+        let items = songs.enumerated().map { idx, song in
+            songItem(song, queueProvider: { (songs, idx) })
+        }
+        return CPListSection(items: items)
     }
 
     private func albumDetailSection(albumID: String) -> CPListSection {
@@ -415,6 +475,8 @@ extension CarPlaySceneDelegate {
                 listTemplate.updateSections([albumDetailSection(albumID: id)])
             case .artist(let id):
                 listTemplate.updateSections([artistDetailSection(artistID: id)])
+            case .playlist(let id):
+                listTemplate.updateSections([playlistDetailSection(playlistID: id)])
             }
         }
     }
@@ -669,6 +731,7 @@ extension CarPlaySceneDelegate {
             _ = library.visibleSongs
             _ = library.visibleAlbums
             _ = library.visibleArtists
+            _ = library.allPlaylists  // 包含已删除的 — 影响 playlists 计算
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 self?.refreshRootTemplates()
@@ -701,6 +764,7 @@ extension CarPlaySceneDelegate {
 
     private func refreshRootTemplates() {
         recentTemplate?.updateSections(recentSections())
+        playlistsTemplate?.updateSections(playlistsSections())
         albumsTemplate?.updateSections(albumsSections())
         artistsTemplate?.updateSections(artistsSections())
         songsTemplate?.updateSections(songsSections())

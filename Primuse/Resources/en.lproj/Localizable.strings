@@ -479,6 +479,12 @@
 "carplay_tab_albums" = "Albums";
 "carplay_tab_artists" = "Artists";
 "carplay_tab_songs" = "Songs";
+"carplay_tab_playlists" = "Playlists";
+"carplay_playlists_title" = "My Playlists";
+"carplay_playlist_song_count_format" = "%d songs";
+"carplay_empty_playlists_title" = "No playlists yet";
+"carplay_empty_playlists_subtitle" = "Create playlists on your iPhone to listen in the car";
+"carplay_empty_playlist_title" = "Empty playlist";
 "carplay_recent_title" = "Recently Added";
 "carplay_albums_title" = "Albums";
 "carplay_artists_title" = "Artists";
