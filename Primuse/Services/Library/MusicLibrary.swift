@@ -972,6 +972,10 @@ extension Notification.Name {
     /// listeners (SourceManager, MetadataBackfillService) drop stale audio
     /// caches and clear failed-backfill marks for these IDs.
     static let primuseSongContentChanged = Notification.Name("primuse.songContentChanged")
+    /// Posted when lyrics for a song are replaced by a user action such as
+    /// manual scraping. Current playback surfaces should reload their in-memory
+    /// lyric state because the song id usually stays the same.
+    static let primuseLyricsDidChange = Notification.Name("primuse.lyricsDidChange")
     /// Posted in addition to `primuseSourcesDidChange` when a source is
     /// soft-deleted locally. CloudKitSyncService listens to this and
     /// enqueues a real `deleteRecord` instead of pushing the soft-delete

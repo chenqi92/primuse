@@ -12,10 +12,12 @@ import PrimuseKit
 enum LyricsLoader {
     static func load(for song: Song, sourceManager: SourceManager) async -> [LyricLine] {
         if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) {
+            logLoaded(cached, song: song, tier: "Tier1a")
             return cached
         }
         if let cached = await MetadataAssetStore.shared.lyrics(named: song.lyricsFileName) {
             await MetadataAssetStore.shared.cacheLyrics(cached, forSongID: song.id)
+            logLoaded(cached, song: song, tier: "Tier1b")
             return cached
         }
 
@@ -23,6 +25,7 @@ enum LyricsLoader {
            let lrcURL = SidecarMetadataLoader.findLyrics(for: cachedAudioURL),
            let parsed = try? LyricsParser.parse(from: lrcURL), !parsed.isEmpty {
             await MetadataAssetStore.shared.cacheLyrics(parsed, forSongID: song.id)
+            logLoaded(parsed, song: song, tier: "Tier2")
             return parsed
         }
 
@@ -40,11 +43,18 @@ enum LyricsLoader {
             let parsed = try LyricsParser.parse(from: lrcLocalURL)
             if !parsed.isEmpty {
                 await MetadataAssetStore.shared.cacheLyrics(parsed, forSongID: song.id)
+                logLoaded(parsed, song: song, tier: "Tier3")
                 return parsed
             }
         } catch {
             // No .lrc — quietly return empty.
         }
+        plog("📜 LyricsLoader '\(song.title)' empty")
         return []
+    }
+
+    private static func logLoaded(_ lines: [LyricLine], song: Song, tier: String) {
+        let wordLevelCount = lines.filter { $0.isWordLevel }.count
+        plog("📜 LyricsLoader '\(song.title)' \(tier) lines=\(lines.count) wordLevelLines=\(wordLevelCount) firstSyllables=\(lines.first?.syllables?.count ?? -1)")
     }
 }

@@ -822,6 +822,7 @@ struct ScrapeOptionsView: View {
         )
 
         library.replaceSong(final)
+        NotificationCenter.default.post(name: .primuseLyricsDidChange, object: final.id)
 
         // Write sidecar files (cover.jpg, .lrc) back to NAS source
         let coverDataToWrite = (preview.hasCover && applyCover) ? preview.coverData : nil

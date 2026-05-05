@@ -55,6 +55,11 @@ struct MacMiniPlayerView: View {
         .task(id: player.currentSong?.id) { await reloadLyrics() }
         .onChange(of: player.currentTime) { _, t in updateIndex(time: t) }
         .onChange(of: bottomMode) { _, new in onBottomModeChange?(new) }
+        .onReceive(NotificationCenter.default.publisher(for: .primuseLyricsDidChange)) { note in
+            guard let songID = note.object as? String,
+                  songID == player.currentSong?.id else { return }
+            Task { await reloadLyrics() }
+        }
     }
 
     // MARK: - Backdrop

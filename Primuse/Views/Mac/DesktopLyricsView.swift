@@ -103,6 +103,11 @@ struct DesktopLyricsView: View {
         }
         .task(id: player.currentSong?.id) { await reloadLyrics() }
         .onChange(of: player.currentTime) { _, new in updateIndex(time: new) }
+        .onReceive(NotificationCenter.default.publisher(for: .primuseLyricsDidChange)) { note in
+            guard let songID = note.object as? String,
+                  songID == player.currentSong?.id else { return }
+            Task { await reloadLyrics() }
+        }
         // 切到/出 vertical 时把 panel 整块改成竖窄/横宽。
         .onChange(of: layoutRaw) { _, _ in
             onLayoutChange?(layout)

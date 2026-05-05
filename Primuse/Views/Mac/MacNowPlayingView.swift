@@ -74,6 +74,11 @@ struct MacNowPlayingView: View {
         .onChange(of: lyricsFontScale) { _, _ in
             CloudKVSSync.shared.markChanged(key: CloudKVSKey.lyricsFontScale)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .primuseLyricsDidChange)) { note in
+            guard let songID = note.object as? String,
+                  songID == player.currentSong?.id else { return }
+            Task { await reloadLyrics() }
+        }
         // 监听主窗口进入/退出全屏(macOS NSWindow 通知),切换布局。
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in
             isWindowFullScreen = true
