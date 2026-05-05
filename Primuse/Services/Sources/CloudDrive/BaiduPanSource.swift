@@ -536,7 +536,10 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
     }
 
     private func getToken() async throws -> String {
-        guard var tokens = await helper.tokenManager.getTokens() else { throw CloudDriveError.notAuthenticated }
+        guard var tokens = await helper.tokenManager.getTokens() else {
+            plog("⚠️ Baidu getToken: missing stored token sourceID=\(sourceID.prefix(8))…")
+            throw CloudDriveError.notAuthenticated
+        }
         if tokens.isExpired {
             tokens = try await refreshToken(tokens)
             await helper.tokenManager.saveTokens(tokens)

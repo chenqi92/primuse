@@ -635,3 +635,6 @@
 "stats_clear_confirm" = "Clear listening history?";
 "stats_clear_message" = "All locally-stored play records will be permanently deleted. Top charts and heatmap will reset.";
 "stats_privacy_footer" = "Listening history is stored only on this device. It is never uploaded to the cloud or synced to other devices.";
+"password_show" = "Show password";
+"password_hide" = "Hide password";
+"password_ascii_hint" = "Use English/half-width input to avoid full-width characters breaking sign-in.";

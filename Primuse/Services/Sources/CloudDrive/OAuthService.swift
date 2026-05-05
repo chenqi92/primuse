@@ -221,6 +221,7 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
         let refreshToken = json["refresh_token"] as? String
         let expiresIn = json["expires_in"] as? TimeInterval ?? 3600
         let expiresAt = Date().addingTimeInterval(expiresIn)
+        plog("☁️ OAuth token OK provider=\(providerName(for: config.tokenURL)) refresh=\(refreshToken != nil) expiresIn=\(Int(expiresIn))s")
 
         // Extract extra fields (e.g. drive_id for Aliyun)
         var extra: [String: String]?
@@ -280,6 +281,15 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
     private func formURLEncode(_ string: String) -> String {
         let unreserved = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~")
         return string.addingPercentEncoding(withAllowedCharacters: unreserved) ?? string
+    }
+
+    private func providerName(for tokenURL: String) -> String {
+        if tokenURL.contains("baidu.com") { return "baidu" }
+        if tokenURL.contains("alipan.com") { return "aliyun" }
+        if tokenURL.contains("googleapis.com") { return "google" }
+        if tokenURL.contains("microsoftonline.com") { return "onedrive" }
+        if tokenURL.contains("dropboxapi.com") { return "dropbox" }
+        return URL(string: tokenURL)?.host ?? "unknown"
     }
 
     // MARK: - ASWebAuthenticationPresentationContextProviding

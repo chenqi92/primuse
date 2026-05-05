@@ -63,7 +63,7 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
         // it from then on. Box it to silence the strict-concurrency check.
         let inputBox = InputSourceBox(inputSource)
         return AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 do {
                     let decoder = try SFBAudioEngine.AudioDecoder(inputSource: inputBox.value)
                     try decoder.open()
@@ -72,6 +72,7 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
                     continuation.finish(throwing: error)
                 }
             }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
@@ -91,7 +92,7 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
         onResolveSourceLength: (@Sendable (TimeInterval) -> Void)?
     ) -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 do {
                     let decoder = try SFBAudioEngine.AudioDecoder(url: url)
                     try decoder.open()
@@ -101,6 +102,7 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
                     continuation.finish(throwing: error)
                 }
             }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
@@ -129,7 +131,7 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
 
         if sourceFormat == outputFormat {
             plog("🎵 SFBDecoder: direct read (formats match)")
-            while decoder.position < totalFrames {
+            while !Task.isCancelled, decoder.position < totalFrames {
                 let remainingFrames = AVAudioFrameCount(totalFrames - decoder.position)
                 let framesToRead = min(bufferFrameCount, remainingFrames)
                 guard let buffer = AVAudioPCMBuffer(pcmFormat: sourceFormat, frameCapacity: framesToRead) else {
@@ -147,7 +149,7 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
                 continuation.finish(throwing: AudioDecoderError.converterCreationFailed)
                 return
             }
-            while decoder.position < totalFrames {
+            while !Task.isCancelled, decoder.position < totalFrames {
                 let remainingFrames = AVAudioFrameCount(totalFrames - decoder.position)
                 let framesToRead = min(bufferFrameCount, remainingFrames)
                 guard let inputBuffer = AVAudioPCMBuffer(pcmFormat: sourceFormat, frameCapacity: framesToRead) else {

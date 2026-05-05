@@ -27,4 +27,15 @@ enum CloudSyncChannel: String, CaseIterable, Sendable {
         guard master else { return false }
         return (defaults.object(forKey: channel.defaultsKey) as? Bool) ?? true
     }
+
+    /// iOS simulators do not consistently receive iCloud Keychain entitlements
+    /// when signed locally, and older runtimes can reject synchronizable writes.
+    static func usesSynchronizableKeychain(defaults: UserDefaults = .standard) -> Bool {
+        guard isEnabled(.credentials, defaults: defaults) else { return false }
+#if targetEnvironment(simulator)
+        return false
+#else
+        return true
+#endif
+    }
 }

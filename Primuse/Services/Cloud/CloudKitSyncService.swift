@@ -59,8 +59,8 @@ final class CloudKitSyncService {
 
     // MARK: - State
 
-    private let container: CKContainer
-    private let database: CKDatabase
+    private var container: CKContainer?
+    private var database: CKDatabase?
     private(set) var engine: CKSyncEngine?
     private let stateURL: URL
     private let systemFieldsURL: URL
@@ -116,9 +116,6 @@ final class CloudKitSyncService {
         self.sourcesStore = sourcesStore
         self.scraperConfigStore = scraperConfigStore
         self.scraperSettingsStore = scraperSettingsStore
-        self.container = CKContainer(identifier: Self.containerID)
-        self.database = container.privateCloudDatabase
-
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let directory = appSupport.appendingPathComponent("Primuse", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -132,6 +129,7 @@ final class CloudKitSyncService {
     /// then does an initial fetch + sends any locally pending changes.
     func start() async {
         guard engine == nil else { return }
+        guard let database = configuredDatabase() else { return }
 
         // Verify the user has an iCloud account before standing up the engine —
         // CKSyncEngine will fail every operation with `.notAuthenticated`
@@ -186,6 +184,8 @@ final class CloudKitSyncService {
     /// `true` only if the account is available for sync.
     @discardableResult
     private func checkAccountAndUpdateStatus() async -> Bool {
+        guard let container = configuredContainer() else { return false }
+
         do {
             let accountStatus = try await container.accountStatus()
             switch accountStatus {
@@ -206,6 +206,33 @@ final class CloudKitSyncService {
             self.status = .error(error.localizedDescription)
         }
         return false
+    }
+
+    private func configuredDatabase() -> CKDatabase? {
+        if let database { return database }
+        guard let container = configuredContainer() else { return nil }
+        let database = container.privateCloudDatabase
+        self.database = database
+        return database
+    }
+
+    private func configuredContainer() -> CKContainer? {
+        if let container { return container }
+        guard Self.shouldCreateCloudKitContainer else {
+            status = .error("CloudKit unavailable in this simulator run — \(String(localized: "icloud_container_setup_hint"))")
+            return nil
+        }
+        let container = CKContainer(identifier: Self.containerID)
+        self.container = container
+        return container
+    }
+
+    private nonisolated static var shouldCreateCloudKitContainer: Bool {
+        #if targetEnvironment(simulator)
+        ProcessInfo.processInfo.environment["PRIMUSE_ENABLE_CLOUDKIT_IN_SIMULATOR"] == "1"
+        #else
+        true
+        #endif
     }
 
     private func attachAccountChangeObserver() {

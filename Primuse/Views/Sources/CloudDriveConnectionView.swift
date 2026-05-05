@@ -310,6 +310,10 @@ struct CloudDriveConnectionView: View {
             do {
                 let tokens = try await OAuthService.shared.authorize(config: config)
                 await tokenManager.saveTokens(tokens)
+                guard await tokenManager.getTokens() != nil else {
+                    plog("⚠️ OAuth token save verification failed type=\(source.type.rawValue) sourceID=\(source.id)")
+                    throw OAuthError.tokenExchangeFailed("授权令牌保存失败")
+                }
 
                 // Refresh the connector so it picks up the new tokens
                 await sourceManager.refreshConnector(for: source.id)

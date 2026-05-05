@@ -88,9 +88,8 @@ struct ScrobbleSettingsView: View {
             }
 
             if settings.enabledProviders.contains(.listenBrainz) {
-                SecureField("scrobble_lb_token_placeholder", text: $listenBrainzToken)
+                RevealableSecureField(title: "scrobble_lb_token_placeholder", text: $listenBrainzToken)
                     .textContentType(.password)
-                    .autocorrectionDisabled()
                     .onSubmit { saveListenBrainzToken() }
 
                 HStack {
@@ -217,15 +216,13 @@ struct ScrobbleSettingsView: View {
                             Text("scrobble_lastfm_advanced_hint")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                            SecureField("scrobble_lastfm_api_key_placeholder", text: $lastFmAPIKey)
+                            RevealableSecureField(title: "scrobble_lastfm_api_key_placeholder", text: $lastFmAPIKey)
                                 .textContentType(.password)
-                                .autocorrectionDisabled()
                                 .onChange(of: lastFmAPIKey) { _, newVal in
                                     LastFmCredentialsStore.saveAPIKey(newVal)
                                 }
-                            SecureField("scrobble_lastfm_api_secret_placeholder", text: $lastFmAPISecret)
+                            RevealableSecureField(title: "scrobble_lastfm_api_secret_placeholder", text: $lastFmAPISecret)
                                 .textContentType(.password)
-                                .autocorrectionDisabled()
                                 .onChange(of: lastFmAPISecret) { _, newVal in
                                     LastFmCredentialsStore.saveAPISecret(newVal)
                                 }

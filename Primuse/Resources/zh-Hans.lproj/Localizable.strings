@@ -636,3 +636,6 @@
 "stats_clear_confirm" = "清除听歌历史?";
 "stats_clear_message" = "本地保存的所有播放记录将被永久删除,无法恢复。Top 排行和热力图会清零。";
 "stats_privacy_footer" = "听歌记录仅保存在本设备本地,不会上传到云端,也不会同步到其他设备。";
+"password_show" = "显示密码";
+"password_hide" = "隐藏密码";
+"password_ascii_hint" = "建议使用英文/半角输入,避免全角符号导致认证失败。";

@@ -81,7 +81,7 @@ actor CloudTokenManager {
             kSecAttrService as String: Self.serviceName,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecAttrSynchronizable as String: kSecAttrSynchronizableAny,
+            kSecAttrSynchronizable as String: Self.synchronizableLookupValue,
         ]
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
@@ -91,7 +91,7 @@ actor CloudTokenManager {
 
     private func keychainWrite(key: String, data: Data) {
         keychainDelete(key: key) // Remove existing (both sync and non-sync variants)
-        let synchronizable = CloudSyncChannel.isEnabled(.credentials)
+        let synchronizable = CloudSyncChannel.usesSynchronizableKeychain()
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: key,
@@ -100,7 +100,7 @@ actor CloudTokenManager {
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
             kSecAttrSynchronizable as String: synchronizable ? kCFBooleanTrue as Any : kCFBooleanFalse as Any,
         ]
-        SecItemAdd(query as CFDictionary, nil)
+        Self.addKeychainItem(query, synchronizable: synchronizable, key: key)
     }
 
     private func keychainDelete(key: String) {
@@ -108,7 +108,7 @@ actor CloudTokenManager {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: key,
             kSecAttrService as String: Self.serviceName,
-            kSecAttrSynchronizable as String: kSecAttrSynchronizableAny,
+            kSecAttrSynchronizable as String: Self.synchronizableLookupValue,
         ]
         SecItemDelete(query as CFDictionary)
     }
@@ -148,7 +148,32 @@ actor CloudTokenManager {
                 kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
                 kSecAttrSynchronizable as String: kCFBooleanTrue as Any,
             ]
-            SecItemAdd(addQuery as CFDictionary, nil)
+            addKeychainItem(addQuery, synchronizable: true, key: account)
         }
+    }
+
+    private nonisolated static func addKeychainItem(_ query: [String: Any], synchronizable: Bool, key: String) {
+        let status = SecItemAdd(query as CFDictionary, nil)
+        if status == errSecSuccess { return }
+
+        if synchronizable {
+            var localQuery = query
+            localQuery[kSecAttrSynchronizable as String] = kCFBooleanFalse as Any
+            let fallbackStatus = SecItemAdd(localQuery as CFDictionary, nil)
+            if fallbackStatus == errSecSuccess {
+                plog("🔐 Cloud token sync write failed (\(status)) for key=\(key.prefix(24))…; saved local-only fallback")
+            } else {
+                plog("⚠️ Cloud token write failed for key=\(key.prefix(24))… syncStatus=\(status) localStatus=\(fallbackStatus)")
+            }
+        } else {
+            plog("⚠️ Cloud token local write failed for key=\(key.prefix(24))… status=\(status)")
+        }
+    }
+
+    private nonisolated static var synchronizableLookupValue: Any {
+        if CloudSyncChannel.usesSynchronizableKeychain() {
+            return kSecAttrSynchronizableAny
+        }
+        return kCFBooleanFalse as Any
     }
 }

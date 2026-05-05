@@ -4,7 +4,7 @@ import PrimuseKit
 /// 渲染单行 **激活态** 字级歌词。每个 syllable 是独立的 Text, 走自定义
 /// flow layout 自动换行。每帧由 60Hz `TimelineView(.animation)` 驱动。
 ///
-/// 视觉细节 (向主流音乐 app 的字级歌词手感对齐):
+/// 字级动效细节:
 /// - **字内 mask 扫光**: 每个 syllable 由两层 Text 叠加 — 底层 inactive 色,
 ///   顶层 active 色 + LinearGradient mask, mask 的「可见区」随 progress 从
 ///   左扫到右。单字内部能看到「左半亮右半暗」的过渡边一路扫过, 不再是
@@ -45,7 +45,7 @@ struct KaraokeLineView: View {
     @ViewBuilder
     private func renderLine(at now: TimeInterval) -> some View {
         if let syllables = line.syllables, !syllables.isEmpty {
-            LyricsFlowLayout {
+            LyricsFlowLayout(measurementKey: fontSize) {
                 ForEach(syllables.indices, id: \.self) { i in
                     syllableView(syllables[i], at: now)
                 }
@@ -131,16 +131,31 @@ struct KaraokeLineView: View {
 /// 所以放大不会让布局抖动。
 struct LyricsFlowLayout: Layout {
     var spacing: CGFloat = 0
+    var measurementKey: CGFloat = 0
 
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    struct Cache {
+        var sizes: [CGSize] = []
+        var measurementKey: CGFloat = 0
+    }
+
+    func makeCache(subviews: Subviews) -> Cache {
+        Cache(sizes: measure(subviews), measurementKey: measurementKey)
+    }
+
+    func updateCache(_ cache: inout Cache, subviews: Subviews) {
+        cache.sizes = measure(subviews)
+        cache.measurementKey = measurementKey
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
+        ensureMeasurements(in: &cache, subviews: subviews)
         let maxWidth = proposal.width ?? .greatestFiniteMagnitude
         var x: CGFloat = 0
         var y: CGFloat = 0
         var lineHeight: CGFloat = 0
         var maxLineEnd: CGFloat = 0
 
-        for view in subviews {
-            let size = view.sizeThatFits(.unspecified)
+        for size in cache.sizes {
             if x + size.width > maxWidth, x > 0 {
                 y += lineHeight
                 lineHeight = 0
@@ -154,14 +169,16 @@ struct LyricsFlowLayout: Layout {
         return CGSize(width: min(maxLineEnd, maxWidth), height: y)
     }
 
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
+        ensureMeasurements(in: &cache, subviews: subviews)
         let maxWidth = bounds.width
         var x: CGFloat = 0
         var y: CGFloat = 0
         var lineHeight: CGFloat = 0
 
-        for view in subviews {
-            let size = view.sizeThatFits(.unspecified)
+        for index in subviews.indices {
+            let view = subviews[index]
+            let size = cache.sizes[index]
             if x + size.width > maxWidth, x > 0 {
                 y += lineHeight
                 lineHeight = 0
@@ -175,5 +192,16 @@ struct LyricsFlowLayout: Layout {
             x += size.width + spacing
             lineHeight = max(lineHeight, size.height)
         }
+    }
+
+    private func ensureMeasurements(in cache: inout Cache, subviews: Subviews) {
+        if cache.sizes.count != subviews.count || cache.measurementKey != measurementKey {
+            cache.sizes = measure(subviews)
+            cache.measurementKey = measurementKey
+        }
+    }
+
+    private func measure(_ subviews: Subviews) -> [CGSize] {
+        subviews.map { $0.sizeThatFits(.unspecified) }
     }
 }

@@ -7,32 +7,33 @@ struct ContentView: View {
     @State private var selectedTab = 0
     @State private var searchText = ""
     @State private var showNowPlaying = false
+    private let legacyTabBarClearance: CGFloat = 49
 
     @ViewBuilder
     private var tabRoot: some View {
         TabView(selection: $selectedTab) {
-            Tab(String(localized: "home_title"), systemImage: "house.fill", value: 0) {
-                HomeView(switchToSettingsTab: { selectedTab = 3 })
-            }
-            Tab(String(localized: "library_title"), systemImage: "books.vertical", value: 1) {
-                LibraryView()
-            }
-            Tab(String(localized: "search_title"), systemImage: "magnifyingglass", value: 2, role: .search) {
-                SearchView(searchText: $searchText)
-            }
-            Tab(String(localized: "settings_title"), systemImage: "gearshape", value: 3) {
-                SettingsView()
-            }
+            HomeView(switchToSettingsTab: { selectedTab = 3 })
+                .tabItem { Label(String(localized: "home_title"), systemImage: "house.fill") }
+                .tag(0)
+
+            LibraryView()
+                .tabItem { Label(String(localized: "library_title"), systemImage: "books.vertical") }
+                .tag(1)
+
+            SearchView(searchText: $searchText)
+                .tabItem { Label(String(localized: "search_title"), systemImage: "magnifyingglass") }
+                .tag(2)
+
+            SettingsView()
+                .tabItem { Label(String(localized: "settings_title"), systemImage: "gearshape") }
+                .tag(3)
         }
     }
 
-    var body: some View {
-        ZStack {
-            // iOS 26 tabViewBottomAccessory modifier 一旦挂上, 即使闭包返回
-            // EmptyView 也会保留 accessory 的视觉占位 (底部一条透明空白)。
-            // 所以这里走 if/else 分支, currentSong 为 nil 时整个 modifier
-            // 不挂, 让 TabBar 紧贴底部。
-            if player.currentSong != nil {
+    @ViewBuilder
+    private var playerAwareTabRoot: some View {
+        if player.currentSong != nil {
+            if #available(iOS 26.0, *) {
                 tabRoot
                     .tabBarMinimizeBehavior(.onScrollDown)
                     .tabViewBottomAccessory {
@@ -40,6 +41,25 @@ struct ContentView: View {
                     }
             } else {
                 tabRoot
+            }
+        } else {
+            tabRoot
+        }
+    }
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            playerAwareTabRoot
+
+            if player.currentSong != nil {
+                if #available(iOS 26.0, *) {
+                    EmptyView()
+                } else {
+                    LegacyNowPlayingAccessory(onTap: { showNowPlaying = true })
+                        .padding(.bottom, legacyTabBarClearance)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .zIndex(1)
+                }
             }
 
             // Player overlay — mounted on demand. NowPlayingView holds heavy
@@ -50,6 +70,7 @@ struct ContentView: View {
             // own internal `entered` state on first appear.
             if showNowPlaying {
                 PlayerOverlay(isPresented: $showNowPlaying)
+                    .zIndex(2)
             }
         }
         .onChange(of: library.visibleSongs.count) { _, _ in
@@ -180,6 +201,17 @@ struct PlayerOverlay: View {
 
 // MARK: - Now Playing Accessory (adapts to inline/expanded)
 
+struct LegacyNowPlayingAccessory: View {
+    var onTap: () -> Void
+
+    var body: some View {
+        MiniPlayerView(onTap: onTap)
+            .frame(maxWidth: .infinity)
+            .background(.ultraThinMaterial)
+    }
+}
+
+@available(iOS 26.0, *)
 struct NowPlayingAccessory: View {
     var onTap: () -> Void
     @Environment(AudioPlayerService.self) private var player

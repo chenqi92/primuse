@@ -409,7 +409,7 @@ struct NowPlayingView: View {
         LinearGradient(
             colors: [
                 theme.darkAccent,
-                theme.darkAccent.mix(with: .black, by: 0.4),
+                gradientMidColor,
                 .black
             ],
             startPoint: .top, endPoint: .bottom
@@ -417,7 +417,15 @@ struct NowPlayingView: View {
         .animation(.easeInOut(duration: 0.5), value: theme.colorID)
     }
 
-    // MARK: - Full Lyrics (Apple Music style: large text, no frame constraint)
+    private var gradientMidColor: Color {
+        if #available(iOS 18.0, *) {
+            theme.darkAccent.mix(with: .black, by: 0.4)
+        } else {
+            theme.darkAccent.opacity(0.65)
+        }
+    }
+
+    // MARK: - Full Lyrics
 
     private var lyricsFullView: some View {
         LyricsScrollView(
@@ -858,18 +866,19 @@ fileprivate struct LyricsScrollView: View {
     @State private var lyricsPinchScale: CGFloat = 1.0
     @State private var isPinchingLyrics = false
     @State private var currentLineIndex = 0
+    @State private var wordLineFrames: [String: CGRect] = [:]
 
-    // Translation —— Apple Translation Framework (iOS 17.4+ / macOS 14.4+)
+    // Translation —— system translation framework
     // 离线 + 免费, 翻译结果走 LyricsTranslationCache 持久化, 切歌时按当前
     // 启用状态触发批量翻译。
     @State private var translatedTextByLineID: [String: String] = [:]
-    @State private var translationConfig: TranslationSession.Configuration?
     @State private var translationSettings = LyricsTranslationSettingsStore.shared
 
     private static let lyricsMinScale: Double = 0.7
     private static let lyricsMaxScale: Double = 1.8
     private static let lyricsActiveBaseSize: CGFloat = 28
     private static let lyricsInactiveBaseSize: CGFloat = 22
+    private static let lyricsWordLevelBaseSize: CGFloat = 26
 
     private var effectiveLyricsScale: Double {
         let combined = lyricsFontScale * Double(lyricsPinchScale)
@@ -881,42 +890,55 @@ fileprivate struct LyricsScrollView: View {
     }
 
     var body: some View {
+        Group {
+            if lyrics.isEmpty {
+                emptyLyricsView
+            } else if hasWordLevelLyrics {
+                smoothWordLyricsView
+            } else {
+                lineLevelLyricsView
+            }
+        }
+        .onReceive(Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()) { _ in
+            updateCurrentLine()
+        }
+        .onChange(of: songID) { _, _ in
+            // 切歌时把行索引清零 + 让自动滚动重新 anchor
+            currentLineIndex = 0
+            wordLineFrames = [:]
+        }
+        .lyricsTranslationTaskIfAvailable(
+            songID: songID,
+            lyrics: lyrics,
+            settings: translationSettings,
+            translatedTextByLineID: $translatedTextByLineID
+        )
+    }
+
+    private var emptyLyricsView: some View {
+        VStack(spacing: 12) {
+            Spacer().frame(height: 60)
+            Text("no_lyrics").font(.title3).foregroundStyle(.white.opacity(0.3))
+            Button { onScrape() } label: {
+                Label("scrape_song", systemImage: "wand.and.stars").font(.subheadline)
+            }
+            .buttonStyle(.bordered).tint(.white)
+            .disabled(isScrapingCurrentSong)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private var lineLevelLyricsView: some View {
         ScrollViewReader { proxy in
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 12) {
                     Spacer().frame(height: 20)
 
-                    if lyrics.isEmpty {
-                        VStack(spacing: 12) {
-                            Spacer().frame(height: 60)
-                            Text("no_lyrics").font(.title3).foregroundStyle(.white.opacity(0.3))
-                            Button { onScrape() } label: {
-                                Label("scrape_song", systemImage: "wand.and.stars").font(.subheadline)
-                            }
-                            .buttonStyle(.bordered).tint(.white)
-                            .disabled(isScrapingCurrentSong)
-                        }
-                        .frame(maxWidth: .infinity)
-                    } else {
-                        if hasWordLevelLyrics {
-                            HStack(spacing: 6) {
-                                Image(systemName: "waveform")
-                                    .font(.caption2)
-                                Text("lyrics_word_level_badge")
-                                    .font(.caption2.weight(.semibold))
-                            }
-                            .foregroundStyle(.white.opacity(0.6))
-                            .padding(.horizontal, 8).padding(.vertical, 3)
-                            .background(Capsule().fill(.white.opacity(0.12)))
-                            .padding(.bottom, 4)
-                        }
-
-                        ForEach(Array(lyrics.enumerated()), id: \.element.id) { index, line in
-                            lyricsRow(line: line, index: index)
-                                .id(line.id)
-                                .onTapGesture { player.seek(to: line.timestamp) }
-                                .padding(.vertical, 2)
-                        }
+                    ForEach(Array(lyrics.enumerated()), id: \.element.id) { index, line in
+                        lyricsRow(line: line, index: index)
+                            .id(line.id)
+                            .onTapGesture { player.seek(to: line.timestamp) }
+                            .padding(.vertical, 2)
                     }
 
                     Spacer().frame(height: 80)
@@ -938,116 +960,121 @@ fileprivate struct LyricsScrollView: View {
             )
             .onChange(of: currentLineIndex) { _, idx in
                 guard !isPinchingLyrics, idx < lyrics.count else { return }
-                withAnimation(.easeInOut(duration: 0.4)) {
+                withAnimation(.smooth(duration: 0.34, extraBounce: 0)) {
                     proxy.scrollTo(lyrics[idx].id, anchor: .center)
                 }
             }
         }
-        .onReceive(Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()) { _ in
-            updateCurrentLine()
+    }
+
+    private var smoothWordLyricsView: some View {
+        GeometryReader { geo in
+            TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: false)) { ctx in
+                let now = player.interpolatedTime(at: ctx.date)
+                let offset = smoothWordContentOffset(at: now, viewportHeight: geo.size.height)
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Spacer().frame(height: 20)
+
+                    wordLevelBadge
+
+                    ForEach(Array(lyrics.enumerated()), id: \.element.id) { index, line in
+                        lyricsRow(line: line, index: index)
+                            .id(line.id)
+                            .onTapGesture { player.seek(to: line.timestamp) }
+                            .padding(.vertical, 2)
+                            .background(rowFrameReader(id: line.id))
+                    }
+
+                    Spacer().frame(height: 80)
+                }
+                .padding(.horizontal, 24)
+                .coordinateSpace(name: SmoothWordLyricsCoordinateSpace.name)
+                .offset(y: offset)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .onPreferenceChange(LyricRowFramePreferenceKey.self) { frames in
+                    wordLineFrames = frames
+                }
+            }
         }
-        .onChange(of: songID) { _, _ in
-            // 切歌时把行索引清零 + 让自动滚动重新 anchor
-            currentLineIndex = 0
-            // 切歌后把已翻译的清掉 + 触发新一轮翻译
-            translatedTextByLineID = [:]
-            refreshTranslationConfig()
+        .clipped()
+        .simultaneousGesture(
+            MagnifyGesture()
+                .onChanged { value in
+                    isPinchingLyrics = true
+                    lyricsPinchScale = value.magnification
+                }
+                .onEnded { value in
+                    let next = lyricsFontScale * Double(value.magnification)
+                    lyricsFontScale = min(max(next, Self.lyricsMinScale), Self.lyricsMaxScale)
+                    lyricsPinchScale = 1.0
+                    isPinchingLyrics = false
+                }
+        )
+    }
+
+    private var wordLevelBadge: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "waveform")
+                .font(.caption2)
+            Text("lyrics_word_level_badge")
+                .font(.caption2.weight(.semibold))
         }
-        .onChange(of: lyrics.count) { _, _ in
-            // 同首歌重新加载歌词 (Tier3 stale-while-revalidate update) 时也刷
-            translatedTextByLineID = [:]
-            refreshTranslationConfig()
-        }
-        .onChange(of: translationSettings.isEnabled) { _, _ in
-            refreshTranslationConfig()
-        }
-        .onChange(of: translationSettings.targetLanguageCode) { _, _ in
-            translatedTextByLineID = [:]
-            refreshTranslationConfig()
-        }
-        .onAppear {
-            refreshTranslationConfig()
-            // 已 cache 的翻译先填上 (next 切歌或 view 重建时秒出)
-            primeFromCache()
-        }
-        .translationTask(translationConfig) { session in
-            await runTranslation(session: session)
+        .foregroundStyle(.white.opacity(0.6))
+        .padding(.horizontal, 8).padding(.vertical, 3)
+        .background(Capsule().fill(.white.opacity(0.12)))
+        .padding(.bottom, 4)
+    }
+
+    private func rowFrameReader(id: String) -> some View {
+        GeometryReader { proxy in
+            Color.clear.preference(
+                key: LyricRowFramePreferenceKey.self,
+                value: [id: proxy.frame(in: .named(SmoothWordLyricsCoordinateSpace.name))]
+            )
         }
     }
 
-    /// 重置 translationConfig 让 .translationTask 重新触发。
-    /// 设 nil → 设新值, SwiftUI 才会重跑 task。
-    private func refreshTranslationConfig() {
-        guard translationSettings.isEnabled, !lyrics.isEmpty else {
-            translationConfig = nil
-            return
+    private func smoothWordContentOffset(at time: TimeInterval, viewportHeight: CGFloat) -> CGFloat {
+        guard !lyrics.isEmpty else { return 0 }
+        let singingIndex = currentSingingLineIndex(at: time)
+        let nextIndex = min(singingIndex + 1, lyrics.count - 1)
+
+        guard let currentFrame = wordLineFrames[lyrics[singingIndex].id] else { return 0 }
+        let currentCenter = currentFrame.midY
+        let targetCenter: CGFloat
+
+        if nextIndex > singingIndex, let nextFrame = wordLineFrames[lyrics[nextIndex].id] {
+            let nextTimestamp = lyrics[nextIndex].timestamp
+            let progress = lineScrollProgress(time: time, nextTimestamp: nextTimestamp)
+            targetCenter = currentCenter + (nextFrame.midY - currentCenter) * progress
+        } else {
+            targetCenter = currentCenter
         }
-        let target = Locale.Language(identifier: translationSettings.targetLanguageCode)
-        // source: nil 让 framework 自动检测 (英、日、韩混排都能处理)
-        translationConfig = TranslationSession.Configuration(source: nil, target: target)
+
+        let visualAnchor = viewportHeight * 0.42
+        return visualAnchor - targetCenter
     }
 
-    /// 进入歌词或换歌时, 先用 cache 命中的填上, 用户立刻看到已翻译内容。
-    private func primeFromCache() {
-        guard translationSettings.isEnabled else { return }
-        let target = translationSettings.targetLanguageCode
-        let cache = LyricsTranslationCache.shared
-        var hits: [String: String] = [:]
-        for line in lyrics where !line.text.trimmingCharacters(in: .whitespaces).isEmpty {
-            if let t = cache.translation(for: line.text, targetLang: target) {
-                hits[line.id] = t
-            }
+    private func currentSingingLineIndex(at time: TimeInterval) -> Int {
+        for (i, line) in lyrics.enumerated().reversed() where time >= line.timestamp {
+            return i
         }
-        if !hits.isEmpty { translatedTextByLineID = hits }
+        return 0
     }
 
-    /// 翻译当前歌全部未翻译过的行, 结果存 cache + 更新 UI。
-    /// 系统第一次用某语言对会触发语言模型下载提示, 用户取消时 throw error,
-    /// 静默丢弃 (此次显示不出翻译, 下次再试)。
-    private func runTranslation(session: TranslationSession) async {
-        let target = translationSettings.targetLanguageCode
-        let cache = LyricsTranslationCache.shared
-        // 找出还没翻译的行 (cache miss + state 里也没)
-        let pending: [(id: String, text: String)] = lyrics.compactMap { line in
-            let t = line.text.trimmingCharacters(in: .whitespaces)
-            guard !t.isEmpty else { return nil }
-            if translatedTextByLineID[line.id] != nil { return nil }
-            if let cached = cache.translation(for: line.text, targetLang: target) {
-                // cache 命中但 state 里漏了, 顺手填上
-                translatedTextByLineID[line.id] = cached
-                return nil
-            }
-            return (line.id, line.text)
-        }
-        guard !pending.isEmpty else { return }
-
-        do {
-            // 批量翻译 — clientIdentifier 用 line.id 让 response 可对回原行
-            let requests = pending.map {
-                TranslationSession.Request(sourceText: $0.text, clientIdentifier: $0.id)
-            }
-            var newCachePairs: [(source: String, translated: String)] = []
-            var newStateUpdates: [String: String] = [:]
-            for try await response in session.translate(batch: requests) {
-                let id = response.clientIdentifier ?? ""
-                let translated = response.targetText
-                if !id.isEmpty { newStateUpdates[id] = translated }
-                newCachePairs.append((response.sourceText, translated))
-            }
-            cache.bulkSet(newCachePairs, targetLang: target)
-            // 一次性 merge state, 避免逐个 setter 触发多次 SwiftUI 重算
-            translatedTextByLineID.merge(newStateUpdates) { _, new in new }
-        } catch {
-            // 用户拒绝下载语言模型 / 不支持的语言对 / 网络错 (语言下载阶段)
-            // 不弹错, UI 自然不显示翻译就行
-            plog("⚠️ Lyrics translation failed: \(error.localizedDescription)")
-        }
+    private func lineScrollProgress(time: TimeInterval, nextTimestamp: TimeInterval) -> CGFloat {
+        let raw = (time - (nextTimestamp - Self.wordLevelScrollLead)) / Self.wordLevelScrollDuration
+        let clamped = max(0, min(1, raw))
+        return clamped * clamped * (3 - 2 * clamped)
     }
 
     @ViewBuilder
     private func lyricsRow(line: LyricLine, index: Int) -> some View {
         let isActive = index == currentLineIndex
-        let baseSize = isActive ? Self.lyricsActiveBaseSize : Self.lyricsInactiveBaseSize
+        let baseSize = hasWordLevelLyrics
+            ? Self.lyricsWordLevelBaseSize
+            : isActive ? Self.lyricsActiveBaseSize : Self.lyricsInactiveBaseSize
         let fontSize = baseSize * CGFloat(effectiveLyricsScale)
         let weight: Font.Weight = isActive ? .bold : .semibold
         let alignment: HorizontalAlignment = line.voice == .secondary ? .trailing : .leading
@@ -1085,13 +1112,15 @@ fileprivate struct LyricsScrollView: View {
         fontSize: CGFloat,
         weight: Font.Weight
     ) -> some View {
-        if isActive, line.isWordLevel {
+        if shouldRenderWordTimeline(line: line, index: index, isActive: isActive) {
+            let inactiveOpacity = isActive ? 0.4 : (index < currentLineIndex ? 0.25 : 0.4)
+            let activeOpacity = isActive ? 1.0 : inactiveOpacity
             KaraokeLineView(
                 line: line,
                 fontSize: fontSize,
                 weight: weight,
-                activeColor: .white,
-                inactiveColor: .white.opacity(0.4),
+                activeColor: .white.opacity(activeOpacity),
+                inactiveColor: .white.opacity(inactiveOpacity),
                 timeAt: { date in player.interpolatedTime(at: date) }
             )
         } else {
@@ -1105,21 +1134,169 @@ fileprivate struct LyricsScrollView: View {
         }
     }
 
+    private func shouldRenderWordTimeline(line: LyricLine, index: Int, isActive: Bool) -> Bool {
+        guard line.isWordLevel else { return false }
+        return isActive || abs(index - currentLineIndex) == 1
+    }
+
     /// 行级歌词 LRC 文件的 timestamp 通常是「演唱开始那一刻」,但 LRC 制作过程
     /// 中作者按 spacebar 记录会有人为反应延迟(常见 200-400ms),用户感受是
     /// 「头两个字唱完才高亮这一行」。给行级判断加 250ms lookahead 提前切换。
-    /// 字级歌词 syllable 粒度精度本来就高,不用补偿。
+    /// 字级歌词 syllable 粒度精度本来就高,但行切换时也需要一点预热时间;
+    /// 否则下一行会在第一个字开唱时才从普通行切成逐字 Timeline,跨行会显得顿。
     private static let lineLevelLookahead: TimeInterval = 0.25
+    private static let wordLevelLineLookahead: TimeInterval = 0.10
+    private static let wordLevelScrollLead: TimeInterval = 0.42
+    private static let wordLevelScrollDuration: TimeInterval = 0.54
 
     private func updateCurrentLine() {
         guard !lyrics.isEmpty else { return }
         let time = player.interpolatedTime()
         for (i, line) in lyrics.enumerated().reversed() {
-            let lookahead: TimeInterval = line.isWordLevel ? 0 : Self.lineLevelLookahead
+            let lookahead: TimeInterval = line.isWordLevel ? Self.wordLevelLineLookahead : Self.lineLevelLookahead
             if time + lookahead >= line.timestamp {
                 if currentLineIndex != i { currentLineIndex = i }
                 break
             }
+        }
+    }
+}
+
+private enum SmoothWordLyricsCoordinateSpace {
+    static let name = "smoothWordLyricsContent"
+}
+
+private struct LyricRowFramePreferenceKey: PreferenceKey {
+    static let defaultValue: [String: CGRect] = [:]
+
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func lyricsTranslationTaskIfAvailable(
+        songID: String?,
+        lyrics: [LyricLine],
+        settings: LyricsTranslationSettingsStore,
+        translatedTextByLineID: Binding<[String: String]>
+    ) -> some View {
+        if #available(iOS 18.0, *) {
+            modifier(
+                LyricsTranslationTaskModifier(
+                    songID: songID,
+                    lyrics: lyrics,
+                    settings: settings,
+                    translatedTextByLineID: translatedTextByLineID
+                )
+            )
+        } else {
+            self
+        }
+    }
+}
+
+@available(iOS 18.0, *)
+private struct LyricsTranslationTaskModifier: ViewModifier {
+    let songID: String?
+    let lyrics: [LyricLine]
+    let settings: LyricsTranslationSettingsStore
+    @Binding var translatedTextByLineID: [String: String]
+    @State private var translationConfig: TranslationSession.Configuration?
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: songID) { _, _ in
+                translatedTextByLineID = [:]
+                refreshTranslationConfig()
+            }
+            .onChange(of: lyrics.count) { _, _ in
+                translatedTextByLineID = [:]
+                refreshTranslationConfig()
+            }
+            .onChange(of: settings.isEnabled) { _, _ in
+                refreshTranslationConfig()
+            }
+            .onChange(of: settings.targetLanguageCode) { _, _ in
+                translatedTextByLineID = [:]
+                refreshTranslationConfig()
+            }
+            .onAppear {
+                refreshTranslationConfig()
+                primeFromCache()
+            }
+            .translationTask(translationConfig) { session in
+                await runTranslation(session: session)
+            }
+    }
+
+    /// 重置 translationConfig 让 .translationTask 重新触发。
+    /// 设 nil → 设新值, SwiftUI 才会重跑 task。
+    private func refreshTranslationConfig() {
+        guard settings.isEnabled, !lyrics.isEmpty else {
+            translationConfig = nil
+            return
+        }
+        let target = Locale.Language(identifier: settings.targetLanguageCode)
+        // source: nil 让 framework 自动检测 (英、日、韩混排都能处理)
+        translationConfig = TranslationSession.Configuration(source: nil, target: target)
+    }
+
+    /// 进入歌词或换歌时, 先用 cache 命中的填上, 用户立刻看到已翻译内容。
+    private func primeFromCache() {
+        guard settings.isEnabled else { return }
+        let target = settings.targetLanguageCode
+        let cache = LyricsTranslationCache.shared
+        var hits: [String: String] = [:]
+        for line in lyrics where !line.text.trimmingCharacters(in: .whitespaces).isEmpty {
+            if let t = cache.translation(for: line.text, targetLang: target) {
+                hits[line.id] = t
+            }
+        }
+        if !hits.isEmpty { translatedTextByLineID = hits }
+    }
+
+    /// 翻译当前歌全部未翻译过的行, 结果存 cache + 更新 UI。
+    /// 系统第一次用某语言对会触发语言模型下载提示, 用户取消时 throw error,
+    /// 静默丢弃 (此次显示不出翻译, 下次再试)。
+    private func runTranslation(session: TranslationSession) async {
+        let target = settings.targetLanguageCode
+        let cache = LyricsTranslationCache.shared
+        // 找出还没翻译的行 (cache miss + state 里也没)
+        let pending: [(id: String, text: String)] = lyrics.compactMap { line in
+            let t = line.text.trimmingCharacters(in: .whitespaces)
+            guard !t.isEmpty else { return nil }
+            if translatedTextByLineID[line.id] != nil { return nil }
+            if let cached = cache.translation(for: line.text, targetLang: target) {
+                // cache 命中但 state 里漏了, 顺手填上
+                translatedTextByLineID[line.id] = cached
+                return nil
+            }
+            return (line.id, line.text)
+        }
+        guard !pending.isEmpty else { return }
+
+        do {
+            // 批量翻译 — clientIdentifier 用 line.id 让 response 可对回原行
+            let requests = pending.map {
+                TranslationSession.Request(sourceText: $0.text, clientIdentifier: $0.id)
+            }
+            var newCachePairs: [(source: String, translated: String)] = []
+            var newStateUpdates: [String: String] = [:]
+            for try await response in session.translate(batch: requests) {
+                let id = response.clientIdentifier ?? ""
+                let translated = response.targetText
+                if !id.isEmpty { newStateUpdates[id] = translated }
+                newCachePairs.append((response.sourceText, translated))
+            }
+            cache.bulkSet(newCachePairs, targetLang: target)
+            // 一次性 merge state, 避免逐个 setter 触发多次 SwiftUI 重算
+            translatedTextByLineID.merge(newStateUpdates) { _, new in new }
+        } catch {
+            // 用户拒绝下载语言模型 / 不支持的语言对 / 网络错 (语言下载阶段)
+            // 不弹错, UI 自然不显示翻译就行
+            plog("⚠️ Lyrics translation failed: \(error.localizedDescription)")
         }
     }
 }
