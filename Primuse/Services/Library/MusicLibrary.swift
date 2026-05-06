@@ -21,6 +21,16 @@ final class MusicLibrary {
             .filter { $0.isDeleted }
             .sorted { ($0.deletedAt ?? .distantPast) > ($1.deletedAt ?? .distantPast) }
     }
+    /// 智能歌单 ── 跟普通 playlist 共用 soft-delete + snapshot 持久化模型。
+    /// 只存定义 (规则 / 排序 / 上限), 不缓存匹配结果 ── 每次 query 实时算,
+    /// 避免不同设备 PlayHistoryStore 不一致导致显示错位。
+    private(set) var allSmartPlaylists: [SmartPlaylist] = []
+    var smartPlaylists: [SmartPlaylist] { allSmartPlaylists.filter { !$0.isDeleted } }
+    var recentlyDeletedSmartPlaylists: [SmartPlaylist] {
+        allSmartPlaylists
+            .filter { $0.isDeleted }
+            .sorted { ($0.deletedAt ?? .distantPast) > ($1.deletedAt ?? .distantPast) }
+    }
     private var playlistSongIDs: [String: [String]] = [:]
     private var recentPlaybackSongIDs: [String] = []
     /// Identities pulled from CloudKit that didn't resolve to a local
@@ -388,6 +398,61 @@ final class MusicLibrary {
         }
     }
 
+    // MARK: - Smart Playlists
+
+    /// 创建 / 更新一份智能歌单。Caller 自己构造 SmartPlaylist (含 rules), 这里
+    /// 只负责存进 allSmartPlaylists 并刷新 updatedAt + 触发同步。
+    func saveSmartPlaylist(_ smart: SmartPlaylist) {
+        var stored = smart
+        stored.updatedAt = Date()
+        if let idx = allSmartPlaylists.firstIndex(where: { $0.id == smart.id }) {
+            allSmartPlaylists[idx] = stored
+        } else {
+            allSmartPlaylists.append(stored)
+        }
+        sortSmartPlaylists()
+        persistSnapshot()
+        notifySmartPlaylistsChanged([stored.id])
+    }
+
+    /// Soft-delete: 跟 Playlist 一致, mark deleted 并保留 30 天给 CloudKit
+    /// 多设备收敛时间窗。
+    func deleteSmartPlaylist(id: String) {
+        guard let idx = allSmartPlaylists.firstIndex(where: { $0.id == id }) else { return }
+        allSmartPlaylists[idx].isDeleted = true
+        allSmartPlaylists[idx].deletedAt = Date()
+        allSmartPlaylists[idx].updatedAt = Date()
+        persistSnapshot()
+        notifySmartPlaylistsChanged([id])
+    }
+
+    func restoreSmartPlaylist(id: String) {
+        guard let idx = allSmartPlaylists.firstIndex(where: { $0.id == id }) else { return }
+        allSmartPlaylists[idx].isDeleted = false
+        allSmartPlaylists[idx].deletedAt = nil
+        allSmartPlaylists[idx].updatedAt = Date()
+        persistSnapshot()
+        notifySmartPlaylistsChanged([id])
+    }
+
+    func permanentlyDeleteSmartPlaylist(id: String) {
+        allSmartPlaylists.removeAll { $0.id == id }
+        persistSnapshot()
+        notifySmartPlaylistDeleted(id)
+    }
+
+    func pruneSmartPlaylists(deletedBefore threshold: Date) {
+        let toPrune = allSmartPlaylists.filter { $0.isDeleted && ($0.deletedAt ?? .distantFuture) < threshold }
+        guard !toPrune.isEmpty else { return }
+        for smart in toPrune {
+            permanentlyDeleteSmartPlaylist(id: smart.id)
+        }
+    }
+
+    private func sortSmartPlaylists() {
+        allSmartPlaylists.sort { $0.updatedAt > $1.updatedAt }
+    }
+
     func add(songID: String, toPlaylist playlistID: String) {
         guard songs.contains(where: { $0.id == songID }),
               let existingIndex = allPlaylists.firstIndex(where: { $0.id == playlistID }) else {
@@ -695,6 +760,41 @@ final class MusicLibrary {
         )
     }
 
+    private func notifySmartPlaylistsChanged(_ ids: [String]) {
+        NotificationCenter.default.post(
+            name: .primuseSmartPlaylistsDidChange,
+            object: nil,
+            userInfo: ["ids": ids]
+        )
+    }
+
+    private func notifySmartPlaylistDeleted(_ id: String) {
+        NotificationCenter.default.post(
+            name: .primuseSmartPlaylistDidDelete,
+            object: nil,
+            userInfo: ["id": id]
+        )
+    }
+
+    /// 删除来自远端 (CloudKit) 的智能歌单。不触发 changed notification 避免
+    /// 回声同步。
+    func deleteSmartPlaylistFromRemote(id: String) {
+        allSmartPlaylists.removeAll { $0.id == id }
+        persistSnapshot()
+    }
+
+    /// 应用来自远端 (CloudKit) 的智能歌单更新。比 Playlist 简单很多 ── 没有
+    /// songID 解析问题, 因为 SmartPlaylist 只存规则定义不存歌曲列表。
+    func applyRemoteSmartPlaylist(_ smart: SmartPlaylist) {
+        if let idx = allSmartPlaylists.firstIndex(where: { $0.id == smart.id }) {
+            allSmartPlaylists[idx] = smart
+        } else {
+            allSmartPlaylists.append(smart)
+        }
+        sortSmartPlaylists()
+        persistSnapshot()
+    }
+
     /// Most recently replaced song — observable so consumers (e.g. player) can sync.
     /// Use songReplacementToken for onChange triggers (it changes on every replace, even same song).
     private(set) var lastReplacedSong: Song?
@@ -834,6 +934,7 @@ final class MusicLibrary {
 
         songs = snapshot.songs
         allPlaylists = snapshot.playlists
+        allSmartPlaylists = snapshot.smartPlaylists ?? []
         playlistSongIDs = snapshot.playlistSongIDs ?? [:]
         recentPlaybackSongIDs = snapshot.recentPlaybackSongIDs ?? []
         // Old `deletedSongIDs` field stored mount-UUID-derived song.id
@@ -867,6 +968,7 @@ final class MusicLibrary {
         let snapshot = Snapshot(
             songs: songs,
             playlists: allPlaylists,
+            smartPlaylists: allSmartPlaylists.isEmpty ? nil : allSmartPlaylists,
             playlistSongIDs: playlistSongIDs,
             recentPlaybackSongIDs: recentPlaybackSongIDs,
             deletedSongIdentities: Array(deletedSongIdentities),
@@ -909,6 +1011,8 @@ final class MusicLibrary {
     private struct Snapshot: Codable {
         var songs: [Song]
         var playlists: [Playlist]
+        /// 智能歌单。Optional 让旧 snapshot decode 不报错。
+        var smartPlaylists: [SmartPlaylist]?
         var playlistSongIDs: [String: [String]]?
         var recentPlaybackSongIDs: [String]?
         /// Account-or-source-prefixed identity keys ("<id>:<filePath>").
@@ -925,6 +1029,8 @@ final class MusicLibrary {
 extension Notification.Name {
     static let primusePlaylistsDidChange = Notification.Name("primuse.playlistsDidChange")
     static let primusePlaylistDidDelete = Notification.Name("primuse.playlistDidDelete")
+    static let primuseSmartPlaylistsDidChange = Notification.Name("primuse.smartPlaylistsDidChange")
+    static let primuseSmartPlaylistDidDelete = Notification.Name("primuse.smartPlaylistDidDelete")
     static let primusePlaybackHistoryDidChange = Notification.Name("primuse.playbackHistoryDidChange")
     static let primuseSourcesDidChange = Notification.Name("primuse.sourcesDidChange")
     static let primuseSourceDidDelete = Notification.Name("primuse.sourceDidDelete")

@@ -642,3 +642,72 @@
 "source_auth_failed_re_enter" = "Re-enter password";
 "source_auth_failed_message_generic" = "Login failed. Check credentials or NAS status.";
 "later" = "Later";
+
+// MARK: - Smart Playlists
+"smart_playlists_section" = "Smart Playlists";
+"playlists_section" = "Playlists";
+"new_smart_playlist" = "New Smart Playlist";
+"smart_playlist_new" = "New Smart Playlist";
+"smart_playlist_edit" = "Edit Smart Playlist";
+"smart_playlist_name" = "Name";
+"rules_count" = "rules";
+"smart_rules_section" = "Rules";
+"smart_rule_add" = "Add Rule";
+"smart_combinator_section" = "Combine";
+"smart_combinator" = "Combine";
+"smart_combinator_and" = "All match";
+"smart_combinator_or" = "Any match";
+"smart_combinator_and_desc" = "A song must satisfy every rule to appear.";
+"smart_combinator_or_desc" = "A song needs to satisfy any one rule to appear.";
+"smart_sort_section" = "Sort & Limit";
+"smart_sort_field" = "Sort by";
+"smart_sort_direction" = "Direction";
+"smart_sort_ascending" = "Ascending";
+"smart_sort_descending" = "Descending";
+"smart_limit" = "Limit";
+"smart_limit_placeholder" = "Unlimited";
+"smart_limit_footer" = "Leave empty for unlimited. When more songs match, the list is truncated by sort order.";
+"smart_value_placeholder" = "Value";
+"smart_value_playlist" = "Choose playlist";
+"smart_value_playlist_none" = "Not selected";
+"smart_date_recent_days" = "Within last N days";
+"smart_playlist_no_rules" = "No rules";
+"smart_playlist_no_matches" = "No matching songs";
+"smart_playlist_no_matches_desc" = "Try adjusting the rules.";
+"smart_playlist_unavailable" = "Smart playlist deleted";
+"smart_playlist_delete_confirm" = "Delete this smart playlist?";
+
+// Fields
+"smart_field_title" = "Title";
+"smart_field_artistName" = "Artist";
+"smart_field_albumTitle" = "Album";
+"smart_field_genre" = "Genre";
+"smart_field_year" = "Year";
+"smart_field_fileFormat" = "Format";
+"smart_field_dateAdded" = "Date Added";
+"smart_field_durationSec" = "Duration (s)";
+"smart_field_fileSize" = "File Size";
+"smart_field_bitRate" = "Bitrate";
+"smart_field_sourceID" = "Source";
+"smart_field_playCount" = "Play Count";
+"smart_field_lastPlayedAt" = "Last Played";
+"smart_field_isInPlaylist" = "In Playlist";
+
+// Operators
+"smart_op_equals" = "is";
+"smart_op_notEquals" = "is not";
+"smart_op_contains" = "contains";
+"smart_op_notContains" = "does not contain";
+"smart_op_greaterThan" = "greater than";
+"smart_op_lessThan" = "less than";
+"smart_op_between" = "between";
+
+// Sort fields
+"smart_sort_field_title" = "Title";
+"smart_sort_field_artistName" = "Artist";
+"smart_sort_field_albumTitle" = "Album";
+"smart_sort_field_dateAdded" = "Date Added";
+"smart_sort_field_lastPlayedAt" = "Last Played";
+"smart_sort_field_playCount" = "Play Count";
+"smart_sort_field_duration" = "Duration";
+"smart_sort_field_random" = "Random";

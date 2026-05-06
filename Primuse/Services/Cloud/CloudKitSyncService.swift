@@ -41,6 +41,7 @@ final class CloudKitSyncService {
 
     enum RecordType {
         static let playlist = "Playlist"
+        static let smartPlaylist = "SmartPlaylist"
         static let musicSource = "MusicSource"
         static let cloudAccount = "CloudAccount"
         static let playbackHistory = "PlaybackHistory"
@@ -277,6 +278,7 @@ final class CloudKitSyncService {
         switch channel {
         case .playlists:
             playlistsChanged(ids: library.allPlaylists.map(\.id))
+            smartPlaylistsChanged(ids: library.allSmartPlaylists.map(\.id))
         case .sources:
             sourcesChanged(ids: sourcesStore.allSources.map(\.id))
         case .playbackHistory:
@@ -365,6 +367,14 @@ final class CloudKitSyncService {
             guard let id = note.userInfo?["id"] as? String else { return }
             Task { @MainActor in self?.playlistDeleted(id: id) }
         })
+        observerTokens.append(nc.addObserver(forName: .primuseSmartPlaylistsDidChange, object: nil, queue: .main) { [weak self] note in
+            let ids = (note.userInfo?["ids"] as? [String]) ?? []
+            Task { @MainActor in self?.smartPlaylistsChanged(ids: ids) }
+        })
+        observerTokens.append(nc.addObserver(forName: .primuseSmartPlaylistDidDelete, object: nil, queue: .main) { [weak self] note in
+            guard let id = note.userInfo?["id"] as? String else { return }
+            Task { @MainActor in self?.smartPlaylistDeleted(id: id) }
+        })
         observerTokens.append(nc.addObserver(forName: .primuseSourcesDidChange, object: nil, queue: .main) { [weak self] note in
             let ids = (note.userInfo?["ids"] as? [String]) ?? []
             Task { @MainActor in self?.sourcesChanged(ids: ids) }
@@ -416,6 +426,16 @@ final class CloudKitSyncService {
     func playlistDeleted(id: String) {
         guard CloudSyncChannel.isEnabled(.playlists) else { return }
         enqueueDeletes(recordType: RecordType.playlist, ids: [id])
+    }
+
+    func smartPlaylistsChanged(ids: [String]) {
+        guard CloudSyncChannel.isEnabled(.playlists) else { return }
+        enqueueSaves(recordType: RecordType.smartPlaylist, ids: ids)
+    }
+
+    func smartPlaylistDeleted(id: String) {
+        guard CloudSyncChannel.isEnabled(.playlists) else { return }
+        enqueueDeletes(recordType: RecordType.smartPlaylist, ids: [id])
     }
 
     func sourcesChanged(ids: [String]) {
@@ -473,6 +493,7 @@ final class CloudKitSyncService {
     private static func channel(for recordType: String) -> CloudSyncChannel? {
         switch recordType {
         case RecordType.playlist: return .playlists
+        case RecordType.smartPlaylist: return .playlists
         case RecordType.musicSource: return .sources
         case RecordType.cloudAccount: return .sources
         case RecordType.playbackHistory: return .playbackHistory
@@ -508,6 +529,7 @@ final class CloudKitSyncService {
     /// via change tags. Each call respects the per-channel toggles.
     private func scheduleInitialUpload() {
         playlistsChanged(ids: library.allPlaylists.map(\.id))
+        smartPlaylistsChanged(ids: library.allSmartPlaylists.map(\.id))
         sourcesChanged(ids: sourcesStore.allSources.map(\.id))
         cloudAccountsChanged(ids: sourcesStore.allAccounts.map(\.id))
         scraperConfigsChanged(ids: scraperConfigStore.allConfigsIncludingDeleted.map(\.id))
@@ -596,6 +618,8 @@ final class CloudKitSyncService {
         switch recordType {
         case RecordType.playlist:
             return populatePlaylistRecord(record, playlistID: id)
+        case RecordType.smartPlaylist:
+            return populateSmartPlaylistRecord(record, smartPlaylistID: id)
         case RecordType.musicSource:
             return populateSourceRecord(record, sourceID: id)
         case RecordType.cloudAccount:
@@ -625,6 +649,8 @@ final class CloudKitSyncService {
         switch record.recordType {
         case RecordType.playlist:
             applyPlaylistRecord(record)
+        case RecordType.smartPlaylist:
+            applySmartPlaylistRecord(record)
         case RecordType.musicSource:
             applySourceRecord(record)
         case RecordType.cloudAccount:
@@ -664,6 +690,8 @@ final class CloudKitSyncService {
         switch recordType {
         case RecordType.playlist:
             library.deletePlaylistFromRemote(id: id)
+        case RecordType.smartPlaylist:
+            library.deleteSmartPlaylistFromRemote(id: id)
         case RecordType.musicSource:
             sourcesStore.removeFromRemote(id: id)
         case RecordType.cloudAccount:
@@ -684,6 +712,8 @@ final class CloudKitSyncService {
         switch recordType {
         case RecordType.playlist:
             return library.allPlaylists.first(where: { $0.id == id }).map { !$0.isDeleted } ?? false
+        case RecordType.smartPlaylist:
+            return library.allSmartPlaylists.first(where: { $0.id == id }).map { !$0.isDeleted } ?? false
         case RecordType.musicSource:
             return sourcesStore.allSources.first(where: { $0.id == id }).map { !$0.isDeleted } ?? false
         case RecordType.cloudAccount:
@@ -738,6 +768,31 @@ final class CloudKitSyncService {
             songIDs: songIDs,
             identities: identities
         )
+    }
+
+    // MARK: - Smart playlist mapping
+    //
+    // 比 Playlist 简单 ── 只存定义不存歌曲列表, 把整份 SmartPlaylist 编码成 JSON
+    // 塞进单个 `payload` 字段, 不需要拆字段也不需要 song identity 解析。
+    // 不同设备的 PlayHistoryStore 不同步, 同一份规则会得到不同结果, 这是设计选择。
+
+    private func populateSmartPlaylistRecord(_ record: CKRecord, smartPlaylistID id: String) -> Bool {
+        guard let smart = library.allSmartPlaylists.first(where: { $0.id == id }) else { return false }
+        do {
+            let data = try JSONEncoder().encode(smart)
+            record["payload"] = data
+            record["updatedAt"] = smart.updatedAt
+            return true
+        } catch {
+            plog("CloudKitSync: encode smartPlaylist failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private func applySmartPlaylistRecord(_ record: CKRecord) {
+        guard let data = record["payload"] as? Data,
+              let smart = try? JSONDecoder().decode(SmartPlaylist.self, from: data) else { return }
+        library.applyRemoteSmartPlaylist(smart)
     }
 
     // MARK: - Music source mapping

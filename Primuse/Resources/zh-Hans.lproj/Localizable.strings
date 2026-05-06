@@ -643,3 +643,72 @@
 "source_auth_failed_re_enter" = "重新输入密码";
 "source_auth_failed_message_generic" = "登录失败,请检查账号密码或 NAS 状态。";
 "later" = "稍后";
+
+// MARK: - 智能歌单
+"smart_playlists_section" = "智能歌单";
+"playlists_section" = "歌单";
+"new_smart_playlist" = "新建智能歌单";
+"smart_playlist_new" = "新建智能歌单";
+"smart_playlist_edit" = "编辑智能歌单";
+"smart_playlist_name" = "名称";
+"rules_count" = "条规则";
+"smart_rules_section" = "规则";
+"smart_rule_add" = "添加规则";
+"smart_combinator_section" = "组合方式";
+"smart_combinator" = "组合方式";
+"smart_combinator_and" = "全部满足";
+"smart_combinator_or" = "任一满足";
+"smart_combinator_and_desc" = "歌曲必须满足所有规则才会出现在列表里。";
+"smart_combinator_or_desc" = "歌曲只要满足任一规则就会出现在列表里。";
+"smart_sort_section" = "排序与上限";
+"smart_sort_field" = "排序字段";
+"smart_sort_direction" = "方向";
+"smart_sort_ascending" = "升序";
+"smart_sort_descending" = "降序";
+"smart_limit" = "数量上限";
+"smart_limit_placeholder" = "无限制";
+"smart_limit_footer" = "留空表示不限。命中过多时按排序截断。";
+"smart_value_placeholder" = "输入值";
+"smart_value_playlist" = "选择歌单";
+"smart_value_playlist_none" = "未选择";
+"smart_date_recent_days" = "最近 N 天内";
+"smart_playlist_no_rules" = "暂无规则";
+"smart_playlist_no_matches" = "没有匹配的歌曲";
+"smart_playlist_no_matches_desc" = "调整规则后再来看看。";
+"smart_playlist_unavailable" = "智能歌单已被删除";
+"smart_playlist_delete_confirm" = "删除这个智能歌单?";
+
+// 字段
+"smart_field_title" = "歌曲名";
+"smart_field_artistName" = "艺术家";
+"smart_field_albumTitle" = "专辑";
+"smart_field_genre" = "流派";
+"smart_field_year" = "年份";
+"smart_field_fileFormat" = "格式";
+"smart_field_dateAdded" = "添加时间";
+"smart_field_durationSec" = "时长(秒)";
+"smart_field_fileSize" = "文件大小";
+"smart_field_bitRate" = "码率";
+"smart_field_sourceID" = "音乐源";
+"smart_field_playCount" = "播放次数";
+"smart_field_lastPlayedAt" = "最近播放";
+"smart_field_isInPlaylist" = "属于歌单";
+
+// 操作符
+"smart_op_equals" = "等于";
+"smart_op_notEquals" = "不等于";
+"smart_op_contains" = "包含";
+"smart_op_notContains" = "不包含";
+"smart_op_greaterThan" = "大于";
+"smart_op_lessThan" = "小于";
+"smart_op_between" = "介于";
+
+// 排序字段
+"smart_sort_field_title" = "歌曲名";
+"smart_sort_field_artistName" = "艺术家";
+"smart_sort_field_albumTitle" = "专辑";
+"smart_sort_field_dateAdded" = "添加时间";
+"smart_sort_field_lastPlayedAt" = "最近播放";
+"smart_sort_field_playCount" = "播放次数";
+"smart_sort_field_duration" = "时长";
+"smart_sort_field_random" = "随机";
