@@ -1,8 +1,12 @@
 # Primuse (猿音)
 
-原生 iOS 音乐播放器，支持从 NAS 及网络源串流播放，具备元数据刮削、歌词显示和无缝播放功能。
+原生 iOS / macOS 音乐播放器，支持从 NAS 及网络源串流播放，具备元数据刮削、歌词显示和无缝播放功能。
 
-> 🎉 **现已上架 App Store** — 在中国区 App Store 搜索「猿音」即可免费下载体验。
+> 🎉 **现已上架 App Store** — 在中国区 App Store 搜索「猿音」即可免费下载体验,iOS 与 macOS 共用同一条记录(一次购买两端可用)。
+
+**最新版本**:
+- iOS — `1.2.0` (build 8)
+- macOS — `1.1.0` (build 2) · 详见 [CHANGELOG](CHANGELOG.md)
 
 <p align="center">
   <a href="https://apps.apple.com/cn/app/%E7%8C%BF%E9%9F%B3/id6761675450">
@@ -26,21 +30,39 @@
 
 ## 功能特性
 
-- **多源串流** — 支持 Synology DSM、SMB/CIFS、WebDAV、SFTP、FTP、NFS、Jellyfin、Plex
+### 跨平台核心
+
+- **多源串流** — 支持 Synology DSM、SMB/CIFS、WebDAV、SFTP、FTP、NFS、Jellyfin、Plex 等
 - **无缝播放** — 基于 SFBAudioEngine 的交叉淡入淡出，支持 FLAC、APE、WAV、MP3、AAC、Opus 等格式
 - **元数据刮削** — 内置 MusicBrainz 和 LRCLIB 开源数据源，支持通过 JSON 配置导入自定义刮削源
 - **可配置刮削源** — 用户可通过粘贴 JSON 配置或 URL 导入第三方元数据、封面、歌词数据源
 - **Sidecar 回写** — 刮削的封面 (`-cover.jpg`) 和歌词 (`.lrc`) 自动写回 NAS
 - **专辑 & 艺术家封面** — 在线自动获取并本地缓存
+- **字级歌词** — 字内 mask 扫光、颜色插值与 lookahead 平滑过渡
+- **iCloud Keychain 同步** — 多设备共享 NAS 凭据
+- **登录失败友好提示** — connect 失败自动弹出"重新输入密码"引导
+
+### iOS 专属
+
 - **实时活动** — 灵动岛和锁屏播放控制
 - **小组件** — 主屏幕小组件快捷播放
+- **CarPlay** — 车机端歌单 / 现在播放
+- **Siri Intent** — 语音点歌
+
+### macOS 专属
+
+- **桌面歌词浮窗** — 可拖动、置顶,支持字级动画
+- **菜单栏控件** — 系统状态栏快速控制播放
+- **三栏式主界面** — 边栏 + 详情区 + 底部播放栏,符合 macOS 原生交互习惯
+- **Mini Player 窗口** — 紧凑播放控制
+- **原生 NSWindow 刮削** — 带红绿黄交通灯的独立窗口,而非系统弹窗
 
 ## 环境要求
 
 - **Xcode 26.0+**（已测试 26.4）
 - **Swift 6.0+**
-- **iOS 26.1+** 部署目标
-- macOS 构建环境（推荐 Apple Silicon）
+- 部署目标:**iOS 26.1+** / **macOS 26.0+**
+- 构建环境推荐 Apple Silicon Mac
 
 ## 快速开始
 
@@ -99,6 +121,23 @@ xcrun devicectl device process launch \
   --device 你的设备UDID \
   com.welape.primuse
 ```
+
+### 6. macOS 构建
+
+macOS 端在 `macos` 分支开发,共享主仓库的 `PrimuseKit` 与 Mac 专属视图(`Primuse/Views/Mac/`)。
+
+```bash
+git checkout macos
+xcodegen generate            # 重新生成 Mac target
+open Primuse.xcodeproj
+
+# 命令行构建 Mac 版
+xcodebuild -scheme PrimuseMac \
+  -destination 'platform=macOS' \
+  build
+```
+
+> macOS 与 iOS 共用 `com.welape.yuanyin` bundle ID,但版本号相互独立 —— iOS 是 `1.2.0`,macOS 是 `1.1.0`,App Store Connect 内是两条版本线。详见 [CHANGELOG](CHANGELOG.md)。
 
 ## 自定义刮削源
 

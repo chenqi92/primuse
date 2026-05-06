@@ -355,5 +355,5 @@ targets:
         # macOS 独立版本号 — Mac 是新平台首发,从 1.0.0 起步,
         # 与 iOS 的 MARKETING_VERSION/CURRENT_PROJECT_VERSION 解耦
         # (即使 bundle ID 相同,iOS 和 macOS 在 ASC 内仍是独立版本流)。
-        MARKETING_VERSION: "1.0.0"
-        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "1.1.0"
+        CURRENT_PROJECT_VERSION: "2"

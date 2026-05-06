@@ -10,6 +10,11 @@ actor SynologySource: MusicSourceConnector {
     private let rememberDevice: Bool
     private let deviceId: String?
     private let cacheDirectory: URL
+    /// In-flight login dedupe. 多个 connect() 同时被预取/解码路径调起时,
+    /// 让首个发起的登录跑,后面的全部 await 同一个 Task。否则 actor 重入
+    /// 会让 N 路并发各自打一发 login,触发 DSM 的「自动封禁」(实测短时
+    /// 60+ 次登录被 407 拒, 之后即便密码对也被回 400 用户名/密码错误)。
+    private var loginTask: Task<Void, Error>?
 
     /// 长生命周期 session, 让 fetchRange 复用 HTTP keep-alive 连接。
     /// 一首 5MB 歌按 256KB chunk 拉 20 次, 不复用就要 20 次 TLS 握手 ——
@@ -45,17 +50,36 @@ actor SynologySource: MusicSourceConnector {
     }
 
     func connect() async throws {
-        guard await api.isLoggedIn == false else { return }
-        let result = await api.login(
-            account: username, password: password,
-            deviceName: rememberDevice ? AppConstants.trustedDeviceName : nil,
-            deviceId: deviceId
-        )
-        guard result.success else {
-            throw result.needs2FA
-                ? SourceError.authenticationFailed
-                : SourceError.connectionFailed(result.errorMessage ?? "Login failed")
+        if await api.isLoggedIn { return }
+        if let existing = loginTask {
+            try await existing.value
+            return
         }
+        let task = Task { [api, username, password, rememberDevice, deviceId, sourceID] in
+            let result = await api.login(
+                account: username, password: password,
+                deviceName: rememberDevice ? AppConstants.trustedDeviceName : nil,
+                deviceId: deviceId
+            )
+            guard result.success else {
+                let msg = result.errorMessage ?? "Login failed"
+                // 通知 UI 层弹"重新输入密码"。节流在 SourceAuthAlert 里做,
+                // 60s 同 sourceID 只弹一次。失败原因(密码错/限流/网络挂)
+                // 都走这条,因为表象都是"现在登不上",修法都得用户介入。
+                await MainActor.run {
+                    SourceAuthAlert.report(sourceID: sourceID, message: msg)
+                }
+                throw result.needs2FA
+                    ? SourceError.authenticationFailed
+                    : SourceError.connectionFailed(msg)
+            }
+            await MainActor.run {
+                SourceAuthAlert.clear(sourceID: sourceID)
+            }
+        }
+        loginTask = task
+        defer { loginTask = nil }
+        try await task.value
     }
 
     func disconnect() async {

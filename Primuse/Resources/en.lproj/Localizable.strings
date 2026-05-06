@@ -744,3 +744,7 @@
 "player_empty_message" = "Pick a song from your library and it will appear here.";
 "settings_overview_subtitle" = "Tune playback, library metadata, sync, and local tools.";
 "notifications" = "Notifications";
+"source_auth_failed_title" = "Sign-in failed";
+"source_auth_failed_re_enter" = "Re-enter password";
+"source_auth_failed_message_generic" = "Login failed. Check credentials or NAS status.";
+"later" = "Later";

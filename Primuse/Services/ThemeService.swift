@@ -32,10 +32,6 @@ final class ThemeService {
     nonisolated static let defaultAccent = Color(red: 0.392, green: 0.318, blue: 0.976)       // #6451F9
     nonisolated static let defaultDarkAccent = Color(red: 0.22, green: 0.15, blue: 0.56)
 
-    // MARK: - Cover directory (via MetadataAssetStore)
-
-    private static let artworkDir: URL = MetadataAssetStore.shared.artworkDirectoryURL
-
     // MARK: - Public API
 
     func updateFromCoverArt(fileName: String?, songID: String? = nil) {
@@ -44,12 +40,12 @@ final class ThemeService {
             return
         }
 
-        // Try songID-based cache first, then legacy filename
+        // Try songID-based cache first, then legacy filename。读取必须走
+        // readCoverData(named:),它会透明处理 content-addressed redirect。
         let image: PlatformImage?
         if let songID {
             let hashedName = MetadataAssetStore.shared.expectedCoverFileName(for: songID)
-            let url = Self.artworkDir.appendingPathComponent(hashedName)
-            image = (try? Data(contentsOf: url)).flatMap { PlatformImage(data: $0) }
+            image = MetadataAssetStore.shared.readCoverData(named: hashedName).flatMap { PlatformImage(data: $0) }
         } else {
             image = nil
         }
@@ -58,9 +54,8 @@ final class ThemeService {
             resolvedImage = image
         } else if let fileName, !fileName.isEmpty,
                   !fileName.contains("/"), !fileName.contains("://") {
-            // Legacy: direct filename in artworkDir
-            let fileURL = Self.artworkDir.appendingPathComponent(fileName)
-            guard let data = try? Data(contentsOf: fileURL),
+            // Legacy: direct filename in artworkDir (走 redirect-aware reader)
+            guard let data = MetadataAssetStore.shared.readCoverData(named: fileName),
                   let loaded = PlatformImage(data: data) else {
                 resetToDefault()
                 return

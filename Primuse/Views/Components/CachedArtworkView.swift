@@ -36,7 +36,6 @@ struct CachedArtworkView: View {
     @State private var image: PlatformImage?
     @State private var loadTask: Task<Void, Never>?
 
-    nonisolated(unsafe) private static let artworkDir: URL = MetadataAssetStore.shared.artworkDirectoryURL
 
     /// Memory cache holds *already-decoded* PlatformImages. Cost is reported
     /// as real pixel byte count so the limit reflects actual memory pressure
@@ -307,11 +306,10 @@ struct CachedArtworkView: View {
                 return data
             }
         }
-        // Legacy: old hashed filename in artworkDir
+        // Legacy: old hashed filename in artworkDir。走 redirect-aware 读取。
         if let ref, !ref.isEmpty,
            !ref.contains("/"), !ref.contains("://") {
-            let url = artworkDir.appendingPathComponent(ref)
-            return try? Data(contentsOf: url)
+            return MetadataAssetStore.shared.readCoverData(named: ref)
         }
         return nil
     }

@@ -48,25 +48,20 @@ actor SFTPSource: MusicSourceConnector {
             return
         }
 
-        _ = try Self.authenticationMethod(
+        // 提前算好 auth method 再传给 SSHClientSettings 闭包,避免之前
+        // `try! Self.authenticationMethod(...)` 那种"非确定性场景下崩 app"
+        // 的雷:闭包签名是非 throws,旧写法只能 try!,如果中途 keychain
+        // 变了 / 密钥文件被改, 重算就会 fatal。一次构建一次复用更稳。
+        let authMethod = try Self.authenticationMethod(
             username: username,
             secret: secret,
             authType: authType
         )
 
-        let username = self.username
-        let secret = self.secret
-        let authType = self.authType
         let settings = SSHClientSettings(
             host: host,
             port: port,
-            authenticationMethod: {
-                try! Self.authenticationMethod(
-                    username: username,
-                    secret: secret,
-                    authType: authType
-                )
-            },
+            authenticationMethod: { authMethod },
             hostKeyValidator: .acceptAnything()
         )
 

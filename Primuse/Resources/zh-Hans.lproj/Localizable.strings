@@ -745,3 +745,7 @@
 "player_empty_message" = "从资料库选择一首歌后,这里会显示播放信息。";
 "settings_overview_subtitle" = "调整播放、资料库元数据、同步和本地工具。";
 "notifications" = "通知";
+"source_auth_failed_title" = "音乐源登录失败";
+"source_auth_failed_re_enter" = "重新输入密码";
+"source_auth_failed_message_generic" = "登录失败,请检查账号密码或 NAS 状态。";
+"later" = "稍后";

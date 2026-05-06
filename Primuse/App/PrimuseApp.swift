@@ -219,6 +219,12 @@ struct PrimuseApp: App {
     @AppStorage("primuse.iCloudSyncEnabled") private var iCloudSyncEnabled: Bool = true
     @Environment(\.scenePhase) private var scenePhase
 
+    /// 后台 connect() 失败时弹的 "登录失败" 提示。点 "重新输入" 后会把 source
+    /// 存到 reauthSource 触发 AddSourceView sheet。
+    @State private var authAlertSource: MusicSource?
+    @State private var authAlertMessage: String = ""
+    @State private var reauthSource: MusicSource?
+
     init() {
         let services = AppServices.shared
         _sourcesStore = State(initialValue: services.sourcesStore)
@@ -295,6 +301,13 @@ struct PrimuseApp: App {
                     // .partial 永久占盘, LRU 看不到这些。同步执行很快
                     // (只 stat mtime, 不读内容)。
                     sourceManager.pruneStalePartialFiles()
+                    // 把内容寻址的封面 content/ 目录限定在 500MB 以内。
+                    // 超过就按 mtime 删最老的物理 jpeg, ref 文件下次读
+                    // miss → CachedArtworkView 自动重新拉。运行在 background
+                    // 优先级 detached, 不阻塞启动序列。
+                    Task.detached(priority: .background) {
+                        await MetadataAssetStore.shared.evictArtworkContentIfNeeded()
+                    }
                     // 启动 prewarm —— 只覆盖 currentSong + queue 接下来 5 首。
                     // 之前还会接着 prewarm 整个 library, 一首歌 1MB head +
                     // 256KB tail = 1.25MB, 818 首 ≈ 1GB 后台流量, 用户开
@@ -400,6 +413,41 @@ struct PrimuseApp: App {
                 // after the cellular gate paused it.
                 .onChange(of: NetworkMonitor.shared.isOnUnmeteredNetwork) { _, onWifi in
                     if onWifi { metadataBackfill.start() }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .primuseSourceAuthFailed)) { note in
+                    guard let id = note.userInfo?["sourceID"] as? String,
+                          let src = sourcesStore.source(id: id) else { return }
+                    authAlertMessage = note.userInfo?["message"] as? String ?? ""
+                    authAlertSource = src
+                }
+                .alert(
+                    String(localized: "source_auth_failed_title"),
+                    isPresented: Binding(
+                        get: { authAlertSource != nil },
+                        set: { if !$0 { authAlertSource = nil } }
+                    ),
+                    presenting: authAlertSource
+                ) { source in
+                    Button(String(localized: "source_auth_failed_re_enter")) {
+                        reauthSource = source
+                        authAlertSource = nil
+                    }
+                    Button(String(localized: "later"), role: .cancel) {
+                        authAlertSource = nil
+                    }
+                } message: { source in
+                    let detail = authAlertMessage.isEmpty
+                        ? String(localized: "source_auth_failed_message_generic")
+                        : authAlertMessage
+                    Text("\(source.name) — \(detail)")
+                }
+                .sheet(item: $reauthSource) { source in
+                    AddSourceView(sourceType: source.type, editingSource: source) { updated in
+                        sourcesStore.update(updated.id) { $0 = updated }
+                        scanService.removeSynologyAPI(for: updated.id)
+                        Task { await sourceManager.refreshConnector(for: updated.id) }
+                        SourceAuthAlert.clear(sourceID: updated.id)
+                    }
                 }
         }
         #if os(macOS)

@@ -856,3 +856,35 @@ private extension MusicSource {
             || type == .nfs
     }
 }
+
+extension Notification.Name {
+    /// 一个音乐源的登录失败了 (密码错 / 2FA / 限流 / 网络挂)。
+    /// userInfo: ["sourceID": String, "message": String]
+    static let primuseSourceAuthFailed = Notification.Name("primuse.sourceAuthFailed")
+}
+
+/// 节流后台 connect() 的失败上报 — 多个并发预取/解码同时挂时, 不要让用户
+/// 收到 N 个相同弹窗。每个 sourceID 默认 60s 内只发一次。
+@MainActor
+enum SourceAuthAlert {
+    private static var lastReport: [String: Date] = [:]
+    private static let throttle: TimeInterval = 60
+
+    static func report(sourceID: String, message: String) {
+        let now = Date()
+        if let last = lastReport[sourceID], now.timeIntervalSince(last) < throttle {
+            return
+        }
+        lastReport[sourceID] = now
+        NotificationCenter.default.post(
+            name: .primuseSourceAuthFailed,
+            object: nil,
+            userInfo: ["sourceID": sourceID, "message": message]
+        )
+    }
+
+    /// 用户成功重连后调用,解除节流让下次失败立刻能弹。
+    static func clear(sourceID: String) {
+        lastReport[sourceID] = nil
+    }
+}

@@ -1874,19 +1874,18 @@ final class AudioPlayerService {
         Task.detached(priority: .userInitiated) { [weak self] in
             guard self != nil else { return }
             let store = MetadataAssetStore.shared
-            let artworkDir = store.artworkDirectoryURL
 
-            // Tier 1: songID-based cache
+            // Tier 1: songID-based cache (透明处理 content-addressed redirect)
             var loadedImage: PlatformImage?
             let hashedName = store.expectedCoverFileName(for: songID)
-            if let data = try? Data(contentsOf: artworkDir.appendingPathComponent(hashedName)) {
+            if let data = store.readCoverData(named: hashedName) {
                 loadedImage = PlatformImage(data: data)
             }
 
             // Tier 2: legacy filename (local hashed filename, no "/" or "://")
             if loadedImage == nil, let coverRef, !coverRef.isEmpty,
                !coverRef.contains("/"), !coverRef.contains("://") {
-                if let data = try? Data(contentsOf: artworkDir.appendingPathComponent(coverRef)) {
+                if let data = store.readCoverData(named: coverRef) {
                     loadedImage = PlatformImage(data: data)
                 }
             }
@@ -2090,23 +2089,16 @@ final class AudioPlayerService {
         ) else { return nil }
 
         let store = MetadataAssetStore.shared
-        let artworkDir = store.artworkDirectoryURL
 
-        // Try songID-based cache first
+        // Try songID-based cache first (透明处理 content-addressed redirect)
         var coverData: Data?
         let hashedName = store.expectedCoverFileName(for: song.id)
-        let hashedURL = artworkDir.appendingPathComponent(hashedName)
-        if FileManager.default.fileExists(atPath: hashedURL.path) {
-            coverData = try? Data(contentsOf: hashedURL)
-        }
+        coverData = store.readCoverData(named: hashedName)
 
         // Fallback: legacy local filename
         if coverData == nil, let ref = song.coverArtFileName, !ref.isEmpty,
            !ref.contains("/"), !ref.contains("://") {
-            let legacyURL = artworkDir.appendingPathComponent(ref)
-            if FileManager.default.fileExists(atPath: legacyURL.path) {
-                coverData = try? Data(contentsOf: legacyURL)
-            }
+            coverData = store.readCoverData(named: ref)
         }
 
         guard let data = coverData, let originalImage = UIImage(data: data) else {

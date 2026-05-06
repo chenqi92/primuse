@@ -19,10 +19,6 @@ final class LiveActivityManager {
         FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier)
     }()
 
-    // MARK: - Cover directory (via MetadataAssetStore)
-
-    private static let artworkDir: URL = MetadataAssetStore.shared.artworkDirectoryURL
-
     // MARK: - Public API
 
 #if os(iOS)
@@ -98,21 +94,17 @@ final class LiveActivityManager {
 
         let store = MetadataAssetStore.shared
 
-        // Try songID-based cache first (works with source path references)
+        // Try songID-based cache first (works with source path references)。
+        // 走 readCoverData(named:) 而不是直 Data(contentsOf:),后者会读到
+        // 41 字节 redirect 字符串。
         var coverData: Data?
         let hashedName = store.expectedCoverFileName(for: song.id)
-        let hashedURL = Self.artworkDir.appendingPathComponent(hashedName)
-        if FileManager.default.fileExists(atPath: hashedURL.path) {
-            coverData = try? Data(contentsOf: hashedURL)
-        }
+        coverData = store.readCoverData(named: hashedName)
 
         // Fallback: legacy local filename (no "/" or "://")
         if coverData == nil, let ref = song.coverArtFileName, !ref.isEmpty,
            !ref.contains("/"), !ref.contains("://") {
-            let legacyURL = Self.artworkDir.appendingPathComponent(ref)
-            if FileManager.default.fileExists(atPath: legacyURL.path) {
-                coverData = try? Data(contentsOf: legacyURL)
-            }
+            coverData = store.readCoverData(named: ref)
         }
 
         guard let data = coverData, let originalImage = UIImage(data: data) else {

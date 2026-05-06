@@ -267,12 +267,13 @@ struct NowPlayingView: View {
                 return
             }
             ScrapeWindowController.shared.show(song: song) { u in
+                // syncSongMetadata + forceRefreshNowPlayingArtwork + themeService
+                // 由 PrimuseApp 监听 songReplacementToken 统一处理,这里只做
+                // 本视图独有的(loadLyrics)和 cache 失效。
                 CachedArtworkView.invalidateCache(for: u.id)
                 if let oldRef = song.coverArtFileName {
                     CachedArtworkView.invalidateCache(for: oldRef)
                 }
-                player.syncSongMetadata(u)
-                player.forceRefreshNowPlayingArtwork()
                 Task { await loadLyrics() }
             }
             showScrapeOptions = false
@@ -281,13 +282,14 @@ struct NowPlayingView: View {
         .sheet(isPresented: $showScrapeOptions) {
             if let song = player.currentSong {
                 ScrapeOptionsView(song: song) { u in
-                    // Invalidate cover cache so all views reload
+                    // Invalidate cover cache so all views reload。注意:
+                    // syncSongMetadata + forceRefreshNowPlayingArtwork + themeService
+                    // 由 PrimuseApp 监听 songReplacementToken 统一处理,这里只
+                    // 做本视图独有的(loadLyrics)和 cache 失效。
                     CachedArtworkView.invalidateCache(for: u.id)
                     if let oldRef = song.coverArtFileName {
                         CachedArtworkView.invalidateCache(for: oldRef)
                     }
-                    player.syncSongMetadata(u)
-                    player.forceRefreshNowPlayingArtwork()
                     Task { await loadLyrics() }
                 }
                 // 默认全屏 (`.large`) — medium 半屏会把"自动/手动刮削"按钮和
@@ -1311,30 +1313,46 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
                 translatedTextByLineID[line.id] = cached
                 return nil
             }
+            // 24h 内标记过翻译失败的不再重试 — 系统对不支持的语言对/已经
+            // 是目标语言的源文是确定性 throw, 每次播都重试白白吃 CPU。
+            if cache.isMarkedFailed(source: line.text, targetLang: target) {
+                return nil
+            }
             return (line.id, line.text)
         }
         guard !pending.isEmpty else { return }
 
+        // 批量翻译 — clientIdentifier 用 line.id 让 response 可对回原行
+        let requests = pending.map {
+            TranslationSession.Request(sourceText: $0.text, clientIdentifier: $0.id)
+        }
+        var newCachePairs: [(source: String, translated: String)] = []
+        var newStateUpdates: [String: String] = [:]
         do {
-            // 批量翻译 — clientIdentifier 用 line.id 让 response 可对回原行
-            let requests = pending.map {
-                TranslationSession.Request(sourceText: $0.text, clientIdentifier: $0.id)
-            }
-            var newCachePairs: [(source: String, translated: String)] = []
-            var newStateUpdates: [String: String] = [:]
             for try await response in session.translate(batch: requests) {
                 let id = response.clientIdentifier ?? ""
                 let translated = response.targetText
                 if !id.isEmpty { newStateUpdates[id] = translated }
                 newCachePairs.append((response.sourceText, translated))
             }
+        } catch {
+            // 用户拒绝下载语言模型 / 不支持的语言对 / 网络错 (语言下载阶段)
+            // 不弹错, UI 自然不显示翻译就行。把这次没回来的行打上 negative
+            // mark, 24h 内不再 retry 同样的 batch。已经回来的 partial 走下面
+            // bulkSet, 不浪费。
+            plog("⚠️ Lyrics translation failed: \(error.localizedDescription)")
+            let translatedTexts = Set(newCachePairs.map { $0.source })
+            let failed = pending.map { $0.text }.filter { !translatedTexts.contains($0) }
+            if !failed.isEmpty {
+                cache.markFailed(sources: failed, targetLang: target)
+            }
+        }
+        // 即便中途 throw, 已经回来的 partial response 也写进 cache, 不然下次
+        // 播这首歌全部行都得重翻一次。
+        if !newCachePairs.isEmpty {
             cache.bulkSet(newCachePairs, targetLang: target)
             // 一次性 merge state, 避免逐个 setter 触发多次 SwiftUI 重算
             translatedTextByLineID.merge(newStateUpdates) { _, new in new }
-        } catch {
-            // 用户拒绝下载语言模型 / 不支持的语言对 / 网络错 (语言下载阶段)
-            // 不弹错, UI 自然不显示翻译就行
-            plog("⚠️ Lyrics translation failed: \(error.localizedDescription)")
         }
     }
 }

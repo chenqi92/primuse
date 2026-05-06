@@ -772,30 +772,19 @@ struct ScrapeOptionsView: View {
         let yearChanged = preview.scrapedYear != nil && preview.scrapedYear != song.year
         let genreChanged = preview.scrapedGenre != nil && preview.scrapedGenre != song.genre
 
-        // Store cover and lyrics to disk NOW (only on apply, not during preview)
-        var coverFileName = song.coverArtFileName
-        var lyricsFileName = song.lyricsFileName
+        let needsCover = preview.hasCover && applyCover
+        let needsLyrics = preview.hasLyrics && applyLyrics
+        let coverData = preview.coverData
+        let lyricsLines = preview.lyricsLines
 
-        if preview.hasCover && applyCover, let data = preview.coverData {
-            Task {
-                if let name = await MetadataAssetStore.shared.storeCover(data, for: song.id) {
-                    coverFileName = name
-                }
-            }
-            // Synchronous fallback: generate expected filename
-            coverFileName = MetadataAssetStore.shared.expectedCoverFileName(for: song.id)
-            // Store synchronously for immediate availability
-            MetadataAssetStore.shared.storeCoverSync(data, for: song.id)
-            // Invalidate memory cache so UI picks up the new cover
-            CachedArtworkView.invalidateCache(for: coverFileName!)
-        }
-
-        if preview.hasLyrics && applyLyrics, let lines = preview.lyricsLines {
-            let wordLevel = lines.filter { $0.isWordLevel }.count
-            plog("👉 ScrapeOptionsView.apply lyrics=\(lines.count) wordLevelLines=\(wordLevel) firstSyllables=\(lines.first?.syllables?.count ?? -1)")
-            MetadataAssetStore.shared.storeLyricsSync(lines, for: song.id)
-            lyricsFileName = MetadataAssetStore.shared.expectedLyricsFileName(for: song.id)
-        }
+        // Compute filenames synchronously — `expected*FileName` is just a hash,
+        // cheap to call before dismiss so `final` is fully populated.
+        let coverFileName: String? = needsCover && coverData != nil
+            ? MetadataAssetStore.shared.expectedCoverFileName(for: song.id)
+            : song.coverArtFileName
+        let lyricsFileName: String? = needsLyrics && lyricsLines != nil
+            ? MetadataAssetStore.shared.expectedLyricsFileName(for: song.id)
+            : song.lyricsFileName
 
         // Build final song with only selected changes applied
         let final = Song(
@@ -821,59 +810,76 @@ struct ScrapeOptionsView: View {
             revision: song.revision
         )
 
-        library.replaceSong(final)
-        NotificationCenter.default.post(name: .primuseLyricsDidChange, object: final.id)
+        // 先 close, 把 replaceSong (rebuildIndex/persistSnapshot/...) 和
+        // sidecar 网络写都挪到 sheet/window 关闭之后, 避免主线程阻塞导致用
+        // 户觉得"应用修改卡死"。Sidecar Task 在后台跑 NAS 登录时若被 iOS
+        // 强杀, 进程级清理会终结它, 不会留下半成品。
+        let lib = library
+        let sm = sourceManager
+        let songID = song.id
+        let onCompleteRef = onComplete
+        performClose()
 
-        // Write sidecar files (cover.jpg, .lrc) back to NAS source
-        let coverDataToWrite = (preview.hasCover && applyCover) ? preview.coverData : nil
-        let lyricsToWrite = (preview.hasLyrics && applyLyrics) ? preview.lyricsLines : nil
-        if coverDataToWrite != nil || lyricsToWrite != nil {
-            let songForWrite = final
-            let songID = final.id
-            let sm = sourceManager
-            let lib = library
-            Task { @MainActor in
-                do {
-                    plog("📝 Sidecar: writing back to source for '\(songForWrite.title)'")
-                    let connector = try await sm.auxiliaryConnector(for: songForWrite)
-                    let writeResult = await SidecarWriteService.shared.writeSidecars(
-                        for: songForWrite, using: connector,
-                        coverData: coverDataToWrite, lyricsLines: lyricsToWrite
-                    )
-                    plog("📝 Sidecar: result cover=\(writeResult.coverWritten) lyrics=\(writeResult.lyricsWritten)")
+        Task { @MainActor in
+            // Persist assets to disk (atomic, fast)
+            if needsCover, let data = coverData, let name = coverFileName {
+                MetadataAssetStore.shared.storeCoverSync(data, for: songID)
+                CachedArtworkView.invalidateCache(for: name)
+            }
+            if needsLyrics, let lines = lyricsLines {
+                let wordLevel = lines.filter { $0.isWordLevel }.count
+                plog("👉 ScrapeOptionsView.apply lyrics=\(lines.count) wordLevelLines=\(wordLevel) firstSyllables=\(lines.first?.syllables?.count ?? -1)")
+                MetadataAssetStore.shared.storeLyricsSync(lines, for: songID)
+            }
 
-                    let songDir = (songForWrite.filePath as NSString).deletingLastPathComponent
-                    let baseNameNoExt = ((songForWrite.filePath as NSString).lastPathComponent as NSString).deletingPathExtension
-                    var refSong = songForWrite
-                    var needsUpdate = false
+            lib.replaceSong(final)
+            NotificationCenter.default.post(name: .primuseLyricsDidChange, object: final.id)
+            onCompleteRef?(final)
 
-                    if writeResult.coverWritten {
-                        let coverPath = (songDir as NSString).appendingPathComponent("\(baseNameNoExt)-cover.jpg")
-                        refSong.coverArtFileName = coverPath
-                        await MetadataAssetStore.shared.invalidateCoverCache(forSongID: songID)
-                        needsUpdate = true
+            // Sidecar (cover.jpg / .lrc) 写回 NAS — fire and forget,
+            // 不阻塞用户后续操作。失败只会落到 plog, 不影响本地。
+            if needsCover || needsLyrics {
+                Task { @MainActor in
+                    do {
+                        plog("📝 Sidecar: writing back to source for '\(final.title)'")
+                        let connector = try await sm.auxiliaryConnector(for: final)
+                        let writeResult = await SidecarWriteService.shared.writeSidecars(
+                            for: final, using: connector,
+                            coverData: needsCover ? coverData : nil,
+                            lyricsLines: needsLyrics ? lyricsLines : nil
+                        )
+                        plog("📝 Sidecar: result cover=\(writeResult.coverWritten) lyrics=\(writeResult.lyricsWritten)")
+
+                        let songDir = (final.filePath as NSString).deletingLastPathComponent
+                        let baseNameNoExt = ((final.filePath as NSString).lastPathComponent as NSString).deletingPathExtension
+                        var refSong = final
+                        var needsUpdate = false
+
+                        if writeResult.coverWritten {
+                            let coverPath = (songDir as NSString).appendingPathComponent("\(baseNameNoExt)-cover.jpg")
+                            refSong.coverArtFileName = coverPath
+                            await MetadataAssetStore.shared.invalidateCoverCache(forSongID: songID)
+                            needsUpdate = true
+                        }
+                        // 不要把 song.lyricsFileName 改成 NAS 的 .lrc 路径 ——
+                        // 那只是给其他播放器看的备份, 内容是行级 (没字时间)。
+                        // 字级数据在本地 App Support hash JSON 里, song 必须
+                        // 一直指向那个, 否则下次读会从 NAS .lrc 拿行级歌词,
+                        // 字级丢了。`writeResult.lyricsWritten` 仍然有效:
+                        // sidecar 写到 NAS 是为了被别的设备 / 别的播放器读到,
+                        // Primuse 自己用本地 cache。
+                        if needsUpdate {
+                            lib.replaceSong(refSong)
+                        }
+                        if !writeResult.errors.isEmpty {
+                            plog("⚠️ Sidecar write errors: \(writeResult.errors)")
+                        }
+                    } catch {
+                        plog("⚠️ Sidecar write failed for '\(final.title)': \(error.localizedDescription)")
                     }
-                    // 不要把 song.lyricsFileName 改成 NAS 的 .lrc 路径 ——
-                    // 那只是给其他播放器看的备份, 内容是行级 (没字时间)。
-                    // 字级数据在本地 App Support hash JSON 里, song 必须
-                    // 一直指向那个, 否则下次读会从 NAS .lrc 拿行级歌词,
-                    // 字级丢了。`writeResult.lyricsWritten` 仍然有效:
-                    // sidecar 写到 NAS 是为了被别的设备 / 别的播放器读到,
-                    // Primuse 自己用本地 cache。
-                    if needsUpdate {
-                        lib.replaceSong(refSong)
-                    }
-                    if !writeResult.errors.isEmpty {
-                        plog("⚠️ Sidecar write errors: \(writeResult.errors)")
-                    }
-                } catch {
-                    plog("⚠️ Sidecar write failed for '\(songForWrite.title)': \(error.localizedDescription)")
                 }
             }
         }
-
-        onComplete?(final)
-        performClose()
     }
 
     // MARK: - Helpers
