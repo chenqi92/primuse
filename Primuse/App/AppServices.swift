@@ -17,6 +17,7 @@ final class AppServices {
     let scanService: ScanService
     let metadataBackfill: MetadataBackfillService
     let updateChecker: AppUpdateChecker
+    let coverTintProvider: CoverTintProvider
 
     private init() {
         // Class is @MainActor so this initializer is too — but the static
@@ -64,6 +65,7 @@ final class AppServices {
         self.scanService = ScanService()
         self.metadataBackfill = MetadataBackfillService(library: library, sourceManager: manager)
         self.updateChecker = AppUpdateChecker()
+        self.coverTintProvider = CoverTintProvider()
 
         library.updateDisabledSourceIDs(
             Set(store.sources.filter { !$0.isEnabled }.map(\.id))

@@ -733,3 +733,17 @@
 "check_for_updates" = "检查更新";
 "check_for_updates_up_to_date" = "已是最新版本";
 "check_for_updates_available_format" = "发现新版本 %@，点击前往 App Store";
+
+// MARK: - 首页推荐 / 常听 / 继续听
+"home_for_you_title" = "为你推荐";
+"home_top_artists_title" = "常听艺术家";
+"home_continue_listening" = "继续听";
+"home_todays_pick_title" = "今日精选";
+"home_stats_glimpse_format" = "本周已听 %1$d 首 · %2$@ · %3$d 天";
+"home_section_for_you" = "为你推荐";
+"home_section_top_artists" = "常听艺术家";
+"home_section_recently_added" = "最近添加";
+"home_section_continue_listening" = "继续听";
+"home_settings_title" = "首页";
+"home_settings_sections_label" = "显示板块";
+"home_settings_sections_footer" = "可以隐藏首页上不需要的板块。Hero 区域始终显示。";

@@ -112,13 +112,16 @@ final class ThemeService {
 
     // MARK: - Color Extraction Algorithm
 
-    private struct ColorResult {
+    /// Exposed for `CoverTintProvider`, which needs per-song tints
+    /// without mutating the global accent. Stays nonisolated so it's
+    /// safe to call from background tasks.
+    struct ColorResult {
         let accent: Color
         let dark: Color
     }
 
     /// Extracts the most dominant vibrant color from an image using HSB bucketing.
-    nonisolated private static func extractDominantColor(from image: UIImage) -> ColorResult {
+    nonisolated static func extractDominantColor(from image: UIImage) -> ColorResult {
         // Down-sample to 40×40 for performance
         let sampleSize = CGSize(width: 40, height: 40)
         UIGraphicsBeginImageContextWithOptions(sampleSize, true, 1)

@@ -732,3 +732,17 @@
 "check_for_updates" = "Check for Updates";
 "check_for_updates_up_to_date" = "You're on the latest version";
 "check_for_updates_available_format" = "Version %@ available — tap to open App Store";
+
+// MARK: - Home: For You / Top Artists / Continue Listening
+"home_for_you_title" = "For You";
+"home_top_artists_title" = "Frequently Listened";
+"home_continue_listening" = "Continue Listening";
+"home_todays_pick_title" = "Today's Pick";
+"home_stats_glimpse_format" = "This week %1$d plays · %2$@ · %3$d days";
+"home_section_for_you" = "For You";
+"home_section_top_artists" = "Frequently Listened";
+"home_section_recently_added" = "Recently Added";
+"home_section_continue_listening" = "Continue Listening";
+"home_settings_title" = "Home";
+"home_settings_sections_label" = "Visible sections";
+"home_settings_sections_footer" = "Hide sections you don't use. The Hero area is always shown.";

@@ -107,6 +107,7 @@ struct PrimuseApp: App {
     @State private var scanService: ScanService
     @State private var metadataBackfill: MetadataBackfillService
     @State private var updateChecker: AppUpdateChecker
+    @State private var coverTintProvider: CoverTintProvider
 
     @AppStorage("primuse.iCloudSyncEnabled") private var iCloudSyncEnabled: Bool = true
 
@@ -130,6 +131,7 @@ struct PrimuseApp: App {
         _scanService = State(initialValue: services.scanService)
         _metadataBackfill = State(initialValue: services.metadataBackfill)
         _updateChecker = State(initialValue: services.updateChecker)
+        _coverTintProvider = State(initialValue: services.coverTintProvider)
     }
 
     var body: some Scene {
@@ -151,6 +153,7 @@ struct PrimuseApp: App {
                 .environment(cloudSync)
                 .environment(metadataBackfill)
                 .environment(updateChecker)
+                .environment(coverTintProvider)
                 .task {
                     // Background-poll the App Store. Throttled internally
                     // to once per 6h, so calling on every scene-active is

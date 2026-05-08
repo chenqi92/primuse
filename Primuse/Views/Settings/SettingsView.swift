@@ -82,6 +82,12 @@ struct SettingsView: View {
                     } label: {
                         Label("app_icon", systemImage: "app.badge")
                     }
+
+                    NavigationLink {
+                        HomeSectionsSettingsView()
+                    } label: {
+                        Label("home_settings_title", systemImage: "house")
+                    }
                 }
 
                 Section("sync") {
