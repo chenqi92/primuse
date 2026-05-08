@@ -724,6 +724,11 @@
 "notify_backfill_complete" = "标签读取完成时通知我";
 "notify_permission_denied_hint" = "通知权限已被拒绝。请到系统「设置 → 猿音」中允许通知。";
 
+// MARK: - 年度音乐报告
+"yearly_report_title" = "年度音乐报告";
+"yearly_report_entry_title" = "%d 年度音乐报告";
+"yearly_report_entry_subtitle" = "看看今年你和音乐发生了什么";
+
 // MARK: - App Store update banner
 "update_banner_title" = "猿音有新版本可更新";
 "update_banner_version_format" = "App Store 最新版本：%@";
@@ -747,3 +752,5 @@
 "home_settings_title" = "首页";
 "home_settings_sections_label" = "显示板块";
 "home_settings_sections_footer" = "可以隐藏首页上不需要的板块。Hero 区域始终显示。";
+"update_modal_title_format" = "猿音 %@ 已发布";
+"update_modal_subtitle" = "立即升级体验最新功能与改进";

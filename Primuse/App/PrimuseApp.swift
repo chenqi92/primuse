@@ -17,6 +17,11 @@ final class PrimuseAppDelegate: NSObject, UIApplicationDelegate {
     ) -> Bool {
         application.registerForRemoteNotifications()
         registerBackgroundScanResume()
+        // 年度报告: 启动时把 PlayHistoryStore 按年份归档, 防止 5000 条 FIFO
+        // 上限把跨年的早期月份裁掉。详见 Docs/YearlyReport.md §二。
+        Task { @MainActor in
+            PlayHistoryArchiver.runIfNeeded()
+        }
         return true
     }
 

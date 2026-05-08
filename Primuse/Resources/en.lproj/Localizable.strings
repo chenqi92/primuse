@@ -723,6 +723,11 @@
 "notify_backfill_complete" = "Notify when tag reading completes";
 "notify_permission_denied_hint" = "Notification permission denied. Allow it in iOS Settings → Primuse.";
 
+// MARK: - Yearly music report
+"yearly_report_title" = "Year in Music";
+"yearly_report_entry_title" = "Your %d Year in Music";
+"yearly_report_entry_subtitle" = "See what happened with you and music this year";
+
 // MARK: - App Store update banner
 "update_banner_title" = "Primuse has a new version";
 "update_banner_version_format" = "Latest on App Store: %@";
@@ -746,3 +751,5 @@
 "home_settings_title" = "Home";
 "home_settings_sections_label" = "Visible sections";
 "home_settings_sections_footer" = "Hide sections you don't use. The Hero area is always shown.";
+"update_modal_title_format" = "Primuse %@ is now available";
+"update_modal_subtitle" = "Update for the latest features and improvements";

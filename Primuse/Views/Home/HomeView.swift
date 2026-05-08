@@ -19,11 +19,13 @@ struct HomeView: View {
         }
     }
 
+    @Environment(AppUpdateChecker.self) private var updateChecker
+    @State private var showUpdateSheet: Bool = false
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    UpdateBanner()
                     if hasContent {
                         contentView
                     } else {
@@ -36,6 +38,20 @@ struct HomeView: View {
             .toolbarTitleDisplayMode(.inlineLarge)
             .navigationDestination(for: Album.self) { AlbumDetailView(album: $0) }
             .navigationDestination(for: Artist.self) { ArtistDetailView(artist: $0) }
+            // 更新提示改成 sheet 弹框 ── 之前内嵌在首页顶部当 banner 用,
+            // 用户更想要"弹框"的 modal 体感, 也避免占用首页空间。
+            // checker.availableUpdate 从 nil 变非 nil 时自动弹出。
+            .onChange(of: updateChecker.availableUpdate) { _, newValue in
+                showUpdateSheet = newValue != nil
+            }
+            .onAppear {
+                if updateChecker.availableUpdate != nil { showUpdateSheet = true }
+            }
+            // 改用 fullScreenCover + 透明背景实现居中 modal 弹框, 替代之前
+            // 的底部 sheet (sheet 视觉上像"双层弹框", 用户反馈丑)。
+            .fullScreenCover(isPresented: $showUpdateSheet) {
+                UpdateBannerSheet()
+            }
         }
     }
 
@@ -199,16 +215,13 @@ struct HomeView: View {
         return pool[idx]
     }
 
-    /// Hero 顶部:每天一首「今日精选」+ 大封面 + Play / Shuffle 按钮。
-    /// 当没有任何可推荐内容时(冷启动 + 无封面歌曲),退回旧的 4 张封面拼贴
-    /// 「一键开听整个资料库」版,保证空 library 也有可点击的入口。
+    /// Hero 顶部 ── 一直走 libraryMixHeroFallback (问候语 + 4 张封面拼贴 +
+    /// 随机播放 / 全部播放两个按钮)。
+    /// 之前的 todaysPickHero (今日精选大封面 + Play / Shuffle) 视觉上不够干净,
+    /// 用户反馈不好看, 暂时不用; 代码保留方便将来需要时切回去。
     @ViewBuilder
     private var libraryHeroSection: some View {
-        if let pick = todaysPick {
-            todaysPickHero(pick: pick)
-        } else {
-            libraryMixHeroFallback
-        }
+        libraryMixHeroFallback
     }
 
     @ViewBuilder
@@ -282,16 +295,17 @@ struct HomeView: View {
     /// list cards but stronger (Hero's bigger surface = bigger
     /// visual presence, can carry more saturation). Falls back to
     /// thinMaterial while extraction is pending.
-    @ViewBuilder
-    private func heroTintGradient(for song: Song) -> some View {
+    /// 返回 ShapeStyle 而不是 View, 让 RoundedRectangle.fill(_:) 能直接接住。
+    /// (View 不能传给 fill, fill 要 ShapeStyle。)
+    private func heroTintGradient(for song: Song) -> AnyShapeStyle {
         if let tint = tintProvider.tint(forSongID: song.id) {
-            LinearGradient(
+            return AnyShapeStyle(LinearGradient(
                 colors: [tint.opacity(0.32), tint.opacity(0.10)],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
-            )
+            ))
         } else {
-            Rectangle().fill(.thinMaterial)
+            return AnyShapeStyle(Material.thin)
         }
     }
 
@@ -555,36 +569,56 @@ struct HomeView: View {
 
     // MARK: - Recently Added Albums
 
+    /// 最近添加 ── 改成 2 列竖向 list 卡片样式 (跟 forYou 横滑大封面错开,
+    /// 避免两个 section 视觉一样导致用户混淆)。
+    /// 每行: 小封面 + 标题 + 艺术家。点行播放整张专辑。
     private var recentlyAddedAlbumsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("recently_added").font(.title3).fontWeight(.bold).padding(.horizontal, 20)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 14) {
-                    ForEach(library.recentlyAddedAlbums(limit: 10)) { album in
-                        Button { playAlbum(album) } label: {
-                            VStack(alignment: .leading, spacing: 6) {
-                                let albumSong = library.songs(forAlbum: album.id).first
-                                CachedArtworkView(
-                                    coverRef: albumSong?.coverArtFileName,
-                                    songID: albumSong?.id ?? "",
-                                    size: 140, cornerRadius: 8,
-                                    sourceID: albumSong?.sourceID,
-                                    filePath: albumSong?.filePath
-                                )
-                                .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
-                                Text(album.title).font(.caption).fontWeight(.medium).lineLimit(1)
-                                    .frame(width: 140, alignment: .leading)
-                                Text(album.artistName ?? "").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                                    .frame(width: 140, alignment: .leading)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
+            Text("recently_added")
+                .font(.title3).fontWeight(.bold)
                 .padding(.horizontal, 20)
+
+            LazyVGrid(columns: [
+                GridItem(.flexible(), spacing: 12),
+                GridItem(.flexible(), spacing: 12),
+            ], spacing: 12) {
+                ForEach(library.recentlyAddedAlbums(limit: 6)) { album in
+                    Button { playAlbum(album) } label: {
+                        recentlyAddedRow(album: album)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
+            .padding(.horizontal, 20)
         }
+    }
+
+    /// 一行的紧凑卡片: 小封面 + 标题 / 艺术家 (2 行 lineLimit)。
+    @ViewBuilder
+    private func recentlyAddedRow(album: Album) -> some View {
+        let albumSong = library.songs(forAlbum: album.id).first
+        HStack(spacing: 10) {
+            CachedArtworkView(
+                coverRef: albumSong?.coverArtFileName,
+                songID: albumSong?.id ?? "",
+                size: 56, cornerRadius: 6,
+                sourceID: albumSong?.sourceID,
+                filePath: albumSong?.filePath
+            )
+            VStack(alignment: .leading, spacing: 2) {
+                Text(album.title)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Text(album.artistName ?? "")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(8)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
     }
 
     // MARK: - Top Artists

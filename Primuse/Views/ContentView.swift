@@ -4,9 +4,13 @@ import PrimuseKit
 struct ContentView: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
+    @Environment(SourcesStore.self) private var sourcesStore
     @State private var selectedTab = 0
     @State private var searchText = ""
     @State private var showNowPlaying = false
+    /// 跨年自动弹年度报告的状态。1/1 之后用户首次进 app + 上一年听满 2 个月
+    /// 时由 YearlyReportAutoTrigger 触发。
+    @State private var autoYearlyReport: YearlyReportData?
     private let legacyTabBarClearance: CGFloat = 49
 
     @ViewBuilder
@@ -78,6 +82,20 @@ struct ContentView: View {
             if !library.visibleSongs.contains(where: { $0.id == cs.id }) {
                 player.stop(); player.clearQueue(); showNowPlaying = false
             }
+        }
+        // 跨年自动弹年度报告 ── 每次 ContentView 进入 (app 启动 / 切前台后
+        // 重新出现) 都跑一次, trigger 内部用 UserDefaults 记录已弹避免重复。
+        // 触发条件: 当前月份 == 1 + 上一年没弹过 + 上一年听满 ≥ 2 个不同月份。
+        .task {
+            if let report = YearlyReportAutoTrigger.shouldShowReport(
+                library: library,
+                sourcesStore: sourcesStore
+            ) {
+                autoYearlyReport = report
+            }
+        }
+        .fullScreenCover(item: $autoYearlyReport) { data in
+            YearlyReportView(data: data)
         }
         // SSL trust prompt
         .alert(
