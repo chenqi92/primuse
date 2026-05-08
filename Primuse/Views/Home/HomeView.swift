@@ -197,7 +197,10 @@ struct HomeView: View {
 
             let songs = recentSongs
             ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 10) {
+                // .top alignment so an odd song-count's lonely last column
+                // pins to the top instead of getting vertically centered
+                // against the 2-card columns next to it.
+                LazyHStack(alignment: .top, spacing: 10) {
                     // Display in pairs (two rows per column) for compact layout
                     ForEach(Array(stride(from: 0, to: songs.count, by: 2)), id: \.self) { i in
                         VStack(spacing: 8) {
