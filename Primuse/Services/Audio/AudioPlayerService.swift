@@ -41,6 +41,22 @@ private struct PCMBufferBox: @unchecked Sendable {
     let value: AVAudioPCMBuffer?
 }
 
+/// One slot in the play queue. Wraps a `Song` with a per-slot UUID so
+/// the queue can hold the same song multiple times without ID
+/// collisions in SwiftUI ForEach. The id stays put across metadata
+/// backfill (`syncSongMetadata` only mutates `song`), so list rows
+/// don't lose their identity when the embedded song's tags get
+/// rewritten by a later scan.
+struct QueueEntry: Sendable, Identifiable {
+    let id: UUID
+    var song: Song
+
+    init(song: Song, id: UUID = UUID()) {
+        self.id = id
+        self.song = song
+    }
+}
+
 @MainActor
 @Observable
 final class AudioPlayerService {
@@ -85,7 +101,16 @@ final class AudioPlayerService {
         return extrapolated
     }
 
-    var queue: [Song] = []
+    /// Stored backing for the queue. Each entry pairs a Song with a
+    /// stable UUID — see `QueueEntry`. Mutate via `setQueue`,
+    /// `clearQueue`, `moveQueueItems`, or `syncSongMetadata`; do NOT
+    /// hand-edit from outside.
+    private(set) var queueEntries: [QueueEntry] = []
+    /// Backward-compatible read-only view over the queue's songs.
+    /// Internal callers and observers keep using `player.queue` —
+    /// the @Observable macro tracks reads through `queueEntries`,
+    /// so SwiftUI re-renders correctly when entries change.
+    var queue: [Song] { queueEntries.map(\.song) }
     var currentIndex: Int = 0
     var shuffleEnabled = false {
         didSet { rebuildShuffleOrder() }
@@ -1256,7 +1281,7 @@ final class AudioPlayerService {
     }
 
     func setQueue(_ songs: [Song], startAt index: Int = 0) {
-        queue = songs
+        queueEntries = songs.map { QueueEntry(song: $0) }
         currentIndex = min(index, songs.count - 1)
         // Drop any pre-built next round — the queue itself changed, so
         // prior shuffle plans (and their indices into the old queue)
@@ -1265,14 +1290,40 @@ final class AudioPlayerService {
         if shuffleEnabled { rebuildShuffleOrder() }
     }
 
+    /// Wipe the queue. Replaces the legacy `player.queue = []` setter,
+    /// which is no longer accessible since `queue` is now computed.
+    func clearQueue() {
+        queueEntries = []
+        currentIndex = 0
+        pendingNextShuffleIndices = nil
+        shuffledIndices = []
+        shufflePosition = 0
+    }
+
+    /// Move queue rows. Used by the QueueView reorder handle. Beyond
+    /// the obvious `move`, this also invalidates any pending shuffle
+    /// plan and rebuilds the shuffle order — `shuffledIndices` stores
+    /// raw queue offsets, so a manual reorder makes those offsets
+    /// point at the wrong songs unless we regenerate them.
+    func moveQueueItems(fromOffsets source: IndexSet, toOffset destination: Int) {
+        queueEntries.move(fromOffsets: source, toOffset: destination)
+        pendingNextShuffleIndices = nil
+        if shuffleEnabled {
+            rebuildShuffleOrder()
+        }
+    }
+
     func syncSongMetadata(_ updatedSong: Song) {
         if currentSong?.id == updatedSong.id {
             currentSong = updatedSong
             updateNowPlayingInfo()
             updatePlaybackState()
         }
-        if let queueIndex = queue.firstIndex(where: { $0.id == updatedSong.id }) {
-            queue[queueIndex] = updatedSong
+        // Keep the per-row UUID stable — mutate only `song` so SwiftUI
+        // doesn't see a row disappear/reappear when metadata backfill
+        // rewrites tags mid-listening.
+        if let queueIndex = queueEntries.firstIndex(where: { $0.song.id == updatedSong.id }) {
+            queueEntries[queueIndex].song = updatedSong
         }
     }
 

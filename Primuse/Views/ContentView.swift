@@ -76,7 +76,7 @@ struct ContentView: View {
         .onChange(of: library.visibleSongs.count) { _, _ in
             guard let cs = player.currentSong else { return }
             if !library.visibleSongs.contains(where: { $0.id == cs.id }) {
-                player.stop(); player.queue = []; showNowPlaying = false
+                player.stop(); player.clearQueue(); showNowPlaying = false
             }
         }
         // SSL trust prompt
