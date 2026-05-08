@@ -249,6 +249,25 @@ final class MusicLibrary {
         return songs.filter { $0.sourceID == song.sourceID }.count
     }
 
+    /// Batch delete. Calling `deleteSong` in a 3000-song loop did
+    /// `removeAll`/clean*/`rebuildIndex` once per song — O(N) each, so
+    /// O(N×K) on the main actor, plus K Observable mutations triggering
+    /// view rebuilds; on a 10K-song library with 3K duplicates the
+    /// watchdog killed the app. Doing the bulk operations once amortizes
+    /// the work to a single O(N) pass.
+    func deleteSongs(_ songsToDelete: [Song]) {
+        guard !songsToDelete.isEmpty else { return }
+        let idsToDelete = Set(songsToDelete.map(\.id))
+        for song in songsToDelete {
+            deletedSongIdentities.insert(identityKey(for: song))
+        }
+        songs.removeAll { idsToDelete.contains($0.id) }
+        cleanPlaylistEntries()
+        cleanPlaybackHistoryEntries()
+        rebuildIndex()
+        persistSnapshot()
+    }
+
     /// Reverse a previous `deleteSong` so the next scan can re-add the
     /// path. Caller passes the same Song object that was deleted (or
     /// any Song with the same source/path).

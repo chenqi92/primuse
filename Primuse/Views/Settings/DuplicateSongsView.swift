@@ -214,11 +214,9 @@ struct DuplicateSongsView: View {
     }
 
     private func keepBest(of group: DuplicateGroup) {
-        let removed = group.redundantSongs.count
-        for song in group.redundantSongs {
-            library.deleteSong(song)
-        }
-        flashAction(String(format: String(localized: "dup_action_done_format"), removed))
+        let toRemove = group.redundantSongs
+        library.deleteSongs(toRemove)
+        flashAction(String(format: String(localized: "dup_action_done_format"), toRemove.count))
         Task { await rescan() }
     }
 
@@ -229,15 +227,10 @@ struct DuplicateSongsView: View {
     }
 
     private func cleanAll() {
-        var removed = 0
-        for group in groups {
-            for song in group.redundantSongs {
-                library.deleteSong(song)
-                removed += 1
-            }
-        }
-        cleanedCount = removed
-        flashAction(String(format: String(localized: "dup_clean_all_done_format"), removed))
+        let toRemove = groups.flatMap(\.redundantSongs)
+        library.deleteSongs(toRemove)
+        cleanedCount = toRemove.count
+        flashAction(String(format: String(localized: "dup_clean_all_done_format"), toRemove.count))
         Task { await rescan() }
     }
 
