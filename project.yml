@@ -52,7 +52,17 @@ schemes:
         PrimuseKit: all
         PrimuseWidgetExtension: all
         PrimuseActivityExtension: all
-        PrimuseWatchApp: all
+        # PrimuseWatchWidgets 仅 build 不参与 archive ── 它通过 PrimuseWatchApp
+        # 的 embed 嵌入, 跟着 watch app 一起进 archive, 不需要顶层入口。
+        # 顶层放它会跟 watch app 一样, 让 archive 退化成 Generic Archive。
+        PrimuseWatchWidgets: [test, run, profile, analyze]
+        # PrimuseWatchApp 不列入顶层 scheme buildable ── 它是 Primuse iOS
+        # app 的 embed dependency (project.yml 里通过 `embed: true` 声明),
+        # implicitDependencies=YES 会让 archive 自动带上它。
+        # 如果显式列成 scheme 顶层 buildable, archive 时 Xcode 会把它
+        # 当作独立 application 产品, 跟 Primuse.app 并列, 导致整个
+        # .xcarchive 类型变成 "Generic Xcode Archive" 进 Organizer 的
+        # Other Items, 不能直接 distribute 上 App Store。
     run:
       config: Debug
     archive:
@@ -221,8 +231,12 @@ targets:
     platform: watchOS
     sources:
       - path: PrimuseWatch
+      - path: PrimuseWatchShared
     resources:
       - path: PrimuseWatch/Resources
+    dependencies:
+      - target: PrimuseWatchWidgets
+        embed: true
     info:
       path: PrimuseWatch/Info.plist
       properties:
@@ -241,7 +255,39 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SUPPORTS_MACCATALYST: NO
         TARGETED_DEVICE_FAMILY: "4"
-        SKIP_INSTALL: NO
+        # SKIP_INSTALL=YES 是 watchOS embedded app 的强制要求 ── 它通过
+        # Primuse 的 "Embed Watch Content" build phase 拷到 Primuse.app/Watch/
+        # 内部, 不应作为独立 product 安装到 archive 的 Applications/ 顶层。
+        # 设成 NO 会让 archive 同时产出 Applications/Primuse.app 和
+        # Applications/PrimuseWatchApp.app 两个顶层 product, Organizer 不知
+        # 道主 app 是谁, 把整个 archive 标成 "Generic Xcode Archive"。
+        SKIP_INSTALL: YES
+        CODE_SIGN_ENTITLEMENTS: Config/PrimuseWatchApp.entitlements
+
+  PrimuseWatchWidgets:
+    type: app-extension
+    platform: watchOS
+    sources:
+      - path: PrimuseWatchWidgets
+      - path: PrimuseWatchShared
+    info:
+      path: PrimuseWatchWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: "猿音表盘"
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    dependencies:
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.welape.yuanyin.watchkitapp.widgets
+        SKIP_INSTALL: YES
+        TARGETED_DEVICE_FAMILY: "4"
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        CODE_SIGN_ENTITLEMENTS: Config/PrimuseWatchWidgets.entitlements
 
   PrimuseActivityExtension:
     type: app-extension

@@ -364,6 +364,9 @@
 "sleep_timer" = "Sleep Timer";
 "sleep_timer_active" = "Timer Active";
 "cancel_timer" = "Cancel Timer";
+"sleep_at_track_end" = "Stop after current track";
+"lyrics_translation_on" = "Show Lyrics Translation";
+"lyrics_translation_off" = "Hide Lyrics Translation";
 "minutes" = "min";
 "song_info" = "Song Info";
 "share" = "Share";

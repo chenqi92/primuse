@@ -53,13 +53,13 @@
             buildForTesting = "YES"
             buildForRunning = "YES"
             buildForProfiling = "YES"
-            buildForArchiving = "YES"
+            buildForArchiving = "NO"
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "D78C07FFF7D4E14143E77E5A"
-               BuildableName = "PrimuseWatchApp.app"
-               BlueprintName = "PrimuseWatchApp"
+               BlueprintIdentifier = "D999BDF6A063541ECA486CA0"
+               BuildableName = "PrimuseWatchWidgets.appex"
+               BlueprintName = "PrimuseWatchWidgets"
                ReferencedContainer = "container:Primuse.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>

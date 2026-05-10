@@ -141,7 +141,10 @@ final class AudioPlayerService {
     // MARK: - Sleep Timer
     private(set) var sleepTimerEndDate: Date?
     private var sleepTimerTask: Task<Void, Never>?
-    var isSleepTimerActive: Bool { sleepTimerEndDate != nil }
+    /// "曲终停止" 模式: 持有当前歌曲的 id, 一旦切到下一首 (或 currentSong
+    /// 变 nil) 立即 pause。比固定分钟数更智能 ── 不会在曲子中间硬切。
+    private(set) var sleepStopAfterSongID: String?
+    var isSleepTimerActive: Bool { sleepTimerEndDate != nil || sleepStopAfterSongID != nil }
 
     private var displayLink: Timer?
     private let nativeDecoder = NativeAudioDecoder()
@@ -1671,6 +1674,12 @@ final class AudioPlayerService {
 
     private func handleTrackEnd() async {
         plog("⏭️ handleTrackEnd() currentSong=\(currentSong?.title ?? "nil") playID=\(playID?.uuidString.prefix(8) ?? "nil")")
+        // 曲终停止 sleep 模式 ── 锁定的歌刚播完, 暂停而不是 advance。
+        if let lockedID = sleepStopAfterSongID, currentSong?.id == lockedID {
+            sleepStopAfterSongID = nil
+            stopAtTrackEnd()  // 进 "已播完但保留 currentSong" 状态, 跟用户手动暂停一致
+            return
+        }
         switch repeatMode {
         case .one:
             if let song = currentSong { await play(song: song) }
@@ -2031,10 +2040,27 @@ final class AudioPlayerService {
         }
     }
 
+    /// 曲终停止 ── 锁定当前曲目, 等它播完 (currentSong 变化或变 nil) 时
+    /// 自动暂停。如果 currentSong 是空的就什么也不做。
+    func scheduleSleepAtTrackEnd() {
+        cancelSleep()
+        sleepStopAfterSongID = currentSong?.id
+    }
+
     func cancelSleep() {
         sleepTimerTask?.cancel()
         sleepTimerTask = nil
         sleepTimerEndDate = nil
+        sleepStopAfterSongID = nil
+    }
+
+    /// 在 player 切歌路径里 (next / 队列自动推进) 调一次 ── 如果"曲终停止"
+    /// 已激活并且当前曲目就是 sleep 锁定的那首, 暂停播放并清除 sleep state。
+    /// 不在 sleep 模式时是 no-op。
+    func handleSongTransitionForSleep(previousSongID: String?) {
+        guard let lockedID = sleepStopAfterSongID, previousSongID == lockedID else { return }
+        pause()
+        sleepStopAfterSongID = nil
     }
 
     // MARK: - Shared Playback State

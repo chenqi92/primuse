@@ -290,10 +290,13 @@ struct NowPlayingView: View {
             }
         }
         .confirmationDialog(String(localized: "sleep_timer"), isPresented: $showSleepTimer) {
+            Button("5 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 5) }
             Button("15 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 15) }
             Button("30 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 30) }
             Button("45 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 45) }
             Button("60 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 60) }
+            Button(String(localized: "sleep_at_track_end")) { player.scheduleSleepAtTrackEnd() }
+                .disabled(player.currentSong == nil)
             if player.isSleepTimerActive {
                 Button(String(localized: "cancel_timer"), role: .destructive) { player.cancelSleep() }
             }
@@ -374,6 +377,22 @@ struct NowPlayingView: View {
                         Label(String(localized: "lyrics_font_size"), systemImage: "textformat.size")
                     }
                     .pickerStyle(.menu)
+
+                    // 翻译快捷开关 ── 听歌时不用绕回设置, 直接 toggle。
+                    // didSet 会触发 lyricsTranslationSettingsChanged 通知,
+                    // TranslationView 监听到会重新启动翻译 / 清空翻译数据。
+                    Button {
+                        LyricsTranslationSettingsStore.shared.isEnabled.toggle()
+                    } label: {
+                        Label(
+                            LyricsTranslationSettingsStore.shared.isEnabled
+                                ? String(localized: "lyrics_translation_off")
+                                : String(localized: "lyrics_translation_on"),
+                            systemImage: LyricsTranslationSettingsStore.shared.isEnabled
+                                ? "character.bubble.fill"
+                                : "character.bubble"
+                        )
+                    }
                 }
             }
 

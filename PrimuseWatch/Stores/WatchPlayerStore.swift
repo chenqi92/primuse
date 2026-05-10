@@ -1,6 +1,7 @@
 import Foundation
 @preconcurrency import WatchConnectivity
 import SwiftUI
+import WidgetKit
 
 /// Watch 端的播放状态镜像。
 ///
@@ -248,6 +249,15 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
                 coverImage = img
             }
         }
+
+        // 同步给表盘 Complication ── 写共享 UserDefaults + reload timeline。
+        // reloadAllTimelines 在 watchOS 上有节流, 一秒内多次调用会自动合并。
+        // 当 App Group 没在 dev portal 配好时, UserDefaults(suiteName:) 会
+        // 返回 nil, write 内部静默失败, 不影响 watch app 主体功能。
+        SharedNowPlayingState.write(
+            songID: songID, title: title, artist: artist, isPlaying: isPlaying
+        )
+        WidgetCenter.shared.reloadAllTimelines()
     }
 }
 

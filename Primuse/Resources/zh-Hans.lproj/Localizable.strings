@@ -364,6 +364,9 @@
 "sleep_timer" = "睡眠定时器";
 "sleep_timer_active" = "定时器已开启";
 "cancel_timer" = "取消定时器";
+"sleep_at_track_end" = "当前曲目结束后停止";
+"lyrics_translation_on" = "开启歌词翻译";
+"lyrics_translation_off" = "关闭歌词翻译";
 "minutes" = "分钟";
 "song_info" = "歌曲信息";
 "share" = "分享";
