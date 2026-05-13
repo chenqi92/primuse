@@ -178,6 +178,12 @@ struct ContentView: View {
         .fullScreenCover(item: $autoYearlyReport) { data in
             YearlyReportView(data: data)
         }
+        // Spotlight 搜歌点击 ── identifier 形如 "song:<id>" / "album:<id>" 等,
+        // song 直接播,其他先切到资料库标签让用户落地(后续可以做完整 deep link)。
+        .onContinueUserActivity("com.apple.corespotlight.searchableitem") { activity in
+            guard let item = SpotlightIndexService.identifier(from: activity) else { return }
+            handleSpotlightItem(item)
+        }
         // SSL trust prompt
         .alert(
             String(localized: "ssl_trust_title"),
@@ -196,6 +202,22 @@ struct ContentView: View {
             if let domain = SSLTrustStore.shared.pendingTrustRequest?.domain {
                 Text("ssl_trust_message \(domain)")
             }
+        }
+    }
+
+    /// Spotlight 命中 -> 路由。`song` 直接进 queue 开播; album / artist /
+    /// playlist 暂时只把用户带到资料库 tab (深链落到具体详情页留作后续)。
+    private func handleSpotlightItem(_ item: SpotlightItem) {
+        switch item {
+        case .song(let id):
+            guard let song = library.visibleSongs.first(where: { $0.id == id }) else { return }
+            // 命中歌 + 整库剩下的拼起来当队列,跟 Siri / Shortcuts 同款行为
+            let rest = library.visibleSongs.filter { $0.id != id }
+            player.setQueue([song] + rest, startAt: 0)
+            Task { await player.play(song: song, caller: "Spotlight") }
+        case .album, .artist, .playlist:
+            // TODO: 深链到具体详情页 — 需要 LibraryView 暴露一个 path binding。
+            selectedTab = 1
         }
     }
 }

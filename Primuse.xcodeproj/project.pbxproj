@@ -74,6 +74,7 @@
 		448D9C545A04EA47EFC97B60 /* PrimuseAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ECCDD80F05FA4A71FA0CB32 /* PrimuseAppIntents.swift */; };
 		E1E2E3E4E5E6E7E8E9E0BBBB /* PrimuseIntentBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1E2E3E4E5E6E7E8E9E0AAAA /* PrimuseIntentBridge.swift */; };
 		F1F2F3F4F5F6F7F8F9F0CCCC /* PrimuseAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ECCDD80F05FA4A71FA0CB32 /* PrimuseAppIntents.swift */; };
+		F1F2F3F4F5F6F7F8F9F0DDDD /* PrimuseAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ECCDD80F05FA4A71FA0CB32 /* PrimuseAppIntents.swift */; };
 		F1F2F3F4F5F6F7F8F9F0BBBB /* PrimuseControlWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1F2F3F4F5F6F7F8F9F0AAAA /* PrimuseControlWidgets.swift */; };
 		44F0370A7EDCAD809D7B860F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 67A74DBDB4BE669EBE61F4DA /* Assets.xcassets */; };
 		45792DBCB1B655DB7EDEBFE7 /* SongIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C46A7CFAEE41704BC45A8CB /* SongIdentity.swift */; };
@@ -171,6 +172,7 @@
 		9EF475BC087A3FAE66D9BBD0 /* LibraryWatchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06F450E1573013F6EC1F48E6 /* LibraryWatchView.swift */; };
 		9FFA8FE518DD0500CA0B913B /* PlaybackLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AA5AE882AD3B192D6A6764E /* PlaybackLiveActivity.swift */; };
 		A4B7165F820806605899C00B /* ScanService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 632A16B1EB87A560435B7039 /* ScanService.swift */; };
+		A1B2C3D4E5F6071829BBBBBB /* SpotlightIndexService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6071829AAAAAA /* SpotlightIndexService.swift */; };
 		A5C2B802243EEA2162C949F1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4D5D8BD40FCC0AA7011B551B /* Assets.xcassets */; };
 		A66A3850F3D0EDA1863A81BC /* PrimuseActivityExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 4A09B9F2F4A23C9EAF3DDBA3 /* PrimuseActivityExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		A8E7B493EDA246098FAF8EB2 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 769C39487B88BFC43377D781 /* WidgetKit.framework */; };
@@ -456,6 +458,7 @@
 		6034E45EAB5EDE327A29E399 /* UPnPBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UPnPBrowserView.swift; sourceTree = "<group>"; };
 		60D668FE9811EE6FEF380039 /* ScraperTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScraperTypes.swift; sourceTree = "<group>"; };
 		632A16B1EB87A560435B7039 /* ScanService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanService.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6071829AAAAAA /* SpotlightIndexService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotlightIndexService.swift; sourceTree = "<group>"; };
 		637B2519A8207FCB3ABC3E34 /* WebDAVBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebDAVBrowserView.swift; sourceTree = "<group>"; };
 		63D1E2C3BE30F68AD3F01632 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		645BBABA564E600B40010061 /* MetadataService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataService.swift; sourceTree = "<group>"; };
@@ -1032,6 +1035,7 @@
 				CCE1922E4E88CC38539151C4 /* PlayHistoryStore.swift */,
 				632A16B1EB87A560435B7039 /* ScanService.swift */,
 				C3577006473AE56E9BA09B47 /* SmartPlaylistEngine.swift */,
+				A1B2C3D4E5F6071829AAAAAA /* SpotlightIndexService.swift */,
 			);
 			path = Library;
 			sourceTree = "<group>";
@@ -1584,6 +1588,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				9FFA8FE518DD0500CA0B913B /* PlaybackLiveActivity.swift in Sources */,
+				F1F2F3F4F5F6F7F8F9F0DDDD /* PrimuseAppIntents.swift in Sources */,
 				265367A2926A0E4415AAE5F8 /* PrimuseActivityBundle.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1730,6 +1735,7 @@
 				46ECE921B62C7BD398BEAA1A /* SMBSource.swift in Sources */,
 				D84918920C71DB851E51AE09 /* SSLTrustStore.swift in Sources */,
 				A4B7165F820806605899C00B /* ScanService.swift in Sources */,
+				A1B2C3D4E5F6071829BBBBBB /* SpotlightIndexService.swift in Sources */,
 				F42267DB1E4B85832BE4E52D /* ScrapeOptionsView.swift in Sources */,
 				747B55A92608C368808944BD /* ScraperConfig.swift in Sources */,
 				65D5AD5256C8AE280EB38973 /* ScraperConfigStore.swift in Sources */,

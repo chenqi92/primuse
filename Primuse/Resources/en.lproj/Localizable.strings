@@ -756,3 +756,7 @@
 "home_settings_sections_footer" = "Hide sections you don't use. The Hero area is always shown.";
 "update_modal_title_format" = "Primuse %@ is now available";
 "update_modal_subtitle" = "Update for the latest features and improvements";
+"spotlight_artist_subtitle" = "Artist in Primuse";
+"spotlight_playlist_subtitle_format" = "Primuse playlist · %d tracks";
+"smart_value_format_none" = "Any format";
+"smart_value_source_none" = "Any source";

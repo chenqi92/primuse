@@ -18,6 +18,7 @@ final class AppServices {
     let metadataBackfill: MetadataBackfillService
     let updateChecker: AppUpdateChecker
     let coverTintProvider: CoverTintProvider
+    let spotlightIndex: SpotlightIndexService
 
     private init() {
         // Class is @MainActor so this initializer is too — but the static
@@ -66,6 +67,7 @@ final class AppServices {
         self.metadataBackfill = MetadataBackfillService(library: library, sourceManager: manager)
         self.updateChecker = AppUpdateChecker()
         self.coverTintProvider = CoverTintProvider()
+        self.spotlightIndex = SpotlightIndexService()
 
         library.updateDisabledSourceIDs(
             Set(store.sources.filter { !$0.isEnabled }.map(\.id))
@@ -89,6 +91,38 @@ final class AppServices {
         CloudKVSSync.shared.register(key: CloudKVSKey.recentSearches) { }
 
         wireIntentBridge()
+        observeSpotlightReindex()
+    }
+
+    /// Spotlight 重建索引 ── 启动时跑一次, 之后只要 library 的
+    /// songReplacementToken 翻动 (新增/删除/批量替换) 就重新拉一次。
+    /// Observation 自动 re-arm,跟 MacMenuBarController 的 observePlayerState
+    /// 是同一个模式。
+    private func observeSpotlightReindex() {
+        let library = self.musicLibrary
+        let index = self.spotlightIndex
+        // 启动 reindex 延 1s,等 CloudKit 同步先拉一拨远端歌单 / 设置,避免
+        // 反复重建。
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            index.reindex(library: library)
+        }
+
+        observeLibraryToken(library: library, index: index)
+    }
+
+    private func observeLibraryToken(library: MusicLibrary, index: SpotlightIndexService) {
+        withObservationTracking {
+            _ = library.songReplacementToken
+            _ = library.songs.count
+            _ = library.playlists.count
+        } onChange: { [weak library, weak index] in
+            Task { @MainActor [weak self] in
+                guard let library, let index else { return }
+                index.reindex(library: library)
+                self?.observeLibraryToken(library: library, index: index)
+            }
+        }
     }
 
     /// 把 `PrimuseIntentBridge` 的闭包指向真实的 player / library。Widget

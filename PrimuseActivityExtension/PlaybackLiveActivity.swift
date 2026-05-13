@@ -1,4 +1,5 @@
 import ActivityKit
+import AppIntents
 import SwiftUI
 import WidgetKit
 import PrimuseKit
@@ -31,17 +32,39 @@ struct PlaybackLiveActivity: Widget {
                 }
 
                 DynamicIslandExpandedRegion(.trailing) {
-                    Image(systemName: context.state.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.title2)
+                    // 灵动岛展开态的 trailing 槽位窄,只放一个 play/pause。
+                    // 用 Button(intent:) + AudioPlaybackIntent —— 系统自动把
+                    // perform() 路由到主 app 进程,不打断 UI 也不亮屏。
+                    Button(intent: PrimuseSetPlayingIntent(value: !context.state.isPlaying)) {
+                        Image(systemName: context.state.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.title2)
+                    }
+                    .buttonStyle(.plain)
                 }
 
                 DynamicIslandExpandedRegion(.bottom) {
-                    ProgressView(
-                        value: context.state.elapsedTime,
-                        total: max(context.attributes.duration, 1)
-                    )
-                    .tint(.accentColor)
-                    .padding(.horizontal)
+                    VStack(spacing: 8) {
+                        ProgressView(
+                            value: context.state.elapsedTime,
+                            total: max(context.attributes.duration, 1)
+                        )
+                        .tint(.accentColor)
+                        .padding(.horizontal)
+
+                        // 上一首 / 下一首
+                        HStack(spacing: 36) {
+                            Button(intent: PrimusePreviousIntent()) {
+                                Image(systemName: "backward.fill").font(.title3)
+                            }
+                            .buttonStyle(.plain)
+
+                            Button(intent: PrimuseNextIntent()) {
+                                Image(systemName: "forward.fill").font(.title3)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.bottom, 4)
+                    }
                 }
             } compactLeading: {
                 SharedCoverImageView(coverImageName: context.attributes.coverImageName)
@@ -62,37 +85,56 @@ struct PlaybackLiveActivity: Widget {
 
     @ViewBuilder
     private func lockScreenView(context: ActivityViewContext<PlaybackActivityAttributes>) -> some View {
-        HStack(spacing: 12) {
-            SharedCoverImageView(coverImageName: context.attributes.coverImageName)
-                .frame(width: 44, height: 44)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+        VStack(spacing: 6) {
+            HStack(spacing: 12) {
+                SharedCoverImageView(coverImageName: context.attributes.coverImageName)
+                    .frame(width: 44, height: 44)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(context.attributes.songTitle)
-                    .font(.headline)
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(context.attributes.songTitle)
+                        .font(.headline)
+                        .lineLimit(1)
 
-                Text(context.attributes.artistName)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    Text(context.attributes.artistName)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                // 紧凑 transport: prev / play-pause / next 三按钮
+                HStack(spacing: 14) {
+                    Button(intent: PrimusePreviousIntent()) {
+                        Image(systemName: "backward.fill").font(.title3)
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(intent: PrimuseSetPlayingIntent(value: !context.state.isPlaying)) {
+                        Image(systemName: context.state.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                            .font(.title)
+                            .foregroundStyle(.tint)
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(intent: PrimuseNextIntent()) {
+                        Image(systemName: "forward.fill").font(.title3)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
+            .padding(.horizontal)
+            .padding(.top, 12)
 
-            Spacer()
-
-            Image(systemName: context.state.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                .font(.title)
-                .foregroundStyle(.tint)
+            ProgressView(
+                value: context.state.elapsedTime,
+                total: max(context.attributes.duration, 1)
+            )
+            .tint(.accentColor)
+            .padding(.horizontal)
+            .padding(.bottom, 10)
         }
-        .padding()
-
-        ProgressView(
-            value: context.state.elapsedTime,
-            total: max(context.attributes.duration, 1)
-        )
-        .tint(.accentColor)
-        .padding(.horizontal)
-        .padding(.bottom, 8)
     }
 }
 

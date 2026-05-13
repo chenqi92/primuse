@@ -263,6 +263,13 @@ private struct SmartPlaylistRuleEditorRow: View {
             case .text:
                 if rule.field == .isInPlaylist {
                     SmartPlaylistPicker(value: $rule.value)
+                } else if rule.field == .fileFormat {
+                    // 文件格式 ── 弹 menu 从 AudioFormat.allCases 选, 不让
+                    // 用户手打 "FLAC" 大小写错配。
+                    SmartFormatPicker(value: $rule.value)
+                } else if rule.field == .sourceID {
+                    // 音乐源 ── 从已配置的 sources 里挑,把 id 写回 rule.value。
+                    SmartSourcePicker(value: $rule.value)
                 } else {
                     TextField(String(localized: "smart_value_placeholder"), text: $rule.value)
                         .textInputAutocapitalization(.never)
@@ -476,4 +483,89 @@ private struct SmartPlaylistPicker: View {
             )
         }
     }
+}
+
+// MARK: - File format / Source picker
+
+/// 文件格式选择器 ── 从 AudioFormat.allCases 拿。rule.value 存 rawValue
+/// (mp3 / flac / wav 等),engine 直接做字符串比较。
+private struct SmartFormatPicker: View {
+    @Binding var value: String
+
+    private var selectedLabel: String {
+        if value.isEmpty {
+            return String(localized: "smart_value_format_none")
+        }
+        return AudioFormat(rawValue: value)?.displayName ?? value
+    }
+
+    var body: some View {
+        Menu {
+            Button { value = "" } label: {
+                Label(String(localized: "smart_value_format_none"), systemImage: "circle.dashed")
+            }
+            Divider()
+            ForEach(AudioFormat.allCases, id: \.self) { format in
+                Button { value = format.rawValue } label: {
+                    Label(format.displayName, systemImage: format.isLossless ? "waveform.badge.checkmark" : "waveform")
+                }
+            }
+        } label: {
+            pickerLabel(systemImage: "waveform", text: selectedLabel)
+        }
+    }
+}
+
+/// 音乐源选择器 ── 从 SourcesStore 里拿现存源,rule.value 存 source id。
+private struct SmartSourcePicker: View {
+    @Binding var value: String
+    @Environment(SourcesStore.self) private var sources
+
+    private var selectedLabel: String {
+        if value.isEmpty {
+            return String(localized: "smart_value_source_none")
+        }
+        return sources.source(id: value)?.name ?? String(localized: "smart_value_source_none")
+    }
+
+    var body: some View {
+        Menu {
+            Button { value = "" } label: {
+                Label(String(localized: "smart_value_source_none"), systemImage: "circle.dashed")
+            }
+            if !sources.sources.isEmpty {
+                Divider()
+                ForEach(sources.sources) { src in
+                    Button { value = src.id } label: {
+                        Label(src.name, systemImage: src.type.iconName)
+                    }
+                }
+            }
+        } label: {
+            pickerLabel(systemImage: "externaldrive", text: selectedLabel)
+        }
+    }
+}
+
+@MainActor
+private func pickerLabel(systemImage: String, text: String) -> some View {
+    HStack(spacing: 6) {
+        Image(systemName: systemImage).foregroundStyle(.secondary)
+        Text(text)
+            .font(.subheadline)
+            .foregroundStyle(.primary)
+            .lineLimit(1)
+        Spacer(minLength: 0)
+        Image(systemName: "chevron.down").font(.caption2).foregroundStyle(.secondary)
+    }
+    .padding(.horizontal, 12)
+    .padding(.vertical, 8)
+    .background(
+        RoundedRectangle(cornerRadius: 10)
+            .fill(Color(.systemBackground))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+            )
+    )
 }

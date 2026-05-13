@@ -757,3 +757,7 @@
 "home_settings_sections_footer" = "可以隐藏首页上不需要的板块。Hero 区域始终显示。";
 "update_modal_title_format" = "猿音 %@ 已发布";
 "update_modal_subtitle" = "立即升级体验最新功能与改进";
+"spotlight_artist_subtitle" = "猿音内的艺术家";
+"spotlight_playlist_subtitle_format" = "猿音歌单 · %d 首";
+"smart_value_format_none" = "不限格式";
+"smart_value_source_none" = "不限音乐源";
