@@ -21,6 +21,7 @@ struct NowPlayingView: View {
     @State private var showSongInfo = false
     @State private var showSleepTimer = false
     @State private var showDeleteConfirm = false
+    @State private var showTagEditor = false
     @Environment(ThemeService.self) private var theme
 
     // 父持有 @AppStorage 仅为了 onChange 触发 CloudKVS 同步;实际渲染字号由
@@ -94,6 +95,18 @@ struct NowPlayingView: View {
                 SongInfoSheet(song: song)
                     .presentationDetents([.medium])
                     .presentationDragIndicator(.visible)
+            }
+        }
+        .sheet(isPresented: $showTagEditor) {
+            if let song = player.currentSong {
+                TagEditorView(song: song) { updated in
+                    // 元数据变更后,封面缓存可能 stale; 同步路径由 PrimuseApp
+                    // 监听 songReplacementToken 统一处理 player / theme,
+                    // 这里只重拉歌词(标题改了可能影响 LRC 命中)。
+                    Task { await loadLyrics() }
+                    _ = updated
+                }
+                .presentationDetents([.large])
             }
         }
         .confirmationDialog(String(localized: "sleep_timer"), isPresented: $showSleepTimer) {
@@ -537,6 +550,11 @@ struct NowPlayingView: View {
                     Label(String(localized: "scrape_song"), systemImage: "wand.and.stars")
                 }
                 .disabled(player.currentSong == nil || isScrapingCurrentSong)
+
+                Button { showTagEditor = true } label: {
+                    Label(String(localized: "tag_editor_menu"), systemImage: "tag")
+                }
+                .disabled(player.currentSong == nil)
             }
 
             // 信息 / 分享

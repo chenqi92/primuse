@@ -45,6 +45,8 @@ struct ContentView: View {
     /// 跨年自动弹年度报告的状态。1/1 之后用户首次进 app + 上一年听满 2 个月
     /// 时由 YearlyReportAutoTrigger 触发。
     @State private var autoYearlyReport: YearlyReportData?
+    /// 首启 onboarding —— @AppStorage 持久, 关掉后永久 true。
+    @AppStorage("primuse.hasSeenOnboarding") private var hasSeenOnboarding: Bool = false
     private let legacyTabBarClearance: CGFloat = 49
 
     @ViewBuilder
@@ -177,6 +179,14 @@ struct ContentView: View {
         }
         .fullScreenCover(item: $autoYearlyReport) { data in
             YearlyReportView(data: data)
+        }
+        // 首启 onboarding —— 仅当未看过且库里没源 (避免 CloudKit 同步迟到时
+        // 让老用户重看一次)
+        .fullScreenCover(isPresented: Binding(
+            get: { !hasSeenOnboarding && sourcesStore.sources.isEmpty },
+            set: { if !$0 { hasSeenOnboarding = true } }
+        )) {
+            OnboardingView()
         }
         // Spotlight 搜歌点击 ── identifier 形如 "song:<id>" / "album:<id>" 等,
         // song 直接播,其他先切到资料库标签让用户落地(后续可以做完整 deep link)。

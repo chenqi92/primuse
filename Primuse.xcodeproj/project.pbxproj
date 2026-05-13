@@ -81,6 +81,7 @@
 		462E50063C5075D907ABD7B6 /* SFTPSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D64868ED9B01B2808EEFF51 /* SFTPSource.swift */; };
 		46ECE921B62C7BD398BEAA1A /* SMBSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEF1C4D090D0F65114B8F0D5 /* SMBSource.swift */; };
 		485FA0D21F794529DC075FC1 /* SmartPlaylistEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94D689056181D4CD85885290 /* SmartPlaylistEditorView.swift */; };
+		B1C2D3E4F5061728394A6B6B /* TagEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C2D3E4F5061728394A5A5A /* TagEditorView.swift */; };
 		48AD291EAE5EB38148B61BDA /* SynologyAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 552EC251CB491F214F263601 /* SynologyAPI.swift */; };
 		48DC6DE60F711B6DA3FDC362 /* AppSecrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = C551F72C30C0410A874441AA /* AppSecrets.swift */; };
 		4ACD5BA7D98E9557368E3ABE /* OAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C85D6EDF29DAED03773957A /* OAuthService.swift */; };
@@ -190,6 +191,7 @@
 		B678A94A106E8D8FB032DE4F /* CloudDirectoryNameStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6603576133F7798EFB9267D0 /* CloudDirectoryNameStore.swift */; };
 		B7C95AD987F7406BA8D62C7D /* CoverTintProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30B7398D5BCEB0CAED2FB0E0 /* CoverTintProvider.swift */; };
 		B8450463C38E1DD352D751F7 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A04A9461976D9D58E02D5BA /* ContentView.swift */; };
+		C2D3E4F50617283949A7C7C7 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2D3E4F50617283949A6B6B6 /* OnboardingView.swift */; };
 		B861A10458A66BAE39CCE232 /* AliyunDriveSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3CFC2BB314F0A2BB166E280 /* AliyunDriveSource.swift */; };
 		B8A6BB7771D620FCE3D4D649 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A41F54083A82815533AA0C36 /* SwiftUI.framework */; };
 		BC53E5E30B35D77C07890833 /* YearlyReportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6AB7C14D2E4EC9112B49730 /* YearlyReportView.swift */; };
@@ -414,6 +416,7 @@
 		38FB8C7B3EA4A58B80265EDC /* Playlist.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Playlist.swift; sourceTree = "<group>"; };
 		39F6AE35FC2EC095FBF1EA0E /* AudioEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioEngine.swift; sourceTree = "<group>"; };
 		3A04A9461976D9D58E02D5BA /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		C2D3E4F50617283949A6B6B6 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		3A0BB7D64F2BBD76A56CD9C5 /* PlaybackState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackState.swift; sourceTree = "<group>"; };
 		3A648FD6CF121358D543D0AB /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
 		3B638BB94F0E6542668978B3 /* NativeAudioDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAudioDecoder.swift; sourceTree = "<group>"; };
@@ -510,6 +513,7 @@
 		9428B24AB2EAE7BA15C6C5CA /* LastFmAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastFmAuthService.swift; sourceTree = "<group>"; };
 		946A62C1285382A24B3F436C /* NowPlayingComplication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingComplication.swift; sourceTree = "<group>"; };
 		94D689056181D4CD85885290 /* SmartPlaylistEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartPlaylistEditorView.swift; sourceTree = "<group>"; };
+		B1C2D3E4F5061728394A5A5A /* TagEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagEditorView.swift; sourceTree = "<group>"; };
 		94FE18AA29D7F79EE4D6BDE5 /* CloudDriveBase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDriveBase.swift; sourceTree = "<group>"; };
 		973D5A18BC4228928E42C0C1 /* MiniPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniPlayerView.swift; sourceTree = "<group>"; };
 		983B4BD41961986660A6E775 /* ScraperConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScraperConfig.swift; sourceTree = "<group>"; };
@@ -1061,6 +1065,7 @@
 				07ED3C52285096B184672237 /* SmartPlaylistDetailView.swift */,
 				94D689056181D4CD85885290 /* SmartPlaylistEditorView.swift */,
 				0B7EF9080A3A41EE3BE9D8E0 /* SongListView.swift */,
+				B1C2D3E4F5061728394A5A5A /* TagEditorView.swift */,
 			);
 			path = Library;
 			sourceTree = "<group>";
@@ -1078,6 +1083,7 @@
 				D48435669B3FD569916FF182 /* YearlyReport */,
 				3A04A9461976D9D58E02D5BA /* ContentView.swift */,
 				E2E3E4E5E6E7E8E9E0F1A2A2 /* ExternalDisplayNowPlayingView.swift */,
+				C2D3E4F50617283949A6B6B6 /* OnboardingView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -1653,6 +1659,7 @@
 				AA508472ADFA435CEA0930A3 /* ConnectorScanner.swift in Sources */,
 				517E15C731F3D032AE11F6C9 /* Constants.swift in Sources */,
 				B8450463C38E1DD352D751F7 /* ContentView.swift in Sources */,
+				C2D3E4F50617283949A7C7C7 /* OnboardingView.swift in Sources */,
 				EA44F0DBD9EE53189955BA62 /* CoverArtView.swift in Sources */,
 				B7C95AD987F7406BA8D62C7D /* CoverTintProvider.swift in Sources */,
 				41E2CB041331ED42FF45E5CD /* DropboxSource.swift in Sources */,
@@ -1754,6 +1761,7 @@
 				6BB70FAFADEDF9854FDC1FD4 /* SidecarWriteService.swift in Sources */,
 				360233DAA3A9722CEB8F659D /* SmartPlaylistDetailView.swift in Sources */,
 				485FA0D21F794529DC075FC1 /* SmartPlaylistEditorView.swift in Sources */,
+				B1C2D3E4F5061728394A6B6B /* TagEditorView.swift in Sources */,
 				3D272D5DBC42A04A8079B80D /* SmartPlaylistEngine.swift in Sources */,
 				F7C1D24746A9EFBB09955A64 /* SongListView.swift in Sources */,
 				EBB310A0DD524FCF93EEDD63 /* SongRowView.swift in Sources */,

@@ -34,6 +34,7 @@ struct SongRowView: View {
     @State private var showSongInfo = false
     @State private var showDeleteConfirm = false
     @State private var showBareAlert = false
+    @State private var showTagEditor = false
 
     /// Cloud songs added by Phase A scan stay non-playable until the
     /// backfill fills `duration` (needed for the progress bar / seek).
@@ -204,6 +205,12 @@ struct SongRowView: View {
                 }
 
                 Button {
+                    showTagEditor = true
+                } label: {
+                    Label(String(localized: "tag_editor_menu"), systemImage: "tag")
+                }
+
+                Button {
                     showAddToPlaylist = true
                 } label: {
                     Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
@@ -242,6 +249,10 @@ struct SongRowView: View {
             // 与 NowPlayingView 一致 — medium 半屏会把"自动/手动刮削"按钮和
             // 搜索数量 picker 挤到下方,用户不知道要上滑会以为功能消失。
             .presentationDetents([.large])
+        }
+        .sheet(isPresented: $showTagEditor) {
+            TagEditorView(song: song)
+                .presentationDetents([.large])
         }
         .sheet(isPresented: $showAddToPlaylist) {
             AddToPlaylistSheet(song: song)
