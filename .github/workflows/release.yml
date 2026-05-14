@@ -1,0 +1,197 @@
+name: Release
+
+# 触发: push 一个 vX.Y.Z 形式的 tag (例如 v1.2.0)。手动触发也可以,跑
+# workflow_dispatch 一次性出 build, 不会产生新 tag。
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      submit_to_testflight:
+        description: 'Upload built IPA to TestFlight'
+        required: true
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+# 同 tag 只跑一次 (重复 push 同 tag 时 GH 会保留最新一次)。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build & Submit to TestFlight
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.0.app/Contents/Developer
+      SCHEME: Primuse
+      PROJECT: Primuse.xcodeproj
+      ARCHIVE_PATH: build/Primuse.xcarchive
+      EXPORT_PATH: build/export
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select latest stable Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Inject AppSecrets (CI uses stub if real secrets not provided)
+        env:
+          APP_SECRETS_SWIFT: ${{ secrets.APP_SECRETS_SWIFT }}
+        run: |
+          if [ -n "$APP_SECRETS_SWIFT" ]; then
+            printf '%s' "$APP_SECRETS_SWIFT" > Primuse/Services/Scrobble/AppSecrets.swift
+            echo "Wrote AppSecrets.swift from secret"
+          else
+            cp Primuse/Services/Scrobble/AppSecrets.example.swift \
+               Primuse/Services/Scrobble/AppSecrets.swift
+            echo "Using stub AppSecrets.swift; non-stub keys (Baidu/Dropbox/etc) will be empty"
+          fi
+
+      - name: Resolve packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -scheme "$SCHEME" \
+            -project "$PROJECT"
+
+      # --- Code signing setup ---
+      # 把 base64 编码的 .p12 证书 + .mobileprovision 从 secrets 解出来,
+      # 装到临时 keychain。runner 跑完 job 会随容器一起销毁,不残留。
+      - name: Install signing cert & provisioning profile
+        env:
+          BUILD_CERT_P12_BASE64: ${{ secrets.BUILD_CERT_P12_BASE64 }}
+          BUILD_CERT_P12_PASSWORD: ${{ secrets.BUILD_CERT_P12_PASSWORD }}
+          PROVISIONING_PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
+          KEYCHAIN_PASSWORD: ${{ secrets.CI_KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${BUILD_CERT_P12_BASE64:-}" ]; then
+            echo "::error::BUILD_CERT_P12_BASE64 secret is missing"
+            exit 1
+          fi
+
+          CERT_PATH="$RUNNER_TEMP/build_cert.p12"
+          PROFILE_PATH="$RUNNER_TEMP/build_profile.mobileprovision"
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+
+          # Decode
+          echo "$BUILD_CERT_P12_BASE64" | base64 --decode > "$CERT_PATH"
+          echo "$PROVISIONING_PROFILE_BASE64" | base64 --decode > "$PROFILE_PATH"
+
+          # 临时 keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$BUILD_CERT_P12_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" \
+            $(security list-keychains -d user | sed 's/"//g')
+
+          # 安装 provisioning profile
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/"
+
+      - name: Archive
+        env:
+          DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
+        run: |
+          set -euo pipefail
+          xcodebuild archive \
+            -scheme "$SCHEME" \
+            -project "$PROJECT" \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$ARCHIVE_PATH" \
+            -configuration Release \
+            DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
+            CODE_SIGN_STYLE=Manual
+
+      # --- Export options plist ---
+      - name: Write ExportOptions.plist
+        env:
+          DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
+          PROVISIONING_PROFILE_NAME: ${{ secrets.PROVISIONING_PROFILE_NAME }}
+        run: |
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store</string>
+            <key>teamID</key>
+            <string>$DEVELOPMENT_TEAM</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>uploadBitcode</key>
+            <false/>
+            <key>uploadSymbols</key>
+            <true/>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.welape.yuanyin</key>
+              <string>$PROVISIONING_PROFILE_NAME</string>
+            </dict>
+          </dict>
+          </plist>
+          EOF
+
+      - name: Export IPA
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE_PATH" \
+            -exportPath "$EXPORT_PATH" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Primuse-ipa-${{ github.ref_name }}
+          path: ${{ env.EXPORT_PATH }}/*.ipa
+          retention-days: 30
+
+      # --- TestFlight upload via App Store Connect API key ---
+      # 需要在 repo secrets 配 3 个: APP_STORE_CONNECT_API_KEY_ID,
+      # APP_STORE_CONNECT_API_KEY_ISSUER_ID, APP_STORE_CONNECT_API_KEY_CONTENT
+      # (base64 编码的 .p8 私钥)。
+      - name: Upload to TestFlight
+        if: ${{ github.event_name == 'push' || github.event.inputs.submit_to_testflight == 'true' }}
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
+          ASC_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
+        run: |
+          set -euo pipefail
+
+          KEY_DIR="$HOME/.private_keys"
+          mkdir -p "$KEY_DIR"
+          KEY_PATH="$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8"
+          echo "$ASC_KEY_CONTENT" | base64 --decode > "$KEY_PATH"
+
+          IPA_PATH=$(find "$EXPORT_PATH" -name "*.ipa" -type f | head -1)
+          if [ -z "$IPA_PATH" ]; then
+            echo "::error::No IPA found under $EXPORT_PATH"
+            exit 1
+          fi
+          echo "Uploading $IPA_PATH"
+
+          xcrun altool --upload-app \
+            --type ios \
+            --file "$IPA_PATH" \
+            --apiKey "$ASC_KEY_ID" \
+            --apiIssuer "$ASC_ISSUER_ID"
+
+      # 清理临时 keychain — runner 即将销毁,但 explicit 一下避免遗留物。
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" 2>/dev/null || true

@@ -19,6 +19,7 @@ final class AppServices {
     let updateChecker: AppUpdateChecker
     let coverTintProvider: CoverTintProvider
     let spotlightIndex: SpotlightIndexService
+    let crashDiagnostics: CrashDiagnosticsService
 
     private init() {
         // Class is @MainActor so this initializer is too — but the static
@@ -68,6 +69,9 @@ final class AppServices {
         self.updateChecker = AppUpdateChecker()
         self.coverTintProvider = CoverTintProvider()
         self.spotlightIndex = SpotlightIndexService()
+        let crash = CrashDiagnosticsService()
+        crash.register()
+        self.crashDiagnostics = crash
 
         library.updateDisabledSourceIDs(
             Set(store.sources.filter { !$0.isEnabled }.map(\.id))

@@ -804,3 +804,9 @@
 "a11y_close_lyrics" = "Hide lyrics";
 "a11y_favorite_add" = "Add to playlist";
 "a11y_more_actions" = "More actions";
+"diagnostics_title" = "Diagnostic Reports";
+"diagnostics_empty_title" = "No diagnostic reports";
+"diagnostics_empty_subtitle" = "If Primuse crashes or freezes, iOS will leave a report here for you to share with the developer.";
+"diagnostics_footer" = "Reports stay on this device. Tap to share with the developer via email or AirDrop.";
+"diagnostics_clear" = "Clear all reports";
+"diagnostics_clear_confirm" = "Delete all reports?";

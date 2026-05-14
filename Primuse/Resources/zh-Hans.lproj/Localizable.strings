@@ -805,3 +805,9 @@
 "a11y_close_lyrics" = "隐藏歌词";
 "a11y_favorite_add" = "加入歌单";
 "a11y_more_actions" = "更多操作";
+"diagnostics_title" = "诊断报告";
+"diagnostics_empty_title" = "暂无诊断报告";
+"diagnostics_empty_subtitle" = "猿音崩溃或卡顿时，iOS 会在此留下报告供你分享给开发者。";
+"diagnostics_footer" = "报告仅保存在本机。点击通过邮件 / AirDrop 分享给开发者。";
+"diagnostics_clear" = "清空全部报告";
+"diagnostics_clear_confirm" = "确定要删除所有报告吗？";

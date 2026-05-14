@@ -134,6 +134,12 @@ struct SettingsView: View {
                     CheckForUpdateRow()
 
                     NavigationLink {
+                        DiagnosticReportsView(service: AppServices.shared.crashDiagnostics)
+                    } label: {
+                        Label(String(localized: "diagnostics_title"), systemImage: "stethoscope")
+                    }
+
+                    NavigationLink {
                         LicensesView()
                     } label: {
                         Text("licenses")

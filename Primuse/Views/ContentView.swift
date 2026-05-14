@@ -194,6 +194,11 @@ struct ContentView: View {
             guard let item = SpotlightIndexService.identifier(from: activity) else { return }
             handleSpotlightItem(item)
         }
+        // Handoff ── 从另一台设备过来时拿到 songID, 找歌开播。
+        .onContinueUserActivity("com.welape.yuanyin.nowplaying") { activity in
+            guard let songID = activity.userInfo?["songID"] as? String else { return }
+            handleSpotlightItem(.song(id: songID))
+        }
         // SSL trust prompt
         .alert(
             String(localized: "ssl_trust_title"),

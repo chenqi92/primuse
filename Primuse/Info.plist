@@ -84,6 +84,7 @@
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>INPlayMediaIntent</string>
+		<string>com.welape.yuanyin.nowplaying</string>
 	</array>
 	<key>PrimuseBaiduClientID</key>
 	<string>$(BAIDU_CLIENT_ID)</string>

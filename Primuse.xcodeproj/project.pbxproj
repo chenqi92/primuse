@@ -142,6 +142,8 @@
 		8057E3B6274053DAFEA3F8F7 /* RecentAlbumsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C04638250BE3489928491A07 /* RecentAlbumsStore.swift */; };
 		805D574A9EE6E25009EACFE4 /* SourceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2749C2730EE3A6AB4EEFE3FE /* SourceManager.swift */; };
 		816C685DF2972C76C00A88D1 /* AppUpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45727C23F384EA4681DAF4F3 /* AppUpdateChecker.swift */; };
+		C3D4E5F6071829304A5BCDCF /* CrashDiagnosticsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3D4E5F6071829304A5BCDCD /* CrashDiagnosticsService.swift */; };
+		C3D4E5F6071829304A5BCED0 /* DiagnosticReportsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3D4E5F6071829304A5BCECE /* DiagnosticReportsView.swift */; };
 		81964D06F64E5220CCCD7AC5 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 6A8B1952F2335141E936A2EF /* GRDB */; };
 		83D5D5AEB6EA850B28E6B5D2 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = C39C5A4CDC0E68A52651A1DB /* GRDB */; };
 		83FBC7E697D9FB957F5CFFE7 /* FileMetadataReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8607E666A6AB28E00D1C257 /* FileMetadataReader.swift */; };
@@ -409,6 +411,8 @@
 		2ED64A9CEF96E0A4A91703E4 /* ScraperSettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScraperSettingsStore.swift; sourceTree = "<group>"; };
 		2FD2BBC1EC1BECCE0D1EEF17 /* S3Source.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = S3Source.swift; sourceTree = "<group>"; };
 		30B7398D5BCEB0CAED2FB0E0 /* CoverTintProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoverTintProvider.swift; sourceTree = "<group>"; };
+		C3D4E5F6071829304A5BCDCD /* CrashDiagnosticsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashDiagnosticsService.swift; sourceTree = "<group>"; };
+		C3D4E5F6071829304A5BCECE /* DiagnosticReportsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticReportsView.swift; sourceTree = "<group>"; };
 		33778B5B75AE878513F91C1B /* ConnectionFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionFlowView.swift; sourceTree = "<group>"; };
 		3428737E6D986FB13E68781F /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		34FA9CB76C020D1783D91368 /* Song.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Song.swift; sourceTree = "<group>"; };
@@ -1009,6 +1013,7 @@
 				A796306024AE3678DB56D02A /* AppIconService.swift */,
 				45727C23F384EA4681DAF4F3 /* AppUpdateChecker.swift */,
 				30B7398D5BCEB0CAED2FB0E0 /* CoverTintProvider.swift */,
+				C3D4E5F6071829304A5BCDCD /* CrashDiagnosticsService.swift */,
 				74134D8D32D016D927D59D77 /* ThemeService.swift */,
 				E4AB7D8D80005D72670738D0 /* UserNotificationService.swift */,
 			);
@@ -1268,6 +1273,7 @@
 				F52CBE601DF2ED6B33A3FD92 /* AppIconSettingsView.swift */,
 				77F4CE0ADBC65CBECCD665AC /* AudioEffectsView.swift */,
 				466AF990FCB1B871B4D60DE5 /* CloudSyncSettingsView.swift */,
+				C3D4E5F6071829304A5BCECE /* DiagnosticReportsView.swift */,
 				A41D663BB9CFFF6AF3D062D6 /* DuplicateSongsView.swift */,
 				181EE28124D9CD151E0338E1 /* EqualizerView.swift */,
 				4F9BAE1D915901E05BF85719 /* HomeSectionsSettingsView.swift */,
@@ -1631,6 +1637,8 @@
 				48DC6DE60F711B6DA3FDC362 /* AppSecrets.swift in Sources */,
 				665270F210ADA54AADCA24D1 /* AppServices.swift in Sources */,
 				816C685DF2972C76C00A88D1 /* AppUpdateChecker.swift in Sources */,
+				C3D4E5F6071829304A5BCDCF /* CrashDiagnosticsService.swift in Sources */,
+				C3D4E5F6071829304A5BCED0 /* DiagnosticReportsView.swift in Sources */,
 				645CAB01826996C17CB7E772 /* ArtistDetailView.swift in Sources */,
 				F3E8C3E3C7DA98A5BA56ABB9 /* ArtistListView.swift in Sources */,
 				344615403C90BCACBA22BE87 /* ArtworkFetchService.swift in Sources */,

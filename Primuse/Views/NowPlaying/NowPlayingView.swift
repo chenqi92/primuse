@@ -137,6 +137,23 @@ struct NowPlayingView: View {
         .onChange(of: lyricsFontScale) { _, _ in
             CloudKVSSync.shared.markChanged(key: CloudKVSKey.lyricsFontScale)
         }
+        // Handoff —— 用户在当前设备播,旁边的 Mac / iPad 在 Spotlight / 任务
+        // 切换器底部出现"在 Primuse 中继续"的 chip。打开后通过 ContentView
+        // 的 onContinueUserActivity 拿到 songID 切到对应歌。
+        .userActivity(
+            "com.welape.yuanyin.nowplaying",
+            isActive: player.currentSong != nil
+        ) { activity in
+            guard let song = player.currentSong else { return }
+            let by = song.artistName.map { " — \($0)" } ?? ""
+            activity.title = "\(song.title)\(by)"
+            activity.isEligibleForHandoff = true
+            // 不把 song.id 暴露给搜索 / 公开索引,handoff 直接拿去就好
+            activity.isEligibleForSearch = false
+            activity.isEligibleForPublicIndexing = false
+            activity.userInfo = ["songID": song.id]
+            activity.requiredUserInfoKeys = ["songID"]
+        }
     }
 
     // MARK: - iPad 横屏 layout (左封面 / 右歌词)
