@@ -34,6 +34,11 @@ final class DLNARendererService {
 
     private var ssdpListener: NWListener?
     private var httpListener: NWListener?
+    /// SSDP multicast 组,负责接收发到 239.255.255.250:1900 的 M-SEARCH
+    /// (大多数控制点用 multicast search) 以及主动发 NOTIFY alive 广播。
+    private var ssdpMulticast: NWConnectionGroup?
+    /// NOTIFY alive 周期任务。`ssdp:byebye` 在 stop() 里同步发掉。
+    private var notifyTask: Task<Void, Never>?
     /// 自分配的设备 UUID,持久化到 UserDefaults 让重启后控制点不会把我们当
     /// 成"新设备"重新订阅 (有些控制点会缓存 UUID)。
     private let deviceUUID: String
@@ -80,6 +85,10 @@ final class DLNARendererService {
     }
 
     func stop() {
+        // 优雅下线: 先发 byebye 让控制点立刻把我们从设备列表移除,再关 listener
+        sendByebyeBatch()
+        notifyTask?.cancel(); notifyTask = nil
+        ssdpMulticast?.cancel(); ssdpMulticast = nil
         ssdpListener?.cancel(); ssdpListener = nil
         httpListener?.cancel(); httpListener = nil
         isRunning = false
@@ -89,8 +98,9 @@ final class DLNARendererService {
     // MARK: - SSDP
 
     private func startSSDP() throws {
-        // SSDP 走 UDP multicast, NWListener 用 NWParameters.udp + 设
-        // includePeerToPeer = true 让 mDNS / Bonjour 也能看到。
+        // 单播 listener ── 控制点发完 M-SEARCH 后从我们这边收包的 socket
+        // 也可能落在这,主要兜底用。多数主流控制点(VLC / Plex)走的是
+        // 加入 multicast group 后单播回的模式,这两条路径都要监听。
         let params = NWParameters.udp
         params.allowLocalEndpointReuse = true
         let listener = try NWListener(using: params, on: Self.ssdpPort)
@@ -100,10 +110,131 @@ final class DLNARendererService {
         listener.start(queue: .main)
         ssdpListener = listener
 
-        // 加入 multicast group。Network.framework 不直接暴露 IP_ADD_MEMBERSHIP,
-        // 我们走另一个 multicast group 监听: 起一个 NWConnectionGroup。
-        // 简化起见,本 MVP 只接收单播回包给主动 M-SEARCH (大部分控制点都用
-        // 单播回); multicast 广播 alive 留作下一步增强。
+        // Multicast group ── 监听 239.255.255.250:1900,接受 multicast
+        // M-SEARCH (大多数控制点广播找设备),同时拿来发 NOTIFY alive。
+        // Network.framework 的 NWConnectionGroup 是 iOS 14+ 标准 multicast
+        // 入口,不需要自己撸 setsockopt。
+        let multicast = try NWMulticastGroup(
+            for: [.hostPort(host: Self.ssdpMulticastHost, port: Self.ssdpPort)]
+        )
+        let group = NWConnectionGroup(with: multicast, using: .udp)
+        group.setReceiveHandler(maximumMessageSize: 65535, rejectOversizedMessages: true) { [weak self] msg, content, _ in
+            guard let self, let data = content,
+                  let request = String(data: data, encoding: .utf8) else { return }
+            Task { @MainActor in
+                self.handleMulticastDatagram(request, message: msg)
+            }
+        }
+        group.start(queue: .main)
+        ssdpMulticast = group
+
+        // 启动 NOTIFY alive 广播循环。前 60s 内每 3s 发一次 (新加入网络
+        // 的控制点能尽快看到我们),之后改成每 5 分钟,跟 max-age=1800
+        // 的标准建议(发送间隔 < max-age/2)对齐。
+        notifyTask = Task { [weak self] in
+            // 先发一遍 alive 让 multicast group 上已经在听的控制点立刻收到
+            await Task.yield()
+            self?.sendNotifyBatch(isAlive: true)
+            var fastTicks = 0
+            while !Task.isCancelled {
+                let delay: UInt64 = fastTicks < 20 ? 3 : 300
+                try? await Task.sleep(for: .seconds(Int(delay)))
+                guard !Task.isCancelled else { break }
+                self?.sendNotifyBatch(isAlive: true)
+                fastTicks += 1
+            }
+        }
+    }
+
+    /// Multicast 收到 M-SEARCH 时单播回 200 OK。`NWConnectionGroup` 给的
+    /// `message` 里能拿到 reply endpoint,直接走它回。
+    private func handleMulticastDatagram(_ request: String, message: NWConnectionGroup.Message) {
+        guard request.hasPrefix("M-SEARCH") else { return }
+        let lower = request.lowercased()
+        let interestedTargets = [
+            "ssdp:all",
+            "upnp:rootdevice",
+            "urn:schemas-upnp-org:device:mediarenderer:1",
+            "uuid:\(deviceUUID)",
+        ]
+        guard interestedTargets.contains(where: { lower.contains($0) }) else { return }
+        // 把单播响应直接走 message.reply,不需要单独建 NWConnection。
+        sendSSDPReplies(via: message)
+    }
+
+    /// 控制点的 M-SEARCH 一次扫多个 ST,我们按 UPnP/AV 规范每个 NT 都发一遍
+    /// 200 OK。3 条 (rootdevice / uuid / device:MediaRenderer:1) 足够命中
+    /// 99% 控制点的扫描需求。
+    private func sendSSDPReplies(via message: NWConnectionGroup.Message) {
+        guard let location = httpLocation() else { return }
+        for nt in usnTypes {
+            let usn = nt == "uuid:\(deviceUUID)" ? nt : "uuid:\(deviceUUID)::\(nt)"
+            let response = """
+            HTTP/1.1 200 OK\r
+            CACHE-CONTROL: max-age=1800\r
+            DATE: \(rfc1123Now())\r
+            EXT: \r
+            LOCATION: \(location)\r
+            SERVER: iOS/UPnP/1.0 Primuse/1.0\r
+            ST: \(nt)\r
+            USN: \(usn)\r
+            \r
+
+            """
+            message.reply(content: response.data(using: .utf8))
+        }
+    }
+
+    /// NOTIFY ssdp:alive ── 周期性 multicast 广播,告诉所有控制点"我还在"。
+    /// NT 与 USN 跟 200 OK 同套, 控制点会根据 USN 去重。
+    private func sendNotifyBatch(isAlive: Bool) {
+        guard let group = ssdpMulticast, let location = httpLocation() else { return }
+        let nts = isAlive ? "ssdp:alive" : "ssdp:byebye"
+        for nt in usnTypes {
+            let usn = nt == "uuid:\(deviceUUID)" ? nt : "uuid:\(deviceUUID)::\(nt)"
+            let notify = isAlive
+                ? """
+                NOTIFY * HTTP/1.1\r
+                HOST: 239.255.255.250:1900\r
+                CACHE-CONTROL: max-age=1800\r
+                LOCATION: \(location)\r
+                NT: \(nt)\r
+                NTS: \(nts)\r
+                SERVER: iOS/UPnP/1.0 Primuse/1.0\r
+                USN: \(usn)\r
+                \r
+
+                """
+                : """
+                NOTIFY * HTTP/1.1\r
+                HOST: 239.255.255.250:1900\r
+                NT: \(nt)\r
+                NTS: \(nts)\r
+                USN: \(usn)\r
+                \r
+
+                """
+            group.send(content: notify.data(using: .utf8)) { _ in }
+        }
+    }
+
+    /// stop() 时同步发一次 byebye。控制点收到后会立刻把我们从设备列表
+    /// 移除,而不是等 max-age 过期 (30 分钟)。
+    private func sendByebyeBatch() {
+        sendNotifyBatch(isAlive: false)
+    }
+
+    /// SSDP 一个设备要按 root / uuid / device-type / 各 service-type 分别
+    /// 广告自己。控制点根据这些 NT 决定是否感兴趣。
+    private var usnTypes: [String] {
+        [
+            "upnp:rootdevice",
+            "uuid:\(deviceUUID)",
+            "urn:schemas-upnp-org:device:MediaRenderer:1",
+            "urn:schemas-upnp-org:service:AVTransport:1",
+            "urn:schemas-upnp-org:service:RenderingControl:1",
+            "urn:schemas-upnp-org:service:ConnectionManager:1",
+        ]
     }
 
     private func handleSSDPConnection(_ connection: NWConnection) {
