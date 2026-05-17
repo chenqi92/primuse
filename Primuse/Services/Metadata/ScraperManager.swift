@@ -88,7 +88,9 @@ actor ScraperManager {
 
                     if config.type == .lrclib, let artist {
                         // LRCLIB uses direct lookup, not search
-                        let lrclibScraper = scraper as! LRCLIBScraper
+                        guard let lrclibScraper = scraper as? LRCLIBScraper else {
+                            throw ScraperError.parseError("LRCLIB scraper cache type mismatch")
+                        }
                         if let lyricsResult = try await lrclibScraper.fetchLyrics(
                             title: cleanedTitle, artist: artist, album: album, duration: duration
                         ), lyricsResult.hasLyrics {
