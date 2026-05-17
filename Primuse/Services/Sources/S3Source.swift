@@ -51,8 +51,9 @@ actor S3Source: MusicSourceConnector {
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
         let prefix = path.isEmpty ? "" : (path.hasSuffix("/") ? path : "\(path)/")
-        let scheme = useSsl ? "https" : "http"
-        var components = URLComponents(string: "\(scheme)://\(endpoint)/\(bucket)")!
+        guard var components = URLComponents(url: try bucketURL(), resolvingAgainstBaseURL: false) else {
+            throw SourceError.connectionFailed("Invalid S3 URL")
+        }
         components.queryItems = [
             URLQueryItem(name: "list-type", value: "2"),
             URLQueryItem(name: "prefix", value: prefix),
@@ -77,9 +78,7 @@ actor S3Source: MusicSourceConnector {
             return cachedURL
         }
 
-        let scheme = useSsl ? "https" : "http"
-        let encodedPath = path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? path
-        let url = URL(string: "\(scheme)://\(endpoint)/\(bucket)/\(encodedPath)")!
+        let url = try objectURL(for: path)
         let request = try signedRequest(url: url, method: "GET")
 
         let config = URLSessionConfiguration.default
@@ -98,11 +97,7 @@ actor S3Source: MusicSourceConnector {
     /// (RFC 7233), 不算 signed header 不影响签名。让 CloudPlaybackSource
     /// 边下边播替代整文件下载。
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
-        let scheme = useSsl ? "https" : "http"
-        let encodedPath = path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? path
-        guard let url = URL(string: "\(scheme)://\(endpoint)/\(bucket)/\(encodedPath)") else {
-            throw SourceError.fileNotFound(path)
-        }
+        let url = try objectURL(for: path)
         var request = try signedRequest(url: url, method: "GET")
         let rangeHeader = offset < 0
             ? "bytes=\(offset)"
@@ -126,6 +121,25 @@ actor S3Source: MusicSourceConnector {
         default:
             throw SourceError.connectionFailed("S3 range request failed: HTTP \(http.statusCode)")
         }
+    }
+
+    private func bucketURL() throws -> URL {
+        let scheme = useSsl ? "https" : "http"
+        guard var url = NetworkURLBuilder.baseURL(host: endpoint, scheme: scheme) else {
+            throw SourceError.connectionFailed("Invalid S3 endpoint")
+        }
+        for component in bucket.split(separator: "/") {
+            url.appendPathComponent(String(component), isDirectory: false)
+        }
+        return url
+    }
+
+    private func objectURL(for path: String) throws -> URL {
+        var url = try bucketURL()
+        for component in path.split(separator: "/") where component.isEmpty == false {
+            url.appendPathComponent(String(component), isDirectory: false)
+        }
+        return url
     }
 
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {

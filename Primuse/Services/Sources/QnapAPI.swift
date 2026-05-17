@@ -27,14 +27,21 @@ actor QnapAPI {
     }
 
     func login(account: String, password: String, otpCode: String? = nil) async -> LoginResult {
-        let encoded = password.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? password
-        var body = "user=\(account)&pwd=\(encoded)&remme=1"
-        if let otp = otpCode { body += "&otp_code=\(otp)" }
+        var formItems = [
+            URLQueryItem(name: "user", value: account),
+            URLQueryItem(name: "pwd", value: password),
+            URLQueryItem(name: "remme", value: "1"),
+        ]
+        if let otpCode {
+            formItems.append(URLQueryItem(name: "otp_code", value: otpCode))
+        }
+        var form = URLComponents()
+        form.queryItems = formItems
 
         do {
             var req = URLRequest(url: URL(string: "\(baseURLString)/cgi-bin/authLogin.cgi")!)
             req.httpMethod = "POST"
-            req.httpBody = body.data(using: .utf8)
+            req.httpBody = form.percentEncodedQuery?.data(using: .utf8)
             req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
             req.timeoutInterval = 15
 
