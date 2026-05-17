@@ -30,21 +30,12 @@ enum CloudPlaybackSource {
     /// 但比 cold-start 卡顿 5s 重要得多。
     static let chunkSize: Int64 = 1024 * 1024
 
-    /// 默认一次性后台并发预取这么多个 chunk (大文件场景)。
-    /// 实际值会按 file size 自适应: 小文件 (<= prefetchSmallFileThreshold)
-    /// 直接拉整个文件, SFB 任意 seek 都 cache hit。
+    /// 默认一次性后台并发预取这么多个 chunk。
     /// 4 而不是 8: 8 路并发 + 1 user fetch 给 NAS 太多压力, 实测每个 chunk
     /// fetch 从 0.5s 变 1.5s, 反而拖慢 firstBuffer。配合 user fetch 等待
     /// in-flight prefetch 复用结果, 4 路 + 复用 = 实际有效 5+ 个 chunk
     /// 同时 cover, 性能更稳。
     static let prefetchAhead: Int = 4
-
-    /// 小于这个 size 的文件, prefetch 一次性覆盖整个文件 (减去 head + tail)。
-    /// mp3 SFB.open() 阶段会跳读到中段做 frame index seek (实测跳到 1MB / 6MB
-    /// / 9MB 等位置), 顺序 prefetch ahead=N 完全覆盖不到。直接全文件 prefetch
-    /// 让 SFB 任意 seek 都 hit。20MB = 典型 mp3 (4-15MB) 全覆盖, 长 flac
-    /// (50MB+) 不全拉避免冷启动流量爆炸。
-    static let prefetchSmallFileThreshold: Int64 = 20 * 1024 * 1024
 
     /// Size of the head chunk that `SourceManager.prewarmCloudSong` fetches
     /// for the next-up song. Marker JSON 描述 partial 里哪些 ranges 已 prewarm。
@@ -340,14 +331,6 @@ private final class State: @unchecked Sendable {
         if offset >= totalLength { return Data() }
         let endOffset = min(offset + length, totalLength)
 
-        // 入口立即触发 prefetch (后续 N 个 chunk), 让 prefetch 与 user-facing
-        // fetch 真正并发跑。之前 prefetch 在 serve 末尾触发, cache miss 时
-        // 主 fetch 1s 阻塞 + prefetch 串行启动 → SFB 接下来读下一个 chunk
-        // 还是 cache miss + 等下一次 fetch。改到入口后, SFB 读 chunk N 的
-        // user fetch 与 chunk N+1..N+4 prefetch 并行, 整体 firstBuffer
-        // 时间从 3s 降到 ~1s (单次 RTT)。
-        prefetchIfNeeded(startOffset: offset)
-
         let served: Data?
 
         // Cache hit — read straight from disk.
@@ -382,17 +365,17 @@ private final class State: @unchecked Sendable {
             }()
             let want = chunkEnd - chunkStart
 
-            // 关键优化: 如果这个 chunk 已经被 prefetch task 在拉, 等它完成读
-            // cache, 而不是并发自己再发一个 fetch (SFB 顺序读时 user fetch
-            // 紧跟 prefetch, 双 fetch 同 chunk 浪费 NAS 带宽且让两边都变慢)。
+            // Foreground decode must never wait long behind background
+            // prefetch. Give an already-running prefetch a tiny chance to
+            // finish, then issue the user-facing fetch anyway. On slow WAN
+            // links this avoids "next track spins while prefetch owns the
+            // connection pool" behavior.
             lock.lock()
             let prefetchActive = prefetchInFlight.contains(chunkStart)
             lock.unlock()
             if prefetchActive {
-                // Poll cache (background thread, sleep OK). Prefetch 完成
-                // (成功写 cache 或失败移除 in-flight) 时退出 wait。
                 let waitStart = Date()
-                let waitDeadline = waitStart.addingTimeInterval(8)
+                let waitDeadline = waitStart.addingTimeInterval(0.15)
                 while Date() < waitDeadline {
                     Thread.sleep(forTimeInterval: 0.03)
                     if let cached = readFromCacheIfAvailable(offset: offset, endOffset: endOffset) {
@@ -402,9 +385,6 @@ private final class State: @unchecked Sendable {
                         prefetchWaitTotalElapsed += elapsed
                         lock.unlock()
                         cacheHitCountIncrement(by: cached.count)
-                        // 等超过 100ms 才打日志, 一般 prefetch 已经几乎完成
-                        // 时不需要噪声; 100ms+ 表示 prefetch 跟不上 SFB,
-                        // 需要诊断 chunk size / prefetchAhead 配置。
                         if elapsed > 0.1 {
                             plog(String(format: "⏳ Cloud stream '%@' waited %.0fms for prefetch chunkStart=%lld (then served from cache)",
                                         label, elapsed * 1000, chunkStart))
@@ -415,8 +395,6 @@ private final class State: @unchecked Sendable {
                     let stillInFlight = prefetchInFlight.contains(chunkStart)
                     lock.unlock()
                     if !stillInFlight {
-                        // Prefetch 退出了 — 再读 cache, 命中就返回; 否则
-                        // (prefetch 失败) fall through 到 user fetch 路径。
                         if let cached = readFromCacheIfAvailable(offset: offset, endOffset: endOffset) {
                             let elapsed = Date().timeIntervalSince(waitStart)
                             lock.lock()
@@ -431,6 +409,11 @@ private final class State: @unchecked Sendable {
                                     label, chunkStart, elapsed * 1000))
                         break
                     }
+                }
+                if Date() >= waitDeadline {
+                    let elapsed = Date().timeIntervalSince(waitStart)
+                    plog(String(format: "⏩ Cloud stream '%@' foreground fetch bypassing slow prefetch chunkStart=%lld after %.0fms",
+                                label, chunkStart, elapsed * 1000))
                 }
             }
 
@@ -563,15 +546,10 @@ private final class State: @unchecked Sendable {
         // startOffset was just fetched (or hit cache). Prefetch the ones
         // after it so SFB doesn't stall when it crosses boundaries.
         let baseChunkStart = ((startOffset / chunkSize) + 1) * chunkSize
-        // 小文件直接拉到结尾, mp3 SFB.open() 跳读全文件做 frame index seek 时
-        // 任意位置都 cache hit。大文件用固定 ahead 数量避免一次性流量爆炸。
-        let aheadCount: Int = {
-            if totalLength <= CloudPlaybackSource.prefetchSmallFileThreshold {
-                let remaining = max(0, totalLength - baseChunkStart)
-                return Int((remaining + chunkSize - 1) / chunkSize)
-            }
-            return CloudPlaybackSource.prefetchAhead
-        }()
+        // 始终固定少量前瞻。不要按“小文件”切换成整首预取:
+        // 真实音乐库里大部分 mp3 都小于 20MB, 那会让普通播放退化成
+        // 整首后台下载, 在蜂窝 / 外网 NAS 上既抢前台带宽也浪费流量。
+        let aheadCount = CloudPlaybackSource.prefetchAhead
         for i in 0..<aheadCount {
             let nextChunkStart = baseChunkStart + Int64(i) * chunkSize
             guard nextChunkStart < totalLength else { return }
@@ -645,7 +623,6 @@ private final class State: @unchecked Sendable {
         summaryEmitted = true
         let count = fetchCount
         let totalElapsed = fetchTotalElapsed
-        let totalBytes = fetchTotalBytes
         let maxE = maxFetchElapsed
         let slow = slowestChunkStart
         let minE = minFetchElapsed == .greatestFiniteMagnitude ? 0 : minFetchElapsed
