@@ -118,6 +118,8 @@ struct PrimuseApp: App {
     @State private var visualizer: AudioVisualizerService
 
     @AppStorage("primuse.iCloudSyncEnabled") private var iCloudSyncEnabled: Bool = true
+    /// DLNA 接收器持久开关。打开后启动时自动 start, 不需要进 Settings 触发。
+    @AppStorage("dlna.rendererEnabled") private var dlnaRendererEnabled: Bool = false
 
     /// 后台 connect() 失败时弹的 "登录失败" 提示。点 "重新输入" 后会把 source
     /// 存到 reauthSource 触发 AddSourceView sheet。
@@ -185,6 +187,7 @@ struct PrimuseApp: App {
                         theme: themeService
                     )
                     if iCloudSyncEnabled { await cloudSync.start() }
+                    if dlnaRendererEnabled { dlnaRenderer.start() }
                     // Stage 4c migration: deduplicate legacy
                     // duplicate-OAuth sources by upstream account UID.
                     // Runs once (gated by UserDefaults flag); needs
