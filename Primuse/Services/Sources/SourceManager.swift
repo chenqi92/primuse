@@ -231,11 +231,11 @@ final class SourceManager {
         if let cached = cachedURL(for: song) {
             return cached
         }
-        // Priority 2: Range streaming via CloudPlaybackSource — 边下边播,
-        // ~500ms 出首个 PCM buffer。AudioPlayerService 看到 cloud-stream://
-        // scheme 后会调 makeStreamingInputSource 走 sparse cache。
-        // 比 Priority 3 的 plain streamingURL 优先,因为后者会触发
-        // StreamingDownloadDecoder 整文件下载(40MB flac 等 6.1s)。
+        // Priority 2: connector-backed Range streaming via CloudPlaybackSource —
+        // 边下边播, ~500ms 出首个 PCM buffer。AudioPlayerService 看到
+        // cloud-stream:// scheme 后会调 makeStreamingInputSource 走 sparse cache。
+        // 对高延迟 WAN NAS, Priority 3 的 plain HTTP URL 更稳: 播放层会直接
+        // 对这个 URL 做 Range, 避免每个 chunk 都回到 connector/API。
         if shouldUseRangeStreamingForPlayback(source: source, song: song) {
             var components = URLComponents()
             components.scheme = Self.cloudStreamingScheme
@@ -245,8 +245,9 @@ final class SourceManager {
                 return url
             }
         }
-        // Priority 3: Streaming URL (sources without Range support, 或
-        // fileSize 未知的 legacy 条目)。走 StreamingDownloadDecoder 整下。
+        // Priority 3: plain HTTP streaming URL. For known-size audio the
+        // player now wraps it in an HTTP Range InputSource; unknown-size
+        // legacy rows still fall back to StreamingDownloadDecoder.
         if let streamURL = try await conn.streamingURL(for: song.filePath) {
             return streamURL
         }
@@ -659,12 +660,11 @@ final class SourceManager {
     }
 
     /// Background-cache a song file (generalized for all sources).
-    /// Cloud sources take a different path: instead of pre-downloading the
-    /// whole file (wasteful — they stream on demand anyway), we just warm
-    /// the connector's dlink cache and pull the first chunk into the
-    /// `.partial` cache file. Result: when the user hits "next", the
-    /// dlink is already resolved and the first 256KB is local — playback
-    /// starts in <100ms instead of 500ms-1s of dlink+head latency.
+    /// Sources that use connector-backed Range streaming take a different
+    /// path: instead of pre-downloading the whole file (wasteful — they
+    /// stream on demand anyway), we warm the connector's dlink/cache and
+    /// pull the first chunk into the `.partial` cache file. Result: when
+    /// the user hits "next", the first reads are local.
     /// Pass `cacheEnabled: false` (when the user has Audio Cache off) to
     /// skip the prewarm/cache write entirely — we'll still play the song
     /// fine, just without the latency win.
@@ -764,11 +764,19 @@ final class SourceManager {
     /// 主动结束 `song` 对应的 streaming session: 把 .partial 推向 final
     /// (如果缺口在自动补齐阈值内) 或者保持原状。AudioPlayerService 在
     /// 切歌 / stop / 播完时调, 让 .partial 不依赖 SFB 是否还会读字节就能
-    /// 走完应有的 rename 路径。
+    /// 走完应有的 rename 路径。缓存关闭时还要 unregister temp session,
+    /// 避免 registry 持有已结束的临时流。
     func finalizeStreamingSession(for song: Song) {
         let cache = cacheURL(for: song)
-        let partialPath = cache.path + ".partial"
-        CloudPlaybackSource.finalizeSession(partialPath: partialPath)
+        CloudPlaybackSource.finalizeSession(partialPath: cache.path + ".partial")
+
+        let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
+        for prefix in ["primuse-stream", "primuse-http"] {
+            let partialPath = tempDir
+                .appendingPathComponent("\(prefix)-\(song.id)")
+                .path + ".partial"
+            CloudPlaybackSource.finalizeSession(partialPath: partialPath)
+        }
     }
 
     /// True if `song` lives on a source that supports HTTP Range streaming
@@ -911,15 +919,16 @@ final class SourceManager {
         guard Self.nasAPIPlainStreamingTypes.contains(source.type),
               song.fileFormat == .mp3 else { return false }
 
-        // On cellular / Low Data Mode, avoid the aggressive multi-Range
-        // SFB.open path. It can create several concurrent 1MB requests before
-        // audio starts, which behaves poorly over remote NAS API links.
+        // On cellular / Low Data Mode, prefer a plain HTTP URL over the
+        // connector fetchRange path. The player still uses Range reads when
+        // fileSize is known, but it avoids connector/API work per chunk.
         if NetworkMonitor.shared.isExpensive || NetworkMonitor.shared.isConstrained {
             return true
         }
 
-        // NAS API sources on a public hostname are usually WAN / reverse-proxy paths.
-        // Keep Range streaming for LAN IPs and .local hosts where latency is low.
+        // NAS API sources on a public hostname are usually WAN / reverse-proxy
+        // paths. Keep connector-backed Range streaming for LAN IPs and .local
+        // hosts where latency is low; use direct HTTP Range for WAN hosts.
         guard let host = source.host, !host.isEmpty else { return false }
         return !Self.isProbablyLocalHost(host)
     }

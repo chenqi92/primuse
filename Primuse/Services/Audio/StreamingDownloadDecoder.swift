@@ -2,7 +2,7 @@
 import Foundation
 import SFBAudioEngine
 
-/// Downloads audio from a remote URL via URLSession (handles self-signed HTTPS),
+/// Full-download fallback for remote URLs (handles self-signed HTTPS),
 /// then decodes using SFBAudioEngine's AudioDecoder which supports:
 /// FLAC, MP3, AAC, ALAC, WAV, AIFF, Ogg Vorbis, Ogg Opus, WavPack, APE, TTA,
 /// Musepack, Shorten, DSD, and all Core Audio / libsndfile formats.
@@ -12,6 +12,10 @@ import SFBAudioEngine
 /// 2. Decode using SFBAudioEngine AudioDecoder (universal format support)
 /// 3. Convert to engine output format if needed (via AVAudioConverter)
 /// 4. Move downloaded file to cache directory for future instant playback
+///
+/// Normal HTTP(S) playback should prefer `CloudPlaybackSource.makeHTTPInputSource`
+/// so audio can start from byte ranges. This class remains for URLs whose
+/// length is unknown or servers that do not cooperate with Range reads.
 final class StreamingDownloadDecoder: Sendable {
     private let bufferFrameCount: AVAudioFrameCount = 8192
 
@@ -19,7 +23,7 @@ final class StreamingDownloadDecoder: Sendable {
         url.scheme == "http" || url.scheme == "https"
     }
 
-    /// Download and decode audio from a remote URL.
+    /// Download a remote URL completely, then decode it.
     /// - Parameters:
     ///   - url: Remote HTTP/HTTPS URL
     ///   - outputFormat: Target PCM format for the audio engine
@@ -125,7 +129,7 @@ final class StreamingDownloadDecoder: Sendable {
                                 guard let outBuf = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: outCap) else { break }
 
                                 var convError: NSError?
-                                let inputBuffer = inBuf
+                                nonisolated(unsafe) let inputBuffer = inBuf
                                 converter.convert(to: outBuf, error: &convError) { _, outStatus in
                                     outStatus.pointee = .haveData
                                     return inputBuffer
@@ -157,7 +161,7 @@ final class StreamingDownloadDecoder: Sendable {
                             guard let outBuf = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: outCap) else { break }
 
                             var convError: NSError?
-                            let inputBuffer = inBuf
+                            nonisolated(unsafe) let inputBuffer = inBuf
                             converter.convert(to: outBuf, error: &convError) { _, outStatus in
                                 outStatus.pointee = .haveData
                                 return inputBuffer

@@ -109,6 +109,62 @@ enum CloudPlaybackSource {
         persistOnComplete: Bool = true,
         cacheRelativePath: String? = nil
     ) -> InputSource? {
+        let path = song.filePath
+        let connectorFetch: @Sendable (Int64, Int64) async throws -> Data = { off, len in
+            try await connector.fetchRange(path: path, offset: off, length: len)
+        }
+
+        return makeInputSource(
+            label: song.title,
+            sourceURL: makeSourceURL(scheme: "primuse-cloud", song: song),
+            totalLength: totalLength,
+            cacheURL: cacheURL,
+            persistOnComplete: persistOnComplete,
+            cacheRelativePath: cacheRelativePath,
+            connectorFetch: connectorFetch
+        )
+    }
+
+    /// Build an `InputSource` for a direct HTTP(S) playback URL. This is
+    /// used for media servers, UPnP, and NAS plain streaming URLs so
+    /// playback can start from byte ranges instead of waiting for
+    /// `URLSession.download` to finish the whole file.
+    static func makeHTTPInputSource(
+        song: Song,
+        url: URL,
+        totalLength: Int64,
+        cacheURL: URL,
+        persistOnComplete: Bool = true,
+        cacheRelativePath: String? = nil
+    ) -> InputSource? {
+        guard totalLength > 0,
+              url.scheme == "http" || url.scheme == "https" else { return nil }
+
+        let fetcher = HTTPRangeFetcher(url: url, totalLength: totalLength)
+        let fetch: @Sendable (Int64, Int64) async throws -> Data = { off, len in
+            try await fetcher.fetch(offset: off, length: len)
+        }
+
+        return makeInputSource(
+            label: song.title,
+            sourceURL: makeSourceURL(scheme: "primuse-http", song: song),
+            totalLength: totalLength,
+            cacheURL: cacheURL,
+            persistOnComplete: persistOnComplete,
+            cacheRelativePath: cacheRelativePath,
+            connectorFetch: fetch
+        )
+    }
+
+    private static func makeInputSource(
+        label: String,
+        sourceURL: URL?,
+        totalLength: Int64,
+        cacheURL: URL,
+        persistOnComplete: Bool,
+        cacheRelativePath: String?,
+        connectorFetch: @escaping @Sendable (Int64, Int64) async throws -> Data
+    ) -> InputSource? {
         let partialURL = URL(fileURLWithPath: cacheURL.path + ".partial")
         let markerURL = URL(fileURLWithPath: partialURL.path + prewarmMarkerSuffix)
 
@@ -133,15 +189,10 @@ enum CloudPlaybackSource {
             FileManager.default.createFile(atPath: partialURL.path, contents: nil)
         }
 
-        let path = song.filePath
-        let connectorFetch: @Sendable (Int64, Int64) async throws -> Data = { off, len in
-            try await connector.fetchRange(path: path, offset: off, length: len)
-        }
-
-        plog("☁️ makeInputSource '\(song.title)' totalLength=\(totalLength) initialRanges=\(initialRanges.map { "[\($0.lowerBound)..\($0.upperBound))" }.joined(separator: ","))")
+        plog("☁️ makeInputSource '\(label)' totalLength=\(totalLength) initialRanges=\(initialRanges.map { "[\($0.lowerBound)..\($0.upperBound))" }.joined(separator: ","))")
 
         let state = State(
-            label: song.title,
+            label: label,
             partialURL: partialURL,
             finalURL: cacheURL,
             totalLength: totalLength,
@@ -157,10 +208,18 @@ enum CloudPlaybackSource {
         }
 
         return CloudInputSourceObjC(
-            url: URL(string: "primuse-cloud://\(song.sourceID)\(song.filePath)"),
+            url: sourceURL,
             totalLength: totalLength,
             fetch: block
         )
+    }
+
+    private static func makeSourceURL(scheme: String, song: Song) -> URL? {
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = song.sourceID
+        components.path = song.filePath.hasPrefix("/") ? song.filePath : "/" + song.filePath
+        return components.url
     }
 
     // MARK: - Active session registry
@@ -218,6 +277,54 @@ enum CloudPlaybackSource {
 private final class FetchResultBox: @unchecked Sendable {
     var data: Data?
     var error: Error?
+}
+
+private final class HTTPRangeFetcher: @unchecked Sendable {
+    private let url: URL
+    private let totalLength: Int64
+    private let session: URLSession
+
+    init(url: URL, totalLength: Int64) {
+        self.url = url
+        self.totalLength = totalLength
+
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 60
+        config.timeoutIntervalForResource = 600
+        config.httpMaximumConnectionsPerHost = 6
+        self.session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+    }
+
+    func fetch(offset: Int64, length: Int64) async throws -> Data {
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        let rangeHeader = offset < 0
+            ? "bytes=\(offset)"
+            : "bytes=\(offset)-\(offset + length - 1)"
+        request.setValue(rangeHeader, forHTTPHeaderField: "Range")
+        request.timeoutInterval = 60
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw AudioDecoderError.decodingFailed("Invalid HTTP range response")
+        }
+
+        switch http.statusCode {
+        case 206:
+            return data
+        case 200 where offset == 0:
+            // Server ignored Range. Returning the full body lets the cache
+            // complete in one pass, matching the old full-download behavior
+            // without corrupting non-zero offsets.
+            return data
+        case 200:
+            throw AudioDecoderError.decodingFailed("HTTP server ignored Range")
+        case 416 where offset >= totalLength:
+            return Data()
+        default:
+            throw AudioDecoderError.decodingFailed("HTTP \(http.statusCode)")
+        }
+    }
 }
 
 /// Per-source mutable state. Held by the fetch block via the closure
@@ -777,6 +884,10 @@ private final class State: @unchecked Sendable {
         // 本首歌的 fetch / cache / prefetch 表现。emitSessionSummary 内部
         // dedupe, 多次调用只输出一次。
         emitSessionSummary()
+        // Audio Cache 关闭时 streaming 文件只放在 NSTemporaryDirectory 供
+        // 本次 SFB 解码读取。不要在用户切歌/停止后继续补齐临时文件, 否则
+        // 会把"边播边取"退化成后台整首下载。
+        guard persistOnComplete else { return }
         lock.lock()
         // 已经 rename 过了, 啥也不做。
         if activeURL == finalURL {

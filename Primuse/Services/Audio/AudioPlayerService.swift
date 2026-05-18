@@ -3,6 +3,7 @@ import CryptoKit
 import Foundation
 import MediaPlayer
 import PrimuseKit
+import SFBAudioEngine
 import UIKit
 import WidgetKit
 
@@ -135,7 +136,7 @@ final class AudioPlayerService {
     /// requires building a NEW `InputSource` — feeding the
     /// `primuse-stream://` URL to SFB's URL-based opener fails because
     /// the scheme isn't registered with the file system.
-    private enum DecoderKind { case native, streaming, cloudStream, assetReader }
+    private enum DecoderKind { case native, streaming, httpStream, cloudStream, assetReader }
     private var activeDecoderKind: DecoderKind = .native
 
     // MARK: - Sleep Timer
@@ -347,25 +348,26 @@ final class AudioPlayerService {
             // Reset volume immediately; apply ReplayGain asynchronously after playback starts
             audioEngine.resetPlayerVolume()
 
-            // Remote URLs: use StreamingDownloadDecoder (handles self-signed HTTPS via URLSession)
-            if isRemoteURL {
-                // 解码器选型: HTTPS / HTTP URL → StreamingDownloadDecoder。
-                // 这条路径用 URLSession 一次性把整首歌下载下来再解码, 适合
-                // NAS / WebDAV / SFTP 等 connector 已经把 streaming URL
-                // 准备好的场景。CloudPlaybackSource (range-based) 适合
-                // 云盘那种需要 dlink 拼接 / 多次 Range 的场景, 选不到这条。
-                plog("▶️ Decoder: StreamingDownloadDecoder (reason: scheme=\(url.scheme ?? "?") is HTTP/HTTPS, full-download path) outputFormat: sr=\(outputFormat.sampleRate) ch=\(outputFormat.channelCount)")
-                let cacheURL = playbackSettings.audioCacheEnabled ? sourceManager?.cacheURL(for: song) : nil
-                await playWithStreamingDownload(song: song, url: url, outputFormat: outputFormat, playID: id, cacheURL: cacheURL)
-                return
-            }
-
             // Cloud streaming: instead of downloading the whole file, build
             // an SFBInputSource whose reads go through HTTP Range +
             // sparse-on-disk cache. SFBAudioEngine reads from it like any
             // file and we get instant playback.
             let stream: AsyncThrowingStream<AVAudioPCMBuffer, Error>
-            if isCloudStream, let manager = sourceManager,
+            if isRemoteURL {
+                if let inputSource = await makeHTTPStreamingInputSource(for: song, url: url) {
+                    plog("▶️ Decoder: HTTPRangePlaybackSource (reason: scheme=\(url.scheme ?? "?"), range-based HTTP streaming) cache=\(playbackSettings.audioCacheEnabled) outputFormat: sr=\(outputFormat.sampleRate) ch=\(outputFormat.channelCount)")
+                    activeDecoderKind = .httpStream
+                    stream = nativeDecoder.decode(from: inputSource, outputFormat: outputFormat, onResolveSourceLength: makeResolveLengthCallback(for: song))
+                } else {
+                    // Fallback for legacy rows / arbitrary URLs where fileSize is
+                    // unknown. This preserves compatibility but still logs clearly
+                    // that startup waits for a full download.
+                    plog("▶️ Decoder: StreamingDownloadDecoder (reason: HTTP range unavailable or fileSize unknown, full-download fallback) outputFormat: sr=\(outputFormat.sampleRate) ch=\(outputFormat.channelCount)")
+                    let cacheURL = playbackSettings.audioCacheEnabled ? sourceManager?.cacheURL(for: song) : nil
+                    await playWithStreamingDownload(song: song, url: url, outputFormat: outputFormat, playID: id, cacheURL: cacheURL)
+                    return
+                }
+            } else if isCloudStream, let manager = sourceManager,
                let inputSource = try? await manager.makeStreamingInputSource(
                    for: song,
                    cacheEnabled: playbackSettings.audioCacheEnabled
@@ -431,7 +433,11 @@ final class AudioPlayerService {
                 // so let the caller surface the error instead.
                 guard !Task.isCancelled, playID == id else { return }
                 plog("⚠️ Native decode failed for '\(song.title)': \(error.localizedDescription)")
-                if !isCloudStream {
+                if activeDecoderKind == .httpStream {
+                    plog("↳ HTTP range decode failed before first buffer; falling back to full download")
+                    let cacheURL = playbackSettings.audioCacheEnabled ? sourceManager?.cacheURL(for: song) : nil
+                    await playWithStreamingDownload(song: song, url: url, outputFormat: outputFormat, playID: id, cacheURL: cacheURL)
+                } else if !isCloudStream {
                     await playWithFallbackDecoder(song: song, url: url, outputFormat: outputFormat, playID: id)
                 } else {
                     isLoading = false
@@ -451,7 +457,7 @@ final class AudioPlayerService {
             // Skip for cloud-stream URLs — fileInfo opens via SFBAudioEngine
             // by URL, which doesn't understand the custom scheme. Duration
             // for cloud songs is filled in by MetadataBackfillService.
-            if duration <= 0, !isCloudStream {
+            if duration <= 0, !isCloudStream, activeDecoderKind != .httpStream {
                 Task {
                     if let info = try? await nativeDecoder.fileInfo(for: url) {
                         guard self.playID == id else { return }
@@ -477,7 +483,7 @@ final class AudioPlayerService {
             // decode the custom scheme. Once playback finishes the cache
             // file is fully populated and a future play picks up RG.
             let settings = playbackSettings.snapshot()
-            if settings.replayGainEnabled, !isCloudStream {
+            if settings.replayGainEnabled, !isCloudStream, activeDecoderKind != .httpStream {
                 Task { [id] in
                     await self.applyReplayGain(for: url, mode: settings.replayGainMode)
                     guard self.playID == id else { return }
@@ -488,7 +494,7 @@ final class AudioPlayerService {
             // Cloud streaming already writes to the same cache file as
             // it goes — duplicating via cacheInBackground would just
             // race two writers on the same path.
-            if playbackSettings.audioCacheEnabled, !isCloudStream {
+            if playbackSettings.audioCacheEnabled, !isCloudStream, activeDecoderKind != .httpStream {
                 sourceManager?.cacheInBackground(song: song, cacheEnabled: playbackSettings.audioCacheEnabled)
             }
 
@@ -558,8 +564,9 @@ final class AudioPlayerService {
         }
     }
 
-    /// Streaming playback using URLSession download + progressive decode.
-    /// Handles self-signed HTTPS certificates that AVAssetReader cannot.
+    /// Full-download fallback for remote URLs whose length is unknown or
+    /// whose server rejects Range reads. Handles self-signed HTTPS
+    /// certificates that AVAssetReader cannot.
     private func playWithStreamingDownload(
         song: Song, url: URL, outputFormat: AVAudioFormat,
         playID id: UUID, cacheURL: URL?
@@ -739,7 +746,52 @@ final class AudioPlayerService {
             }
             return nativeDecoder.decode(from: inputSource, outputFormat: outputFormat, onResolveSourceLength: onResolveLength)
         }
+        if url.scheme == "http" || url.scheme == "https" {
+            if let cached = sourceManager?.cachedURL(for: song) {
+                return nativeDecoder.decode(from: cached, outputFormat: outputFormat, onResolveSourceLength: onResolveLength)
+            }
+            if let inputSource = await makeHTTPStreamingInputSource(for: song, url: url) {
+                return nativeDecoder.decode(from: inputSource, outputFormat: outputFormat, onResolveSourceLength: onResolveLength)
+            }
+            return streamingDecoder.decode(from: url, outputFormat: outputFormat, cacheFileURL: nil, fileExtension: song.fileFormat.rawValue)
+        }
         return nativeDecoder.decode(from: url, outputFormat: outputFormat, onResolveSourceLength: onResolveLength)
+    }
+
+    private func makeHTTPStreamingInputSource(for song: Song, url: URL) async -> InputSource? {
+        guard song.fileSize > 0,
+              url.scheme == "http" || url.scheme == "https" else { return nil }
+
+        let cacheEnabled = playbackSettings.audioCacheEnabled
+        let cacheURL: URL
+        let cacheRelativePath: String?
+        if cacheEnabled, let sourceManager {
+            cacheURL = sourceManager.cacheURL(for: song)
+            let sanitized = song.filePath.replacingOccurrences(of: "/", with: "_")
+            cacheRelativePath = "\(song.sourceID)/\(sanitized)"
+            await AudioCacheManager.shared.evictIfNeeded(reserveBytes: song.fileSize)
+        } else {
+            cacheURL = URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("primuse-http-\(song.id)")
+            cacheRelativePath = nil
+        }
+
+        return CloudPlaybackSource.makeHTTPInputSource(
+            song: song,
+            url: url,
+            totalLength: song.fileSize,
+            cacheURL: cacheURL,
+            persistOnComplete: cacheEnabled && sourceManager != nil,
+            cacheRelativePath: cacheRelativePath
+        )
+    }
+
+    private func decoderKind(for song: Song, url: URL) -> DecoderKind {
+        if url.scheme == SourceManager.cloudStreamingScheme { return .cloudStream }
+        if url.scheme == "http" || url.scheme == "https" {
+            return song.fileSize > 0 ? .httpStream : .streaming
+        }
+        return .native
     }
 
     private func prefetchNextSong() {
@@ -1134,7 +1186,9 @@ final class AudioPlayerService {
                 try audioEngine.start()
 
                 let settings = playbackSettings.snapshot()
-                if settings.replayGainEnabled {
+                if settings.replayGainEnabled,
+                   activeDecoderKind != .cloudStream,
+                   activeDecoderKind != .httpStream {
                     await applyReplayGain(for: url, mode: settings.replayGainMode)
                 }
 
@@ -1160,6 +1214,16 @@ final class AudioPlayerService {
                 switch activeDecoderKind {
                 case .native, .streaming:
                     stream = nativeDecoder.decode(from: seekURL, outputFormat: outputFormat, onResolveSourceLength: onResolveLength)
+                case .httpStream:
+                    if let cached = sourceManager?.cachedURL(for: song) {
+                        stream = nativeDecoder.decode(from: cached, outputFormat: outputFormat, onResolveSourceLength: onResolveLength)
+                    } else if let inputSource = await makeHTTPStreamingInputSource(for: song, url: url) {
+                        stream = nativeDecoder.decode(from: inputSource, outputFormat: outputFormat, onResolveSourceLength: onResolveLength)
+                    } else {
+                        plog("⚠️ Seek: failed to build HTTP streaming InputSource")
+                        isLoading = false
+                        return
+                    }
                 case .cloudStream:
                     // Build a fresh InputSource for the seek session. The
                     // sparse cache file from the prior session is reused
@@ -1370,6 +1434,7 @@ final class AudioPlayerService {
 
         do {
             let nextURL = try await resolvedURL(for: nextSong)
+            let nextDecoderKind = decoderKind(for: nextSong, url: nextURL)
             guard nativeDecoder.canDecode(url: nextURL),
                   let outputFormat = audioEngine.outputFormat else {
                 scheduleEndDetection(id: id)
@@ -1386,11 +1451,14 @@ final class AudioPlayerService {
             duration = nextSong.duration
             currentTime = 0
             crossfadeTriggered = false; isCrossfading = false
+            activeDecoderKind = nextDecoderKind
             library?.recordPlayback(of: nextSong.id)
 
             // Apply ReplayGain for next track
             let settings = playbackSettings.snapshot()
-            if settings.replayGainEnabled {
+            if settings.replayGainEnabled,
+               nextDecoderKind != .cloudStream,
+               nextDecoderKind != .httpStream {
                 await applyReplayGain(for: nextURL, mode: settings.replayGainMode)
             }
 
@@ -1412,9 +1480,13 @@ final class AudioPlayerService {
 
                 if isFirst {
                     isFirst = false
-                    Task {
-                        if let info = try? await nativeDecoder.fileInfo(for: nextURL) {
-                            self.duration = info.duration.sanitizedDuration
+                    if nextDecoderKind != .cloudStream,
+                       nextDecoderKind != .httpStream,
+                       nextDecoderKind != .streaming {
+                        Task {
+                            if let info = try? await nativeDecoder.fileInfo(for: nextURL) {
+                                self.duration = info.duration.sanitizedDuration
+                            }
                         }
                     }
                     updateNowPlayingInfo()
@@ -1482,6 +1554,7 @@ final class AudioPlayerService {
 
         do {
             let nextURL = try await resolvedURL(for: nextSong)
+            let nextDecoderKind = decoderKind(for: nextSong, url: nextURL)
             guard nativeDecoder.canDecode(url: nextURL),
                   let outputFormat = audioEngine.outputFormat else {
                 crossfadeTriggered = false; isCrossfading = false
@@ -1535,7 +1608,8 @@ final class AudioPlayerService {
                 startCrossfadeRamp(
                     duration: crossfadeDuration,
                     nextSong: nextSong,
-                    nextURL: nextURL
+                    nextURL: nextURL,
+                    nextDecoderKind: nextDecoderKind
                 )
             }
         } catch {
@@ -1544,7 +1618,12 @@ final class AudioPlayerService {
         }
     }
 
-    private func startCrossfadeRamp(duration: Double, nextSong: Song, nextURL: URL) {
+    private func startCrossfadeRamp(
+        duration: Double,
+        nextSong: Song,
+        nextURL: URL,
+        nextDecoderKind: DecoderKind
+    ) {
         let totalSteps = max(1, Int(duration / 0.05))
         let stepCounter = StepCounter()
         let rampPlayID = playID
@@ -1562,7 +1641,7 @@ final class AudioPlayerService {
                 if progress >= 1.0 {
                     self.crossfadeTimer?.invalidate()
                     self.crossfadeTimer = nil
-                    self.completeCrossfade(nextSong: nextSong, nextURL: nextURL)
+                    self.completeCrossfade(nextSong: nextSong, nextURL: nextURL, nextDecoderKind: nextDecoderKind)
                 } else {
                     // Equal-power crossfade curve: maintains perceived loudness
                     // through the transition (no "dip" in the middle like linear)
@@ -1576,7 +1655,7 @@ final class AudioPlayerService {
         }
     }
 
-    private func completeCrossfade(nextSong: Song, nextURL: URL) {
+    private func completeCrossfade(nextSong: Song, nextURL: URL, nextDecoderKind: DecoderKind) {
         // Stop old decoding
         decodingTask?.cancel()
         decodingTask = nil
@@ -1594,19 +1673,26 @@ final class AudioPlayerService {
         // 误以为又开了一首新歌, 重新计时)。
         let newID = UUID()
         playID = newID
+        activeDecoderKind = nextDecoderKind
         crossfadeTriggered = false; isCrossfading = false
         isCrossfading = false
         plog("🔄 completeCrossfade: swap done, currentSong=\(nextSong.title)")
 
         // Apply ReplayGain (now on the swapped primary node)
         let settings = playbackSettings.snapshot()
-        if settings.replayGainEnabled {
+        if settings.replayGainEnabled,
+           nextDecoderKind != .cloudStream,
+           nextDecoderKind != .httpStream {
             Task { await applyReplayGain(for: nextURL, mode: settings.replayGainMode) }
         }
 
-        Task {
-            if let info = try? await nativeDecoder.fileInfo(for: nextURL) {
-                self.duration = info.duration
+        if nextDecoderKind != .cloudStream,
+           nextDecoderKind != .httpStream,
+           nextDecoderKind != .streaming {
+            Task {
+                if let info = try? await nativeDecoder.fileInfo(for: nextURL) {
+                    self.duration = info.duration
+                }
             }
         }
 
