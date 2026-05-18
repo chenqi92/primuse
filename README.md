@@ -1,6 +1,6 @@
 # Primuse (猿音)
 
-原生 iOS 音乐播放器，支持从 NAS 及网络源串流播放，具备元数据刮削、歌词显示和无缝播放功能。
+原生 iOS 音乐播放器，支持从 NAS、媒体服务器、云盘及本地网络源串流播放，具备元数据刮削、歌词显示、跨设备同步和外部播放控制能力。
 
 > 🎉 **现已上架 App Store** — 在中国区 App Store 搜索「猿音」即可免费下载体验。
 
@@ -26,20 +26,24 @@
 
 ## 功能特性
 
-- **多源串流** — 支持 Synology DSM、SMB/CIFS、WebDAV、SFTP、FTP、NFS、Jellyfin、Plex
-- **无缝播放** — 基于 SFBAudioEngine 的交叉淡入淡出，支持 FLAC、APE、WAV、MP3、AAC、Opus 等格式
-- **元数据刮削** — 内置 MusicBrainz 和 LRCLIB 开源数据源，支持通过 JSON 配置导入自定义刮削源
+- **多源串流** — 支持 Synology DSM、QNAP、绿联 UGOS、飞牛 fnOS、SMB/CIFS、WebDAV、SFTP、FTP、NFS、S3、UPnP/DLNA、Jellyfin、Emby、Plex、本地文件
+- **云盘接入** — 支持百度网盘、阿里云盘、Google Drive、OneDrive、Dropbox，云端歌曲可边下边播并按需缓存
+- **播放引擎** — 基于 SFBAudioEngine，支持 FLAC、APE、WAV、MP3、AAC、Opus、DSD、TTA、WV 等格式，提供交叉淡入淡出、ReplayGain、睡眠定时、EQ、混响和压缩/限幅
+- **DLNA 接收** — 可在同一 Wi-Fi 下作为 UPnP/AV MediaRenderer 被 VLC、群晖 Audio Station、Plex、Hi-Fi Cast 等控制点发现并投送音频
+- **Apple Music 搜索** — 授权后可在搜索页同时查询 Apple Music 曲库，并通过系统播放器播放订阅内容
+- **元数据刮削** — 内置 iTunes、MusicBrainz 和 LRCLIB 数据源，支持通过 JSON 配置导入自定义刮削源
 - **可配置刮削源** — 用户可通过粘贴 JSON 配置或 URL 导入第三方元数据、封面、歌词数据源
 - **Sidecar 回写** — 刮削的封面 (`-cover.jpg`) 和歌词 (`.lrc`) 自动写回 NAS
-- **专辑 & 艺术家封面** — 在线自动获取并本地缓存
-- **实时活动** — 灵动岛和锁屏播放控制
-- **小组件** — 主屏幕小组件快捷播放
+- **歌词体验** — 支持 LRC / 字级歌词、桌面歌词式外接屏显示、歌词翻译缓存和手动刮削校正
+- **资料库管理** — 支持专辑/艺术家归类、普通歌单、智能歌单、M3U8/JSON 歌单导入导出、重复歌曲检测、最近删除
+- **同步与统计** — 支持 iCloud CloudKit 同步源、歌单、播放历史和设置，提供听歌统计、年度报告、Last.fm / ListenBrainz scrobble
+- **系统集成** — 支持实时活动、灵动岛、锁屏控制、主屏幕小组件、Control Widget、Apple Watch、CarPlay、Siri / Shortcuts、Spotlight 搜索、AirPlay、外接屏
 
 ## 环境要求
 
-- **Xcode 26.0+**（已测试 26.4）
+- **Xcode 16.0+**
 - **Swift 6.0+**
-- **iOS 26.1+** 部署目标
+- **iOS 18.0+** 部署目标，**watchOS 10.0+** Watch 目标
 - macOS 构建环境（推荐 Apple Silicon）
 
 ## 快速开始
@@ -67,6 +71,7 @@ open Primuse.xcodeproj
    - 进入 **Signing & Capabilities**
    - 将 **Team** 修改为你的 Apple 开发者账号
    - Xcode 会自动生成描述文件
+4. 若需要真机使用 DLNA 接收功能，请在 Apple Developer 后台为 App ID 开启 **Multicast Networking** 能力，并确保 provisioning profile 包含 `com.apple.developer.networking.multicast`
 
 也可以修改 `project.yml` 中的 `DEVELOPMENT_TEAM` 后重新生成项目。
 
@@ -160,10 +165,15 @@ primuse/
 │   ├── App/                        # 应用入口、ContentView
 │   ├── Services/
 │   │   ├── Audio/                  # 播放引擎、解码器、均衡器
+│   │   ├── Cloud/                  # iCloud / CloudKit 同步
+│   │   ├── DLNA/                   # UPnP/AV Renderer 接收投送
 │   │   ├── Library/                # 音乐库、数据库
 │   │   ├── Metadata/               # 刮削器、资源存储、Sidecar 写入
 │   │   │   └── Scrapers/           # 可配置刮削器、MusicBrainz、LRCLIB
-│   │   └── Sources/                # NAS 连接器、扫描器、设备发现
+│   │   ├── Playlist/               # 歌单导入导出
+│   │   ├── Scrobble/               # Last.fm / ListenBrainz
+│   │   ├── Sources/                # NAS、协议、媒体服务器、云盘连接器
+│   │   └── Stats/                  # 听歌统计与年度报告
 │   ├── Views/
 │   │   ├── Home/                   # 首页（仪表盘）
 │   │   ├── Library/                # 专辑、艺术家、歌曲、播放列表视图
@@ -178,6 +188,8 @@ primuse/
 │   └── Sources/PrimuseKit/Models/  # Song、Album、Artist、Playlist 等
 ├── PrimuseWidgetExtension/         # 主屏幕小组件
 ├── PrimuseActivityExtension/       # 灵动岛 / 实时活动
+├── PrimuseWatch/                   # Apple Watch App
+├── PrimuseWatchWidgets/            # Watch Complications
 ├── Config/                         # Entitlements、Info.plist 配置
 └── project.yml                     # XcodeGen 项目定义
 ```
@@ -195,16 +207,18 @@ primuse/
 | [swift-crypto](https://github.com/apple/swift-crypto) | 加密操作 |
 | [swift-nio](https://github.com/apple/swift-nio) | 异步网络基础设施 |
 
+系统框架还使用了 MusicKit、CloudKit、ActivityKit、WidgetKit、WatchConnectivity、CarPlay、MediaPlayer 和 Network.framework。
+
 ## 架构
 
 ### 音频管线
 
 ```
-音源（NAS / 网络）
-  → StreamingDownloadDecoder（远程）/ NativeAudioDecoder（已缓存）
+音源（本地 / NAS / 媒体服务器 / 云盘）
+  → CloudPlaybackSource / StreamingDownloadDecoder / NativeAudioDecoder
   → SFBAudioEngine AudioDecoder
   → AVAudioConverter（采样率 / 格式转换）
-  → AVAudioEngine（PlayerNode → 均衡器 → 混音器 → 输出）
+  → AVAudioEngine（PlayerNode → Mixer → EQ → Compressor → Reverb → 输出）
 ```
 
 ### 元数据刮削
