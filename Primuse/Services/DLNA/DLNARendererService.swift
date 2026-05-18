@@ -64,8 +64,7 @@ final class DLNARendererService {
 
     /// GENA 订阅表 ── 控制点 SUBSCRIBE /event/<svc> 时这里加一条;
     /// 状态变 (TransportState / Volume / Mute 等) 时按 service 路由 NOTIFY。
-    /// 简化掉 SEQ 字段递增 (用 monotonic counter), TIMEOUT 用固定 1800s
-    /// 不实现 RENEW (控制点会自己重 SUBSCRIBE)。
+    /// 简化掉 SEQ 字段递增 (用 monotonic counter), TIMEOUT 用固定 1800s。
     private struct Subscription {
         let sid: String
         let service: String  // "AVTransport" | "RenderingControl"
@@ -380,24 +379,51 @@ final class DLNARendererService {
 
     private func handleHTTPConnection(_ connection: NWConnection) {
         connection.start(queue: .main)
-        receiveHTTPRequest(on: connection)
+        receiveHTTPRequest(on: connection, buffer: Data())
     }
 
-    private func receiveHTTPRequest(on connection: NWConnection) {
+    private func receiveHTTPRequest(on connection: NWConnection, buffer: Data) {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 64_000) { [weak self] data, _, isComplete, error in
             guard let self else { connection.cancel(); return }
             if let error {
                 dlnaLog.debug("HTTP receive err: \(error.localizedDescription)")
                 connection.cancel(); return
             }
-            guard let data, let text = String(data: data, encoding: .utf8) else {
-                if isComplete { connection.cancel() } else {
-                    self.receiveHTTPRequest(on: connection)
-                }
+            guard let data else {
+                if isComplete { connection.cancel() }
                 return
             }
-            Task { await self.routeHTTP(text, connection: connection) }
+            var nextBuffer = buffer
+            nextBuffer.append(data)
+            guard nextBuffer.count <= 1_000_000 else {
+                Task { @MainActor in await self.sendStatus(413, on: connection) }
+                return
+            }
+            if let text = self.completedHTTPRequestText(from: nextBuffer) {
+                Task { @MainActor in await self.routeHTTP(text, connection: connection) }
+            } else if isComplete {
+                connection.cancel()
+            } else {
+                Task { @MainActor in self.receiveHTTPRequest(on: connection, buffer: nextBuffer) }
+            }
         }
+    }
+
+    nonisolated private func completedHTTPRequestText(from data: Data) -> String? {
+        let marker = Data("\r\n\r\n".utf8)
+        guard let headerEnd = data.range(of: marker)?.upperBound else { return nil }
+        let headerData = data[..<headerEnd]
+        guard let headerText = String(data: headerData, encoding: .utf8) else { return nil }
+        let contentLength = headerText
+            .split(separator: "\r\n")
+            .first { $0.lowercased().hasPrefix("content-length:") }
+            .flatMap { line -> Int? in
+                let value = line.split(separator: ":", maxSplits: 1).last ?? ""
+                return Int(value.trimmingCharacters(in: .whitespaces))
+            } ?? 0
+        let totalLength = headerEnd + contentLength
+        guard data.count >= totalLength else { return nil }
+        return String(data: data.prefix(totalLength), encoding: .utf8)
     }
 
     private func routeHTTP(_ raw: String, connection: NWConnection) async {
@@ -415,15 +441,23 @@ final class DLNARendererService {
             await sendXML(avTransportSCPD, on: connection)
         case ("GET", "/RenderingControl.xml"):
             await sendXML(renderingControlSCPD, on: connection)
+        case ("GET", "/ConnectionManager.xml"):
+            await sendXML(connectionManagerSCPD, on: connection)
         case ("POST", "/control/AVTransport"):
             await handleAVTransportAction(raw: raw, connection: connection)
         case ("POST", "/control/RenderingControl"):
             await handleRenderingControlAction(raw: raw, connection: connection)
+        case ("POST", "/control/ConnectionManager"):
+            await handleConnectionManagerAction(raw: raw, connection: connection)
         case ("SUBSCRIBE", "/event/AVTransport"):
             await handleSubscribe(service: "AVTransport", raw: raw, connection: connection)
         case ("SUBSCRIBE", "/event/RenderingControl"):
             await handleSubscribe(service: "RenderingControl", raw: raw, connection: connection)
-        case ("UNSUBSCRIBE", "/event/AVTransport"), ("UNSUBSCRIBE", "/event/RenderingControl"):
+        case ("SUBSCRIBE", "/event/ConnectionManager"):
+            await handleSubscribe(service: "ConnectionManager", raw: raw, connection: connection)
+        case ("UNSUBSCRIBE", "/event/AVTransport"),
+             ("UNSUBSCRIBE", "/event/RenderingControl"),
+             ("UNSUBSCRIBE", "/event/ConnectionManager"):
             await handleUnsubscribe(raw: raw, connection: connection)
         default:
             await sendStatus(404, on: connection)
@@ -494,16 +528,101 @@ final class DLNARendererService {
         await sendXML(xml, on: connection)
     }
 
+    // MARK: - ConnectionManager
+
+    private var sinkProtocolInfo: String {
+        [
+            "http-get:*:audio/mpeg:*",
+            "http-get:*:audio/aac:*",
+            "http-get:*:audio/mp4:*",
+            "http-get:*:audio/flac:*",
+            "http-get:*:audio/x-flac:*",
+            "http-get:*:audio/wav:*",
+            "http-get:*:audio/x-wav:*",
+            "http-get:*:audio/ogg:*",
+            "http-get:*:audio/opus:*",
+            "http-get:*:application/ogg:*"
+        ].joined(separator: ",")
+    }
+
+    private func handleConnectionManagerAction(raw: String, connection: NWConnection) async {
+        let soapActionLine = raw.split(separator: "\r\n")
+            .first { $0.lowercased().hasPrefix("soapaction:") }
+            .map(String.init) ?? ""
+        let action = soapActionLine.split(separator: "#").last.map(String.init)?
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"\r\n ")) ?? ""
+        logEvent(.control, "ConnectionManager: \(action)")
+
+        switch action {
+        case "GetProtocolInfo":
+            let body = """
+            <Source></Source>
+            <Sink>\(sinkProtocolInfo)</Sink>
+            """
+            await sendCMSOAP(action: "GetProtocolInfo", body: body, on: connection)
+        case "GetCurrentConnectionIDs":
+            await sendCMSOAP(action: "GetCurrentConnectionIDs", body: "<ConnectionIDs>0</ConnectionIDs>", on: connection)
+        case "GetCurrentConnectionInfo":
+            let body = """
+            <RcsID>0</RcsID>
+            <AVTransportID>0</AVTransportID>
+            <ProtocolInfo></ProtocolInfo>
+            <PeerConnectionManager></PeerConnectionManager>
+            <PeerConnectionID>-1</PeerConnectionID>
+            <Direction>Input</Direction>
+            <Status>OK</Status>
+            """
+            await sendCMSOAP(action: "GetCurrentConnectionInfo", body: body, on: connection)
+        case "PrepareForConnection":
+            let body = """
+            <ConnectionID>0</ConnectionID>
+            <AVTransportID>0</AVTransportID>
+            <RcsID>0</RcsID>
+            """
+            await sendCMSOAP(action: "PrepareForConnection", body: body, on: connection)
+        case "ConnectionComplete":
+            await sendCMSOAP(action: "ConnectionComplete", body: "", on: connection)
+        default:
+            await sendCMSOAP(action: action, body: "", on: connection)
+        }
+    }
+
+    private func sendCMSOAP(action: String, body: String, on connection: NWConnection) async {
+        let xml = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+        <s:Body>
+        <u:\(action)Response xmlns:u="urn:schemas-upnp-org:service:ConnectionManager:1">
+        \(body)
+        </u:\(action)Response>
+        </s:Body>
+        </s:Envelope>
+        """
+        await sendXML(xml, on: connection)
+    }
+
     // MARK: - GENA (事件订阅)
 
     private func handleSubscribe(service: String, raw: String, connection: NWConnection) async {
         let lines = raw.split(separator: "\r\n").map(String.init)
-        let headers = Dictionary(uniqueKeysWithValues: lines.compactMap { line -> (String, String)? in
+        var headers: [String: String] = [:]
+        for (key, value) in lines.compactMap({ line -> (String, String)? in
             let kv = line.split(separator: ":", maxSplits: 1)
             guard kv.count == 2 else { return nil }
             return (kv[0].lowercased().trimmingCharacters(in: .whitespaces),
                     kv[1].trimmingCharacters(in: .whitespaces))
-        })
+        }) {
+            headers[key] = value
+        }
+        if let existingSID = headers["sid"], var sub = subscriptions[existingSID] {
+            let timeoutSeconds = parseTimeout(headers["timeout"]) ?? 1800
+            sub.expiresAt = Date().addingTimeInterval(TimeInterval(timeoutSeconds))
+            subscriptions[existingSID] = sub
+            logEvent(.event, "RENEW \(service) (sid=\(existingSID.suffix(8)))")
+            await sendSubscribeResponse(sid: existingSID, timeoutSeconds: timeoutSeconds, on: connection)
+            return
+        }
+
         // CALLBACK 形如 "<http://192.168.1.20:7676/abcd>" 可能多个 URL,取第一个
         guard let callbackHeader = headers["callback"],
               let urlStr = callbackHeader.split(separator: "<").last?.split(separator: ">").first,
@@ -520,7 +639,12 @@ final class DLNARendererService {
         )
         subscriptions[sid] = sub
         logEvent(.event, "SUBSCRIBE \(service) → \(callbackURL.host ?? "?") (sid=\(sid.suffix(8)))")
+        await sendSubscribeResponse(sid: sid, timeoutSeconds: timeoutSeconds, on: connection)
+        // 按规范, SUBSCRIBE 返回 200 后立刻发一次"initial event" 把当前状态推过去
+        sendGenaNotify(sid: sid)
+    }
 
+    private func sendSubscribeResponse(sid: String, timeoutSeconds: Int, on connection: NWConnection) async {
         let response = """
         HTTP/1.1 200 OK\r
         DATE: \(rfc1123Now())\r
@@ -534,8 +658,6 @@ final class DLNARendererService {
         connection.send(content: response.data(using: .utf8), completion: .contentProcessed { _ in
             connection.cancel()
         })
-        // 按规范, SUBSCRIBE 返回 200 后立刻发一次"initial event" 把当前状态推过去
-        sendGenaNotify(sid: sid)
     }
 
     private func handleUnsubscribe(raw: String, connection: NWConnection) async {
@@ -598,6 +720,16 @@ final class DLNARendererService {
             </Event>
             """
             return wrapPropertyset(varName: "LastChange", value: lastChange)
+        case "ConnectionManager":
+            let body = """
+            <?xml version="1.0" encoding="utf-8"?>
+            <e:propertyset xmlns:e="urn:schemas-upnp-org:event-1-0">
+              <e:property><SourceProtocolInfo></SourceProtocolInfo></e:property>
+              <e:property><SinkProtocolInfo>\(xmlEscape(sinkProtocolInfo))</SinkProtocolInfo></e:property>
+              <e:property><CurrentConnectionIDs>0</CurrentConnectionIDs></e:property>
+            </e:propertyset>
+            """
+            return body
         default:
             return nil
         }
@@ -667,7 +799,9 @@ final class DLNARendererService {
             }
             await sendSOAP(action: "SetAVTransportURI", body: "", on: connection)
         case "Play":
-            player.togglePlayPause()
+            if !player.isPlaying {
+                player.resume()
+            }
             await sendSOAP(action: "Play", body: "", on: connection)
         case "Pause":
             if player.isPlaying { player.togglePlayPause() }
@@ -677,23 +811,55 @@ final class DLNARendererService {
             statusText = String(localized: "dlna_status_listening")
             await sendSOAP(action: "Stop", body: "", on: connection)
         case "GetTransportInfo":
-            let state = player.isPlaying ? "PLAYING" : "STOPPED"
+            let state: String
+            if player.isPlaying {
+                state = "PLAYING"
+            } else if player.currentSong != nil {
+                state = "PAUSED_PLAYBACK"
+            } else {
+                state = "STOPPED"
+            }
             let body = """
             <CurrentTransportState>\(state)</CurrentTransportState>
             <CurrentTransportStatus>OK</CurrentTransportStatus>
             <CurrentSpeed>1</CurrentSpeed>
             """
             await sendSOAP(action: "GetTransportInfo", body: body, on: connection)
+        case "GetMediaInfo":
+            let body = """
+            <NrTracks>\(player.currentSong == nil ? 0 : 1)</NrTracks>
+            <MediaDuration>\(formatTime(player.duration))</MediaDuration>
+            <CurrentURI>\(xmlEscape(player.currentSong?.filePath ?? ""))</CurrentURI>
+            <CurrentURIMetaData>\(xmlEscape(didlForCurrent(title: player.currentSong?.title ?? "")))</CurrentURIMetaData>
+            <NextURI></NextURI>
+            <NextURIMetaData></NextURIMetaData>
+            <PlayMedium>NETWORK</PlayMedium>
+            <RecordMedium>NOT_IMPLEMENTED</RecordMedium>
+            <WriteStatus>NOT_IMPLEMENTED</WriteStatus>
+            """
+            await sendSOAP(action: "GetMediaInfo", body: body, on: connection)
         case "GetPositionInfo":
             let cur = formatTime(player.currentTime)
             let dur = formatTime(player.duration)
             let body = """
             <Track>1</Track>
             <TrackDuration>\(dur)</TrackDuration>
+            <TrackMetaData>\(xmlEscape(didlForCurrent(title: player.currentSong?.title ?? "")))</TrackMetaData>
+            <TrackURI>\(xmlEscape(player.currentSong?.filePath ?? ""))</TrackURI>
             <RelTime>\(cur)</RelTime>
             <AbsTime>\(cur)</AbsTime>
+            <RelCount>2147483647</RelCount>
+            <AbsCount>2147483647</AbsCount>
             """
             await sendSOAP(action: "GetPositionInfo", body: body, on: connection)
+        case "GetCurrentTransportActions":
+            await sendSOAP(action: "GetCurrentTransportActions", body: "<Actions>Play,Pause,Stop,Seek</Actions>", on: connection)
+        case "Seek":
+            if let target = extract(tag: "Target", from: body),
+               let seconds = parseTime(target) {
+                player.seek(to: seconds, startPlaying: player.isPlaying)
+            }
+            await sendSOAP(action: "Seek", body: "", on: connection)
         default:
             await sendSOAP(action: action, body: "", on: connection)
         }
@@ -724,7 +890,7 @@ final class DLNARendererService {
           <specVersion><major>1</major><minor>0</minor></specVersion>
           <device>
             <deviceType>urn:schemas-upnp-org:device:MediaRenderer:1</deviceType>
-            <friendlyName>\(friendlyName)</friendlyName>
+            <friendlyName>\(xmlEscape(friendlyName))</friendlyName>
             <manufacturer>Welape</manufacturer>
             <modelName>Primuse</modelName>
             <modelNumber>1.0</modelNumber>
@@ -744,6 +910,13 @@ final class DLNARendererService {
                 <controlURL>/control/RenderingControl</controlURL>
                 <eventSubURL>/event/RenderingControl</eventSubURL>
               </service>
+              <service>
+                <serviceType>urn:schemas-upnp-org:service:ConnectionManager:1</serviceType>
+                <serviceId>urn:upnp-org:serviceId:ConnectionManager</serviceId>
+                <SCPDURL>/ConnectionManager.xml</SCPDURL>
+                <controlURL>/control/ConnectionManager</controlURL>
+                <eventSubURL>/event/ConnectionManager</eventSubURL>
+              </service>
             </serviceList>
           </device>
         </root>
@@ -751,21 +924,119 @@ final class DLNARendererService {
     }
 
     private var avTransportSCPD: String {
-        // 最小 SCPD,声明 6 个我们实际响应的 action; 控制点会根据这个查 action
-        // 是否存在。完整的 SCPD 有几十个 action / state variable,这里 trim 到
-        // 真正能 dispatch 的那些。
+        // 声明当前实际能响应的 AVTransport action。保留完整 argumentList,
+        // 避免严格控制点因 SCPD 太空而判定设备不可控。
         """
         <?xml version="1.0" encoding="UTF-8"?>
         <scpd xmlns="urn:schemas-upnp-org:service-1-0">
           <specVersion><major>1</major><minor>0</minor></specVersion>
           <actionList>
-            <action><name>SetAVTransportURI</name></action>
-            <action><name>Play</name></action>
-            <action><name>Pause</name></action>
-            <action><name>Stop</name></action>
-            <action><name>GetTransportInfo</name></action>
-            <action><name>GetPositionInfo</name></action>
+            <action>
+              <name>SetAVTransportURI</name>
+              <argumentList>
+                <argument><name>InstanceID</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable></argument>
+                <argument><name>CurrentURI</name><direction>in</direction><relatedStateVariable>AVTransportURI</relatedStateVariable></argument>
+                <argument><name>CurrentURIMetaData</name><direction>in</direction><relatedStateVariable>AVTransportURIMetaData</relatedStateVariable></argument>
+              </argumentList>
+            </action>
+            <action>
+              <name>Play</name>
+              <argumentList>
+                <argument><name>InstanceID</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable></argument>
+                <argument><name>Speed</name><direction>in</direction><relatedStateVariable>TransportPlaySpeed</relatedStateVariable></argument>
+              </argumentList>
+            </action>
+            <action>
+              <name>Pause</name>
+              <argumentList>
+                <argument><name>InstanceID</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable></argument>
+              </argumentList>
+            </action>
+            <action>
+              <name>Stop</name>
+              <argumentList>
+                <argument><name>InstanceID</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable></argument>
+              </argumentList>
+            </action>
+            <action>
+              <name>Seek</name>
+              <argumentList>
+                <argument><name>InstanceID</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable></argument>
+                <argument><name>Unit</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_SeekMode</relatedStateVariable></argument>
+                <argument><name>Target</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_SeekTarget</relatedStateVariable></argument>
+              </argumentList>
+            </action>
+            <action>
+              <name>GetMediaInfo</name>
+              <argumentList>
+                <argument><name>InstanceID</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable></argument>
+                <argument><name>NrTracks</name><direction>out</direction><relatedStateVariable>NumberOfTracks</relatedStateVariable></argument>
+                <argument><name>MediaDuration</name><direction>out</direction><relatedStateVariable>CurrentMediaDuration</relatedStateVariable></argument>
+                <argument><name>CurrentURI</name><direction>out</direction><relatedStateVariable>AVTransportURI</relatedStateVariable></argument>
+                <argument><name>CurrentURIMetaData</name><direction>out</direction><relatedStateVariable>AVTransportURIMetaData</relatedStateVariable></argument>
+                <argument><name>NextURI</name><direction>out</direction><relatedStateVariable>AVTransportURI</relatedStateVariable></argument>
+                <argument><name>NextURIMetaData</name><direction>out</direction><relatedStateVariable>AVTransportURIMetaData</relatedStateVariable></argument>
+                <argument><name>PlayMedium</name><direction>out</direction><relatedStateVariable>PlaybackStorageMedium</relatedStateVariable></argument>
+                <argument><name>RecordMedium</name><direction>out</direction><relatedStateVariable>RecordStorageMedium</relatedStateVariable></argument>
+                <argument><name>WriteStatus</name><direction>out</direction><relatedStateVariable>RecordMediumWriteStatus</relatedStateVariable></argument>
+              </argumentList>
+            </action>
+            <action>
+              <name>GetTransportInfo</name>
+              <argumentList>
+                <argument><name>InstanceID</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable></argument>
+                <argument><name>CurrentTransportState</name><direction>out</direction><relatedStateVariable>TransportState</relatedStateVariable></argument>
+                <argument><name>CurrentTransportStatus</name><direction>out</direction><relatedStateVariable>TransportStatus</relatedStateVariable></argument>
+                <argument><name>CurrentSpeed</name><direction>out</direction><relatedStateVariable>TransportPlaySpeed</relatedStateVariable></argument>
+              </argumentList>
+            </action>
+            <action>
+              <name>GetPositionInfo</name>
+              <argumentList>
+                <argument><name>InstanceID</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable></argument>
+                <argument><name>Track</name><direction>out</direction><relatedStateVariable>CurrentTrack</relatedStateVariable></argument>
+                <argument><name>TrackDuration</name><direction>out</direction><relatedStateVariable>CurrentTrackDuration</relatedStateVariable></argument>
+                <argument><name>TrackMetaData</name><direction>out</direction><relatedStateVariable>CurrentTrackMetaData</relatedStateVariable></argument>
+                <argument><name>TrackURI</name><direction>out</direction><relatedStateVariable>CurrentTrackURI</relatedStateVariable></argument>
+                <argument><name>RelTime</name><direction>out</direction><relatedStateVariable>RelativeTimePosition</relatedStateVariable></argument>
+                <argument><name>AbsTime</name><direction>out</direction><relatedStateVariable>AbsoluteTimePosition</relatedStateVariable></argument>
+                <argument><name>RelCount</name><direction>out</direction><relatedStateVariable>RelativeCounterPosition</relatedStateVariable></argument>
+                <argument><name>AbsCount</name><direction>out</direction><relatedStateVariable>AbsoluteCounterPosition</relatedStateVariable></argument>
+              </argumentList>
+            </action>
+            <action>
+              <name>GetCurrentTransportActions</name>
+              <argumentList>
+                <argument><name>InstanceID</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable></argument>
+                <argument><name>Actions</name><direction>out</direction><relatedStateVariable>CurrentTransportActions</relatedStateVariable></argument>
+              </argumentList>
+            </action>
           </actionList>
+          <serviceStateTable>
+            <stateVariable sendEvents="no"><name>A_ARG_TYPE_InstanceID</name><dataType>ui4</dataType></stateVariable>
+            <stateVariable sendEvents="no"><name>AVTransportURI</name><dataType>string</dataType></stateVariable>
+            <stateVariable sendEvents="no"><name>AVTransportURIMetaData</name><dataType>string</dataType></stateVariable>
+            <stateVariable sendEvents="no"><name>TransportPlaySpeed</name><dataType>string</dataType><allowedValueList><allowedValue>1</allowedValue></allowedValueList></stateVariable>
+            <stateVariable sendEvents="no"><name>A_ARG_TYPE_SeekMode</name><dataType>string</dataType><allowedValueList><allowedValue>REL_TIME</allowedValue></allowedValueList></stateVariable>
+            <stateVariable sendEvents="no"><name>A_ARG_TYPE_SeekTarget</name><dataType>string</dataType></stateVariable>
+            <stateVariable sendEvents="yes"><name>TransportState</name><dataType>string</dataType><allowedValueList><allowedValue>STOPPED</allowedValue><allowedValue>PLAYING</allowedValue><allowedValue>PAUSED_PLAYBACK</allowedValue></allowedValueList></stateVariable>
+            <stateVariable sendEvents="yes"><name>TransportStatus</name><dataType>string</dataType><allowedValueList><allowedValue>OK</allowedValue></allowedValueList></stateVariable>
+            <stateVariable sendEvents="no"><name>CurrentTransportActions</name><dataType>string</dataType></stateVariable>
+            <stateVariable sendEvents="no"><name>NumberOfTracks</name><dataType>ui4</dataType></stateVariable>
+            <stateVariable sendEvents="no"><name>PlaybackStorageMedium</name><dataType>string</dataType></stateVariable>
+            <stateVariable sendEvents="no"><name>RecordStorageMedium</name><dataType>string</dataType></stateVariable>
+            <stateVariable sendEvents="no"><name>RecordMediumWriteStatus</name><dataType>string</dataType></stateVariable>
+            <stateVariable sendEvents="no"><name>CurrentTrack</name><dataType>ui4</dataType></stateVariable>
+            <stateVariable sendEvents="no"><name>CurrentMediaDuration</name><dataType>string</dataType></stateVariable>
+            <stateVariable sendEvents="no"><name>CurrentTrackDuration</name><dataType>string</dataType></stateVariable>
+            <stateVariable sendEvents="no"><name>CurrentTrackURI</name><dataType>string</dataType></stateVariable>
+            <stateVariable sendEvents="no"><name>CurrentTrackMetaData</name><dataType>string</dataType></stateVariable>
+            <stateVariable sendEvents="no"><name>RelativeTimePosition</name><dataType>string</dataType></stateVariable>
+            <stateVariable sendEvents="no"><name>AbsoluteTimePosition</name><dataType>string</dataType></stateVariable>
+            <stateVariable sendEvents="no"><name>RelativeCounterPosition</name><dataType>i4</dataType></stateVariable>
+            <stateVariable sendEvents="no"><name>AbsoluteCounterPosition</name><dataType>i4</dataType></stateVariable>
+            <stateVariable sendEvents="yes"><name>LastChange</name><dataType>string</dataType></stateVariable>
+          </serviceStateTable>
         </scpd>
         """
     }
@@ -821,6 +1092,73 @@ final class DLNARendererService {
         """
     }
 
+    private var connectionManagerSCPD: String {
+        """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <scpd xmlns="urn:schemas-upnp-org:service-1-0">
+          <specVersion><major>1</major><minor>0</minor></specVersion>
+          <actionList>
+            <action>
+              <name>GetProtocolInfo</name>
+              <argumentList>
+                <argument><name>Source</name><direction>out</direction><relatedStateVariable>SourceProtocolInfo</relatedStateVariable></argument>
+                <argument><name>Sink</name><direction>out</direction><relatedStateVariable>SinkProtocolInfo</relatedStateVariable></argument>
+              </argumentList>
+            </action>
+            <action>
+              <name>GetCurrentConnectionIDs</name>
+              <argumentList>
+                <argument><name>ConnectionIDs</name><direction>out</direction><relatedStateVariable>CurrentConnectionIDs</relatedStateVariable></argument>
+              </argumentList>
+            </action>
+            <action>
+              <name>GetCurrentConnectionInfo</name>
+              <argumentList>
+                <argument><name>ConnectionID</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_ConnectionID</relatedStateVariable></argument>
+                <argument><name>RcsID</name><direction>out</direction><relatedStateVariable>A_ARG_TYPE_RcsID</relatedStateVariable></argument>
+                <argument><name>AVTransportID</name><direction>out</direction><relatedStateVariable>A_ARG_TYPE_AVTransportID</relatedStateVariable></argument>
+                <argument><name>ProtocolInfo</name><direction>out</direction><relatedStateVariable>A_ARG_TYPE_ProtocolInfo</relatedStateVariable></argument>
+                <argument><name>PeerConnectionManager</name><direction>out</direction><relatedStateVariable>A_ARG_TYPE_ConnectionManager</relatedStateVariable></argument>
+                <argument><name>PeerConnectionID</name><direction>out</direction><relatedStateVariable>A_ARG_TYPE_ConnectionID</relatedStateVariable></argument>
+                <argument><name>Direction</name><direction>out</direction><relatedStateVariable>A_ARG_TYPE_Direction</relatedStateVariable></argument>
+                <argument><name>Status</name><direction>out</direction><relatedStateVariable>A_ARG_TYPE_ConnectionStatus</relatedStateVariable></argument>
+              </argumentList>
+            </action>
+            <action>
+              <name>PrepareForConnection</name>
+              <argumentList>
+                <argument><name>RemoteProtocolInfo</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_ProtocolInfo</relatedStateVariable></argument>
+                <argument><name>PeerConnectionManager</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_ConnectionManager</relatedStateVariable></argument>
+                <argument><name>PeerConnectionID</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_ConnectionID</relatedStateVariable></argument>
+                <argument><name>Direction</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_Direction</relatedStateVariable></argument>
+                <argument><name>ConnectionID</name><direction>out</direction><relatedStateVariable>A_ARG_TYPE_ConnectionID</relatedStateVariable></argument>
+                <argument><name>AVTransportID</name><direction>out</direction><relatedStateVariable>A_ARG_TYPE_AVTransportID</relatedStateVariable></argument>
+                <argument><name>RcsID</name><direction>out</direction><relatedStateVariable>A_ARG_TYPE_RcsID</relatedStateVariable></argument>
+              </argumentList>
+            </action>
+            <action>
+              <name>ConnectionComplete</name>
+              <argumentList>
+                <argument><name>ConnectionID</name><direction>in</direction><relatedStateVariable>A_ARG_TYPE_ConnectionID</relatedStateVariable></argument>
+              </argumentList>
+            </action>
+          </actionList>
+          <serviceStateTable>
+            <stateVariable sendEvents="yes"><name>SourceProtocolInfo</name><dataType>string</dataType></stateVariable>
+            <stateVariable sendEvents="yes"><name>SinkProtocolInfo</name><dataType>string</dataType></stateVariable>
+            <stateVariable sendEvents="yes"><name>CurrentConnectionIDs</name><dataType>string</dataType></stateVariable>
+            <stateVariable sendEvents="no"><name>A_ARG_TYPE_ConnectionStatus</name><dataType>string</dataType><allowedValueList><allowedValue>OK</allowedValue></allowedValueList></stateVariable>
+            <stateVariable sendEvents="no"><name>A_ARG_TYPE_ConnectionManager</name><dataType>string</dataType></stateVariable>
+            <stateVariable sendEvents="no"><name>A_ARG_TYPE_Direction</name><dataType>string</dataType><allowedValueList><allowedValue>Input</allowedValue></allowedValueList></stateVariable>
+            <stateVariable sendEvents="no"><name>A_ARG_TYPE_ProtocolInfo</name><dataType>string</dataType></stateVariable>
+            <stateVariable sendEvents="no"><name>A_ARG_TYPE_ConnectionID</name><dataType>i4</dataType></stateVariable>
+            <stateVariable sendEvents="no"><name>A_ARG_TYPE_AVTransportID</name><dataType>i4</dataType></stateVariable>
+            <stateVariable sendEvents="no"><name>A_ARG_TYPE_RcsID</name><dataType>i4</dataType></stateVariable>
+          </serviceStateTable>
+        </scpd>
+        """
+    }
+
     // MARK: - Networking helpers
 
     private func sendXML(_ xml: String, on connection: NWConnection) async {
@@ -840,10 +1178,20 @@ final class DLNARendererService {
     }
 
     private func sendStatus(_ code: Int, on connection: NWConnection) async {
-        let response = "HTTP/1.1 \(code) Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        let response = "HTTP/1.1 \(code) \(reasonPhrase(for: code))\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
         connection.send(content: response.data(using: .utf8), completion: .contentProcessed { _ in
             connection.cancel()
         })
+    }
+
+    private func reasonPhrase(for code: Int) -> String {
+        switch code {
+        case 200: return "OK"
+        case 400: return "Bad Request"
+        case 404: return "Not Found"
+        case 413: return "Payload Too Large"
+        default: return "OK"
+        }
     }
 
     private func sendSOAP(action: String, body: String, on connection: NWConnection) async {
@@ -885,7 +1233,10 @@ final class DLNARendererService {
                                        &host, socklen_t(host.count),
                                        nil, 0, NI_NUMERICHOST)
                 if res == 0 {
-                    candidates[name] = String(cString: host)
+                    candidates[name] = host.withUnsafeBufferPointer { buffer in
+                        guard let base = buffer.baseAddress else { return "" }
+                        return String(cString: base)
+                    }
                 }
             }
             node = n.pointee.ifa_next
@@ -905,6 +1256,12 @@ final class DLNARendererService {
         guard t.isFinite, t > 0 else { return "00:00:00" }
         let total = Int(t)
         return String(format: "%02d:%02d:%02d", total / 3600, (total % 3600) / 60, total % 60)
+    }
+
+    private func parseTime(_ raw: String) -> TimeInterval? {
+        let parts = raw.split(separator: ":").compactMap { Double($0) }
+        guard parts.count == 3 else { return nil }
+        return parts[0] * 3600 + parts[1] * 60 + parts[2]
     }
 
     /// 简单 XML extract,够用 ── DIDL-Lite metadata 是 escape 过的 XML
