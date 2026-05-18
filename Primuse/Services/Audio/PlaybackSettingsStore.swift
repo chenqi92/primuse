@@ -15,7 +15,7 @@ enum ReplayGainMode: String, Codable, Sendable, CaseIterable {
 struct PlaybackSettings: Codable, Sendable {
     static let defaultsKey = "primuse_playback_settings_v1"
 
-    var gaplessEnabled: Bool = true
+    var gaplessEnabled: Bool = false
     var crossfadeEnabled: Bool = false
     var crossfadeDuration: Double = 3.0
     var replayGainEnabled: Bool = false
@@ -42,7 +42,7 @@ struct PlaybackSettings: Codable, Sendable {
     // decode — existing user settings are preserved on update.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        gaplessEnabled = try c.decodeIfPresent(Bool.self, forKey: .gaplessEnabled) ?? true
+        gaplessEnabled = try c.decodeIfPresent(Bool.self, forKey: .gaplessEnabled) ?? false
         crossfadeEnabled = try c.decodeIfPresent(Bool.self, forKey: .crossfadeEnabled) ?? false
         crossfadeDuration = try c.decodeIfPresent(Double.self, forKey: .crossfadeDuration) ?? 3.0
         replayGainEnabled = try c.decodeIfPresent(Bool.self, forKey: .replayGainEnabled) ?? false
@@ -61,7 +61,7 @@ struct PlaybackSettings: Codable, Sendable {
     }
 
     init(
-        gaplessEnabled: Bool = true,
+        gaplessEnabled: Bool = false,
         crossfadeEnabled: Bool = false,
         crossfadeDuration: Double = 3.0,
         replayGainEnabled: Bool = false,

@@ -404,7 +404,7 @@
 "playback_error_format" = "Unsupported audio format";
 
 // MARK: - Gapless
-"gapless_not_available" = "Gapless playback is not yet available.";
+"gapless_not_available" = "Gapless playback is planned, but not exposed yet. Use crossfade for smooth transitions today.";
 
 // MARK: - Metadata
 "clear_metadata" = "Clear Cover Art & Lyrics";

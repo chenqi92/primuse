@@ -632,7 +632,11 @@ struct PlaybackSettingsView: View {
 
         Form {
             Section {
-                Toggle("gapless_playback", isOn: $settings.gaplessEnabled)
+                // The playback pipeline still has unfinished gapless preloading
+                // code, but it is not wired safely enough to expose as a user
+                // setting. Keep the row visible as a capability marker without
+                // binding to persisted state that may be stale from older builds.
+                Toggle("gapless_playback", isOn: .constant(false))
                     .disabled(true)
             } footer: {
                 Text("gapless_not_available")
