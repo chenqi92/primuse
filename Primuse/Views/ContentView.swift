@@ -77,6 +77,7 @@ struct ContentView: View {
     @State private var sidebarSelection: SidebarItem = .home
     @State private var searchText = ""
     @State private var showNowPlaying = false
+    @State private var libraryDeepLink: LibraryDeepLink?
     /// 跨年自动弹年度报告的状态。1/1 之后用户首次进 app + 上一年听满 2 个月
     /// 时由 YearlyReportAutoTrigger 触发。
     @State private var autoYearlyReport: YearlyReportData?
@@ -91,7 +92,7 @@ struct ContentView: View {
                 .tabItem { Label(String(localized: "home_title"), systemImage: "house.fill") }
                 .tag(0)
 
-            LibraryView()
+            LibraryView(deepLink: $libraryDeepLink)
                 .tabItem { Label(String(localized: "library_title"), systemImage: "books.vertical") }
                 .tag(1)
 
@@ -168,7 +169,7 @@ struct ContentView: View {
         case .home:
             HomeView(switchToSettingsTab: { sidebarSelection = .settings; selectedTab = 3 })
         case .library:
-            LibraryView()
+            LibraryView(deepLink: $libraryDeepLink)
         case .librarySongs:
             librarySubpane(title: "tab_songs") { SongListView(songs: library.visibleSongs) }
         case .libraryAlbums:
@@ -266,8 +267,8 @@ struct ContentView: View {
         )) {
             OnboardingView()
         }
-        // Spotlight 搜歌点击 ── identifier 形如 "song:<id>" / "album:<id>" 等,
-        // song 直接播,其他先切到资料库标签让用户落地(后续可以做完整 deep link)。
+        // Spotlight 点击 ── identifier 形如 "song:<id>" / "album:<id>" 等。
+        // song 直接播; album / artist / playlist 推进资料库对应详情页。
         .onContinueUserActivity("com.apple.corespotlight.searchableitem") { activity in
             guard let item = SpotlightIndexService.identifier(from: activity) else { return }
             handleSpotlightItem(item)
@@ -350,7 +351,7 @@ struct ContentView: View {
     }
 
     /// Spotlight 命中 -> 路由。`song` 直接进 queue 开播; album / artist /
-    /// playlist 暂时只把用户带到资料库 tab (深链落到具体详情页留作后续)。
+    /// playlist 进入资料库并推到对应详情页。
     private func handleSpotlightItem(_ item: SpotlightItem) {
         switch item {
         case .song(let id):
@@ -359,10 +360,22 @@ struct ContentView: View {
             let rest = library.visibleSongs.filter { $0.id != id }
             player.setQueue([song] + rest, startAt: 0)
             Task { await player.play(song: song, caller: "Spotlight") }
-        case .album, .artist, .playlist:
-            // TODO: 深链到具体详情页 — 需要 LibraryView 暴露一个 path binding。
-            selectedTab = 1
+        case .album(let id):
+            guard let album = library.visibleAlbums.first(where: { $0.id == id }) else { return }
+            openLibraryDeepLink(.album(album))
+        case .artist(let id):
+            guard let artist = library.visibleArtists.first(where: { $0.id == id }) else { return }
+            openLibraryDeepLink(.artist(artist))
+        case .playlist(let id):
+            guard let playlist = library.playlists.first(where: { $0.id == id }) else { return }
+            openLibraryDeepLink(.playlist(playlist))
         }
+    }
+
+    private func openLibraryDeepLink(_ link: LibraryDeepLink) {
+        selectedTab = 1
+        sidebarSelection = .library
+        libraryDeepLink = link
     }
 }
 
