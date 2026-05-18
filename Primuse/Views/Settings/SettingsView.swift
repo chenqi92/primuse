@@ -130,14 +130,14 @@ struct SettingsView: View {
 
                 Section("about") {
                     HStack {
-                        Text("version")
+                        Label("version", systemImage: "number")
                         Spacer()
                         Text(Bundle.main.appVersion)
                             .foregroundStyle(.secondary)
                     }
 
                     HStack {
-                        Text("build")
+                        Label("build", systemImage: "hammer")
                         Spacer()
                         Text(Bundle.main.appBuildNumber)
                             .foregroundStyle(.secondary)
@@ -154,7 +154,7 @@ struct SettingsView: View {
                     NavigationLink {
                         LicensesView()
                     } label: {
-                        Text("licenses")
+                        Label("licenses", systemImage: "doc.text")
                     }
                 }
             }
@@ -194,14 +194,18 @@ private struct CheckForUpdateRow: View {
             }
         } label: {
             HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("check_for_updates")
-                        .foregroundStyle(.primary)
-                    if let detail = statusDetail {
-                        Text(detail)
-                            .font(.caption)
-                            .foregroundStyle(statusColor)
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("check_for_updates")
+                            .foregroundStyle(.primary)
+                        if let detail = statusDetail {
+                            Text(detail)
+                                .font(.caption)
+                                .foregroundStyle(statusColor)
+                        }
                     }
+                } icon: {
+                    Image(systemName: "arrow.triangle.2.circlepath")
                 }
                 Spacer()
                 accessory
