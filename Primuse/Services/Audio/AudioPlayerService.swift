@@ -479,13 +479,18 @@ final class AudioPlayerService {
             updatePlaybackState()
 
             // Apply ReplayGain in background (don't block playback start).
-            // Skip for cloud-stream URLs — readers open by URL and can't
-            // decode the custom scheme. Once playback finishes the cache
-            // file is fully populated and a future play picks up RG.
+            // Streaming URLs use persisted library tags; local files may
+            // fall back to reading embedded tags from disk.
             let settings = playbackSettings.snapshot()
-            if settings.replayGainEnabled, !isCloudStream, activeDecoderKind != .httpStream {
+            if settings.replayGainEnabled {
+                let decoderKind = activeDecoderKind
                 Task { [id] in
-                    await self.applyReplayGain(for: url, mode: settings.replayGainMode)
+                    await self.applyReplayGain(
+                        for: song,
+                        url: url,
+                        mode: settings.replayGainMode,
+                        allowFileRead: decoderKind != .cloudStream && decoderKind != .httpStream
+                    )
                     guard self.playID == id else { return }
                 }
             }
@@ -928,7 +933,7 @@ final class AudioPlayerService {
             let settings = playbackSettings.snapshot()
             if settings.replayGainEnabled, url.isFileURL {
                 Task { [id] in
-                    await self.applyReplayGain(for: url, mode: settings.replayGainMode)
+                    await self.applyReplayGain(for: song, url: url, mode: settings.replayGainMode)
                     guard self.playID == id else { return }
                 }
             }
@@ -1186,10 +1191,13 @@ final class AudioPlayerService {
                 try audioEngine.start()
 
                 let settings = playbackSettings.snapshot()
-                if settings.replayGainEnabled,
-                   activeDecoderKind != .cloudStream,
-                   activeDecoderKind != .httpStream {
-                    await applyReplayGain(for: url, mode: settings.replayGainMode)
+                if settings.replayGainEnabled {
+                    await applyReplayGain(
+                        for: song,
+                        url: url,
+                        mode: settings.replayGainMode,
+                        allowFileRead: activeDecoderKind != .cloudStream && activeDecoderKind != .httpStream
+                    )
                 }
 
                 // Use the same decoder that was used for initial playback.
@@ -1456,10 +1464,13 @@ final class AudioPlayerService {
 
             // Apply ReplayGain for next track
             let settings = playbackSettings.snapshot()
-            if settings.replayGainEnabled,
-               nextDecoderKind != .cloudStream,
-               nextDecoderKind != .httpStream {
-                await applyReplayGain(for: nextURL, mode: settings.replayGainMode)
+            if settings.replayGainEnabled {
+                await applyReplayGain(
+                    for: nextSong,
+                    url: nextURL,
+                    mode: settings.replayGainMode,
+                    allowFileRead: nextDecoderKind != .cloudStream && nextDecoderKind != .httpStream
+                )
             }
 
             // Decode and schedule next track's buffers (only this one track)
@@ -1680,10 +1691,15 @@ final class AudioPlayerService {
 
         // Apply ReplayGain (now on the swapped primary node)
         let settings = playbackSettings.snapshot()
-        if settings.replayGainEnabled,
-           nextDecoderKind != .cloudStream,
-           nextDecoderKind != .httpStream {
-            Task { await applyReplayGain(for: nextURL, mode: settings.replayGainMode) }
+        if settings.replayGainEnabled {
+            Task {
+                await applyReplayGain(
+                    for: nextSong,
+                    url: nextURL,
+                    mode: settings.replayGainMode,
+                    allowFileRead: nextDecoderKind != .cloudStream && nextDecoderKind != .httpStream
+                )
+            }
         }
 
         if nextDecoderKind != .cloudStream,
@@ -1702,22 +1718,65 @@ final class AudioPlayerService {
 
     // MARK: - ReplayGain
 
-    private func applyReplayGain(for url: URL, mode: ReplayGainMode) async {
-        let metadata = await FileMetadataReader.read(from: url)
+    private struct ReplayGainValues {
+        var gain: Double?
+        var peak: Double?
 
-        let gain: Double?
-        let peak: Double?
+        var hasValue: Bool {
+            gain != nil || peak != nil
+        }
+    }
 
-        switch mode {
-        case .track:
-            gain = metadata.replayGainTrackGain
-            peak = metadata.replayGainTrackPeak
-        case .album:
-            gain = metadata.replayGainAlbumGain ?? metadata.replayGainTrackGain
-            peak = metadata.replayGainAlbumPeak ?? metadata.replayGainTrackPeak
+    private func applyReplayGain(
+        for song: Song,
+        url: URL,
+        mode: ReplayGainMode,
+        allowFileRead: Bool = true
+    ) async {
+        let storedValues = replayGainValues(from: song, mode: mode)
+        if storedValues.hasValue {
+            audioEngine.applyReplayGain(gain: storedValues.gain, peak: storedValues.peak)
+            return
         }
 
-        audioEngine.applyReplayGain(gain: gain, peak: peak)
+        guard allowFileRead else {
+            audioEngine.applyReplayGain(gain: nil, peak: nil)
+            return
+        }
+
+        let metadata = await FileMetadataReader.read(from: url)
+        let values = replayGainValues(from: metadata, mode: mode)
+        audioEngine.applyReplayGain(gain: values.gain, peak: values.peak)
+    }
+
+    private func replayGainValues(from song: Song, mode: ReplayGainMode) -> ReplayGainValues {
+        switch mode {
+        case .track:
+            return ReplayGainValues(
+                gain: song.replayGainTrackGain,
+                peak: song.replayGainTrackPeak
+            )
+        case .album:
+            return ReplayGainValues(
+                gain: song.replayGainAlbumGain ?? song.replayGainTrackGain,
+                peak: song.replayGainAlbumPeak ?? song.replayGainTrackPeak
+            )
+        }
+    }
+
+    private func replayGainValues(from metadata: FileMetadataReader.Metadata, mode: ReplayGainMode) -> ReplayGainValues {
+        switch mode {
+        case .track:
+            return ReplayGainValues(
+                gain: metadata.replayGainTrackGain,
+                peak: metadata.replayGainTrackPeak
+            )
+        case .album:
+            return ReplayGainValues(
+                gain: metadata.replayGainAlbumGain ?? metadata.replayGainTrackGain,
+                peak: metadata.replayGainAlbumPeak ?? metadata.replayGainTrackPeak
+            )
+        }
     }
 
     // MARK: - Time Updates

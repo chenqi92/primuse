@@ -367,6 +367,10 @@ actor ConnectorScanner {
             dateAdded: Date(),
             coverArtFileName: coverRef,
             lyricsFileName: lyricsRef,
+            replayGainTrackGain: metadata.replayGainTrackGain,
+            replayGainTrackPeak: metadata.replayGainTrackPeak,
+            replayGainAlbumGain: metadata.replayGainAlbumGain,
+            replayGainAlbumPeak: metadata.replayGainAlbumPeak,
             revision: item.revision
         )
     }

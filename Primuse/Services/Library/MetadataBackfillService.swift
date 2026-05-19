@@ -754,6 +754,10 @@ final class MetadataBackfillService {
             dateAdded: bare.dateAdded,
             coverArtFileName: coverRef,
             lyricsFileName: lyricsRef,
+            replayGainTrackGain: metadata.replayGainTrackGain,
+            replayGainTrackPeak: metadata.replayGainTrackPeak,
+            replayGainAlbumGain: metadata.replayGainAlbumGain,
+            replayGainAlbumPeak: metadata.replayGainAlbumPeak,
             revision: bare.revision
         )
     }

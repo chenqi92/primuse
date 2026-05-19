@@ -162,6 +162,19 @@ actor LibraryDatabase {
             }
         }
 
+        // Persist ReplayGain tags extracted during local scans and
+        // cloud/HTTP metadata backfill. Playback can then apply loudness
+        // normalization for streaming URLs without re-opening the source
+        // as a local file.
+        migrator.registerMigration("v4_song_replay_gain") { db in
+            try db.alter(table: "songs") { t in
+                t.add(column: "replayGainTrackGain", .double)
+                t.add(column: "replayGainTrackPeak", .double)
+                t.add(column: "replayGainAlbumGain", .double)
+                t.add(column: "replayGainAlbumPeak", .double)
+            }
+        }
+
         // Run every registered migration, not just v1 — pinning to
         // `upTo: "v1_initial"` would silently skip later versions on
         // upgrade and reintroduce schema drift.

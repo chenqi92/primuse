@@ -21,6 +21,10 @@ actor MetadataService {
         var coverArtFileName: String?
         var lyricsFileName: String?
         var lyrics: [LyricLine]?
+        var replayGainTrackGain: Double?
+        var replayGainTrackPeak: Double?
+        var replayGainAlbumGain: Double?
+        var replayGainAlbumPeak: Double?
     }
 
     /// Load metadata with priority: sidecar → embedded → online
@@ -68,7 +72,11 @@ actor MetadataService {
             sampleRate: embedded.sampleRate,
             bitRate: embedded.bitRate,
             bitDepth: embedded.bitDepth,
-            coverArtData: embedded.coverArtData
+            coverArtData: embedded.coverArtData,
+            replayGainTrackGain: embedded.replayGainTrackGain,
+            replayGainTrackPeak: embedded.replayGainTrackPeak,
+            replayGainAlbumGain: embedded.replayGainAlbumGain,
+            replayGainAlbumPeak: embedded.replayGainAlbumPeak
         )
 
         // 2. Check sidecar files (higher priority for cover & lyrics)

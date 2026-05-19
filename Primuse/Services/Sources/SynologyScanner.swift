@@ -231,6 +231,10 @@ actor SynologyScanner {
         var lyricsFileName: String?
         var embeddedCoverData: Data?
         var embeddedLyricsText: String?
+        var replayGainTrackGain: Double?
+        var replayGainTrackPeak: Double?
+        var replayGainAlbumGain: Double?
+        var replayGainAlbumPeak: Double?
 
         // Try to download file header and parse with AVFoundation
         do {
@@ -311,6 +315,23 @@ actor SynologyScanner {
                             embeddedLyricsText = text
                             NSLog("📝 Embedded iTunes lyrics found: \(text.prefix(50))... for \(item.name)")
                         }
+                    case .id3MetadataUserText:
+                        if let extras = try? await meta.load(.extraAttributes),
+                           let desc = extras[.info] as? String {
+                            let stringValue = try? await meta.load(.stringValue)
+                            switch desc.lowercased() {
+                            case "replaygain_track_gain":
+                                replayGainTrackGain = parseReplayGainDB(stringValue)
+                            case "replaygain_track_peak":
+                                replayGainTrackPeak = Double(stringValue ?? "")
+                            case "replaygain_album_gain":
+                                replayGainAlbumGain = parseReplayGainDB(stringValue)
+                            case "replaygain_album_peak":
+                                replayGainAlbumPeak = Double(stringValue ?? "")
+                            default:
+                                break
+                            }
+                        }
                     default: break
                     }
                 }
@@ -370,7 +391,11 @@ actor SynologyScanner {
                         trackNumber: trackNumber, duration: duration, format: format,
                         path: item.path, size: item.size, year: year, genre: genre,
                         sampleRate: sampleRate, bitRate: bitRate, bitDepth: bitDepth,
-                        coverArtFileName: coverArtFileName, lyricsFileName: lyricsFileName)
+                        coverArtFileName: coverArtFileName, lyricsFileName: lyricsFileName,
+                        replayGainTrackGain: replayGainTrackGain,
+                        replayGainTrackPeak: replayGainTrackPeak,
+                        replayGainAlbumGain: replayGainAlbumGain,
+                        replayGainAlbumPeak: replayGainAlbumPeak)
     }
 
     private func makeSong(
@@ -378,7 +403,11 @@ actor SynologyScanner {
         trackNumber: Int?, duration: TimeInterval, format: AudioFormat,
         path: String, size: Int64, year: Int?, genre: String?,
         sampleRate: Int?, bitRate: Int?, bitDepth: Int?,
-        coverArtFileName: String?, lyricsFileName: String? = nil
+        coverArtFileName: String?, lyricsFileName: String? = nil,
+        replayGainTrackGain: Double? = nil,
+        replayGainTrackPeak: Double? = nil,
+        replayGainAlbumGain: Double? = nil,
+        replayGainAlbumPeak: Double? = nil
     ) -> Song {
         let artistID = artist.map { generateID(sourceID: "", path: $0.lowercased()) }
         let albumID: String? = if let a = album, let ar = artist {
@@ -394,8 +423,21 @@ actor SynologyScanner {
             bitDepth: bitDepth, genre: genre, year: year,
             dateAdded: Date(),
             coverArtFileName: coverArtFileName,
-            lyricsFileName: lyricsFileName
+            lyricsFileName: lyricsFileName,
+            replayGainTrackGain: replayGainTrackGain,
+            replayGainTrackPeak: replayGainTrackPeak,
+            replayGainAlbumGain: replayGainAlbumGain,
+            replayGainAlbumPeak: replayGainAlbumPeak
         )
+    }
+
+    private func parseReplayGainDB(_ value: String?) -> Double? {
+        guard let value else { return nil }
+        let cleaned = value
+            .replacingOccurrences(of: " dB", with: "", options: .caseInsensitive)
+            .replacingOccurrences(of: "dB", with: "", options: .caseInsensitive)
+            .trimmingCharacters(in: .whitespaces)
+        return Double(cleaned)
     }
 
     /// Download .lrc file from NAS, parse it, store to MetadataAssetStore

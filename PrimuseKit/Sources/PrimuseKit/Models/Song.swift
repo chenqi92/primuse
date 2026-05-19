@@ -24,6 +24,10 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
     public var dateAdded: Date
     public var coverArtFileName: String?
     public var lyricsFileName: String?
+    public var replayGainTrackGain: Double?
+    public var replayGainTrackPeak: Double?
+    public var replayGainAlbumGain: Double?
+    public var replayGainAlbumPeak: Double?
     /// Provider-supplied content identifier — etag, md5, content_hash,
     /// `fs_id` + `local_mtime`, etc. Used by re-scan to detect remote
     /// replacement on cloud drives that don't report a usable
@@ -55,6 +59,10 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         dateAdded: Date = Date(),
         coverArtFileName: String? = nil,
         lyricsFileName: String? = nil,
+        replayGainTrackGain: Double? = nil,
+        replayGainTrackPeak: Double? = nil,
+        replayGainAlbumGain: Double? = nil,
+        replayGainAlbumPeak: Double? = nil,
         revision: String? = nil
     ) {
         self.id = id
@@ -79,6 +87,10 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         self.dateAdded = dateAdded
         self.coverArtFileName = coverArtFileName
         self.lyricsFileName = lyricsFileName
+        self.replayGainTrackGain = replayGainTrackGain
+        self.replayGainTrackPeak = replayGainTrackPeak
+        self.replayGainAlbumGain = replayGainAlbumGain
+        self.replayGainAlbumPeak = replayGainAlbumPeak
         self.revision = revision
     }
 }

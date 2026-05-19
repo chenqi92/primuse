@@ -101,7 +101,11 @@ actor LibraryScanner {
                             year: metadata.year,
                             lastModified: file.modifiedDate,
                             coverArtFileName: metadata.coverArtFileName,
-                            lyricsFileName: metadata.lyricsFileName
+                            lyricsFileName: metadata.lyricsFileName,
+                            replayGainTrackGain: metadata.replayGainTrackGain,
+                            replayGainTrackPeak: metadata.replayGainTrackPeak,
+                            replayGainAlbumGain: metadata.replayGainAlbumGain,
+                            replayGainAlbumPeak: metadata.replayGainAlbumPeak
                         )
 
                         try await database.saveSong(song)
