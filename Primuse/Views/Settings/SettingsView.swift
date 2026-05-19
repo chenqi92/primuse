@@ -676,6 +676,21 @@ struct PlaybackSettingsView: View {
                 Text("replay_gain_desc")
             }
 
+            Section {
+                Toggle("spatial_audio", isOn: $settings.spatialAudioEnabled)
+
+                if settings.spatialAudioEnabled {
+                    Toggle("spatial_head_tracking", isOn: $settings.spatialHeadTrackingEnabled)
+                }
+            } footer: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("spatial_audio_desc")
+                    if settings.spatialAudioEnabled {
+                        Text("spatial_head_tracking_desc")
+                    }
+                }
+            }
+
         }
         .navigationTitle("playback_settings")
         .navigationBarTitleDisplayMode(.inline)

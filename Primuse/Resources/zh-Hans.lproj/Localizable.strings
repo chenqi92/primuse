@@ -250,6 +250,10 @@
 "seconds" = "秒";
 "replay_gain" = "回放增益";
 "replay_gain_desc" = "根据音频文件中嵌入的 ReplayGain 标签自动调整音量。";
+"spatial_audio" = "空间音频";
+"spatial_audio_desc" = "通过 Apple 的空间音频渲染器，把播放声场放在前方的虚拟舞台中。";
+"spatial_head_tracking" = "头部追踪";
+"spatial_head_tracking_desc" = "使用支持的 AirPods 时，转动头部也能保持声场锚定。";
 "rg_mode" = "模式";
 "rg_mode_track" = "单曲";
 "rg_mode_album" = "专辑";

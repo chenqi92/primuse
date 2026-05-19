@@ -20,6 +20,8 @@ struct PlaybackSettings: Codable, Sendable {
     var crossfadeDuration: Double = 3.0
     var replayGainEnabled: Bool = false
     var replayGainMode: ReplayGainMode = .track
+    var spatialAudioEnabled: Bool = false
+    var spatialHeadTrackingEnabled: Bool = false
     var audioCacheEnabled: Bool = true
 
     // Compressor / Limiter
@@ -47,6 +49,8 @@ struct PlaybackSettings: Codable, Sendable {
         crossfadeDuration = try c.decodeIfPresent(Double.self, forKey: .crossfadeDuration) ?? 3.0
         replayGainEnabled = try c.decodeIfPresent(Bool.self, forKey: .replayGainEnabled) ?? false
         replayGainMode = try c.decodeIfPresent(ReplayGainMode.self, forKey: .replayGainMode) ?? .track
+        spatialAudioEnabled = try c.decodeIfPresent(Bool.self, forKey: .spatialAudioEnabled) ?? false
+        spatialHeadTrackingEnabled = try c.decodeIfPresent(Bool.self, forKey: .spatialHeadTrackingEnabled) ?? false
         audioCacheEnabled = try c.decodeIfPresent(Bool.self, forKey: .audioCacheEnabled) ?? true
         compressorEnabled = try c.decodeIfPresent(Bool.self, forKey: .compressorEnabled) ?? false
         compressorThreshold = try c.decodeIfPresent(Float.self, forKey: .compressorThreshold) ?? -20
@@ -66,6 +70,8 @@ struct PlaybackSettings: Codable, Sendable {
         crossfadeDuration: Double = 3.0,
         replayGainEnabled: Bool = false,
         replayGainMode: ReplayGainMode = .track,
+        spatialAudioEnabled: Bool = false,
+        spatialHeadTrackingEnabled: Bool = false,
         audioCacheEnabled: Bool = true,
         compressorEnabled: Bool = false,
         compressorThreshold: Float = -20,
@@ -83,6 +89,8 @@ struct PlaybackSettings: Codable, Sendable {
         self.crossfadeDuration = crossfadeDuration
         self.replayGainEnabled = replayGainEnabled
         self.replayGainMode = replayGainMode
+        self.spatialAudioEnabled = spatialAudioEnabled
+        self.spatialHeadTrackingEnabled = spatialHeadTrackingEnabled
         self.audioCacheEnabled = audioCacheEnabled
         self.compressorEnabled = compressorEnabled
         self.compressorThreshold = compressorThreshold
@@ -132,6 +140,22 @@ final class PlaybackSettingsStore {
     var crossfadeDuration: Double { didSet { persist() } }
     var replayGainEnabled: Bool { didSet { persist() } }
     var replayGainMode: ReplayGainMode { didSet { persist() } }
+    var spatialAudioEnabled: Bool {
+        didSet {
+            if !spatialAudioEnabled, spatialHeadTrackingEnabled {
+                spatialHeadTrackingEnabled = false
+            }
+            persist()
+        }
+    }
+    var spatialHeadTrackingEnabled: Bool {
+        didSet {
+            if spatialHeadTrackingEnabled, !spatialAudioEnabled {
+                spatialAudioEnabled = true
+            }
+            persist()
+        }
+    }
     var audioCacheEnabled: Bool { didSet { persist() } }
 
     // Compressor / Limiter
@@ -159,6 +183,8 @@ final class PlaybackSettingsStore {
         self.crossfadeDuration = s.crossfadeDuration
         self.replayGainEnabled = s.replayGainEnabled
         self.replayGainMode = s.replayGainMode
+        self.spatialAudioEnabled = s.spatialAudioEnabled
+        self.spatialHeadTrackingEnabled = s.spatialAudioEnabled && s.spatialHeadTrackingEnabled
         self.audioCacheEnabled = s.audioCacheEnabled
         self.compressorEnabled = s.compressorEnabled
         self.compressorThreshold = s.compressorThreshold
@@ -187,6 +213,8 @@ final class PlaybackSettingsStore {
         crossfadeDuration = s.crossfadeDuration
         replayGainEnabled = s.replayGainEnabled
         replayGainMode = s.replayGainMode
+        spatialAudioEnabled = s.spatialAudioEnabled
+        spatialHeadTrackingEnabled = s.spatialAudioEnabled && s.spatialHeadTrackingEnabled
         audioCacheEnabled = s.audioCacheEnabled
         compressorEnabled = s.compressorEnabled
         compressorThreshold = s.compressorThreshold
@@ -207,6 +235,8 @@ final class PlaybackSettingsStore {
             crossfadeDuration: crossfadeDuration,
             replayGainEnabled: replayGainEnabled,
             replayGainMode: replayGainMode,
+            spatialAudioEnabled: spatialAudioEnabled,
+            spatialHeadTrackingEnabled: spatialHeadTrackingEnabled,
             audioCacheEnabled: audioCacheEnabled,
             compressorEnabled: compressorEnabled,
             compressorThreshold: compressorThreshold,

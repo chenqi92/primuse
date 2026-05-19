@@ -250,6 +250,10 @@
 "seconds" = "seconds";
 "replay_gain" = "ReplayGain";
 "replay_gain_desc" = "Automatically adjust volume based on ReplayGain tags embedded in audio files.";
+"spatial_audio" = "Spatial Audio";
+"spatial_audio_desc" = "Places playback in a virtual front soundstage through Apple's spatial audio renderer.";
+"spatial_head_tracking" = "Head Tracking";
+"spatial_head_tracking_desc" = "On supported AirPods, the soundstage stays anchored as you move your head.";
 "rg_mode" = "Mode";
 "rg_mode_track" = "Track";
 "rg_mode_album" = "Album";

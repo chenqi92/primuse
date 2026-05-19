@@ -216,12 +216,35 @@ final class AudioPlayerService {
         audioEngine = AudioEngine()
         equalizerService = EqualizerService(audioEngine: audioEngine)
         audioEffectsService = AudioEffectsService(audioEngine: audioEngine, settingsStore: playbackSettings)
+        applySpatialAudioSettings()
+        observeSpatialAudioSettings()
 
         // Defer heavy system registrations to avoid blocking first frame
         Task { @MainActor [weak self] in
             AudioSessionManager.shared.configureForPlayback()
             self?.setupRemoteCommands()
             self?.setupAudioSessionCallbacks()
+        }
+    }
+
+    func applySpatialAudioSettings() {
+        let settings = playbackSettings.snapshot()
+        audioEngine.configureSpatialAudio(
+            enabled: settings.spatialAudioEnabled,
+            headTrackingEnabled: settings.spatialHeadTrackingEnabled
+        )
+    }
+
+    private func observeSpatialAudioSettings() {
+        withObservationTracking {
+            _ = playbackSettings.spatialAudioEnabled
+            _ = playbackSettings.spatialHeadTrackingEnabled
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.applySpatialAudioSettings()
+                self.observeSpatialAudioSettings()
+            }
         }
     }
 
@@ -370,6 +393,7 @@ final class AudioPlayerService {
         do {
             _ = AudioSessionManager.shared.activatePlaybackSession()
             try audioEngine.setUp()
+            applySpatialAudioSettings()
             audioEffectsService.applySettings()
             guard let outputFormat = audioEngine.outputFormat else {
                 throw AudioDecoderError.decodingFailed("Audio engine not ready")
@@ -1264,6 +1288,7 @@ final class AudioPlayerService {
                 guard playID == id else { return }
                 _ = AudioSessionManager.shared.activatePlaybackSession()
                 try audioEngine.setUp()
+                applySpatialAudioSettings()
                 guard let outputFormat = audioEngine.outputFormat else { return }
                 try audioEngine.start()
 
