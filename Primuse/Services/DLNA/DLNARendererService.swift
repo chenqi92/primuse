@@ -18,7 +18,8 @@ private let dlnaLog = Logger(subsystem: "com.welape.yuanyin", category: "DLNA")
 ///   GetTransportInfo / GetPositionInfo 6 个 action; DIDL-Lite metadata 只
 ///   读 dc:title / upnp:artist (不读 cover, 因为推过来的 URL 一般是 HTTP
 ///   stream, 跟我们自己的 source 不同源, 解 ID3 太重)。
-/// - **RenderingControl**: stub, 不支持音量调整 (用户在猿音 UI 自己调)。
+/// - **RenderingControl**: 支持 Master channel 的 Get/Set Volume 与
+///   Get/Set Mute, 并通过 GENA LastChange 同步给控制点。
 ///
 /// 主流程: 控制点 → SetAVTransportURI(url, didl) → 我们 parse out url + title
 /// → 创建一个临时 Song (sourceID = "dlna",  filePath = url, 用 DIDL 里的标题)
@@ -84,6 +85,9 @@ final class DLNARendererService {
 
     /// 主 player 引用,SetAVTransportURI 时把 URL 推过去。
     private let player: AudioPlayerService
+    /// UPnP RenderingControl 的 mute 是独立状态,不能简单等同于 volume=0。
+    private var rendererMuted = false
+    private var lastNonMutedVolume: Float = 0.6
 
     private let httpPort: NWEndpoint.Port = 49152
     private static let ssdpMulticastHost: NWEndpoint.Host = "239.255.255.250"
@@ -110,6 +114,7 @@ final class DLNARendererService {
         do {
             try startHTTP()
             try startSSDP()
+            syncRenderingStateFromEngine()
             installPlayerObservation()
             isRunning = true
             statusText = String(localized: "dlna_status_listening")
@@ -141,12 +146,25 @@ final class DLNARendererService {
                 _ = player.isPlaying
                 _ = player.currentSong?.id
                 _ = player.audioEngine.volume
+                _ = rendererMuted
+                _ = lastNonMutedVolume
             } onChange: { [weak self] in
                 Task { @MainActor in
+                    self?.syncRenderingStateFromEngine()
                     self?.notifyAllSubscribers()
                     cont.resume()
                 }
             }
+        }
+    }
+
+    private func syncRenderingStateFromEngine() {
+        let currentVolume = player.audioEngine.volume
+        if rendererMuted, currentVolume > 0.001 {
+            rendererMuted = false
+            lastNonMutedVolume = currentVolume
+        } else if !rendererMuted, currentVolume > 0.001 {
+            lastNonMutedVolume = currentVolume
         }
     }
 
@@ -466,6 +484,36 @@ final class DLNARendererService {
 
     // MARK: - RenderingControl (音量同步)
 
+    private var renderingVolumePercent: Int {
+        let volume = rendererMuted ? lastNonMutedVolume : player.audioEngine.volume
+        return max(0, min(100, Int((volume * 100).rounded())))
+    }
+
+    private func setRenderingVolumePercent(_ percent: Int) {
+        let clamped = max(0, min(100, percent))
+        let normalized = Float(clamped) / 100
+        lastNonMutedVolume = normalized
+        if !rendererMuted {
+            player.audioEngine.volume = normalized
+        }
+        notifyAllSubscribers()
+    }
+
+    private func setRenderingMuted(_ muted: Bool) {
+        if muted {
+            let currentVolume = player.audioEngine.volume
+            if currentVolume > 0.001 {
+                lastNonMutedVolume = currentVolume
+            }
+            rendererMuted = true
+            player.audioEngine.volume = 0
+        } else {
+            rendererMuted = false
+            player.audioEngine.volume = lastNonMutedVolume
+        }
+        notifyAllSubscribers()
+    }
+
     private func handleRenderingControlAction(raw: String, connection: NWConnection) async {
         let soapActionLine = raw.split(separator: "\r\n")
             .first { $0.lowercased().hasPrefix("soapaction:") }
@@ -477,36 +525,27 @@ final class DLNARendererService {
 
         switch action {
         case "GetVolume":
-            let v = Int((player.audioEngine.volume * 100).rounded())
             await sendRCSOAP(
                 action: "GetVolume",
-                body: "<CurrentVolume>\(max(0, min(100, v)))</CurrentVolume>",
+                body: "<CurrentVolume>\(renderingVolumePercent)</CurrentVolume>",
                 on: connection
             )
         case "SetVolume":
             // body 里 <DesiredVolume>NN</DesiredVolume>; 范围 0-100。
             if let str = extract(tag: "DesiredVolume", from: body), let v = Int(str) {
-                let normalized = Float(max(0, min(100, v))) / 100
-                player.audioEngine.volume = normalized
+                setRenderingVolumePercent(v)
             }
             await sendRCSOAP(action: "SetVolume", body: "", on: connection)
         case "GetMute":
-            let muted = player.audioEngine.volume <= 0.001
             await sendRCSOAP(
                 action: "GetMute",
-                body: "<CurrentMute>\(muted ? 1 : 0)</CurrentMute>",
+                body: "<CurrentMute>\(rendererMuted ? 1 : 0)</CurrentMute>",
                 on: connection
             )
         case "SetMute":
             if let str = extract(tag: "DesiredMute", from: body) {
                 let shouldMute = (str == "1" || str.lowercased() == "true")
-                if shouldMute {
-                    // 简化处理: 静音=音量置 0; 取消静音=回到 0.6 默认音量。
-                    // 严格做法需要记录静音前的 lastVolume,这里 trade-off 让代码简单。
-                    player.audioEngine.volume = 0
-                } else if player.audioEngine.volume <= 0.001 {
-                    player.audioEngine.volume = 0.6
-                }
+                setRenderingMuted(shouldMute)
             }
             await sendRCSOAP(action: "SetMute", body: "", on: connection)
         default:
@@ -709,13 +748,11 @@ final class DLNARendererService {
             """
             return wrapPropertyset(varName: "LastChange", value: lastChange)
         case "RenderingControl":
-            let v = Int((player.audioEngine.volume * 100).rounded())
-            let muted = player.audioEngine.volume <= 0.001
             let lastChange = """
             <Event xmlns="urn:schemas-upnp-org:metadata-1-0/RCS/">
               <InstanceID val="0">
-                <Volume channel="Master" val="\(max(0, min(100, v)))"/>
-                <Mute channel="Master" val="\(muted ? 1 : 0)"/>
+                <Volume channel="Master" val="\(renderingVolumePercent)"/>
+                <Mute channel="Master" val="\(rendererMuted ? 1 : 0)"/>
               </InstanceID>
             </Event>
             """
