@@ -120,8 +120,8 @@ enum LastFmCredentialsStore {
     static func loadSessionKey() -> String { KeychainService.getPassword(for: sessionKeyAccount) ?? "" }
 
     /// 实际使用的 API key — 用户在 Settings 高级里粘了自己的就用自己的,
-    /// 没粘就 fallback 到 app 内置的 default (`AppSecrets.lastFmAPIKey`)。
-    /// 让普通用户开箱即用, 同时保留「我想用自己的 application 配额」的逃生口。
+    /// 没粘就 fallback 到 build-time default (`Secrets.local.xcconfig`)。
+    /// 让发行构建可配置默认 key, 同时保留「我想用自己的 application 配额」的逃生口。
     static func effectiveAPIKey() -> String {
         let user = loadAPIKey()
         if !user.isEmpty { return user }

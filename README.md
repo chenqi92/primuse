@@ -75,7 +75,11 @@ open Primuse.xcodeproj
 
 也可以修改 `project.yml` 中的 `DEVELOPMENT_TEAM` 后重新生成项目。
 
-### 4. 构建运行
+### 4. 配置本地密钥（可选）
+
+复制 `Config/Secrets.local.xcconfig.example` 为 `Config/Secrets.local.xcconfig`，按需填入云盘 OAuth 或 Last.fm 默认 API key。该文件已被 git 忽略；留空时 Last.fm 会要求用户在设置里粘贴自己的 key。
+
+### 5. 构建运行
 
 选择目标设备/模拟器后按 `Cmd+R`，或使用命令行：
 

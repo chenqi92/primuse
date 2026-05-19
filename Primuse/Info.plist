@@ -100,6 +100,10 @@
 	<string>$(GOOGLE_CLIENT_ID)</string>
 	<key>PrimuseGoogleReversedClientID</key>
 	<string>$(GOOGLE_REVERSED_CLIENT_ID)</string>
+	<key>PrimuseLastFmAPIKey</key>
+	<string>$(LASTFM_API_KEY)</string>
+	<key>PrimuseLastFmAPISecret</key>
+	<string>$(LASTFM_API_SECRET)</string>
 	<key>PrimuseOneDriveClientID</key>
 	<string>$(ONEDRIVE_CLIENT_ID)</string>
 	<key>UIApplicationSceneManifest</key>
