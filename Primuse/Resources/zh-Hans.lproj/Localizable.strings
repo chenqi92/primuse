@@ -259,6 +259,7 @@
 "rg_mode_album" = "专辑";
 "audio_cache_enabled" = "音频缓存";
 "audio_cache_desc" = "启用后，播放过的歌曲将被缓存到本地，下次播放时无需重新下载。关闭后不保留缓存文件。";
+"audio_cache_limit" = "音频缓存上限";
 "network" = "网络";
 "cloud_scan_wifi_only" = "仅在 Wi-Fi 下加载云盘详情";
 "cloud_scan_wifi_only_footer" = "扫描云盘时只读取文件名，详情（歌手/专辑/封面/时长）会在后台分批加载。一首歌大约消耗 256KB 流量。开启此项后，遇到蜂窝网络会自动暂停，连上 Wi-Fi 自动继续。";
@@ -420,6 +421,7 @@
 "cache" = "缓存";
 "persistent_data" = "持久化数据";
 "cache_clear_footer" = "缓存可安全清除。音频将在播放时重新加载，图片将按需重新下载。";
+"cache_pinned" = "离线固定";
 "cache_completed" = "已完整缓存";
 "cache_active" = "正在播放/缓存中";
 "cache_prewarm_seed" = "预热种子 (head+tail)";
@@ -826,6 +828,13 @@
 "a11y_close_lyrics" = "隐藏歌词";
 "a11y_favorite_add" = "加入歌单";
 "a11y_more_actions" = "更多操作";
+"offline_download" = "离线下载";
+"offline_downloading" = "正在下载";
+"offline_keep_cached" = "固定为离线可用";
+"offline_remove_download" = "移除离线下载";
+"offline_retry_download" = "重试离线下载";
+"offline_available" = "离线可用";
+"offline_download_failed" = "离线下载失败";
 "search_section_apple_music" = "Apple Music";
 "search_apple_music_loading" = "正在搜索 Apple Music…";
 "search_match_lyrics" = "命中歌词";

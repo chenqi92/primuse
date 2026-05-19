@@ -23,6 +23,7 @@ struct PlaybackSettings: Codable, Sendable {
     var spatialAudioEnabled: Bool = false
     var spatialHeadTrackingEnabled: Bool = false
     var audioCacheEnabled: Bool = true
+    var audioCacheLimitBytes: Int64 = AudioCacheManager.defaultMaxCacheSize
 
     // Compressor / Limiter
     var compressorEnabled: Bool = false
@@ -52,6 +53,7 @@ struct PlaybackSettings: Codable, Sendable {
         spatialAudioEnabled = try c.decodeIfPresent(Bool.self, forKey: .spatialAudioEnabled) ?? false
         spatialHeadTrackingEnabled = try c.decodeIfPresent(Bool.self, forKey: .spatialHeadTrackingEnabled) ?? false
         audioCacheEnabled = try c.decodeIfPresent(Bool.self, forKey: .audioCacheEnabled) ?? true
+        audioCacheLimitBytes = try c.decodeIfPresent(Int64.self, forKey: .audioCacheLimitBytes) ?? AudioCacheManager.defaultMaxCacheSize
         compressorEnabled = try c.decodeIfPresent(Bool.self, forKey: .compressorEnabled) ?? false
         compressorThreshold = try c.decodeIfPresent(Float.self, forKey: .compressorThreshold) ?? -20
         compressorHeadRoom = try c.decodeIfPresent(Float.self, forKey: .compressorHeadRoom) ?? 5
@@ -73,6 +75,7 @@ struct PlaybackSettings: Codable, Sendable {
         spatialAudioEnabled: Bool = false,
         spatialHeadTrackingEnabled: Bool = false,
         audioCacheEnabled: Bool = true,
+        audioCacheLimitBytes: Int64 = AudioCacheManager.defaultMaxCacheSize,
         compressorEnabled: Bool = false,
         compressorThreshold: Float = -20,
         compressorHeadRoom: Float = 5,
@@ -92,6 +95,7 @@ struct PlaybackSettings: Codable, Sendable {
         self.spatialAudioEnabled = spatialAudioEnabled
         self.spatialHeadTrackingEnabled = spatialHeadTrackingEnabled
         self.audioCacheEnabled = audioCacheEnabled
+        self.audioCacheLimitBytes = audioCacheLimitBytes
         self.compressorEnabled = compressorEnabled
         self.compressorThreshold = compressorThreshold
         self.compressorHeadRoom = compressorHeadRoom
@@ -157,6 +161,7 @@ final class PlaybackSettingsStore {
         }
     }
     var audioCacheEnabled: Bool { didSet { persist() } }
+    var audioCacheLimitBytes: Int64 { didSet { persist() } }
 
     // Compressor / Limiter
     var compressorEnabled: Bool { didSet { persist() } }
@@ -186,6 +191,7 @@ final class PlaybackSettingsStore {
         self.spatialAudioEnabled = s.spatialAudioEnabled
         self.spatialHeadTrackingEnabled = s.spatialAudioEnabled && s.spatialHeadTrackingEnabled
         self.audioCacheEnabled = s.audioCacheEnabled
+        self.audioCacheLimitBytes = s.audioCacheLimitBytes
         self.compressorEnabled = s.compressorEnabled
         self.compressorThreshold = s.compressorThreshold
         self.compressorHeadRoom = s.compressorHeadRoom
@@ -216,6 +222,7 @@ final class PlaybackSettingsStore {
         spatialAudioEnabled = s.spatialAudioEnabled
         spatialHeadTrackingEnabled = s.spatialAudioEnabled && s.spatialHeadTrackingEnabled
         audioCacheEnabled = s.audioCacheEnabled
+        audioCacheLimitBytes = s.audioCacheLimitBytes
         compressorEnabled = s.compressorEnabled
         compressorThreshold = s.compressorThreshold
         compressorHeadRoom = s.compressorHeadRoom
@@ -238,6 +245,7 @@ final class PlaybackSettingsStore {
             spatialAudioEnabled: spatialAudioEnabled,
             spatialHeadTrackingEnabled: spatialHeadTrackingEnabled,
             audioCacheEnabled: audioCacheEnabled,
+            audioCacheLimitBytes: audioCacheLimitBytes,
             compressorEnabled: compressorEnabled,
             compressorThreshold: compressorThreshold,
             compressorHeadRoom: compressorHeadRoom,

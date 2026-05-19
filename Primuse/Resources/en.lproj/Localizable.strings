@@ -259,6 +259,7 @@
 "rg_mode_album" = "Album";
 "audio_cache_enabled" = "Audio Cache";
 "audio_cache_desc" = "When enabled, played songs are cached locally for faster playback next time. When disabled, temporary files are removed after playback.";
+"audio_cache_limit" = "Audio Cache Limit";
 "network" = "Network";
 "cloud_scan_wifi_only" = "Wi-Fi only for cloud details";
 "cloud_scan_wifi_only_footer" = "Cloud scans only fetch filenames upfront. Track details (artist, album, cover, duration) are loaded in the background — about 256KB per song. With this on, loading pauses on cellular and resumes when you reconnect to Wi-Fi.";
@@ -420,6 +421,7 @@
 "cache" = "Cache";
 "persistent_data" = "Persistent Data";
 "cache_clear_footer" = "Cache can be safely cleared. Audio will be re-streamed and images re-downloaded as needed.";
+"cache_pinned" = "Pinned offline";
 "cache_completed" = "Fully cached";
 "cache_active" = "Now playing/streaming";
 "cache_prewarm_seed" = "Prewarm seed (head+tail)";
@@ -825,6 +827,13 @@
 "a11y_close_lyrics" = "Hide lyrics";
 "a11y_favorite_add" = "Add to playlist";
 "a11y_more_actions" = "More actions";
+"offline_download" = "Download";
+"offline_downloading" = "Downloading";
+"offline_keep_cached" = "Keep Offline";
+"offline_remove_download" = "Remove Download";
+"offline_retry_download" = "Retry Download";
+"offline_available" = "Available Offline";
+"offline_download_failed" = "Download Failed";
 "search_section_apple_music" = "Apple Music";
 "search_apple_music_loading" = "Searching Apple Music…";
 "search_match_lyrics" = "Matched lyrics";

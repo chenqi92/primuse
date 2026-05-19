@@ -4,6 +4,7 @@ import PrimuseKit
 struct PlaylistDetailView: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
+    @Environment(SourceManager.self) private var sourceManager
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(MetadataBackfillService.self) private var backfill
     let playlist: Playlist
@@ -47,7 +48,7 @@ struct PlaylistDetailView: View {
                 .padding(.top, 20)
 
                 // Action buttons
-                HStack(spacing: 16) {
+                HStack(spacing: 12) {
                     Button {
                         playAll()
                     } label: {
@@ -64,6 +65,15 @@ struct PlaylistDetailView: View {
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
+
+                    Button {
+                        sourceManager.downloadForOffline(songs: songs)
+                    } label: {
+                        Label("offline_download", systemImage: "arrow.down.circle")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(songs.filteredPlayable().isEmpty)
                 }
                 .padding(.horizontal)
 

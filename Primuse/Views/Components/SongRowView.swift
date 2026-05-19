@@ -45,8 +45,13 @@ struct SongRowView: View {
     /// unknown would otherwise look "ready" but auto-advance to it would
     /// hand the player a track it can't render properly.
     private var isBare: Bool { !song.isPlayable }
+    private var offlineSnapshot: OfflineAudioCacheSnapshot {
+        sourceManager.offlineAudioSnapshot(for: song)
+    }
 
     var body: some View {
+        let offline = offlineSnapshot
+
         HStack(spacing: 10) {
             // Cover art with playing overlay
             ZStack {
@@ -128,6 +133,8 @@ struct SongRowView: View {
 
             Spacer()
 
+            OfflineAudioStatusBadge(snapshot: offline)
+
             if showsActions {
                 Menu {
                     // Group 1: Actions
@@ -149,6 +156,8 @@ struct SongRowView: View {
                         } label: {
                             Label(String(localized: "similar_songs"), systemImage: "sparkles")
                         }
+
+                        offlineActionButton(snapshot: offline)
 
                         Button {
                             showSongInfo = true
@@ -238,6 +247,8 @@ struct SongRowView: View {
                     Label(String(localized: "similar_songs"), systemImage: "sparkles")
                 }
 
+                offlineActionButton(snapshot: offline)
+
                 Button {
                     showSongInfo = true
                 } label: {
@@ -299,6 +310,44 @@ struct SongRowView: View {
         } message: {
             Text(String(localized: "delete_song_message"))
         }
+        .task(id: song.id) {
+            await sourceManager.refreshOfflineAudioSnapshot(for: song)
+        }
+    }
+
+    @ViewBuilder
+    private func offlineActionButton(snapshot: OfflineAudioCacheSnapshot) -> some View {
+        switch snapshot.state {
+        case .downloading:
+            Button {} label: {
+                Label(String(localized: "offline_downloading"), systemImage: "arrow.down.circle")
+            }
+            .disabled(true)
+        case .pinned:
+            Button(role: .destructive) {
+                sourceManager.removeOfflineDownload(song: song)
+            } label: {
+                Label(String(localized: "offline_remove_download"), systemImage: "trash")
+            }
+        case .cached:
+            Button {
+                sourceManager.downloadForOffline(song: song)
+            } label: {
+                Label(String(localized: "offline_keep_cached"), systemImage: "pin")
+            }
+        case .failed:
+            Button {
+                sourceManager.downloadForOffline(song: song)
+            } label: {
+                Label(String(localized: "offline_retry_download"), systemImage: "arrow.clockwise")
+            }
+        case .notCached:
+            Button {
+                sourceManager.downloadForOffline(song: song)
+            } label: {
+                Label(String(localized: "offline_download"), systemImage: "arrow.down.circle")
+            }
+        }
     }
 
     private func deleteSong() {
@@ -318,6 +367,32 @@ struct SongRowView: View {
 
     private func formatDuration(_ duration: TimeInterval) -> String {
         duration.formattedDuration
+    }
+}
+
+private struct OfflineAudioStatusBadge: View {
+    let snapshot: OfflineAudioCacheSnapshot
+
+    var body: some View {
+        switch snapshot.state {
+        case .downloading:
+            ProgressView(value: snapshot.progress)
+                .controlSize(.mini)
+                .frame(width: 20, height: 20)
+                .accessibilityLabel("offline_downloading")
+        case .pinned:
+            Image(systemName: "arrow.down.circle.fill")
+                .font(.callout)
+                .foregroundStyle(.tint)
+                .accessibilityLabel("offline_available")
+        case .failed:
+            Image(systemName: "exclamationmark.circle")
+                .font(.callout)
+                .foregroundStyle(.orange)
+                .accessibilityLabel("offline_download_failed")
+        case .cached, .notCached:
+            EmptyView()
+        }
     }
 }
 

@@ -781,6 +781,12 @@ struct StorageManagementView: View {
             Section {
                 Toggle("audio_cache_enabled", isOn: $settings.audioCacheEnabled)
 
+                Picker("audio_cache_limit", selection: $settings.audioCacheLimitBytes) {
+                    ForEach(Self.audioCacheLimitOptions, id: \.self) { bytes in
+                        Text(formatBytes(bytes)).tag(bytes)
+                    }
+                }
+
                 storageRow(
                     icon: "waveform",
                     title: "audio_cache",
@@ -789,7 +795,7 @@ struct StorageManagementView: View {
                 ) {
                     isClearingAudio = true
                     Task {
-                        let result = sourceManager.clearAudioCache()
+                        let result = await sourceManager.clearAudioCache()
                         await refreshSizes()
                         isClearingAudio = false
                         flashCacheToast(freed: result.freedBytes, failed: result.failedCount)
@@ -926,6 +932,17 @@ struct StorageManagementView: View {
 
         // 缩进 + 小一号字, 提示是 audio cache 的细分
         VStack(alignment: .leading, spacing: 8) {
+            if bd.pinnedBytes > 0 {
+                HStack {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .foregroundStyle(.tint).font(.caption)
+                    Text("cache_pinned").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Text(fmt.string(fromByteCount: bd.pinnedBytes))
+                        .font(.caption).foregroundStyle(.tint).monospacedDigit()
+                }
+            }
+
             HStack {
                 Image(systemName: "checkmark.circle")
                     .foregroundStyle(.secondary).font(.caption)
@@ -1030,6 +1047,20 @@ struct StorageManagementView: View {
 
         let metadata = await MetadataAssetStore.shared.cacheSize()
         metadataSize = formatter.string(fromByteCount: metadata)
+    }
+
+    private static let audioCacheLimitOptions: [Int64] = [
+        1_073_741_824,
+        2_147_483_648,
+        5_368_709_120,
+        10_737_418_240,
+        21_474_836_480,
+    ]
+
+    private func formatBytes(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
     }
 }
 

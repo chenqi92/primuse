@@ -9,6 +9,7 @@ struct SmartPlaylistDetailView: View {
 
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
+    @Environment(SourceManager.self) private var sourceManager
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(MetadataBackfillService.self) private var backfill
 
@@ -63,7 +64,7 @@ struct SmartPlaylistDetailView: View {
                         .padding(.top, 20)
 
                         // Action buttons
-                        HStack(spacing: 16) {
+                        HStack(spacing: 12) {
                             Button {
                                 playAll()
                             } label: {
@@ -82,6 +83,15 @@ struct SmartPlaylistDetailView: View {
                             }
                             .buttonStyle(.bordered)
                             .disabled(matched.isEmpty)
+
+                            Button {
+                                sourceManager.downloadForOffline(songs: matched)
+                            } label: {
+                                Label("offline_download", systemImage: "arrow.down.circle")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(matched.filteredPlayable().isEmpty)
                         }
                         .padding(.horizontal)
 

@@ -1,21 +1,57 @@
 import Foundation
 
-/// LRU cache manager for audio files. Enforces a 2 GB disk size limit
+enum OfflineAudioCacheState: String, Codable, Sendable, Equatable {
+    case notCached
+    case cached
+    case pinned
+    case downloading
+    case failed
+}
+
+struct OfflineAudioCacheSnapshot: Sendable, Equatable {
+    var state: OfflineAudioCacheState
+    var progress: Double?
+    var byteCount: Int64?
+    var errorMessage: String?
+
+    static let notCached = OfflineAudioCacheSnapshot(
+        state: .notCached,
+        progress: nil,
+        byteCount: nil,
+        errorMessage: nil
+    )
+
+    var isPinned: Bool { state == .pinned }
+    var isDownloading: Bool { state == .downloading }
+}
+
+/// LRU cache manager for audio files. Enforces the configured disk size limit
 /// by evicting least-recently-accessed files when the cache grows too large.
 actor AudioCacheManager {
     static let shared = AudioCacheManager()
 
-    let maxCacheSize: Int64 = 2_147_483_648 // 2 GB
+    static let defaultMaxCacheSize: Int64 = 2_147_483_648 // 2 GB
 
     private var accessLog: [String: Date] = [:]
+    private var offlineManifest: [String: OfflineManifestEntry] = [:]
     private let logURL: URL
+    private let manifestURL: URL
     private let basePath: URL
     private var persistTask: Task<Void, Never>?
+    private var manifestPersistTask: Task<Void, Never>?
+
+    private struct OfflineManifestEntry: Codable, Sendable {
+        var isPinned: Bool
+        var byteCount: Int64?
+        var pinnedAt: Date?
+        var downloadedAt: Date?
+    }
 
     private init() {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
         basePath = caches.appendingPathComponent("primuse_audio_cache")
         logURL = basePath.appendingPathComponent(".access_log.json")
+        manifestURL = basePath.appendingPathComponent(".offline_manifest.json")
         // Actor init is nonisolated; defer loading to first access
     }
 
@@ -24,6 +60,7 @@ actor AudioCacheManager {
         guard !initialized else { return }
         initialized = true
         loadAccessLog()
+        loadOfflineManifest()
         migrateExistingFiles()
     }
 
@@ -33,6 +70,90 @@ actor AudioCacheManager {
     func recordAccess(path: String) {
         ensureInitialized()
         accessLog[path] = Date()
+        schedulePersist()
+    }
+
+    func cacheLimitBytes() -> Int64 {
+        PlaybackSettings.load().audioCacheLimitBytes
+    }
+
+    func snapshot(path: String, fileExists: Bool, byteCount: Int64?) -> OfflineAudioCacheSnapshot {
+        ensureInitialized()
+        if let entry = offlineManifest[path], entry.isPinned, fileExists {
+            return OfflineAudioCacheSnapshot(
+                state: .pinned,
+                progress: nil,
+                byteCount: byteCount ?? entry.byteCount,
+                errorMessage: nil
+            )
+        }
+        if fileExists {
+            return OfflineAudioCacheSnapshot(
+                state: .cached,
+                progress: nil,
+                byteCount: byteCount,
+                errorMessage: nil
+            )
+        }
+        return .notCached
+    }
+
+    func markDownloaded(path: String, byteCount: Int64?, pinned: Bool) {
+        ensureInitialized()
+        accessLog[path] = Date()
+        offlineManifest[path] = OfflineManifestEntry(
+            isPinned: pinned,
+            byteCount: byteCount,
+            pinnedAt: pinned ? Date() : offlineManifest[path]?.pinnedAt,
+            downloadedAt: Date()
+        )
+        schedulePersist()
+        scheduleManifestPersist()
+    }
+
+    func pin(path: String, byteCount: Int64?) {
+        ensureInitialized()
+        var entry = offlineManifest[path] ?? OfflineManifestEntry(
+            isPinned: true,
+            byteCount: byteCount,
+            pinnedAt: Date(),
+            downloadedAt: Date()
+        )
+        entry.isPinned = true
+        entry.byteCount = byteCount ?? entry.byteCount
+        entry.pinnedAt = entry.pinnedAt ?? Date()
+        entry.downloadedAt = entry.downloadedAt ?? Date()
+        offlineManifest[path] = entry
+        accessLog[path] = Date()
+        schedulePersist()
+        scheduleManifestPersist()
+    }
+
+    func unpin(path: String) {
+        ensureInitialized()
+        offlineManifest[path] = nil
+        scheduleManifestPersist()
+    }
+
+    func pinnedBytes() -> Int64 {
+        ensureInitialized()
+        return offlineManifest.values.reduce(Int64(0)) { total, entry in
+            total + (entry.isPinned ? (entry.byteCount ?? 0) : 0)
+        }
+    }
+
+    func pinnedRelativePaths() -> Set<String> {
+        ensureInitialized()
+        return Set(offlineManifest.compactMap { path, entry in
+            entry.isPinned ? path : nil
+        })
+    }
+
+    func clearUnpinnedAccessEntries() {
+        ensureInitialized()
+        accessLog = accessLog.filter { path, _ in
+            offlineManifest[path]?.isPinned == true
+        }
         schedulePersist()
     }
 
@@ -50,7 +171,7 @@ actor AudioCacheManager {
         ensureInitialized()
         let reserve = reserveBytes > 0 ? reserveBytes : 10_485_760 // default 10 MB estimate
         let currentSize = totalCacheSizeSync()
-        let target = maxCacheSize - reserve
+        let target = cacheLimitBytes() - reserve
 
         guard currentSize > target else { return }
 
@@ -75,9 +196,10 @@ actor AudioCacheManager {
                     ? String(fileURL.path.dropFirst(basePathPrefix.count))
                     : fileURL.lastPathComponent
                 let lastUsed = accessLog[relative] ?? values.contentModificationDate ?? .distantPast
-                candidates.append(EvictCandidate(
-                    url: fileURL, relativePath: relative, size: size, lastUsed: lastUsed
-                ))
+                if offlineManifest[relative]?.isPinned == true {
+                    continue
+                }
+                candidates.append(EvictCandidate(url: fileURL, relativePath: relative, size: size, lastUsed: lastUsed))
             }
         }
 
@@ -110,7 +232,9 @@ actor AudioCacheManager {
         let fileURL = basePath.appendingPathComponent(path)
         try? FileManager.default.removeItem(at: fileURL)
         accessLog[path] = nil
+        offlineManifest[path] = nil
         schedulePersist()
+        scheduleManifestPersist()
     }
 
     /// 删 LRU 里以 `prefix` 开头的所有记录。配合 SourceManager.purgeAudioCache
@@ -120,13 +244,19 @@ actor AudioCacheManager {
         ensureInitialized()
         let keys = accessLog.keys.filter { $0.hasPrefix(prefix) }
         for key in keys { accessLog[key] = nil }
+        let manifestKeys = offlineManifest.keys.filter { $0.hasPrefix(prefix) }
+        for key in manifestKeys { offlineManifest[key] = nil }
         if !keys.isEmpty { schedulePersist() }
+        if !manifestKeys.isEmpty { scheduleManifestPersist() }
     }
 
     func clearAll() {
         accessLog.removeAll()
+        offlineManifest.removeAll()
         try? FileManager.default.removeItem(at: logURL)
+        try? FileManager.default.removeItem(at: manifestURL)
         persistNow()
+        persistManifestNow()
     }
 
     // MARK: - Internal
@@ -175,6 +305,12 @@ actor AudioCacheManager {
         accessLog = log
     }
 
+    private func loadOfflineManifest() {
+        guard let data = try? Data(contentsOf: manifestURL),
+              let manifest = try? JSONDecoder().decode([String: OfflineManifestEntry].self, from: data) else { return }
+        offlineManifest = manifest
+    }
+
     private func schedulePersist() {
         persistTask?.cancel()
         persistTask = Task {
@@ -184,11 +320,28 @@ actor AudioCacheManager {
         }
     }
 
+    private func scheduleManifestPersist() {
+        manifestPersistTask?.cancel()
+        manifestPersistTask = Task {
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            persistManifestNow()
+        }
+    }
+
     private func persistNow() {
         try? FileManager.default.createDirectory(at: basePath, withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(accessLog) else { return }
         try? data.write(to: logURL, options: .atomic)
+    }
+
+    private func persistManifestNow() {
+        try? FileManager.default.createDirectory(at: basePath, withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(offlineManifest) else { return }
+        try? data.write(to: manifestURL, options: .atomic)
     }
 }

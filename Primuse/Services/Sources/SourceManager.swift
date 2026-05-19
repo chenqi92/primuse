@@ -25,6 +25,7 @@ struct SongFileDeletionResult: Sendable {
 final class SourceManager {
     private var connectors: [String: any MusicSourceConnector] = [:]
     private let sourcesProvider: @Sendable () async throws -> [MusicSource]
+    private(set) var offlineAudioSnapshots: [String: OfflineAudioCacheSnapshot] = [:]
 
     init(database: LibraryDatabase) {
         self.sourcesProvider = {
@@ -267,6 +268,10 @@ final class SourceManager {
         return dir
     }
 
+    private func audioCacheRelativePath(for song: Song) -> String {
+        "\(song.sourceID)/\(song.filePath.replacingOccurrences(of: "/", with: "_"))"
+    }
+
     func cachedURL(for song: Song) -> URL? {
         let sanitized = song.filePath.replacingOccurrences(of: "/", with: "_")
         let fileURL = audioCacheDirectory(for: song.sourceID).appendingPathComponent(sanitized)
@@ -279,6 +284,185 @@ final class SourceManager {
     func cacheURL(for song: Song) -> URL {
         let sanitized = song.filePath.replacingOccurrences(of: "/", with: "_")
         return audioCacheDirectory(for: song.sourceID).appendingPathComponent(sanitized)
+    }
+
+    func offlineAudioSnapshot(for song: Song) -> OfflineAudioCacheSnapshot {
+        if let snapshot = offlineAudioSnapshots[song.id] {
+            return snapshot
+        }
+        let url = cacheURL(for: song)
+        guard FileManager.default.fileExists(atPath: url.path) else { return .notCached }
+        return OfflineAudioCacheSnapshot(
+            state: .cached,
+            progress: nil,
+            byteCount: fileSize(at: url),
+            errorMessage: nil
+        )
+    }
+
+    func refreshOfflineAudioSnapshot(for song: Song) async {
+        let url = cacheURL(for: song)
+        let exists = FileManager.default.fileExists(atPath: url.path)
+        let snapshot = await AudioCacheManager.shared.snapshot(
+            path: audioCacheRelativePath(for: song),
+            fileExists: exists,
+            byteCount: exists ? fileSize(at: url) : nil
+        )
+        offlineAudioSnapshots[song.id] = snapshot
+    }
+
+    func downloadForOffline(song: Song) {
+        guard offlineAudioSnapshots[song.id]?.isDownloading != true else { return }
+        Task { [weak self] in
+            await self?.performOfflineDownload(song)
+        }
+    }
+
+    func downloadForOffline(songs: [Song]) {
+        Task { [weak self] in
+            for song in songs.filteredPlayable() {
+                guard !Task.isCancelled else { break }
+                await self?.performOfflineDownload(song)
+            }
+        }
+    }
+
+    func removeOfflineDownload(song: Song) {
+        deleteAudioCache(for: song)
+        offlineAudioSnapshots[song.id] = .notCached
+    }
+
+    private func performOfflineDownload(_ song: Song) async {
+        guard offlineAudioSnapshots[song.id]?.isDownloading != true else { return }
+        let relativePath = audioCacheRelativePath(for: song)
+        let target = cacheURL(for: song)
+
+        offlineAudioSnapshots[song.id] = OfflineAudioCacheSnapshot(
+            state: .downloading,
+            progress: 0,
+            byteCount: song.fileSize > 0 ? song.fileSize : nil,
+            errorMessage: nil
+        )
+
+        do {
+            if FileManager.default.fileExists(atPath: target.path) {
+                let size = fileSize(at: target)
+                await AudioCacheManager.shared.pin(path: relativePath, byteCount: size)
+                offlineAudioSnapshots[song.id] = OfflineAudioCacheSnapshot(
+                    state: .pinned,
+                    progress: nil,
+                    byteCount: size,
+                    errorMessage: nil
+                )
+                return
+            }
+
+            let sources = try await sourcesProvider()
+            guard let source = sources.first(where: { $0.id == song.sourceID }) else {
+                throw SourceError.fileNotFound("Source not found for song: \(song.title)")
+            }
+
+            let connector = connector(for: source)
+            try await connector.connect()
+            try? FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            await AudioCacheManager.shared.evictIfNeeded(reserveBytes: max(song.fileSize, 10_485_760))
+
+            if source.supportsRangeStreaming, song.fileSize > 0 {
+                try await downloadOfflineByRanges(song: song, connector: connector, target: target)
+            } else if let streamURL = try await connector.streamingURL(for: song.filePath) {
+                try await downloadOfflineFromURL(streamURL, song: song, target: target)
+            } else {
+                let localURL = try await connector.localURL(for: song.filePath)
+                try copyOfflineFile(from: localURL, to: target)
+            }
+
+            let size = fileSize(at: target)
+            await AudioCacheManager.shared.markDownloaded(path: relativePath, byteCount: size, pinned: true)
+            offlineAudioSnapshots[song.id] = OfflineAudioCacheSnapshot(
+                state: .pinned,
+                progress: nil,
+                byteCount: size,
+                errorMessage: nil
+            )
+            plog("✅ Offline: '\(song.title)' downloaded and pinned")
+        } catch {
+            try? FileManager.default.removeItem(at: URL(fileURLWithPath: target.path + ".offline"))
+            offlineAudioSnapshots[song.id] = OfflineAudioCacheSnapshot(
+                state: .failed,
+                progress: nil,
+                byteCount: nil,
+                errorMessage: error.localizedDescription
+            )
+            plog("⚠️ Offline download failed for '\(song.title)': \(error.localizedDescription)")
+        }
+    }
+
+    private func downloadOfflineByRanges(
+        song: Song,
+        connector: any MusicSourceConnector,
+        target: URL
+    ) async throws {
+        let partial = URL(fileURLWithPath: target.path + ".offline")
+        try? FileManager.default.removeItem(at: partial)
+        FileManager.default.createFile(atPath: partial.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: partial)
+        let chunkSize: Int64 = 2 * 1024 * 1024
+        var offset: Int64 = 0
+
+        do {
+            while offset < song.fileSize {
+                let length = min(chunkSize, song.fileSize - offset)
+                let data = try await connector.fetchRange(path: song.filePath, offset: offset, length: length)
+                guard !data.isEmpty else {
+                    throw SourceError.connectionFailed("Offline download returned an empty chunk")
+                }
+                try handle.write(contentsOf: data)
+                offset += Int64(data.count)
+                offlineAudioSnapshots[song.id] = OfflineAudioCacheSnapshot(
+                    state: .downloading,
+                    progress: min(0.99, Double(offset) / Double(song.fileSize)),
+                    byteCount: song.fileSize,
+                    errorMessage: nil
+                )
+            }
+            try handle.close()
+            try? FileManager.default.removeItem(at: target)
+            try FileManager.default.moveItem(at: partial, to: target)
+        } catch {
+            try? handle.close()
+            try? FileManager.default.removeItem(at: partial)
+            throw error
+        }
+    }
+
+    private func downloadOfflineFromURL(_ url: URL, song: Song, target: URL) async throws {
+        offlineAudioSnapshots[song.id] = OfflineAudioCacheSnapshot(
+            state: .downloading,
+            progress: nil,
+            byteCount: song.fileSize > 0 ? song.fileSize : nil,
+            errorMessage: nil
+        )
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 300
+        let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+        let (tempURL, response) = try await session.download(from: url)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw SourceError.connectionFailed("HTTP \(http.statusCode)")
+        }
+        try? FileManager.default.removeItem(at: target)
+        try FileManager.default.moveItem(at: tempURL, to: target)
+    }
+
+    private func copyOfflineFile(from source: URL, to target: URL) throws {
+        if source.standardizedFileURL == target.standardizedFileURL { return }
+        try? FileManager.default.removeItem(at: target)
+        try FileManager.default.copyItem(at: source, to: target)
+    }
+
+    private func fileSize(at url: URL) -> Int64? {
+        guard let values = try? url.resourceValues(forKeys: [.totalFileAllocatedSizeKey]),
+              let size = values.totalFileAllocatedSize else { return nil }
+        return Int64(size)
     }
 
     @discardableResult
@@ -365,7 +549,7 @@ final class SourceManager {
             guard let enumerator = FileManager.default.enumerator(
                 at: basePath, includingPropertiesForKeys: [.totalFileAllocatedSizeKey], options: [.skipsHiddenFiles]
             ) else { continue }
-            for case let fileURL as URL in enumerator {
+            while let fileURL = enumerator.nextObject() as? URL {
                 if let size = try? fileURL.resourceValues(forKeys: [.totalFileAllocatedSizeKey]).totalFileAllocatedSize {
                     total += Int64(size)
                 }
@@ -382,6 +566,7 @@ final class SourceManager {
     ///   (用户删过源 / source ID 变更), 没人会再访问, 全是垃圾
     struct AudioCacheBreakdown {
         var completedBytes: Int64 = 0
+        var pinnedBytes: Int64 = 0
         /// 「正在播放/缓存中」—— 当前还有活跃 streaming session 的 .partial。
         /// 用户暂停 / 切到下一首前都算这类, 不该跟「真中断」混在一起让人
         /// 误以为出问题。session 结束后会自动 finalize / 落入 partialBytes。
@@ -411,6 +596,7 @@ final class SourceManager {
         // 当前活跃 streaming session 的 .partial 路径, 让 UI 把它们标成
         // 「正在播放」而不是「中断」。
         let activeSessionPaths = CloudPlaybackSource.activeSessionPaths()
+        let pinnedRelativePaths = await AudioCacheManager.shared.pinnedRelativePaths()
 
         guard let subdirs = try? FileManager.default.contentsOfDirectory(
             at: basePath, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
@@ -463,7 +649,12 @@ final class SourceManager {
                         result.partialBytes += size
                     }
                 } else {
-                    result.completedBytes += size
+                    let relativePath = "\(sid)/\(name)"
+                    if pinnedRelativePaths.contains(relativePath) {
+                        result.pinnedBytes += size
+                    } else {
+                        result.completedBytes += size
+                    }
                 }
             }
         }
@@ -491,7 +682,7 @@ final class SourceManager {
             at: basePath, includingPropertiesForKeys: [.totalFileAllocatedSizeKey], options: [.skipsHiddenFiles]
         ) else { return (0, 0) }
         var partials: [(URL, Int64)] = []
-        for case let fileURL as URL in enumerator {
+        while let fileURL = enumerator.nextObject() as? URL {
             let name = fileURL.lastPathComponent
             guard name.hasSuffix(".partial") || name.hasSuffix(".partial.prewarmed") else { continue }
             let size = Int64((try? fileURL.resourceValues(forKeys: [.totalFileAllocatedSizeKey]).totalFileAllocatedSize) ?? 0)
@@ -513,8 +704,9 @@ final class SourceManager {
         let cacheURL = cacheURL(for: song)
         removeCacheFileFamily(at: cacheURL)
         deleteConnectorTempCaches(for: song)
-        let relativePath = "\(song.sourceID)/\(song.filePath.replacingOccurrences(of: "/", with: "_"))"
+        let relativePath = audioCacheRelativePath(for: song)
         Task { await AudioCacheManager.shared.removeEntry(path: relativePath) }
+        offlineAudioSnapshots[song.id] = .notCached
     }
 
     func deleteLocalCaches(for song: Song) {
@@ -570,11 +762,12 @@ final class SourceManager {
     /// 单独删, 把 in-flight 文件之外的都干掉, 只对 cache 目录的整个
     /// removeItem 是 best-effort 的最后一步。
     @discardableResult
-    func clearAudioCache() -> (freedBytes: Int64, failedCount: Int) {
+    func clearAudioCache() async -> (freedBytes: Int64, failedCount: Int) {
         let basePath = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
             .appendingPathComponent(Self.audioCacheDirName)
         var freed: Int64 = 0
         var failed = 0
+        let pinnedRelativePaths = await AudioCacheManager.shared.pinnedRelativePaths()
 
         for dir in [basePath, Self.smbCacheDir] {
             guard let enumerator = FileManager.default.enumerator(
@@ -585,9 +778,15 @@ final class SourceManager {
 
             // 先收集再删, 避免 enumerator 边删边遍历崩。
             var files: [(URL, Int64)] = []
-            for case let fileURL as URL in enumerator {
+            while let fileURL = enumerator.nextObject() as? URL {
                 guard let values = try? fileURL.resourceValues(forKeys: [.totalFileAllocatedSizeKey, .isRegularFileKey]),
                       values.isRegularFile == true else { continue }
+                if fileURL.path.hasPrefix(basePath.path + "/") {
+                    let relative = String(fileURL.path.dropFirst(basePath.path.count + 1))
+                    if pinnedRelativePaths.contains(relative) {
+                        continue
+                    }
+                }
                 files.append((fileURL, Int64(values.totalFileAllocatedSize ?? 0)))
             }
             for (url, size) in files {
@@ -599,12 +798,14 @@ final class SourceManager {
                     plog("⚠️ clearAudioCache: cannot remove \(url.lastPathComponent): \(error.localizedDescription)")
                 }
             }
-            // 文件都删完了, 子目录就空了, 一把删掉; 失败也不要紧 (可能仍有
-            // in-flight 文件, 下次 clear 再清)。
-            try? FileManager.default.removeItem(at: dir)
+            // 文件都删完了, 临时目录可以一把删掉。主 audio cache 目录里可能
+            // 还保留离线固定文件, 不能递归删目录。
+            if dir == Self.smbCacheDir {
+                try? FileManager.default.removeItem(at: dir)
+            }
         }
 
-        Task { await AudioCacheManager.shared.clearAll() }
+        await AudioCacheManager.shared.clearUnpinnedAccessEntries()
         plog("🧹 clearAudioCache: freed \(freed / 1024 / 1024)MB, failed=\(failed)")
         return (freed, failed)
     }
@@ -629,7 +830,7 @@ final class SourceManager {
         let cutoff = Date().addingTimeInterval(-Double(days) * 86400)
         var removedBytes: Int64 = 0
         var removedCount = 0
-        for case let fileURL as URL in enumerator {
+        while let fileURL = enumerator.nextObject() as? URL {
             let name = fileURL.lastPathComponent
             guard name.hasSuffix(".partial") || name.hasSuffix(".partial.prewarmed") else { continue }
             guard let values = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey, .totalFileAllocatedSizeKey]),
