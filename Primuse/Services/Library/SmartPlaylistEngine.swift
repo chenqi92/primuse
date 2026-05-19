@@ -184,6 +184,18 @@ enum SmartPlaylistEngine {
         // 都把它解释成"now - days"作比较时间。这是最常用场景: 最近一周播过的。
         guard let value else { return false }
 
+        if rule.value.hasPrefix("days:"),
+           let threshold = parseDate(rule.value) {
+            switch rule.op {
+            case .equals, .greaterThan:
+                return value >= threshold
+            case .notEquals, .lessThan:
+                return value < threshold
+            default:
+                return false
+            }
+        }
+
         let target = parseDate(rule.value)
         switch rule.op {
         case .equals:

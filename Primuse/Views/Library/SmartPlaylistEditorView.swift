@@ -181,7 +181,7 @@ private struct SmartPlaylistRuleEditorRow: View {
     @Binding var rule: SmartPlaylistRule
 
     private var supportedOps: [SmartPlaylistOperator] {
-        SmartPlaylistOperator.allCases.filter { $0.supports(rule.field.valueKind) }
+        Self.supportedOps(for: rule.field)
     }
 
     var body: some View {
@@ -206,8 +206,8 @@ private struct SmartPlaylistRuleEditorRow: View {
             ForEach(SmartPlaylistField.allCases, id: \.self) { f in
                 Button {
                     rule.field = f
-                    if !rule.op.supports(f.valueKind) {
-                        rule.op = SmartPlaylistOperator.allCases.first(where: { $0.supports(f.valueKind) }) ?? .equals
+                    if !Self.supportedOps(for: f).contains(rule.op) {
+                        rule.op = Self.defaultOperator(for: f)
                     }
                 } label: {
                     Label(fieldLabel(f), systemImage: fieldIcon(f))
@@ -334,6 +334,25 @@ private struct SmartPlaylistRuleEditorRow: View {
 
     private func opLabel(_ o: SmartPlaylistOperator) -> String {
         String(localized: LocalizedStringResource(stringLiteral: "smart_op_\(o.rawValue)"))
+    }
+
+    private static func supportedOps(for field: SmartPlaylistField) -> [SmartPlaylistOperator] {
+        if field == .isInPlaylist {
+            return [.equals, .notEquals]
+        }
+        if field.valueKind == .date {
+            return [.equals, .notEquals, .greaterThan, .lessThan]
+        }
+        return SmartPlaylistOperator.allCases.filter { $0.supports(field.valueKind) }
+    }
+
+    private static func defaultOperator(for field: SmartPlaylistField) -> SmartPlaylistOperator {
+        switch field.valueKind {
+        case .text:
+            return field == .isInPlaylist ? .equals : .contains
+        case .integer, .double, .date:
+            return .equals
+        }
     }
 }
 
