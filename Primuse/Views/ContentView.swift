@@ -1,5 +1,7 @@
+#if os(iOS)
 import SwiftUI
 import PrimuseKit
+import UIKit
 
 /// iPad sidebar 选中项。Library 之外的顶级项跟 iPhone TabView 一对一
 /// (rawValueTab 暴露 0/1/2/3 给 `selectedTab` mirror),Library 还细分到
@@ -569,3 +571,4 @@ struct NowPlayingAccessory: View {
         .environment(AudioPlayerService())
         .environment(MusicLibrary())
 }
+#endif

@@ -1,5 +1,9 @@
 import SwiftUI
+#if os(iOS)
 import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 /// Global dynamic theme color manager.
 /// Extracts dominant color from album artwork and provides it as the app-wide accent.
@@ -40,21 +44,21 @@ final class ThemeService {
 
         // Try songID-based cache first, then legacy filename。读取必须走
         // readCoverData(named:),它会透明处理 content-addressed redirect。
-        let image: UIImage?
+        let image: PlatformImage?
         if let songID {
             let hashedName = MetadataAssetStore.shared.expectedCoverFileName(for: songID)
-            image = MetadataAssetStore.shared.readCoverData(named: hashedName).flatMap { UIImage(data: $0) }
+            image = MetadataAssetStore.shared.readCoverData(named: hashedName).flatMap { PlatformImage(data: $0) }
         } else {
             image = nil
         }
-        let resolvedImage: UIImage
+        let resolvedImage: PlatformImage
         if let image {
             resolvedImage = image
         } else if let fileName, !fileName.isEmpty,
                   !fileName.contains("/"), !fileName.contains("://") {
             // Legacy: direct filename in artworkDir (走 redirect-aware reader)
             guard let data = MetadataAssetStore.shared.readCoverData(named: fileName),
-                  let loaded = UIImage(data: data) else {
+                  let loaded = PlatformImage(data: data) else {
                 resetToDefault()
                 return
             }
@@ -106,7 +110,14 @@ final class ThemeService {
 
     private static func darken(_ color: Color, factor: CGFloat) -> Color {
         var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        #if os(iOS)
         UIColor(color).getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+        #else
+        // NSColor 的 getHue 跟 UIColor 同语义,但要先转到 RGB colorspace
+        // 才能保证 HSB 通道有效。
+        let ns = NSColor(color).usingColorSpace(.deviceRGB) ?? NSColor(color)
+        ns.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+        #endif
         return Color(hue: h, saturation: s, brightness: max(0, b * factor))
     }
 
@@ -121,15 +132,29 @@ final class ThemeService {
     }
 
     /// Extracts the most dominant vibrant color from an image using HSB bucketing.
-    nonisolated static func extractDominantColor(from image: UIImage) -> ColorResult {
-        // Down-sample to 40×40 for performance
+    nonisolated static func extractDominantColor(from image: PlatformImage) -> ColorResult {
+        // Down-sample to 40×40 for performance。两个平台共用一段下采样:
+        // 直接从原图拿到 CGImage,然后用 CGContext 把它画到 40x40 上,再从
+        // context 拿出 cgImage。这样不依赖 UIGraphics(iOS) 或 NSGraphics
+        // (macOS) 任一平台的图像 context API。
         let sampleSize = CGSize(width: 40, height: 40)
-        UIGraphicsBeginImageContextWithOptions(sampleSize, true, 1)
-        image.draw(in: CGRect(origin: .zero, size: sampleSize))
-        let sampled = UIGraphicsGetImageFromCurrentImageContext()
-        UIGraphicsEndImageContext()
-
-        guard let cgImage = sampled?.cgImage,
+        guard let originalCG = image.platformCGImage else {
+            return ColorResult(accent: defaultAccent, dark: defaultDarkAccent)
+        }
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(
+            data: nil,
+            width: Int(sampleSize.width),
+            height: Int(sampleSize.height),
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+        ) else {
+            return ColorResult(accent: defaultAccent, dark: defaultDarkAccent)
+        }
+        ctx.draw(originalCG, in: CGRect(origin: .zero, size: sampleSize))
+        guard let cgImage = ctx.makeImage(),
               let dataProvider = cgImage.dataProvider,
               let pixelData = dataProvider.data else {
             return ColorResult(accent: defaultAccent, dark: defaultDarkAccent)
@@ -154,9 +179,12 @@ final class ThemeService {
             let g = CGFloat(ptr[offset + 1]) / 255.0
             let b = CGFloat(ptr[offset + 2]) / 255.0
 
-            let uiColor = UIColor(red: r, green: g, blue: b, alpha: 1)
             var h: CGFloat = 0, s: CGFloat = 0, br: CGFloat = 0, a: CGFloat = 0
-            uiColor.getHue(&h, saturation: &s, brightness: &br, alpha: &a)
+            #if os(iOS)
+            UIColor(red: r, green: g, blue: b, alpha: 1).getHue(&h, saturation: &s, brightness: &br, alpha: &a)
+            #else
+            NSColor(red: r, green: g, blue: b, alpha: 1).getHue(&h, saturation: &s, brightness: &br, alpha: &a)
+            #endif
 
             // Filter out near-black, near-white, and desaturated pixels
             guard s > 0.15, br > 0.10, br < 0.95 else { continue }

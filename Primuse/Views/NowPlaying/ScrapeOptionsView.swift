@@ -1,14 +1,51 @@
 import SwiftUI
 import PrimuseKit
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
+
+/// 平台无关的 systemGray / systemGray2 替身 ── iOS 走 UIColor.systemGray*,
+/// macOS 走 NSColor.secondaryLabelColor / tertiaryLabelColor (视觉接近)。
+private extension Color {
+    static var primuseScrapeGray: Color {
+        #if os(iOS)
+        return Color(UIColor.systemGray)
+        #else
+        return Color(NSColor.secondaryLabelColor)
+        #endif
+    }
+    static var primuseScrapeGray2: Color {
+        #if os(iOS)
+        return Color(UIColor.systemGray2)
+        #else
+        return Color(NSColor.tertiaryLabelColor)
+        #endif
+    }
+}
 
 struct ScrapeOptionsView: View {
     let song: Song
     var onComplete: ((Song) -> Void)?
+    /// macOS 上 ScrapeWindowController 把这个 view 装进独立 NSWindow,
+    /// `@Environment(\.dismiss)` 关不掉那个窗口。传一个回调让 view 主动通知
+    /// controller 收起窗口。iOS 路径不传, 走 `dismiss()`。
+    var onCloseRequest: (() -> Void)? = nil
 
     @Environment(MusicLibrary.self) private var library
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(SourceManager.self) private var sourceManager
     @Environment(\.dismiss) private var dismiss
+
+    /// 取消按钮 / 完成时的统一收尾。优先走 onCloseRequest, 没传就走 dismiss。
+    private func closeView() {
+        if let onCloseRequest {
+            onCloseRequest()
+        } else {
+            dismiss()
+        }
+    }
 
     @State private var mode: ScrapeMode = .options
     @State private var previewSource: ScrapeMode = .options
@@ -96,10 +133,12 @@ struct ScrapeOptionsView: View {
                 }
             }
             .navigationTitle("scrape_song")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("cancel") { dismiss() }
+                    Button("cancel") { closeView() }
                 }
             }
         }
@@ -114,9 +153,9 @@ struct ScrapeOptionsView: View {
                     CachedArtworkView(coverRef: song.coverArtFileName, songID: song.id, size: 56, cornerRadius: 8, sourceID: song.sourceID, filePath: song.filePath)
                     VStack(alignment: .leading, spacing: 3) {
                         Text(song.title).font(.subheadline).fontWeight(.semibold).lineLimit(1)
-                        Text(song.artistName ?? "").font(.caption).foregroundStyle(Color(.systemGray)).lineLimit(1)
+                        Text(song.artistName ?? "").font(.caption).foregroundStyle(Color.primuseScrapeGray).lineLimit(1)
                         if song.duration.sanitizedDuration > 0 {
-                            Text(formatDuration(song.duration)).font(.caption2).foregroundStyle(Color(.systemGray2))
+                            Text(formatDuration(song.duration)).font(.caption2).foregroundStyle(Color.primuseScrapeGray2)
                         }
                     }
                 }
@@ -227,7 +266,7 @@ struct ScrapeOptionsView: View {
                     if preview.hasCover {
                         Toggle(isOn: $applyCover) {
                             VStack(alignment: .leading, spacing: 6) {
-                                Text("cover").font(.caption).foregroundStyle(Color(.systemGray))
+                                Text("cover").font(.caption).foregroundStyle(Color.primuseScrapeGray)
                                 HStack(spacing: 8) {
                                     // Current cover
                                     VStack(spacing: 2) {
@@ -237,8 +276,8 @@ struct ScrapeOptionsView: View {
                                     Image(systemName: "arrow.right").font(.caption2).foregroundStyle(.tertiary)
                                     // New cover (from in-memory data)
                                     VStack(spacing: 2) {
-                                        if let data = preview.coverData, let img = UIImage(data: data) {
-                                            Image(uiImage: img)
+                                        if let data = preview.coverData, let img = PlatformImage(data: data) {
+                                            Image(platformImage: img)
                                                 .resizable().aspectRatio(contentMode: .fill)
                                                 .frame(width: 56, height: 56)
                                                 .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -256,7 +295,7 @@ struct ScrapeOptionsView: View {
                     if preview.hasLyrics {
                         Toggle(isOn: $applyLyrics) {
                             HStack(spacing: 6) {
-                                Text("lyrics_word").font(.caption).foregroundStyle(Color(.systemGray)).frame(width: 45, alignment: .leading)
+                                Text("lyrics_word").font(.caption).foregroundStyle(Color.primuseScrapeGray).frame(width: 45, alignment: .leading)
                                 statusBadge(hasLocal: song.lyricsFileName != nil, hasScraped: true,
                                             isChanged: preview.updatedSong.lyricsFileName != song.lyricsFileName)
                                 if preview.lyricsCount > 0 {
@@ -307,11 +346,11 @@ struct ScrapeOptionsView: View {
         if let scraped = scrapedValue {
             Toggle(isOn: isOn) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(label).font(.caption).foregroundStyle(Color(.systemGray))
+                    Text(label).font(.caption).foregroundStyle(Color.primuseScrapeGray)
                     if isChanged {
                         HStack(spacing: 4) {
-                            Text(localValue).font(.caption2).foregroundStyle(Color(.systemGray)).lineLimit(1)
-                            Image(systemName: "arrow.right").font(.system(size: 8)).foregroundStyle(Color(.systemGray2))
+                            Text(localValue).font(.caption2).foregroundStyle(Color.primuseScrapeGray).lineLimit(1)
+                            Image(systemName: "arrow.right").font(.system(size: 8)).foregroundStyle(Color.primuseScrapeGray2)
                             Text(scraped).font(.caption2).fontWeight(.medium).foregroundStyle(.green).lineLimit(1)
                         }
                     } else {
@@ -319,7 +358,7 @@ struct ScrapeOptionsView: View {
                     }
                 }
             }
-            .tint(isChanged ? .green : Color(.systemGray))
+            .tint(isChanged ? .green : Color.primuseScrapeGray)
         }
     }
 
@@ -328,14 +367,14 @@ struct ScrapeOptionsView: View {
         if isChanged {
             HStack(spacing: 3) {
                 Image(systemName: hasLocal ? "checkmark" : "xmark")
-                    .font(.caption2).foregroundStyle(Color(.systemGray))
+                    .font(.caption2).foregroundStyle(Color.primuseScrapeGray)
                 Image(systemName: "arrow.right")
-                    .font(.system(size: 8)).foregroundStyle(Color(.systemGray2))
+                    .font(.system(size: 8)).foregroundStyle(Color.primuseScrapeGray2)
                 Image(systemName: "checkmark")
                     .font(.caption2).foregroundStyle(.green)
             }
         } else {
-            Text(String(localized: "unchanged")).font(.caption2).foregroundStyle(Color(.systemGray2))
+            Text(String(localized: "unchanged")).font(.caption2).foregroundStyle(Color.primuseScrapeGray2)
         }
     }
 
@@ -352,10 +391,17 @@ struct ScrapeOptionsView: View {
         let yearChanged = p.scrapedYear != nil && p.scrapedYear != song.year
         let genreChanged = p.scrapedGenre != nil && p.scrapedGenre != song.genre
 
-        return (titleChanged && applyTitle) || (artistChanged && applyArtist) ||
-               (albumChanged && applyAlbum) || (yearChanged && applyYear) ||
-               (genreChanged && applyGenre) || (p.hasCover && applyCover) ||
-               (p.hasLyrics && applyLyrics)
+        // Swift 编译器对长 || 链 type-check 超时, 拆成数组 reduce。
+        let conditions: [Bool] = [
+            titleChanged && applyTitle,
+            artistChanged && applyArtist,
+            albumChanged && applyAlbum,
+            yearChanged && applyYear,
+            genreChanged && applyGenre,
+            p.hasCover && applyCover,
+            p.hasLyrics && applyLyrics
+        ]
+        return conditions.contains(true)
     }
 
     // MARK: - Manual Search
@@ -400,11 +446,11 @@ struct ScrapeOptionsView: View {
                                 }
                                 HStack(spacing: 4) {
                                     if let artist = item.artist {
-                                        Text(artist).font(.caption).foregroundStyle(Color(.systemGray))
+                                        Text(artist).font(.caption).foregroundStyle(Color.primuseScrapeGray)
                                     }
                                     if let album = item.album {
-                                        Text("·").font(.caption).foregroundStyle(Color(.systemGray2))
-                                        Text(album).font(.caption).foregroundStyle(Color(.systemGray2))
+                                        Text("·").font(.caption).foregroundStyle(Color.primuseScrapeGray2)
+                                        Text(album).font(.caption).foregroundStyle(Color.primuseScrapeGray2)
                                     }
                                 }
                                 .lineLimit(1)
@@ -706,7 +752,7 @@ struct ScrapeOptionsView: View {
         let sm = sourceManager
         let songID = song.id
         let onCompleteRef = onComplete
-        dismiss()
+        closeView()
 
         Task { @MainActor in
             // Persist assets to disk (atomic, fast)
@@ -722,6 +768,9 @@ struct ScrapeOptionsView: View {
             }
 
             lib.replaceSong(final)
+            // 通知正在播放的 mac NowPlaying / mini player / 桌面歌词刷新歌词
+            // (它们 onAppear 时只读了一次, 不重新订阅 song id 的话拿不到新歌词)。
+            NotificationCenter.default.post(name: .primuseLyricsDidChange, object: final.id)
             onCompleteRef?(final)
 
             // Sidecar (cover.jpg / .lrc) 写回 NAS — fire and forget。
@@ -863,12 +912,12 @@ private struct ScraperCoverThumbnail: View {
     let externalId: String
     let sourceConfig: ScraperSourceConfig
 
-    @State private var image: UIImage?
+    @State private var image: PlatformImage?
 
     var body: some View {
         Group {
             if let image {
-                Image(uiImage: image)
+                Image(platformImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
             } else {
@@ -888,7 +937,7 @@ private struct ScraperCoverThumbnail: View {
                 sourceConfig: sourceConfig,
                 timeout: 10
             ),
-               let loaded = UIImage(data: data) {
+               let loaded = PlatformImage(data: data) {
                 image = loaded
             }
         }

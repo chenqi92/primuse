@@ -1,5 +1,11 @@
 import SwiftUI
 import PrimuseKit
+import UserNotifications
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 struct SettingsView: View {
     var body: some View {
@@ -77,11 +83,13 @@ struct SettingsView: View {
                 }
 
                 Section("appearance") {
+                    #if os(iOS)
                     NavigationLink {
                         AppIconSettingsView()
                     } label: {
                         Label("app_icon", systemImage: "app.badge")
                     }
+                    #endif
 
                     NavigationLink {
                         HomeSectionsSettingsView()
@@ -444,8 +452,12 @@ struct MetadataScrapingView: View {
             }
         }
         .navigationTitle("metadata_scraping")
+        #if os(iOS)
+        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
         .environment(\.editMode, isReordering ? .constant(.active) : .constant(.inactive))
+        #endif
         .alert("cookie_config", isPresented: Binding(
             get: { editingCookieSourceId != nil },
             set: { if !$0 { editingCookieSourceId = nil } }
@@ -539,7 +551,9 @@ struct MetadataScrapingView: View {
                 }
             }
             .navigationTitle("import_scraper_source")
-            .navigationBarTitleDisplayMode(.inline)
+            #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("cancel") { showImportSheet = false }
@@ -565,7 +579,9 @@ struct MetadataScrapingView: View {
                 }
             }
             .navigationTitle(source.type.displayName)
-            .navigationBarTitleDisplayMode(.inline)
+            #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("cancel") { editingConfigSource = nil }
@@ -693,7 +709,9 @@ struct PlaybackSettingsView: View {
 
         }
         .navigationTitle("playback_settings")
+        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 }
 
@@ -704,7 +722,7 @@ struct StorageManagementView: View {
     @Environment(PlaybackSettingsStore.self) private var playbackSettings
     @Environment(MetadataBackfillService.self) private var backfill
     @AppStorage(MetadataBackfillService.wifiOnlyDefaultsKey) private var cloudScanWifiOnly: Bool = true
-    @AppStorage(UserNotificationService.backfillCompleteNotificationKey) private var notifyBackfillComplete: Bool = false
+    @AppStorage(UserNotificationService.notifyLongTasksKey) private var notifyBackfillComplete: Bool = false
     /// 系统授权状态 ── 进页面时查一次。用户在系统 Settings 关掉后, toggle
     /// 仍是 on 但显示"已被系统拒绝"提示, 让用户知道为什么开关无效。
     @State private var notificationStatusDenied: Bool = false
@@ -740,12 +758,19 @@ struct StorageManagementView: View {
                 Toggle("notify_backfill_complete", isOn: $notifyBackfillComplete)
                     .onChange(of: notifyBackfillComplete) { _, on in
                         guard on else { return }
-                        // 用户从关 → 开: 主动请求权限。系统第一次会弹对话框,
-                        // 之前 deny 过的话不会再弹, 我们用 currentAuthorizationStatus
-                        // 检测并提示用户去系统 Settings 开。
+                        // 用户从关 → 开: 主动请求权限。UserNotificationService 内部
+                        // 会 lazy 请求, 这里直接发一条 silent 'probe' 触发授权
+                        // 弹窗即可; 之前 deny 过的话不会再弹, 我们改用直接查询
+                        // UNUserNotificationCenter.notificationSettings() 检测。
                         Task {
-                            let granted = await UserNotificationService.requestAuthorization()
-                            if !granted {
+                            let center = UNUserNotificationCenter.current()
+                            let settings = await center.notificationSettings()
+                            if settings.authorizationStatus == .notDetermined {
+                                let granted = (try? await center.requestAuthorization(options: [.alert, .sound])) ?? false
+                                if !granted {
+                                    notificationStatusDenied = true
+                                }
+                            } else if settings.authorizationStatus == .denied {
                                 notificationStatusDenied = true
                             }
                         }
@@ -773,8 +798,8 @@ struct StorageManagementView: View {
                 // 进设置页时查一次系统授权状态。如果用户在 Settings 关掉了,
                 // toggle 显示打开但 notificationStatusDenied 让 UI 提示。
                 if notifyBackfillComplete {
-                    let status = await UserNotificationService.currentAuthorizationStatus()
-                    notificationStatusDenied = (status == .denied)
+                    let settings = await UNUserNotificationCenter.current().notificationSettings()
+                    notificationStatusDenied = (settings.authorizationStatus == .denied)
                 }
             }
 
@@ -867,7 +892,9 @@ struct StorageManagementView: View {
             ShareSheet(items: [item.url])
         }
         .navigationTitle("storage_management")
+        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
         .task { await refreshSizes() }
         .overlay(alignment: .bottom) {
             if let msg = cacheActionToast {
@@ -1092,7 +1119,9 @@ struct TrustedDomainsView: View {
             }
         }
         .navigationTitle("trusted_domains")
+        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -1140,7 +1169,9 @@ struct LicensesView: View {
             }
         }
         .navigationTitle("licenses")
+        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 
     private func licenseRow(_ name: String, _ license: String) -> some View {
@@ -1157,6 +1188,7 @@ struct LicensesView: View {
 
 // MARK: - Share Sheet
 
+#if os(iOS)
 /// SwiftUI 包装的 `UIActivityViewController`，让任意 view 通过 `.sheet`
 /// 弹出系统分享面板（AirDrop / 微信 / 邮件 / 文件 / 等）。
 struct ShareSheet: UIViewControllerRepresentable {
@@ -1168,3 +1200,24 @@ struct ShareSheet: UIViewControllerRepresentable {
 
     func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
 }
+#else
+/// macOS 等价物 ── 调用 NSSharingServicePicker。SwiftUI sheet 里用 onAppear
+/// 在第一次显示时拉起系统分享面板, 然后立即 dismiss 自身。
+struct ShareSheet: View {
+    let items: [Any]
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        Color.clear
+            .frame(width: 1, height: 1)
+            .onAppear {
+                let picker = NSSharingServicePicker(items: items)
+                if let window = NSApp.keyWindow,
+                   let view = window.contentView {
+                    picker.show(relativeTo: .zero, of: view, preferredEdge: .minY)
+                }
+                dismiss()
+            }
+    }
+}
+#endif

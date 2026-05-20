@@ -1,5 +1,12 @@
 import SwiftUI
 import PrimuseKit
+#if os(iOS)
+import UIKit
+typealias YearlyReportShareImage = UIImage
+#elseif os(macOS)
+import AppKit
+typealias YearlyReportShareImage = NSImage
+#endif
 
 /// 年度音乐报告主容器 ── Stories 风格的纵向翻页卡片浏览器。
 ///
@@ -241,14 +248,14 @@ struct YearlyReportView: View {
 
     @MainActor
     private func shareCurrent() {
-        if let uiImage = renderCardImage(card: currentCard) {
-            shareImageItem = ShareImageItem(images: [uiImage])
+        if let image = renderCardImage(card: currentCard) {
+            shareImageItem = ShareImageItem(images: [image])
         }
     }
 
-    /// 公共渲染逻辑: 给定 card, 返回 1080×1920 UIImage。失败返回 nil。
+    /// 公共渲染逻辑: 给定 card, 返回 1080×1920 平台图。失败返回 nil。
     @MainActor
-    private func renderCardImage(card: YearlyReportCard) -> UIImage? {
+    private func renderCardImage(card: YearlyReportCard) -> YearlyReportShareImage? {
         let snapshotView = ZStack {
             card.backgroundGradient(data: data).ignoresSafeArea()
             cardForSharing(card: card)
@@ -265,7 +272,11 @@ struct YearlyReportView: View {
 
         let renderer = ImageRenderer(content: snapshotView)
         renderer.scale = 1
+        #if os(iOS)
         return renderer.uiImage
+        #else
+        return renderer.nsImage
+        #endif
     }
 
     @ViewBuilder
@@ -360,5 +371,5 @@ enum YearlyReportCard: Int, CaseIterable {
 
 private struct ShareImageItem: Identifiable {
     let id = UUID()
-    let images: [UIImage]
+    let images: [YearlyReportShareImage]
 }

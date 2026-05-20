@@ -1825,6 +1825,11 @@ extension Notification.Name {
     /// listeners (SourceManager, MetadataBackfillService) drop stale audio
     /// caches and clear failed-backfill marks for these IDs.
     static let primuseSongContentChanged = Notification.Name("primuse.songContentChanged")
+    /// Posted when lyrics for a song are replaced by a user action such as
+    /// manual scraping. Current playback surfaces (MacNowPlayingView,
+    /// MacMiniPlayerView, DesktopLyricsView) reload their in-memory lyrics
+    /// when their current song matches `note.object as? String`.
+    static let primuseLyricsDidChange = Notification.Name("primuse.lyricsDidChange")
     /// Posted when songs leave the library because the user deleted them or a
     /// complete re-scan no longer sees their source files. `userInfo["songs"]`
     /// is the removed `[Song]`; listeners drop audio/artwork/lyrics caches.

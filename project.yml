@@ -3,6 +3,7 @@ options:
   bundleIdPrefix: com.welape
   deploymentTarget:
     iOS: "18.0"
+    macOS: "26.0"
     watchOS: "10.0"
   xcodeVersion: "16.0"
   defaultConfig: Debug
@@ -65,6 +66,20 @@ schemes:
         # Other Items, 不能直接 distribute 上 App Store。
     run:
       config: Debug
+    archive:
+      config: Release
+
+  PrimuseMac:
+    build:
+      targets:
+        PrimuseMac: all
+        PrimuseKit: all
+    run:
+      config: Debug
+      executable: PrimuseMac
+    profile:
+      config: Release
+      executable: PrimuseMac
     archive:
       config: Release
 
@@ -191,7 +206,7 @@ targets:
 
   PrimuseKit:
     type: framework
-    platform: iOS
+    supportedDestinations: [iOS, macOS]
     sources:
       - path: PrimuseKit/Sources/PrimuseKit
     dependencies:
@@ -202,12 +217,19 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.welape.yuanyin.kit
         GENERATE_INFOPLIST_FILE: YES
         SKIP_INSTALL: YES
+        IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+        MACOSX_DEPLOYMENT_TARGET: "26.0"
 
   PrimuseWidgetExtension:
     type: app-extension
     platform: iOS
     sources:
       - path: PrimuseWidgetExtension
+      # AppIntents 跨进程: widget extension 进程独立, 需要 link 同一组 intent
+      # 类型 (PrimuseSetPlayingIntent / PrimuseNextIntent / 等), 直接复用主 app
+      # 的源文件。perform() 走 PrimuseIntentBridge (PrimuseKit 内), widget 进程
+      # 里 bridge 为空, iOS 会唤醒主 app 走真实逻辑。
+      - path: Primuse/Services/Intents/PrimuseAppIntents.swift
     dependencies:
       - target: PrimuseKit
       - package: GRDB
@@ -296,6 +318,8 @@ targets:
     platform: iOS
     sources:
       - path: PrimuseActivityExtension
+      # 同 PrimuseWidgetExtension: live activity 进程也需要 intent 类型符号。
+      - path: Primuse/Services/Intents/PrimuseAppIntents.swift
     dependencies:
       - target: PrimuseKit
       - sdk: WidgetKit.framework
@@ -316,3 +340,102 @@ targets:
         SKIP_INSTALL: YES
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         CODE_SIGN_ENTITLEMENTS: Config/PrimuseActivityExtension.entitlements
+
+  PrimuseMac:
+    type: application
+    platform: macOS
+    configFiles:
+      Debug: Config/Debug.xcconfig
+      Release: Config/Release.xcconfig
+    sources:
+      - path: Primuse
+        excludes:
+          - "**/.DS_Store"
+          # iOS 的 Info.plist 不能进 mac bundle ── 它会被当成嵌套 bundle
+          # Resources/Info.plist 触发 App Store 上传报 90261/90277/90280。
+          # mac 的 INFOPLIST_FILE 已指向 Info-macOS.plist。
+          - "Info.plist"
+          - "Info-macOS.plist"
+          - "**/AppSecrets.example.swift"
+    resources:
+      - path: Primuse/Resources
+    dependencies:
+      - package: GRDB
+      - package: AMSMB2
+        embed: true
+      - package: FilesProvider
+        product: FilesProvider
+      - package: Citadel
+        product: Citadel
+      - package: SwiftCrypto
+        product: Crypto
+      - package: SwiftNIO
+        product: NIOCore
+      - package: NFSKit
+        product: NFSKit
+      - package: SFBAudioEngine
+        product: SFBAudioEngine
+      - sdk: AppIntents.framework
+      - sdk: iTunesLibrary.framework
+      - target: PrimuseKit
+    info:
+      path: Primuse/Info-macOS.plist
+      properties:
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        # Default (English) — overridden per-locale in InfoPlist.strings.
+        CFBundleDisplayName: "Primuse"
+        CFBundleName: "Primuse"
+        LSApplicationCategoryType: "public.app-category.music"
+        LSMinimumSystemVersion: "$(MACOSX_DEPLOYMENT_TARGET)"
+        NSHumanReadableCopyright: "© Welape"
+        ITSAppUsesNonExemptEncryption: false
+        NSAppleMusicUsageDescription: "Primuse needs access to your Apple Music / iTunes library to import its local tracks as a playback source."
+        CFBundleURLTypes:
+          - CFBundleURLSchemes:
+              - primuse
+            CFBundleURLName: "com.welape.yuanyin.oauth"
+          - CFBundleURLSchemes:
+              - "$(GOOGLE_REVERSED_CLIENT_ID)"
+            CFBundleURLName: "com.welape.yuanyin.google-oauth"
+          - CFBundleURLSchemes:
+              - "msauth.$(PRODUCT_BUNDLE_IDENTIFIER)"
+            CFBundleURLName: "com.welape.yuanyin.microsoft-oauth"
+        PrimuseBaiduClientID: "$(BAIDU_CLIENT_ID)"
+        PrimuseBaiduClientSecret: "$(BAIDU_CLIENT_SECRET)"
+        PrimuseDropboxClientID: "$(DROPBOX_CLIENT_ID)"
+        PrimuseDropboxClientSecret: "$(DROPBOX_CLIENT_SECRET)"
+        PrimuseGoogleClientID: "$(GOOGLE_CLIENT_ID)"
+        PrimuseGoogleReversedClientID: "$(GOOGLE_REVERSED_CLIENT_ID)"
+        PrimuseOneDriveClientID: "$(ONEDRIVE_CLIENT_ID)"
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+          NSAllowsLocalNetworking: true
+        NSLocalNetworkUsageDescription: "Primuse needs local network access to discover and connect to your NAS devices, media servers, and other music sources."
+        NSBonjourServices:
+          - "_smb._tcp."
+          - "_webdav._tcp."
+          - "_webdavs._tcp."
+          - "_ftp._tcp."
+          - "_sftp-ssh._tcp."
+          - "_nfs._tcp."
+          - "_diskstation._tcp."
+          - "_synology-dsm._tcp."
+          - "_http._tcp."
+          - "_https._tcp."
+    settings:
+      base:
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon-Mac
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        SWIFT_EMIT_LOC_STRINGS: YES
+        # Universal Purchase: 跟 iOS 共用同一个 bundle ID,这样上传后会
+        # 自动落到 App Store Connect 现有"猿音"record 的 macOS 槽位下,
+        # 用户买一次两端都能用,共享评分 / 评论 / 通知池。
+        PRODUCT_BUNDLE_IDENTIFIER: com.welape.yuanyin
+        CODE_SIGN_ENTITLEMENTS: Config/PrimuseMac.entitlements
+        SWIFT_OBJC_BRIDGING_HEADER: Primuse/Primuse-Bridging-Header.h
+        # macOS 独立版本号 — Mac 是新平台首发,从 1.0.0 起步,
+        # 与 iOS 的 MARKETING_VERSION/CURRENT_PROJECT_VERSION 解耦
+        # (即使 bundle ID 相同,iOS 和 macOS 在 ASC 内仍是独立版本流)。
+        MARKETING_VERSION: "1.1.0"
+        CURRENT_PROJECT_VERSION: "2"

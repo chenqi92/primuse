@@ -4,8 +4,13 @@ import Foundation
 import MediaPlayer
 import PrimuseKit
 import SFBAudioEngine
+#if os(iOS)
 import UIKit
 import WidgetKit
+#elseif os(macOS)
+import AppKit
+import WidgetKit
+#endif
 
 /// Mutable counter that can be captured by @Sendable closures (e.g. Timer callbacks wrapped in Task).
 private final class StepCounter: @unchecked Sendable {
@@ -1471,6 +1476,19 @@ final class AudioPlayerService {
         if shuffleEnabled { rebuildShuffleOrder() }
     }
 
+    /// 删掉队列前 `count` 首歌, 同时把 `currentIndex` 往前平移 (不让它跑负)。
+    /// MacQueuePanel 的 "清掉已播放" 按钮直接调这个 ── 之前是把 player.queue
+    /// 当 var 用, 但 queue 现在是 computed。
+    func removeQueuePrefix(count: Int) {
+        guard count > 0 else { return }
+        let toRemove = min(count, queueEntries.count)
+        queueGeneration += 1
+        queueEntries.removeFirst(toRemove)
+        currentIndex = max(0, currentIndex - toRemove)
+        pendingNextShuffleIndices = nil
+        if shuffleEnabled { rebuildShuffleOrder() }
+    }
+
     /// Wipe the queue. Replaces the legacy `player.queue = []` setter,
     /// which is no longer accessible since `queue` is now computed.
     func clearQueue() {
@@ -2259,17 +2277,17 @@ final class AudioPlayerService {
             let store = MetadataAssetStore.shared
 
             // Tier 1: songID-based cache (透明处理 content-addressed redirect)
-            var loadedImage: UIImage?
+            var loadedImage: PlatformImage?
             let hashedName = store.expectedCoverFileName(for: songID)
             if let data = store.readCoverData(named: hashedName) {
-                loadedImage = UIImage(data: data)
+                loadedImage = PlatformImage(data: data)
             }
 
             // Tier 2: legacy filename (local hashed filename, no "/" or "://")
             if loadedImage == nil, let coverRef, !coverRef.isEmpty,
                !coverRef.contains("/"), !coverRef.contains("://") {
                 if let data = store.readCoverData(named: coverRef) {
-                    loadedImage = UIImage(data: data)
+                    loadedImage = PlatformImage(data: data)
                 }
             }
 
@@ -2296,7 +2314,7 @@ final class AudioPlayerService {
                 if let data = fetchedData {
                     // Cache for next time
                     await store.cacheCover(data, forSongID: songID)
-                    loadedImage = UIImage(data: data)
+                    loadedImage = PlatformImage(data: data)
                 }
             }
 
@@ -2309,7 +2327,7 @@ final class AudioPlayerService {
                     let metadata = await FileMetadataReader.read(from: cachedURL)
                     if let coverData = metadata.coverArtData {
                         await store.cacheCover(coverData, forSongID: songID)
-                        loadedImage = UIImage(data: coverData)
+                        loadedImage = PlatformImage(data: coverData)
                     }
                 }
             }
@@ -2336,7 +2354,7 @@ final class AudioPlayerService {
         updateNowPlayingArtworkIfNeeded()
     }
 
-    func updateNowPlayingArtwork(_ image: UIImage) {
+    func updateNowPlayingArtwork(_ image: PlatformImage) {
         lastArtworkFileName = currentSong?.coverArtFileName
         let artwork = Self.makeArtwork(from: image)
         var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
@@ -2347,7 +2365,7 @@ final class AudioPlayerService {
     /// Creates MPMediaItemArtwork with a non-isolated requestHandler closure.
     /// Must be nonisolated so the closure doesn't inherit @MainActor isolation —
     /// MediaPlayer calls the handler on a background dispatch queue.
-    nonisolated private static func makeArtwork(from image: UIImage) -> MPMediaItemArtwork {
+    nonisolated private static func makeArtwork(from image: PlatformImage) -> MPMediaItemArtwork {
         let safeImage = image
         return MPMediaItemArtwork(boundsSize: image.size) { _ in safeImage }
     }
@@ -2417,6 +2435,13 @@ final class AudioPlayerService {
     /// Coalesces repeated WidgetKit reload requests with identical content.
     private var lastWidgetTimelineSignature: String?
 
+    /// macOS Widget Sync 设置页里 "立即更新" 按钮直接调这个。包装一下 private
+     /// 的 updatePlaybackState, 让 mac 设置面板可以强制刷一遍 widget 状态而无需
+     /// 把整个内部方法暴露成 public。
+    func publishWidgetStateForMacWidgetSync() {
+        updatePlaybackState()
+    }
+
     private func updatePlaybackState() {
         var coverName: String?
         var recentAlbumsChanged = false
@@ -2473,8 +2498,12 @@ final class AudioPlayerService {
 
     /// Writes a cover image to the App Group shared container for Widget rendering.
     /// Returns the filename if successful.
+    ///
+    /// 仅 iOS 实现 ── macOS 上 WidgetKit 的桌面 widget 通过另外的 MacWidgetSync
+    /// 通道渲染, 不走 App Group cover.png 这条路。
     @discardableResult
     private func writeWidgetCover(song: Song, fileName: String, size: CGFloat = 300) -> String? {
+        #if os(iOS)
         guard let containerURL = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier
         ) else { return nil }
@@ -2529,6 +2558,9 @@ final class AudioPlayerService {
         } catch {
             return nil
         }
+        #else
+        return nil
+        #endif
     }
 
     private func sharedWidgetCoverExists(named fileName: String) -> Bool {

@@ -38,7 +38,9 @@ struct OnboardingView: View {
                     sourcesPage.tag(1)
                     privacyPage.tag(2)
                 }
+                #if os(iOS)
                 .tabViewStyle(.page(indexDisplayMode: .never))
+                #endif
                 .frame(maxHeight: .infinity)
 
                 pageDots
@@ -49,24 +51,10 @@ struct OnboardingView: View {
                     .padding(.bottom, 36)
             }
         }
-        .fullScreenCover(isPresented: $presentAddSource) {
-            // 加完 source 关掉 onboarding。
-            NavigationStack {
-                SourceTypeSelectionView { source in
-                    AppServices.shared.sourcesStore.add(source)
-                    presentAddSource = false
-                    finish()
-                }
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button(String(localized: "skip")) {
-                            presentAddSource = false
-                            finish()
-                        }
-                    }
-                }
-            }
-        }
+        .modifier(OnboardingAddSourceCoverModifier(
+            presentAddSource: $presentAddSource,
+            finish: finish
+        ))
     }
 
     private var welcomePage: some View {
@@ -200,5 +188,39 @@ struct OnboardingView: View {
     private func finish() {
         hasSeenOnboarding = true
         dismiss()
+    }
+}
+
+
+/// macOS 没有 fullScreenCover, 用 sheet 替代显示 AddSourceView; iOS 上保持
+/// 原 fullScreenCover 行为, 让 onboarding 后的资料库添加流程占满全屏。
+private struct OnboardingAddSourceCoverModifier: ViewModifier {
+    @Binding var presentAddSource: Bool
+    var finish: () -> Void
+
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        content.fullScreenCover(isPresented: $presentAddSource) { sheetContent }
+        #else
+        content.sheet(isPresented: $presentAddSource) { sheetContent }
+        #endif
+    }
+
+    private var sheetContent: some View {
+        NavigationStack {
+            SourceTypeSelectionView { source in
+                AppServices.shared.sourcesStore.add(source)
+                presentAddSource = false
+                finish()
+            }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(String(localized: "skip")) {
+                        presentAddSource = false
+                        finish()
+                    }
+                }
+            }
+        }
     }
 }

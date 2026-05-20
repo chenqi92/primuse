@@ -2,6 +2,11 @@ import AVKit
 import SwiftUI
 import Translation
 import PrimuseKit
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 struct NowPlayingView: View {
     var onMinimize: (() -> Void)? = nil
@@ -37,8 +42,14 @@ struct NowPlayingView: View {
 
     /// Top safe area height (dynamic island / status bar)
     private var topSafeArea: CGFloat {
+        #if os(iOS)
         (UIApplication.shared.connectedScenes.first as? UIWindowScene)?
             .keyWindow?.safeAreaInsets.top ?? 59
+        #else
+        // macOS 没有 dynamic island / 状态栏 safe area, 标题栏由窗口 chrome
+        // 负责, NowPlayingView 内容直接顶到窗口客户区上沿即可。
+        0
+        #endif
     }
 
     /// iPad 横屏(regular size class + 宽 > 高)启用左右双栏 —— 左封面 + 控件,
@@ -1140,6 +1151,7 @@ struct AddToPlaylistSheet: View {
     }
 }
 
+#if os(iOS)
 struct AirPlayButton: UIViewRepresentable {
     func makeUIView(context: Context) -> AVRoutePickerView {
         let v = AVRoutePickerView()
@@ -1150,6 +1162,15 @@ struct AirPlayButton: UIViewRepresentable {
     }
     func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
 }
+#else
+/// macOS 上 AVRoutePickerView 是 NSView, tint / activeTint API 也不一样。
+/// 但 NowPlayingView 的 iOS 全屏播放器 (含 AirPlay 按钮) 在 macOS 上不会出现
+/// (Mac 用 MacNowPlayingView), 这里给一个能编译的占位空视图, 避免 import
+/// 链断开。真用到再走 AVRoutePickerView (NSView) 适配。
+struct AirPlayButton: View {
+    var body: some View { Color.clear.frame(width: 44, height: 44) }
+}
+#endif
 
 // MARK: - LyricsScrollView (隔离的歌词渲染子 view)
 

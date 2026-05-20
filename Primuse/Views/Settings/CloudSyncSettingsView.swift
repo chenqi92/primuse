@@ -1,6 +1,8 @@
 import SwiftUI
 #if os(iOS)
+#if os(iOS)
 import UIKit
+#endif
 #else
 import AppKit
 #endif

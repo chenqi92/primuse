@@ -1,3 +1,4 @@
+#if os(iOS)
 import OSLog
 import PrimuseKit
 import SwiftUI
@@ -48,3 +49,5 @@ final class ExternalDisplaySceneDelegate: UIResponder, UIWindowSceneDelegate {
         self.window = nil
     }
 }
+
+#endif

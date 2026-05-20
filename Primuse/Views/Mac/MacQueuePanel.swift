@@ -165,8 +165,7 @@ struct MacQueuePanel: View {
 
     private func clearPlayed(uptoIndex: Int) {
         guard uptoIndex > 0, uptoIndex <= player.queue.count else { return }
-        player.queue.removeFirst(uptoIndex)
-        player.currentIndex = max(0, player.currentIndex - uptoIndex)
+        player.removeQueuePrefix(count: uptoIndex)
     }
 }
 #endif

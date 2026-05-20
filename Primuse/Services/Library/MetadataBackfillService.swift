@@ -1,7 +1,9 @@
 import CryptoKit
 import Foundation
 import PrimuseKit
+#if os(iOS)
 import UIKit
+#endif
 
 /// Fills in metadata for songs that were added by ConnectorScanner in
 /// "bare-song" mode (cloud sources only download a few hundred KB during
@@ -61,7 +63,11 @@ final class MetadataBackfillService {
     /// Worker 持有的 UIBackgroundTask ID, app 切到后台时给 backfill ~30 秒额外
     /// 收尾时间。worker 完成 / stop 时释放。expirationHandler 兜底 ── 系统提前
     /// 回收时主动 stop, 不留半挂状态。
+    /// macOS 没有 UIBackgroundTask 机制 ── app 切后台就是后台进程, 不会被立即
+    /// 挂起, 所以这块代码用 `#if os(iOS)` 整体守卫。
+    #if os(iOS)
     private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+    #endif
 
     init(library: MusicLibrary, sourceManager: SourceManager) {
         self.library = library
@@ -263,12 +269,12 @@ final class MetadataBackfillService {
                 // postIfEnabled 内部会检查用户在设置页是否开了开关 + 系统是否已授权,
                 // 不满足条件直接 noop。
                 if processed >= 5 && !self.hasPendingWork {
+                    let processedCount = processed
                     Task {
-                        await UserNotificationService.postIfEnabled(
-                            userDefaultsKey: UserNotificationService.backfillCompleteNotificationKey,
+                        await UserNotificationService.shared.postLongTaskCompletion(
+                            category: .rescrapeLibraryDone,
                             title: String(localized: "backfill_done_title"),
-                            body: String(format: String(localized: "backfill_done_body"), processed),
-                            identifier: "primuse.backfill.done"
+                            body: String(format: String(localized: "backfill_done_body"), processedCount)
                         )
                     }
                 }
@@ -277,6 +283,7 @@ final class MetadataBackfillService {
     }
 
     private func beginBackgroundTaskIfNeeded() {
+        #if os(iOS)
         guard backgroundTaskID == .invalid else { return }
         backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "primuse.backfill") { [weak self] in
             // System wants the time back ── stop worker gracefully, release token.
@@ -288,14 +295,17 @@ final class MetadataBackfillService {
             }
         }
         plog("📥 Backfill: beginBackgroundTask id=\(backgroundTaskID.rawValue)")
+        #endif
     }
 
     private func endBackgroundTaskIfHeld() {
+        #if os(iOS)
         guard backgroundTaskID != .invalid else { return }
         let id = backgroundTaskID
         backgroundTaskID = .invalid
         UIApplication.shared.endBackgroundTask(id)
         plog("📥 Backfill: endBackgroundTask id=\(id.rawValue)")
+        #endif
     }
 
     /// Stop the worker after the in-flight song finishes. Safe to call on

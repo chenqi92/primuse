@@ -1,6 +1,8 @@
 #if os(iOS)
 import SwiftUI
+#if os(iOS)
 import UIKit
+#endif
 import WidgetKit
 import PrimuseKit
 

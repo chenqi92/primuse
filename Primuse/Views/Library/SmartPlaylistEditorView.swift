@@ -1,5 +1,22 @@
 import SwiftUI
 import PrimuseKit
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
+
+/// 平台无关的 Form / Card 系背景色 ── iOS 用 systemBackground (跟 List 卡同色),
+/// macOS 用 windowBackgroundColor。
+private extension Color {
+    static var primuseFormCardBackground: Color {
+        #if os(iOS)
+        return Color(UIColor.systemBackground)
+        #else
+        return Color(NSColor.windowBackgroundColor)
+        #endif
+    }
+}
 
 /// 智能歌单创建 / 编辑器。
 ///
@@ -99,12 +116,14 @@ struct SmartPlaylistEditorView: View {
                 }
             }
             .navigationTitle(isEditing ? "smart_playlist_edit" : "smart_playlist_new")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("cancel") { dismiss() }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .confirmationAction) {
                     Button("save") { save() }
                         .disabled(!canSave)
                 }
@@ -373,7 +392,7 @@ private struct SmartPlaylistRuleEditorRow: View {
 
     private var roundedFieldBackground: some View {
         RoundedRectangle(cornerRadius: 10)
-            .fill(Color(.systemBackground))
+            .fill(Color.primuseFormCardBackground)
             .overlay(
                 RoundedRectangle(cornerRadius: 10)
                     .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
@@ -515,7 +534,7 @@ private struct BetweenInput: View {
 
     private var boxBackground: some View {
         RoundedRectangle(cornerRadius: 10)
-            .fill(Color(.systemBackground))
+            .fill(Color.primuseFormCardBackground)
             .overlay(
                 RoundedRectangle(cornerRadius: 10)
                     .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
@@ -567,7 +586,7 @@ private struct SmartPlaylistPicker: View {
             .padding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: 10)
-                    .fill(Color(.systemBackground))
+                    .fill(Color.primuseFormCardBackground)
                     .overlay(
                         RoundedRectangle(cornerRadius: 10)
                             .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
@@ -654,7 +673,7 @@ private func pickerLabel(systemImage: String, text: String) -> some View {
     .padding(.vertical, 8)
     .background(
         RoundedRectangle(cornerRadius: 10)
-            .fill(Color(.systemBackground))
+            .fill(Color.primuseFormCardBackground)
             .overlay(
                 RoundedRectangle(cornerRadius: 10)
                     .stroke(Color.secondary.opacity(0.2), lineWidth: 1)

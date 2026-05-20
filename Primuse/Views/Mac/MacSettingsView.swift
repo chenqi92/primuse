@@ -89,6 +89,12 @@ struct MacSettingsView: View {
     }
 }
 
+/// 持久化 key 的命名空间 ── 之前是单独 file 上的 enum, 合并 main 时被覆盖掉,
+/// 这里就近放, 仅在 MacWidgetSyncSettingsView 用。
+private enum MacWidgetSyncSettings {
+    static let isEnabledKey = "primuse.mac.widgetSyncEnabled"
+}
+
 private struct MacWidgetSyncSettingsView: View {
     @Environment(AudioPlayerService.self) private var player
     @AppStorage(MacWidgetSyncSettings.isEnabledKey) private var enabled: Bool = false

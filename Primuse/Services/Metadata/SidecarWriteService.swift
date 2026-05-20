@@ -1,7 +1,9 @@
 import Foundation
 import PrimuseKit
 #if os(iOS)
+#if os(iOS)
 import UIKit
+#endif
 #else
 import AppKit
 #endif

@@ -1,5 +1,10 @@
 import SwiftUI
 import PrimuseKit
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 struct HomeView: View {
     var switchToSettingsTab: (() -> Void)?
@@ -50,9 +55,16 @@ struct HomeView: View {
             }
             // 改用 fullScreenCover + 透明背景实现居中 modal 弹框, 替代之前
             // 的底部 sheet (sheet 视觉上像"双层弹框", 用户反馈丑)。
+            // macOS 没有 fullScreenCover, 退化成普通 sheet。
+            #if os(iOS)
             .fullScreenCover(isPresented: $showUpdateSheet) {
                 UpdateBannerSheet()
             }
+            #else
+            .sheet(isPresented: $showUpdateSheet) {
+                UpdateBannerSheet()
+            }
+            #endif
         }
     }
 
@@ -666,7 +678,11 @@ struct HomeView: View {
             Spacer(minLength: 0)
         }
         .padding(8)
+        #if os(iOS)
         .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+        #else
+        .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+        #endif
     }
 
     // MARK: - Top Artists

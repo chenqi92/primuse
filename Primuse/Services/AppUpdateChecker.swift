@@ -1,6 +1,10 @@
 import Foundation
 import SwiftUI
+#if os(iOS)
 import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 /// Polls Apple's iTunes Lookup API to learn whether the current build is
 /// behind App Store, surfaces a banner inviting the user to update.
@@ -107,7 +111,11 @@ final class AppUpdateChecker {
     /// Open App Store at the app's listing.
     func openAppStore() {
         guard let url = availableUpdate?.storeURL else { return }
+        #if os(iOS)
         UIApplication.shared.open(url)
+        #elseif os(macOS)
+        NSWorkspace.shared.open(url)
+        #endif
     }
 
     // MARK: - Private

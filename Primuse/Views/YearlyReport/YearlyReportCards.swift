@@ -13,32 +13,46 @@ struct YearlyArtView: View {
     let fallbackText: String?
 
     var body: some View {
+        #if os(iOS)
         if let img = UIImage(named: assetName) {
             Image(uiImage: img)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
         } else {
-            ZStack {
-                RoundedRectangle(cornerRadius: 24)
-                    .fill(LinearGradient(
-                        colors: [Color.white.opacity(0.18), Color.white.opacity(0.05)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    ))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 24)
-                            .stroke(Color.white.opacity(0.2), lineWidth: 1)
-                    )
-                VStack(spacing: 6) {
-                    Image(systemName: fallbackSymbol)
-                        .font(.system(size: 50, weight: .light))
-                    if let fallbackText {
-                        Text(fallbackText)
-                            .font(.caption2.weight(.semibold))
-                    }
+            fallbackContent
+        }
+        #else
+        if let img = NSImage(named: assetName) {
+            Image(nsImage: img)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+        } else {
+            fallbackContent
+        }
+        #endif
+    }
+
+    private var fallbackContent: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 24)
+                .fill(LinearGradient(
+                    colors: [Color.white.opacity(0.18), Color.white.opacity(0.05)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                ))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24)
+                        .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                )
+            VStack(spacing: 6) {
+                Image(systemName: fallbackSymbol)
+                    .font(.system(size: 50, weight: .light))
+                if let fallbackText {
+                    Text(fallbackText)
+                        .font(.caption2.weight(.semibold))
                 }
-                .foregroundStyle(.white.opacity(0.8))
             }
+            .foregroundStyle(.white.opacity(0.8))
         }
     }
 }

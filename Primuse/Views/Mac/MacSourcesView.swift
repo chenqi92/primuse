@@ -361,10 +361,7 @@ struct MacSourcesView: View {
 
     private func toggleSourceEnabled(_ source: MusicSource) {
         updateSource(source.id) { $0.isEnabled.toggle() }
-        library.updateSourceVisibility(
-            activeSourceIDs: Set(sourceStore.sources.map(\.id)),
-            disabledSourceIDs: disabledSourceIDs
-        )
+        library.updateDisabledSourceIDs(disabledSourceIDs)
     }
 
     private var disabledSourceIDs: Set<String> {

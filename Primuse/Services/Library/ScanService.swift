@@ -2,7 +2,9 @@ import Foundation
 import PrimuseKit
 #if os(iOS)
 import BackgroundTasks
+#if os(iOS)
 import UIKit
+#endif
 #endif
 
 /// Manages music source scanning state and tasks.

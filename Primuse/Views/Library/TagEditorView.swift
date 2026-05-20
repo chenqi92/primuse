@@ -1,6 +1,11 @@
 import SwiftUI
 import PhotosUI
 import PrimuseKit
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 /// 用户手动编辑歌曲元数据 ── 标题 / 艺术家 / 专辑 / 年份 / 流派 / 曲号 / 碟号
 /// 以及封面。不改文件本身的 tag (NAS / 云盘文件不可直接写),只更新 Primuse
@@ -136,8 +141,12 @@ struct TagEditorView: View {
 
     @ViewBuilder
     private var coverPreview: some View {
-        if let data = pickedCoverData, let img = UIImage(data: data) {
+        if let data = pickedCoverData, let img = PlatformImage(data: data) {
+            #if os(iOS)
             Image(uiImage: img).resizable().aspectRatio(contentMode: .fill)
+            #else
+            Image(nsImage: img).resizable().aspectRatio(contentMode: .fill)
+            #endif
         } else {
             CachedArtworkView(
                 coverRef: song.coverArtFileName,
@@ -166,6 +175,7 @@ struct TagEditorView: View {
     }
 
     private func downscale(data: Data, maxLongSide: CGFloat) -> Data? {
+        #if os(iOS)
         guard let image = UIImage(data: data) else { return nil }
         let longSide = max(image.size.width, image.size.height)
         guard longSide > maxLongSide else { return image.jpegData(compressionQuality: 0.86) }
@@ -176,6 +186,41 @@ struct TagEditorView: View {
             image.draw(in: CGRect(origin: .zero, size: target))
         }
         return resized.jpegData(compressionQuality: 0.86)
+        #else
+        // macOS 没有 UIGraphicsImageRenderer, 用 CGContext 走通用的 bitmap
+        // 渲染 → JPEG 编码路径。Apple 推荐的 NSImage 缩放 (lockFocus / draw)
+        // 会引入坐标系 + DPI 麻烦, 直接 CGImage + CGContext 最干净。
+        guard let image = NSImage(data: data),
+              let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            return nil
+        }
+        let width = CGFloat(cgImage.width)
+        let height = CGFloat(cgImage.height)
+        let longSide = max(width, height)
+        let resized: CGImage
+        if longSide > maxLongSide {
+            let scale = maxLongSide / longSide
+            let target = CGSize(width: width * scale, height: height * scale)
+            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            guard let ctx = CGContext(
+                data: nil,
+                width: Int(target.width),
+                height: Int(target.height),
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return nil }
+            ctx.interpolationQuality = .high
+            ctx.draw(cgImage, in: CGRect(origin: .zero, size: target))
+            guard let scaled = ctx.makeImage() else { return nil }
+            resized = scaled
+        } else {
+            resized = cgImage
+        }
+        let rep = NSBitmapImageRep(cgImage: resized)
+        return rep.representation(using: .jpeg, properties: [.compressionFactor: 0.86])
+        #endif
     }
 
     /// 跟原始 Song 比对 ── 全部 trim 后比较,没差就 disable 保存按钮,

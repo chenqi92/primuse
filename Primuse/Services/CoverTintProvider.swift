@@ -1,6 +1,10 @@
 import Foundation
 import SwiftUI
+#if os(iOS)
 import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 import PrimuseKit
 
 /// Per-song dominant-color cache. Used by HomeView's recommendation /
@@ -70,7 +74,7 @@ final class CoverTintProvider {
            !coverFileName.contains("://") {
             data = MetadataAssetStore.shared.readCoverData(named: coverFileName)
         }
-        guard let data, let image = UIImage(data: data) else { return nil }
+        guard let data, let image = PlatformImage(data: data) else { return nil }
         return ThemeService.extractDominantColor(from: image).accent
     }
 }

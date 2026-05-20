@@ -1,5 +1,9 @@
 import SwiftUI
+#if os(iOS)
 import SafariServices
+#elseif os(macOS)
+import AppKit
+#endif
 import PrimuseKit
 
 /// 听歌记录上报 (scrobble) 设置 — Last.fm / ListenBrainz 等。
@@ -53,20 +57,34 @@ struct ScrobbleSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .onAppear { loadStoredTokens() }
+        #if os(iOS)
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
             guard lastFmPendingToken != nil,
                   !lastFmConnected,
                   !isLoggingInLastFm else { return }
             Task { await confirmLastFmAuthorization(showError: false) }
         }
+        #else
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            guard lastFmPendingToken != nil,
+                  !lastFmConnected,
+                  !isLoggingInLastFm else { return }
+            Task { await confirmLastFmAuthorization(showError: false) }
+        }
+        #endif
         .sheet(item: $lastFmAuthSession, onDismiss: {
             guard lastFmPendingToken != nil,
                   !lastFmConnected,
                   !isLoggingInLastFm else { return }
             Task { await confirmLastFmAuthorization(showError: true) }
         }) { session in
+            #if os(iOS)
             LastFmAuthSafariView(url: session.url)
                 .ignoresSafeArea()
+            #else
+            // macOS 直接走系统默认浏览器, sheet 弹一个简短提示后立即 dismiss。
+            LastFmAuthOpenInBrowser(url: session.url)
+            #endif
         }
         .alert("scrobble_lastfm_signout_confirm", isPresented: $showLastFmSignOutConfirm) {
             Button("scrobble_lastfm_signout", role: .destructive) {
@@ -392,6 +410,7 @@ private struct LastFmAuthSession: Identifiable {
     var id: String { token }
 }
 
+#if os(iOS)
 private struct LastFmAuthSafariView: UIViewControllerRepresentable {
     let url: URL
 
@@ -403,3 +422,26 @@ private struct LastFmAuthSafariView: UIViewControllerRepresentable {
 
     func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
 }
+#else
+/// macOS 不支持 SFSafariViewController, 改用 NSWorkspace 打开默认浏览器, 然后
+/// 立即 dismiss sheet。用户在浏览器里完成 OAuth 后回到 app, onDismiss 走
+/// confirmLastFmAuthorization 兑换 sessionKey。
+private struct LastFmAuthOpenInBrowser: View {
+    let url: URL
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 16) {
+            ProgressView()
+            Text("scrobble_lastfm_signin_browser_prompt")
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+        }
+        .frame(width: 320, height: 160)
+        .onAppear {
+            NSWorkspace.shared.open(url)
+            dismiss()
+        }
+    }
+}
+#endif

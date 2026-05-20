@@ -2,7 +2,9 @@ import CoreSpotlight
 import Foundation
 import OSLog
 import PrimuseKit
+#if os(iOS)
 import UIKit
+#endif
 
 private let spotlightLog = Logger(subsystem: "com.welape.yuanyin", category: "Spotlight")
 
@@ -192,13 +194,20 @@ final class SpotlightIndexService {
         let raw: Data? = await MainActor.run {
             MetadataAssetStore.shared.readCoverData(named: coverArtFileName)
         }
-        guard let raw, let image = UIImage(data: raw) else { return nil }
+        guard let raw else { return nil }
+        #if os(iOS)
+        guard let image = UIImage(data: raw) else { return nil }
         let target = CGSize(width: 128, height: 128)
         let renderer = UIGraphicsImageRenderer(size: target)
         let small = renderer.image { _ in
             image.draw(in: CGRect(origin: .zero, size: target))
         }
         return small.jpegData(compressionQuality: 0.7)
+        #else
+        // macOS 没有 Spotlight (CoreSpotlight 在 macOS 也可用, 但本服务 currently
+        // 只在 iOS Spotlight 中露出); 直接返回原 JPEG, Spotlight 会自己裁切。
+        return raw
+        #endif
     }
 }
 

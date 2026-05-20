@@ -65,7 +65,10 @@ final class AppServices {
         // Pull the user's chosen app icon tint into the theme so the in-app
         // accent matches the icon they picked. Cover-art-derived colors will
         // override this while a song with artwork plays.
+        // macOS 没有 alternate app icon, 直接走 ThemeService 默认色。
+        #if os(iOS)
         theme.setBaseAccent(AppIconService.shared.currentTint)
+        #endif
         self.themeService = theme
         self.scanService = ScanService()
         self.metadataBackfill = MetadataBackfillService(library: library, sourceManager: manager)

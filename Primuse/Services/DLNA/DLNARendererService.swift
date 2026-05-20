@@ -1,7 +1,9 @@
 import Foundation
 import Network
 import OSLog
+#if os(iOS)
 import UIKit
+#endif
 import PrimuseKit
 
 private let dlnaLog = Logger(subsystem: "com.welape.yuanyin", category: "DLNA")
@@ -136,7 +138,11 @@ final class DLNARendererService {
             defaults.set(new, forKey: "dlna.deviceUUID")
             self.deviceUUID = new
         }
+        #if os(iOS)
         let device = UIDevice.current.name
+        #else
+        let device = Host.current().localizedName ?? "Mac"
+        #endif
         self.friendlyName = "猿音 · \(device)"
     }
 

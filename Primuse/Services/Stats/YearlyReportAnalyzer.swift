@@ -43,6 +43,7 @@ enum YearlyReportAnalyzer {
         case .smb, .webdav, .ftp, .sftp, .nfs, .upnp: return "network"
         case .baiduPan, .aliyunDrive, .oneDrive, .dropbox, .googleDrive, .s3: return "icloud.fill"
         case .jellyfin, .emby, .plex: return "play.tv.fill"
+        case .appleMusicLibrary: return "music.note"
         }
     }
 
