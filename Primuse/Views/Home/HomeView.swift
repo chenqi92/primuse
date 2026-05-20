@@ -64,6 +64,34 @@ struct HomeView: View {
     @AppStorage("primuse.home.showTopArtists") private var showTopArtists: Bool = true
     @AppStorage("primuse.home.showRecentlyAdded") private var showRecentlyAdded: Bool = true
     @AppStorage("primuse.home.showContinueListening") private var showContinueListening: Bool = true
+    @State private var homeSnapshot = HomeSnapshot()
+    @State private var lastHomeSnapshotSignature: HomeSnapshotSignature?
+
+    private struct HomeSnapshotSignature: Equatable {
+        let libraryRevision: Int
+        let visibleSongCount: Int
+        let visibleAlbumCount: Int
+        let visibleArtistCount: Int
+        let recentSongIDs: [String]
+        let dayStamp: Int
+    }
+
+    private struct HomeSnapshot {
+        var statsGlimpse: PlayHistoryStore.Summary?
+        var forYouResults: [MusicDiscoveryResult] = []
+        var recentSongs: [Song] = []
+        var heroCoverSongs: [Song] = []
+        var recentlyAddedAlbums: [HomeAlbumTile] = []
+        var topArtists: [Artist] = []
+        var topArtistsHasHistory = false
+    }
+
+    private struct HomeAlbumTile: Identifiable {
+        let album: Album
+        let artworkSong: Song?
+
+        var id: String { album.id }
+    }
 
     private var contentView: some View {
         VStack(alignment: .leading, spacing: 24) {
@@ -72,14 +100,14 @@ struct HomeView: View {
             // Stats glimpse — shows up only after the user has been
             // listening for a bit. Tappable shortcut to the full
             // stats page.
-            if showStatsGlimpse, let summary = statsGlimpse {
+            if showStatsGlimpse, let summary = homeSnapshot.statsGlimpse {
                 statsGlimpseSection(summary)
             }
 
             // For You — local recommendation engine fed by playback history
             // and library metadata. Hidden only when the library has no
             // playable discovery candidates.
-            if showForYou, !forYouPicks.isEmpty {
+            if showForYou, !homeSnapshot.forYouResults.isEmpty {
                 forYouSection
             }
 
@@ -87,12 +115,13 @@ struct HomeView: View {
             // library.artists.prefix(8). When PlayHistoryStore has
             // history we sort by play count; otherwise fall back to
             // alphabetical so the section isn't empty.
-            if showTopArtists, !library.artists.isEmpty {
+            if showTopArtists, !homeSnapshot.topArtists.isEmpty {
                 artistsSection
             }
 
-            // Recently added albums — kept untouched in this pass.
-            if showRecentlyAdded, !library.albums.isEmpty {
+            // Recently added albums — derived from the same home snapshot
+            // so returning to this tab does not rebuild album artwork rows.
+            if showRecentlyAdded, !homeSnapshot.recentlyAddedAlbums.isEmpty {
                 recentlyAddedAlbumsSection
             }
 
@@ -100,28 +129,93 @@ struct HomeView: View {
             // already covers "what was I just listening to", so the
             // home page only needs a quick re-entry list, not a hero
             // block.
-            if showContinueListening, !recentSongs.isEmpty {
+            if showContinueListening, !homeSnapshot.recentSongs.isEmpty {
                 continueListeningSection
             }
         }
         .task {
-            refreshForYouPicks()
-            // Kick off background tint extraction for the visible
-            // cards. Idempotent — cached songs are skipped.
-            tintProvider.prepare(forYouPicks)
-            tintProvider.prepare(Array(recentSongs.prefix(15)))
+            refreshHomeSnapshotIfNeeded()
+        }
+        .onChange(of: library.searchRevision) { _, _ in
+            refreshHomeSnapshot(force: true)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .primusePlaybackHistoryDidChange)) { _ in
+            refreshHomeSnapshot(force: true)
+        }
+    }
+
+    private var homeSnapshotSignature: HomeSnapshotSignature {
+        let components = Calendar.current.dateComponents([.year, .month, .day], from: Date())
+        let dayStamp = (components.year ?? 0) * 10_000
+            + (components.month ?? 0) * 100
+            + (components.day ?? 0)
+        return HomeSnapshotSignature(
+            libraryRevision: library.searchRevision,
+            visibleSongCount: library.visibleSongs.count,
+            visibleAlbumCount: library.visibleAlbums.count,
+            visibleArtistCount: library.visibleArtists.count,
+            recentSongIDs: Array(library.recentPlaybackSongIDsForSync.prefix(30)),
+            dayStamp: dayStamp
+        )
+    }
+
+    private func refreshHomeSnapshotIfNeeded() {
+        refreshHomeSnapshot(force: false)
+    }
+
+    private func refreshHomeSnapshot(force: Bool) {
+        let signature = homeSnapshotSignature
+        guard force || signature != lastHomeSnapshotSignature else { return }
+
+        let startedAt = Date()
+        let snapshot = makeHomeSnapshot()
+        homeSnapshot = snapshot
+        lastHomeSnapshotSignature = signature
+
+        // Kick off background tint extraction for the visible cards.
+        // Idempotent — cached songs are skipped.
+        tintProvider.prepare(snapshot.forYouResults.map(\.song))
+        tintProvider.prepare(Array(snapshot.recentSongs.prefix(15)))
+
+        let elapsed = Date().timeIntervalSince(startedAt)
+        if elapsed > 0.08 {
+            plog(String(format: "🏠 home snapshot refresh %.0fms songs=%d albums=%d artists=%d",
+                        elapsed * 1000,
+                        signature.visibleSongCount,
+                        signature.visibleAlbumCount,
+                        signature.visibleArtistCount))
+        }
+    }
+
+    private func makeHomeSnapshot() -> HomeSnapshot {
+        let recentSongs = makeRecentSongs()
+        let summary = PlayHistoryStore.shared.summary(in: .week)
+        let topArtistHistory = PlayHistoryStore.shared.topArtists(in: .month, limit: 8)
+
+        return HomeSnapshot(
+            statsGlimpse: summary.totalPlays > 0 ? summary : nil,
+            forYouResults: makeForYouResults(),
+            recentSongs: recentSongs,
+            heroCoverSongs: makeHeroCoverSongs(recentSongs: recentSongs),
+            recentlyAddedAlbums: makeRecentlyAddedAlbumTiles(limit: 12),
+            topArtists: topArtistsForHome(history: topArtistHistory),
+            topArtistsHasHistory: !topArtistHistory.isEmpty
+        )
+    }
+
+    private func makeRecentlyAddedAlbumTiles(limit: Int) -> [HomeAlbumTile] {
+        let albums = library.recentlyAddedAlbums(limit: limit)
+        let songsByAlbum = Dictionary(grouping: library.visibleSongs) { $0.albumID ?? "" }
+        return albums.map { album in
+            let songs = songsByAlbum[album.id] ?? []
+            let artworkSong = songs.min { lhs, rhs in
+                (lhs.trackNumber ?? Int.max) < (rhs.trackNumber ?? Int.max)
+            } ?? songs.first
+            return HomeAlbumTile(album: album, artworkSong: artworkSong)
         }
     }
 
     // MARK: - Stats Glimpse
-
-    /// Quick "this week" summary card. Shown only when there's at
-    /// least one play recorded in the last 7 days — empty stats
-    /// would just look like clutter on a fresh install.
-    private var statsGlimpse: PlayHistoryStore.Summary? {
-        let summary = PlayHistoryStore.shared.summary(in: .week)
-        return summary.totalPlays > 0 ? summary : nil
-    }
 
     @ViewBuilder
     private func statsGlimpseSection(_ summary: PlayHistoryStore.Summary) -> some View {
@@ -196,20 +290,17 @@ struct HomeView: View {
     /// 的歌跳过 (放占位太单调)。 Used as cold-start fallback when no
     /// `todaysPick` can be derived (e.g. zero playback history AND no
     /// covered library songs at all).
-    @State private var heroCoverSongs: [Song] = []
-
     /// Daily-stable pick — yyyymmdd hash mod available pool. Stays
     /// the same all day so the user gets a "today's hero" feel
     /// without it shuffling on every refresh. Computed lazily from
-    /// `forYouPicks` (which is itself a @State,driven by
-    /// `refreshForYouPicks`); `recentSongs` is the cold-start
+    /// the cached home snapshot; recent songs are the cold-start
     /// fallback when forYou is empty.
     private var todaysPick: Song? {
         let cal = Calendar.current
         let comps = cal.dateComponents([.year, .month, .day], from: Date())
         let stamp = (comps.year ?? 0) * 10000 + (comps.month ?? 0) * 100 + (comps.day ?? 0)
         let pool: [Song] = !forYouPicks.isEmpty ? forYouPicks
-            : Array(recentSongs.filter { $0.coverArtFileName?.isEmpty == false }.prefix(20))
+            : Array(homeSnapshot.recentSongs.filter { $0.coverArtFileName?.isEmpty == false }.prefix(20))
         guard !pool.isEmpty else { return nil }
         let idx = abs(stamp) % pool.count
         return pool[idx]
@@ -359,7 +450,6 @@ struct HomeView: View {
                 .fill(.thinMaterial)
         }
         .padding(.horizontal, 16)
-        .task { refreshHeroCovers() }
     }
 
     /// 4 张封面错落叠放 — 用 ZStack 加旋转 + 偏移, 跟 Spotify Mix /
@@ -371,7 +461,7 @@ struct HomeView: View {
         let radius: CGFloat = 8
         ZStack {
             // 4 张依次叠, 角度 + 偏移让它们看起来散开
-            ForEach(Array(heroCoverSongs.prefix(4).enumerated()), id: \.element.id) { index, song in
+            ForEach(Array(homeSnapshot.heroCoverSongs.prefix(4).enumerated()), id: \.element.id) { index, song in
                 CachedArtworkView(
                     coverRef: song.coverArtFileName,
                     songID: song.id,
@@ -385,7 +475,7 @@ struct HomeView: View {
                 .offset(coverOffset(for: index))
                 .zIndex(Double(4 - index))
             }
-            if heroCoverSongs.isEmpty {
+            if homeSnapshot.heroCoverSongs.isEmpty {
                 Image(systemName: "music.note.list")
                     .font(.title)
                     .foregroundStyle(.secondary)
@@ -414,27 +504,23 @@ struct HomeView: View {
         }
     }
 
-    private func refreshHeroCovers() {
+    private func makeHeroCoverSongs(recentSongs: [Song]) -> [Song] {
         // 优先最近播放, 不够再补最近添加, 都过滤出有 cover 的歌, 最后随机
-        // 抽 4 首。每次 task 触发重洗 (即每次进首页)。
-        let recent = library.recentlyPlayedSongs(limit: 30)
+        // 抽 4 首。结果跟随首页快照刷新,避免每次 tab 回首页都重排。
         let added = library.visibleSongs.sorted { $0.dateAdded > $1.dateAdded }.prefix(60)
-        var pool: [Song] = recent
+        var pool: [Song] = recentSongs
         for song in added where !pool.contains(where: { $0.id == song.id }) {
             pool.append(song)
         }
         let withCover = pool.filter { $0.coverArtFileName?.isEmpty == false }
-        heroCoverSongs = Array(withCover.shuffled().prefix(4))
+        return Array(withCover.shuffled().prefix(4))
     }
 
     // MARK: - For You
 
-    /// Local recommendation engine output. Cached in @State so a body
-    /// re-render (which fires whenever currentSong / library changes)
-    /// doesn't reshuffle the picks under the user. Refreshed on .task
-    /// when the home view re-mounts.
-    @State private var forYouResults: [MusicDiscoveryResult] = []
-    private var forYouPicks: [Song] { forYouResults.map(\.song) }
+    /// Local recommendation engine output, cached inside `homeSnapshot`
+    /// so tab switches do not rebuild / reshuffle recommendations.
+    private var forYouPicks: [Song] { homeSnapshot.forYouResults.map(\.song) }
 
     private var forYouSection: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -443,7 +529,7 @@ struct HomeView: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 14) {
-                    ForEach(forYouResults) { result in
+                    ForEach(homeSnapshot.forYouResults) { result in
                         let song = result.song
                         Button { playSong(song) } label: {
                             VStack(alignment: .leading, spacing: 6) {
@@ -475,8 +561,8 @@ struct HomeView: View {
 
     /// Build the recommendation pool from local metadata + playback history.
     /// No network calls; the same engine also powers "similar songs".
-    private func refreshForYouPicks() {
-        forYouResults = MusicDiscoveryEngine.dailyRecommendations(in: library, limit: 12)
+    private func makeForYouResults() -> [MusicDiscoveryResult] {
+        MusicDiscoveryEngine.dailyRecommendations(in: library, limit: 12)
     }
 
     // MARK: - Continue Listening (formerly Recently Played)
@@ -486,7 +572,7 @@ struct HomeView: View {
             Text("home_continue_listening")
                 .font(.title3).fontWeight(.bold).padding(.horizontal, 20)
 
-            let songs = recentSongs
+            let songs = homeSnapshot.recentSongs
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 12) {
                     ForEach(songs.prefix(15), id: \.id) { song in
@@ -516,7 +602,7 @@ struct HomeView: View {
         }
     }
 
-    private var recentSongs: [Song] {
+    private func makeRecentSongs() -> [Song] {
         let recent = library.recentlyPlayedSongs(limit: 30)
         if !recent.isEmpty { return recent }
         return Array(library.visibleSongs.sorted { $0.dateAdded > $1.dateAdded }.prefix(30))
@@ -543,9 +629,9 @@ struct HomeView: View {
                     ],
                 spacing: 12
             ) {
-                ForEach(library.recentlyAddedAlbums(limit: sizeClass == .regular ? 12 : 6)) { album in
-                    Button { playAlbum(album) } label: {
-                        recentlyAddedRow(album: album)
+                ForEach(homeSnapshot.recentlyAddedAlbums.prefix(sizeClass == .regular ? 12 : 6)) { tile in
+                    Button { playAlbum(tile.album) } label: {
+                        recentlyAddedRow(tile: tile)
                     }
                     .buttonStyle(.plain)
                 }
@@ -556,8 +642,9 @@ struct HomeView: View {
 
     /// 一行的紧凑卡片: 小封面 + 标题 / 艺术家 (2 行 lineLimit)。
     @ViewBuilder
-    private func recentlyAddedRow(album: Album) -> some View {
-        let albumSong = library.songs(forAlbum: album.id).first
+    private func recentlyAddedRow(tile: HomeAlbumTile) -> some View {
+        let album = tile.album
+        let albumSong = tile.artworkSong
         HStack(spacing: 10) {
             CachedArtworkView(
                 coverRef: albumSong?.coverArtFileName,
@@ -591,10 +678,8 @@ struct HomeView: View {
     /// "frequently listened" and the generic "artists" depending
     /// which path produced the data.
     private var artistsSection: some View {
-        let history = PlayHistoryStore.shared.topArtists(in: .month, limit: 8)
-        let hasHistory = !history.isEmpty
-        let displayed = topArtistsForHome(history: history)
-        let titleKey: LocalizedStringKey = hasHistory ? "home_top_artists_title" : "tab_artists"
+        let displayed = homeSnapshot.topArtists
+        let titleKey: LocalizedStringKey = homeSnapshot.topArtistsHasHistory ? "home_top_artists_title" : "tab_artists"
 
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
