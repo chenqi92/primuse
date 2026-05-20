@@ -859,6 +859,9 @@
 "dlna_status_playing_format" = "正在播放: %@";
 "dlna_status_error_format" = "错误: %@";
 "dlna_stream_title_fallback" = "流媒体";
+"settings_dlna_devices_section" = "连接设备";
+"settings_dlna_devices_empty" = "暂无连接设备。请在同一 Wi-Fi 的控制点 app 里选择猿音。";
+"dlna_device_casting" = "正在投送";
 "settings_dlna_log_section" = "实时活动";
 "settings_dlna_log_empty" = "暂无事件。打开控制点 app,在其设备列表里找猿音以验证发现是否生效。";
 "diagnostics_title" = "诊断报告";

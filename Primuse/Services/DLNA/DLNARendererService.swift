@@ -35,7 +35,11 @@ final class DLNARendererService {
     /// 最近 80 条事件 ── 给 Settings 调试面板按时间倒序展示。包含 M-SEARCH 命中、
     /// SOAP 控制调用、GENA 订阅生命周期。环形覆盖, 太老的事件丢掉。
     private(set) var recentEvents: [DebugEvent] = []
+    /// 最近接触过本机 renderer 的控制端。DLNA 不保证控制点会暴露设备昵称,
+    /// 所以优先用 User-Agent 识别应用,否则回退到来源 IP。
+    private(set) var connectedDevices: [ConnectedDevice] = []
     private static let maxRecentEvents = 80
+    private static let maxConnectedDevices = 8
 
     struct DebugEvent: Identifiable, Sendable {
         let id = UUID()
@@ -43,6 +47,15 @@ final class DLNARendererService {
         let kind: Kind
         let detail: String
         enum Kind: Sendable { case discovery, control, event, error }
+    }
+
+    struct ConnectedDevice: Identifiable, Sendable {
+        let id: String
+        var name: String
+        var address: String
+        var clientDescription: String?
+        var lastSeen: Date
+        var isCasting: Bool
     }
 
     private func logEvent(_ kind: DebugEvent.Kind, _ detail: String) {
@@ -107,6 +120,7 @@ final class DLNARendererService {
     }
     private var currentTransportItem: TransportItem?
     private var nextTransportItem: TransportItem?
+    private var activeControllerID: String?
 
     private let httpPort: NWEndpoint.Port = 49152
     private static let ssdpMulticastHost: NWEndpoint.Host = "239.255.255.250"
@@ -213,6 +227,8 @@ final class DLNARendererService {
         notifyTask?.cancel(); notifyTask = nil
         playerObservationToken?.cancel(); playerObservationToken = nil
         subscriptions.removeAll()
+        connectedDevices.removeAll()
+        activeControllerID = nil
         ssdpMulticast?.cancel(); ssdpMulticast = nil
         ssdpListener?.cancel(); ssdpListener = nil
         httpListener?.cancel(); httpListener = nil
@@ -511,6 +527,7 @@ final class DLNARendererService {
         guard parts.count >= 2 else { connection.cancel(); return }
         let method = String(parts[0])
         let path = String(parts[1])
+        let controllerID = rememberController(from: raw, connection: connection)
         logEvent(.control, "HTTP \(method) \(path) from \(remoteDescription(connection))")
 
         switch (method, path) {
@@ -523,7 +540,7 @@ final class DLNARendererService {
         case ("GET", "/ConnectionManager.xml"):
             await sendXML(connectionManagerSCPD, on: connection)
         case ("POST", "/control/AVTransport"):
-            await handleAVTransportAction(raw: raw, connection: connection)
+            await handleAVTransportAction(raw: raw, connection: connection, controllerID: controllerID)
         case ("POST", "/control/RenderingControl"):
             await handleRenderingControlAction(raw: raw, connection: connection)
         case ("POST", "/control/ConnectionManager"):
@@ -886,7 +903,7 @@ final class DLNARendererService {
         return Int(trimmed)
     }
 
-    private func handleAVTransportAction(raw: String, connection: NWConnection) async {
+    private func handleAVTransportAction(raw: String, connection: NWConnection, controllerID: String) async {
         // SOAPAction header 形如 `"urn:schemas-upnp-org:service:AVTransport:1#Play"`
         let soapActionLine = headerValue("soapaction", in: raw) ?? ""
         let action = soapActionLine.split(separator: "#").last.map(String.init)?
@@ -905,6 +922,7 @@ final class DLNARendererService {
                 return
             }
             logEvent(.control, "Set current URI → \(item.title) (\(item.url.host ?? item.url.scheme ?? "?"))")
+            markController(controllerID, isCasting: true)
             await playTransportItem(item)
             await sendSOAP(action: "SetAVTransportURI", body: "", on: connection)
         case "SetNextAVTransportURI":
@@ -918,6 +936,7 @@ final class DLNARendererService {
             notifyAllSubscribers()
             await sendSOAP(action: "SetNextAVTransportURI", body: "", on: connection)
         case "Play":
+            markController(controllerID, isCasting: true)
             if !player.isPlaying, let current = currentTransportItem, player.currentSong == nil {
                 await playTransportItem(current)
             } else if !player.isPlaying {
@@ -929,6 +948,7 @@ final class DLNARendererService {
             await sendSOAP(action: "Pause", body: "", on: connection)
         case "Stop":
             player.stop()
+            markController(controllerID, isCasting: false)
             statusText = String(localized: "dlna_status_listening")
             await sendSOAP(action: "Stop", body: "", on: connection)
         case "Next":
@@ -937,6 +957,7 @@ final class DLNARendererService {
                 return
             }
             nextTransportItem = nil
+            markController(controllerID, isCasting: true)
             await playTransportItem(next)
             await sendSOAP(action: "Next", body: "", on: connection)
         case "Previous":
@@ -1415,6 +1436,123 @@ final class DLNARendererService {
                 line.split(separator: ":", maxSplits: 1).last.map(String.init)?
                     .trimmingCharacters(in: .whitespaces)
             }
+    }
+
+    @discardableResult
+    private func rememberController(from raw: String, connection: NWConnection) -> String {
+        let address = remoteHost(connection)
+        let userAgent = headerValue("user-agent", in: raw)
+            ?? headerValue("server", in: raw)
+        let name = controllerName(from: userAgent, address: address)
+        let detail = controllerDetail(from: userAgent, name: name)
+        let now = Date()
+
+        if let index = connectedDevices.firstIndex(where: { $0.id == address }) {
+            connectedDevices[index].name = name
+            connectedDevices[index].address = address
+            connectedDevices[index].clientDescription = detail
+            connectedDevices[index].lastSeen = now
+        } else {
+            connectedDevices.insert(
+                ConnectedDevice(
+                    id: address,
+                    name: name,
+                    address: address,
+                    clientDescription: detail,
+                    lastSeen: now,
+                    isCasting: false
+                ),
+                at: 0
+            )
+        }
+        sortConnectedDevices()
+        return address
+    }
+
+    private func markController(_ id: String, isCasting: Bool) {
+        if isCasting {
+            if let previous = activeControllerID,
+               previous != id,
+               let previousIndex = connectedDevices.firstIndex(where: { $0.id == previous }) {
+                connectedDevices[previousIndex].isCasting = false
+            }
+            activeControllerID = id
+        } else if activeControllerID == id {
+            activeControllerID = nil
+        }
+
+        guard let index = connectedDevices.firstIndex(where: { $0.id == id }) else { return }
+        connectedDevices[index].isCasting = isCasting
+        connectedDevices[index].lastSeen = Date()
+        sortConnectedDevices()
+    }
+
+    private func sortConnectedDevices() {
+        connectedDevices.sort { lhs, rhs in
+            if lhs.isCasting != rhs.isCasting {
+                return lhs.isCasting && !rhs.isCasting
+            }
+            return lhs.lastSeen > rhs.lastSeen
+        }
+        if connectedDevices.count > Self.maxConnectedDevices {
+            connectedDevices.removeLast(connectedDevices.count - Self.maxConnectedDevices)
+        }
+    }
+
+    private func controllerName(from userAgent: String?, address: String) -> String {
+        guard let userAgent else { return address }
+        let cleaned = userAgent.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return address }
+
+        let lower = cleaned.lowercased()
+        let knownClients: [(needle: String, name: String)] = [
+            ("vlc", "VLC"),
+            ("plex", "Plex"),
+            ("hi-fi cast", "Hi-Fi Cast"),
+            ("hificast", "Hi-Fi Cast"),
+            ("bubbleupnp", "BubbleUPnP"),
+            ("audio station", "Audio Station"),
+            ("audiostation", "Audio Station"),
+            ("synology", "Synology Audio Station"),
+            ("foobar", "foobar2000"),
+            ("kodi", "Kodi"),
+            ("windows", "Windows DLNA")
+        ]
+        if let matched = knownClients.first(where: { lower.contains($0.needle) }) {
+            return matched.name
+        }
+
+        let token = cleaned
+            .split { char in char == " " || char == "(" || char == ";" }
+            .first
+            .map(String.init)?
+            .split(separator: "/")
+            .first
+            .map(String.init)?
+            .trimmingCharacters(in: .punctuationCharacters)
+        if let token, token.count > 1, token.lowercased() != "upnp" {
+            return token
+        }
+        return address
+    }
+
+    private func controllerDetail(from userAgent: String?, name: String) -> String? {
+        guard let userAgent else { return nil }
+        let cleaned = userAgent.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty, cleaned != name else { return nil }
+        if cleaned.count > 64 {
+            return String(cleaned.prefix(61)) + "..."
+        }
+        return cleaned
+    }
+
+    private func remoteHost(_ connection: NWConnection) -> String {
+        switch connection.endpoint {
+        case .hostPort(let host, _):
+            return String(describing: host)
+        default:
+            return String(describing: connection.endpoint)
+        }
     }
 
     private func remoteDescription(_ connection: NWConnection) -> String {

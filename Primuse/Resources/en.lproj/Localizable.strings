@@ -858,6 +858,9 @@
 "dlna_status_playing_format" = "Casting: %@";
 "dlna_status_error_format" = "Error: %@";
 "dlna_stream_title_fallback" = "Stream";
+"settings_dlna_devices_section" = "Connected Devices";
+"settings_dlna_devices_empty" = "No connected devices yet. Choose Primuse in a control point app on the same Wi-Fi.";
+"dlna_device_casting" = "Casting";
 "settings_dlna_log_section" = "Live Activity";
 "settings_dlna_log_empty" = "No events yet. Open a control point app and look for Primuse to verify discovery.";
 "diagnostics_title" = "Diagnostic Reports";
