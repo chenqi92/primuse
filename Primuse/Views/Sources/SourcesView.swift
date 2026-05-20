@@ -188,13 +188,16 @@ struct SourcesView: View {
             HStack(spacing: 10) {
                 if source.type.isMediaServer {
                     // Media servers scan all libraries directly — no directory selection needed
-                    Button { diagnosingSource = source } label: {
-                        sourceActionLabel("source_diagnostics_short", systemImage: "stethoscope")
+                    sourceActionButton("source_diagnostics_short", systemImage: "stethoscope") {
+                        diagnosingSource = source
                     }
-                    .buttonStyle(.bordered)
-                    .tint(.secondary)
 
-                    Button {
+                    sourceActionButton(
+                        scanning?.canResume == true ? "resume_scan" : "scan",
+                        systemImage: scanning?.canResume == true ? "arrow.clockwise.circle" : "waveform.badge.magnifyingglass",
+                        prominence: .success,
+                        isDisabled: scanning?.isScanning == true
+                    ) {
                         scanService.scanSource(
                             source,
                             sourceManager: sourceManager,
@@ -202,32 +205,27 @@ struct SourcesView: View {
                             sourceStore: sourceStore,
                             scraperService: scraperService
                         )
-                    } label: {
-                        sourceActionLabel(
-                            scanning?.canResume == true ? "resume_scan" : "scan",
-                            systemImage: scanning?.canResume == true ? "arrow.clockwise.circle" : "waveform.badge.magnifyingglass"
-                        )
                     }
-                    .buttonStyle(.bordered).tint(.green)
-                    .disabled(scanning?.isScanning == true)
                 } else {
-                    Button { connectingSource = source } label: {
-                        sourceActionLabel(
-                            dirs.isEmpty ? "connect_select_dirs" : "manage_dirs",
-                            systemImage: dirs.isEmpty ? "link" : "folder.badge.gear"
-                        )
+                    sourceActionButton(
+                        dirs.isEmpty ? "connect_select_dirs" : "manage_dirs",
+                        systemImage: dirs.isEmpty ? "link" : "folder.badge.gear",
+                        prominence: dirs.isEmpty ? .accent : .neutral
+                    ) {
+                        connectingSource = source
                     }
-                    .buttonStyle(.bordered)
-                    .tint(dirs.isEmpty ? .accentColor : .secondary)
 
-                    Button { diagnosingSource = source } label: {
-                        sourceActionLabel("source_diagnostics_short", systemImage: "stethoscope")
+                    sourceActionButton("source_diagnostics_short", systemImage: "stethoscope") {
+                        diagnosingSource = source
                     }
-                    .buttonStyle(.bordered)
-                    .tint(.secondary)
 
                     if !dirs.isEmpty {
-                        Button {
+                        sourceActionButton(
+                            scanning?.canResume == true ? "resume_scan" : "scan",
+                            systemImage: scanning?.canResume == true ? "arrow.clockwise.circle" : "waveform.badge.magnifyingglass",
+                            prominence: .success,
+                            isDisabled: scanning?.isScanning == true
+                        ) {
                             scanService.scanSource(
                                 source,
                                 sourceManager: sourceManager,
@@ -235,14 +233,7 @@ struct SourcesView: View {
                                 sourceStore: sourceStore,
                                 scraperService: scraperService
                             )
-                        } label: {
-                            sourceActionLabel(
-                                scanning?.canResume == true ? "resume_scan" : "scan",
-                                systemImage: scanning?.canResume == true ? "arrow.clockwise.circle" : "waveform.badge.magnifyingglass"
-                            )
                         }
-                        .buttonStyle(.bordered).tint(.green)
-                        .disabled(scanning?.isScanning == true)
                     }
                 }
             }
@@ -282,15 +273,71 @@ struct SourcesView: View {
 
     // MARK: - Helpers
 
-    private func sourceActionLabel(_ title: LocalizedStringKey, systemImage: String) -> some View {
-        Label(title, systemImage: systemImage)
-            .font(.caption)
-            .fontWeight(.medium)
-            .lineLimit(1)
-            .minimumScaleFactor(0.78)
-            .allowsTightening(true)
-            .frame(maxWidth: .infinity, minHeight: 34)
-            .padding(.vertical, 7)
+    private enum SourceActionProminence {
+        case neutral
+        case accent
+        case success
+    }
+
+    private func sourceActionButton(
+        _ title: LocalizedStringKey,
+        systemImage: String,
+        prominence: SourceActionProminence = .neutral,
+        isDisabled: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 14, weight: .semibold))
+                    .symbolRenderingMode(.hierarchical)
+                    .frame(width: 18)
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+                    .allowsTightening(true)
+            }
+            .frame(maxWidth: .infinity, minHeight: 38)
+            .padding(.horizontal, 8)
+            .foregroundStyle(sourceActionForeground(for: prominence))
+            .background {
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .fill(sourceActionBackground(for: prominence))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .strokeBorder(sourceActionStroke(for: prominence), lineWidth: 0.8)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.55 : 1)
+    }
+
+    private func sourceActionForeground(for prominence: SourceActionProminence) -> Color {
+        switch prominence {
+        case .neutral: .secondary
+        case .accent: .accentColor
+        case .success: .green
+        }
+    }
+
+    private func sourceActionBackground(for prominence: SourceActionProminence) -> Color {
+        switch prominence {
+        case .neutral: Color(.tertiarySystemFill)
+        case .accent: Color.accentColor.opacity(0.14)
+        case .success: Color.green.opacity(0.16)
+        }
+    }
+
+    private func sourceActionStroke(for prominence: SourceActionProminence) -> Color {
+        switch prominence {
+        case .neutral: Color.white.opacity(0.04)
+        case .accent: Color.accentColor.opacity(0.20)
+        case .success: Color.green.opacity(0.24)
+        }
     }
 
     private var sources: [MusicSource] {
