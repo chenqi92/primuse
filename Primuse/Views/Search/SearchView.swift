@@ -139,10 +139,19 @@ struct SearchView: View {
                         )
 
                         if result.matchKind == .lyrics {
-                            Label("search_match_lyrics", systemImage: "text.quote")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                                .padding(.leading, 54)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Label("search_match_lyrics", systemImage: "text.quote")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                if let snippet = result.lyricSnippet {
+                                    Text(snippet)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(3)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                            .padding(.leading, 54)
                         } else if result.matchKind == .fuzzy {
                             Label("search_match_fuzzy", systemImage: "sparkle.magnifyingglass")
                                 .font(.caption2)

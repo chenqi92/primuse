@@ -251,10 +251,12 @@ final class DLNARendererService {
         // M-SEARCH (大多数控制点广播找设备),同时拿来发 NOTIFY alive。
         // Network.framework 的 NWConnectionGroup 是 iOS 14+ 标准 multicast
         // 入口,不需要自己撸 setsockopt。
+        let multicastParams = NWParameters.udp
+        multicastParams.allowLocalEndpointReuse = true
         let multicast = try NWMulticastGroup(
             for: [.hostPort(host: Self.ssdpMulticastHost, port: Self.ssdpPort)]
         )
-        let group = NWConnectionGroup(with: multicast, using: .udp)
+        let group = NWConnectionGroup(with: multicast, using: multicastParams)
         group.stateUpdateHandler = { [weak self] state in
             Task { @MainActor in
                 switch state {

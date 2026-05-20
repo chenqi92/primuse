@@ -12,6 +12,7 @@ struct LibrarySearchResult: Identifiable, Sendable {
     let song: Song
     let matchKind: LibrarySearchMatchKind
     let score: Int
+    let lyricSnippet: String?
 
     var id: String { song.id }
 }
@@ -59,6 +60,29 @@ private struct LibrarySearchMatcher {
         guard !lyrics.isEmpty else { return false }
         if lyrics.localizedCaseInsensitiveContains(rawQuery) { return true }
         return Self.normalized(lyrics).contains(normalizedQuery)
+    }
+
+    func lyricsSnippet(in lyrics: String, contextLines: Int = 1) -> String? {
+        let lines = lyrics
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !lines.isEmpty else { return nil }
+
+        let matchIndex = lines.firstIndex { line in
+            line.localizedCaseInsensitiveContains(rawQuery)
+                || Self.normalized(line).contains(normalizedQuery)
+        }
+
+        guard let matchIndex else { return nil }
+        let lowerBound = max(0, matchIndex - contextLines)
+        let upperBound = min(lines.count - 1, matchIndex + contextLines)
+        var snippetLines = Array(lines[lowerBound...upperBound])
+        if lowerBound > 0 { snippetLines[0] = "..." + snippetLines[0] }
+        if upperBound < lines.count - 1 {
+            snippetLines[snippetLines.count - 1] += "..."
+        }
+        return snippetLines.joined(separator: "\n")
     }
 
     private static func normalized(_ text: String) -> String {
@@ -144,6 +168,7 @@ enum LibrarySearchWorker {
             if Task.isCancelled { return nil }
             var bestScore = 0
             var bestKind: LibrarySearchMatchKind?
+            var lyricSnippet: String?
 
             func consider(_ candidate: String?, boost: Int) {
                 guard let candidate,
@@ -169,11 +194,17 @@ enum LibrarySearchWorker {
                 if score > bestScore {
                     bestScore = score
                     bestKind = .lyrics
+                    lyricSnippet = matcher.lyricsSnippet(in: lyrics)
                 }
             }
 
             guard let bestKind else { return nil }
-            return LibrarySearchResult(song: song, matchKind: bestKind, score: bestScore)
+            return LibrarySearchResult(
+                song: song,
+                matchKind: bestKind,
+                score: bestScore,
+                lyricSnippet: lyricSnippet
+            )
         }
 
         let songResults = Array(rankedSongs.sorted { lhs, rhs in
