@@ -753,7 +753,6 @@ struct HomeView: View {
             EmptyStateView(
                 titleKey: "welcome_title",
                 descriptionKey: "home_empty_desc",
-                imageName: "EmptyStateNoSources",
                 systemImage: "externaldrive.badge.plus",
                 actionLabel: "manage_sources",
                 action: { switchToSettingsTab?() }

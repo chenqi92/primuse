@@ -6,10 +6,9 @@ import SwiftUI
 /// 1. **Visual consistency** — every empty state across the app
 ///    looks like it came from the same designer instead of N
 ///    different `ContentUnavailableView` flavors.
-/// 2. **Lightweight by default** — the old bitmap `imageName` parameter
-///    is still accepted for source compatibility, but empty states now
-///    render as compact SF Symbol compositions. Search/library/tool
-///    surfaces should feel like app UI, not a gallery of one-off posters.
+/// 2. **Lightweight by default** — empty states render as compact SF
+///    Symbol compositions. Search/library/tool surfaces should feel like
+///    app UI, not a gallery of one-off posters.
 /// 3. **Action-aware** — supports an optional CTA button so views
 ///    that have a recovery path ("add a source", "create a
 ///    playlist") get a single tap to fix the empty state.
@@ -29,7 +28,6 @@ struct EmptyStateView: View {
     init(
         titleKey: LocalizedStringKey,
         descriptionKey: LocalizedStringKey? = nil,
-        imageName: String? = nil,
         systemImage: String,
         actionLabel: LocalizedStringKey? = nil,
         action: (() -> Void)? = nil
@@ -39,7 +37,6 @@ struct EmptyStateView: View {
         self.systemImage = systemImage
         self.actionLabel = actionLabel
         self.action = action
-        _ = imageName
     }
 
     var body: some View {

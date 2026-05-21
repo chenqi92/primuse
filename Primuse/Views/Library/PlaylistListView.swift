@@ -16,7 +16,6 @@ struct PlaylistListView: View {
                 EmptyStateView(
                     titleKey: "no_playlists",
                     descriptionKey: "no_playlists_desc",
-                    imageName: "EmptyStateNoPlaylists",
                     systemImage: "music.note.list",
                     actionLabel: "new_playlist",
                     action: { showNewPlaylist = true }

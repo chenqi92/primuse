@@ -30,7 +30,6 @@ struct SearchView: View {
                         EmptyStateView(
                             titleKey: "search_empty_library",
                             descriptionKey: "search_empty_library_desc",
-                            imageName: "EmptyStateNoSongs",
                             systemImage: "magnifyingglass"
                         )
                     } else {
