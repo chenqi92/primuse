@@ -2,19 +2,17 @@ import Foundation
 import CryptoKit
 import PrimuseKit
 
-/// Last.fm scrobble provider。需要 API key + secret (在 Last.fm 注册 application
-/// 拿) + 用户的 sessionKey (走 web auth flow 之后存 Keychain)。
+/// Last.fm scrobble provider。需要 API key + secret (Primuse 应用维护方持有,
+/// 通过 xcconfig 注入 AppSecrets) + 用户 sessionKey (走 desktop auth flow 之后
+/// 存 Keychain)。
 ///
 /// API doc: https://www.last.fm/api
-///
-/// 当前 v1 占位实现 — apiKey/apiSecret 还没填, validateCredentials 会返
-/// false 让 settings UI 提示"未配置"。后续注册 Last.fm app 拿到 key 填进
-/// AppSecrets 即可启用。Web auth flow 入口 (`makeAuthURL`) 也已经准备好。
 struct LastFmProvider: ScrobbleProvider {
     let id: ScrobbleProviderID = .lastFm
 
-    /// API key/secret 由 Primuse 应用持有 (注册一次, 所有用户共用)。
-    /// 现在为空 — 等申请到再填。
+    /// API key/secret 由 Primuse 应用持有 (一份, 所有用户共用)。空字符串
+    /// 表示构建时没注入凭证, 此时 validateCredentials 返回 false 让 settings
+    /// UI 显示"未配置"。
     let apiKey: String
     let apiSecret: String
     /// 用户授权后拿到的永久 sessionKey (存 Keychain)。

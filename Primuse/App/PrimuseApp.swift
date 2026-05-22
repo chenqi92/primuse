@@ -234,6 +234,10 @@ struct PrimuseApp: App {
                     // scan (cloud sources only download metadata in the
                     // background after Phase A completes).
                     metadataBackfill.start()
+                    // 一次性把已缓存的 .lrc 解析成纯文本写回 Song.lyricsText,
+                    // 让 FTS5 全文歌词搜索可用 (v5 migration 加了列但留空)。
+                    // 完成后自带 UserDefaults flag, 后续启动直接 noop。
+                    AppServices.shared.lyricsTextBackfill.startIfNeeded()
                     // 清掉 7 天没动的 .partial 半成品 —— Range streaming 路径
                     // 用户跳过 / prewarm 完没接着播的歌会留下大量孤立
                     // .partial 永久占盘, LRU 看不到这些。同步执行很快

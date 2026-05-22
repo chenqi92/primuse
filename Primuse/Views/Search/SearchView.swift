@@ -17,6 +17,13 @@ struct SearchView: View {
     @State private var recentSearches: [String] = []
     @State private var searchTask: Task<Void, Never>?
     @State private var lyricsSearchCache = LibrarySearchCache()
+    /// 是否正在跑一次搜索 (含 debounce + detached worker)。用来在结果还没
+    /// 出来时显示 loading 占位, 避免 200ms+ 窗口里先闪一下 "无匹配" 再
+    /// 跳到结果。
+    @State private var isSearching: Bool = false
+    /// 当前已经渲染的结果对应的 query。如果它与 searchText 不一致, 说明
+    /// 屏幕上还是上一轮的旧结果, ContentUnavailableView 不该出来。
+    @State private var renderedQuery: String = ""
 
     var body: some View {
         NavigationStack {
@@ -36,7 +43,14 @@ struct SearchView: View {
                         recentSearchView
                     }
                 } else if searchResults.isEmpty && matchingAlbums.isEmpty {
-                    ContentUnavailableView.search(text: searchText)
+                    // 搜索中 (或 query 还没追上渲染) 时不立刻 "无匹配", 否则
+                    // 200ms+ 的窗口里会先闪 ContentUnavailableView 再蹦出结果。
+                    // 等 worker 完成且 renderedQuery == searchText 才判定真的无匹配。
+                    if isSearching || renderedQuery != searchText {
+                        searchingPlaceholder
+                    } else {
+                        ContentUnavailableView.search(text: searchText)
+                    }
                 } else {
                     searchResultsView
                 }
@@ -111,6 +125,19 @@ struct SearchView: View {
 
     private var searchResultsView: some View {
         List {
+            // 旧结果仍在屏上, 但新一轮搜索还在跑 — 顶部加一条细 progress,
+            // 让用户知道结果会刷新, 而不是误以为屏幕卡住。
+            if isSearching && renderedQuery != searchText {
+                Section {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("search_running")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
             // Albums matching
             if !matchingAlbums.isEmpty {
                 Section("tab_albums") {
@@ -127,41 +154,12 @@ struct SearchView: View {
                 }
             }
 
-            // Songs matching
-            Section("tab_songs") {
-                ForEach(searchResults.prefix(40)) { result in
-                    VStack(alignment: .leading, spacing: 4) {
-                        SongRowView(
-                            song: result.song,
-                            isPlaying: player.currentSong?.id == result.song.id,
-                            context: SongRowView.context(for: result.song, sourcesStore: sourcesStore, backfill: backfill)
-                        )
-
-                        if result.matchKind == .lyrics {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Label("search_match_lyrics", systemImage: "text.quote")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                if let snippet = result.lyricSnippet {
-                                    Text(snippet)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(3)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
-                            }
-                            .padding(.leading, 54)
-                        } else if result.matchKind == .fuzzy {
-                            Label("search_match_fuzzy", systemImage: "sparkle.magnifyingglass")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                                .padding(.leading, 54)
-                        }
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture { playSong(result.song) }
-                }
-            }
+            // Songs grouped by match kind — 用户能一眼区分"标题/艺术家精确命中"、
+            // "歌词命中"和"拼音/模糊命中", 类似 Apple Music 搜索的分组。
+            // 每组限 40 条 (worker 整体也限 120), 防止单组撑满屏。
+            songSection(kind: .metadata, titleKey: "search_section_metadata")
+            songSection(kind: .lyrics, titleKey: "search_section_lyrics")
+            songSection(kind: .fuzzy, titleKey: "search_section_fuzzy")
 
             // Apple Music — 只在用户已授权且查到结果时显示。未授权状态走
             // Settings 入口让用户主动 opt-in,不在搜索这条路径里弹系统授权
@@ -200,6 +198,40 @@ struct SearchView: View {
         .listStyle(.plain)
     }
 
+    /// 一组按 matchKind 过滤的歌曲 Section。空组直接 noop, 不显示标题。
+    @ViewBuilder
+    private func songSection(kind: LibrarySearchMatchKind, titleKey: LocalizedStringKey) -> some View {
+        let bucket = searchResults.filter { $0.matchKind == kind }.prefix(40)
+        if !bucket.isEmpty {
+            Section {
+                ForEach(Array(bucket)) { result in
+                    VStack(alignment: .leading, spacing: 4) {
+                        SongRowView(
+                            song: result.song,
+                            isPlaying: player.currentSong?.id == result.song.id,
+                            context: SongRowView.context(for: result.song, sourcesStore: sourcesStore, backfill: backfill)
+                        )
+                        if result.matchKind == .lyrics, let snippet = result.lyricSnippet {
+                            // 歌词命中: 把命中的句子(含上下文)展开, 让用户一眼看到为什么命中。
+                            Text(snippet)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(3)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.leading, 54)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        playSong(result.song, lyricsHint: result.lyricSnippet, matchKind: result.matchKind)
+                    }
+                }
+            } header: {
+                Text(titleKey)
+            }
+        }
+    }
+
     private func appleMusicRow(_ song: MusicKit.Song) -> some View {
         Button {
             Task { await appleMusic.play(song) }
@@ -231,12 +263,16 @@ struct SearchView: View {
         guard !query.isEmpty else {
             searchResults = []
             matchingAlbums = []
+            isSearching = false
+            renderedQuery = ""
             return
         }
 
         let songsSnapshot = library.visibleSongs
         let albumsSnapshot = library.visibleAlbums
         let cacheSnapshot = lyricsSearchCache
+
+        isSearching = true
 
         searchTask = Task {
             // Debounce 200ms
@@ -260,13 +296,33 @@ struct SearchView: View {
             searchResults = output.songResults
             matchingAlbums = output.albumResults
             lyricsSearchCache = output.cache
+            renderedQuery = query
+            isSearching = false
         }
     }
 
-    private func playSong(_ song: PrimuseKit.Song) {
+    private var searchingPlaceholder: some View {
+        VStack(spacing: 14) {
+            ProgressView()
+                .controlSize(.large)
+            Text("search_running")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemBackground))
+    }
+
+    private func playSong(_ song: PrimuseKit.Song, lyricsHint: String? = nil, matchKind: LibrarySearchMatchKind? = nil) {
         let queue = searchResults.map(\.song).filteredPlayable()
         guard let index = queue.firstIndex(where: { $0.id == song.id }) else { return }
         player.setQueue(queue, startAt: index)
+        // 歌词命中: 让 NowPlayingView 加载完歌词后自动 seek 到那行;
+        // 同时打开全屏 NowPlayingView 让用户能立刻看到上下文。
+        if matchKind == .lyrics, let snippet = lyricsHint, !snippet.isEmpty {
+            player.requestLyricsJump(songID: song.id, snippet: snippet)
+            NotificationCenter.default.post(name: .primuseRequestShowNowPlaying, object: nil)
+        }
         Task { await player.play(song: song) }
         addRecentSearch(searchText)
     }

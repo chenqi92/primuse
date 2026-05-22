@@ -691,6 +691,43 @@ struct PlaybackSettingsView: View {
                 }
             }
 
+            Section {
+                HStack {
+                    Text("playback_rate")
+                    Spacer()
+                    Text(String(format: "%.2fx", settings.playbackRate))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                Slider(
+                    value: $settings.playbackRate,
+                    in: 0.5...2.0,
+                    step: 0.05
+                ) {
+                    Text("playback_rate")
+                } minimumValueLabel: {
+                    Text("0.5x").font(.caption2)
+                } maximumValueLabel: {
+                    Text("2.0x").font(.caption2)
+                }
+                if settings.playbackRate != 1.0 {
+                    Button("playback_rate_reset") {
+                        settings.playbackRate = 1.0
+                    }
+                    .font(.caption)
+                }
+            } header: {
+                Text("playback_rate_section")
+            } footer: {
+                Text("playback_rate_desc")
+            }
+
+            Section {
+                Toggle("output_sr_matching", isOn: $settings.matchOutputSampleRate)
+            } footer: {
+                Text("output_sr_matching_desc")
+            }
+
         }
         .navigationTitle("playback_settings")
         .navigationBarTitleDisplayMode(.inline)

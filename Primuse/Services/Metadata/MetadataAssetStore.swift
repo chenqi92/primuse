@@ -166,6 +166,7 @@ actor MetadataAssetStore {
         guard let data = try? encoder.encode(lines) else { return nil }
         do {
             try data.write(to: fileURL, options: .atomic)
+            Self.postLyricsCached(songID: key, lines: lines)
             return fileName
         } catch {
             return nil
@@ -228,10 +229,28 @@ actor MetadataAssetStore {
         guard let data = try? encoder.encode(lines) else { return false }
         do {
             try data.write(to: fileURL, options: .atomic)
+            Self.postLyricsCached(songID: songID, lines: lines)
             return true
         } catch {
             return false
         }
+    }
+
+    /// 通知 MusicLibrary 把这首歌的 lyricsText 同步到库里, 让 FTS5 全文
+    /// 歌词搜索覆盖新写入的歌。LyricsTextBackfillService 是一次性的, 之后
+    /// 的歌只能靠这条路。lines flatten 成纯文本 + 拼接, 单首歌词大小 1-2KB
+    /// 量级, post 一次 notification 成本可忽略。
+    nonisolated static func postLyricsCached(songID: String, lines: [LyricLine]) {
+        let text = lines
+            .map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+        guard !text.isEmpty else { return }
+        NotificationCenter.default.post(
+            name: .primuseLyricsDidCache,
+            object: nil,
+            userInfo: ["songID": songID, "lyricsText": text]
+        )
     }
 
     /// Read cached lyrics by song ID.
@@ -423,6 +442,7 @@ actor MetadataAssetStore {
         do {
             try data.write(to: fileURL, options: .atomic)
             plog("📝 storeLyricsSync wrote \(data.count)B → \(fileName)")
+            Self.postLyricsCached(songID: key, lines: lines)
         } catch {
             plog("⚠️ storeLyricsSync write failed: \(error.localizedDescription)")
         }

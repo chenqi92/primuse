@@ -15,6 +15,9 @@ final class AudioEngine {
     private(set) var eqNode: AVAudioUnitEQ?
     private(set) var compressorNode: AVAudioUnitEffect?
     private(set) var reverbNode: AVAudioUnitReverb?
+    /// 用于变速 (rate) + 保持音调 (overlap)。1.0 时基本无开销, 用户改速度
+    /// 时调它的 .rate 即可, engine graph 不需要 reconfigure。
+    private(set) var timePitchNode: AVAudioUnitTimePitch?
 
     private(set) var isPlaying = false
     private(set) var outputFormat: AVAudioFormat?
@@ -51,6 +54,12 @@ final class AudioEngine {
         )
         let compressor = AVAudioUnitEffect(audioComponentDescription: compressorDesc)
         let reverb = AVAudioUnitReverb()
+        let timePitch = AVAudioUnitTimePitch()
+        timePitch.rate = 1.0
+        timePitch.pitch = 0
+        // overlap 默认 8.0, 提高到 16 让 0.5x / 2.0x 极端速度声音更稳;
+        // 1.0x 时该节点几乎是 passthrough, 不会有副作用。
+        timePitch.overlap = 16.0
 
         for (index, frequency) in PrimuseConstants.eqBandFrequencies.enumerated() {
             let band = eq.bands[index]
@@ -74,6 +83,7 @@ final class AudioEngine {
         eng.attach(eq)
         eng.attach(compressor)
         eng.attach(reverb)
+        eng.attach(timePitch)
 
         let mainMixer = eng.mainMixerNode
         var format = mainMixer.outputFormat(forBus: 0)
@@ -82,14 +92,17 @@ final class AudioEngine {
             format = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 2)!
         }
 
-        // Signal chain: playerA/B → Spatial Environment → mixer → EQ → Compressor → Reverb → mainMixer → output
+        // Signal chain: playerA/B → Spatial Environment → mixer → EQ → Compressor → Reverb → TimePitch → mainMixer → output
+        // TimePitch 放最后一站, 让 EQ / 压缩 / 混响 都在原速下处理,
+        // visualizer 仍挂 mainMixer 拿到变速后的最终输出。
         eng.connect(playerA, to: environment, format: format)
         eng.connect(playerB, to: environment, format: format)
         eng.connect(environment, to: mixer, format: format)
         eng.connect(mixer, to: eq, format: format)
         eng.connect(eq, to: compressor, format: format)
         eng.connect(compressor, to: reverb, format: format)
-        eng.connect(reverb, to: mainMixer, format: format)
+        eng.connect(reverb, to: timePitch, format: format)
+        eng.connect(timePitch, to: mainMixer, format: format)
 
         playerB.volume = 0 // crossfade node starts silent
 
@@ -101,6 +114,7 @@ final class AudioEngine {
         self.eqNode = eq
         self.compressorNode = compressor
         self.reverbNode = reverb
+        self.timePitchNode = timePitch
         self.outputFormat = format
         self.isSetUp = true
         applySpatialAudioConfiguration()
@@ -214,6 +228,15 @@ final class AudioEngine {
         } catch {
             print("Failed to restart engine: \(error)")
         }
+    }
+
+    // MARK: - Playback Rate
+
+    /// 设定播放速度倍率, 0.5x ~ 2.0x。AVAudioUnitTimePitch.rate 直接生效,
+    /// 不用重启 engine。1.0 是 passthrough。pitch 保持 0 (不变调)。
+    func applyPlaybackRate(_ rate: Float) {
+        let clamped = max(0.5, min(2.0, rate))
+        timePitchNode?.rate = clamped
     }
 
     // MARK: - Spatial Audio

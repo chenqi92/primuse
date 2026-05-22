@@ -10,6 +10,7 @@ struct NowPlayingView: View {
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(SourceManager.self) private var sourceManager
     @Environment(SourcesStore.self) private var sourcesStore
+    @Environment(PlaybackSettingsStore.self) private var playbackSettings
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var showLyrics = false
     @State private var showQueue = false
@@ -22,6 +23,7 @@ struct NowPlayingView: View {
     @State private var showSleepTimer = false
     @State private var showDeleteConfirm = false
     @State private var showTagEditor = false
+    @State private var showSimilarSongs = false
     @Environment(ThemeService.self) private var theme
 
     // 父持有 @AppStorage 仅为了 onChange 触发 CloudKVS 同步;实际渲染字号由
@@ -107,6 +109,12 @@ struct NowPlayingView: View {
                     _ = updated
                 }
                 .presentationDetents([.large])
+            }
+        }
+        .sheet(isPresented: $showSimilarSongs) {
+            if let song = player.currentSong {
+                SimilarSongsSheet(seed: song)
+                    .presentationDetents([.large])
             }
         }
         .confirmationDialog(String(localized: "sleep_timer"), isPresented: $showSleepTimer) {
@@ -242,13 +250,27 @@ struct NowPlayingView: View {
 
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(player.currentSong?.title ?? "")
-                        .font(.title2).fontWeight(.bold).lineLimit(1)
-                        .foregroundStyle(.white)
+                    HStack(spacing: 6) {
+                        Text(player.currentSong?.title ?? "")
+                            .font(.title2).fontWeight(.bold).lineLimit(1)
+                            .foregroundStyle(.white)
+                        if let song = player.currentSong, song.audioQuality != .standard {
+                            AudioQualityBadge(quality: song.audioQuality)
+                        }
+                    }
                     Text(player.currentSong?.artistName ?? "")
                         .font(.title3).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
                 }
                 Spacer()
+                Button { showScrapeOptions = true } label: {
+                    Image(systemName: isScrapingCurrentSong ? "wand.and.stars.inverse" : "wand.and.stars")
+                        .font(.title2)
+                        .foregroundStyle(.white.opacity(isScrapingCurrentSong ? 0.4 : 0.6))
+                        .symbolEffect(.pulse, options: .repeating, isActive: isScrapingCurrentSong)
+                }
+                .disabled(player.currentSong == nil || isScrapingCurrentSong)
+                .padding(.trailing, 6)
+                .accessibilityLabel(Text("scrape_song"))
                 Button { showAddToPlaylist = true } label: {
                     Image(systemName: isInAnyPlaylist ? "heart.fill" : "heart")
                         .font(.title2)
@@ -408,6 +430,16 @@ struct NowPlayingView: View {
 
                             Spacer()
 
+                            Button { showScrapeOptions = true } label: {
+                                Image(systemName: isScrapingCurrentSong ? "wand.and.stars.inverse" : "wand.and.stars")
+                                    .font(.title3)
+                                    .foregroundStyle(.white.opacity(isScrapingCurrentSong ? 0.4 : 0.6))
+                                    .symbolEffect(.pulse, options: .repeating, isActive: isScrapingCurrentSong)
+                            }
+                            .disabled(player.currentSong == nil || isScrapingCurrentSong)
+                            .padding(.trailing, 4)
+                            .accessibilityLabel(Text("scrape_song"))
+
                             Button { showAddToPlaylist = true } label: {
                                 Image(systemName: isInAnyPlaylist ? "heart.fill" : "heart")
                                     .font(.title3)
@@ -454,6 +486,17 @@ struct NowPlayingView: View {
                                     .font(.body).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
                             }
                             Spacer()
+
+                            // Scrape button (主屏抽出, 不再藏在 ··· 菜单里)
+                            Button { showScrapeOptions = true } label: {
+                                Image(systemName: isScrapingCurrentSong ? "wand.and.stars.inverse" : "wand.and.stars")
+                                    .font(.title2)
+                                    .foregroundStyle(.white.opacity(isScrapingCurrentSong ? 0.4 : 0.6))
+                                    .symbolEffect(.pulse, options: .repeating, isActive: isScrapingCurrentSong)
+                            }
+                            .disabled(player.currentSong == nil || isScrapingCurrentSong)
+                            .padding(.trailing, 6)
+                            .accessibilityLabel(Text("scrape_song"))
 
                             // Like button
                             Button {
@@ -597,10 +640,10 @@ struct NowPlayingView: View {
                 }
                 .disabled(player.currentSong == nil)
 
-                Button { showScrapeOptions = true } label: {
-                    Label(String(localized: "scrape_song"), systemImage: "wand.and.stars")
+                Button { showSimilarSongs = true } label: {
+                    Label(String(localized: "similar_songs"), systemImage: "sparkles")
                 }
-                .disabled(player.currentSong == nil || isScrapingCurrentSong)
+                .disabled(player.currentSong == nil)
 
                 Button { showTagEditor = true } label: {
                     Label(String(localized: "tag_editor_menu"), systemImage: "tag")
@@ -661,6 +704,29 @@ struct NowPlayingView: View {
                         systemImage: player.isSleepTimerActive ? "moon.zzz.fill" : "moon.zzz"
                     )
                 }
+
+                // 播放速度子菜单 — AVAudioUnitTimePitch 改 rate 即时生效,
+                // 不需要重启 engine 或重 schedule buffer。1.0 是 passthrough。
+                Picker(selection: Binding(
+                    get: { playbackSettings.playbackRate },
+                    set: { playbackSettings.playbackRate = $0 }
+                )) {
+                    Text("0.5×").tag(Float(0.5))
+                    Text("0.75×").tag(Float(0.75))
+                    Text(String(localized: "playback_rate_normal")).tag(Float(1.0))
+                    Text("1.25×").tag(Float(1.25))
+                    Text("1.5×").tag(Float(1.5))
+                    Text("1.75×").tag(Float(1.75))
+                    Text("2.0×").tag(Float(2.0))
+                } label: {
+                    Label(
+                        playbackSettings.playbackRate == 1.0
+                            ? String(localized: "playback_rate")
+                            : String(format: "%@ %.2fx", String(localized: "playback_rate"), playbackSettings.playbackRate),
+                        systemImage: "speedometer"
+                    )
+                }
+                .pickerStyle(.menu)
             }
 
             // 销毁
@@ -861,6 +927,29 @@ struct NowPlayingView: View {
         plog("📜 setLyrics: lines=\(value.count) wordLevelLines=\(wordLevelCount) firstSyllables=\(value.first?.syllables?.count ?? -1)")
         // currentLineIndex / hasWordLevelLyrics 已迁移到 LyricsScrollView 子 view,
         // 子 view 自己 onChange(of: songID) 重置 + computed property 算 hasWord。
+        consumePendingLyricsJump(from: value)
+    }
+
+    /// 搜索页点歌词命中结果时, player 上挂了一个 pending hint。歌词刚加载
+    /// 完就在这里 fuzzy match 找对应行的 timestamp 并 seek。命中即清, 一次性。
+    /// songID 必须匹配当前 currentSong, 避免用户快速切歌时 jump 到别首。
+    private func consumePendingLyricsJump(from lines: [LyricLine]) {
+        guard let hint = player.pendingLyricsJump,
+              let currentID = player.currentSong?.id,
+              hint.songID == currentID,
+              !lines.isEmpty else { return }
+        // snippet 可能包含上下文行 ("...prev\nmatch\nnext..."), 提取最长一行做匹配。
+        let needle = hint.snippet
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: ". ")) }
+            .max(by: { $0.count < $1.count }) ?? hint.snippet
+        guard !needle.isEmpty else { player.clearPendingLyricsJump(); return }
+        if let match = lines.first(where: { $0.text.localizedCaseInsensitiveContains(needle) }) {
+            player.seek(to: max(0, match.timestamp - 0.3))
+            // 用户来这是为了看歌词上下文, 默认切到歌词面板
+            withAnimation(.easeInOut(duration: 0.3)) { showLyrics = true }
+        }
+        player.clearPendingLyricsJump()
     }
 
 

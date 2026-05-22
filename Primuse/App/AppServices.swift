@@ -16,6 +16,8 @@ final class AppServices {
     let themeService: ThemeService
     let scanService: ScanService
     let metadataBackfill: MetadataBackfillService
+    let lyricsTextBackfill: LyricsTextBackfillService
+    let similarTracks: SimilarTracksService
     let updateChecker: AppUpdateChecker
     let coverTintProvider: CoverTintProvider
     let spotlightIndex: SpotlightIndexService
@@ -69,6 +71,8 @@ final class AppServices {
         self.themeService = theme
         self.scanService = ScanService()
         self.metadataBackfill = MetadataBackfillService(library: library, sourceManager: manager)
+        self.lyricsTextBackfill = LyricsTextBackfillService(library: library)
+        self.similarTracks = SimilarTracksService()
         self.updateChecker = AppUpdateChecker()
         self.coverTintProvider = CoverTintProvider()
         self.spotlightIndex = SpotlightIndexService()

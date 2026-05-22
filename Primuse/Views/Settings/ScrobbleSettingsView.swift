@@ -2,9 +2,9 @@ import SwiftUI
 import SafariServices
 import PrimuseKit
 
-/// 听歌记录上报 (scrobble) 设置 — Last.fm / ListenBrainz 等。
-/// v1 完整支持 ListenBrainz (用户 token 直接粘贴), Last.fm 受限 (需要
-/// app 维护方注册 API key, UI 已有但未启用)。
+/// 听歌记录上报 (scrobble) 设置 — Last.fm / ListenBrainz。
+/// Last.fm 走 desktop auth flow (in-app Safari + 内置 API key);
+/// ListenBrainz 走用户 token 直接粘贴。
 struct ScrobbleSettingsView: View {
     @State private var settings = ScrobbleSettingsStore.shared
     @State private var service = ScrobbleService.shared

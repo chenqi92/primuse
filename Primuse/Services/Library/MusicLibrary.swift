@@ -729,6 +729,67 @@ final class MusicLibrary {
         decoder.dateDecodingStrategy = .iso8601
 
         loadSnapshot()
+
+        // MetadataAssetStore 写 lyrics 缓存后会发这个通知 — 把对应 song 的
+        // lyricsText 同步进库, 让 FTS5 全文歌词搜索覆盖到这首。
+        //
+        // 关键: 一次刮削会触发多次 cacheLyrics (主写一次 + sidecar 写一次),
+        // 全库刮删时 N×多倍的 replaceSong 会堆爆主线程触发 iOS watchdog
+        // (用户反馈刮削后 UI 卡死 → 闪退)。500ms debounce 合并多个 songID
+        // 的 update 到一次 replaceSongs(batch) — index/persist 只跑一次。
+        NotificationCenter.default.addObserver(
+            forName: .primuseLyricsDidCache,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self,
+                  let info = note.userInfo,
+                  let songID = info["songID"] as? String,
+                  let text = info["lyricsText"] as? String else { return }
+            self.scheduleLyricsTextFlush(songID: songID, lyricsText: text)
+        }
+    }
+
+    private static let pendingLyricsFlushDelay: TimeInterval = 0.5
+    /// 等待写入的 (songID → 最新 lyricsText)。同一 songID 多次 schedule 后,
+    /// flush 时只用最新值, 中间快照丢弃。
+    private var pendingLyricsText: [String: String] = [:]
+    private var pendingLyricsFlushTask: Task<Void, Never>?
+
+    private func scheduleLyricsTextFlush(songID: String, lyricsText: String) {
+        // 内容跟 library 里已有的一致就不排队 — 也避免反复 fire flush。
+        if let existing = songs.first(where: { $0.id == songID })?.lyricsText,
+           existing == lyricsText {
+            return
+        }
+        pendingLyricsText[songID] = lyricsText
+        pendingLyricsFlushTask?.cancel()
+        pendingLyricsFlushTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(Self.pendingLyricsFlushDelay))
+            guard !Task.isCancelled else { return }
+            self?.flushPendingLyricsText()
+        }
+    }
+
+    private func flushPendingLyricsText() {
+        let pending = pendingLyricsText
+        pendingLyricsText.removeAll(keepingCapacity: true)
+        pendingLyricsFlushTask = nil
+        guard !pending.isEmpty else { return }
+
+        var updates: [Song] = []
+        updates.reserveCapacity(pending.count)
+        for (songID, text) in pending {
+            guard let idx = songs.firstIndex(where: { $0.id == songID }) else { continue }
+            guard songs[idx].lyricsText != text else { continue }
+            var s = songs[idx]
+            s.lyricsText = text
+            updates.append(s)
+        }
+        guard !updates.isEmpty else { return }
+        // 一次 replaceSongs 内部 rebuildIndex / persistSnapshot 只跑一次,
+        // 不会刷爆主线程。
+        replaceSongs(updates)
     }
 
     /// Add songs from a scan result and rebuild albums/artists.
@@ -1810,6 +1871,14 @@ final class MusicLibrary {
 }
 
 extension Notification.Name {
+    /// Posted by MetadataAssetStore after lyrics are cached for a songID.
+    /// userInfo: ["songID": String, "lyricsText": String]. MusicLibrary 监听
+    /// 后, 把对应 song 的 lyricsText 字段更新写库 + 翻 FTS5 索引, 让歌词
+    /// 全文搜索覆盖新写入的歌 (不止 backfill 跑过的老歌)。
+    static let primuseLyricsDidCache = Notification.Name("primuse.lyricsDidCache")
+    /// 请求全屏打开 NowPlayingView。SearchView 点歌词命中结果时会触发, 让
+    /// 用户立刻看到歌词上下文 + auto-seek 到命中行。
+    static let primuseRequestShowNowPlaying = Notification.Name("primuse.requestShowNowPlaying")
     static let primusePlaylistsDidChange = Notification.Name("primuse.playlistsDidChange")
     static let primusePlaylistDidDelete = Notification.Name("primuse.playlistDidDelete")
     static let primuseSmartPlaylistsDidChange = Notification.Name("primuse.smartPlaylistsDidChange")

@@ -177,6 +177,20 @@ final class AudioPlayerService {
 
     private var displayLink: Timer?
     private let nativeDecoder = NativeAudioDecoder()
+
+    /// 一次性 hint: 搜索页点歌词命中结果时填入, NowPlayingView 加载好歌词后
+    /// 用这串文本 fuzzy match 找到对应 LyricLine.timestamp 并 seek。命中后
+    /// NowPlayingView 调 `clearPendingLyricsJump()` 清空。
+    /// userInfo: (songID, snippet)。songID 防止匹配到错首歌 (用户快速切歌)。
+    private(set) var pendingLyricsJump: (songID: String, snippet: String)?
+
+    func requestLyricsJump(songID: String, snippet: String) {
+        pendingLyricsJump = (songID, snippet)
+    }
+
+    func clearPendingLyricsJump() {
+        pendingLyricsJump = nil
+    }
     private let assetReaderDecoder = AssetReaderDecoder()
     private let streamingDecoder = StreamingDownloadDecoder()
     private var decodingTask: Task<Void, Never>?
@@ -217,7 +231,9 @@ final class AudioPlayerService {
         equalizerService = EqualizerService(audioEngine: audioEngine)
         audioEffectsService = AudioEffectsService(audioEngine: audioEngine, settingsStore: playbackSettings)
         applySpatialAudioSettings()
+        applyPlaybackRate()
         observeSpatialAudioSettings()
+        observePlaybackRate()
 
         // Defer heavy system registrations to avoid blocking first frame
         Task { @MainActor [weak self] in
@@ -235,6 +251,19 @@ final class AudioPlayerService {
         )
     }
 
+    /// 同步当前 playbackRate 到 engine. 设置变化或新歌开播都会调它。
+    func applyPlaybackRate() {
+        audioEngine.applyPlaybackRate(playbackSettings.playbackRate)
+    }
+
+    /// 如果用户启用了「输出采样率匹配」, 把 AVAudioSession 硬件 SR hint 切到
+    /// 当前歌的采样率, 避免 CoreAudio 自动重采样。仅 iOS 真机生效。
+    func applyOutputSampleRateMatching(for song: Song) {
+        guard playbackSettings.matchOutputSampleRate,
+              let sr = song.sampleRate, sr > 0 else { return }
+        AudioSessionManager.shared.setPreferredSampleRate(Double(sr))
+    }
+
     private func observeSpatialAudioSettings() {
         withObservationTracking {
             _ = playbackSettings.spatialAudioEnabled
@@ -244,6 +273,21 @@ final class AudioPlayerService {
                 guard let self else { return }
                 self.applySpatialAudioSettings()
                 self.observeSpatialAudioSettings()
+            }
+        }
+    }
+
+    /// 单独跟踪 playbackRate, 别和 spatial observer 合并 — 不然改速度时会
+    /// 顺带触发 spatial node 的 sourceMode / renderingAlgorithm 重设, 在
+    /// engine 运行中可能导致音频 glitch / player 卡顿。
+    private func observePlaybackRate() {
+        withObservationTracking {
+            _ = playbackSettings.playbackRate
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.applyPlaybackRate()
+                self.observePlaybackRate()
             }
         }
     }
@@ -379,6 +423,8 @@ final class AudioPlayerService {
         audioEngine.sampleTimeOffset = 0
         crossfadeTriggered = false; isCrossfading = false
         activeDecoderKind = .native
+        applyOutputSampleRateMatching(for: song)
+        applyPlaybackRate()
 
         let isRemoteURL = url.scheme == "http" || url.scheme == "https"
         let isCloudStream = url.scheme == SourceManager.cloudStreamingScheme

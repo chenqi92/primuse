@@ -24,6 +24,12 @@ struct PlaybackSettings: Codable, Sendable {
     var spatialHeadTrackingEnabled: Bool = false
     var audioCacheEnabled: Bool = true
     var audioCacheLimitBytes: Int64 = AudioCacheManager.defaultMaxCacheSize
+    /// 播放速度倍率, 0.5x ~ 2.0x。1.0 = 正常。走 AVAudioUnitTimePitch
+    /// 节点，自动保持音调不变。
+    var playbackRate: Float = 1.0
+    /// 是否让 AVAudioSession 把硬件输出 SR 切到当前歌曲采样率, 避免
+    /// CoreAudio 自动重采样。仅 iOS 真机有效, 部分老款硬件无视该 hint。
+    var matchOutputSampleRate: Bool = false
 
     // Compressor / Limiter
     var compressorEnabled: Bool = false
@@ -54,6 +60,8 @@ struct PlaybackSettings: Codable, Sendable {
         spatialHeadTrackingEnabled = try c.decodeIfPresent(Bool.self, forKey: .spatialHeadTrackingEnabled) ?? false
         audioCacheEnabled = try c.decodeIfPresent(Bool.self, forKey: .audioCacheEnabled) ?? true
         audioCacheLimitBytes = try c.decodeIfPresent(Int64.self, forKey: .audioCacheLimitBytes) ?? AudioCacheManager.defaultMaxCacheSize
+        playbackRate = try c.decodeIfPresent(Float.self, forKey: .playbackRate) ?? 1.0
+        matchOutputSampleRate = try c.decodeIfPresent(Bool.self, forKey: .matchOutputSampleRate) ?? false
         compressorEnabled = try c.decodeIfPresent(Bool.self, forKey: .compressorEnabled) ?? false
         compressorThreshold = try c.decodeIfPresent(Float.self, forKey: .compressorThreshold) ?? -20
         compressorHeadRoom = try c.decodeIfPresent(Float.self, forKey: .compressorHeadRoom) ?? 5
@@ -76,6 +84,8 @@ struct PlaybackSettings: Codable, Sendable {
         spatialHeadTrackingEnabled: Bool = false,
         audioCacheEnabled: Bool = true,
         audioCacheLimitBytes: Int64 = AudioCacheManager.defaultMaxCacheSize,
+        playbackRate: Float = 1.0,
+        matchOutputSampleRate: Bool = false,
         compressorEnabled: Bool = false,
         compressorThreshold: Float = -20,
         compressorHeadRoom: Float = 5,
@@ -96,6 +106,8 @@ struct PlaybackSettings: Codable, Sendable {
         self.spatialHeadTrackingEnabled = spatialHeadTrackingEnabled
         self.audioCacheEnabled = audioCacheEnabled
         self.audioCacheLimitBytes = audioCacheLimitBytes
+        self.playbackRate = playbackRate
+        self.matchOutputSampleRate = matchOutputSampleRate
         self.compressorEnabled = compressorEnabled
         self.compressorThreshold = compressorThreshold
         self.compressorHeadRoom = compressorHeadRoom
@@ -162,6 +174,18 @@ final class PlaybackSettingsStore {
     }
     var audioCacheEnabled: Bool { didSet { persist() } }
     var audioCacheLimitBytes: Int64 { didSet { persist() } }
+    var playbackRate: Float {
+        didSet {
+            // 限定 0.5x - 2.0x, AVAudioUnitTimePitch 单元在此区间外音质会明显劣化
+            let clamped = max(0.5, min(2.0, playbackRate))
+            if clamped != playbackRate {
+                playbackRate = clamped
+                return
+            }
+            persist()
+        }
+    }
+    var matchOutputSampleRate: Bool { didSet { persist() } }
 
     // Compressor / Limiter
     var compressorEnabled: Bool { didSet { persist() } }
@@ -192,6 +216,8 @@ final class PlaybackSettingsStore {
         self.spatialHeadTrackingEnabled = s.spatialAudioEnabled && s.spatialHeadTrackingEnabled
         self.audioCacheEnabled = s.audioCacheEnabled
         self.audioCacheLimitBytes = s.audioCacheLimitBytes
+        self.playbackRate = max(0.5, min(2.0, s.playbackRate))
+        self.matchOutputSampleRate = s.matchOutputSampleRate
         self.compressorEnabled = s.compressorEnabled
         self.compressorThreshold = s.compressorThreshold
         self.compressorHeadRoom = s.compressorHeadRoom
@@ -223,6 +249,8 @@ final class PlaybackSettingsStore {
         spatialHeadTrackingEnabled = s.spatialAudioEnabled && s.spatialHeadTrackingEnabled
         audioCacheEnabled = s.audioCacheEnabled
         audioCacheLimitBytes = s.audioCacheLimitBytes
+        playbackRate = max(0.5, min(2.0, s.playbackRate))
+        matchOutputSampleRate = s.matchOutputSampleRate
         compressorEnabled = s.compressorEnabled
         compressorThreshold = s.compressorThreshold
         compressorHeadRoom = s.compressorHeadRoom
@@ -246,6 +274,8 @@ final class PlaybackSettingsStore {
             spatialHeadTrackingEnabled: spatialHeadTrackingEnabled,
             audioCacheEnabled: audioCacheEnabled,
             audioCacheLimitBytes: audioCacheLimitBytes,
+            playbackRate: playbackRate,
+            matchOutputSampleRate: matchOutputSampleRate,
             compressorEnabled: compressorEnabled,
             compressorThreshold: compressorThreshold,
             compressorHeadRoom: compressorHeadRoom,

@@ -99,6 +99,7 @@ struct ContentView: View {
             SearchView(searchText: $searchText)
                 .tabItem { Label(String(localized: "search_title"), systemImage: "magnifyingglass") }
                 .tag(2)
+                .id("primuse.tab.search")
 
             SettingsView()
                 .tabItem { Label(String(localized: "settings_title"), systemImage: "gearshape") }
@@ -108,6 +109,11 @@ struct ContentView: View {
 
     @ViewBuilder
     private var playerAwareTabRoot: some View {
+        // accessory modifier 必须按需挂 / 不挂 —— iOS 26 的
+        // `tabViewBottomAccessory` 即使闭包内是 EmptyView 也会保留透明
+        // 占位条。Modifier 切换会让 TabView 子树被当成不同结构重建,
+        // SearchView 等子页的 @State 会丢, 所以 tab content 自带稳定
+        // `.id(...)` 让 SwiftUI 跨 rebuild 复用 state。
         if player.currentSong != nil {
             if #available(iOS 26.0, *) {
                 tabRoot
@@ -277,6 +283,9 @@ struct ContentView: View {
         // 播放位置 / 播放或暂停 / shuffle / repeat),无缝接着播下去。
         .onContinueUserActivity("com.welape.yuanyin.nowplaying") { activity in
             handleHandoffActivity(activity)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .primuseRequestShowNowPlaying)) { _ in
+            showNowPlaying = true
         }
         // SSL trust prompt
         .alert(

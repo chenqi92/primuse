@@ -53,6 +53,23 @@ final class AudioSessionManager {
         )
     }
 
+    /// 提示系统把硬件输出 sample rate 切到目标值, 避免 CoreAudio 重采样
+    /// (44.1 → 48 这种)。仅 hint, 系统可能拒绝。返回实际生效的 SR (失败
+    /// 时返回当前值)。Hz 单位。0 / 不合理值会被忽略。
+    @discardableResult
+    func setPreferredSampleRate(_ targetHz: Double) -> Double {
+        let session = AVAudioSession.sharedInstance()
+        guard targetHz >= 8000, targetHz <= 384_000 else {
+            return session.sampleRate
+        }
+        do {
+            try session.setPreferredSampleRate(targetHz)
+        } catch {
+            print("setPreferredSampleRate(\(targetHz)) failed: \(error)")
+        }
+        return session.sampleRate
+    }
+
     func deactivate() {
         let session = AVAudioSession.sharedInstance()
         do {
