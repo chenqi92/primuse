@@ -106,13 +106,13 @@ final class MusicScraperService {
                 let songForWrite = updatedSong
                 let sourceManager = self.sourceManager
                 let songID = updatedSong.id
-                Task { @MainActor in
+                Task.detached(priority: .utility) {
                     do {
                         plog("📝 Sidecar: getting auxiliary connector for '\(songForWrite.title)' source=\(songForWrite.sourceID)")
-                        let connector = try await sourceManager.auxiliaryConnector(for: songForWrite)
-                        plog("📝 Sidecar: writing sidecars for '\(songForWrite.title)' filePath=\(songForWrite.filePath)")
-                        let writeResult = await SidecarWriteService.shared.writeSidecars(
-                            for: songForWrite, using: connector,
+                        let writeResult = try await MusicScraperService.writeSidecarWithTimeout(
+                            seconds: 30,
+                            sourceManager: sourceManager,
+                            for: songForWrite,
                             coverData: coverData, lyricsLines: lyricsLines
                         )
                         plog("📝 Sidecar: result cover=\(writeResult.coverWritten) lyrics=\(writeResult.lyricsWritten) errors=\(writeResult.errors)")
@@ -142,12 +142,16 @@ final class MusicScraperService {
                         }
 
                         if needsUpdate {
-                            library.replaceSong(refSong)
+                            await MainActor.run {
+                                library.replaceSong(refSong)
+                            }
                         }
 
                         if !writeResult.errors.isEmpty {
                             plog("⚠️ Sidecar write errors: \(writeResult.errors)")
                         }
+                    } catch is CancellationError {
+                        plog("⚠️ Sidecar write timed out (30s) for '\(songForWrite.title)'")
                     } catch {
                         plog("⚠️ Sidecar write skipped for '\(songForWrite.title)': \(error.localizedDescription)")
                     }
@@ -242,16 +246,19 @@ final class MusicScraperService {
                             let songID = updatedSong.id
 
                             // Write sidecar files to source asynchronously (don't block scraping loop)
-                            Task { @MainActor in
+                            Task.detached(priority: .utility) {
                                 // 同 scrapeSingle:写 sidecar 前清旧 cache、写后回写
                                 await MetadataAssetStore.shared.invalidateCoverCache(forSongID: songID)
                                 await MetadataAssetStore.shared.invalidateLyricsCache(forSongID: songID)
-                                CachedArtworkView.invalidateCache(for: songID)
+                                await MainActor.run {
+                                    CachedArtworkView.invalidateCache(for: songID)
+                                }
 
                                 do {
-                                    let connector = try await sourceManager.auxiliaryConnector(for: songForWrite)
-                                    let writeResult = await SidecarWriteService.shared.writeSidecars(
-                                        for: songForWrite, using: connector,
+                                    let writeResult = try await MusicScraperService.writeSidecarWithTimeout(
+                                        seconds: 30,
+                                        sourceManager: sourceManager,
+                                        for: songForWrite,
                                         coverData: coverData, lyricsLines: lyricsLines
                                     )
 
@@ -273,16 +280,20 @@ final class MusicScraperService {
                                         // 同上: 不指向 NAS .lrc, 字级数据只在
                                         // 本地 hash JSON。
                                         // 用户动作 (scrape) 触发的 sidecar 镜像写回, 强制覆盖
-                            await MetadataAssetStore.shared.cacheLyrics(lyricsLines, forSongID: songID, force: true)
+                                        await MetadataAssetStore.shared.cacheLyrics(lyricsLines, forSongID: songID, force: true)
                                     }
 
                                     if needsUpdate {
-                                        library.replaceSong(refSong)
+                                        await MainActor.run {
+                                            library.replaceSong(refSong)
+                                        }
                                     }
 
                                     if !writeResult.errors.isEmpty {
                                         plog("⚠️ Batch sidecar errors for '\(songForWrite.title)': \(writeResult.errors)")
                                     }
+                                } catch is CancellationError {
+                                    plog("⚠️ Batch sidecar timed out (30s) for '\(songForWrite.title)'")
                                 } catch {
                                     plog("⚠️ Batch sidecar skipped for '\(songForWrite.title)': \(error.localizedDescription)")
                                 }
@@ -523,5 +534,36 @@ final class MusicScraperService {
             lyricsFileName: lyricsNeedsUpdate ? (metadata.lyricsFileName ?? song.lyricsFileName) : song.lyricsFileName,
             revision: song.revision
         )
+    }
+
+    private nonisolated static func writeSidecarWithTimeout(
+        seconds: TimeInterval,
+        sourceManager: SourceManager,
+        for song: Song,
+        coverData: Data?,
+        lyricsLines: [LyricLine]?
+    ) async throws -> SidecarWriteService.WriteResult {
+        try await withThrowingTaskGroup(of: SidecarWriteService.WriteResult.self) { group in
+            group.addTask {
+                let connector = try await sourceManager.auxiliaryConnector(for: song)
+                plog("📝 Sidecar: writing sidecars for '\(song.title)' filePath=\(song.filePath)")
+                return await SidecarWriteService.shared.writeSidecars(
+                    for: song,
+                    using: connector,
+                    coverData: coverData,
+                    lyricsLines: lyricsLines
+                )
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(max(0.1, seconds) * 1_000_000_000))
+                throw CancellationError()
+            }
+
+            guard let result = try await group.next() else {
+                throw CancellationError()
+            }
+            group.cancelAll()
+            return result
+        }
     }
 }
