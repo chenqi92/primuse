@@ -1,5 +1,6 @@
 import Foundation
 import MusicKit
+import PrimuseKit
 
 /// Apple Music 桥 ── 仅做"在搜索里多挂一组结果 + 调系统播放器开播"这件事,
 /// 不试图把 Apple Music 歌混进 MusicLibrary。原因:
@@ -41,10 +42,24 @@ final class AppleMusicService {
     private(set) var lastSearchHitCount: Int = -1
     /// 当前正在 Apple Music 侧播放的歌 — UI 用来在 mini player / NowPlayingAccessory
     /// 显示。Apple Music 是 ApplicationMusicPlayer 系统侧播放, 跟我们自己的
-    /// AudioPlayerService.currentSong 是两套, 不能合并。
+    /// AudioPlayerService.currentSong 是两套, 但 AudioPlayerService 会做镜像把这
+    /// 个值同步到自己的 currentSong, 让 NowPlayingView 复用同一个 player。
     private(set) var nowPlayingSong: MusicKit.Song?
     /// Apple Music 是否正在播放 (从 ApplicationMusicPlayer.playbackStatus 转过来)。
     private(set) var isAppleMusicPlaying: Bool = false
+    /// ApplicationMusicPlayer.playbackTime 镜像 ── AudioPlayerService 通过观察这个
+    /// 把进度条接到 Apple Music。0.5s polling 一次, NowPlayingView 的 interpolatedTime
+    /// 在两次采样之间线性外推, 体验跟本地播放一致。
+    private(set) var currentPlaybackTime: TimeInterval = 0
+    /// 当前曲目时长 ── 从 nowPlayingSong.duration 派生, 跟 playbackTime 同源更新。
+    private(set) var currentDuration: TimeInterval = 0
+    /// queue.entries 的 PrimuseKit.Song 投影, 给 NowPlayingView 的队列视图用。
+    /// 投影在 polling 时做一次, 避免每个观察方各自计算。
+    private(set) var queueSongs: [PrimuseKit.Song] = []
+    /// repeat / shuffle 状态投影 ── 映射成 PrimuseKit.RepeatMode 让 NowPlayingView
+    /// 的循环按钮 / 随机按钮可以直接读 + 写。
+    private(set) var repeatModeMirror: PrimuseKit.RepeatMode = .off
+    private(set) var shuffleEnabledMirror: Bool = false
 
     private var searchTask: Task<Void, Never>?
     private var playbackStatusObservation: Task<Void, Never>?
@@ -133,7 +148,60 @@ final class AppleMusicService {
     ///    的 queue 设置 + play() 在某些 iOS 版本会触发底层 assert。这里先
     ///    用 `MusicSubscription.current` 探一下能力, 不能播就直接给 UI 报
     ///    错而不是冒险调 player。
-    func play(_ song: MusicKit.Song) async {
+    /// 把整段 queue 推给 ApplicationMusicPlayer ── 让用户点资料库里某首歌时
+     /// 自动把后续歌曲串成播放上下文, 支持 mini player / 大播放器的下一首/上一首
+     /// 按钮; 否则单首 queue 下 skipToNext 实际等同 stop, 体验是"控件没反应"。
+     /// startAt 越界自动 clamp 到 0。
+     func play(songs: [MusicKit.Song], startAt index: Int) async {
+         guard !songs.isEmpty else { return }
+         let safeIndex = max(0, min(index, songs.count - 1))
+         let starting = songs[safeIndex]
+         // caller (AudioPlayerService.playAppleMusicSong) 已经把猿音自己的
+         // engine 停掉了, 这里直接接管 audio session。
+         let player = ApplicationMusicPlayer.shared
+         nowPlayingSong = starting
+         isAppleMusicPlaying = true
+         observePlaybackStatusIfNeeded()
+         do {
+             player.queue = ApplicationMusicPlayer.Queue(for: songs, startingAt: starting)
+             try await player.play()
+         } catch {
+             let ns = error as NSError
+             let isSpuriousMPError2 = ns.domain == "MPMusicPlayerControllerErrorDomain" && ns.code == 2
+             if isSpuriousMPError2 {
+                 plog("Apple Music play threw spurious MPError 2, ignoring (audio likely playing)")
+             } else {
+                 plog("⚠️Apple Music play(queue) failed: \(error.localizedDescription)")
+                 lastPlaybackError = error.localizedDescription
+                 isAppleMusicPlaying = false
+             }
+         }
+     }
+
+     /// 下一首 / 上一首 ── 走 ApplicationMusicPlayer 自带 queue 操作。
+     /// 单首 queue 时 skipToNextEntry 等同 stop, 所以 caller 应通过 play(songs:)
+     /// 把上下文塞够再调用。
+     func skipToNextAppleMusic() {
+         Task { @MainActor in
+             do {
+                 try await ApplicationMusicPlayer.shared.skipToNextEntry()
+             } catch {
+                 plog("⚠️Apple Music skipNext failed: \(error.localizedDescription)")
+             }
+         }
+     }
+
+     func skipToPreviousAppleMusic() {
+         Task { @MainActor in
+             do {
+                 try await ApplicationMusicPlayer.shared.skipToPreviousEntry()
+             } catch {
+                 plog("⚠️Apple Music skipPrev failed: \(error.localizedDescription)")
+             }
+         }
+     }
+
+     func play(_ song: MusicKit.Song) async {
         lastPlaybackError = nil
         // 让猿音自家播放器先停掉, audio session 让给 ApplicationMusicPlayer。
         // 否则: 本地正在播 → 用户点 Apple Music row → ApplicationMusicPlayer 接管
@@ -209,27 +277,102 @@ final class AppleMusicService {
         isAppleMusicPlaying = false
     }
 
-    /// 监听 ApplicationMusicPlayer.state.playbackStatus 变化, 把状态同步到本类的
-    /// isAppleMusicPlaying / nowPlayingSong (后者只用 stop 时清空)。
-    /// 用 polling 0.5s 一次 — ApplicationMusicPlayer 是 Combine ObservableObject
-    /// 但跨 actor 订阅麻烦, polling 简单可靠且开销可以忽略。
-    private func observePlaybackStatusIfNeeded() {
-        guard playbackStatusObservation == nil else { return }
-        playbackStatusObservation = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(500))
-                guard let self else { return }
-                let status = ApplicationMusicPlayer.shared.state.playbackStatus
-                let nowPlaying = status == .playing
-                if self.isAppleMusicPlaying != nowPlaying {
-                    self.isAppleMusicPlaying = nowPlaying
-                }
-                // 不在这里 reset nowPlayingSong。原本切歌的瞬间 status 可能短暂
-                // 变 .stopped, mini player 立刻消失 → 用户体感"部分歌不显示"。
-                // 用户显式 stopAppleMusic() 才清空 nowPlayingSong。
-            }
-        }
-    }
+    /// 监听 ApplicationMusicPlayer.state, 把 playbackStatus / playbackTime / queue
+     /// / repeatMode / shuffleMode 同步到本类的镜像字段。AudioPlayerService 通过
+     /// @Observable 自动拿到这些变化, 投影成自己的 currentTime / queue / repeat
+     /// 等让 NowPlayingView 复用同一份 UI。
+     ///
+     /// 0.5s polling ── ApplicationMusicPlayer 是 Combine ObservableObject 但跨
+     /// actor 订阅麻烦, polling 简单可靠; NowPlayingView 的 interpolatedTime 在两次
+     /// 采样间做线性外推, 进度条不会卡。
+     private func observePlaybackStatusIfNeeded() {
+         guard playbackStatusObservation == nil else { return }
+         playbackStatusObservation = Task { [weak self] in
+             while !Task.isCancelled {
+                 try? await Task.sleep(for: .milliseconds(500))
+                 guard let self else { return }
+                 await self.tickAppleMusicState()
+             }
+         }
+     }
+
+     private func tickAppleMusicState() async {
+         let player = ApplicationMusicPlayer.shared
+         let nowPlaying = player.state.playbackStatus == .playing
+         if isAppleMusicPlaying != nowPlaying {
+             isAppleMusicPlaying = nowPlaying
+         }
+         // queue.currentEntry 反映用户在 queue 里走到哪 — 不限于初次 play, 也包括
+         // 自动跳下一首 / skipToNextEntry。entry.item 在 user library / catalog 都
+         // 是 .song case。其它类型 (musicVideo 等) 我们 user library 拉的时候 filter
+         // 过, 这里默认走 .song 分支。
+         if let entry = player.queue.currentEntry {
+             switch entry.item {
+             case .song(let s):
+                 // ApplicationMusicPlayer 返回的常常是 catalog Song (数字 id),
+                 // 反查 cache 拿 user library 版本 (i.* id), 保证下游 CachedArtworkView
+                 // / catalogURL 等按 id 查 cache 的逻辑能命中。
+                 let canonical = AppServices.shared.appleMusicLibrary.canonicalForNowPlaying(s)
+                 if nowPlayingSong?.id != canonical.id {
+                     nowPlayingSong = canonical
+                 }
+                 currentDuration = canonical.duration ?? s.duration ?? 0
+             default:
+                 break
+             }
+         }
+         let pt = player.playbackTime
+         // 浮点数微抖动也会触发 @Observable 通知, 0.05s 以内不动 cuts 掉低频闪烁。
+         if abs(pt - currentPlaybackTime) > 0.05 {
+             currentPlaybackTime = pt
+         }
+         // queueSongs: 把 entry list 投影成 PrimuseKit.Song, 给 NowPlayingView 的
+         // 队列视图直接渲染。entry.id 不稳定时 fallback 不更新。
+         let snapshot = player.queue.entries.compactMap { entry -> MusicKit.Song? in
+             if case .song(let s) = entry.item { return s }
+             return nil
+         }
+         let projected = snapshot.map { AppleMusicLibraryService.toPrimuseSong($0) }
+         if projected.map(\.id) != queueSongs.map(\.id) {
+             queueSongs = projected
+         }
+         // repeat / shuffle 镜像
+         let r = Self.mapRepeat(player.state.repeatMode)
+         if r != repeatModeMirror { repeatModeMirror = r }
+         let sh = (player.state.shuffleMode == .songs)
+         if sh != shuffleEnabledMirror { shuffleEnabledMirror = sh }
+     }
+
+     /// 跳到指定时间 ── 直接赋值 playbackTime。系统 player 0.2s 内响应,
+     /// AudioPlayerService.seek 调过来不需要 await。
+     func seekAppleMusic(to time: TimeInterval) {
+         ApplicationMusicPlayer.shared.playbackTime = max(0, time)
+         currentPlaybackTime = max(0, time)
+     }
+
+     func setAppleMusicRepeat(_ mode: PrimuseKit.RepeatMode) {
+         let mk: MusicKit.MusicPlayer.RepeatMode
+         switch mode {
+         case .off: mk = MusicKit.MusicPlayer.RepeatMode.none
+         case .all: mk = .all
+         case .one: mk = .one
+         }
+         ApplicationMusicPlayer.shared.state.repeatMode = mk
+         repeatModeMirror = mode
+     }
+
+     func setAppleMusicShuffle(_ enabled: Bool) {
+         ApplicationMusicPlayer.shared.state.shuffleMode = enabled ? .songs : .off
+         shuffleEnabledMirror = enabled
+     }
+
+     private static func mapRepeat(_ mk: MusicKit.MusicPlayer.RepeatMode?) -> PrimuseKit.RepeatMode {
+         switch mk {
+         case .one: return .one
+         case .all: return .all
+         default: return .off
+         }
+     }
 
     private static func mapStatus(_ status: MusicAuthorization.Status) -> AuthState {
         switch status {

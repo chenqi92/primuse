@@ -1106,6 +1106,52 @@ final class MusicLibrary {
         return playlist
     }
 
+    /// 用固定 ID 创建/取回 playlist ── 给"系统级"歌单 (Apple Music 资料库
+    /// 镜像等) 用, 保证多端同步 + 重启后映射稳定, 不会重复创建。
+    /// 如果对应 id 已被软删, 一并恢复 (避免用户误删后下次同步又新建一份)。
+    @discardableResult
+    func ensurePlaylist(id: String, name: String) -> Playlist {
+        if let idx = allPlaylists.firstIndex(where: { $0.id == id }) {
+            var p = allPlaylists[idx]
+            var changed = false
+            if p.isDeleted { p.isDeleted = false; p.deletedAt = nil; changed = true }
+            if p.name != name { p.name = name; changed = true }
+            if changed {
+                p.updatedAt = Date()
+                allPlaylists[idx] = p
+                sortPlaylists()
+                persistSnapshot()
+                notifyPlaylistsChanged([id])
+            }
+            return p
+        }
+        let playlist = Playlist(id: id, name: name)
+        allPlaylists.append(playlist)
+        playlistSongIDs[playlist.id] = []
+        sortPlaylists()
+        persistSnapshot()
+        notifyPlaylistsChanged([playlist.id])
+        return playlist
+    }
+
+    /// 把 playlist 的歌列表整体替换 ── 给同步类场景 (Apple Music 重新拉一遍
+    /// 资料库) 用, 比 add/remove 逐条调用快且语义清晰: 当前 source 的
+    /// snapshot 即权威, 任何本地手动 add 进来的会被覆盖掉。
+    /// 不存在的 songID 会被静默忽略 (避免 sync 比 song 写库稍晚的 race)。
+    func replacePlaylistSongs(playlistID: String, songIDs: [String]) {
+        guard let idx = allPlaylists.firstIndex(where: { $0.id == playlistID }) else { return }
+        let validIDs = Set(songs.map(\.id))
+        let kept = songIDs.filter { validIDs.contains($0) }
+        playlistSongIDs[playlistID] = kept
+        allPlaylists[idx].updatedAt = Date()
+        allPlaylists[idx].coverArtPath = kept.first
+            .flatMap { id in songs.first(where: { $0.id == id }) }?
+            .coverArtFileName
+        sortPlaylists()
+        persistSnapshot()
+        notifyPlaylistsChanged([playlistID])
+    }
+
     /// Soft-delete: mark `isDeleted = true`, propagated to other devices as
     /// an update so the recycle bin converges.
     func deletePlaylist(id: String) {
@@ -1218,6 +1264,34 @@ final class MusicLibrary {
         sortPlaylists()
         persistSnapshot()
         notifyPlaylistsChanged([playlistID])
+    }
+
+    /// 「我喜欢」系统级歌单的固定 ID。NowPlayingView 的 heart 按钮直接 toggle
+    /// 这个歌单, 跟 Apple Music 镜像歌单一样按 fixed ID 走 ensurePlaylist /
+    /// add / remove 三件套, 多端 / 重装后稳定收敛。
+    nonisolated static let likedSongsPlaylistID = "primuse.system.liked"
+
+    /// 第一次 toggleLiked 时自动建出 Liked 歌单 ── 用户不需要去 PlaylistListView
+    /// 手动创建。已存在则 ensurePlaylist 内部什么都不做。
+    @discardableResult
+    private func ensureLikedPlaylist() -> Playlist {
+        ensurePlaylist(
+            id: Self.likedSongsPlaylistID,
+            name: String(localized: "playlist_liked_name")
+        )
+    }
+
+    func toggleLiked(songID: String) {
+        ensureLikedPlaylist()
+        if isLiked(songID: songID) {
+            remove(songID: songID, fromPlaylist: Self.likedSongsPlaylistID)
+        } else {
+            add(songID: songID, toPlaylist: Self.likedSongsPlaylistID)
+        }
+    }
+
+    func isLiked(songID: String) -> Bool {
+        contains(songID: songID, inPlaylist: Self.likedSongsPlaylistID)
     }
 
     func remove(songID: String, fromPlaylist playlistID: String) {

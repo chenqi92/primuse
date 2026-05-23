@@ -290,6 +290,7 @@
 "apple_music_library_resync" = "重新同步";
 "apple_music_lyrics_unavailable" = "这首歌没有歌词。Apple Music 的同步歌词不开放给第三方应用，本页面显示的是整段静态歌词。";
 "apple_music_view_lyrics" = "在 Apple Music 查看歌词";
+"apple_music_lyrics_not_available" = "Apple Music 歌曲的歌词由系统侧管理,猿音无法刮削或本地缓存。点下方按钮跳转到 Apple Music 查看官方歌词。";
 "rg_mode" = "模式";
 "rg_mode_track" = "单曲";
 "rg_mode_album" = "专辑";
@@ -443,6 +444,7 @@
 "playback_error_connection" = "无法连接到来源";
 "playback_error_decode" = "无法播放此曲目";
 "playback_error_format" = "不支持的音频格式";
+"playback_error_apple_music_generic" = "Apple Music 播放失败,请检查订阅状态或网络";
 
 // MARK: - Gapless
 "gapless_not_available" = "无缝播放已可用于队列曲目；开启淡入淡出会自动关闭它。";
@@ -864,9 +866,12 @@
 "a11y_value_on" = "已开启";
 "a11y_value_off" = "已关闭";
 "a11y_play" = "播放";
+"a11y_like" = "添加到我喜欢";
+"a11y_unlike" = "从我喜欢中移除";
 "a11y_pause" = "暂停";
 "a11y_previous_track" = "上一首";
 "a11y_next_track" = "下一首";
+"a11y_prev_track" = "上一首";
 "a11y_queue" = "播放队列";
 "a11y_open_lyrics" = "显示歌词";
 "a11y_close_lyrics" = "隐藏歌词";
@@ -888,6 +893,9 @@
 "settings_apple_music_connected" = "已连接 Apple Music";
 "settings_apple_music_denied" = "Apple Music 访问被拒。请到系统设置 → 猿音 中开启。";
 "settings_apple_music_footer" = "授权后猿音可以搜索 Apple Music 曲库;若你已订阅,点搜索结果会调用系统 Music 播放器播放。";
+"source_apple_music_open_settings" = "打开 Apple Music 设置";
+"apple_music_library_playlist_name" = "Apple Music 资料库";
+"playlist_liked_name" = "我喜欢";
 "settings_dlna_section" = "DLNA 接收";
 "settings_dlna_enable" = "接受同一 Wi-Fi 的投送";
 "settings_dlna_footer" = "同 Wi-Fi 下的其它设备(VLC、群晖音频中心、Plex、Hi-Fi Cast 等)可以发现猿音并把音频推过来播放。";

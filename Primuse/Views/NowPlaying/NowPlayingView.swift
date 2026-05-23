@@ -12,6 +12,15 @@ struct NowPlayingView: View {
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(PlaybackSettingsStore.self) private var playbackSettings
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.openURL) private var openURL
+
+    /// Apple Music 歌的 catalog URL ── 用来给"在 Apple Music 打开"按钮跳转。
+    /// 跳转后用户能看到 Apple Music 自家的歌词 / 添加收藏 / 看艺人页等
+    /// 我们没办法对 DRM 流提供的能力。
+    private var appleMusicCatalogURL: URL? {
+        guard let song = player.currentSong, player.isAppleMusicMode else { return nil }
+        return AppServices.shared.appleMusicLibrary.catalogURL(for: song)
+    }
     @State private var showLyrics = false
     @State private var showQueue = false
     @State private var lyrics: [LyricLine] = []
@@ -34,6 +43,19 @@ struct NowPlayingView: View {
     private var isInAnyPlaylist: Bool {
         guard let songID = player.currentSong?.id else { return false }
         return library.playlists.contains { library.contains(songID: songID, inPlaylist: $0.id) }
+    }
+
+    /// 当前歌是否已经被加进「我喜欢」── heart 按钮渲染态 & toggle 目标。
+    /// 跟 isInAnyPlaylist 是两回事: "加任意歌单"是 moreMenu 里的 add_to_playlist,
+    /// "喜欢"是 heart 按钮 toggle 这个固定 system 歌单。
+    private var isCurrentLiked: Bool {
+        guard let songID = player.currentSong?.id else { return false }
+        return library.isLiked(songID: songID)
+    }
+
+    private func toggleLikedCurrent() {
+        guard let songID = player.currentSong?.id else { return }
+        library.toggleLiked(songID: songID)
     }
 
 
@@ -262,22 +284,36 @@ struct NowPlayingView: View {
                         .font(.title3).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
                 }
                 Spacer()
-                Button { showScrapeOptions = true } label: {
-                    Image(systemName: isScrapingCurrentSong ? "wand.and.stars.inverse" : "wand.and.stars")
-                        .font(.title2)
-                        .foregroundStyle(.white.opacity(isScrapingCurrentSong ? 0.4 : 0.6))
-                        .symbolEffect(.pulse, options: .repeating, isActive: isScrapingCurrentSong)
+                if !player.isAppleMusicMode {
+                    Button { showScrapeOptions = true } label: {
+                        Image(systemName: isScrapingCurrentSong ? "wand.and.stars.inverse" : "wand.and.stars")
+                            .font(.title2)
+                            .foregroundStyle(.white.opacity(isScrapingCurrentSong ? 0.4 : 0.6))
+                            .symbolEffect(.pulse, options: .repeating, isActive: isScrapingCurrentSong)
+                    }
+                    .disabled(player.currentSong == nil || isScrapingCurrentSong)
+                    .padding(.trailing, 6)
+                    .accessibilityLabel(Text("scrape_song"))
+                } else if let url = appleMusicCatalogURL {
+                    // Apple Music 歌没有刮削概念 ── 给一个跳转按钮, 用户去
+                    // Apple Music app 里看官方歌词 / 加收藏 / 查艺人。
+                    Button { openURL(url) } label: {
+                        Image(systemName: "arrow.up.right.square")
+                            .font(.title2)
+                            .foregroundStyle(.white.opacity(0.6))
+                    }
+                    .padding(.trailing, 6)
+                    .accessibilityLabel(Text("apple_music_open_in_app"))
                 }
-                .disabled(player.currentSong == nil || isScrapingCurrentSong)
-                .padding(.trailing, 6)
-                .accessibilityLabel(Text("scrape_song"))
-                Button { showAddToPlaylist = true } label: {
-                    Image(systemName: isInAnyPlaylist ? "heart.fill" : "heart")
+                Button { toggleLikedCurrent() } label: {
+                    Image(systemName: isCurrentLiked ? "heart.fill" : "heart")
                         .font(.title2)
-                        .foregroundStyle(isInAnyPlaylist ? .red : .white.opacity(0.6))
+                        .foregroundStyle(isCurrentLiked ? .red : .white.opacity(0.6))
                         .contentTransition(.symbolEffect(.replace))
                 }
+                .disabled(player.currentSong == nil)
                 .padding(.trailing, 6)
+                .accessibilityLabel(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
                 moreMenu
             }
             .padding(.horizontal, 36).padding(.top, 18)
@@ -430,22 +466,34 @@ struct NowPlayingView: View {
 
                             Spacer()
 
-                            Button { showScrapeOptions = true } label: {
-                                Image(systemName: isScrapingCurrentSong ? "wand.and.stars.inverse" : "wand.and.stars")
-                                    .font(.title3)
-                                    .foregroundStyle(.white.opacity(isScrapingCurrentSong ? 0.4 : 0.6))
-                                    .symbolEffect(.pulse, options: .repeating, isActive: isScrapingCurrentSong)
+                            if !player.isAppleMusicMode {
+                                Button { showScrapeOptions = true } label: {
+                                    Image(systemName: isScrapingCurrentSong ? "wand.and.stars.inverse" : "wand.and.stars")
+                                        .font(.title3)
+                                        .foregroundStyle(.white.opacity(isScrapingCurrentSong ? 0.4 : 0.6))
+                                        .symbolEffect(.pulse, options: .repeating, isActive: isScrapingCurrentSong)
+                                }
+                                .disabled(player.currentSong == nil || isScrapingCurrentSong)
+                                .padding(.trailing, 4)
+                                .accessibilityLabel(Text("scrape_song"))
+                            } else if let url = appleMusicCatalogURL {
+                                Button { openURL(url) } label: {
+                                    Image(systemName: "arrow.up.right.square")
+                                        .font(.title3)
+                                        .foregroundStyle(.white.opacity(0.6))
+                                }
+                                .padding(.trailing, 4)
+                                .accessibilityLabel(Text("apple_music_open_in_app"))
                             }
-                            .disabled(player.currentSong == nil || isScrapingCurrentSong)
-                            .padding(.trailing, 4)
-                            .accessibilityLabel(Text("scrape_song"))
 
-                            Button { showAddToPlaylist = true } label: {
-                                Image(systemName: isInAnyPlaylist ? "heart.fill" : "heart")
+                            Button { toggleLikedCurrent() } label: {
+                                Image(systemName: isCurrentLiked ? "heart.fill" : "heart")
                                     .font(.title3)
-                                    .foregroundStyle(isInAnyPlaylist ? .red : .white.opacity(0.6))
+                                    .foregroundStyle(isCurrentLiked ? .red : .white.opacity(0.6))
                                     .contentTransition(.symbolEffect(.replace))
                             }
+                            .disabled(player.currentSong == nil)
+                            .accessibilityLabel(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
 
                             // More menu
                             moreMenu
@@ -488,26 +536,36 @@ struct NowPlayingView: View {
                             Spacer()
 
                             // Scrape button (主屏抽出, 不再藏在 ··· 菜单里)
-                            Button { showScrapeOptions = true } label: {
-                                Image(systemName: isScrapingCurrentSong ? "wand.and.stars.inverse" : "wand.and.stars")
-                                    .font(.title2)
-                                    .foregroundStyle(.white.opacity(isScrapingCurrentSong ? 0.4 : 0.6))
-                                    .symbolEffect(.pulse, options: .repeating, isActive: isScrapingCurrentSong)
+                            if !player.isAppleMusicMode {
+                                Button { showScrapeOptions = true } label: {
+                                    Image(systemName: isScrapingCurrentSong ? "wand.and.stars.inverse" : "wand.and.stars")
+                                        .font(.title2)
+                                        .foregroundStyle(.white.opacity(isScrapingCurrentSong ? 0.4 : 0.6))
+                                        .symbolEffect(.pulse, options: .repeating, isActive: isScrapingCurrentSong)
+                                }
+                                .disabled(player.currentSong == nil || isScrapingCurrentSong)
+                                .padding(.trailing, 6)
+                                .accessibilityLabel(Text("scrape_song"))
+                            } else if let url = appleMusicCatalogURL {
+                                Button { openURL(url) } label: {
+                                    Image(systemName: "arrow.up.right.square")
+                                        .font(.title2)
+                                        .foregroundStyle(.white.opacity(0.6))
+                                }
+                                .padding(.trailing, 6)
+                                .accessibilityLabel(Text("apple_music_open_in_app"))
                             }
-                            .disabled(player.currentSong == nil || isScrapingCurrentSong)
-                            .padding(.trailing, 6)
-                            .accessibilityLabel(Text("scrape_song"))
 
                             // Like button
-                            Button {
-                                showAddToPlaylist = true
-                            } label: {
-                                Image(systemName: isInAnyPlaylist ? "heart.fill" : "heart")
+                            Button { toggleLikedCurrent() } label: {
+                                Image(systemName: isCurrentLiked ? "heart.fill" : "heart")
                                     .font(.title2)
-                                    .foregroundStyle(isInAnyPlaylist ? .red : .white.opacity(0.6))
+                                    .foregroundStyle(isCurrentLiked ? .red : .white.opacity(0.6))
                                     .contentTransition(.symbolEffect(.replace))
                             }
+                            .disabled(player.currentSong == nil)
                             .padding(.trailing, 4)
+                            .accessibilityLabel(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
 
                             // More menu
                             moreMenu
@@ -635,8 +693,7 @@ struct NowPlayingView: View {
             // 收藏 / 编辑当前歌曲
             Section {
                 Button { showAddToPlaylist = true } label: {
-                    Label(String(localized: "add_to_playlist"),
-                          systemImage: isInAnyPlaylist ? "heart.fill" : "text.badge.plus")
+                    Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
                 }
                 .disabled(player.currentSong == nil)
 
@@ -645,10 +702,12 @@ struct NowPlayingView: View {
                 }
                 .disabled(player.currentSong == nil)
 
-                Button { showTagEditor = true } label: {
-                    Label(String(localized: "tag_editor_menu"), systemImage: "tag")
+                if !player.isAppleMusicMode {
+                    Button { showTagEditor = true } label: {
+                        Label(String(localized: "tag_editor_menu"), systemImage: "tag")
+                    }
+                    .disabled(player.currentSong == nil)
                 }
-                .disabled(player.currentSong == nil)
             }
 
             // 信息 / 分享
@@ -707,36 +766,41 @@ struct NowPlayingView: View {
 
                 // 播放速度子菜单 — AVAudioUnitTimePitch 改 rate 即时生效,
                 // 不需要重启 engine 或重 schedule buffer。1.0 是 passthrough。
-                Picker(selection: Binding(
-                    get: { playbackSettings.playbackRate },
-                    set: { playbackSettings.playbackRate = $0 }
-                )) {
-                    Text("0.5×").tag(Float(0.5))
-                    Text("0.75×").tag(Float(0.75))
-                    Text(String(localized: "playback_rate_normal")).tag(Float(1.0))
-                    Text("1.25×").tag(Float(1.25))
-                    Text("1.5×").tag(Float(1.5))
-                    Text("1.75×").tag(Float(1.75))
-                    Text("2.0×").tag(Float(2.0))
-                } label: {
-                    Label(
-                        playbackSettings.playbackRate == 1.0
-                            ? String(localized: "playback_rate")
-                            : String(format: "%@ %.2fx", String(localized: "playback_rate"), playbackSettings.playbackRate),
-                        systemImage: "speedometer"
-                    )
+                // ApplicationMusicPlayer 不支持改速度, Apple Music 模式 hide。
+                if !player.isAppleMusicMode {
+                    Picker(selection: Binding(
+                        get: { playbackSettings.playbackRate },
+                        set: { playbackSettings.playbackRate = $0 }
+                    )) {
+                        Text("0.5×").tag(Float(0.5))
+                        Text("0.75×").tag(Float(0.75))
+                        Text(String(localized: "playback_rate_normal")).tag(Float(1.0))
+                        Text("1.25×").tag(Float(1.25))
+                        Text("1.5×").tag(Float(1.5))
+                        Text("1.75×").tag(Float(1.75))
+                        Text("2.0×").tag(Float(2.0))
+                    } label: {
+                        Label(
+                            playbackSettings.playbackRate == 1.0
+                                ? String(localized: "playback_rate")
+                                : String(format: "%@ %.2fx", String(localized: "playback_rate"), playbackSettings.playbackRate),
+                            systemImage: "speedometer"
+                        )
+                    }
+                    .pickerStyle(.menu)
                 }
-                .pickerStyle(.menu)
             }
 
-            // 销毁
-            Section {
-                Button(role: .destructive) {
-                    showDeleteConfirm = true
-                } label: {
-                    Label(String(localized: "delete_song"), systemImage: "trash")
+            // 销毁 ── Apple Music 歌不能从猿音删 (要去 Apple Music 取消收藏)
+            if !player.isAppleMusicMode {
+                Section {
+                    Button(role: .destructive) {
+                        showDeleteConfirm = true
+                    } label: {
+                        Label(String(localized: "delete_song"), systemImage: "trash")
+                    }
+                    .disabled(player.currentSong == nil)
                 }
-                .disabled(player.currentSong == nil)
             }
         } label: {
             Image(systemName: "ellipsis.circle.fill")
@@ -1255,6 +1319,7 @@ struct LyricsScrollView: View {
     let isScrapingCurrentSong: Bool
     let onScrape: () -> Void
 
+    @Environment(\.openURL) private var openURL
     @AppStorage("lyricsFontScale") private var lyricsFontScale: Double = 1.0
     @State private var lyricsPinchScale: CGFloat = 1.0
     @State private var isPinchingLyrics = false
@@ -1324,12 +1389,30 @@ struct LyricsScrollView: View {
     private var emptyLyricsView: some View {
         VStack(spacing: 12) {
             Spacer().frame(height: 60)
-            Text("no_lyrics").font(.title3).foregroundStyle(.white.opacity(0.3))
-            Button { onScrape() } label: {
-                Label("scrape_song", systemImage: "wand.and.stars").font(.subheadline)
+            if player.isAppleMusicMode {
+                // Apple Music DRM 歌词没有公开 API 拉给第三方 app, 我们做不了
+                // 本地刮削。引导用户去 Apple Music app 看官方歌词。
+                Text("apple_music_lyrics_not_available")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.5))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+                if let song = player.currentSong,
+                   let url = AppServices.shared.appleMusicLibrary.catalogURL(for: song) {
+                    Button { openURL(url) } label: {
+                        Label("apple_music_view_lyrics", systemImage: "applelogo")
+                            .font(.subheadline)
+                    }
+                    .buttonStyle(.bordered).tint(.white)
+                }
+            } else {
+                Text("no_lyrics").font(.title3).foregroundStyle(.white.opacity(0.3))
+                Button { onScrape() } label: {
+                    Label("scrape_song", systemImage: "wand.and.stars").font(.subheadline)
+                }
+                .buttonStyle(.bordered).tint(.white)
+                .disabled(isScrapingCurrentSong)
             }
-            .buttonStyle(.bordered).tint(.white)
-            .disabled(isScrapingCurrentSong)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }

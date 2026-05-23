@@ -290,6 +290,7 @@
 "apple_music_library_resync" = "Sync again";
 "apple_music_lyrics_unavailable" = "No lyrics for this track. Apple Music's time-synced lyrics aren't exposed to third-party apps, so only the full text is shown when available.";
 "apple_music_view_lyrics" = "View lyrics in Apple Music";
+"apple_music_lyrics_not_available" = "Apple Music lyrics are managed by the system and aren't exposed to third-party apps. Tap below to view official lyrics in Apple Music.";
 "rg_mode" = "Mode";
 "rg_mode_track" = "Track";
 "rg_mode_album" = "Album";
@@ -443,6 +444,7 @@
 "playback_error_connection" = "Cannot connect to source";
 "playback_error_decode" = "Cannot play this track";
 "playback_error_format" = "Unsupported audio format";
+"playback_error_apple_music_generic" = "Apple Music playback failed. Check your subscription or network.";
 
 // MARK: - Gapless
 "gapless_not_available" = "Gapless playback is available for queued tracks. Crossfade turns it off.";
@@ -863,9 +865,12 @@
 "a11y_value_on" = "On";
 "a11y_value_off" = "Off";
 "a11y_play" = "Play";
+"a11y_like" = "Add to Liked Songs";
+"a11y_unlike" = "Remove from Liked Songs";
 "a11y_pause" = "Pause";
 "a11y_previous_track" = "Previous track";
 "a11y_next_track" = "Next track";
+"a11y_prev_track" = "Previous track";
 "a11y_queue" = "Queue";
 "a11y_open_lyrics" = "Show lyrics";
 "a11y_close_lyrics" = "Hide lyrics";
@@ -887,6 +892,9 @@
 "settings_apple_music_connected" = "Apple Music connected";
 "settings_apple_music_denied" = "Apple Music access denied. Enable it in Settings → Primuse.";
 "settings_apple_music_footer" = "Lets Primuse search the Apple Music catalog and play results if you have an active subscription. Tap a result to play in the system Music player.";
+"source_apple_music_open_settings" = "Open Apple Music Settings";
+"apple_music_library_playlist_name" = "Apple Music Library";
+"playlist_liked_name" = "Liked Songs";
 "settings_dlna_section" = "DLNA Receiver";
 "settings_dlna_enable" = "Accept casts from this network";
 "settings_dlna_footer" = "Other devices on the same Wi-Fi (VLC, Synology Audio Station, Plex, Hi-Fi Cast, etc.) will see Primuse as a media renderer and can push audio for playback.";

@@ -222,6 +222,14 @@ struct PrimuseApp: App {
                     )
                     if iCloudSyncEnabled { await cloudSync.start() }
                     if dlnaRendererEnabled { dlnaRenderer.start() }
+                    // Apple Music user library 启动自动 sync 一次 ── songCache
+                    // 是 in-memory, 重启后空; 没 cache → play 走 catalog lookup,
+                    // 用 user library 的 i.* id 查 catalog 必失败 → 卡 loading。
+                    // 同时填上 cache 后 ArtworkImage 才能拉到 user library 歌的
+                    // 封面 (musicKit:// scheme 必须走 framework 内部解码)。
+                    if appleMusic.authState == .authorized {
+                        appleMusicLibrary.sync()
+                    }
                     // Stage 4c migration: deduplicate legacy
                     // duplicate-OAuth sources by upstream account UID.
                     // Runs once (gated by UserDefaults flag); needs

@@ -85,7 +85,6 @@ struct ContentView: View {
     @State private var sidebarSelection: SidebarItem = .home
     @State private var searchText = ""
     @State private var showNowPlaying = false
-    @State private var showAppleMusicNowPlaying = false
     @State private var libraryDeepLink: LibraryDeepLink?
     /// 跨年自动弹年度报告的状态。1/1 之后用户首次进 app + 上一年听满 2 个月
     /// 时由 YearlyReportAutoTrigger 触发。
@@ -128,10 +127,11 @@ struct ContentView: View {
                 tabRoot
                     .tabBarMinimizeBehavior(.onScrollDown)
                     .tabViewBottomAccessory {
+                        // Apple Music 模式下 player.currentSong 也会被 mirror task
+                        // 设上 (走 NowPlayingAccessory 同一份实现), 不再需要单独
+                        // 的 AppleMusicAccessory 分支。
                         if player.currentSong != nil {
                             NowPlayingAccessory(onTap: { showNowPlaying = true })
-                        } else if let amSong = appleMusic.nowPlayingSong {
-                            AppleMusicAccessory(song: amSong, onTap: { showAppleMusicNowPlaying = true })
                         }
                     }
             } else {
@@ -257,16 +257,6 @@ struct ContentView: View {
                 PlayerOverlay(isPresented: $showNowPlaying)
                     .zIndex(2)
             }
-        }
-        .sheet(isPresented: $showAppleMusicNowPlaying) {
-            if let amSong = appleMusic.nowPlayingSong {
-                AppleMusicNowPlayingView(song: amSong)
-                    .presentationDetents([.large])
-            }
-        }
-        .onChange(of: appleMusic.nowPlayingSong == nil) { _, isNil in
-            // Apple Music 停了, 顺手把弹出的大屏也关掉, 不让用户看着一个空的 sheet。
-            if isNil { showAppleMusicNowPlaying = false }
         }
         .onChange(of: library.visibleSongs.count) { _, _ in
             guard let cs = player.currentSong else { return }
@@ -595,92 +585,6 @@ struct NowPlayingAccessory: View {
 }
 
 
-
-/// Apple Music 系统侧播放时显示的 mini player。猿音自家 player 没在播但
-/// Apple Music 在播时由 playerAwareTabRoot 渲染。播放控制转发给
-/// ApplicationMusicPlayer.shared (通过 AppleMusicService 桥)。
-@available(iOS 26.0, *)
-struct AppleMusicAccessory: View {
-    let song: MusicKit.Song
-    var onTap: () -> Void
-    @Environment(AppleMusicService.self) private var appleMusic
-    @Environment(\.tabViewBottomAccessoryPlacement) private var placement
-    /// 封面缓存 — AsyncImage 在 ContentView body 频繁重 evaluate 时容易
-    /// 把 phase 状态 reset 回 empty, 表现成封面"一直在闪"。把 UIImage 存
-    /// @State 一次, 后续 body re-render 直接复用, 不再发新请求。
-    @State private var artwork: Image?
-
-    private var isInline: Bool { placement == .inline }
-
-    var body: some View {
-        ZStack {
-            // 整块 accessory 的 tap 区域 — 跟 NowPlayingAccessory 一致, 让用户
-            // 点空白处 (封面 / 标题 / 艺术家) 都能进大屏。播放控件按钮在上层
-            // 拦截 tap, 不会传到这里。
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture { onTap() }
-
-            HStack(spacing: 0) {
-            Group {
-                if let artwork {
-                    artwork.resizable().aspectRatio(contentMode: .fill)
-                } else {
-                    Color.secondary.opacity(0.15)
-                }
-            }
-            .frame(width: isInline ? 32 : 40, height: isInline ? 32 : 40)
-            .clipShape(RoundedRectangle(cornerRadius: isInline ? 6 : 8))
-            .padding(.trailing, 10)
-            .task(id: song.id) {
-                // 同首歌只 fetch 一次, song.id 变了才重拉。任何 phase reset
-                // 都不会让用户看到 placeholder 闪。
-                guard let url = song.artwork?.url(width: 120, height: 120) else { return }
-                if let (data, _) = try? await URLSession.shared.data(from: url),
-                   let ui = UIImage(data: data) {
-                    artwork = Image(uiImage: ui)
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(song.title)
-                    .font(.caption).fontWeight(.semibold)
-                    .lineLimit(1)
-                HStack(spacing: 4) {
-                    Image(systemName: "applelogo").font(.caption2)
-                    Text(song.artistName)
-                        .font(.caption2).foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            HStack(spacing: isInline ? 0 : 4) {
-                Button { appleMusic.togglePlayPauseAppleMusic() } label: {
-                    Image(systemName: appleMusic.isAppleMusicPlaying ? "pause.fill" : "play.fill")
-                        .font(isInline ? .subheadline : .body)
-                        .contentTransition(.symbolEffect(.replace))
-                        .frame(width: isInline ? 28 : 32, height: isInline ? 28 : 32)
-                }
-                .accessibilityLabel(appleMusic.isAppleMusicPlaying
-                    ? String(localized: "a11y_pause")
-                    : String(localized: "a11y_play"))
-
-                if !isInline {
-                    Button { appleMusic.stopAppleMusic() } label: {
-                        Image(systemName: "xmark").font(.caption)
-                            .frame(width: 28, height: 28)
-                    }
-                    .accessibilityLabel("stop")
-                }
-            }
-            .fixedSize()
-            }
-            .padding(.horizontal, isInline ? 12 : 8)
-            .padding(.vertical, isInline ? 2 : 4)
-        }
-    }
-}
 
 #Preview {
     ContentView()

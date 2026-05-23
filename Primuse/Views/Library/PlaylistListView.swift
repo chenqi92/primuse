@@ -41,8 +41,22 @@ struct PlaylistListView: View {
                                 NavigationLink(value: playlist) {
                                     playlistRow(playlist)
                                 }
+                                // 用 swipeActions 而不是 .onDelete ── 后者无法
+                                // 按行条件禁用, 之前在 deletePlaylists 里 continue
+                                // 跳过 system 歌单时 SwiftUI 已经做了消失动画
+                                // 等下一帧数据刷回来又出现, 用户看到"删了又回来"。
+                                // 改成 swipeActions 让 system 歌单根本没有 swipe
+                                // 入口, 视觉一致。
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    if !isSystemPlaylist(playlist.id) {
+                                        Button(role: .destructive) {
+                                            library.deletePlaylist(id: playlist.id)
+                                        } label: {
+                                            Label("delete", systemImage: "trash")
+                                        }
+                                    }
+                                }
                             }
-                            .onDelete(perform: deletePlaylists)
                         } header: {
                             // 只有一类时不显示 header, 跟原版视觉一致;
                             // 两类都有时才显示 "歌单" header 区分。
@@ -137,10 +151,13 @@ struct PlaylistListView: View {
         newPlaylistName = ""
     }
 
-    private func deletePlaylists(at offsets: IndexSet) {
-        for index in offsets {
-            library.deletePlaylist(id: playlists[index].id)
-        }
+    /// system 歌单 (Apple Music 镜像 / 「我喜欢」) 不允许从这里删:
+    /// - AM 镜像下次 sync 自动重建, "删了又出现"
+    /// - 「我喜欢」heart toggle 又会触发 ensure 重建
+    /// 真想清空都得从内容侧操作 (取消 Apple Music 资料库同步 / 进歌单逐条移除)。
+    private func isSystemPlaylist(_ playlistID: String) -> Bool {
+        AppleMusicLibraryService.isAppleMusicMirrorPlaylist(playlistID)
+            || playlistID == MusicLibrary.likedSongsPlaylistID
     }
 
     private func deleteSmartPlaylists(at offsets: IndexSet) {

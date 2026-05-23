@@ -47,33 +47,43 @@ struct PlaylistDetailView: View {
                 }
                 .padding(.top, 20)
 
-                // Action buttons
-                HStack(spacing: 12) {
+                // Action buttons ── 主按钮"播放全部"占大头, 旁边两个紧凑图标按钮。
+                // 三按钮等分时中文 label 在 iPhone 上挤换行 / 截断, 这套 Apple Music
+                // 风格的 1+2 布局更稳。
+                HStack(spacing: 10) {
                     Button {
                         playAll()
                     } label: {
                         Label("play_all", systemImage: "play.fill")
+                            .font(.headline)
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
 
                     Button {
                         player.shuffleEnabled = true
                         playAll()
                     } label: {
-                        Label("shuffle", systemImage: "shuffle")
-                            .frame(maxWidth: .infinity)
+                        Image(systemName: "shuffle")
+                            .font(.headline)
+                            .frame(width: 24, height: 24)
                     }
                     .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .accessibilityLabel(Text("shuffle"))
 
                     Button {
                         sourceManager.downloadForOffline(songs: songs)
                     } label: {
-                        Label("offline_download", systemImage: "arrow.down.circle")
-                            .frame(maxWidth: .infinity)
+                        Image(systemName: "arrow.down.circle")
+                            .font(.headline)
+                            .frame(width: 24, height: 24)
                     }
                     .buttonStyle(.bordered)
+                    .controlSize(.large)
                     .disabled(songs.filteredPlayable().isEmpty)
+                    .accessibilityLabel(Text("offline_download"))
                 }
                 .padding(.horizontal)
 
@@ -90,10 +100,16 @@ struct PlaylistDetailView: View {
                         .padding(.vertical, 8)
                         .onTapGesture { playSong(song) }
                         .contextMenu {
-                            Button(role: .destructive) {
-                                library.remove(songID: song.id, fromPlaylist: playlist.id)
-                            } label: {
-                                Label("remove_from_playlist", systemImage: "trash")
+                            // Apple Music 资料库镜像里的 Apple Music 歌不能移除 ──
+                            // 我们没法 push 回 Apple Music 删收藏, 移除后下次 sync
+                            // 又自动回来, 视觉上会变成"删了又出现"的 bug。其它源
+                            // 的歌 (用户额外手动加进来等情况) 仍能正常移除。
+                            if !isAppleMusicMirrorEntry(song: song) {
+                                Button(role: .destructive) {
+                                    library.remove(songID: song.id, fromPlaylist: playlist.id)
+                                } label: {
+                                    Label("remove_from_playlist", systemImage: "trash")
+                                }
                             }
                         }
 
@@ -131,7 +147,15 @@ struct PlaylistDetailView: View {
         } message: { Text(exportError ?? "") }
     }
 
-    private func export(format: PlaylistExporter.Format) {
+    /// 这个 song 是不是 Apple Music 镜像歌单里的 Apple Music 歌 ── 同时
+     /// 满足 (playlist 是任意 AM 镜像) 且 (song 是 Apple Music 来源) 才算,
+     /// 用户自己手动 add 进去的其它源歌仍可正常移除。
+     private func isAppleMusicMirrorEntry(song: Song) -> Bool {
+         AppleMusicLibraryService.isAppleMusicMirrorPlaylist(playlist.id)
+             && song.sourceID == AppleMusicLibraryService.systemSourceID
+     }
+
+     private func export(format: PlaylistExporter.Format) {
         do {
             let target = currentPlaylist ?? playlist
             let url = try PlaylistExporter.export(

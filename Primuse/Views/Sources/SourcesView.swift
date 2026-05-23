@@ -13,6 +13,10 @@ struct SourcesView: View {
     @State private var connectingSource: MusicSource?
     @State private var diagnosingSource: MusicSource?
     @State private var cloudDirectoryNameRefreshID = UUID()
+    /// Apple Music 这个虚拟 source 没有目录 / 体检的概念, 行内按钮换成
+    /// "打开 Apple Music 设置" 的跳转 ── 走 NavigationStack 的 destination 而不是 sheet,
+    /// 让推入栈跟其他 Settings 子页体验一致 (左上角"返回"而不是"完成")。
+    @State private var openAppleMusicSettings = false
 
     var body: some View {
         NavigationStack {
@@ -42,6 +46,9 @@ struct SourcesView: View {
             }
             .sheet(item: $diagnosingSource) { source in
                 SourceDiagnosticsView(source: source)
+            }
+            .navigationDestination(isPresented: $openAppleMusicSettings) {
+                AppleMusicSettingsView()
             }
             .onReceive(NotificationCenter.default.publisher(for: CloudDirectoryNameStore.didChangeNotification)) { _ in
                 cloudDirectoryNameRefreshID = UUID()
@@ -186,7 +193,17 @@ struct SourcesView: View {
             }
 
             HStack(spacing: 10) {
-                if source.type.isMediaServer {
+                if source.type == .appleMusic {
+                    // Apple Music 走 ApplicationMusicPlayer, 没有目录/扫描/体检概念,
+                    // 行内只给一个跳转设置的入口。
+                    sourceActionButton(
+                        "source_apple_music_open_settings",
+                        systemImage: "applelogo",
+                        prominence: .accent
+                    ) {
+                        openAppleMusicSettings = true
+                    }
+                } else if source.type.isMediaServer {
                     // Media servers scan all libraries directly — no directory selection needed
                     sourceActionButton("source_diagnostics_short", systemImage: "stethoscope") {
                         diagnosingSource = source
@@ -250,15 +267,21 @@ struct SourcesView: View {
                     systemImage: source.isEnabled ? "eye.slash" : "eye"
                 )
             }
-            Button { editingSource = source } label: { Label("edit", systemImage: "pencil") }
-            Button { diagnosingSource = source } label: { Label("source_diagnostics", systemImage: "stethoscope") }
-            Divider()
-            Button(role: .destructive) { deleteSource(source) } label: { Label("delete", systemImage: "trash") }
+            // Apple Music 没有 edit / diagnose / delete 概念 ── 删了 AppServices
+            // 下次启动会自动重建, 反而带来困惑; 编辑/体检都依赖 connector。
+            if source.type != .appleMusic {
+                Button { editingSource = source } label: { Label("edit", systemImage: "pencil") }
+                Button { diagnosingSource = source } label: { Label("source_diagnostics", systemImage: "stethoscope") }
+                Divider()
+                Button(role: .destructive) { deleteSource(source) } label: { Label("delete", systemImage: "trash") }
+            }
         }
         .swipeActions(edge: .trailing) {
-            Button(role: .destructive) { deleteSource(source) } label: { Label("delete", systemImage: "trash") }
-            Button { editingSource = source } label: { Label("edit", systemImage: "pencil") }.tint(.orange)
-            Button { diagnosingSource = source } label: { Label("source_diagnostics_short", systemImage: "stethoscope") }.tint(.blue)
+            if source.type != .appleMusic {
+                Button(role: .destructive) { deleteSource(source) } label: { Label("delete", systemImage: "trash") }
+                Button { editingSource = source } label: { Label("edit", systemImage: "pencil") }.tint(.orange)
+                Button { diagnosingSource = source } label: { Label("source_diagnostics_short", systemImage: "stethoscope") }.tint(.blue)
+            }
             Button {
                 toggleSourceEnabled(source)
             } label: {

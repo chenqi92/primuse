@@ -138,11 +138,38 @@ final class AudioPlayerService {
     var currentIndex: Int = 0
     var shuffleEnabled = false {
         didSet {
+            // mirror task 同步 Apple Music shuffle 时跳过 — 不要再写回 AM
+            // 触发 polling 抖动。本地播放时正常重建 shuffle order。
+            if isMirroringFromAppleMusic { return }
+            if isAppleMusicMode {
+                AppServices.shared.appleMusic.setAppleMusicShuffle(shuffleEnabled)
+                return
+            }
             queueGeneration += 1
             rebuildShuffleOrder()
         }
     }
-    var repeatMode: RepeatMode = .off
+    var repeatMode: RepeatMode = .off {
+        didSet {
+            if isMirroringFromAppleMusic { return }
+            if isAppleMusicMode {
+                AppServices.shared.appleMusic.setAppleMusicRepeat(repeatMode)
+            }
+        }
+    }
+
+    /// 当前 currentSong 是不是 Apple Music 来源 ── 一切跨 player 路由 (next /
+    /// previous / seek / togglePlayPause / 进度 / queue / repeat / shuffle) 都
+    /// 通过这个 flag 走系统侧 ApplicationMusicPlayer, 让 NowPlayingView 一份
+    /// 实现两套播放器通吃。
+    var isAppleMusicMode: Bool {
+        currentSong?.sourceID == AppleMusicLibraryService.systemSourceID
+    }
+
+    /// mirror task 写自己字段时设为 true, 让 didSet 跳过"再写回 Apple Music"
+    /// 的副作用, 避免 mirror → setRepeat/setShuffle → polling → mirror 的回环。
+    private var isMirroringFromAppleMusic = false
+    private var appleMusicMirrorTask: Task<Void, Never>?
 
     // MARK: - Shuffle Order
     private var shuffledIndices: [Int] = []
@@ -220,6 +247,8 @@ final class AudioPlayerService {
     /// back to). 3s is enough that the user hears "this song stuttered"
     /// rather than a sudden cut, but short enough to feel responsive.
     private static let midStreamErrorGrace: TimeInterval = 3
+    private static let firstBufferTimeoutSeconds = 35
+    private static let remoteFallbackFirstBufferTimeoutSeconds = 20
 
     let playbackSettings: PlaybackSettingsStore
 
@@ -263,8 +292,11 @@ final class AudioPlayerService {
     /// `stopPlayback()` 时, SFB lastBuffer 被认为 "完整播放完" → 触发
     /// `handleTrackEnd()` → 自动跳到队列下一首本地歌 → mini player 又切
     /// 回本地, 用户体感是"Apple Music 一闪而过又变回本地播放"。
+    ///
+    /// **不再清空 currentSong** ── mirror task 会从 appleMusic.nowPlayingSong
+    /// 翻译过来设上, 让 NowPlayingView 复用同一份实现; 仅本地引擎和 time
+    /// updater 停掉。
     private func yieldToAppleMusic() {
-        guard currentSong != nil || isPlaying else { return }
         // 关键 — 先 bump playID, 让旧 callback 的 guard playID == id 全 fail。
         playID = UUID()
         decodingTask?.cancel(); decodingTask = nil
@@ -273,11 +305,11 @@ final class AudioPlayerService {
         audioEngine.stopPlayback()
         audioEngine.stopCrossfadeNode()
         stopTimeUpdater()
-        currentSong = nil
         currentTime = 0
         duration = 0
-        isLoading = false
+        isLoading = true
         isPlaying = false
+        startAppleMusicMirror()
         plog("⏸ yielded audio session to Apple Music (playID bumped)")
     }
 
@@ -389,6 +421,41 @@ final class AudioPlayerService {
         }
     }
 
+    private func awaitFirstBuffer(
+        from iteratorBox: BufferIteratorBox,
+        timeoutSeconds: Int
+    ) async throws -> AVAudioPCMBuffer? {
+        let box: PCMBufferBox = try await withThrowingTaskGroup(of: PCMBufferBox.self) { group in
+            group.addTask {
+                let buffer = try await iteratorBox.next()
+                return PCMBufferBox(value: buffer)
+            }
+            group.addTask {
+                do {
+                    try await Task.sleep(for: .seconds(timeoutSeconds))
+                } catch {
+                    return PCMBufferBox(value: nil)
+                }
+                throw CancellationError()
+            }
+            let first = try await group.next() ?? PCMBufferBox(value: nil)
+            group.cancelAll()
+            return first
+        }
+        return box.value
+    }
+
+    private func isNetworkTimeout(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorTimedOut {
+            return true
+        }
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? Error {
+            return isNetworkTimeout(underlying)
+        }
+        return false
+    }
+
     // MARK: - Playback Control
 
     func play(song: Song, caller: String = #fileID, callerLine: Int = #line) async {
@@ -405,6 +472,13 @@ final class AudioPlayerService {
         if song.sourceID == AppleMusicLibraryService.systemSourceID {
             await playAppleMusicSong(song)
             return
+        }
+
+        // 上一首是 Apple Music → 切到本地: 先停 mirror task 并让系统侧停掉,
+        // 避免 mirror 继续把 currentSong 改回 Apple Music 那首。
+        if isAppleMusicMode {
+            stopAppleMusicMirror()
+            AppServices.shared.appleMusic.stopAppleMusic()
         }
 
         // 切到新歌前主动触发上一首的 streaming session finalize, 让它有机会
@@ -447,24 +521,114 @@ final class AudioPlayerService {
     }
 
     /// Apple Music 歌路由 — 把猿音自家播放器停掉, 让 AppleMusicLibraryService
-    /// 通过 ApplicationMusicPlayer 接手 DRM 流播放。currentSong 清空, 让 UI
-    /// 知道猿音侧没在播 (Apple Music mini player 会从 appleMusic.nowPlayingSong
-    /// 驱动)。
+    /// 通过 ApplicationMusicPlayer 接手 DRM 流播放。currentSong **保留**为这首
+    /// Apple Music 歌, 让 NowPlayingView / MiniPlayer 复用同一份实现; mirror
+    /// task 会持续把 ApplicationMusicPlayer 的状态同步到 self 的字段。
     private func playAppleMusicSong(_ song: Song) async {
-        // 停猿音侧
+        // 停猿音自家 engine, audio session 让给 ApplicationMusicPlayer。
         decodingTask?.cancel(); decodingTask = nil
         cancelGaplessTasks()
         crossfadeDecodingTask?.cancel(); crossfadeDecodingTask = nil
         audioEngine.stopPlayback()
         audioEngine.stopCrossfadeNode()
         stopTimeUpdater()
-        currentSong = nil
+        currentSong = song
         currentTime = 0
-        duration = 0
-        isLoading = false
+        duration = song.duration
+        isLoading = true
         isPlaying = false
+        startAppleMusicMirror()
         await AppServices.shared.appleMusicLibrary.play(primuseSong: song)
+        // 4s 兜底 ── ApplicationMusicPlayer.play 本身没有失败回调,
+        // 如果 lookup / DRM / 订阅校验等任何一步失败, mirror 永远收不到
+        // playing 信号, isLoading 卡死。给一个超时清 loading 并把错误
+        // (如果 service 写进了 lastPlaybackError) 暴露给用户。
+        Task { @MainActor [weak self, songID = song.id] in
+            try? await Task.sleep(for: .seconds(4))
+            guard let self,
+                  self.currentSong?.id == songID,
+                  self.isLoading else { return }
+            self.isLoading = false
+            let am = AppServices.shared.appleMusic
+            if !am.isAppleMusicPlaying, am.currentPlaybackTime == 0 {
+                self.lastPlaybackError = am.lastPlaybackError
+                    ?? String(localized: "playback_error_apple_music_generic")
+            }
+        }
     }
+
+    /// 启动 Apple Music 状态镜像 ── observation tracking 监听 appleMusic 的
+     /// nowPlayingSong / isAppleMusicPlaying / currentPlaybackTime 等字段,
+     /// 每次变化把值 mirror 到 self 的 currentSong / isPlaying / currentTime 等。
+     /// 切回本地播放或 stop 时取消。
+     private func startAppleMusicMirror() {
+         appleMusicMirrorTask?.cancel()
+         let am = AppServices.shared.appleMusic
+         appleMusicMirrorTask = Task { @MainActor [weak self] in
+             while !Task.isCancelled {
+                 await self?.awaitNextAppleMusicChange(am: am)
+                 self?.mirrorAppleMusicState()
+             }
+         }
+         // 首次进 Apple Music 模式时主动 mirror 一次, 不用等下一个 polling tick。
+         mirrorAppleMusicState()
+     }
+
+     /// 注意必须 @MainActor 隔离 ── withObservationTracking 的 read 阶段
+     /// 要跟它访问的 Observable 在同一 actor (这里是 appleMusic 即 @MainActor)。
+     /// 之前写成 nonisolated + MainActor.assumeIsolated 在 Task 任意线程上
+     /// 触发了 precondition trap → 启动 Apple Music 播放秒闪退 (见 PR / 日志)。
+     private func awaitNextAppleMusicChange(am: AppleMusicService) async {
+         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+             withObservationTracking {
+                 _ = am.nowPlayingSong?.id
+                 _ = am.isAppleMusicPlaying
+                 _ = am.currentPlaybackTime
+                 _ = am.currentDuration
+                 _ = am.queueSongs.count
+                 _ = am.repeatModeMirror
+                 _ = am.shuffleEnabledMirror
+             } onChange: {
+                 cont.resume()
+             }
+         }
+     }
+
+     private func stopAppleMusicMirror() {
+         appleMusicMirrorTask?.cancel()
+         appleMusicMirrorTask = nil
+     }
+
+     private func mirrorAppleMusicState() {
+         // 用 appleMusic.nowPlayingSong 而不是 self.isAppleMusicMode 做 guard ──
+         // 初次从 catalog 路径切到 Apple Music 时 currentSong 可能还是旧的本地
+         // 歌, 等 mirror 第一次写入新值之后 isAppleMusicMode 才变 true。
+         let am = AppServices.shared.appleMusic
+         guard let nps = am.nowPlayingSong else { return }
+         isMirroringFromAppleMusic = true
+         defer { isMirroringFromAppleMusic = false }
+
+         // currentSong: 自动跳下一首时 nowPlayingSong 会变, 同步过来。
+         let pSong = AppleMusicLibraryService.toPrimuseSong(nps)
+         if pSong.id != currentSong?.id {
+             currentSong = pSong
+         }
+         isPlaying = am.isAppleMusicPlaying
+         // 首次播 (isLoading=true) 收到 playing 状态才清 isLoading,
+         // 避免 polling 命中前 UI 一直显示 spinner。
+         if am.isAppleMusicPlaying || am.currentPlaybackTime > 0 {
+             isLoading = false
+         }
+         currentTime = am.currentPlaybackTime
+         if am.currentDuration > 0 { duration = am.currentDuration }
+         // queue 镜像 ── 转成 QueueEntry, 让 NowPlayingView 队列视图直接渲染。
+         let newIDs = am.queueSongs.map(\.id)
+         if newIDs != queueEntries.map(\.song.id) {
+             queueEntries = am.queueSongs.map { QueueEntry(song: $0) }
+         }
+         if repeatMode != am.repeatModeMirror { repeatMode = am.repeatModeMirror }
+         if shuffleEnabled != am.shuffleEnabledMirror { shuffleEnabled = am.shuffleEnabledMirror }
+     }
 
     func play(song: Song, from url: URL) async {
         let id = UUID()
@@ -567,21 +731,12 @@ final class AudioPlayerService {
             // — this one is the outer safety net.
             let firstBuffer: AVAudioPCMBuffer
             do {
-                let box: PCMBufferBox = try await withThrowingTaskGroup(of: PCMBufferBox.self) { group in
-                    group.addTask {
-                        let b = try await iteratorBox.next()
-                        return PCMBufferBox(value: b)
-                    }
-                    group.addTask {
-                        try? await Task.sleep(for: .seconds(35))
-                        throw CancellationError()
-                    }
-                    let first = try await group.next() ?? PCMBufferBox(value: nil)
-                    group.cancelAll()
-                    return first
-                }
-                guard let buffer = box.value else {
+                guard let buffer = try await awaitFirstBuffer(
+                    from: iteratorBox,
+                    timeoutSeconds: Self.firstBufferTimeoutSeconds
+                ) else {
                     // Empty stream — skip to next
+                    guard playID == id else { return }
                     isLoading = false
                     await autoAdvanceAfterFailure()
                     return
@@ -728,6 +883,7 @@ final class AudioPlayerService {
                 }
             }
         } catch {
+            guard !Task.isCancelled, playID == id else { return }
             plog("⚠️ Playback error for '\(song.title)': \(error.localizedDescription)")
             showPlaybackError(String(localized: "playback_error_decode"))
             isLoading = false
@@ -748,7 +904,11 @@ final class AudioPlayerService {
         let iteratorBox = BufferIteratorBox(stream.makeAsyncIterator())
 
         do {
-            guard let firstBuffer = try await iteratorBox.next() else {
+            guard let firstBuffer = try await awaitFirstBuffer(
+                from: iteratorBox,
+                timeoutSeconds: Self.remoteFallbackFirstBufferTimeoutSeconds
+            ) else {
+                guard playID == id else { return }
                 plog("⚠️ StreamingDownload: empty stream for '\(song.title)'")
                 isLoading = false
                 await autoAdvanceAfterFailure()
@@ -822,8 +982,21 @@ final class AudioPlayerService {
                     await self.scheduleDecodedFinalBuffer(finalBuffer, playID: id)
                 }
             }
+        } catch is CancellationError {
+            guard !Task.isCancelled, playID == id else { return }
+            plog("⚠️ StreamingDownload first-buffer timeout for '\(song.title)' after \(Self.remoteFallbackFirstBufferTimeoutSeconds)s")
+            showPlaybackError(String(localized: "playback_error_connection"))
+            isLoading = false
+            await autoAdvanceAfterFailure()
         } catch {
+            guard !Task.isCancelled, playID == id else { return }
             plog("⚠️ StreamingDownload failed for '\(song.title)': \(error.localizedDescription)")
+            if isNetworkTimeout(error) {
+                showPlaybackError(String(localized: "playback_error_connection"))
+                isLoading = false
+                await autoAdvanceAfterFailure()
+                return
+            }
             // Fallback to AssetReader decoder (for non-SSL failures)
             plog("↳ Trying AssetReader fallback...")
             await playWithFallbackDecoder(song: song, url: url, outputFormat: outputFormat, playID: id)
@@ -1040,6 +1213,7 @@ final class AudioPlayerService {
 
     /// Fallback playback using AVAssetReader when native decoder fails.
     private func playWithFallbackDecoder(song: Song, url: URL, outputFormat: AVAudioFormat, playID id: UUID) async {
+        guard playID == id else { return }
         guard assetReaderDecoder.canDecode(url: url) else {
             plog("⚠️ No decoder available for '\(song.title)'")
             showPlaybackError(String(localized: "playback_error_format"))
@@ -1054,7 +1228,11 @@ final class AudioPlayerService {
         let iteratorBox = BufferIteratorBox(fallbackStream.makeAsyncIterator())
 
         do {
-            guard let firstBuffer = try await iteratorBox.next() else {
+            guard let firstBuffer = try await awaitFirstBuffer(
+                from: iteratorBox,
+                timeoutSeconds: Self.remoteFallbackFirstBufferTimeoutSeconds
+            ) else {
+                guard playID == id else { return }
                 isLoading = false
                 await autoAdvanceAfterFailure()
                 return
@@ -1133,7 +1311,14 @@ final class AudioPlayerService {
                     await self.scheduleDecodedFinalBuffer(finalBuffer, playID: id)
                 }
             }
+        } catch is CancellationError {
+            guard !Task.isCancelled, playID == id else { return }
+            plog("⚠️ AssetReader fallback first-buffer timeout for '\(song.title)' after \(Self.remoteFallbackFirstBufferTimeoutSeconds)s")
+            showPlaybackError(String(localized: "playback_error_connection"))
+            isLoading = false
+            await autoAdvanceAfterFailure()
         } catch {
+            guard !Task.isCancelled, playID == id else { return }
             plog("⚠️ AssetReader fallback also failed: \(error.localizedDescription)")
             isLoading = false
             await autoAdvanceAfterFailure()
@@ -1221,6 +1406,10 @@ final class AudioPlayerService {
     }
 
     func pause() {
+        if isAppleMusicMode {
+            AppServices.shared.appleMusic.togglePlayPauseAppleMusic()
+            return
+        }
         shouldResumeAfterInterruption = false
         syncPlaybackProgressFromEngine()
         audioEngine.pause()
@@ -1231,6 +1420,10 @@ final class AudioPlayerService {
     }
 
     func resume() {
+        if isAppleMusicMode {
+            AppServices.shared.appleMusic.togglePlayPauseAppleMusic()
+            return
+        }
         guard !isLoading, let song = currentSong else { return }
         // 「已播完待重播」: 引擎已经 stopPlayback, 不能 resume —— 那是 no-op。
         // 直接重新 play 当前曲 (从 0 开始)。这是 Apple Music 锁屏在歌
@@ -1255,10 +1448,25 @@ final class AudioPlayerService {
     }
 
     func togglePlayPause() {
+        if isAppleMusicMode {
+            AppServices.shared.appleMusic.togglePlayPauseAppleMusic()
+            return
+        }
         if isPlaying { pause() } else { resume() }
     }
 
     func stop() {
+        if isAppleMusicMode {
+            AppServices.shared.appleMusic.stopAppleMusic()
+            stopAppleMusicMirror()
+            currentSong = nil
+            currentTime = 0
+            duration = 0
+            isPlaying = false
+            isLoading = false
+            queueEntries = []
+            return
+        }
         // 主动结束当前 streaming session (切走 / 用户点停止时), 让 .partial
         // 有机会转 final。
         if let cur = currentSong {
@@ -1324,6 +1532,10 @@ final class AudioPlayerService {
     }
 
     func next(caller: String = #fileID, callerLine: Int = #line) async {
+        if isAppleMusicMode {
+            AppServices.shared.appleMusic.skipToNextAppleMusic()
+            return
+        }
         guard !queue.isEmpty else { return }
         let callerFile = (caller as NSString).lastPathComponent
         plog("⏭️ next() called FROM=\(callerFile):\(callerLine) currentIndex=\(currentIndex) queueCount=\(queue.count)")
@@ -1343,6 +1555,15 @@ final class AudioPlayerService {
     }
 
     func previous() async {
+        if isAppleMusicMode {
+            // 跟本地行为一致 ── 播放进度过 3s 时倒回开头, 否则跳上一首。
+            if currentTime > 3 {
+                AppServices.shared.appleMusic.seekAppleMusic(to: 0)
+            } else {
+                AppServices.shared.appleMusic.skipToPreviousAppleMusic()
+            }
+            return
+        }
         guard !queue.isEmpty else { return }
         if currentTime > 3 {
             seek(to: 0)
@@ -1360,6 +1581,10 @@ final class AudioPlayerService {
     private var seekTimeOffset: TimeInterval = 0
 
     func seek(to time: TimeInterval, startPlaying: Bool? = nil, isRecovery: Bool = false) {
+        if isAppleMusicMode {
+            AppServices.shared.appleMusic.seekAppleMusic(to: TimeInterval.sanitized(time))
+            return
+        }
         let requestedTime = TimeInterval.sanitized(time)
         let safeDuration = duration.sanitizedDuration
         let targetTime = safeDuration > 0 ? min(requestedTime, safeDuration) : requestedTime

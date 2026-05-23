@@ -59,16 +59,24 @@ final class DLNARendererService {
     }
 
     private func logEvent(_ kind: DebugEvent.Kind, _ detail: String) {
+        let tag: String
         switch kind {
         case .discovery:
             dlnaLog.info("discovery: \(detail, privacy: .public)")
+            tag = "🔍 discovery"
         case .control:
             dlnaLog.info("control: \(detail, privacy: .public)")
+            tag = "🎛 control"
         case .event:
             dlnaLog.info("event: \(detail, privacy: .public)")
+            tag = "📣 event"
         case .error:
             dlnaLog.error("error: \(detail, privacy: .public)")
+            tag = "❌ error"
         }
+        // 同时打到 FileLogger, 让用户拉日志做诊断时能看到 DLNA 全程
+        // (os.Logger 进 Console.app, 跨设备不便)。
+        plog("[DLNA] \(tag) \(detail)")
         recentEvents.insert(
             DebugEvent(timestamp: Date(), kind: kind, detail: detail),
             at: 0
