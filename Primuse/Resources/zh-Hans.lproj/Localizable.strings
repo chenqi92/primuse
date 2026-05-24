@@ -1016,3 +1016,12 @@
 "source_diag_advice_server_title" = "音乐源响应异常";
 "source_diag_advice_server_suggestion" = "检查服务器状态后重试；如果持续失败，可以在存储管理里导出日志。";
 "source_diag_advice_invalid_response" = "音乐源返回了无法解析的响应。";
+
+// MARK: - macOS Playback menu
+"playback_menu" = "播放";
+"play_pause" = "播放/暂停";
+"next_song" = "下一首";
+"previous_song" = "上一首";
+"repeat" = "循环";
+"volume_up" = "音量增大";
+"volume_down" = "音量减小";

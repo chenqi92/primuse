@@ -349,7 +349,12 @@ struct MacSourcesView: View {
 
     // MARK: - Helpers (reused logic)
 
-    private var sources: [MusicSource] { sourceStore.sources }
+    /// Apple Music (MusicKit 流播) 是 AppServices 兜底 upsert 的虚拟 source,
+    /// 没有目录/扫描/编辑概念 — Mac 上走 Settings → Apple Music 授权 tab,
+    /// 留在 Sources 列表里只会让用户误点 connect 按钮。直接隐藏。
+    private var sources: [MusicSource] {
+        sourceStore.sources.filter { $0.type != .appleMusic }
+    }
 
     private var groupedSources: [(SourceCategory, [MusicSource])] {
         let grouped = Dictionary(grouping: sources) { $0.type.category }

@@ -13,7 +13,7 @@ import PrimuseKit
 struct MacSettingsView: View {
     private enum Tab: String, Hashable {
         case general, equalizer, effects, library, lyricsTranslation
-        case widgets, sync, recentlyDeleted, security, about
+        case appleMusic, widgets, sync, recentlyDeleted, security, about
     }
 
     @State private var tab: Tab = .general
@@ -40,6 +40,10 @@ struct MacSettingsView: View {
             LyricsTranslationSettingsView().tabPaneSize()
                 .tabItem { Label("lyrics_translation_title", systemImage: "character.bubble") }
                 .tag(Tab.lyricsTranslation)
+
+            AppleMusicSettingsView().tabPaneSize()
+                .tabItem { Label("settings_apple_music_section", systemImage: "music.note") }
+                .tag(Tab.appleMusic)
 
             MacWidgetSyncSettingsView().tabPaneSize()
                 .tabItem { Label("desktop_widgets", systemImage: "rectangle.grid.2x2") }

@@ -609,6 +609,57 @@ struct PrimuseApp: App {
                 }
                 .keyboardShortcut("l", modifiers: [.command, .shift])
             }
+
+            // Playback menu —— Apple Music / Spotify 一致的桌面播放范式。
+            // 所有指令都通过 AppServices.shared 派发, 不需要 binding,
+            // .commands 是 Scene-level 拿不到 @Environment。
+            CommandMenu("playback_menu") {
+                Button("play_pause") {
+                    AppServices.shared.playerService.togglePlayPause()
+                }
+                .keyboardShortcut("p", modifiers: [.command])
+
+                Button("next_song") {
+                    Task { await AppServices.shared.playerService.next() }
+                }
+                .keyboardShortcut(.rightArrow, modifiers: [.command])
+
+                Button("previous_song") {
+                    Task { await AppServices.shared.playerService.previous() }
+                }
+                .keyboardShortcut(.leftArrow, modifiers: [.command])
+
+                Divider()
+
+                Button("shuffle") {
+                    AppServices.shared.playerService.shuffleEnabled.toggle()
+                }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+
+                Button("repeat") {
+                    let p = AppServices.shared.playerService
+                    switch p.repeatMode {
+                    case .off: p.repeatMode = .all
+                    case .all: p.repeatMode = .one
+                    case .one: p.repeatMode = .off
+                    }
+                }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
+
+                Divider()
+
+                Button("volume_up") {
+                    let engine = AppServices.shared.playerService.audioEngine
+                    engine.volume = min(1.0, engine.volume + 0.05)
+                }
+                .keyboardShortcut(.upArrow, modifiers: [.command])
+
+                Button("volume_down") {
+                    let engine = AppServices.shared.playerService.audioEngine
+                    engine.volume = max(0.0, engine.volume - 0.05)
+                }
+                .keyboardShortcut(.downArrow, modifiers: [.command])
+            }
         }
         #endif
 

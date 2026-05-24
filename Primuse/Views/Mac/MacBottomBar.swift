@@ -20,10 +20,13 @@ struct MacBottomBar: View {
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(AudioEngine.self) private var engine
+    @Environment(DLNARendererService.self) private var renderer
 
     // AirPlay popover 直接锚定到右侧 AirPlay 按钮自身,而不是从外部
     // 接 binding 拍到整个 bar 上 —— 之前那样会让弹窗位置漂到屏幕中间。
     @State private var airPlayShown = false
+    /// DLNA 投屏 sheet 状态。
+    @State private var castShown = false
     /// 封面点击弹出的「迷你播放程序 / 全屏幕」选项菜单。
     @State private var coverMenuShown = false
     @State private var isBarHovering = false
@@ -335,6 +338,18 @@ struct MacBottomBar: View {
             .help(Text("audio_output"))
             .popover(isPresented: $airPlayShown, arrowEdge: .top) {
                 AudioOutputPickerView()
+            }
+
+            // DLNA 投屏。tint 在已投屏时高亮 accent。
+            Button { castShown = true } label: {
+                secondaryIcon("tv.and.hifispeaker.fill",
+                              tint: player.isCastingMode ? .accentColor : .secondary)
+            }
+            .buttonStyle(.plain)
+            .help(Text("cast_picker_title"))
+            .sheet(isPresented: $castShown) {
+                CastDevicePickerSheet()
+                    .frame(minWidth: 420, minHeight: 460)
             }
 
             // Volume —— 紧凑型,占用空间小,跟 Apple Music 接近。

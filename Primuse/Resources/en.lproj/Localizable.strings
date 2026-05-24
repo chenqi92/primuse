@@ -1015,3 +1015,12 @@
 "source_diag_advice_server_title" = "Source response error";
 "source_diag_advice_server_suggestion" = "Check the server status and retry. If it keeps failing, export logs from Storage.";
 "source_diag_advice_invalid_response" = "The source returned an unreadable response.";
+
+// MARK: - macOS Playback menu
+"playback_menu" = "Playback";
+"play_pause" = "Play / Pause";
+"next_song" = "Next";
+"previous_song" = "Previous";
+"repeat" = "Repeat";
+"volume_up" = "Volume Up";
+"volume_down" = "Volume Down";
