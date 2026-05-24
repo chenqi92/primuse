@@ -13,7 +13,6 @@ struct QueueView: View {
                     EmptyStateView(
                         titleKey: "queue_empty",
                         descriptionKey: "queue_empty_desc",
-                        imageName: "EmptyStateQueue",
                         systemImage: "music.note.list"
                     )
                 } else {

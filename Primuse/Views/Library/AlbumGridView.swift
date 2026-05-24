@@ -12,7 +12,6 @@ struct AlbumGridView: View {
             EmptyStateView(
                 titleKey: "no_albums",
                 descriptionKey: "no_albums_desc",
-                imageName: "EmptyStateNoAlbums",
                 systemImage: "square.stack"
             )
         } else {

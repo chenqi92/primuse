@@ -153,6 +153,10 @@ final class ScanService {
                     sourceStore: sourceStore,
                     scraperService: scraperService
                 )
+            case .appleMusic:
+                // Apple Music 不走文件 scan, 走 AppleMusicLibraryService.sync()
+                // 拉 user library (用户在 Settings 里手动点同步)。这里 noop。
+                break
             }
         }
         activeTasks[source.id] = task

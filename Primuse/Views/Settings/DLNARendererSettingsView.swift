@@ -6,6 +6,7 @@ import PrimuseKit
 struct DLNARendererSettingsView: View {
     @Environment(DLNARendererService.self) private var renderer
     @AppStorage("dlna.rendererEnabled") private var enabled: Bool = false
+    @AppStorage("dlna.keepAlive") private var keepAlive: Bool = false
 
     var body: some View {
         Form {
@@ -28,6 +29,17 @@ struct DLNARendererSettingsView: View {
                     .font(.footnote)
             }
 
+            Section {
+                Toggle(String(localized: "settings_dlna_keepalive"), isOn: $keepAlive)
+                    .disabled(!enabled)
+                    .onChange(of: keepAlive) { _, new in
+                        renderer.setKeepAliveInBackground(new)
+                    }
+            } footer: {
+                Text(String(localized: "settings_dlna_keepalive_footer"))
+                    .font(.footnote)
+            }
+
             if renderer.isRunning {
                 Section(String(localized: "settings_dlna_devices_section")) {
                     if renderer.connectedDevices.isEmpty {
@@ -47,6 +59,9 @@ struct DLNARendererSettingsView: View {
         .task {
             // 用户上次打开 toggle 后 app 重启,需要恢复 service 状态。
             if enabled && !renderer.isRunning { renderer.start() }
+            // 同步 keepAlive 持久状态到 renderer (重启后 renderer.keepAliveInBackground
+            // 是默认 false, 不 push 一次的话即便用户上次打开了也不生效)。
+            renderer.setKeepAliveInBackground(keepAlive)
         }
     }
 

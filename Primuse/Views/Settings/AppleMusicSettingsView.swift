@@ -11,6 +11,7 @@ import AppKit
 /// 会去访问 catalog —— 避免用户搜歌时被无端弹系统授权对话框。
 struct AppleMusicSettingsView: View {
     @Environment(AppleMusicService.self) private var appleMusic
+    @Environment(AppleMusicLibraryService.self) private var appleMusicLibrary
 
     var body: some View {
         Form {
@@ -50,11 +51,76 @@ struct AppleMusicSettingsView: View {
                 Text(String(localized: "settings_apple_music_footer"))
                     .font(.footnote)
             }
+
+            if appleMusic.authState == .authorized {
+                librarySection
+            }
         }
         .navigationTitle("settings_apple_music_section")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+    }
+
+    /// 把 Apple Music 用户资料库拉进猿音 Library。state 切换时直接 reflect
+    /// 在 UI 上, 用户能看到 syncing / 完成数 / 失败原因。
+    private var librarySection: some View {
+        Section {
+            statusContent
+            Button {
+                appleMusicLibrary.sync()
+            } label: {
+                Label(syncButtonTitle, systemImage: "arrow.triangle.2.circlepath")
+            }
+            .disabled(isSyncing)
+        } header: {
+            Text("apple_music_library_section")
+        } footer: {
+            Text("apple_music_library_footer")
+                .font(.footnote)
+        }
+    }
+
+    @ViewBuilder
+    private var statusContent: some View {
+        switch appleMusicLibrary.state {
+        case .idle:
+            Text("apple_music_library_idle").foregroundStyle(.secondary)
+        case .syncing:
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("apple_music_library_syncing").foregroundStyle(.secondary)
+            }
+        case .done(let count, let at):
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                Text(String(format: String(localized: "apple_music_library_done_format"),
+                            count, Self.formattedDate(at)))
+                    .foregroundStyle(.secondary)
+            }
+        case .failed(let msg):
+            Label(msg, systemImage: "exclamationmark.triangle")
+                .font(.caption).foregroundStyle(.red)
+        }
+    }
+
+    private var isSyncing: Bool {
+        if case .syncing = appleMusicLibrary.state { return true }
+        return false
+    }
+
+    private var syncButtonTitle: String {
+        switch appleMusicLibrary.state {
+        case .done: return String(localized: "apple_music_library_resync")
+        default: return String(localized: "apple_music_library_sync")
+        }
+    }
+
+    private static func formattedDate(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.dateStyle = .short
+        f.timeStyle = .short
+        return f.string(from: date)
     }
 
     private var statusRow: some View {

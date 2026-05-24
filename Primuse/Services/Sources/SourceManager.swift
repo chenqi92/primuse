@@ -273,6 +273,11 @@ final class SourceManager {
                 secretKey: KeychainService.getPassword(for: source.id) ?? "",
                 useSsl: source.useSsl
             )
+        case .appleMusic:
+            // Apple Music 在系统侧 ApplicationMusicPlayer 播放, 不需要 connector
+            // 扫文件 / 解析。给个 unsupported 占位让 switch 完整, 实际 scan
+            // 走 AppleMusicLibraryService, play 由 AudioPlayerService 路由。
+            connector = UnsupportedSourceConnector(sourceID: source.id, sourceType: .appleMusic)
         }
 
         if cache {

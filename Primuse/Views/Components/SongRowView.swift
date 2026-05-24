@@ -430,6 +430,12 @@ struct SimilarSongsSheet: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(\.dismiss) private var dismiss
 
+    /// Last.fm getSimilar 的结果, 跟本地算法独立 — 一个看"特征相似" (metadata),
+    /// 一个看"听众重叠" (Last.fm)。空数组表示 API 没配 / 没结果 / 加载中。
+    @State private var lastFmCandidates: [SimilarTracksCandidate] = []
+    @State private var isLoadingLastFm: Bool = true
+    @State private var lastFmError: String?
+
     private var results: [MusicDiscoveryResult] {
         MusicDiscoveryEngine.similarSongs(to: seed, in: library, limit: 30)
     }
@@ -458,7 +464,7 @@ struct SimilarSongsSheet: View {
                     }
                 }
 
-                if results.isEmpty {
+                if results.isEmpty && lastFmCandidates.isEmpty && !isLoadingLastFm {
                     ContentUnavailableView {
                         Label(String(localized: "similar_songs_empty"), systemImage: "sparkles")
                     } description: {
@@ -466,14 +472,44 @@ struct SimilarSongsSheet: View {
                     }
                     .listRowBackground(Color.clear)
                 } else {
-                    Section(String(localized: "similar_songs")) {
-                        ForEach(results) { result in
-                            Button {
-                                play(result.song)
-                            } label: {
-                                SimilarSongResultRow(result: result)
+                    if !results.isEmpty {
+                        Section(String(localized: "similar_songs")) {
+                            ForEach(results) { result in
+                                Button {
+                                    play(result.song)
+                                } label: {
+                                    SimilarSongResultRow(result: result)
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
+                        }
+                    }
+
+                    if isLoadingLastFm {
+                        Section {
+                            HStack(spacing: 8) {
+                                ProgressView().controlSize(.small)
+                                Text("similar_loading").font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    } else if !lastFmCandidates.isEmpty {
+                        Section {
+                            ForEach(lastFmCandidates) { candidate in
+                                if let song = candidate.librarySong {
+                                    Button {
+                                        play(song)
+                                    } label: {
+                                        LastFmSimilarRow(song: song, match: candidate.match)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        } header: {
+                            Text("similar_section_lastfm")
+                        } footer: {
+                            Text("similar_source_lastfm")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -485,7 +521,28 @@ struct SimilarSongsSheet: View {
                     Button(String(localized: "done")) { dismiss() }
                 }
             }
+            .task { await loadLastFmSimilar() }
         }
+    }
+
+    private func loadLastFmSimilar() async {
+        guard !LastFmCredentialsStore.effectiveAPIKey().isEmpty else {
+            isLoadingLastFm = false
+            return
+        }
+        let service = AppServices.shared.similarTracks
+        let pool = library.visibleSongs
+        do {
+            lastFmCandidates = try await service.fetchSimilar(
+                to: seed,
+                limit: 30,
+                library: pool,
+                includeUnmatched: false
+            )
+        } catch {
+            lastFmError = error.localizedDescription
+        }
+        isLoadingLastFm = false
     }
 
     private var seedRow: some View {
@@ -538,6 +595,36 @@ struct SimilarSongsSheet: View {
         player.setQueue(queue, startAt: 0)
         dismiss()
         Task { await player.play(song: first) }
+    }
+}
+
+private struct LastFmSimilarRow: View {
+    let song: Song
+    let match: Double
+
+    var body: some View {
+        HStack(spacing: 10) {
+            CachedArtworkView(
+                coverRef: song.coverArtFileName,
+                songID: song.id,
+                size: 44,
+                cornerRadius: 6,
+                sourceID: song.sourceID,
+                filePath: song.filePath
+            )
+            VStack(alignment: .leading, spacing: 2) {
+                Text(song.title).font(.subheadline).lineLimit(1)
+                Text(song.artistName ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer()
+            if match > 0 {
+                Text("\(Int(min(1.0, max(0, match)) * 100))%")
+                    .font(.caption2)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .contentShape(Rectangle())
     }
 }
 

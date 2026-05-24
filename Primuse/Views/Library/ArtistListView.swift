@@ -25,7 +25,6 @@ struct ArtistListView: View {
             EmptyStateView(
                 titleKey: "no_artists",
                 descriptionKey: "no_artists_desc",
-                imageName: "EmptyStateNoArtists",
                 systemImage: "music.mic"
             )
         } else {

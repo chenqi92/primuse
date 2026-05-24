@@ -1,5 +1,6 @@
 #if os(iOS)
 import SwiftUI
+import MusicKit
 import PrimuseKit
 import UIKit
 
@@ -68,6 +69,13 @@ struct ContentView: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(SourcesStore.self) private var sourcesStore
+    @Environment(AppleMusicService.self) private var appleMusic
+
+    /// Mini player 是否应该显示 — 猿音自家在播 或 Apple Music 在系统侧播。
+    /// 这两路是独立 player, 任一非空都显示 accessory。
+    private var miniPlayerActive: Bool {
+        player.currentSong != nil || appleMusic.nowPlayingSong != nil
+    }
     /// iPad (regular) 走 NavigationSplitView; iPhone / iPad 分屏小窗 (compact)
     /// 走 TabView。Apple 推荐用 horizontalSizeClass 而不是 idiom 来判断,以
     /// 适配 Stage Manager / 分屏 / 折叠态。
@@ -101,6 +109,7 @@ struct ContentView: View {
             SearchView(searchText: $searchText)
                 .tabItem { Label(String(localized: "search_title"), systemImage: "magnifyingglass") }
                 .tag(2)
+                .id("primuse.tab.search")
 
             SettingsView()
                 .tabItem { Label(String(localized: "settings_title"), systemImage: "gearshape") }
@@ -110,12 +119,22 @@ struct ContentView: View {
 
     @ViewBuilder
     private var playerAwareTabRoot: some View {
-        if player.currentSong != nil {
+        // accessory modifier 必须按需挂 / 不挂 —— iOS 26 的
+        // `tabViewBottomAccessory` 即使闭包内是 EmptyView 也会保留透明
+        // 占位条。Modifier 切换会让 TabView 子树被当成不同结构重建,
+        // SearchView 等子页的 @State 会丢, 所以 tab content 自带稳定
+        // `.id(...)` 让 SwiftUI 跨 rebuild 复用 state。
+        if miniPlayerActive {
             if #available(iOS 26.0, *) {
                 tabRoot
                     .tabBarMinimizeBehavior(.onScrollDown)
                     .tabViewBottomAccessory {
-                        NowPlayingAccessory(onTap: { showNowPlaying = true })
+                        // Apple Music 模式下 player.currentSong 也会被 mirror task
+                        // 设上 (走 NowPlayingAccessory 同一份实现), 不再需要单独
+                        // 的 AppleMusicAccessory 分支。
+                        if player.currentSong != nil {
+                            NowPlayingAccessory(onTap: { showNowPlaying = true })
+                        }
                     }
             } else {
                 tabRoot
@@ -279,6 +298,9 @@ struct ContentView: View {
         // 播放位置 / 播放或暂停 / shuffle / repeat),无缝接着播下去。
         .onContinueUserActivity("com.welape.yuanyin.nowplaying") { activity in
             handleHandoffActivity(activity)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .primuseRequestShowNowPlaying)) { _ in
+            showNowPlaying = true
         }
         // SSL trust prompt
         .alert(

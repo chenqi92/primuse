@@ -36,7 +36,7 @@ final class StreamingDownloadDecoder: Sendable {
         fileExtension: String? = nil
     ) -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 let tempPath = NSTemporaryDirectory() + "primuse_dl_\(UUID().uuidString)"
                 let tempURL = URL(fileURLWithPath: tempPath)
 
@@ -213,6 +213,9 @@ final class StreamingDownloadDecoder: Sendable {
                         continuation.finish(throwing: error)
                     }
                 }
+            }
+            continuation.onTermination = { _ in
+                task.cancel()
             }
         }
     }

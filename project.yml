@@ -13,8 +13,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    MARKETING_VERSION: "1.3.0"
-    CURRENT_PROJECT_VERSION: "9"
+    MARKETING_VERSION: "1.3.2"
+    CURRENT_PROJECT_VERSION: "10"
     DEVELOPMENT_TEAM: "2U97K3U27A"
     CODE_SIGN_STYLE: Automatic
     CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION: YES
@@ -167,8 +167,11 @@ targets:
         UILaunchScreen: {}
         ITSAppUsesNonExemptEncryption: false
         NSSiriUsageDescription: "用 Siri 语音点播、控制猿音播放。"
+        NSAppleMusicUsageDescription: "Primuse uses Apple Music to search the catalog and play tracks if you have an active subscription."
+        NSMotionUsageDescription: "Primuse uses headphone motion to keep Spatial Audio anchored while you move your head."
         NSUserActivityTypes:
           - INPlayMediaIntent
+          - com.welape.yuanyin.nowplaying
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: true
           UISceneConfigurations:
@@ -176,6 +179,10 @@ targets:
               - UISceneClassName: CPTemplateApplicationScene
                 UISceneConfigurationName: CarPlay
                 UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).CarPlaySceneDelegate
+            UIWindowSceneSessionRoleExternalDisplayNonInteractive:
+              - UISceneClassName: UIWindowScene
+                UISceneConfigurationName: ExternalDisplay
+                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).ExternalDisplaySceneDelegate
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
           NSAllowsLocalNetworking: true

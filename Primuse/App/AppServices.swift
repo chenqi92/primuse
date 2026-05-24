@@ -16,10 +16,13 @@ final class AppServices {
     let themeService: ThemeService
     let scanService: ScanService
     let metadataBackfill: MetadataBackfillService
+    let lyricsTextBackfill: LyricsTextBackfillService
+    let similarTracks: SimilarTracksService
     let updateChecker: AppUpdateChecker
     let coverTintProvider: CoverTintProvider
     let spotlightIndex: SpotlightIndexService
     let appleMusic: AppleMusicService
+    let appleMusicLibrary: AppleMusicLibraryService
     let dlnaRenderer: DLNARendererService
     let visualizer: AudioVisualizerService
     let crashDiagnostics: CrashDiagnosticsService
@@ -72,10 +75,31 @@ final class AppServices {
         self.themeService = theme
         self.scanService = ScanService()
         self.metadataBackfill = MetadataBackfillService(library: library, sourceManager: manager)
+        self.lyricsTextBackfill = LyricsTextBackfillService(library: library)
+        self.similarTracks = SimilarTracksService()
         self.updateChecker = AppUpdateChecker()
         self.coverTintProvider = CoverTintProvider()
         self.spotlightIndex = SpotlightIndexService()
-        self.appleMusic = AppleMusicService()
+        let amService = AppleMusicService()
+        self.appleMusic = amService
+        self.appleMusicLibrary = AppleMusicLibraryService(library: library, appleMusic: amService)
+
+        // 确保 Apple Music 虚拟 source 一直存在 — 用户首次安装 / iCloud
+        // 同步过来时, 我们这边没这个 source 记录, library 里的 Apple Music
+        // 歌就会因为 sourceID 找不到 mount 被 visibleSongs 过滤掉。
+        // 这里手动 upsert 一个 enabled=true 的固定 ID source, 让 song.sourceID
+        // 总能对得上。
+        let amSourceID = AppleMusicLibraryService.systemSourceID
+        if store.allSources.first(where: { $0.id == amSourceID }) == nil {
+            store.upsert(MusicSource(
+                id: amSourceID,
+                name: "Apple Music",
+                type: .appleMusic,
+                authType: .none,
+                isEnabled: true,
+                songCount: 0
+            ))
+        }
         self.dlnaRenderer = DLNARendererService(player: player)
         self.visualizer = AudioVisualizerService()
         let crash = CrashDiagnosticsService()

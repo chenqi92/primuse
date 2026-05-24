@@ -43,32 +43,40 @@ struct AlbumDetailView: View {
                 }
                 .padding(.top, 20)
 
-                // Action buttons
-                HStack(spacing: 12) {
+                // Action buttons ── 主按钮"播放全部"占大头, 旁边两个紧凑图标按钮。
+                HStack(spacing: 10) {
                     Button {
                         playAll()
                     } label: {
                         Label("play_all", systemImage: "play.fill")
+                            .font(.headline)
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
 
                     Button {
                         shuffleAll()
                     } label: {
-                        Label("shuffle", systemImage: "shuffle")
-                            .frame(maxWidth: .infinity)
+                        Image(systemName: "shuffle")
+                            .font(.headline)
+                            .frame(width: 24, height: 24)
                     }
                     .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .accessibilityLabel(Text("shuffle"))
 
                     Button {
                         sourceManager.downloadForOffline(songs: songs)
                     } label: {
-                        Label("offline_download", systemImage: "arrow.down.circle")
-                            .frame(maxWidth: .infinity)
+                        Image(systemName: "arrow.down.circle")
+                            .font(.headline)
+                            .frame(width: 24, height: 24)
                     }
                     .buttonStyle(.bordered)
+                    .controlSize(.large)
                     .disabled(songs.filteredPlayable().isEmpty)
+                    .accessibilityLabel(Text("offline_download"))
                 }
                 .padding(.horizontal)
 

@@ -14,20 +14,30 @@
 // MARK: - 资料库
 "tab_albums" = "专辑";
 "recently_added" = "最近添加";
+"library_manage_header" = "管理";
+"library_stats_header" = "本周听歌";
+"library_stats_plays_suffix" = "次播放";
+"library_stats_top_artists_label" = "最常听";
+"library_cleanup_header" = "待整理";
+"library_cleanup_dup" = "重复歌曲";
+"library_cleanup_dup_count_format" = "%d 组重复待处理";
+"library_cleanup_trash" = "回收站";
+"library_cleanup_trash_count_format" = "%d 项可清理";
+"playlist_reorder" = "重新排序";
 "see_all" = "查看全部";
 "welcome_title" = "欢迎使用猿音";
 "welcome_desc" = "添加音乐源 — NAS、WebDAV 或本地文件夹 — 开始聆听";
 "tab_artists" = "艺术家";
 "tab_songs" = "歌曲";
-"tab_playlists" = "播放列表";
+"tab_playlists" = "歌单";
 "no_albums" = "没有专辑";
 "no_albums_desc" = "添加音乐源以开始使用";
 "no_artists" = "没有艺术家";
 "no_artists_desc" = "添加音乐源以开始使用";
 "no_songs" = "没有歌曲";
 "no_songs_desc" = "添加音乐源以开始使用";
-"no_playlists" = "没有播放列表";
-"no_playlists_desc" = "创建播放列表来整理你的音乐";
+"no_playlists" = "没有歌单";
+"no_playlists_desc" = "创建歌单来整理你的音乐";
 "albums_count" = "张专辑";
 "artists_count" = "位艺术家";
 "songs_count" = "首歌曲";
@@ -254,6 +264,43 @@
 "spatial_audio_desc" = "通过 Apple 的空间音频渲染器，把播放声场放在前方的虚拟舞台中。";
 "spatial_head_tracking" = "头部追踪";
 "spatial_head_tracking_desc" = "使用支持的 AirPods 时，转动头部也能保持声场锚定。";
+"playback_rate" = "播放速度";
+"playback_rate_section" = "播放速度";
+"playback_rate_normal" = "正常";
+"playback_rate_reset" = "恢复正常速度";
+"playback_rate_desc" = "0.5×–2.0×。保持音调不变，适合播客或慢速学习。";
+"output_sr_matching" = "匹配输出采样率";
+"output_sr_matching_desc" = "提示系统把硬件输出采样率切换到当前歌曲的采样率，减少重采样。仅 iOS 真机有效，部分硬件可能忽略。";
+"search_running" = "搜索中…";
+"search_section_metadata" = "标题 / 艺术家 / 专辑";
+"search_section_lyrics" = "歌词命中";
+"search_section_fuzzy" = "拼音 / 模糊命中";
+"home_similar_to_format" = "猜你也喜欢：%@";
+"similar_songs" = "相似歌曲";
+"similar_title_format" = "猜你也喜欢：%@";
+"similar_loading" = "正在从 Last.fm 拉取相似歌曲…";
+"similar_failed" = "获取失败";
+"similar_empty" = "没有匹配的相似歌曲";
+"similar_empty_hint" = "Last.fm 给的推荐都不在你的资料库里。";
+"similar_source_lastfm" = "推荐数据来自 Last.fm";
+"similar_section_lastfm" = "听众也喜欢 (Last.fm)";
+"apple_music_needs_subscription" = "需要 Apple Music 订阅才能在猿音里播放，可以去 Apple Music App 开通后再试。";
+"apple_music_unavailable" = "当前账号或地区不支持 Apple Music 订阅播放。";
+"apple_music_notice_notDetermined" = "Apple Music 尚未授权，去 设置 → Apple Music 启用后可同步显示曲库搜索结果。";
+"apple_music_notice_denied" = "Apple Music 权限被拒绝，去系统 设置 → 隐私 → 媒体与 Apple Music 重新开启。";
+"apple_music_notice_no_results" = "Apple Music 没有匹配的结果（可能是地区曲库没有这首歌）。";
+"apple_music_open_in_app" = "在 Apple Music 中打开";
+"apple_music_now_playing_hint" = "Apple Music 在系统侧播放，刮削 / 标签编辑 / 均衡器等猿音功能不适用。";
+"apple_music_library_section" = "Apple Music 资料库";
+"apple_music_library_footer" = "把 Apple Music 你已加入资料库的歌拉到猿音 Library，跟 NAS / 云盘歌一起显示。播放走系统播放器，不占本地存储。";
+"apple_music_library_idle" = "尚未同步";
+"apple_music_library_syncing" = "正在同步 Apple Music 资料库…";
+"apple_music_library_done_format" = "已同步 %d 首，%@";
+"apple_music_library_sync" = "同步 Apple Music 资料库";
+"apple_music_library_resync" = "重新同步";
+"apple_music_lyrics_unavailable" = "这首歌没有歌词。Apple Music 的同步歌词不开放给第三方应用，本页面显示的是整段静态歌词。";
+"apple_music_view_lyrics" = "在 Apple Music 查看歌词";
+"apple_music_lyrics_not_available" = "Apple Music 歌曲的歌词由系统侧管理,猿音无法刮削或本地缓存。点下方按钮跳转到 Apple Music 查看官方歌词。";
 "rg_mode" = "模式";
 "rg_mode_track" = "单曲";
 "rg_mode_album" = "专辑";
@@ -305,11 +352,11 @@
 "eq_enabled" = "均衡器";
 "eq_reset" = "重置";
 
-// MARK: - 播放列表
-"new_playlist" = "新建播放列表";
-"playlist_name" = "播放列表名称";
+// MARK: - 歌单
+"new_playlist" = "新建歌单";
+"playlist_name" = "歌单名称";
 "create" = "创建";
-"remove_from_playlist" = "从播放列表中移除";
+"remove_from_playlist" = "从歌单中移除";
 
 // MARK: - 刮削
 "metadata_scraping" = "元数据与刮削";
@@ -364,8 +411,8 @@
 "cloud_oauth_hint" = "请在对应云盘开放平台注册应用获取 Client ID。保存后进入 OAuth 登录授权。";
 
 // MARK: - 播放器更多功能
-"add_to_playlist" = "添加到播放列表";
-"playlists_title" = "播放列表";
+"add_to_playlist" = "添加到歌单";
+"playlists_title" = "歌单";
 "sleep_timer" = "睡眠定时器";
 "sleep_timer_active" = "定时器已开启";
 "cancel_timer" = "取消定时器";
@@ -407,6 +454,7 @@
 "playback_error_connection" = "无法连接到来源";
 "playback_error_decode" = "无法播放此曲目";
 "playback_error_format" = "不支持的音频格式";
+"playback_error_apple_music_generic" = "Apple Music 播放失败,请检查订阅状态或网络";
 
 // MARK: - Gapless
 "gapless_not_available" = "无缝播放已可用于队列曲目；开启淡入淡出会自动关闭它。";
@@ -828,9 +876,12 @@
 "a11y_value_on" = "已开启";
 "a11y_value_off" = "已关闭";
 "a11y_play" = "播放";
+"a11y_like" = "添加到我喜欢";
+"a11y_unlike" = "从我喜欢中移除";
 "a11y_pause" = "暂停";
 "a11y_previous_track" = "上一首";
 "a11y_next_track" = "下一首";
+"a11y_prev_track" = "上一首";
 "a11y_queue" = "播放队列";
 "a11y_open_lyrics" = "显示歌词";
 "a11y_close_lyrics" = "隐藏歌词";
@@ -852,9 +903,40 @@
 "settings_apple_music_connected" = "已连接 Apple Music";
 "settings_apple_music_denied" = "Apple Music 访问被拒。请到系统设置 → 猿音 中开启。";
 "settings_apple_music_footer" = "授权后猿音可以搜索 Apple Music 曲库;若你已订阅,点搜索结果会调用系统 Music 播放器播放。";
+"source_apple_music_open_settings" = "打开 Apple Music 设置";
+"apple_music_library_playlist_name" = "Apple Music 资料库";
+"playlist_liked_name" = "我喜欢";
 "settings_dlna_section" = "DLNA 接收";
 "settings_dlna_enable" = "接受同一 Wi-Fi 的投送";
 "settings_dlna_footer" = "同 Wi-Fi 下的其它设备(VLC、群晖音频中心、Plex、Hi-Fi Cast 等)可以发现猿音并把音频推过来播放。";
+"settings_dlna_keepalive" = "后台接收推送";
+"settings_dlna_keepalive_footer" = "开启后即使猿音退到后台、没有正在播放音乐,也能持续接收 LAN 内其他设备推过来的音频。代价: 锁屏 / 控制中心会显示猿音在播,耗电略增。";
+"cast_to_device" = "投屏到设备";
+"cast_casting_to_format" = "投屏中: %@";
+"cast_picker_title" = "选择播放设备";
+"cast_local_device" = "本机播放";
+"cast_local_subtitle" = "在这台 iPhone 上播放";
+"cast_lan_devices" = "局域网设备";
+"cast_scanning" = "正在搜索投屏设备…";
+"cast_dlna_required_hint" = "设备需支持 UPnP/DLNA 渲染器协议,并跟你的 iPhone 在同一 Wi-Fi 下。";
+"refresh" = "刷新";
+"family_sharing_title" = "家庭共享";
+"family_sharing_active" = "家庭共享已启用";
+"family_sharing_create" = "创建家庭包";
+"family_sharing_manage" = "邀请家人 / 查看成员";
+"family_sharing_leave" = "解散 / 退出家庭包";
+"family_sharing_footer" = "通过 iCloud 把你的歌单、智能歌单、NAS / 云盘音乐源、Apple Music 资料库分享给家人。每个人的「我喜欢」、听歌历史、个人偏好保持独立。";
+"family_sharing_scope_header" = "共享与私有";
+"family_sharing_shared_header" = "全家共享";
+"family_sharing_private_header" = "本机私有";
+"family_sharing_scope_footer" = "✓ 全家可见可编辑;— 仅本机, 不上传到家庭共享";
+"family_sharing_shared_playlists" = "自建歌单";
+"family_sharing_shared_smart" = "智能歌单";
+"family_sharing_shared_sources" = "NAS / 云盘 / Apple Music 源配置";
+"family_sharing_shared_apple_mirror" = "Apple Music 资料库镜像";
+"family_sharing_private_liked" = "「我喜欢」";
+"family_sharing_private_history" = "听歌历史 / 年度报告";
+"family_sharing_private_settings" = "EQ / 空间音频 / 播放速度等偏好";
 "dlna_status_listening" = "等待发现";
 "dlna_status_playing_format" = "正在播放: %@";
 "dlna_status_error_format" = "错误: %@";

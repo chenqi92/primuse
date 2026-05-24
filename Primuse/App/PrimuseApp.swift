@@ -26,6 +26,17 @@ final class PrimuseAppDelegate: NSObject, UIApplicationDelegate {
         return true
     }
 
+    /// 系统在用户从 iMessage / 邮件 / Files 点开 .ck 分享链接时调这里, 把
+    /// CKShare metadata 传给 app。我们转交给 CloudKitSyncService.acceptShare
+    /// 完成 share 接受 + 启动 participant 侧的 sharedEngine。
+    func application(_ application: UIApplication,
+                     userDidAcceptCloudKitShareWith cloudKitShareMetadata: CKShare.Metadata) {
+        Task { @MainActor in
+            await Self.sync?.acceptShare(metadata: cloudKitShareMetadata)
+        }
+    }
+
+
     func application(
         _ application: UIApplication,
         didReceiveRemoteNotification userInfo: [AnyHashable: Any],
@@ -274,6 +285,7 @@ struct PrimuseApp: App {
     @State private var updateChecker: AppUpdateChecker
     @State private var coverTintProvider: CoverTintProvider
     @State private var appleMusic: AppleMusicService
+    @State private var appleMusicLibrary: AppleMusicLibraryService
     @State private var dlnaRenderer: DLNARendererService
     @State private var visualizer: AudioVisualizerService
 
@@ -304,6 +316,7 @@ struct PrimuseApp: App {
         _updateChecker = State(initialValue: services.updateChecker)
         _coverTintProvider = State(initialValue: services.coverTintProvider)
         _appleMusic = State(initialValue: services.appleMusic)
+        _appleMusicLibrary = State(initialValue: services.appleMusicLibrary)
         _dlnaRenderer = State(initialValue: services.dlnaRenderer)
         _visualizer = State(initialValue: services.visualizer)
     }
@@ -345,6 +358,7 @@ struct PrimuseApp: App {
             .environment(updateChecker)
             .environment(coverTintProvider)
             .environment(appleMusic)
+            .environment(appleMusicLibrary)
             .environment(dlnaRenderer)
             .environment(visualizer)
         #if os(iOS)
@@ -385,6 +399,14 @@ struct PrimuseApp: App {
                     #endif
                     if iCloudSyncEnabled { await cloudSync.start() }
                     if dlnaRendererEnabled { dlnaRenderer.start() }
+                    // Apple Music user library 启动自动 sync 一次 ── songCache
+                    // 是 in-memory, 重启后空; 没 cache → play 走 catalog lookup,
+                    // 用 user library 的 i.* id 查 catalog 必失败 → 卡 loading。
+                    // 同时填上 cache 后 ArtworkImage 才能拉到 user library 歌的
+                    // 封面 (musicKit:// scheme 必须走 framework 内部解码)。
+                    if appleMusic.authState == .authorized {
+                        appleMusicLibrary.sync()
+                    }
                     // Stage 4c migration: deduplicate legacy
                     // duplicate-OAuth sources by upstream account UID.
                     // Runs once (gated by UserDefaults flag); needs
@@ -400,6 +422,10 @@ struct PrimuseApp: App {
                     // scan (cloud sources only download metadata in the
                     // background after Phase A completes).
                     metadataBackfill.start()
+                    // 一次性把已缓存的 .lrc 解析成纯文本写回 Song.lyricsText,
+                    // 让 FTS5 全文歌词搜索可用 (v5 migration 加了列但留空)。
+                    // 完成后自带 UserDefaults flag, 后续启动直接 noop。
+                    AppServices.shared.lyricsTextBackfill.startIfNeeded()
                     // 清掉 7 天没动的 .partial 半成品 —— Range streaming 路径
                     // 用户跳过 / prewarm 完没接着播的歌会留下大量孤立
                     // .partial 永久占盘, LRU 看不到这些。同步执行很快

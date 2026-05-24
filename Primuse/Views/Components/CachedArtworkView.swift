@@ -1,5 +1,6 @@
 import SwiftUI
 import ImageIO
+import MusicKit
 import PrimuseKit
 
 /// Loads cover art with a unified three-tier strategy:
@@ -123,15 +124,7 @@ struct CachedArtworkView: View {
     }
 
     var body: some View {
-        Group {
-            if let image {
-                Image(platformImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-            } else {
-                placeholderView
-            }
-        }
+        coverContent
         .if(size != nil) { view in
             view.frame(width: size!, height: size!)
         }
@@ -144,6 +137,42 @@ struct CachedArtworkView: View {
         .onChange(of: artistID) { _, _ in loadImage() }
         .onChange(of: revisionToken) { _, _ in loadImage() }
         .onDisappear { loadTask?.cancel() }
+    }
+
+    /// body 拆出来 ── 直接写 if/else 链 SwiftUI ResultBuilder 类型推断超时,
+    /// 抽成独立 ViewBuilder 编译能过。
+    @ViewBuilder
+    private var coverContent: some View {
+        if let artwork = appleMusicArtwork {
+            // Apple Music user library 的 song.artwork.url 返回 musicKit://
+            // 自定义 scheme, URLSession 拉不到, 必须走 MusicKit 自家的
+            // ArtworkImage SwiftUI view 让 framework 内部解码。
+            ArtworkImage(artwork, width: CGFloat(artworkPixelSize), height: CGFloat(artworkPixelSize))
+        } else if let image {
+            Image(platformImage: image)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+        } else {
+            placeholderView
+        }
+    }
+
+    /// 当前歌如果是 Apple Music 来源, 从 songCache 拿 MusicKit.Artwork。
+    /// cache miss 时返回 nil, 走 placeholder (用户再播这首会被 catalog/library
+    /// lookup 填上 cache, 下次就有了)。
+    private var appleMusicArtwork: MusicKit.Artwork? {
+        guard sourceID == AppleMusicLibraryService.systemSourceID,
+              let amID = filePath else { return nil }
+        return AppServices.shared.appleMusicLibrary.cachedMusicKitSong(amID: amID)?.artwork
+    }
+
+    /// ArtworkImage 接受 Int 像素值。size 是 pt, 乘上 display scale 才是
+    /// 实际像素 — list cell 44pt × 3x = 132px, 比 ArtworkImage 默认拿 1x
+    /// 清得多。
+    private var artworkPixelSize: Int {
+        let pt = size ?? 200
+        let scale = UIScreen.main.scale
+        return max(64, Int(pt * scale))
     }
 
     private var placeholderView: some View {

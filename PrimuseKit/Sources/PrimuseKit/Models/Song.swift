@@ -36,6 +36,17 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
     /// when path and size are identical.
     public var revision: String?
 
+    /// FTS5 拼音搜索用的预生成 latin transliteration. nil 表示标题没有
+    /// 中文 / 全 ASCII (不需要拼音索引)。由 PinyinTransformer 在 scan /
+    /// migration 时计算填入。
+    public var titlePinyin: String?
+    public var artistPinyin: String?
+    public var albumPinyin: String?
+    /// 整曲歌词的纯文本 dump (去时间戳), 给 FTS5 全文搜索用。nil 表示
+    /// 这首歌没有歌词或还没 backfill 完。LibraryDatabase migration 留空,
+    /// MetadataBackfillService 异步读 .lrc 文件填回。
+    public var lyricsText: String?
+
     public init(
         id: String,
         title: String,
@@ -63,7 +74,11 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         replayGainTrackPeak: Double? = nil,
         replayGainAlbumGain: Double? = nil,
         replayGainAlbumPeak: Double? = nil,
-        revision: String? = nil
+        revision: String? = nil,
+        titlePinyin: String? = nil,
+        artistPinyin: String? = nil,
+        albumPinyin: String? = nil,
+        lyricsText: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -92,6 +107,10 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         self.replayGainAlbumGain = replayGainAlbumGain
         self.replayGainAlbumPeak = replayGainAlbumPeak
         self.revision = revision
+        self.titlePinyin = titlePinyin
+        self.artistPinyin = artistPinyin
+        self.albumPinyin = albumPinyin
+        self.lyricsText = lyricsText
     }
 }
 

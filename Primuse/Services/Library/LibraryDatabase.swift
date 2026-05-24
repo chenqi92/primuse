@@ -175,6 +175,50 @@ actor LibraryDatabase {
             }
         }
 
+        // 给 FTS5 加拼音 + 全文歌词索引, 支持 "zjl" 搜 "周杰伦" / 歌词
+        // 命中。拼音列存 song 表方便 re-index, lyricsText 同库存大字段
+        // (背靠 Spotlight 经验, GRDB BLOB/TEXT 大字段不会拖 row scan)。
+        // backfill 流程: migration 内 pinyin 即刻生成 (in-memory transform
+        // 快); lyricsText 留空, 让 MetadataBackfillService 异步读 .lrc
+        // 文件填回, 避免 migration 卡在 disk IO。
+        migrator.registerMigration("v5_pinyin_lyrics_fts") { db in
+            try db.alter(table: "songs") { t in
+                t.add(column: "titlePinyin", .text)
+                t.add(column: "artistPinyin", .text)
+                t.add(column: "albumPinyin", .text)
+                t.add(column: "lyricsText", .text)
+            }
+            // 现有歌曲 backfill pinyin: 一次 SELECT + 批量 UPDATE。
+            let rows = try Row.fetchAll(db, sql: "SELECT id, title, artistName, albumTitle FROM songs")
+            for row in rows {
+                let id: String = row["id"]
+                let title: String = row["title"] ?? ""
+                let artist: String? = row["artistName"]
+                let album: String? = row["albumTitle"]
+                try db.execute(
+                    sql: "UPDATE songs SET titlePinyin = ?, artistPinyin = ?, albumPinyin = ? WHERE id = ?",
+                    arguments: [
+                        PinyinTransformer.pinyin(title),
+                        artist.flatMap { PinyinTransformer.pinyin($0) },
+                        album.flatMap { PinyinTransformer.pinyin($0) },
+                        id
+                    ]
+                )
+            }
+            // 重建 FTS5 表: drop 旧的, 重新建带新列, 然后 sync。
+            try db.execute(sql: "DROP TABLE IF EXISTS songsFts")
+            try db.create(virtualTable: "songsFts", using: FTS5()) { t in
+                t.synchronize(withTable: "songs")
+                t.column("title")
+                t.column("artistName")
+                t.column("albumTitle")
+                t.column("titlePinyin")
+                t.column("artistPinyin")
+                t.column("albumPinyin")
+                t.column("lyricsText")
+            }
+        }
+
         // Run every registered migration, not just v1 — pinning to
         // `upTo: "v1_initial"` would silently skip later versions on
         // upgrade and reintroduce schema drift.
@@ -221,16 +265,33 @@ actor LibraryDatabase {
 
     func saveSong(_ song: Song) throws {
         try dbPool.write { db in
-            try song.save(db)
+            try Self.withPinyinFilled(song).save(db)
         }
     }
 
     func saveSongs(_ songs: [Song]) throws {
         try dbPool.write { db in
             for song in songs {
-                try song.save(db)
+                try Self.withPinyinFilled(song).save(db)
             }
         }
+    }
+
+    /// 写库前自动补 titlePinyin / artistPinyin / albumPinyin —— 让 scan /
+    /// backfill / 手工编辑等所有路径都不用各自记得算拼音。已有值 (nil 之
+    /// 外) 保留, 避免覆盖用户自定义。
+    private nonisolated static func withPinyinFilled(_ song: Song) -> Song {
+        var copy = song
+        if copy.titlePinyin == nil {
+            copy.titlePinyin = PinyinTransformer.pinyin(copy.title)
+        }
+        if copy.artistPinyin == nil, let artist = copy.artistName {
+            copy.artistPinyin = PinyinTransformer.pinyin(artist)
+        }
+        if copy.albumPinyin == nil, let album = copy.albumTitle {
+            copy.albumPinyin = PinyinTransformer.pinyin(album)
+        }
+        return copy
     }
 
     func deleteSong(id: String) throws {
@@ -374,9 +435,21 @@ actor LibraryDatabase {
 
     func search(query: String) throws -> [Song] {
         try dbPool.read { db in
-            // Escape FTS5 special characters: wrap in quotes for literal matching
-            let escaped = query.replacingOccurrences(of: "\"", with: "\"\"")
-            let searchTerm = "\"\(escaped)\"*"
+            // 同时尝试原文 / 拼音 / 拼音首字母三种 token, 用 FTS5 OR 拼起来:
+            // "原文"* OR "拼音"* OR "缩写"*。任何一个命中都算结果, ORDER BY rank
+            // 让 BM25 自动给最相关的排前面 (原文整词完全匹配通常排第一)。
+            let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return [] }
+            let pinyin = PinyinTransformer.pinyin(trimmed)
+            let initials = PinyinTransformer.initials(trimmed)
+            var terms: [String] = [quoteFTS5(trimmed) + "*"]
+            if let pinyin, pinyin != trimmed.lowercased() {
+                terms.append(quoteFTS5(pinyin) + "*")
+            }
+            if let initials, initials != trimmed.lowercased() {
+                terms.append(quoteFTS5(initials) + "*")
+            }
+            let searchTerm = terms.joined(separator: " OR ")
             return try Song.fetchAll(db, sql: """
                 SELECT songs.* FROM songs
                 JOIN songsFts ON songsFts.rowid = songs.rowid
@@ -385,6 +458,10 @@ actor LibraryDatabase {
                 LIMIT 100
                 """, arguments: [searchTerm])
         }
+    }
+
+    private nonisolated func quoteFTS5(_ s: String) -> String {
+        "\"" + s.replacingOccurrences(of: "\"", with: "\"\"") + "\""
     }
 
     func searchSongs(query: String) throws -> [Song] {

@@ -729,6 +729,67 @@ final class MusicLibrary {
         decoder.dateDecodingStrategy = .iso8601
 
         loadSnapshot()
+
+        // MetadataAssetStore 写 lyrics 缓存后会发这个通知 — 把对应 song 的
+        // lyricsText 同步进库, 让 FTS5 全文歌词搜索覆盖到这首。
+        //
+        // 关键: 一次刮削会触发多次 cacheLyrics (主写一次 + sidecar 写一次),
+        // 全库刮删时 N×多倍的 replaceSong 会堆爆主线程触发 iOS watchdog
+        // (用户反馈刮削后 UI 卡死 → 闪退)。500ms debounce 合并多个 songID
+        // 的 update 到一次 replaceSongs(batch) — index/persist 只跑一次。
+        NotificationCenter.default.addObserver(
+            forName: .primuseLyricsDidCache,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self,
+                  let info = note.userInfo,
+                  let songID = info["songID"] as? String,
+                  let text = info["lyricsText"] as? String else { return }
+            self.scheduleLyricsTextFlush(songID: songID, lyricsText: text)
+        }
+    }
+
+    private static let pendingLyricsFlushDelay: TimeInterval = 0.5
+    /// 等待写入的 (songID → 最新 lyricsText)。同一 songID 多次 schedule 后,
+    /// flush 时只用最新值, 中间快照丢弃。
+    private var pendingLyricsText: [String: String] = [:]
+    private var pendingLyricsFlushTask: Task<Void, Never>?
+
+    private func scheduleLyricsTextFlush(songID: String, lyricsText: String) {
+        // 内容跟 library 里已有的一致就不排队 — 也避免反复 fire flush。
+        if let existing = songs.first(where: { $0.id == songID })?.lyricsText,
+           existing == lyricsText {
+            return
+        }
+        pendingLyricsText[songID] = lyricsText
+        pendingLyricsFlushTask?.cancel()
+        pendingLyricsFlushTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(Self.pendingLyricsFlushDelay))
+            guard !Task.isCancelled else { return }
+            self?.flushPendingLyricsText()
+        }
+    }
+
+    private func flushPendingLyricsText() {
+        let pending = pendingLyricsText
+        pendingLyricsText.removeAll(keepingCapacity: true)
+        pendingLyricsFlushTask = nil
+        guard !pending.isEmpty else { return }
+
+        var updates: [Song] = []
+        updates.reserveCapacity(pending.count)
+        for (songID, text) in pending {
+            guard let idx = songs.firstIndex(where: { $0.id == songID }) else { continue }
+            guard songs[idx].lyricsText != text else { continue }
+            var s = songs[idx]
+            s.lyricsText = text
+            updates.append(s)
+        }
+        guard !updates.isEmpty else { return }
+        // 一次 replaceSongs 内部 rebuildIndex / persistSnapshot 只跑一次,
+        // 不会刷爆主线程。
+        replaceSongs(updates)
     }
 
     /// Add songs from a scan result and rebuild albums/artists.
@@ -1045,6 +1106,52 @@ final class MusicLibrary {
         return playlist
     }
 
+    /// 用固定 ID 创建/取回 playlist ── 给"系统级"歌单 (Apple Music 资料库
+    /// 镜像等) 用, 保证多端同步 + 重启后映射稳定, 不会重复创建。
+    /// 如果对应 id 已被软删, 一并恢复 (避免用户误删后下次同步又新建一份)。
+    @discardableResult
+    func ensurePlaylist(id: String, name: String) -> Playlist {
+        if let idx = allPlaylists.firstIndex(where: { $0.id == id }) {
+            var p = allPlaylists[idx]
+            var changed = false
+            if p.isDeleted { p.isDeleted = false; p.deletedAt = nil; changed = true }
+            if p.name != name { p.name = name; changed = true }
+            if changed {
+                p.updatedAt = Date()
+                allPlaylists[idx] = p
+                sortPlaylists()
+                persistSnapshot()
+                notifyPlaylistsChanged([id])
+            }
+            return p
+        }
+        let playlist = Playlist(id: id, name: name)
+        allPlaylists.append(playlist)
+        playlistSongIDs[playlist.id] = []
+        sortPlaylists()
+        persistSnapshot()
+        notifyPlaylistsChanged([playlist.id])
+        return playlist
+    }
+
+    /// 把 playlist 的歌列表整体替换 ── 给同步类场景 (Apple Music 重新拉一遍
+    /// 资料库) 用, 比 add/remove 逐条调用快且语义清晰: 当前 source 的
+    /// snapshot 即权威, 任何本地手动 add 进来的会被覆盖掉。
+    /// 不存在的 songID 会被静默忽略 (避免 sync 比 song 写库稍晚的 race)。
+    func replacePlaylistSongs(playlistID: String, songIDs: [String]) {
+        guard let idx = allPlaylists.firstIndex(where: { $0.id == playlistID }) else { return }
+        let validIDs = Set(songs.map(\.id))
+        let kept = songIDs.filter { validIDs.contains($0) }
+        playlistSongIDs[playlistID] = kept
+        allPlaylists[idx].updatedAt = Date()
+        allPlaylists[idx].coverArtPath = kept.first
+            .flatMap { id in songs.first(where: { $0.id == id }) }?
+            .coverArtFileName
+        sortPlaylists()
+        persistSnapshot()
+        notifyPlaylistsChanged([playlistID])
+    }
+
     /// Soft-delete: mark `isDeleted = true`, propagated to other devices as
     /// an update so the recycle bin converges.
     func deletePlaylist(id: String) {
@@ -1157,6 +1264,34 @@ final class MusicLibrary {
         sortPlaylists()
         persistSnapshot()
         notifyPlaylistsChanged([playlistID])
+    }
+
+    /// 「我喜欢」系统级歌单的固定 ID。NowPlayingView 的 heart 按钮直接 toggle
+    /// 这个歌单, 跟 Apple Music 镜像歌单一样按 fixed ID 走 ensurePlaylist /
+    /// add / remove 三件套, 多端 / 重装后稳定收敛。
+    nonisolated static let likedSongsPlaylistID = "primuse.system.liked"
+
+    /// 第一次 toggleLiked 时自动建出 Liked 歌单 ── 用户不需要去 PlaylistListView
+    /// 手动创建。已存在则 ensurePlaylist 内部什么都不做。
+    @discardableResult
+    private func ensureLikedPlaylist() -> Playlist {
+        ensurePlaylist(
+            id: Self.likedSongsPlaylistID,
+            name: String(localized: "playlist_liked_name")
+        )
+    }
+
+    func toggleLiked(songID: String) {
+        ensureLikedPlaylist()
+        if isLiked(songID: songID) {
+            remove(songID: songID, fromPlaylist: Self.likedSongsPlaylistID)
+        } else {
+            add(songID: songID, toPlaylist: Self.likedSongsPlaylistID)
+        }
+    }
+
+    func isLiked(songID: String) -> Bool {
+        contains(songID: songID, inPlaylist: Self.likedSongsPlaylistID)
     }
 
     func remove(songID: String, fromPlaylist playlistID: String) {
@@ -1810,6 +1945,18 @@ final class MusicLibrary {
 }
 
 extension Notification.Name {
+    /// Posted by MetadataAssetStore after lyrics are cached for a songID.
+    /// userInfo: ["songID": String, "lyricsText": String]. MusicLibrary 监听
+    /// 后, 把对应 song 的 lyricsText 字段更新写库 + 翻 FTS5 索引, 让歌词
+    /// 全文搜索覆盖新写入的歌 (不止 backfill 跑过的老歌)。
+    static let primuseLyricsDidCache = Notification.Name("primuse.lyricsDidCache")
+    /// 请求全屏打开 NowPlayingView。SearchView 点歌词命中结果时会触发, 让
+    /// 用户立刻看到歌词上下文 + auto-seek 到命中行。
+    static let primuseRequestShowNowPlaying = Notification.Name("primuse.requestShowNowPlaying")
+    /// Apple Music 即将开始 / 接管系统侧播放。AudioPlayerService 收到要停掉
+    /// 自家 player + 清 currentSong, 让 mini player 切换到 AppleMusicAccessory,
+    /// audio session 让给 ApplicationMusicPlayer。
+    static let primuseAppleMusicWillPlay = Notification.Name("primuse.appleMusicWillPlay")
     static let primusePlaylistsDidChange = Notification.Name("primuse.playlistsDidChange")
     static let primusePlaylistDidDelete = Notification.Name("primuse.playlistDidDelete")
     static let primuseSmartPlaylistsDidChange = Notification.Name("primuse.smartPlaylistsDidChange")

@@ -11,6 +11,7 @@ struct PlaylistDetailView: View {
 
     @State private var exportShareItem: ExportShareItem?
     @State private var exportError: String?
+    @State private var showReorderSheet = false
 
     private var currentPlaylist: Playlist? {
         library.playlist(id: playlist.id)
@@ -47,33 +48,43 @@ struct PlaylistDetailView: View {
                 }
                 .padding(.top, 20)
 
-                // Action buttons
-                HStack(spacing: 12) {
+                // Action buttons ── 主按钮"播放全部"占大头, 旁边两个紧凑图标按钮。
+                // 三按钮等分时中文 label 在 iPhone 上挤换行 / 截断, 这套 Apple Music
+                // 风格的 1+2 布局更稳。
+                HStack(spacing: 10) {
                     Button {
                         playAll()
                     } label: {
                         Label("play_all", systemImage: "play.fill")
+                            .font(.headline)
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
 
                     Button {
                         player.shuffleEnabled = true
                         playAll()
                     } label: {
-                        Label("shuffle", systemImage: "shuffle")
-                            .frame(maxWidth: .infinity)
+                        Image(systemName: "shuffle")
+                            .font(.headline)
+                            .frame(width: 24, height: 24)
                     }
                     .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .accessibilityLabel(Text("shuffle"))
 
                     Button {
                         sourceManager.downloadForOffline(songs: songs)
                     } label: {
-                        Label("offline_download", systemImage: "arrow.down.circle")
-                            .frame(maxWidth: .infinity)
+                        Image(systemName: "arrow.down.circle")
+                            .font(.headline)
+                            .frame(width: 24, height: 24)
                     }
                     .buttonStyle(.bordered)
+                    .controlSize(.large)
                     .disabled(songs.filteredPlayable().isEmpty)
+                    .accessibilityLabel(Text("offline_download"))
                 }
                 .padding(.horizontal)
 
@@ -90,10 +101,16 @@ struct PlaylistDetailView: View {
                         .padding(.vertical, 8)
                         .onTapGesture { playSong(song) }
                         .contextMenu {
-                            Button(role: .destructive) {
-                                library.remove(songID: song.id, fromPlaylist: playlist.id)
-                            } label: {
-                                Label("remove_from_playlist", systemImage: "trash")
+                            // Apple Music 资料库镜像里的 Apple Music 歌不能移除 ──
+                            // 我们没法 push 回 Apple Music 删收藏, 移除后下次 sync
+                            // 又自动回来, 视觉上会变成"删了又出现"的 bug。其它源
+                            // 的歌 (用户额外手动加进来等情况) 仍能正常移除。
+                            if !isAppleMusicMirrorEntry(song: song) {
+                                Button(role: .destructive) {
+                                    library.remove(songID: song.id, fromPlaylist: playlist.id)
+                                } label: {
+                                    Label("remove_from_playlist", systemImage: "trash")
+                                }
                             }
                         }
 
@@ -106,6 +123,16 @@ struct PlaylistDetailView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
+                    // Apple Music 镜像歌单不让用户重排 ── 下次 sync 会被覆盖,
+                    // 重排白做; 普通用户歌单 + 智能歌单的衍生不在这里。
+                    if !AppleMusicLibraryService.isAppleMusicMirrorPlaylist(playlist.id) {
+                        Button {
+                            showReorderSheet = true
+                        } label: {
+                            Label("playlist_reorder", systemImage: "arrow.up.arrow.down")
+                        }
+                        .disabled(songs.count < 2)
+                    }
                     Button {
                         export(format: .m3u8)
                     } label: {
@@ -117,7 +144,7 @@ struct PlaylistDetailView: View {
                         Label("playlist_export_json", systemImage: "doc.badge.gearshape")
                     }
                 } label: {
-                    Image(systemName: "square.and.arrow.up")
+                    Image(systemName: "ellipsis.circle")
                 }
                 .disabled(songs.isEmpty)
             }
@@ -125,13 +152,29 @@ struct PlaylistDetailView: View {
         .sheet(item: $exportShareItem) { item in
             ShareSheet(items: [item.url])
         }
+        .sheet(isPresented: $showReorderSheet) {
+            PlaylistReorderSheet(playlist: playlist, songs: songs) { newOrder in
+                library.replacePlaylistSongs(
+                    playlistID: playlist.id,
+                    songIDs: newOrder.map(\.id)
+                )
+            }
+        }
         .alert(String(localized: "playlist_export_failed_title"),
                isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
             Button("ok", role: .cancel) {}
         } message: { Text(exportError ?? "") }
     }
 
-    private func export(format: PlaylistExporter.Format) {
+    /// 这个 song 是不是 Apple Music 镜像歌单里的 Apple Music 歌 ── 同时
+     /// 满足 (playlist 是任意 AM 镜像) 且 (song 是 Apple Music 来源) 才算,
+     /// 用户自己手动 add 进去的其它源歌仍可正常移除。
+     private func isAppleMusicMirrorEntry(song: Song) -> Bool {
+         AppleMusicLibraryService.isAppleMusicMirrorPlaylist(playlist.id)
+             && song.sourceID == AppleMusicLibraryService.systemSourceID
+     }
+
+     private func export(format: PlaylistExporter.Format) {
         do {
             let target = currentPlaylist ?? playlist
             let url = try PlaylistExporter.export(
@@ -158,5 +201,73 @@ struct PlaylistDetailView: View {
         guard let index = queue.firstIndex(where: { $0.id == song.id }) else { return }
         player.setQueue(queue, startAt: index)
         Task { await player.play(song: song) }
+    }
+}
+
+// MARK: - Playlist Reorder Sheet
+
+/// 拖拽重排歌单内歌曲顺序。用 List + EditMode + ForEach.onMove (SwiftUI 原生
+/// 拖动 handle), 完成后回调把新顺序传出去, parent 调 library.replacePlaylistSongs
+/// 写回 + sync。Apple Music 镜像歌单不进这里 (PlaylistDetailView 已经 disable
+/// 重排入口)。
+struct PlaylistReorderSheet: View {
+    let playlist: Playlist
+    let initialSongs: [Song]
+    let onDone: ([Song]) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var localSongs: [Song]
+
+    init(playlist: Playlist, songs: [Song], onDone: @escaping ([Song]) -> Void) {
+        self.playlist = playlist
+        self.initialSongs = songs
+        self._localSongs = State(initialValue: songs)
+        self.onDone = onDone
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(localSongs) { song in
+                    HStack(spacing: 10) {
+                        CachedArtworkView(
+                            coverRef: song.coverArtFileName,
+                            songID: song.id,
+                            size: 36,
+                            cornerRadius: 5,
+                            sourceID: song.sourceID,
+                            filePath: song.filePath
+                        )
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(song.title).font(.subheadline).lineLimit(1)
+                            if let artist = song.artistName {
+                                Text(artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                        }
+                    }
+                }
+                .onMove { from, to in
+                    localSongs.move(fromOffsets: from, toOffset: to)
+                }
+            }
+            .environment(\.editMode, .constant(.active))
+            .navigationTitle(playlist.name)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(String(localized: "cancel")) { dismiss() }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(String(localized: "done")) {
+                        // 只有顺序真改了才写库, 避免无意义触发 sync。
+                        if localSongs.map(\.id) != initialSongs.map(\.id) {
+                            onDone(localSongs)
+                        }
+                        dismiss()
+                    }
+                    .fontWeight(.semibold)
+                }
+            }
+        }
     }
 }

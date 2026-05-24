@@ -100,7 +100,6 @@ struct SmartPlaylistDetailView: View {
                             EmptyStateView(
                                 titleKey: "smart_playlist_no_matches",
                                 descriptionKey: "smart_playlist_no_matches_desc",
-                                imageName: "EmptyStateNoSongs",
                                 systemImage: "magnifyingglass"
                             )
                             .padding(.top, 24)

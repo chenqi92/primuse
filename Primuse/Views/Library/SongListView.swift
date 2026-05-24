@@ -44,7 +44,6 @@ struct SongListView: View {
             EmptyStateView(
                 titleKey: "no_songs",
                 descriptionKey: "no_songs_desc",
-                imageName: "EmptyStateNoSongs",
                 systemImage: "music.note"
             )
         } else {

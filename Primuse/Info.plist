@@ -62,6 +62,8 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>Primuse uses Apple Music to search the catalog and play tracks if you have an active subscription.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_smb._tcp.</string>

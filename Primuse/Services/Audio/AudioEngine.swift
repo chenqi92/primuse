@@ -15,6 +15,9 @@ final class AudioEngine {
     private(set) var eqNode: AVAudioUnitEQ?
     private(set) var compressorNode: AVAudioUnitEffect?
     private(set) var reverbNode: AVAudioUnitReverb?
+    /// 用于变速 (rate) + 保持音调 (overlap)。1.0 时基本无开销, 用户改速度
+    /// 时调它的 .rate 即可, engine graph 不需要 reconfigure。
+    private(set) var timePitchNode: AVAudioUnitTimePitch?
 
     private(set) var isPlaying = false
     private(set) var outputFormat: AVAudioFormat?
@@ -23,6 +26,13 @@ final class AudioEngine {
 
     private var isSetUp = false
     private var headphoneMotionManager: CMHeadphoneMotionManager?
+
+    /// DLNA 后台保活用 ── 喂一段 -90 dB 的极小振幅 buffer 让 iOS audio
+    /// background mode 不挂起进程, NWListener 才能持续接 SSDP / control 请求。
+    /// 真歌在播时主路径已经撑住 session, 这两个 nil; 真歌停 + DLNA 后台保活
+    /// 开启时挂上去。开关由 DLNARendererService 调度。
+    private var keepAlivePlayerNode: AVAudioPlayerNode?
+    private var keepAliveBuffer: AVAudioPCMBuffer?
 
     /// Sample time offset for gapless track transitions.
     /// When gapless transitions happen without stopping the playerNode,
@@ -51,6 +61,12 @@ final class AudioEngine {
         )
         let compressor = AVAudioUnitEffect(audioComponentDescription: compressorDesc)
         let reverb = AVAudioUnitReverb()
+        let timePitch = AVAudioUnitTimePitch()
+        timePitch.rate = 1.0
+        timePitch.pitch = 0
+        // overlap 默认 8.0, 提高到 16 让 0.5x / 2.0x 极端速度声音更稳;
+        // 1.0x 时该节点几乎是 passthrough, 不会有副作用。
+        timePitch.overlap = 16.0
 
         for (index, frequency) in PrimuseConstants.eqBandFrequencies.enumerated() {
             let band = eq.bands[index]
@@ -74,6 +90,7 @@ final class AudioEngine {
         eng.attach(eq)
         eng.attach(compressor)
         eng.attach(reverb)
+        eng.attach(timePitch)
 
         let mainMixer = eng.mainMixerNode
         var format = mainMixer.outputFormat(forBus: 0)
@@ -82,14 +99,17 @@ final class AudioEngine {
             format = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 2)!
         }
 
-        // Signal chain: playerA/B → Spatial Environment → mixer → EQ → Compressor → Reverb → mainMixer → output
+        // Signal chain: playerA/B → Spatial Environment → mixer → EQ → Compressor → Reverb → TimePitch → mainMixer → output
+        // TimePitch 放最后一站, 让 EQ / 压缩 / 混响 都在原速下处理,
+        // visualizer 仍挂 mainMixer 拿到变速后的最终输出。
         eng.connect(playerA, to: environment, format: format)
         eng.connect(playerB, to: environment, format: format)
         eng.connect(environment, to: mixer, format: format)
         eng.connect(mixer, to: eq, format: format)
         eng.connect(eq, to: compressor, format: format)
         eng.connect(compressor, to: reverb, format: format)
-        eng.connect(reverb, to: mainMixer, format: format)
+        eng.connect(reverb, to: timePitch, format: format)
+        eng.connect(timePitch, to: mainMixer, format: format)
 
         playerB.volume = 0 // crossfade node starts silent
 
@@ -101,6 +121,7 @@ final class AudioEngine {
         self.eqNode = eq
         self.compressorNode = compressor
         self.reverbNode = reverb
+        self.timePitchNode = timePitch
         self.outputFormat = format
         self.isSetUp = true
         applySpatialAudioConfiguration()
@@ -169,6 +190,67 @@ final class AudioEngine {
         return status == noErr ? id : nil
     }
     #endif
+
+    // MARK: - DLNA Background Keep-Alive (主要 iOS 用; macOS 没 background
+    // suspend 问题, 但 API 保留跨平台一致, 调用方一律可用)
+
+    /// 启动一个静音 AVAudioPlayerNode 喂极小振幅 buffer ── 让 iOS 的
+    /// audio background mode 把 app 标记为 "正在播音频", 进程不被 suspend,
+    /// NWListener / POSIX socket 才能在后台继续接 SSDP / control 请求。
+    ///
+    /// 振幅用 1/32768 (-90 dB FS, 已经在 16-bit 量化噪声以下), 用户听不到。
+    /// 用交替正负避免全 0 buffer 被 iOS 静音检测当成"没在播"。
+    func startSilenceKeepAlive() {
+        guard keepAlivePlayerNode == nil else { return }
+        do { try setUp() } catch {
+            plog("⚠️ AudioEngine keepAlive setUp failed: \(error.localizedDescription)")
+            return
+        }
+        guard let engine, let mainMixer = engine.mainMixerNode as AVAudioMixerNode? else { return }
+
+        let format = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2)
+            ?? mainMixer.outputFormat(forBus: 0)
+        let frames: AVAudioFrameCount = 4_800   // 0.1s @ 48k
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames) else { return }
+        buffer.frameLength = frames
+
+        let amplitude: Float = 1.0 / 32_768
+        if let channelData = buffer.floatChannelData {
+            for ch in 0..<Int(format.channelCount) {
+                for i in 0..<Int(frames) {
+                    channelData[ch][i] = (i % 2 == 0) ? amplitude : -amplitude
+                }
+            }
+        }
+
+        let node = AVAudioPlayerNode()
+        engine.attach(node)
+        engine.connect(node, to: mainMixer, format: format)
+        node.volume = 0.001
+
+        if !engine.isRunning {
+            do { try engine.start() } catch {
+                plog("⚠️ AudioEngine keepAlive engine.start failed: \(error.localizedDescription)")
+                engine.detach(node)
+                return
+            }
+        }
+
+        node.scheduleBuffer(buffer, at: nil, options: [.loops], completionHandler: nil)
+        node.play()
+        keepAlivePlayerNode = node
+        keepAliveBuffer = buffer
+        plog("🛡 AudioEngine silence keepAlive ON")
+    }
+
+    func stopSilenceKeepAlive() {
+        guard let node = keepAlivePlayerNode else { return }
+        node.stop()
+        engine?.detach(node)
+        keepAlivePlayerNode = nil
+        keepAliveBuffer = nil
+        plog("🛡 AudioEngine silence keepAlive OFF")
+    }
 
     // MARK: - Buffer Scheduling (Primary Node)
 
@@ -260,6 +342,15 @@ final class AudioEngine {
         } catch {
             print("Failed to restart engine: \(error)")
         }
+    }
+
+    // MARK: - Playback Rate
+
+    /// 设定播放速度倍率, 0.5x ~ 2.0x。AVAudioUnitTimePitch.rate 直接生效,
+    /// 不用重启 engine。1.0 是 passthrough。pitch 保持 0 (不变调)。
+    func applyPlaybackRate(_ rate: Float) {
+        let clamped = max(0.5, min(2.0, rate))
+        timePitchNode?.rate = clamped
     }
 
     // MARK: - Spatial Audio

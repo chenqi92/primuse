@@ -25,7 +25,6 @@ struct RecentlyDeletedView: View {
                 EmptyStateView(
                     titleKey: "recently_deleted_empty",
                     descriptionKey: "recently_deleted_empty_desc",
-                    imageName: "EmptyStateRecentlyDeleted",
                     systemImage: "trash"
                 )
             }
