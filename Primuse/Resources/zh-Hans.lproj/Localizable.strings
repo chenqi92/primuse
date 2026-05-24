@@ -1050,3 +1050,77 @@
 "desktop_widgets" = "桌面小组件";
 "keychain_sync_hint_title" = "钥匙串同步";
 "keychain_sync_hint_body" = "音乐源密码、云盘登录态走 iCloud 钥匙串端到端加密同步，需要在系统设置里开启钥匙串同步。";
+
+// MARK: - macOS UI gaps (1.4.0 audit)
+"sources_count_format" = "共 %d 个音乐源";
+"songs_count_inline" = "首歌";
+"close" = "关闭";
+"more" = "更多";
+"new" = "新";
+"current" = "当前";
+"export" = "导出";
+"connect" = "连接";
+"min" = "最小";
+"max" = "最大";
+"play" = "播放";
+"pause" = "暂停";
+"choose_folder" = "选择文件夹";
+"open_folder" = "打开文件夹";
+"no_folder_selected" = "未选择文件夹";
+"apple_music_library_hint" = "已加入资料库的 Apple Music 歌曲会一起出现在猿音里。";
+"audio_output_follow_system" = "跟随系统默认输出";
+"eq_preset" = "均衡器预设";
+"rank_by" = "排序方式";
+"mini_player" = "迷你播放程序";
+"menu_bar_show_title" = "在菜单栏显示猿音";
+"open_main_window" = "打开主窗口";
+"quit_app" = "退出猿音";
+"metadata_scraping_desc" = "为你已扫描的歌补封面、歌词、专辑、艺术家等元数据。可选数据源，遇到错误自动回退。";
+"trusted_domains_desc" = "允许猿音访问以下域名的 HTTPS 资源（音乐源 / 封面下载 / 歌词），即便证书是自签或主机名不匹配。仅添加你信任的域。";
+"icloud_quota_exceeded" = "iCloud 容量已满";
+
+// MARK: - Desktop Lyrics / Menu Bar
+"show_desktop_lyrics" = "显示桌面歌词";
+"hide_desktop_lyrics" = "隐藏桌面歌词";
+"lock_desktop_lyrics" = "锁定桌面歌词";
+"toggle_desktop_lyrics_lock" = "锁定 / 解锁桌面歌词";
+"desktop_lyrics_locked" = "桌面歌词已锁定";
+"desktop_lyrics_unlocked" = "桌面歌词已解锁";
+"desktop_lyrics_no_song" = "暂无播放";
+"lyrics_color" = "歌词颜色";
+"lyrics_font_larger" = "字体放大";
+"lyrics_font_smaller" = "字体缩小";
+
+// MARK: - Desktop Widget Sync
+"desktop_widget_sync_enabled" = "启用桌面小组件同步";
+"desktop_widget_sync_footer" = "把当前播放状态推到 macOS 桌面小组件，让你不用切回猿音也能看到歌曲信息和控制播放。";
+"desktop_widget_sync_status_enabled" = "已启用";
+"desktop_widget_sync_status_disabled" = "已禁用";
+"desktop_widget_sync_update_now" = "立即推送一次";
+"desktop_widget_sync_privacy_footer" = "状态数据只写到本机的小组件容器，不会上传任何服务器。";
+"desktop_widget_sync_explanation_title" = "启用桌面小组件同步";
+"desktop_widget_sync_explanation_message" = "猿音会把当前播放的歌曲信息（标题、艺术家、封面、进度）写入 macOS 桌面小组件，方便你在桌面上看到正在播放。仅本机存储，不会上传任何服务器。";
+"desktop_widget_sync_continue" = "继续";
+
+// MARK: - Auth / connection
+"password_required_title" = "需要密码";
+"password_wrong_hint" = "密码不正确，请重新输入。";
+"scrobble_lastfm_signin_browser_prompt" = "正在打开浏览器完成 Last.fm 授权，授权后回到猿音点「我已完成授权」。";
+
+// MARK: - Search prompts
+"search_songs_prompt" = "搜索歌曲";
+"search_artists_prompt" = "搜索艺术家";
+
+// MARK: - Smart Playlist
+"smart_playlist_combinator_and" = "全部满足";
+"smart_playlist_combinator_or" = "任一满足";
+
+// MARK: - Notifications
+"notify_scan_failed_title" = "扫描失败";
+"notify_scan_failed_body" = "「%@」扫描中断：%@";
+"notify_scrape_done_body" = "「%@」元数据补全完成，共 %d 首。";
+"notify_scrape_done_body_with_failures" = "「%@」元数据补全完成，共 %d 首，其中 %d 首失败。";
+"notify_cloud_sync_failed_title" = "iCloud 同步失败";
+
+// MARK: - macOS Cloud Sync settings
+"open_keychain_settings" = "打开钥匙串设置";

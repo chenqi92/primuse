@@ -1049,3 +1049,77 @@
 "desktop_widgets" = "Desktop widgets";
 "keychain_sync_hint_title" = "Keychain sync";
 "keychain_sync_hint_body" = "Source passwords and cloud-drive tokens sync end-to-end-encrypted via iCloud Keychain. Enable Keychain sync in System Settings to use it.";
+
+// MARK: - macOS UI gaps (1.4.0 audit)
+"sources_count_format" = "%d sources";
+"songs_count_inline" = "songs";
+"close" = "Close";
+"more" = "More";
+"new" = "New";
+"current" = "Current";
+"export" = "Export";
+"connect" = "Connect";
+"min" = "Min";
+"max" = "Max";
+"play" = "Play";
+"pause" = "Pause";
+"choose_folder" = "Choose folder";
+"open_folder" = "Open folder";
+"no_folder_selected" = "No folder selected";
+"apple_music_library_hint" = "Songs in your Apple Music library appear alongside the rest of your music in Primuse.";
+"audio_output_follow_system" = "Follow system default";
+"eq_preset" = "EQ preset";
+"rank_by" = "Rank by";
+"mini_player" = "Mini player";
+"menu_bar_show_title" = "Show Primuse in menu bar";
+"open_main_window" = "Open main window";
+"quit_app" = "Quit Primuse";
+"metadata_scraping_desc" = "Fill in covers, lyrics, album and artist info for songs in your library. Choose your providers; failed fetches fall back automatically.";
+"trusted_domains_desc" = "Allow Primuse to access HTTPS resources from the domains below (sources, cover downloads, lyrics) even when the certificate is self-signed or the hostname doesn't match. Only add domains you trust.";
+"icloud_quota_exceeded" = "iCloud storage full";
+
+// MARK: - Desktop Lyrics / Menu Bar
+"show_desktop_lyrics" = "Show desktop lyrics";
+"hide_desktop_lyrics" = "Hide desktop lyrics";
+"lock_desktop_lyrics" = "Lock desktop lyrics";
+"toggle_desktop_lyrics_lock" = "Lock / unlock desktop lyrics";
+"desktop_lyrics_locked" = "Desktop lyrics locked";
+"desktop_lyrics_unlocked" = "Desktop lyrics unlocked";
+"desktop_lyrics_no_song" = "Nothing playing";
+"lyrics_color" = "Lyrics color";
+"lyrics_font_larger" = "Larger font";
+"lyrics_font_smaller" = "Smaller font";
+
+// MARK: - Desktop Widget Sync
+"desktop_widget_sync_enabled" = "Enable desktop widget sync";
+"desktop_widget_sync_footer" = "Push the current playback state to the macOS desktop widget, so you can see what's playing and control it without switching back to Primuse.";
+"desktop_widget_sync_status_enabled" = "Enabled";
+"desktop_widget_sync_status_disabled" = "Disabled";
+"desktop_widget_sync_update_now" = "Push update now";
+"desktop_widget_sync_privacy_footer" = "Status data is written only to this device's widget container. Nothing is uploaded to any server.";
+"desktop_widget_sync_explanation_title" = "Enable desktop widget sync";
+"desktop_widget_sync_explanation_message" = "Primuse will write the current playback info (title, artist, cover, progress) to the macOS desktop widget so you can see what's playing right from your desktop. Stored locally only — nothing is uploaded.";
+"desktop_widget_sync_continue" = "Continue";
+
+// MARK: - Auth / connection
+"password_required_title" = "Password required";
+"password_wrong_hint" = "Wrong password. Please try again.";
+"scrobble_lastfm_signin_browser_prompt" = "Opening your browser to complete Last.fm authorization. Return to Primuse and tap “I authorized it” when done.";
+
+// MARK: - Search prompts
+"search_songs_prompt" = "Search songs";
+"search_artists_prompt" = "Search artists";
+
+// MARK: - Smart Playlist
+"smart_playlist_combinator_and" = "All conditions";
+"smart_playlist_combinator_or" = "Any condition";
+
+// MARK: - Notifications
+"notify_scan_failed_title" = "Scan failed";
+"notify_scan_failed_body" = "“%@” scan interrupted: %@";
+"notify_scrape_done_body" = "“%@” metadata fill-in complete (%d songs).";
+"notify_scrape_done_body_with_failures" = "“%@” metadata fill-in complete (%d songs, %d failed).";
+"notify_cloud_sync_failed_title" = "iCloud sync failed";
+
+// MARK: - macOS Cloud Sync settings
+"open_keychain_settings" = "Open Keychain settings";
