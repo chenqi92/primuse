@@ -1127,3 +1127,14 @@
 // MARK: - Duplicate Songs view
 "dup_show_all_format" = "Show remaining %d groups";
 "dup_show_all_hint" = "Showing the first 100 groups to keep the UI responsive. Use “Clean all” above to handle obvious duplicates first.";
+
+// MARK: - More macOS i18n gaps round 2
+"full_screen_player" = "Full screen";
+"show_lyrics_background" = "Show lyrics background";
+"hide_lyrics_background" = "Hide lyrics background";
+"single_line_lyrics" = "Single-line lyrics";
+"dual_line_lyrics" = "Two-line lyrics";
+"vertical_lyrics" = "Vertical lyrics";
+"notify_rescrape_done_title" = "Rescrape complete";
+"notify_scrape_missing_done_title" = "Missing-metadata scrape complete";
+"dup_cleaning_progress_format" = "Cleaning %d / %d";

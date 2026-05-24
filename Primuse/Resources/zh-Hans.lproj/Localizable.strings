@@ -1128,3 +1128,14 @@
 // MARK: - Duplicate Songs view
 "dup_show_all_format" = "显示其余 %d 组";
 "dup_show_all_hint" = "为了不卡渲染，先只展示前 100 组。建议先用上面的「一键清理」处理掉明显多余的版本。";
+
+// MARK: - More macOS i18n gaps round 2
+"full_screen_player" = "全屏播放";
+"show_lyrics_background" = "显示歌词背板";
+"hide_lyrics_background" = "隐藏歌词背板";
+"single_line_lyrics" = "单行歌词";
+"dual_line_lyrics" = "双行歌词";
+"vertical_lyrics" = "竖排歌词";
+"notify_rescrape_done_title" = "重新刮削完成";
+"notify_scrape_missing_done_title" = "缺失元数据补全完成";
+"dup_cleaning_progress_format" = "正在清理 %d / %d";
