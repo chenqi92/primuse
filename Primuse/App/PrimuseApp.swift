@@ -288,6 +288,7 @@ struct PrimuseApp: App {
     @State private var appleMusicLibrary: AppleMusicLibraryService
     @State private var dlnaRenderer: DLNARendererService
     @State private var visualizer: AudioVisualizerService
+    @State private var duplicateCleanup: DuplicateCleanupService
 
     @AppStorage("primuse.iCloudSyncEnabled") private var iCloudSyncEnabled: Bool = true
     /// DLNA 接收器持久开关。打开后启动时自动 start, 不需要进 Settings 触发。
@@ -319,6 +320,7 @@ struct PrimuseApp: App {
         _appleMusicLibrary = State(initialValue: services.appleMusicLibrary)
         _dlnaRenderer = State(initialValue: services.dlnaRenderer)
         _visualizer = State(initialValue: services.visualizer)
+        _duplicateCleanup = State(initialValue: services.duplicateCleanup)
     }
 
     /// macOS 给主 WindowGroup 一个稳定 id,菜单栏 "Open Main Window"
@@ -361,6 +363,7 @@ struct PrimuseApp: App {
             .environment(appleMusicLibrary)
             .environment(dlnaRenderer)
             .environment(visualizer)
+            .environment(duplicateCleanup)
         #if os(iOS)
         return injected.tint(themeService.accentColor)
         #else

@@ -10,6 +10,7 @@ struct DuplicateSongsView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(SourceManager.self) private var sourceManager
+    @Environment(DuplicateCleanupService.self) private var cleaner
 
     @State private var groups: [DuplicateGroup] = []
     @State private var isScanning = false
@@ -18,8 +19,6 @@ struct DuplicateSongsView: View {
     @State private var cleanedCount: Int = 0
     @State private var lastActionMessage: String?
     @State private var showAllGroups = false
-    /// 清理进度: (done, total)。non-nil 期间整页禁交互, 顶部显示进度条。
-    @State private var cleanProgress: (done: Int, total: Int)?
 
     /// 一次性最多渲染多少个 Section, 超过后下面给个「显示全部」按钮。
     /// SwiftUI Form 大量 Section + DisclosureGroup 会让 macOS 渲染掉帧,
@@ -29,6 +28,26 @@ struct DuplicateSongsView: View {
 
     var body: some View {
         Form {
+            // 内嵌进度条 (而不是 overlay), 这样切到其他菜单再回来仍能看到,
+            // 因为状态在 DuplicateCleanupService 里, 不绑 view 生命周期。
+            if let p = cleaner.progress {
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            ProgressView().controlSize(.small)
+                            Text(String(format: String(localized: "dup_cleaning_progress_format"),
+                                        p.done, p.total))
+                                .font(.subheadline.weight(.medium))
+                                .monospacedDigit()
+                            Spacer()
+                        }
+                        ProgressView(value: Double(p.done), total: Double(max(p.total, 1)))
+                            .progressViewStyle(.linear)
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+
             if !isScanning && groups.isEmpty {
                 emptyStateSection
             } else {
@@ -80,7 +99,7 @@ struct DuplicateSongsView: View {
             isPresented: $showCleanAllConfirm
         ) {
             Button("dup_keep_best_action_short", role: .destructive) {
-                Task { await cleanAll() }
+                cleanAll()
             }
             Button("cancel", role: .cancel) {}
         } message: {
@@ -96,27 +115,18 @@ struct DuplicateSongsView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .overlay(alignment: .top) {
-            // 清理进度条 —— 一键清理几百首歌时让用户知道在做什么 + 进度。
-            if let p = cleanProgress {
-                VStack(spacing: 8) {
-                    Text(String(format: String(localized: "dup_cleaning_progress_format"),
-                                p.done, p.total))
-                        .font(.subheadline.weight(.medium))
-                        .monospacedDigit()
-                    ProgressView(value: Double(p.done), total: Double(max(p.total, 1)))
-                        .progressViewStyle(.linear)
-                        .frame(maxWidth: 360)
-                }
-                .padding(.horizontal, 20).padding(.vertical, 14)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-                .shadow(color: .black.opacity(0.15), radius: 10, y: 4)
-                .padding(.top, 18)
-                .transition(.move(edge: .top).combined(with: .opacity))
+        // 清理期间禁交互, 避免用户中途点其他按钮触发状态错乱。状态来自
+        // service, 跨 view 销毁/重建也保持一致。
+        .disabled(cleaner.progress != nil)
+        .onChange(of: cleaner.progress?.isFinished) { _, finished in
+            // 后台完成后顺便 rescan + 给个总结提示, 即便用户切走又回来也成。
+            guard finished == true else { return }
+            let n = cleaner.lastCompletedCount
+            if n > 0 {
+                flashAction(String(format: String(localized: "dup_clean_all_done_format"), n))
             }
+            Task { await rescan() }
         }
-        // 清理期间禁交互, 避免用户中途点其他按钮触发状态错乱。
-        .disabled(cleanProgress != nil)
         #if os(macOS)
         .macReadablePane(maxWidth: 980)
         #endif
@@ -185,7 +195,7 @@ struct DuplicateSongsView: View {
                 }
 
                 Button {
-                    Task { await keepBest(of: group) }
+                    keepBest(of: group)
                 } label: {
                     HStack {
                         Image(systemName: "sparkles")
@@ -239,7 +249,7 @@ struct DuplicateSongsView: View {
             Spacer()
 
             Button(role: .destructive) {
-                Task { await deleteSingle(song: song) }
+                deleteSingle(song: song)
             } label: {
                 Image(systemName: "trash")
                     .font(.subheadline)
@@ -266,62 +276,19 @@ struct DuplicateSongsView: View {
         showAllGroups = false
     }
 
-    private func keepBest(of group: DuplicateGroup) async {
+    private func keepBest(of group: DuplicateGroup) {
         let toRemove = group.redundantSongs
-        await deleteSourceFilesAndCaches(for: toRemove, withProgress: false)
-        library.deleteSongs(toRemove)
-        updateSourceCounts(for: toRemove)
-        flashAction(String(format: String(localized: "dup_action_done_format"), toRemove.count))
-        await rescan()
-    }
-
-    private func deleteSingle(song: Song) async {
-        await deleteSourceFilesAndCaches(for: [song], withProgress: false)
-        library.deleteSong(song)
-        updateSourceCounts(for: [song])
-        flashAction(String(format: String(localized: "dup_action_done_format"), 1))
-        await rescan()
-    }
-
-    private func cleanAll() async {
-        let toRemove = groups.flatMap(\.redundantSongs)
         guard !toRemove.isEmpty else { return }
-        await deleteSourceFilesAndCaches(for: toRemove, withProgress: true)
-        library.deleteSongs(toRemove)
-        updateSourceCounts(for: toRemove)
-        cleanedCount = toRemove.count
-        withAnimation { cleanProgress = nil }
-        flashAction(String(format: String(localized: "dup_clean_all_done_format"), toRemove.count))
-        await rescan()
+        cleaner.cleanup(toRemove)
     }
 
-    private func deleteSourceFilesAndCaches(for songs: [Song], withProgress: Bool) async {
-        let deletingIDs = Set(songs.map(\.id))
-        let retainedSongs = library.songs.filter { deletingIDs.contains($0.id) == false }
-        if withProgress {
-            withAnimation { cleanProgress = (done: 0, total: songs.count) }
-        }
-        var result = SongFileDeletionResult()
-        for (idx, song) in songs.enumerated() {
-            let deleteSidecars = sourceManager.shouldDeleteSidecars(for: song, retaining: retainedSongs)
-            let songResult = await sourceManager.deleteSourceFilesAndCaches(for: song, deleteSidecars: deleteSidecars)
-            result.merge(songResult)
-            if withProgress {
-                // 进度每首都更, 量大时也让用户能看到推进。SwiftUI 隐式
-                // batching 不会真的逐帧重绘, 几十首/秒级别 OK。
-                cleanProgress = (done: idx + 1, total: songs.count)
-            }
-        }
-        if result.hasFailures {
-            plog("⚠️ Duplicate cleanup source deletion failures: \(result.failedPaths.count)")
-        }
+    private func deleteSingle(song: Song) {
+        cleaner.cleanup([song])
     }
 
-    private func updateSourceCounts(for songs: [Song]) {
-        for sourceID in Set(songs.map(\.sourceID)) {
-            let remaining = library.songs.filter { $0.sourceID == sourceID }.count
-            sourcesStore.updateLocal(sourceID) { $0.songCount = remaining }
-        }
+    private func cleanAll() {
+        let toRemove = groups.flatMap(\.redundantSongs)
+        cleaner.cleanup(toRemove)
     }
 
     private func flashAction(_ msg: String) {

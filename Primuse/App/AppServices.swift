@@ -26,6 +26,7 @@ final class AppServices {
     let dlnaRenderer: DLNARendererService
     let visualizer: AudioVisualizerService
     let crashDiagnostics: CrashDiagnosticsService
+    let duplicateCleanup: DuplicateCleanupService
 
     private init() {
         // Class is @MainActor so this initializer is too — but the static
@@ -105,6 +106,11 @@ final class AppServices {
         let crash = CrashDiagnosticsService()
         crash.register()
         self.crashDiagnostics = crash
+        self.duplicateCleanup = DuplicateCleanupService(
+            library: library,
+            sourceManager: manager,
+            sourcesStore: store
+        )
 
         library.updateDisabledSourceIDs(
             Set(store.sources.filter { !$0.isEnabled }.map(\.id))
