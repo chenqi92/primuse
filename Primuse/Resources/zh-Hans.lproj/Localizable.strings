@@ -14,20 +14,30 @@
 // MARK: - 资料库
 "tab_albums" = "专辑";
 "recently_added" = "最近添加";
+"library_manage_header" = "管理";
+"library_stats_header" = "本周听歌";
+"library_stats_plays_suffix" = "次播放";
+"library_stats_top_artists_label" = "最常听";
+"library_cleanup_header" = "待整理";
+"library_cleanup_dup" = "重复歌曲";
+"library_cleanup_dup_count_format" = "%d 组重复待处理";
+"library_cleanup_trash" = "回收站";
+"library_cleanup_trash_count_format" = "%d 项可清理";
+"playlist_reorder" = "重新排序";
 "see_all" = "查看全部";
 "welcome_title" = "欢迎使用猿音";
 "welcome_desc" = "添加音乐源 — NAS、WebDAV 或本地文件夹 — 开始聆听";
 "tab_artists" = "艺术家";
 "tab_songs" = "歌曲";
-"tab_playlists" = "播放列表";
+"tab_playlists" = "歌单";
 "no_albums" = "没有专辑";
 "no_albums_desc" = "添加音乐源以开始使用";
 "no_artists" = "没有艺术家";
 "no_artists_desc" = "添加音乐源以开始使用";
 "no_songs" = "没有歌曲";
 "no_songs_desc" = "添加音乐源以开始使用";
-"no_playlists" = "没有播放列表";
-"no_playlists_desc" = "创建播放列表来整理你的音乐";
+"no_playlists" = "没有歌单";
+"no_playlists_desc" = "创建歌单来整理你的音乐";
 "albums_count" = "张专辑";
 "artists_count" = "位艺术家";
 "songs_count" = "首歌曲";
@@ -342,11 +352,11 @@
 "eq_enabled" = "均衡器";
 "eq_reset" = "重置";
 
-// MARK: - 播放列表
-"new_playlist" = "新建播放列表";
-"playlist_name" = "播放列表名称";
+// MARK: - 歌单
+"new_playlist" = "新建歌单";
+"playlist_name" = "歌单名称";
 "create" = "创建";
-"remove_from_playlist" = "从播放列表中移除";
+"remove_from_playlist" = "从歌单中移除";
 
 // MARK: - 刮削
 "metadata_scraping" = "元数据与刮削";
@@ -401,8 +411,8 @@
 "cloud_oauth_hint" = "请在对应云盘开放平台注册应用获取 Client ID。保存后进入 OAuth 登录授权。";
 
 // MARK: - 播放器更多功能
-"add_to_playlist" = "添加到播放列表";
-"playlists_title" = "播放列表";
+"add_to_playlist" = "添加到歌单";
+"playlists_title" = "歌单";
 "sleep_timer" = "睡眠定时器";
 "sleep_timer_active" = "定时器已开启";
 "cancel_timer" = "取消定时器";
@@ -915,10 +925,12 @@
 "family_sharing_create" = "创建家庭包";
 "family_sharing_manage" = "邀请家人 / 查看成员";
 "family_sharing_leave" = "解散 / 退出家庭包";
-"family_sharing_footer" = "通过 iCloud 把你的播放列表、智能歌单、NAS / 云盘音乐源、Apple Music 资料库分享给家人。每个人的「我喜欢」、听歌历史、个人偏好保持独立。";
+"family_sharing_footer" = "通过 iCloud 把你的歌单、智能歌单、NAS / 云盘音乐源、Apple Music 资料库分享给家人。每个人的「我喜欢」、听歌历史、个人偏好保持独立。";
 "family_sharing_scope_header" = "共享与私有";
-"family_sharing_scope_footer" = "✓ = 全家可见可编辑;— = 仅本机";
-"family_sharing_shared_playlists" = "自建播放列表";
+"family_sharing_shared_header" = "全家共享";
+"family_sharing_private_header" = "本机私有";
+"family_sharing_scope_footer" = "✓ 全家可见可编辑;— 仅本机, 不上传到家庭共享";
+"family_sharing_shared_playlists" = "自建歌单";
 "family_sharing_shared_smart" = "智能歌单";
 "family_sharing_shared_sources" = "NAS / 云盘 / Apple Music 源配置";
 "family_sharing_shared_apple_mirror" = "Apple Music 资料库镜像";

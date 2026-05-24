@@ -14,6 +14,16 @@
 // MARK: - Library
 "tab_albums" = "Albums";
 "recently_added" = "Recently Added";
+"library_manage_header" = "Manage";
+"library_stats_header" = "This week";
+"library_stats_plays_suffix" = "plays";
+"library_stats_top_artists_label" = "Top";
+"library_cleanup_header" = "Cleanup";
+"library_cleanup_dup" = "Duplicate songs";
+"library_cleanup_dup_count_format" = "%d groups to review";
+"library_cleanup_trash" = "Recently deleted";
+"library_cleanup_trash_count_format" = "%d items";
+"playlist_reorder" = "Reorder";
 "see_all" = "See All";
 "welcome_title" = "Welcome to Primuse";
 "welcome_desc" = "Add a music source — your NAS, WebDAV, or local files — to start listening";
@@ -916,7 +926,9 @@
 "family_sharing_leave" = "Leave / disband family pack";
 "family_sharing_footer" = "Share your playlists, smart playlists, NAS / cloud sources, and Apple Music library mirror with family via iCloud. Each person's Liked Songs, listening history, and personal preferences stay private.";
 "family_sharing_scope_header" = "Shared & private";
-"family_sharing_scope_footer" = "✓ = visible & editable for the family; — = local only";
+"family_sharing_shared_header" = "Shared with family";
+"family_sharing_private_header" = "Local only";
+"family_sharing_scope_footer" = "✓ visible & editable by the family; — stays local, never uploaded to the family pack";
 "family_sharing_shared_playlists" = "User playlists";
 "family_sharing_shared_smart" = "Smart playlists";
 "family_sharing_shared_sources" = "NAS / cloud / Apple Music sources";

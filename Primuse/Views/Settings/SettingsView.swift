@@ -7,26 +7,6 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("playback") {
-                    NavigationLink {
-                        EqualizerView()
-                    } label: {
-                        Label("equalizer", systemImage: "slider.horizontal.3")
-                    }
-
-                    NavigationLink {
-                        AudioEffectsView()
-                    } label: {
-                        Label("audio_effects", systemImage: "waveform.badge.plus")
-                    }
-
-                    NavigationLink {
-                        PlaybackSettingsView()
-                    } label: {
-                        Label("playback_settings", systemImage: "play.circle")
-                    }
-                }
-
                 Section("library") {
                     NavigationLink {
                         SourcesView()
@@ -62,33 +42,6 @@ struct SettingsView: View {
                         StorageManagementView()
                     } label: {
                         Label("storage_management", systemImage: "internaldrive")
-                    }
-                }
-
-                Section("security") {
-                    NavigationLink {
-                        TrustedDomainsView()
-                    } label: {
-                        HStack {
-                            Label("trusted_domains", systemImage: "lock.shield")
-                            Spacer()
-                            Text("\(SSLTrustStore.shared.trustedDomains.count)")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-
-                Section("appearance") {
-                    NavigationLink {
-                        AppIconSettingsView()
-                    } label: {
-                        Label("app_icon", systemImage: "app.badge")
-                    }
-
-                    NavigationLink {
-                        HomeSectionsSettingsView()
-                    } label: {
-                        Label("home_settings_title", systemImage: "house")
                     }
                 }
 
@@ -133,6 +86,53 @@ struct SettingsView: View {
                         DLNARendererSettingsView()
                     } label: {
                         Label("settings_dlna_section", systemImage: "antenna.radiowaves.left.and.right")
+                    }
+                }
+
+                Section("playback") {
+                    NavigationLink {
+                        EqualizerView()
+                    } label: {
+                        Label("equalizer", systemImage: "slider.horizontal.3")
+                    }
+
+                    NavigationLink {
+                        AudioEffectsView()
+                    } label: {
+                        Label("audio_effects", systemImage: "waveform.badge.plus")
+                    }
+
+                    NavigationLink {
+                        PlaybackSettingsView()
+                    } label: {
+                        Label("playback_settings", systemImage: "play.circle")
+                    }
+                }
+
+                Section("security") {
+                    NavigationLink {
+                        TrustedDomainsView()
+                    } label: {
+                        HStack {
+                            Label("trusted_domains", systemImage: "lock.shield")
+                            Spacer()
+                            Text("\(SSLTrustStore.shared.trustedDomains.count)")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                Section("appearance") {
+                    NavigationLink {
+                        AppIconSettingsView()
+                    } label: {
+                        Label("app_icon", systemImage: "app.badge")
+                    }
+
+                    NavigationLink {
+                        HomeSectionsSettingsView()
+                    } label: {
+                        Label("home_settings_title", systemImage: "house")
                     }
                 }
 
@@ -1232,6 +1232,7 @@ struct FamilySharingSettingsView: View {
 
     var body: some View {
         Form {
+            // 状态 + 主动作 ── 启用状态和"邀请家人"放一起逻辑紧凑
             Section {
                 if familyEnabled {
                     HStack {
@@ -1244,13 +1245,6 @@ struct FamilySharingSettingsView: View {
                         Task { await openExistingShare() }
                     } label: {
                         Label("family_sharing_manage", systemImage: "person.crop.circle.badge.checkmark")
-                    }
-                    .disabled(isBusy)
-
-                    Button(role: .destructive) {
-                        Task { await disable() }
-                    } label: {
-                        Label("family_sharing_leave", systemImage: "person.crop.circle.badge.xmark")
                     }
                     .disabled(isBusy)
                 } else {
@@ -1268,8 +1262,24 @@ struct FamilySharingSettingsView: View {
                         .foregroundStyle(.red)
                 }
             } footer: {
-                Text("family_sharing_footer")
-                    .font(.footnote)
+                if !familyEnabled {
+                    Text("family_sharing_footer").font(.footnote)
+                }
+            }
+
+            // 解散 ── 独立 Section, 物理上跟"邀请家人"分开避免 SwiftUI Form
+            // 多 Button 同 Section 时点击 highlight 串味。
+            if familyEnabled {
+                Section {
+                    Button(role: .destructive) {
+                        Task { await disable() }
+                    } label: {
+                        Label("family_sharing_leave", systemImage: "person.crop.circle.badge.xmark")
+                    }
+                    .disabled(isBusy)
+                } footer: {
+                    Text("family_sharing_footer").font(.footnote)
+                }
             }
 
             Section {
@@ -1277,12 +1287,16 @@ struct FamilySharingSettingsView: View {
                 row("family_sharing_shared_smart", value: "✓")
                 row("family_sharing_shared_sources", value: "✓")
                 row("family_sharing_shared_apple_mirror", value: "✓")
-                Divider()
+            } header: {
+                Text("family_sharing_shared_header")
+            }
+
+            Section {
                 row("family_sharing_private_liked", value: "—")
                 row("family_sharing_private_history", value: "—")
                 row("family_sharing_private_settings", value: "—")
             } header: {
-                Text("family_sharing_scope_header")
+                Text("family_sharing_private_header")
             } footer: {
                 Text("family_sharing_scope_footer")
                     .font(.footnote)

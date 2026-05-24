@@ -11,6 +11,7 @@ struct PlaylistDetailView: View {
 
     @State private var exportShareItem: ExportShareItem?
     @State private var exportError: String?
+    @State private var showReorderSheet = false
 
     private var currentPlaylist: Playlist? {
         library.playlist(id: playlist.id)
@@ -122,6 +123,16 @@ struct PlaylistDetailView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
+                    // Apple Music 镜像歌单不让用户重排 ── 下次 sync 会被覆盖,
+                    // 重排白做; 普通用户歌单 + 智能歌单的衍生不在这里。
+                    if !AppleMusicLibraryService.isAppleMusicMirrorPlaylist(playlist.id) {
+                        Button {
+                            showReorderSheet = true
+                        } label: {
+                            Label("playlist_reorder", systemImage: "arrow.up.arrow.down")
+                        }
+                        .disabled(songs.count < 2)
+                    }
                     Button {
                         export(format: .m3u8)
                     } label: {
@@ -133,13 +144,21 @@ struct PlaylistDetailView: View {
                         Label("playlist_export_json", systemImage: "doc.badge.gearshape")
                     }
                 } label: {
-                    Image(systemName: "square.and.arrow.up")
+                    Image(systemName: "ellipsis.circle")
                 }
                 .disabled(songs.isEmpty)
             }
         }
         .sheet(item: $exportShareItem) { item in
             ShareSheet(items: [item.url])
+        }
+        .sheet(isPresented: $showReorderSheet) {
+            PlaylistReorderSheet(playlist: playlist, songs: songs) { newOrder in
+                library.replacePlaylistSongs(
+                    playlistID: playlist.id,
+                    songIDs: newOrder.map(\.id)
+                )
+            }
         }
         .alert(String(localized: "playlist_export_failed_title"),
                isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
@@ -182,5 +201,73 @@ struct PlaylistDetailView: View {
         guard let index = queue.firstIndex(where: { $0.id == song.id }) else { return }
         player.setQueue(queue, startAt: index)
         Task { await player.play(song: song) }
+    }
+}
+
+// MARK: - Playlist Reorder Sheet
+
+/// 拖拽重排歌单内歌曲顺序。用 List + EditMode + ForEach.onMove (SwiftUI 原生
+/// 拖动 handle), 完成后回调把新顺序传出去, parent 调 library.replacePlaylistSongs
+/// 写回 + sync。Apple Music 镜像歌单不进这里 (PlaylistDetailView 已经 disable
+/// 重排入口)。
+struct PlaylistReorderSheet: View {
+    let playlist: Playlist
+    let initialSongs: [Song]
+    let onDone: ([Song]) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var localSongs: [Song]
+
+    init(playlist: Playlist, songs: [Song], onDone: @escaping ([Song]) -> Void) {
+        self.playlist = playlist
+        self.initialSongs = songs
+        self._localSongs = State(initialValue: songs)
+        self.onDone = onDone
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(localSongs) { song in
+                    HStack(spacing: 10) {
+                        CachedArtworkView(
+                            coverRef: song.coverArtFileName,
+                            songID: song.id,
+                            size: 36,
+                            cornerRadius: 5,
+                            sourceID: song.sourceID,
+                            filePath: song.filePath
+                        )
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(song.title).font(.subheadline).lineLimit(1)
+                            if let artist = song.artistName {
+                                Text(artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                        }
+                    }
+                }
+                .onMove { from, to in
+                    localSongs.move(fromOffsets: from, toOffset: to)
+                }
+            }
+            .environment(\.editMode, .constant(.active))
+            .navigationTitle(playlist.name)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(String(localized: "cancel")) { dismiss() }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(String(localized: "done")) {
+                        // 只有顺序真改了才写库, 避免无意义触发 sync。
+                        if localSongs.map(\.id) != initialSongs.map(\.id) {
+                            onDone(localSongs)
+                        }
+                        dismiss()
+                    }
+                    .fontWeight(.semibold)
+                }
+            }
+        }
     }
 }

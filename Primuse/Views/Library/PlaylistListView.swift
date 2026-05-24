@@ -102,8 +102,27 @@ struct PlaylistListView: View {
     }
 
     private func playlistRow(_ playlist: Playlist) -> some View {
-        HStack(spacing: 12) {
-            StoredCoverArtView(fileName: playlist.coverArtPath, size: 48, cornerRadius: 8)
+        // 歌单封面始终用第一首歌的封面 ── 跟其他地方的 cover 渲染同源 (NAS /
+        // URL / Apple Music ArtworkImage 都自动适配), 而且歌单重排后封面立刻
+        // 跟着变。playlist.coverArtPath 字段保留 (replacePlaylistSongs 内部
+        // 仍写它, 不破坏 schema / sync), 但 UI 渲染不再读, 避免老的 path 跟
+        // 实际歌曲不同步。
+        let firstSong = library.songs(forPlaylist: playlist.id).first
+        return HStack(spacing: 12) {
+            Group {
+                if let song = firstSong {
+                    CachedArtworkView(
+                        coverRef: song.coverArtFileName,
+                        songID: song.id,
+                        size: 48,
+                        cornerRadius: 8,
+                        sourceID: song.sourceID,
+                        filePath: song.filePath
+                    )
+                } else {
+                    StoredCoverArtView(fileName: nil, size: 48, cornerRadius: 8)
+                }
+            }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(playlist.name).font(.body)
