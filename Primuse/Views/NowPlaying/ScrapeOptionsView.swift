@@ -124,6 +124,9 @@ struct ScrapeOptionsView: View {
     }
 
     var body: some View {
+        #if os(macOS)
+        macBody
+        #else
         NavigationStack {
             Group {
                 switch mode {
@@ -142,7 +145,523 @@ struct ScrapeOptionsView: View {
                 }
             }
         }
+        #endif
     }
+
+    #if os(macOS)
+    private var macBody: some View {
+        VStack(spacing: 0) {
+            macChrome
+            Group {
+                switch mode {
+                case .options: macOptionsView
+                case .preview: macPreviewView
+                case .manual: macManualView
+                }
+            }
+            macFooter
+        }
+        .frame(minWidth: 860, idealWidth: 940, minHeight: 560, idealHeight: 640)
+        .background(PMColor.bg.ignoresSafeArea())
+        .foregroundStyle(PMColor.text)
+    }
+
+    private var macChrome: some View {
+        HStack(spacing: 14) {
+            PMWindowTrafficLights()
+            VStack(alignment: .leading, spacing: 2) {
+                Text("刮削 · \(song.title)")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
+                    .lineLimit(1)
+                Text("META-07 · \(song.filePath)")
+                    .font(.system(size: 11))
+                    .foregroundStyle(PMColor.textFaint)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer()
+            if isScraping || isSearching {
+                ProgressView().controlSize(.small)
+            }
+        }
+        .frame(height: 44)
+        .padding(.horizontal, 14)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+        }
+    }
+
+    private var macOptionsView: some View {
+        HStack(spacing: 0) {
+            macCandidateRail
+                .frame(width: 320)
+                .overlay(alignment: .trailing) {
+                    Rectangle().fill(PMColor.divider).frame(width: 0.5)
+                }
+
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    macSectionTitle("字段勾选")
+                    VStack(spacing: 0) {
+                        macToggleRow("scrape_metadata_toggle", isOn: $scrapeMetadata, detail: "标题、艺术家、专辑、年份、曲目号")
+                        macToggleRow("scrape_cover_toggle", isOn: $scrapeCover, detail: "封面图会先预览, 确认后写入缓存")
+                        macToggleRow("scrape_lyrics_toggle", isOn: $scrapeLyrics, detail: "支持 LRC 和逐字歌词候选")
+                    }
+                    .pmCard(cornerRadius: 10)
+
+                    macSectionTitle("手动搜索")
+                    VStack(spacing: 0) {
+                        HStack(spacing: 12) {
+                            Text("search_limit_per_source")
+                                .font(.system(size: 12.5, weight: .medium))
+                            Spacer()
+                            Picker("", selection: $searchLimit) {
+                                ForEach([10, 20, 30, 50, 100], id: \.self) { Text("\($0)").tag($0) }
+                            }
+                            .labelsHidden()
+                            .frame(width: 120)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                    }
+                    .pmCard(cornerRadius: 10)
+
+                    if let error = errorMessage {
+                        Label(error, systemImage: "exclamationmark.triangle")
+                            .font(.system(size: 12))
+                            .foregroundStyle(PMColor.bad)
+                            .padding(12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(PMColor.bad.opacity(0.12), in: .rect(cornerRadius: 8))
+                    }
+                }
+                .padding(24)
+            }
+
+            macSidecarPane
+                .frame(width: 280)
+                .overlay(alignment: .leading) {
+                    Rectangle().fill(PMColor.divider).frame(width: 0.5)
+                }
+        }
+    }
+
+    private var macManualView: some View {
+        HStack(spacing: 0) {
+            VStack(spacing: 0) {
+                HStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(PMColor.brand)
+                    TextField("search_query", text: $manualSearchQuery)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 13))
+                        .onSubmit { Task { await performManualSearch() } }
+                }
+                .padding(.horizontal, 14)
+                .frame(height: 42)
+                .background(PMColor.card)
+                .overlay(alignment: .bottom) {
+                    Rectangle().fill(PMColor.divider).frame(height: 0.5)
+                }
+
+                ScrollView(.vertical, showsIndicators: false) {
+                    LazyVStack(spacing: 0) {
+                        if searchResults.isEmpty && !isSearching {
+                            ContentUnavailableView("no_results",
+                                                   systemImage: "magnifyingglass",
+                                                   description: Text("no_scrape_results_desc"))
+                                .frame(maxWidth: .infinity, minHeight: 280)
+                        } else {
+                            ForEach(searchResults) { item in
+                                macManualCandidateRow(item)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 14)
+                }
+            }
+            .frame(width: 320)
+            .overlay(alignment: .trailing) {
+                Rectangle().fill(PMColor.divider).frame(width: 0.5)
+            }
+
+            VStack(alignment: .leading, spacing: 18) {
+                macCoverCompare
+                macSectionTitle("选择一个候选后预览字段差异")
+                Text("从左侧候选列表选择结果后, Primuse 会拉取详情、封面和歌词, 然后进入字段勾选预览。")
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(PMColor.textMuted)
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+            macSidecarPane
+                .frame(width: 280)
+                .overlay(alignment: .leading) {
+                    Rectangle().fill(PMColor.divider).frame(width: 0.5)
+                }
+        }
+    }
+
+    private var macPreviewView: some View {
+        HStack(spacing: 0) {
+            macCandidateRail
+                .frame(width: 320)
+                .overlay(alignment: .trailing) {
+                    Rectangle().fill(PMColor.divider).frame(width: 0.5)
+                }
+
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    macCoverCompare
+                    macSectionTitle("字段勾选")
+                    if let preview = previewResult {
+                        VStack(spacing: 4) {
+                            macFieldToggle(isOn: $applyTitle, label: "title", localValue: song.title, scrapedValue: preview.scrapedTitle)
+                            macFieldToggle(isOn: $applyArtist, label: "artist", localValue: song.artistName ?? "-", scrapedValue: preview.scrapedArtist)
+                            macFieldToggle(isOn: $applyAlbum, label: "album", localValue: song.albumTitle ?? "-", scrapedValue: preview.scrapedAlbum)
+                            macFieldToggle(isOn: $applyYear, label: "year", localValue: song.year.map { "\($0)" } ?? "-", scrapedValue: preview.scrapedYear.map { "\($0)" })
+                            macFieldToggle(isOn: $applyGenre, label: "genre", localValue: song.genre ?? "-", scrapedValue: preview.scrapedGenre)
+                            if preview.hasCover {
+                                macBooleanToggle(isOn: $applyCover, label: "cover", detail: "封面图 \(preview.coverData == nil ? "" : "已下载")")
+                            }
+                            if preview.hasLyrics {
+                                macBooleanToggle(isOn: $applyLyrics, label: "lyrics_word", detail: "\(preview.lyricsCount) 行 · \(preview.lyricsIsWordLevel ? String(localized: "lyrics_word_level_badge") : "LRC")")
+                            }
+                        }
+                    }
+                }
+                .padding(24)
+            }
+
+            macSidecarPane
+                .frame(width: 280)
+                .overlay(alignment: .leading) {
+                    Rectangle().fill(PMColor.divider).frame(width: 0.5)
+                }
+        }
+    }
+
+    private var macCandidateRail: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+                macSectionTitle("候选")
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
+                macCurrentSongCandidate
+                ForEach(searchResults.prefix(4)) { item in
+                    macManualCandidateRow(item)
+                }
+            }
+            .padding(.vertical, 14)
+        }
+        .background(PMColor.bg)
+    }
+
+    private var macCurrentSongCandidate: some View {
+        HStack(spacing: 10) {
+            CachedArtworkView(coverRef: song.coverArtFileName,
+                              songID: song.id,
+                              size: 48,
+                              cornerRadius: 5,
+                              sourceID: song.sourceID,
+                              filePath: song.filePath)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("当前文件")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(PMColor.textFaint)
+                    .textCase(.uppercase)
+                Text(song.title)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
+                    .lineLimit(1)
+                Text(song.artistName ?? "-")
+                    .font(.system(size: 11))
+                    .foregroundStyle(PMColor.textMuted)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Text("本地")
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(PMColor.textFaint)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(PMColor.brand.opacity(0.14))
+        .overlay(alignment: .leading) {
+            Rectangle().fill(PMColor.brand).frame(width: 3)
+        }
+    }
+
+    private func macManualCandidateRow(_ item: SearchResultItem) -> some View {
+        Button {
+            Task { await selectManualResult(item) }
+        } label: {
+            HStack(spacing: 10) {
+                ScraperCoverThumbnail(
+                    urlString: item.coverUrl,
+                    externalId: item.externalId,
+                    sourceConfig: item.sourceConfig
+                )
+                .frame(width: 48, height: 48)
+                .overlay {
+                    if loadingItemID == item.id {
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color.black.opacity(0.45))
+                        ProgressView().controlSize(.small).tint(.white)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(item.source)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(PMColor.textFaint)
+                        .textCase(.uppercase)
+                    Text(item.title)
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(PMColor.text)
+                        .lineLimit(1)
+                    Text([item.artist, item.album].compactMap { $0 }.joined(separator: " · "))
+                        .font(.system(size: 11))
+                        .foregroundStyle(PMColor.textMuted)
+                        .lineLimit(1)
+                }
+                Spacer()
+                if let duration = item.durationText {
+                    Text(duration)
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(PMColor.textMuted)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isScraping)
+    }
+
+    private var macCoverCompare: some View {
+        HStack(spacing: 18) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("current")
+                    .font(.system(size: 11))
+                    .foregroundStyle(PMColor.textFaint)
+                CachedArtworkView(coverRef: song.coverArtFileName,
+                                  songID: song.id,
+                                  size: 120,
+                                  cornerRadius: 6,
+                                  sourceID: song.sourceID,
+                                  filePath: song.filePath)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(previewSource == .manual ? "手动候选" : "候选")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(PMColor.brand)
+                if let preview = previewResult,
+                   let data = preview.coverData,
+                   let image = PlatformImage(data: data) {
+                    Image(platformImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 120, height: 120)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                } else {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(PMColor.rowHover)
+                        .frame(width: 120, height: 120)
+                        .overlay {
+                            Image(systemName: "photo")
+                                .foregroundStyle(PMColor.textFaint)
+                        }
+                }
+            }
+        }
+    }
+
+    private var macSidecarPane: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            macSectionTitle("Sidecar 回写")
+            VStack(alignment: .leading, spacing: 8) {
+                macSidecarRow("cover.jpg", enabled: scrapeCover || applyCover)
+                macSidecarRow(".lrc", enabled: scrapeLyrics || applyLyrics)
+                Text("写入到源目录旁路文件, 非主线程执行。")
+                    .font(.system(size: 11))
+                    .foregroundStyle(PMColor.textFaint)
+                    .padding(.top, 4)
+            }
+
+            macSectionTitle("预览歌词")
+            ScrollView(.vertical, showsIndicators: false) {
+                Text(macLyricsPreview)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(PMColor.text)
+                    .lineSpacing(5)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 220)
+            .mask(LinearGradient(colors: [.black, .black, .clear], startPoint: .top, endPoint: .bottom))
+            Spacer()
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 20)
+        .background(PMColor.bgDeep)
+    }
+
+    private var macFooter: some View {
+        HStack(spacing: 10) {
+            if mode == .manual || mode == .preview {
+                Button("back_to_options") { mode = .options }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12))
+                    .foregroundStyle(PMColor.textMuted)
+            }
+            Spacer()
+            Button("cancel") { closeView() }
+                .keyboardShortcut(.cancelAction)
+                .buttonStyle(.plain)
+                .font(.system(size: 12))
+                .foregroundStyle(PMColor.text)
+                .padding(.horizontal, 14)
+                .frame(height: 28)
+                .background(PMColor.glassBtn, in: .rect(cornerRadius: 6))
+                .overlay { RoundedRectangle(cornerRadius: 6).strokeBorder(PMColor.cardBorder, lineWidth: 0.5) }
+
+            switch mode {
+            case .options:
+                Button("manual_scrape") { Task { await manualSearch() } }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12))
+                    .foregroundStyle(PMColor.text)
+                    .padding(.horizontal, 14)
+                    .frame(height: 28)
+                    .background(PMColor.glassBtn, in: .rect(cornerRadius: 6))
+                    .overlay { RoundedRectangle(cornerRadius: 6).strokeBorder(PMColor.cardBorder, lineWidth: 0.5) }
+                    .disabled(isSearching)
+
+                Button("auto_scrape") { Task { await autoScrape() } }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .frame(height: 28)
+                    .background(PMColor.brand, in: .rect(cornerRadius: 6))
+                    .disabled(isScraping || (!scrapeMetadata && !scrapeCover && !scrapeLyrics))
+            case .manual:
+                Button("searching") { Task { await performManualSearch() } }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .frame(height: 28)
+                    .background(PMColor.brand, in: .rect(cornerRadius: 6))
+                    .disabled(manualSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearching)
+            case .preview:
+                Button("apply_changes") { applySelectedChanges() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .frame(height: 28)
+                    .background((hasAnySelectedChange ? PMColor.brand : PMColor.textFaint), in: .rect(cornerRadius: 6))
+                    .disabled(!hasAnySelectedChange)
+            }
+        }
+        .padding(.horizontal, 18)
+        .frame(height: 56)
+        .background(PMColor.bg)
+        .overlay(alignment: .top) {
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+        }
+    }
+
+    private func macToggleRow(_ label: LocalizedStringKey, isOn: Binding<Bool>, detail: String) -> some View {
+        HStack(spacing: 12) {
+            Toggle("", isOn: isOn).labelsHidden().toggleStyle(.switch)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(label)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
+                Text(verbatim: detail)
+                    .font(.system(size: 11))
+                    .foregroundStyle(PMColor.textFaint)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .overlay(alignment: .top) { Rectangle().fill(PMColor.divider).frame(height: 0.5) }
+    }
+
+    private func macFieldToggle(isOn: Binding<Bool>, label: LocalizedStringKey, localValue: String, scrapedValue: String?) -> some View {
+        guard let scrapedValue else {
+            return AnyView(EmptyView())
+        }
+        return AnyView(macBooleanToggle(
+            isOn: isOn,
+            label: label,
+            detail: "\(localValue) → \(scrapedValue)"
+        ))
+    }
+
+    private func macBooleanToggle(isOn: Binding<Bool>, label: LocalizedStringKey, detail: String) -> some View {
+        HStack(spacing: 10) {
+            Toggle("", isOn: isOn).labelsHidden().toggleStyle(.checkbox)
+            Text(label)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(PMColor.text)
+                .frame(width: 82, alignment: .leading)
+            Text(verbatim: detail)
+                .font(.system(size: 11.5, design: .monospaced))
+                .foregroundStyle(PMColor.textMuted)
+                .lineLimit(1)
+            Spacer()
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(PMColor.rowHover, in: .rect(cornerRadius: 5))
+    }
+
+    private func macSidecarRow(_ suffix: String, enabled: Bool) -> some View {
+        HStack(spacing: 7) {
+            Image(systemName: enabled ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(enabled ? PMColor.ok : PMColor.textFaint)
+            Text(verbatim: "\(song.title)-\(suffix)")
+                .font(.system(size: 11.5, design: .monospaced))
+                .foregroundStyle(PMColor.textMuted)
+                .lineLimit(1)
+        }
+    }
+
+    private func macSectionTitle(_ title: LocalizedStringKey) -> some View {
+        Text(title)
+            .font(.system(size: 11, weight: .semibold))
+            .tracking(0.6)
+            .textCase(.uppercase)
+            .foregroundStyle(PMColor.textFaint)
+    }
+
+    private var macLyricsPreview: String {
+        if let preview = previewResult,
+           let lines = preview.lyricsLines,
+           lines.isEmpty == false {
+            return lines.prefix(8).map { line in
+                "[\(formatDuration(line.timestamp))] \(line.text)"
+            }.joined(separator: "\n")
+        }
+        return """
+        [ar:\(song.artistName ?? "-")]
+        [ti:\(song.title)]
+        [00:00.00]\(song.title)
+        [00:18.42]...
+        [00:22.13]...
+        """
+    }
+    #endif
 
     // MARK: - Options (what to scrape)
 

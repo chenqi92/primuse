@@ -2,38 +2,42 @@
 import SwiftUI
 import PrimuseKit
 
-/// Top-level macOS layout: NavigationSplitView (sidebar + detail) with a
-/// full-width transport bar pinned to the bottom safe area. Settings live
-/// in a separate scene wired up by `PrimuseApp` (⌘,).
-///
-/// The "now playing" view slides in over the detail pane (not as a sheet),
-/// so the sidebar and the bottom mini bar stay visible — matches Apple
-/// Music / Cider behavior.
+/// 1.6 重设计后的 macOS 根布局: 自定义 TitleBar + Sidebar + Detail + BottomBar 四件套,
+/// 不再依赖 NavigationSplitView。窗口设了 `.windowStyle(.hiddenTitleBar)`,
+/// 顶部导航、搜索和窗口控制点都由 `PMTitleBar` 按设计稿绘制。
 struct MacContentView: View {
     @State private var selection: MacRoute = .home
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    /// 进入全屏前的侧栏可见性,退出全屏要还原成它。
-    @State private var savedColumnVisibility: NavigationSplitViewVisibility = .all
+    @State private var sidebarCollapsed: Bool = false
+    @State private var savedSidebarCollapsed: Bool = false
     @State private var nowPlayingPresented = false
     @State private var queuePresented = false
     @State private var searchText = ""
-    /// 把 SwiftUI 的 openWindow action 捕获到 MainWindowOpener,菜单栏
-    /// popover 的 "Open Main Window" 按钮在主窗口被红灯关掉之后才能
-    /// 通过它重新创建窗口,否则 NSApp.windows 里没东西可 makeKey,
-    /// 按钮静默失效。
+    @State private var preferences = MacUIPreferences.shared
+
     @Environment(\.openWindow) private var openWindow
+    @Environment(SourcesStore.self) private var sourcesStore
+    @AppStorage("primuse.hasSeenOnboarding") private var hasSeenOnboarding = false
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            MacSidebar(selection: $selection)
-                .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 320)
-        } detail: {
-            // detail 横向拆成 [主内容] + [可选 队列侧栏],让队列像
-            // Apple Music 一样紧贴右侧边缘 slide-in,不再用 modal sheet
-            // 把整个屏幕劫持。
+        VStack(spacing: 0) {
+            PMTitleBar(
+                searchText: $searchText,
+                sidebarCollapsed: $sidebarCollapsed,
+                selection: $selection,
+                onAddSource: { selectRoute(.sources) },
+                onAudioOutput: { /* 由 BottomBar 右侧的喇叭按钮 popover 接管 */ }
+            )
+
             HStack(spacing: 0) {
+                if !sidebarCollapsed {
+                    MacSidebar(selection: $selection)
+                        .frame(width: preferences.sidebarWidth)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                }
+
                 ZStack {
                     MacDetailContainer(route: selection, searchText: $searchText)
+                        .background(PMColor.bg.ignoresSafeArea())
 
                     if nowPlayingPresented {
                         MacNowPlayingView(onClose: {
@@ -48,61 +52,81 @@ struct MacContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 if queuePresented {
-                    Divider()
                     MacQueuePanel(onClose: {
                         withAnimation(.easeInOut(duration: 0.25)) {
                             queuePresented = false
                         }
                     })
-                    .frame(width: 360)
+                    .frame(width: 380)
                     .transition(.move(edge: .trailing))
                 }
             }
-            // 底栏只挂在 detail 上,避免横跨到 sidebar 把音乐源列表
-            // 的尾部条目遮住。
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                MacBottomBar(
-                    isExpanded: nowPlayingPresented,
-                    isQueueShown: queuePresented,
-                    onToggleNowPlaying: {
-                        withAnimation(.easeInOut(duration: 0.25)) {
-                            nowPlayingPresented.toggle()
-                        }
-                    },
-                    onToggleQueue: {
-                        withAnimation(.easeInOut(duration: 0.25)) {
-                            queuePresented.toggle()
-                        }
-                    },
-                    onMiniPlayer: {
-                        PrimuseAppDelegate.shared?.showMiniPlayer()
-                    },
-                    onFullScreen: {
-                        PrimuseAppDelegate.shared?.toggleFullScreenPlayer()
+
+            MacBottomBar(
+                isExpanded: nowPlayingPresented,
+                isQueueShown: queuePresented,
+                onToggleNowPlaying: {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        nowPlayingPresented.toggle()
                     }
-                )
-            }
+                },
+                onToggleQueue: {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        queuePresented.toggle()
+                    }
+                },
+                onMiniPlayer: {
+                    PrimuseAppDelegate.shared?.showMiniPlayer()
+                },
+                onFullScreen: {
+                    PrimuseAppDelegate.shared?.toggleFullScreenPlayer()
+                }
+            )
         }
-        .navigationSplitViewStyle(.balanced)
+        .environment(\.pmAppearance, preferences.appearance)
+        .background(PMColor.bg.ignoresSafeArea())
+        .background(PMWindowChromeConfigurator())
+        .ignoresSafeArea(.container, edges: .top)
+        .sheet(isPresented: onboardingPresented) {
+            OnboardingView()
+                .frame(minWidth: 720, minHeight: 560)
+        }
         .task { MainWindowOpener.register(openWindow) }
         .onReceive(NotificationCenter.default.publisher(for: .primuseRequestExpandNowPlaying)) { _ in
-            // 全屏请求由 AppDelegate 发出,这里把 NowPlaying 视图展开,
-            // 让全屏内容直接是播放器界面。
             withAnimation(.easeInOut(duration: 0.25)) {
                 nowPlayingPresented = true
             }
         }
-        // 进入全屏: 默认收起侧栏,内容更集中,跟 Apple Music 一致。
+        .onReceive(NotificationCenter.default.publisher(for: .primuseSelectScrobble)) { _ in
+            selectRoute(.scrobble)
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in
-            savedColumnVisibility = columnVisibility
+            savedSidebarCollapsed = sidebarCollapsed
             withAnimation(.easeInOut(duration: 0.25)) {
-                columnVisibility = .detailOnly
+                sidebarCollapsed = true
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
             withAnimation(.easeInOut(duration: 0.25)) {
-                columnVisibility = savedColumnVisibility
+                sidebarCollapsed = savedSidebarCollapsed
             }
+        }
+    }
+
+    private var onboardingPresented: Binding<Bool> {
+        Binding(
+            get: { !hasSeenOnboarding && sourcesStore.sources.isEmpty },
+            set: { isPresented in
+                if !isPresented { hasSeenOnboarding = true }
+            }
+        )
+    }
+
+    private func selectRoute(_ route: MacRoute) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            selection = route
         }
     }
 }

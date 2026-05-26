@@ -2,16 +2,11 @@
 import SwiftUI
 import PrimuseKit
 
-/// Apple Music macOS 风格的底栏：左侧 5 个传输键(shuffle/prev/play/next/
-/// repeat)、中间 mini player 卡片(封面 + 标题 + 进度条)、右侧二级控件
-/// (more / lyrics / queue / AirPlay / volume)。
-///
-/// 进度条不再是中间一整条 slider —— 改为 mini player 内部的极细 bar,
-/// 鼠标 hover 时会变粗,点击拖动 seek。这跟 Apple Music 的视觉一致,
-/// 也腾出更多空间给二级控件。
+/// 1.6 重设计的底部 Now Playing Bar — 三列布局: 左 cover+title+heart, 中
+/// transport+scrubber, 右 secondary controls + volume。两套外观 (Liquid Glass
+/// / Classic Material) 由 `pmAppearance` 环境驱动。
 struct MacBottomBar: View {
     var isExpanded: Bool = false
-    /// 队列侧栏是否打开,用来给 queue 按钮高亮 (Apple Music 行为)。
     var isQueueShown: Bool = false
     var onToggleNowPlaying: () -> Void = {}
     var onToggleQueue: () -> Void = {}
@@ -20,98 +15,203 @@ struct MacBottomBar: View {
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(AudioEngine.self) private var engine
-    @Environment(DLNARendererService.self) private var renderer
+    @Environment(MusicLibrary.self) private var library
+    @Environment(\.pmAppearance) private var mode
 
-    // AirPlay popover 直接锚定到右侧 AirPlay 按钮自身,而不是从外部
-    // 接 binding 拍到整个 bar 上 —— 之前那样会让弹窗位置漂到屏幕中间。
     @State private var airPlayShown = false
-    /// DLNA 投屏 sheet 状态。
     @State private var castShown = false
-    /// 封面点击弹出的「迷你播放程序 / 全屏幕」选项菜单。
     @State private var coverMenuShown = false
-    @State private var isBarHovering = false
+    @State private var dragValue: Double?
 
     var body: some View {
-        HStack(spacing: 14) {
-            transportSection
-                .layoutPriority(1)
-
-            miniPlayer
-                .layoutPriority(2)
-                .frame(minWidth: 240, idealWidth: 360, maxWidth: 460)
-
-            secondarySection
-                .layoutPriority(1)
+        HStack(alignment: .center, spacing: 14) {
+            leftColumn
+                .frame(width: 260, alignment: .leading)
+            transportColumn
+                .frame(maxWidth: .infinity)
+            rightColumn
+                .frame(width: 260, alignment: .trailing)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
-        .glassEffect(.regular, in: .capsule)
-        .shadow(color: .black.opacity(isBarHovering ? 0.22 : 0.14), radius: isBarHovering ? 22 : 14, y: 8)
-        .padding(.horizontal, 18)
-        .padding(.bottom, 10)
-        // 整个 bar 范围统一吃点击事件,避免空白处穿透到下层歌单 row。
-        .contentShape(Rectangle())
-        .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.18)) { isBarHovering = hovering }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .frame(height: PMSize.bottomBar)
+        .background {
+            // 设计规范: A 套玻璃模式 14px 顶部圆角, B 套实色无圆角。
+            let shape = UnevenRoundedRectangle(
+                topLeadingRadius: mode == .glass ? 14 : 0,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 0,
+                topTrailingRadius: mode == .glass ? 14 : 0,
+                style: .continuous
+            )
+            ZStack {
+                // 玻璃模式: regularMaterial 比 bar 更明显, 再叠一层 elev 色调让 bar
+                // 跟窗体暗背景拉开对比, 不至于看着像贴着边。
+                if mode == .glass {
+                    shape.fill(.regularMaterial)
+                    shape.fill(PMColor.bgElev.opacity(0.55))
+                    shape.fill(Color.white.opacity(0.04))
+                } else {
+                    shape.fill(PMColor.bgElev)
+                }
+                // 顶边 1px 高光 (Apple "玻璃感" 经典配方 inset 0 1px 0 rgba(255,255,255,.3))
+                shape.strokeBorder(
+                    LinearGradient(
+                        colors: [.white.opacity(0.35), .white.opacity(0.05)],
+                        startPoint: .top, endPoint: .bottom
+                    ),
+                    lineWidth: 0.5
+                )
+            }
         }
-        .onTapGesture { /* sink */ }
+        .shadow(color: .black.opacity(mode == .glass ? 0.35 : 0), radius: 18, y: -4)
+        // 设计规范: margin: 0 10px (glass) — 让 bar 跟左右窗边有 10pt 间距浮起。
+        .padding(.horizontal, mode == .glass ? 10 : 0)
     }
 
-    // MARK: - Transport (left)
+    // MARK: - Left column
 
-    private var transportSection: some View {
+    private var leftColumn: some View {
         HStack(spacing: 10) {
-            // 同一个 SF Symbol 名,只换 tint —— 之前 enabled 时切到
-            // `shuffle.circle.fill` 视觉尺寸更大,跟 disabled 态对不齐。
-            transportIcon("shuffle",
-                          tint: player.shuffleEnabled ? Color.accentColor : .secondary,
-                          help: "shuffle") {
-                player.shuffleEnabled.toggle()
+            coverThumb
+                .onTapGesture { onToggleNowPlaying() }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(player.currentSong?.title ?? String(localized: "player_empty_title"))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(player.currentSong == nil ? PMColor.textMuted : PMColor.text)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Text(metaLine.isEmpty ? String(localized: "player_empty_message") : metaLine)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(PMColor.textMuted)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
 
-            transportIcon("backward.fill", tint: .primary, help: "previous_song", size: 14) {
-                Task { await player.previous() }
-            }
+            Spacer(minLength: 4)
 
-            // 主播放键放大,跟左右两侧形成视觉对比。
-            Button { player.togglePlayPause() } label: {
-                ZStack {
-                    Image(systemName: "play.fill").opacity(0)
-                    if player.isLoading {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                            .contentTransition(.symbolEffect(.replace))
-                    }
+            if let song = player.currentSong {
+                let liked = library.isLiked(songID: song.id)
+                Button {
+                    library.toggleLiked(songID: song.id)
+                } label: {
+                    Image(systemName: liked ? "heart.fill" : "heart")
+                        .font(.system(size: 13))
+                        .foregroundStyle(liked ? PMColor.brand : PMColor.textMuted)
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
                 }
-                .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(.primary)
-                .frame(width: 32, height: 32)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(player.isLoading)
-            .help(Text(player.isPlaying ? "pause" : "play"))
-
-            transportIcon("forward.fill", tint: .primary, help: "next_song", size: 14) {
-                Task { await player.next() }
-            }
-
-            transportIcon(repeatIconName, tint: player.repeatMode != .off ? .accentColor : .secondary,
-                          help: "repeat") {
-                cycleRepeat()
+                .buttonStyle(.plain)
+                .help(Text(liked ? "a11y_unlike" : "a11y_like"))
+                .animation(.easeOut(duration: 0.12), value: liked)
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(.primary.opacity(0.05), in: Capsule())
+    }
+
+    private var coverThumb: some View {
+        Group {
+            if let song = player.currentSong {
+                CachedArtworkView(
+                    coverRef: song.coverArtFileName,
+                    songID: song.id,
+                    size: 48, cornerRadius: 5,
+                    sourceID: song.sourceID,
+                    filePath: song.filePath
+                )
+            } else {
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(PMColor.card)
+                    .frame(width: 48, height: 48)
+                    .overlay {
+                        Image(systemName: "music.note")
+                            .foregroundStyle(PMColor.textFaint)
+                    }
+            }
+        }
+        .help(Text(isExpanded ? "close" : "now_playing"))
+    }
+
+    private var metaLine: String {
+        let parts = [player.currentSong?.artistName, player.currentSong?.albumTitle]
+            .compactMap { $0 }.filter { !$0.isEmpty }
+        return parts.joined(separator: " · ")
+    }
+
+    // MARK: - Transport column
+
+    private var transportColumn: some View {
+        VStack(spacing: 4) {
+            HStack(spacing: 6) {
+                transportBtn("shuffle", size: 13, active: player.shuffleEnabled, help: "shuffle") {
+                    player.shuffleEnabled.toggle()
+                }
+                transportBtn("backward.fill", size: 13, help: "previous_song") {
+                    Task { await player.previous() }
+                }
+                Button { player.togglePlayPause() } label: {
+                    ZStack {
+                        Circle().fill(PMColor.brand).frame(width: 36, height: 36)
+                        if player.isLoading {
+                            ProgressView().controlSize(.small).tint(.white)
+                        } else {
+                            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(.white)
+                                .contentTransition(.symbolEffect(.replace))
+                                .offset(x: player.isPlaying ? 0 : 1)
+                        }
+                    }
+                    .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .disabled(player.isLoading)
+                .help(Text(player.isPlaying ? "pause" : "play"))
+
+                transportBtn("forward.fill", size: 13, help: "next_song") {
+                    Task { await player.next() }
+                }
+                transportBtn(repeatIconName, size: 13, active: player.repeatMode != .off, help: "repeat") {
+                    cycleRepeat()
+                }
+            }
+
+            scrubberRow
+        }
+    }
+
+    private var scrubberRow: some View {
+        let cur = dragValue ?? player.currentTime
+        let dur = max(player.duration, 0.001)
+        return HStack(spacing: 8) {
+            Text(player.currentSong == nil ? "--:--" : cur.formattedDuration)
+                .font(.system(size: 10.5, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(PMColor.textFaint)
+                .frame(minWidth: 36, alignment: .trailing)
+
+            Scrubber(value: cur, total: dur,
+                     onDrag: { dragValue = $0 },
+                     onCommit: { v in
+                         player.seek(to: v)
+                         dragValue = nil
+                     })
+            .frame(height: 14)
+            .opacity(player.currentSong == nil ? 0.4 : 1)
+
+            Text(player.currentSong == nil ? "--:--" : "-\(max(0, dur - cur).formattedDuration)")
+                .font(.system(size: 10.5, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(PMColor.textFaint)
+                .frame(minWidth: 36, alignment: .leading)
+        }
+        .frame(maxWidth: 560)
     }
 
     private var repeatIconName: String {
         switch player.repeatMode {
-        case .off: return "repeat"
-        case .all: return "repeat"
-        case .one: return "repeat.1"
+        case .off, .all: return "repeat"
+        case .one:       return "repeat.1"
         }
     }
 
@@ -123,12 +223,14 @@ struct MacBottomBar: View {
         }
     }
 
-    private func transportIcon(_ symbol: String, tint: Color, help: LocalizedStringKey,
-                                size: CGFloat = 12, action: @escaping () -> Void) -> some View {
+    private func transportBtn(_ symbol: String, size: CGFloat,
+                              active: Bool = false,
+                              help: LocalizedStringKey,
+                              action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: size, weight: .semibold))
-                .foregroundStyle(tint)
+                .foregroundStyle(active ? PMColor.brand : PMColor.text)
                 .frame(width: 28, height: 28)
                 .contentShape(Rectangle())
         }
@@ -136,203 +238,52 @@ struct MacBottomBar: View {
         .help(Text(help))
     }
 
-    // MARK: - Mini player (center)
+    // MARK: - Right column
 
-    private var miniPlayer: some View {
-        HStack(spacing: 10) {
-            // 封面区域:鼠标 hover 时浮现一个 expand 图标(Apple Music 行为),
-            // 点击图标弹「迷你 / 全屏 / 桌面歌词」选项。Hover 之外区域点击
-            // 直接展开 NowPlaying。
-            coverHoverButton
+    private var rightColumn: some View {
+        HStack(spacing: 8) {
+            PMRoundBtn(icon: isExpanded ? "text.bubble.fill" : "text.bubble",
+                       iconSize: 12, style: .plain,
+                       isActive: isExpanded, help: "lyrics_word",
+                       action: onToggleNowPlaying)
 
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 8) {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(player.currentSong?.title ?? String(localized: "player_empty_title"))
-                            .font(.callout)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(player.currentSong == nil ? .secondary : .primary)
-                            .lineLimit(1)
-                        Text(metaLine.isEmpty ? String(localized: "player_empty_message") : metaLine)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    Spacer(minLength: 8)
-                    if player.currentSong != nil {
-                        Text("-\(max(0, player.duration - player.currentTime).formattedDuration)")
-                            .font(.caption2.monospacedDigit())
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                    }
-                }
-
-                HStack(spacing: 8) {
-                    Text(player.currentSong == nil ? "--:--" : player.currentTime.formattedDuration)
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.tertiary)
-                        .frame(width: 38, alignment: .leading)
-                    MiniProgressBar(
-                        value: player.currentTime,
-                        total: max(player.duration, 0.01),
-                        onSeek: { player.seek(to: $0) }
-                    )
-                    .frame(height: 4)
-                    .opacity(player.currentSong == nil ? 0.35 : 1)
-                }
+            PMRoundBtn(icon: isQueueShown ? "list.bullet.indent" : "list.bullet",
+                       iconSize: 12, style: .plain,
+                       isActive: isQueueShown, help: "queue_title") {
+                onToggleQueue()
             }
-            // 文字/进度条这一块点击 → 展开 NowPlaying。
-            .contentShape(Rectangle())
-            .onTapGesture { onToggleNowPlaying() }
 
-            Spacer(minLength: 0)
-        }
-        .padding(.leading, 8)
-        .padding(.trailing, 12)
-        .padding(.vertical, 5)
-        .background {
-            Capsule()
-                .fill(.primary.opacity(player.currentSong == nil ? 0.035 : 0.065))
-        }
-        .overlay {
-            Capsule()
-                .stroke(.primary.opacity(0.08), lineWidth: 1)
-        }
-    }
-
-    @State private var isCoverHovering = false
-
-    /// 封面区域 + hover 浮现的 expand 图标。Apple Music macOS 26 的标准
-    /// 交互:鼠标移到封面上,封面变暗一点,中央浮现 expand icon;点击图标
-    /// 弹「迷你 / 全屏 / 桌面歌词」选项菜单。
-    private var coverHoverButton: some View {
-        ZStack {
-            artworkThumb
-            // 封面叠层:半透明黑底 + 中心 expand 图标,只在 hover 时可见。
-            // Button 永远在,但视觉上跟着 hover 状态淡入淡出 —— 这样 hit
-            // test 一直命中 Button,不会因为元素消失出问题。
-            Button { coverMenuShown = true } label: {
-                ZStack {
-                    Color.black.opacity(isCoverHovering ? 0.35 : 0)
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .opacity(isCoverHovering ? 1 : 0)
-                }
-                .frame(width: 40, height: 40)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                .contentShape(Rectangle())
+            PMRoundBtn(icon: "tv.and.hifispeaker.fill", iconSize: 12, style: .plain,
+                       isActive: player.isCastingMode, help: "cast_picker_title") {
+                castShown = true
             }
-            .buttonStyle(.plain)
-            .help(Text("mini_player"))
-            .animation(.easeInOut(duration: 0.15), value: isCoverHovering)
-        }
-        .onHover { hovering in
-            isCoverHovering = hovering
-        }
-        .popover(isPresented: $coverMenuShown, arrowEdge: .top) {
-            coverMenuPopover
-        }
-    }
-
-    private var coverMenuPopover: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            popoverRow(symbol: "rectangle.inset.filled.on.rectangle",
-                       title: "mini_player", tint: .accentColor) {
-                plog("🎯 cover popover: tapped Mini Player")
-                onMiniPlayer()
-                coverMenuShown = false
+            .popover(isPresented: $castShown, arrowEdge: .top) {
+                CastDevicePickerSheet()
+                    .frame(minWidth: 420, minHeight: 460)
             }
-            popoverRow(symbol: "arrow.up.left.and.arrow.down.right",
-                       title: "full_screen_player", tint: .secondary) {
-                plog("🎯 cover popover: tapped Full Screen")
-                onFullScreen()
-                coverMenuShown = false
-            }
-            Divider().padding(.vertical, 4)
-            popoverRow(symbol: "text.bubble", title: "show_desktop_lyrics", tint: .secondary) {
-                plog("🎯 cover popover: tapped Desktop Lyrics")
-                PrimuseAppDelegate.shared?.toggleDesktopLyrics()
-                coverMenuShown = false
-            }
-        }
-        .padding(.vertical, 6)
-        .frame(width: 220)
-    }
 
-    private func popoverRow(symbol: String, title: LocalizedStringKey,
-                            tint: Color, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                Image(systemName: symbol)
-                    .foregroundStyle(tint)
-                    .frame(width: 18)
-                Text(title).font(.callout)
-                Spacer()
-            }
-            .padding(.horizontal, 12).padding(.vertical, 6)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
+            volumeControl
 
-    private var metaLine: String {
-        let parts = [player.currentSong?.artistName, player.currentSong?.albumTitle]
-            .compactMap { $0 }.filter { !$0.isEmpty }
-        return parts.joined(separator: " — ")
-    }
+            PMRoundBtn(icon: "rectangle.inset.filled.on.rectangle", iconSize: 12, style: .plain,
+                       help: "mini_player", action: onMiniPlayer)
+            PMRoundBtn(icon: "arrow.up.left.and.arrow.down.right", iconSize: 12, style: .plain,
+                       help: "full_screen_player", action: onFullScreen)
 
-    private var artworkThumb: some View {
-        Group {
-            if player.currentSong != nil {
-                CachedArtworkView(
-                    coverRef: player.currentSong?.coverArtFileName,
-                    songID: player.currentSong?.id ?? "",
-                    size: 40, cornerRadius: 6,
-                    sourceID: player.currentSong?.sourceID,
-                    filePath: player.currentSong?.filePath
-                )
-            } else {
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(.primary.opacity(0.07))
-                    .frame(width: 40, height: 40)
-                    .overlay {
-                        Image(systemName: "music.note").foregroundStyle(.tertiary)
-                    }
-            }
-        }
-        .help(Text(isExpanded ? "close" : "now_playing"))
-    }
-
-    // MARK: - Secondary controls (right)
-
-    private var secondarySection: some View {
-        HStack(spacing: 6) {
-            // More menu —— 共享 PlayerMoreMenu,跟 NowPlaying 完全一致。
             PlayerMoreMenu {
-                secondaryIcon("ellipsis")
+                PMRoundBtnIcon(icon: "ellipsis", help: "more")
             }
-            .frame(width: 30, height: 30)
-            .fixedSize()
-            .help(Text("more"))
+            .frame(width: PMSize.medBtn, height: PMSize.medBtn)
+        }
+    }
 
-            Button { onToggleNowPlaying() } label: {
-                secondaryIcon(isExpanded ? "text.bubble.fill" : "text.bubble",
-                              tint: isExpanded ? .accentColor : .secondary)
-            }
-            .buttonStyle(.plain)
-            .help(Text("lyrics_word"))
-
-            Button(action: onToggleQueue) {
-                secondaryIcon(isQueueShown ? "list.bullet.indent" : "list.bullet",
-                              tint: isQueueShown ? .accentColor : .secondary)
-            }
-            .buttonStyle(.plain)
-            .help(Text("queue_title"))
-            .disabled(player.queue.isEmpty)
-
+    private var volumeControl: some View {
+        HStack(spacing: 5) {
             Button { airPlayShown.toggle() } label: {
-                secondaryIcon("airplayaudio", tint: airPlayShown ? .accentColor : .secondary)
+                Image(systemName: volumeSymbol)
+                    .font(.system(size: 12))
+                    .foregroundStyle(PMColor.textMuted)
+                    .frame(width: 18)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help(Text("audio_output"))
@@ -340,39 +291,12 @@ struct MacBottomBar: View {
                 AudioOutputPickerView()
             }
 
-            // DLNA 投屏。tint 在已投屏时高亮 accent。
-            Button { castShown = true } label: {
-                secondaryIcon("tv.and.hifispeaker.fill",
-                              tint: player.isCastingMode ? .accentColor : .secondary)
-            }
-            .buttonStyle(.plain)
-            .help(Text("cast_picker_title"))
-            .sheet(isPresented: $castShown) {
-                CastDevicePickerSheet()
-                    .frame(minWidth: 420, minHeight: 460)
-            }
-
-            // Volume —— 紧凑型,占用空间小,跟 Apple Music 接近。
-            HStack(spacing: 4) {
-                Image(systemName: volumeSymbol)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 14)
-                Slider(
-                    value: Binding(
-                        get: { Double(engine.volume) },
-                        set: { engine.volume = Float($0) }
-                    ),
-                    in: 0...1
-                )
-                .controlSize(.mini)
-                .tint(.secondary)
-                .frame(minWidth: 60, idealWidth: 80, maxWidth: 90)
-            }
+            BottomBarVolumeSlider(value: Binding(
+                get: { Double(engine.volume) },
+                set: { engine.volume = Float($0) }
+            ))
+            .frame(width: 70, height: 14)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(.primary.opacity(0.05), in: Capsule())
     }
 
     private var volumeSymbol: String {
@@ -382,66 +306,124 @@ struct MacBottomBar: View {
         if v < 0.75 { return "speaker.wave.2.fill" }
         return "speaker.wave.3.fill"
     }
-
-    private func secondaryIcon(_ symbol: String, tint: Color = .secondary) -> some View {
-        Image(systemName: symbol)
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(tint)
-            .frame(width: 30, height: 30)
-            .contentShape(Rectangle())
-    }
 }
 
-/// 中间 mini player 里的极细进度条。常态 2pt,鼠标 hover/拖拽时膨胀到
-/// 6pt 让用户更容易抓。点击位置 = 直接 seek;拖动结束才提交 seek,中
-/// 途不会触发 AVAudioEngine 的频繁 seek(否则大文件直接卡死)。
-private struct MiniProgressBar: View {
+// MARK: - Scrubber
+
+private struct Scrubber: View {
     let value: Double
     let total: Double
-    var onSeek: (Double) -> Void
+    var onDrag: (Double) -> Void
+    var onCommit: (Double) -> Void
 
-    @State private var isHovering = false
-    @State private var dragValue: Double?
-
-    private var progress: CGFloat {
-        guard total > 0 else { return 0 }
-        let v = (dragValue ?? value) / total
-        guard v.isFinite else { return 0 }
-        return CGFloat(max(0, min(1, v)))
-    }
+    @State private var hover = false
+    @State private var dragging = false
 
     var body: some View {
         GeometryReader { geo in
             let width = geo.size.width
-            let height: CGFloat = (isHovering || dragValue != nil) ? 6 : 2
+            let frac = total > 0 ? CGFloat(max(0, min(1, value / total))) : 0
+            let dotSize: CGFloat = (hover || dragging) ? 10 : 0
+            let barHeight: CGFloat = (hover || dragging) ? 4 : 3
 
             ZStack(alignment: .leading) {
                 Capsule()
-                    .fill(.tertiary)
-                    .frame(height: height)
+                    .fill(PMColor.dividerStrong)
+                    .frame(height: barHeight)
+
                 Capsule()
-                    .fill(.secondary)
-                    .frame(width: max(0, min(width, width * progress)), height: height)
+                    .fill(PMColor.brand)
+                    .frame(width: max(0, min(width, width * frac)), height: barHeight)
+
+                if dotSize > 0 {
+                    Circle()
+                        .fill(.white)
+                        .frame(width: dotSize, height: dotSize)
+                        .shadow(color: .black.opacity(0.25), radius: 1, y: 1)
+                        .overlay {
+                            Circle().strokeBorder(.black.opacity(0.15), lineWidth: 0.5)
+                        }
+                        .offset(x: max(0, min(width - dotSize, width * frac - dotSize / 2)))
+                }
             }
-            .frame(height: 8, alignment: .center)
+            .frame(height: geo.size.height, alignment: .center)
             .contentShape(Rectangle())
-            .onHover { hovering in
-                withAnimation(.easeInOut(duration: 0.12)) { isHovering = hovering }
-            }
+            .onHover { h in withAnimation(.easeInOut(duration: 0.12)) { hover = h } }
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { g in
                         guard width > 0, total > 0 else { return }
+                        dragging = true
                         let frac = max(0, min(1, g.location.x / width))
-                        dragValue = Double(frac) * total
+                        onDrag(Double(frac) * total)
                     }
-                    .onEnded { _ in
-                        if let v = dragValue { onSeek(v) }
-                        dragValue = nil
+                    .onEnded { g in
+                        guard width > 0, total > 0 else { dragging = false; return }
+                        let frac = max(0, min(1, g.location.x / width))
+                        onCommit(Double(frac) * total)
+                        dragging = false
                     }
             )
         }
-        .frame(height: 8)
     }
 }
+
+// MARK: - Volume slider
+
+private struct BottomBarVolumeSlider: View {
+    @Binding var value: Double
+
+    @State private var dragging = false
+
+    var body: some View {
+        GeometryReader { geo in
+            let width = geo.size.width
+            let frac = CGFloat(max(0, min(1, value)))
+
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(PMColor.dividerStrong)
+                    .frame(height: 4)
+                Capsule()
+                    .fill(PMColor.text.opacity(0.85))
+                    .frame(width: max(0, min(width, width * frac)), height: 4)
+            }
+            .frame(height: geo.size.height, alignment: .center)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { g in
+                        let frac = max(0, min(1, g.location.x / width))
+                        value = Double(frac)
+                        dragging = true
+                    }
+                    .onEnded { _ in dragging = false }
+            )
+        }
+    }
+}
+
+// MARK: - PlayerMoreMenu label helper
+
+/// 没有点击行为的纯展示 icon — 给 PlayerMoreMenu 当 label 用 (PlayerMoreMenu
+/// 自己接管点击)。复用 PMRoundBtn 的视觉但不要 button。
+private struct PMRoundBtnIcon: View {
+    var icon: String
+    var help: LocalizedStringKey
+
+    @Environment(\.pmAppearance) private var mode
+    @State private var hover = false
+
+    var body: some View {
+        Image(systemName: icon)
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(PMColor.text)
+            .frame(width: PMSize.medBtn, height: PMSize.medBtn)
+            .background(hover ? (mode == .glass ? PMColor.glassBtnHover : PMColor.matBtnHover) : .clear, in: .circle)
+            .help(Text(help))
+            .onHover { hover = $0 }
+            .animation(.easeOut(duration: 0.12), value: hover)
+    }
+}
+
 #endif

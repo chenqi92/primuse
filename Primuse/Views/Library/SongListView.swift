@@ -5,6 +5,7 @@ struct SongListView: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(MetadataBackfillService.self) private var backfill
+    @Environment(MusicLibrary.self) private var library
     let songs: [Song]
     @State private var sortOrder: SongSortOrder = .title
     @State private var cachedSortedSongs: [Song] = []
@@ -71,61 +72,263 @@ struct SongListView: View {
     #if os(macOS)
     private var macSongList: some View {
         ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 16) {
-                macSummaryHeader
+            VStack(alignment: .leading, spacing: 0) {
+                MacLibraryHeader(
+                    eyebrow: "library_title",
+                    title: String(localized: "tab_songs"),
+                    subtitle: librarySubtitle,
+                    iconSystemName: "music.note",
+                    coverSong: songs.first(where: { $0.coverArtFileName?.isEmpty == false }),
+                    onPlay: { playLibrary(shuffled: false) },
+                    onShuffle: { playLibrary(shuffled: true) }
+                )
 
-                if filteredSongs.isEmpty {
-                    ContentUnavailableView.search(text: searchText)
-                        .padding(.top, 48)
-                } else {
-                    LazyVStack(spacing: 0) {
-                        ForEach(Array(filteredSongs.enumerated()), id: \.element.id) { index, song in
-                            songButton(song)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 7)
-                            if index != filteredSongs.count - 1 {
-                                Divider().padding(.leading, 68)
-                            }
-                        }
+                VStack(alignment: .leading, spacing: PMSpace.l) {
+                    sourceFilterChips
+                    macToolbarRow
+
+                    if filteredSongs.isEmpty {
+                        ContentUnavailableView.search(text: searchText)
+                            .padding(.top, 48)
+                    } else {
+                        songTable
                     }
-                    .background(.background.secondary, in: .rect(cornerRadius: 8))
                 }
+                .padding(.horizontal, PMSpace.xxxl)
+                .padding(.top, PMSpace.m14)
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 16)
             .padding(.bottom, 112)
-            .frame(maxWidth: 980, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .searchable(text: $searchText,
-                    placement: .toolbar,
-                    prompt: Text("search_songs_prompt"))
-        .toolbar { sortToolbarItem }
+        .background(PMColor.bg.ignoresSafeArea())
     }
 
-    private var macSummaryHeader: some View {
-        let playableCount = songs.filter(\.isPlayable).count
-        return HStack(spacing: 14) {
-            Image(systemName: "music.note")
-                .font(.title2.weight(.semibold))
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 52, height: 52)
-                .background(.tint.opacity(0.14), in: .rect(cornerRadius: 8))
+    private var sourceFilterChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                sourceChip(title: String(localized: "search_chip_all"), count: songs.count, color: nil, active: true)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text("tab_songs")
-                    .font(.title3.weight(.semibold))
-                Text("\(songs.count) \(String(localized: "songs_count")) · \(playableCount) \(String(localized: "home_playable")) · \(totalDuration.formattedShort)")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                ForEach(sourcesStore.allSources.prefix(5), id: \.id) { source in
+                    let count = songs.filter { $0.sourceID == source.id }.count
+                    if count > 0 {
+                        sourceChip(title: source.name, count: count, color: sourceColor(source), active: false)
+                    }
+                }
+            }
+            .padding(.vertical, 1)
+        }
+    }
+
+    private func sourceChip(title: String, count: Int, color: Color?, active: Bool) -> some View {
+        HStack(spacing: 6) {
+            if let color {
+                Circle()
+                    .fill(color)
+                    .frame(width: 6, height: 6)
+            }
+            Text(verbatim: title)
+                .lineLimit(1)
+            Text(verbatim: count.formatted())
+                .monospacedDigit()
+                .opacity(0.65)
+        }
+        .font(.system(size: 11.5, weight: active ? .semibold : .medium))
+        .foregroundStyle(active ? .white : PMColor.text)
+        .padding(.horizontal, 10)
+        .frame(height: 24)
+        .background(active ? PMColor.brand : PMColor.glassBtn, in: Capsule())
+        .overlay {
+            Capsule().strokeBorder(active ? .clear : PMColor.cardBorder, lineWidth: 0.5)
+        }
+    }
+
+    private func sourceColor(_ source: MusicSource) -> Color {
+        switch source.type {
+        case .baiduPan: return PMColor.brand
+        case .appleMusic, .appleMusicLibrary: return Color(red: 0.64, green: 0.48, blue: 0.96)
+        case .synology, .qnap, .ugreen, .fnos: return Color(red: 0.31, green: 0.68, blue: 0.95)
+        case .webdav, .smb, .ftp, .sftp, .nfs, .upnp, .s3: return Color(red: 0.45, green: 0.82, blue: 0.56)
+        case .jellyfin, .emby, .plex: return Color(red: 0.98, green: 0.66, blue: 0.28)
+        case .aliyunDrive, .googleDrive, .oneDrive, .dropbox: return Color(red: 0.42, green: 0.68, blue: 0.96)
+        case .local: return PMColor.textFaint
+        }
+    }
+
+    private var macToolbarRow: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11))
+                    .foregroundStyle(PMColor.textFaint)
+                TextField("", text: $searchText, prompt: Text(verbatim: "过滤..."))
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .foregroundStyle(PMColor.text)
+            }
+            .padding(.horizontal, 10)
+            .frame(width: 220, height: 26)
+            .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.s))
+            .overlay {
+                RoundedRectangle(cornerRadius: PMRadius.s, style: .continuous)
+                    .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
             }
 
-            Spacer(minLength: 0)
+            Spacer()
+
+            Text("sort_by")
+                .font(.system(size: 11.5))
+                .foregroundStyle(PMColor.textFaint)
+
+            Menu {
+                Picker("sort_by", selection: $sortOrder) {
+                    ForEach(SongSortOrder.allCases, id: \.self) { order in
+                        Text(order.label).tag(order)
+                    }
+                }
+                .pickerStyle(.inline)
+            } label: {
+                HStack(spacing: 4) {
+                    Text(sortOrder.label)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .semibold))
+                }
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(PMColor.text)
+                .padding(.horizontal, 10)
+                .frame(height: 26)
+                .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.s))
+                .overlay {
+                    RoundedRectangle(cornerRadius: PMRadius.s, style: .continuous)
+                        .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                }
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+
+            PMRoundBtn(icon: "music.note.list", size: 26, iconSize: 12, style: .glass,
+                       help: "library_title") {}
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background.secondary, in: .rect(cornerRadius: 8))
+        .padding(.top, -4)
+    }
+
+    private var librarySubtitle: String {
+        let playableCount = songs.filter(\.isPlayable).count
+        return "\(songs.count) \(String(localized: "songs_count")) · \(playableCount) \(String(localized: "home_playable")) · \(totalDuration.formattedShort)"
+    }
+
+    private var songTable: some View {
+        VStack(spacing: 0) {
+            tableHeader
+                .padding(.horizontal, PMSpace.s8)
+                .padding(.vertical, 6)
+                .background(PMColor.bg)
+
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+
+            LazyVStack(spacing: 1) {
+                ForEach(Array(filteredSongs.enumerated()), id: \.element.id) { index, song in
+                    songTableRow(song, index: index)
+                }
+            }
+            .padding(.vertical, 4)
+        }
+    }
+
+    private var tableHeader: some View {
+        HStack(spacing: PMSpace.s10) {
+            Text("#")
+                .frame(width: 28, alignment: .center)
+            Color.clear.frame(width: 36)   // cover col
+            Text("sort_title").frame(maxWidth: .infinity, alignment: .leading)
+            Text("sort_artist").frame(width: 180, alignment: .leading)
+            Text("sort_album").frame(width: 180, alignment: .leading)
+            Text("sort_format").frame(width: 64, alignment: .leading)
+            Text("track_duration_short").frame(width: 56, alignment: .trailing)
+        }
+        .font(.system(size: 10.5, weight: .semibold))
+        .tracking(0.5)
+        .textCase(.uppercase)
+        .foregroundStyle(PMColor.textFaint)
+    }
+
+    @ViewBuilder
+    private func songTableRow(_ song: Song, index: Int) -> some View {
+        let isCurrent = player.currentSong?.id == song.id
+        let liked = playlistContains(song)
+        Button { playSong(song) } label: {
+            HStack(spacing: PMSpace.s10) {
+                ZStack {
+                    if isCurrent {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(PMColor.brand)
+                    } else {
+                        Text("\(index + 1)")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(PMColor.textFaint)
+                    }
+                }
+                .frame(width: 28, alignment: .center)
+
+                CachedArtworkView(
+                    coverRef: song.coverArtFileName, songID: song.id,
+                    size: 32, cornerRadius: PMRadius.xs,
+                    sourceID: song.sourceID, filePath: song.filePath
+                )
+
+                HStack(spacing: 6) {
+                    Text(song.title)
+                        .font(.system(size: 12.5, weight: isCurrent ? .semibold : .regular))
+                        .foregroundStyle(isCurrent ? PMColor.brand : PMColor.text)
+                        .lineLimit(1)
+                    if liked {
+                        Image(systemName: "heart.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(PMColor.brand)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Text(song.artistName ?? "—")
+                    .font(.system(size: 12))
+                    .foregroundStyle(PMColor.textMuted)
+                    .lineLimit(1)
+                    .frame(width: 180, alignment: .leading)
+
+                Text(song.albumTitle ?? "—")
+                    .font(.system(size: 12))
+                    .foregroundStyle(PMColor.textMuted)
+                    .lineLimit(1)
+                    .frame(width: 180, alignment: .leading)
+
+                PMFormatPill.forFormat(song.fileFormat.displayName)
+                    .frame(width: 64, alignment: .leading)
+
+                Text(song.duration.formattedDuration)
+                    .font(.system(size: 11, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundStyle(PMColor.textFaint)
+                    .frame(width: 56, alignment: .trailing)
+            }
+            .padding(.horizontal, PMSpace.s8)
+            .padding(.vertical, 6)
+            .pmRowBackground(selected: isCurrent)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func playlistContains(_ song: Song) -> Bool {
+        library.isLiked(songID: song.id)
+    }
+
+    private func playLibrary(shuffled: Bool) {
+        let candidates = filteredSongs.filteredPlayable()
+        guard !candidates.isEmpty else { return }
+        let queue = shuffled ? candidates.shuffled() : candidates
+        guard let first = queue.first else { return }
+        player.shuffleEnabled = shuffled
+        player.setQueue(queue, startAt: 0)
+        Task { await player.play(song: first) }
     }
     #endif
 

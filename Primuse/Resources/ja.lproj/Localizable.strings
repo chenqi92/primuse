@@ -84,3 +84,22 @@
 "a11y_close_lyrics" = "歌詞を非表示";
 "a11y_favorite_add" = "プレイリストに追加";
 "a11y_more_actions" = "その他の操作";
+
+// MARK: - macOS サイドバー (1.6)
+"sidebar_playlists_empty" = "プレイリストなし";
+"sidebar_sources_empty" = "ソースなし";
+"search_placeholder_universal" = "ローカル + Apple Music を検索";
+"sidebar_toggle" = "サイドバーを切替";
+
+// MARK: - 1.6 macOS Home redesign
+"home_recently_added_subtitle" = "Newest in your library";
+"home_recently_played_subtitle" = "On repeat lately";
+"home_artists_subtitle" = "Who you listen to most";
+"home_section_view_all" = "See all";
+"home_no_scans_short" = "Idle";
+"home_no_playing" = "Nothing playing";
+"home_pipeline_metadata_done" = "Done";
+"save_as_playlist" = "プレイリストとして保存...";
+"material" = "マテリアル";
+"sidebar_width" = "サイドバー幅";
+"ambient_strength" = "アンビエント強度";

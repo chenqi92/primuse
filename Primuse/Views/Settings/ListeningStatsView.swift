@@ -64,20 +64,7 @@ struct ListeningStatsView: View {
     private var macBody: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 24) {
-                HStack(spacing: 12) {
-                    Text("stats_range")
-                        .font(.callout.weight(.medium))
-                        .foregroundStyle(.secondary)
-                    Picker("stats_range", selection: $range) {
-                        ForEach(PlayHistoryStore.Range.allCases) { r in
-                            Text(LocalizedStringKey(r.localizationKey)).tag(r)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
-                    .frame(width: 240)
-                    Spacer()
-                }
+                macStatsHeader
 
                 if store.entries.isEmpty {
                     macEmptyState
@@ -98,6 +85,7 @@ struct ListeningStatsView: View {
             .frame(maxWidth: 980, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
+        .background(PMColor.bg.ignoresSafeArea())
         .navigationTitle("stats_title")
         .task(id: range) { logHeatmapStats() }
         .alert("stats_clear_confirm", isPresented: $showClearConfirm) {
@@ -108,44 +96,126 @@ struct ListeningStatsView: View {
         }
     }
 
+    private var macStatsHeader: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .bottom, spacing: 18) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("统计")
+                        .font(.system(size: 11, weight: .semibold))
+                        .tracking(0.8)
+                        .textCase(.uppercase)
+                        .foregroundStyle(PMColor.textMuted)
+                    Text("听歌统计")
+                        .font(.system(size: 32, weight: .bold))
+                        .tracking(-0.5)
+                        .foregroundStyle(PMColor.text)
+                }
+                Spacer()
+                HStack(spacing: 5) {
+                    ForEach(PlayHistoryStore.Range.allCases) { item in
+                        let selected = item == range
+                        Button {
+                            range = item
+                        } label: {
+                            Text(LocalizedStringKey(item.localizationKey))
+                                .font(.system(size: 11.5, weight: selected ? .semibold : .medium))
+                                .foregroundStyle(selected ? .white : PMColor.text)
+                                .padding(.horizontal, 12)
+                                .frame(height: 26)
+                                .background(selected ? PMColor.brand : PMColor.glassBtn, in: .capsule)
+                                .overlay {
+                                    Capsule().strokeBorder(selected ? .clear : PMColor.cardBorder, lineWidth: 0.5)
+                                }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            Text(statsRangeSubtitle)
+                .font(.system(size: 13))
+                .foregroundStyle(PMColor.textMuted)
+        }
+    }
+
+    private var statsRangeSubtitle: String {
+        switch range {
+        case .week: return "最近 7 天 · 本地播放历史"
+        case .month: return "最近 30 天 · 本地播放历史"
+        case .year: return "最近 365 天 · 本地播放历史"
+        }
+    }
+
     private var macEmptyState: some View {
         VStack(spacing: 12) {
             Image(systemName: "chart.bar.xaxis")
                 .font(.system(size: 48))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(PMColor.textFaint)
             Text("stats_empty_title")
-                .font(.headline)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(PMColor.text)
             Text("stats_empty_desc")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 12.5))
+                .foregroundStyle(PMColor.textMuted)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 520)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 96)
+        .background(PMColor.card.opacity(0.60), in: .rect(cornerRadius: 12))
     }
 
     private var macSummarySection: some View {
         let s = store.summary(in: range)
         return VStack(alignment: .leading, spacing: 12) {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
-                summaryCell(value: "\(s.totalPlays)",
-                            label: String(localized: "stats_total_plays"),
-                            icon: "play.fill",
-                            color: .accentColor)
-                summaryCell(value: formatHours(s.totalSec),
-                            label: String(localized: "stats_total_time"),
-                            icon: "clock.fill",
-                            color: .green)
-                summaryCell(value: "\(s.activeDays)",
-                            label: String(localized: "stats_active_days"),
-                            icon: "calendar",
-                            color: .orange)
-                summaryCell(value: "\(s.uniqueSongs)",
-                            label: String(localized: "stats_unique_songs"),
-                            icon: "music.note",
-                            color: .purple)
+                macSummaryCell(value: "\(s.totalPlays)",
+                               label: String(localized: "stats_total_plays"),
+                               sub: "播放次数",
+                               color: PMColor.brand)
+                macSummaryCell(value: formatHours(s.totalSec),
+                               label: String(localized: "stats_total_time"),
+                               sub: "累计时长",
+                               color: PMColor.ok)
+                macSummaryCell(value: "\(s.activeDays)",
+                               label: String(localized: "stats_active_days"),
+                               sub: "有播放的日子",
+                               color: PMColor.warn)
+                macSummaryCell(value: "\(s.uniqueSongs)",
+                               label: String(localized: "stats_unique_songs"),
+                               sub: "不重复曲目",
+                               color: Color(red: 0.64, green: 0.48, blue: 0.96))
             }
+        }
+    }
+
+    private func macSummaryCell(value: String, label: String, sub: String, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(value)
+                .font(.system(size: 30, weight: .bold, design: .rounded))
+                .tracking(-0.5)
+                .foregroundStyle(PMColor.text)
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+            Text(label)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(PMColor.textMuted)
+            Text(sub)
+                .font(.system(size: 10.5))
+                .foregroundStyle(PMColor.textFaint)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .background(PMColor.card.opacity(0.78), in: .rect(cornerRadius: 12))
+        .overlay(alignment: .topTrailing) {
+            Circle()
+                .fill(color.opacity(0.22))
+                .frame(width: 10, height: 10)
+                .padding(14)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
         }
     }
 
@@ -154,23 +224,28 @@ struct ListeningStatsView: View {
         let maxCount = counts.map(\.count).max() ?? 0
         return VStack(alignment: .leading, spacing: 10) {
             Label("stats_heatmap_title", systemImage: "square.grid.3x3.fill")
-                .font(.headline)
-                .foregroundStyle(.primary)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(PMColor.text)
             heatmapGrid(counts: counts, maxCount: maxCount)
             heatmapLegend(maxCount: maxCount)
             Text("stats_heatmap_footer")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 11.5))
+                .foregroundStyle(PMColor.textMuted)
         }
         .padding(18)
-        .background(.background.secondary, in: .rect(cornerRadius: 8))
+        .background(PMColor.card.opacity(0.78), in: .rect(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
     }
 
     private var macRankingSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Label("stats_top_header", systemImage: "chart.bar.fill")
-                    .font(.headline)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
                 Spacer()
                 Picker("rank_by", selection: $rankTab) {
                     ForEach(RankTab.allCases, id: \.self) { tab in
@@ -185,7 +260,7 @@ struct ListeningStatsView: View {
             let items = rankItems()
             if items.isEmpty {
                 Text("stats_rank_empty")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(PMColor.textMuted)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 16)
             } else {
@@ -195,15 +270,19 @@ struct ListeningStatsView: View {
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
                         if index != items.count - 1 {
-                            Divider().padding(.leading, 48)
+                            Divider().overlay(PMColor.divider).padding(.leading, 48)
                         }
                     }
                 }
-                .background(.background.secondary, in: .rect(cornerRadius: 8))
+                .background(PMColor.card.opacity(0.60), in: .rect(cornerRadius: 8))
             }
         }
         .padding(18)
-        .background(.background.secondary.opacity(0.65), in: .rect(cornerRadius: 8))
+        .background(PMColor.card.opacity(0.78), in: .rect(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
     }
 
     private var macClearSection: some View {
@@ -215,9 +294,11 @@ struct ListeningStatsView: View {
             }
             .buttonStyle(.bordered)
             Text("stats_privacy_footer")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 11.5))
+                .foregroundStyle(PMColor.textMuted)
         }
+        .padding(16)
+        .background(PMColor.card.opacity(0.60), in: .rect(cornerRadius: 12))
     }
     #endif
 

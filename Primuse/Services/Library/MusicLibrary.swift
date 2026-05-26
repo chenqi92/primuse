@@ -685,6 +685,7 @@ final class MusicLibrary {
     private(set) var visibleSongs: [Song] = []
     private(set) var visibleAlbums: [Album] = []
     private(set) var visibleArtists: [Artist] = []
+    private var visibleSongByID: [String: Song] = [:]
     private(set) var searchRevision: Int = 0
 
     private let snapshotURL: URL
@@ -712,6 +713,7 @@ final class MusicLibrary {
             let visibleArtistIDs = Set(visibleSongs.compactMap(\.artistID))
             visibleArtists = artists.filter { visibleArtistIDs.contains($0.id) }
         }
+        visibleSongByID = Dictionary(uniqueKeysWithValues: visibleSongs.map { ($0.id, $0) })
     }
 
     private func invalidateSearchCaches() {
@@ -1069,13 +1071,11 @@ final class MusicLibrary {
     }
 
     func songs(forPlaylist playlistID: String) -> [Song] {
-        let songLookup = Dictionary(uniqueKeysWithValues: visibleSongs.map { ($0.id, $0) })
-        return (playlistSongIDs[playlistID] ?? []).compactMap { songLookup[$0] }
+        (playlistSongIDs[playlistID] ?? []).compactMap { visibleSongByID[$0] }
     }
 
     func recentlyPlayedSongs(limit: Int = 6) -> [Song] {
-        let songLookup = Dictionary(uniqueKeysWithValues: visibleSongs.map { ($0.id, $0) })
-        return Array(recentPlaybackSongIDs.prefix(limit).compactMap { songLookup[$0] })
+        Array(recentPlaybackSongIDs.prefix(limit).compactMap { visibleSongByID[$0] })
     }
 
     func contains(songID: String, inPlaylist playlistID: String) -> Bool {

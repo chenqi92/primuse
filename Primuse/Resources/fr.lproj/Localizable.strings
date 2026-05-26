@@ -83,3 +83,22 @@
 "a11y_close_lyrics" = "Masquer les paroles";
 "a11y_favorite_add" = "Ajouter à la liste de lecture";
 "a11y_more_actions" = "Plus d'actions";
+
+// MARK: - Barre latérale macOS (1.6)
+"sidebar_playlists_empty" = "Aucune playlist";
+"sidebar_sources_empty" = "Aucune source";
+"search_placeholder_universal" = "Local + Apple Music";
+"sidebar_toggle" = "Basculer la barre latérale";
+
+// MARK: - 1.6 macOS Home redesign
+"home_recently_added_subtitle" = "Newest in your library";
+"home_recently_played_subtitle" = "On repeat lately";
+"home_artists_subtitle" = "Who you listen to most";
+"home_section_view_all" = "See all";
+"home_no_scans_short" = "Idle";
+"home_no_playing" = "Nothing playing";
+"home_pipeline_metadata_done" = "Done";
+"save_as_playlist" = "Enregistrer en playlist...";
+"material" = "Matériau";
+"sidebar_width" = "Largeur de barre latérale";
+"ambient_strength" = "Intensité ambiante";

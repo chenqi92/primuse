@@ -79,8 +79,6 @@
 	<string>© Welape</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Primuse needs local network access to discover and connect to your NAS devices, media servers, and other music sources.</string>
-	<key>NSMotionUsageDescription</key>
-	<string>Primuse uses head-tracking from compatible AirPods to keep the spatial-audio sound stage anchored when you turn your head. It is only used while the spatial-audio head tracking toggle is on.</string>
 	<key>PrimuseBaiduClientID</key>
 	<string>$(BAIDU_CLIENT_ID)</string>
 	<key>PrimuseBaiduClientSecret</key>

@@ -20,6 +20,26 @@ struct PlaylistImportView: View {
     @State private var importedFromName: String = ""
 
     var body: some View {
+        Group {
+            #if os(macOS)
+            macBody
+            #else
+            iosBody
+            #endif
+        }
+        .fileImporter(
+            isPresented: $showFileImporter,
+            allowedContentTypes: importableTypes()
+        ) { result in
+            handleFile(result)
+        }
+        .alert(String(localized: "playlist_import_err_title"),
+               isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } })) {
+            Button("ok", role: .cancel) {}
+        } message: { Text(importError ?? "") }
+    }
+
+    private var iosBody: some View {
         Form {
             if preview == nil {
                 introSection
@@ -54,20 +74,309 @@ struct PlaylistImportView: View {
                 }
             }
         }
-        .fileImporter(
-            isPresented: $showFileImporter,
-            allowedContentTypes: importableTypes()
-        ) { result in
-            handleFile(result)
-        }
-        .alert(String(localized: "playlist_import_err_title"),
-               isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } })) {
-            Button("ok", role: .cancel) {}
-        } message: { Text(importError ?? "") }
-        #if os(macOS)
-        .macReadablePane(maxWidth: 820)
-        #endif
     }
+
+    #if os(macOS)
+    private var macBody: some View {
+        ZStack {
+            PMColor.bg.ignoresSafeArea()
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 18) {
+                    macPanel
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 36)
+                .padding(.vertical, 34)
+                .padding(.bottom, 110)
+            }
+        }
+    }
+
+    private var macPanel: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            macHeader
+
+            Divider().overlay(PMColor.divider)
+
+            if let preview {
+                macPreview(preview)
+            } else {
+                macIntro
+            }
+
+            Divider().overlay(PMColor.divider)
+            macFooter
+        }
+        .frame(width: 620)
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(PMColor.bgElev.opacity(0.88))
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
+        .shadow(color: .black.opacity(0.20), radius: 28, y: 14)
+    }
+
+    private var macHeader: some View {
+        HStack(spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(PMColor.brand.opacity(0.16))
+                Image(systemName: "tray.and.arrow.down.fill")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(PMColor.brand)
+            }
+            .frame(width: 44, height: 44)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("导入歌单")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
+                Text(preview == nil ? "M3U8 / JSON · 选择文件后自动匹配本地资料库" : importedFromName)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(PMColor.textMuted)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Text(preview == nil ? "PL-08" : "READY")
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundStyle(PMColor.textFaint)
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 18)
+    }
+
+    private var macIntro: some View {
+        VStack(spacing: 18) {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(PMColor.card.opacity(0.72))
+                .frame(height: 188)
+                .overlay {
+                    VStack(spacing: 12) {
+                        Image(systemName: "doc.badge.plus")
+                            .font(.system(size: 44, weight: .regular))
+                            .foregroundStyle(PMColor.brand)
+                        Text("选择一个歌单文件开始")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(PMColor.text)
+                        Text("支持 .m3u / .m3u8 / .json，导入前会先展示匹配与缺失条目。")
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(PMColor.textMuted)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(.horizontal, 48)
+                }
+
+            HStack(spacing: 8) {
+                macFormatPill("M3U8")
+                macFormatPill("M3U")
+                macFormatPill("JSON")
+                Spacer()
+                Button {
+                    showFileImporter = true
+                } label: {
+                    Label("选择文件", systemImage: "folder")
+                        .font(.system(size: 12.5, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .frame(height: 30)
+                .background(PMColor.brand, in: .rect(cornerRadius: 7))
+            }
+        }
+        .padding(22)
+    }
+
+    private func macPreview(_ p: PlaylistImporter.ImportPreview) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 12) {
+                macMetric(title: "匹配成功", value: "\(p.matchedCount)", color: PMColor.ok)
+                macMetric(title: "待确认", value: "\(p.missingCount)", color: p.missingCount > 0 ? PMColor.warn : PMColor.textFaint)
+                macMetric(title: "总条目", value: "\(p.entries.count)", color: PMColor.brand)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("歌单名称")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(PMColor.textMuted)
+                TextField("playlist_name", text: $playlistName)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13.5, weight: .medium))
+                    .padding(.horizontal, 12)
+                    .frame(height: 36)
+                    .background(PMColor.card.opacity(0.78), in: .rect(cornerRadius: 8))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                    }
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("条目预览")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(PMColor.textMuted)
+                    Spacer()
+                    if p.missingCount > 0 {
+                        Text("缺失条目不会写入新歌单")
+                            .font(.system(size: 11))
+                            .foregroundStyle(PMColor.textFaint)
+                    }
+                }
+
+                VStack(spacing: 0) {
+                    ForEach(Array(p.entries.prefix(12))) { entry in
+                        macEntryRow(entry)
+                        if entry.id != p.entries.prefix(12).last?.id {
+                            Divider().overlay(PMColor.divider).padding(.leading, 28)
+                        }
+                    }
+                    if p.entries.count > 12 {
+                        Text("还有 \(p.entries.count - 12) 个条目会在创建时一并处理")
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(PMColor.textFaint)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                    }
+                }
+                .background(PMColor.card.opacity(0.62), in: .rect(cornerRadius: 10))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                }
+            }
+        }
+        .padding(22)
+    }
+
+    private var macFooter: some View {
+        HStack(spacing: 10) {
+            Button {
+                preview = nil
+                playlistName = ""
+                importedFromName = ""
+            } label: {
+                Text(preview == nil ? "清空" : "重新选择")
+                    .font(.system(size: 12, weight: .medium))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(PMColor.textMuted)
+            .frame(height: 28)
+            .padding(.horizontal, 12)
+            .background(PMColor.glassBtn, in: .rect(cornerRadius: 6))
+            .disabled(preview == nil)
+
+            Spacer()
+
+            Button {
+                showFileImporter = true
+            } label: {
+                Label(preview == nil ? "选择文件" : "更换文件", systemImage: "folder")
+                    .font(.system(size: 12, weight: .medium))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(PMColor.text)
+            .frame(height: 28)
+            .padding(.horizontal, 12)
+            .background(PMColor.glassBtn, in: .rect(cornerRadius: 6))
+
+            Button {
+                confirm()
+            } label: {
+                Label("创建歌单", systemImage: "checkmark")
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.white)
+            .frame(height: 28)
+            .padding(.horizontal, 14)
+            .background(canCreatePlaylist ? PMColor.brand : PMColor.textFaint.opacity(0.45), in: .rect(cornerRadius: 6))
+            .disabled(!canCreatePlaylist)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+    }
+
+    private var canCreatePlaylist: Bool {
+        playlistName.trimmingCharacters(in: .whitespaces).isEmpty == false
+            && (preview?.matchedCount ?? 0) > 0
+    }
+
+    private func macFormatPill(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            .foregroundStyle(PMColor.textMuted)
+            .padding(.horizontal, 9)
+            .frame(height: 24)
+            .background(PMColor.glassBtn, in: .capsule)
+    }
+
+    private func macMetric(title: String, value: String, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(value)
+                .font(.system(size: 28, weight: .bold, design: .rounded))
+                .foregroundStyle(PMColor.text)
+                .monospacedDigit()
+            Text(title)
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(PMColor.textMuted)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(color.opacity(0.12), in: .rect(cornerRadius: 10))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(color.opacity(0.20), lineWidth: 0.5)
+        }
+    }
+
+    private func macEntryRow(_ entry: PlaylistImporter.ImportEntry) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: entry.matchedSong == nil ? "questionmark.circle" : "checkmark.circle.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(entry.matchedSong == nil ? PMColor.warn : PMColor.ok)
+                .frame(width: 18)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.displayTitle)
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(PMColor.text)
+                    .lineLimit(1)
+                if let artist = entry.displayArtist, !artist.isEmpty {
+                    Text(artist)
+                        .font(.system(size: 11))
+                        .foregroundStyle(PMColor.textFaint)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer()
+
+            if let kind = entry.matchKind {
+                Text(matchKindText(kind))
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundStyle(matchKindColor(kind))
+                    .padding(.horizontal, 7)
+                    .frame(height: 20)
+                    .background(matchKindColor(kind).opacity(0.14), in: .capsule)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    private func matchKindText(_ kind: PlaylistImporter.ImportEntry.MatchKind) -> String {
+        switch kind {
+        case .songID: return "ID"
+        case .basename: return "PATH"
+        case .fuzzy: return "FUZZY"
+        }
+    }
+    #endif
 
     // MARK: - Sections
 

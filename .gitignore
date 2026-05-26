@@ -16,6 +16,8 @@ DerivedData/
 # Local tooling
 .claude/
 .idea/
+.playwright-mcp/
+design/
 ScraperConfigs/**
 Config/Secrets.local.xcconfig
 

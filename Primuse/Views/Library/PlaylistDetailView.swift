@@ -27,7 +27,16 @@ struct PlaylistDetailView: View {
         let url: URL
     }
 
+    @ViewBuilder
     var body: some View {
+        #if os(macOS)
+        macPlaylistDetail
+        #else
+        legacyPlaylistDetail
+        #endif
+    }
+
+    private var legacyPlaylistDetail: some View {
         ScrollView {
             VStack(spacing: 20) {
                 // Playlist header
@@ -166,6 +175,241 @@ struct PlaylistDetailView: View {
         } message: { Text(exportError ?? "") }
     }
 
+    #if os(macOS)
+    private var macPlaylistDetail: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+                MacLibraryHeader(
+                    eyebrow: "playlist",
+                    title: currentPlaylist?.name ?? playlist.name,
+                    subtitle: playlistSubtitle,
+                    iconSystemName: playlist.id == MusicLibrary.likedSongsPlaylistID ? "heart.fill" : "music.note.list",
+                    coverSong: songs.first(where: { $0.coverArtFileName?.isEmpty == false }),
+                    onPlay: playAll,
+                    onShuffle: {
+                        player.shuffleEnabled = true
+                        playAll()
+                    }
+                )
+
+                VStack(alignment: .leading, spacing: PMSpace.l) {
+                    macPlaylistRuleCard
+                    macPlaylistToolbar
+
+                    if songs.isEmpty {
+                        EmptyStateView(
+                            titleKey: "no_songs",
+                            descriptionKey: "no_songs_desc",
+                            systemImage: "music.note.list"
+                        )
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 48)
+                    } else {
+                        macSongTable
+                    }
+                }
+                .padding(.horizontal, PMSpace.xxxl)
+                .padding(.top, PMSpace.l)
+            }
+            .padding(.bottom, 112)
+        }
+        .background(PMColor.bg.ignoresSafeArea())
+        .sheet(item: $exportShareItem) { item in
+            ShareSheet(items: [item.url])
+        }
+        .sheet(isPresented: $showReorderSheet) {
+            PlaylistReorderSheet(playlist: playlist, songs: songs) { newOrder in
+                library.replacePlaylistSongs(
+                    playlistID: playlist.id,
+                    songIDs: newOrder.map(\.id)
+                )
+            }
+        }
+        .alert(String(localized: "playlist_export_failed_title"),
+               isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
+            Button("ok", role: .cancel) {}
+        } message: { Text(exportError ?? "") }
+    }
+
+    private var playlistSubtitle: String {
+        let duration = songs.reduce(0) { $0 + $1.duration }
+        let kind = AppleMusicLibraryService.isAppleMusicMirrorPlaylist(playlist.id)
+            ? "Apple Music"
+            : String(localized: "tab_playlists")
+        return "\(songs.count) \(String(localized: "songs_count")) · \(duration.formattedShort) · \(kind)"
+    }
+
+    @ViewBuilder
+    private var macPlaylistRuleCard: some View {
+        if playlist.id != MusicLibrary.likedSongsPlaylistID,
+           !AppleMusicLibraryService.isAppleMusicMirrorPlaylist(playlist.id) {
+            HStack(spacing: 12) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(PMColor.brand)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("tab_playlists")
+                        .font(.system(size: 12.5, weight: .semibold))
+                    Text(verbatim: "\(songs.count) \(String(localized: "songs_count")) · \(String(localized: "playlist_reorder")) / M3U8 / JSON")
+                        .font(.system(size: 12))
+                        .foregroundStyle(PMColor.textMuted)
+                        .lineLimit(1)
+                }
+                Spacer()
+                Button("playlist_reorder") { showReorderSheet = true }
+                    .buttonStyle(.borderless)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .disabled(songs.count < 2)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .pmGlass(cornerRadius: PMRadius.m10)
+        }
+    }
+
+    private var macPlaylistToolbar: some View {
+        HStack(spacing: 8) {
+            Text("songs_count")
+                .font(.system(size: 11))
+                .tracking(0.6)
+                .textCase(.uppercase)
+                .foregroundStyle(PMColor.textFaint)
+            Spacer()
+            PMRoundBtn(icon: "arrow.down.circle", size: 26, iconSize: 12, style: .glass,
+                       help: "offline_download") {
+                sourceManager.downloadForOffline(songs: songs)
+            }
+            .disabled(songs.filteredPlayable().isEmpty)
+            Menu {
+                if !AppleMusicLibraryService.isAppleMusicMirrorPlaylist(playlist.id) {
+                    Button {
+                        showReorderSheet = true
+                    } label: {
+                        Label("playlist_reorder", systemImage: "arrow.up.arrow.down")
+                    }
+                    .disabled(songs.count < 2)
+                }
+                Button {
+                    export(format: .m3u8)
+                } label: {
+                    Label("playlist_export_m3u8", systemImage: "doc.text")
+                }
+                Button {
+                    export(format: .json)
+                } label: {
+                    Label("playlist_export_json", systemImage: "doc.badge.gearshape")
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
+                    .frame(width: 26, height: 26)
+                    .background(PMColor.glassBtn, in: .circle)
+                    .overlay { Circle().strokeBorder(PMColor.cardBorder, lineWidth: 0.5) }
+            }
+            .menuStyle(.borderlessButton)
+            .disabled(songs.isEmpty)
+        }
+        .padding(.top, -2)
+    }
+
+    private var macSongTable: some View {
+        let rows = Array(songs.enumerated())
+        return VStack(spacing: 0) {
+            HStack(spacing: PMSpace.s10) {
+                Text("#").frame(width: 28, alignment: .center)
+                Color.clear.frame(width: 36)
+                Text("sort_title").frame(maxWidth: .infinity, alignment: .leading)
+                Text("sort_artist").frame(width: 180, alignment: .leading)
+                Text("sort_album").frame(width: 180, alignment: .leading)
+                Text("sort_format").frame(width: 64, alignment: .leading)
+                Text("track_duration_short").frame(width: 56, alignment: .trailing)
+            }
+            .font(.system(size: 10.5, weight: .semibold))
+            .tracking(0.5)
+            .textCase(.uppercase)
+            .foregroundStyle(PMColor.textFaint)
+            .padding(.horizontal, PMSpace.s8)
+            .padding(.vertical, 6)
+
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+
+            LazyVStack(spacing: 1) {
+                ForEach(rows, id: \.element.id) { index, song in
+                    macSongRow(song, index: index)
+                }
+            }
+            .padding(.vertical, 4)
+        }
+    }
+
+    private func macSongRow(_ song: Song, index: Int) -> some View {
+        let isCurrent = player.currentSong?.id == song.id
+        return HStack(spacing: PMSpace.s10) {
+            ZStack {
+                if isCurrent {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(PMColor.brand)
+                } else {
+                    Text("\(index + 1)")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(PMColor.textFaint)
+                }
+            }
+            .frame(width: 28, alignment: .center)
+
+            CachedArtworkView(
+                coverRef: song.coverArtFileName, songID: song.id,
+                size: 32, cornerRadius: PMRadius.xs,
+                sourceID: song.sourceID, filePath: song.filePath
+            )
+
+            Text(song.title)
+                .font(.system(size: 12.5, weight: isCurrent ? .semibold : .regular))
+                .foregroundStyle(isCurrent ? PMColor.brand : PMColor.text)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text(song.artistName ?? "—")
+                .font(.system(size: 12))
+                .foregroundStyle(PMColor.textMuted)
+                .lineLimit(1)
+                .frame(width: 180, alignment: .leading)
+
+            Text(song.albumTitle ?? "—")
+                .font(.system(size: 12))
+                .foregroundStyle(PMColor.textMuted)
+                .lineLimit(1)
+                .frame(width: 180, alignment: .leading)
+
+            PMFormatPill.forFormat(song.fileFormat.displayName)
+                .frame(width: 64, alignment: .leading)
+
+            Text(song.duration.formattedDuration)
+                .font(.system(size: 11, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(PMColor.textFaint)
+                .frame(width: 56, alignment: .trailing)
+        }
+        .padding(.horizontal, PMSpace.s8)
+        .padding(.vertical, 6)
+        .frame(minHeight: 44)
+        .pmRowBackground(selected: isCurrent)
+        .contentShape(Rectangle())
+        .onTapGesture { playSong(song) }
+        .contextMenu {
+            if !isAppleMusicMirrorEntry(song: song) {
+                Button(role: .destructive) {
+                    library.remove(songID: song.id, fromPlaylist: playlist.id)
+                } label: {
+                    Label("remove_from_playlist", systemImage: "trash")
+                }
+            }
+        }
+    }
+    #endif
+
     /// 这个 song 是不是 Apple Music 镜像歌单里的 Apple Music 歌 ── 同时
      /// 满足 (playlist 是任意 AM 镜像) 且 (song 是 Apple Music 来源) 才算,
      /// 用户自己手动 add 进去的其它源歌仍可正常移除。
@@ -226,6 +470,14 @@ struct PlaylistReorderSheet: View {
     }
 
     var body: some View {
+        #if os(macOS)
+        macBody
+        #else
+        iosBody
+        #endif
+    }
+
+    private var iosBody: some View {
         NavigationStack {
             List {
                 ForEach(localSongs) { song in
@@ -287,4 +539,168 @@ struct PlaylistReorderSheet: View {
             }
         }
     }
+
+    #if os(macOS)
+    private var macBody: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 14) {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(PMColor.brand.opacity(0.16))
+                    .frame(width: 44, height: 44)
+                    .overlay {
+                        Image(systemName: "arrow.up.arrow.down")
+                            .font(.system(size: 19, weight: .semibold))
+                            .foregroundStyle(PMColor.brand)
+                    }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("调整播放顺序")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(PMColor.text)
+                    Text("\(playlist.name) · \(localSongs.count) \(String(localized: "songs_count"))")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(PMColor.textMuted)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(PMColor.textMuted)
+                        .frame(width: 26, height: 26)
+                        .background(PMColor.glassBtn, in: .circle)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVStack(spacing: 8) {
+                    ForEach(Array(localSongs.enumerated()), id: \.element.id) { index, song in
+                        macSongRow(song, index: index)
+                    }
+                }
+                .padding(14)
+            }
+
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+
+            HStack {
+                Text(hasChanges ? "顺序已更改" : "使用箭头移动歌曲")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(hasChanges ? PMColor.brand : PMColor.textFaint)
+                Spacer()
+                Button("cancel") { dismiss() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(PMColor.text)
+                    .padding(.horizontal, 14)
+                    .frame(height: 30)
+                    .background(PMColor.glassBtn, in: .rect(cornerRadius: 7))
+                Button("done") {
+                    if hasChanges {
+                        onDone(localSongs)
+                    }
+                    dismiss()
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16)
+                .frame(height: 30)
+                .background(PMColor.brand, in: .rect(cornerRadius: 7))
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+        }
+        .frame(width: 520, height: 620)
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(.ultraThinMaterial)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(PMColor.bg.opacity(0.78))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
+        .shadow(color: .black.opacity(0.24), radius: 28, y: 14)
+    }
+
+    private var hasChanges: Bool {
+        localSongs.map(\.id) != initialSongs.map(\.id)
+    }
+
+    private func macSongRow(_ song: Song, index: Int) -> some View {
+        HStack(spacing: 10) {
+            Text("\(index + 1)")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(PMColor.textFaint)
+                .frame(width: 26, alignment: .trailing)
+
+            CachedArtworkView(
+                coverRef: song.coverArtFileName,
+                songID: song.id,
+                size: 38,
+                cornerRadius: 5,
+                sourceID: song.sourceID,
+                filePath: song.filePath
+            )
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(song.title)
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(PMColor.text)
+                    .lineLimit(1)
+                Text(song.artistName ?? String(localized: "unknown_artist"))
+                    .font(.system(size: 11))
+                    .foregroundStyle(PMColor.textFaint)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            HStack(spacing: 2) {
+                reorderButton("chevron.up", disabled: index == 0) {
+                    moveSong(from: index, to: index - 1)
+                }
+                reorderButton("chevron.down", disabled: index == localSongs.count - 1) {
+                    moveSong(from: index, to: index + 1)
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 52)
+        .background(PMColor.bgElev.opacity(0.84), in: .rect(cornerRadius: 10))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
+    }
+
+    private func reorderButton(_ symbol: String, disabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(disabled ? PMColor.textFaint.opacity(0.45) : PMColor.textMuted)
+                .frame(width: 24, height: 24)
+                .background(PMColor.glassBtn, in: .circle)
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+    }
+
+    private func moveSong(from source: Int, to destination: Int) {
+        guard localSongs.indices.contains(source), localSongs.indices.contains(destination) else { return }
+        let item = localSongs.remove(at: source)
+        localSongs.insert(item, at: destination)
+    }
+    #endif
 }

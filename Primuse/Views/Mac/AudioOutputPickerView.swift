@@ -17,7 +17,14 @@ struct AudioOutputPickerView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("audio_output").font(.headline)
+                HStack(spacing: 8) {
+                    Image(systemName: "airplayaudio")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(PMColor.brand)
+                    Text("audio_output")
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .foregroundStyle(PMColor.text)
+                }
                 Spacer()
                 Button {
                     if let url = URL(string: "x-apple.systempreferences:com.apple.preference.sound") {
@@ -27,15 +34,18 @@ struct AudioOutputPickerView: View {
                     Label(String(localized: "open_system_settings"), systemImage: "gear")
                         .labelStyle(.iconOnly)
                         .font(.system(size: 12))
+                        .foregroundStyle(PMColor.textMuted)
+                        .frame(width: 24, height: 24)
+                        .background(PMColor.glassBtn, in: .circle)
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.plain)
                 .help(Text("open_system_settings"))
             }
             .padding(.horizontal, 14)
             .padding(.top, 14)
             .padding(.bottom, 8)
 
-            Divider()
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
@@ -50,7 +60,11 @@ struct AudioOutputPickerView: View {
                     }
 
                     if !manager.devices.isEmpty {
-                        Divider().padding(.vertical, 4)
+                        Rectangle()
+                            .fill(PMColor.divider)
+                            .frame(height: 0.5)
+                            .padding(.vertical, 4)
+                            .padding(.horizontal, 10)
                     }
 
                     ForEach(manager.devices) { device in
@@ -70,15 +84,26 @@ struct AudioOutputPickerView: View {
             .frame(minHeight: 60, maxHeight: 240)
 
             if let errorMessage {
-                Divider()
+                Rectangle().fill(PMColor.divider).frame(height: 0.5)
                 Text(errorMessage)
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(PMColor.bad)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 6)
             }
         }
         .frame(width: 280)
+        .background {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.ultraThinMaterial)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(PMColor.bg.opacity(0.72))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
+        .shadow(color: .black.opacity(0.20), radius: 18, y: 8)
         .onAppear {
             manager.refresh()
             // 没显式选过的话,初始就跟随系统。
@@ -95,18 +120,22 @@ struct AudioOutputPickerView: View {
             HStack(spacing: 10) {
                 Image(systemName: symbol)
                     .font(.system(size: 13))
-                    .foregroundStyle(accent ?? .secondary)
+                    .foregroundStyle(accent ?? PMColor.textMuted)
                     .frame(width: 20)
-                Text(title).font(.callout).lineLimit(1)
+                Text(title)
+                    .font(.callout)
+                    .foregroundStyle(PMColor.text)
+                    .lineLimit(1)
                 Spacer()
                 if isSelected {
                     Image(systemName: "checkmark")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.tint)
+                        .foregroundStyle(PMColor.brand)
                 }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 7)
+            .pmRowBackground(selected: isSelected, cornerRadius: 6)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

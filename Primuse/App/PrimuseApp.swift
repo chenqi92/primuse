@@ -589,7 +589,10 @@ struct PrimuseApp: App {
                 }
         }
         #if os(macOS)
-        .defaultSize(width: 1180, height: 760)
+        // 1.6 重设计: 隐藏系统 title bar, 内容延伸到顶部, 自定义 PMTitleBar
+        // 负责窗口控制点 / 导航 / 搜索 / 工具按钮。
+        .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 1280, height: 820)
         .windowResizability(.contentMinSize)
         .commands {
             SidebarCommands()
@@ -670,6 +673,7 @@ struct PrimuseApp: App {
         Settings {
             injectServices { MacSettingsView() }
         }
+        .windowStyle(.hiddenTitleBar)
         // 防止切到内容少的 tab (RecentlyDeleted 空 / Replay Gain 关闭后
         // 的 Playback Settings) 时整个 Settings 窗口突兀缩小。
         .windowResizability(.contentMinSize)

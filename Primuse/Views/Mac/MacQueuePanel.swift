@@ -10,28 +10,24 @@ struct MacQueuePanel: View {
     var onClose: () -> Void
 
     @Environment(AudioPlayerService.self) private var player
-    @Environment(SourcesStore.self) private var sourcesStore
-    @Environment(MetadataBackfillService.self) private var backfill
+    @Environment(MusicLibrary.self) private var library
 
     var body: some View {
-        // 用 NavigationStack + 自定义 toolbar 让队列侧栏跟主 detail 共享
-        // 同一个 titlebar 安全区,不再额外多出一段顶部留白。原来 VStack
-        // 自带的 header 行被去掉,标题改成 inline navigation title,关闭
-        // 按钮挂到 toolbar 上,跟 macOS 26 sidebar 风格一致。
-        NavigationStack {
+        VStack(spacing: 0) {
+            header
             list
-                .navigationTitle("queue_title")
-                .toolbarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button(action: onClose) {
-                            Image(systemName: "xmark")
-                        }
-                        .help(Text("close"))
-                    }
-                }
+            footer
         }
-        .background(.regularMaterial)
+        .background {
+            ZStack {
+                NSVisualEffectBackdrop(material: .sidebar, blending: .behindWindow)
+                Rectangle().fill(PMColor.sidebarGlass.opacity(0.6))
+            }
+            .ignoresSafeArea()
+        }
+        .overlay(alignment: .leading) {
+            Rectangle().fill(PMColor.divider).frame(width: 0.5).ignoresSafeArea(edges: .vertical)
+        }
     }
 
     // MARK: - List
@@ -46,112 +42,152 @@ struct MacQueuePanel: View {
             )
         } else {
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 16) {
-                    queueSummary
+                VStack(alignment: .leading, spacing: 12) {
+                    let playedIndices = 0..<player.currentIndex
+                    if !playedIndices.isEmpty {
+                        queueSection(title: "played") {
+                            ForEach(Array(playedIndices), id: \.self) { index in
+                                queueRow(song: player.queue[index], index: index, dimmed: true)
+                            }
+                        }
+                    }
 
-                if let current = player.currentSong {
-                        queueSection(title: "now_playing") {
+                    if let current = player.currentSong {
+                        queueSection(title: "now_playing", accent: true) {
                             queueRow(song: current, index: player.currentIndex, isPlaying: true)
                         }
-                }
+                    }
 
-                let upNextIndices = (player.currentIndex + 1)..<player.queue.count
-                if !upNextIndices.isEmpty {
+                    let upNextIndices = (player.currentIndex + 1)..<player.queue.count
+                    if !upNextIndices.isEmpty {
                         queueSection(title: "up_next") {
                             ForEach(Array(upNextIndices), id: \.self) { index in
-                                queueRow(song: player.queue[index], index: index)
+                                queueRow(song: player.queue[index], index: index, draggable: true)
+                            }
                         }
                     }
                 }
-
-                let playedIndices = 0..<player.currentIndex
-                if !playedIndices.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Text("played")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.secondary)
-                            Spacer()
-                            Button {
-                                clearPlayed(uptoIndex: player.currentIndex)
-                            } label: {
-                                    Label("clear_all", systemImage: "trash")
-                                        .labelStyle(.iconOnly)
-                            }
-                            .buttonStyle(.plain)
-                                .foregroundStyle(.secondary)
-                                .help(Text("clear_all"))
-                            }
-
-                            VStack(spacing: 0) {
-                                ForEach(Array(playedIndices), id: \.self) { index in
-                                    queueRow(song: player.queue[index], index: index)
-                                        .opacity(0.58)
-                                    if index != playedIndices.upperBound - 1 {
-                                        Divider().padding(.leading, 56)
-                                    }
-                                }
-                            }
-                            .background(.background.secondary, in: .rect(cornerRadius: 8))
-                        }
-                    }
-                }
+                .padding(.horizontal, 10)
+                .padding(.bottom, 14)
             }
-                .padding(16)
-                .padding(.bottom, 24)
-            }
+        }
     }
 
-    private var queueSummary: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "list.bullet")
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 42, height: 42)
-                .background(.tint.opacity(0.14), in: .rect(cornerRadius: 8))
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text("queue_title")
-                    .font(.headline)
-                Text("\(player.queue.count) \(String(localized: "songs_count"))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
+    private var header: some View {
+        HStack(spacing: 8) {
+            Text("queue_title")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(PMColor.text)
+            Text(verbatim: queueSummaryText)
+                .font(.system(size: 11))
+                .foregroundStyle(PMColor.textFaint)
             Spacer(minLength: 0)
+            PlayerMoreMenu {
+                PMRoundBtnIcon(symbol: "ellipsis")
+            }
+            .frame(width: 24, height: 24)
+            Button(action: onClose) {
+                PMRoundBtnIcon(symbol: "xmark")
+            }
+            .buttonStyle(.plain)
+            .help(Text("close"))
         }
-        .padding(12)
-        .background(.background.secondary, in: .rect(cornerRadius: 8))
+        .padding(.horizontal, 18)
+        .padding(.top, 14)
+        .padding(.bottom, 8)
     }
 
     private func queueSection<Content: View>(
         title: LocalizedStringKey,
+        accent: Bool = false,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 0) {
             Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            VStack(spacing: 0) {
-                content()
-            }
-            .background(.background.secondary, in: .rect(cornerRadius: 8))
+                .font(.system(size: 10.5, weight: .semibold))
+                .tracking(0.6)
+                .textCase(.uppercase)
+                .foregroundStyle(accent ? PMColor.brand : PMColor.textFaint)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+            content()
         }
     }
 
-    private func queueRow(song: Song, index: Int, isPlaying: Bool = false) -> some View {
-        SongRowView(
-            song: song,
-            isPlaying: isPlaying,
-            showsActions: false,
-            context: SongRowView.context(for: song,
-                                         sourcesStore: sourcesStore,
-                                         backfill: backfill)
-        )
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+    private func queueRow(song: Song,
+                          index: Int,
+                          isPlaying: Bool = false,
+                          dimmed: Bool = false,
+                          draggable: Bool = false) -> some View {
+        HStack(spacing: 8) {
+            if draggable {
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(PMColor.textFaint)
+                    .frame(width: 14)
+            } else {
+                Color.clear.frame(width: 14)
+            }
+
+            CachedArtworkView(
+                coverRef: song.coverArtFileName,
+                songID: song.id,
+                size: 32,
+                cornerRadius: 4,
+                sourceID: song.sourceID,
+                filePath: song.filePath
+            )
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(song.title)
+                    .font(.system(size: 12, weight: isPlaying ? .semibold : .medium))
+                    .foregroundStyle(isPlaying ? PMColor.brand : PMColor.text)
+                    .lineLimit(1)
+                Text(song.artistName ?? "")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(PMColor.textFaint)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            Text(song.duration.formattedDuration)
+                .font(.system(size: 10.5, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(PMColor.textFaint)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 5)
+        .background(isPlaying ? PMColor.rowHover : Color.clear, in: .rect(cornerRadius: 6))
+        .opacity(dimmed ? 0.52 : 1)
         .contentShape(Rectangle())
         .onTapGesture { playAt(index: index) }
+    }
+
+    private var footer: some View {
+        HStack(spacing: 8) {
+            Button("clear_all") { clearPlayed(uptoIndex: player.currentIndex) }
+                .disabled(player.currentIndex <= 0)
+            Button("save_as_playlist") { saveQueueAsPlaylist() }
+                .disabled(player.queue.isEmpty)
+            Spacer(minLength: 0)
+        }
+        .buttonStyle(.plain)
+        .font(.system(size: 11))
+        .foregroundStyle(PMColor.textMuted)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .overlay(alignment: .top) {
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+        }
+    }
+
+    private var queueSummaryText: String {
+        "\(player.queue.count) \(String(localized: "songs_count")) · \(queueDuration.formattedDuration)"
+    }
+
+    private var queueDuration: TimeInterval {
+        player.queue.reduce(0) { $0 + max(0, $1.duration) }
     }
 
     // MARK: - Actions
@@ -166,6 +202,30 @@ struct MacQueuePanel: View {
     private func clearPlayed(uptoIndex: Int) {
         guard uptoIndex > 0, uptoIndex <= player.queue.count else { return }
         player.removeQueuePrefix(count: uptoIndex)
+    }
+
+    private func saveQueueAsPlaylist() {
+        guard !player.queue.isEmpty else { return }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        let playlist = library.createPlaylist(name: "\(String(localized: "queue_title")) \(formatter.string(from: Date()))")
+        library.replacePlaylistSongs(playlistID: playlist.id, songIDs: player.queue.map(\.id))
+    }
+}
+
+private struct PMRoundBtnIcon: View {
+    let symbol: String
+
+    @State private var hover = false
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(PMColor.textMuted)
+            .frame(width: 24, height: 24)
+            .background(hover ? PMColor.glassBtnHover : PMColor.glassBtn, in: .circle)
+            .contentShape(Circle())
+            .onHover { hover = $0 }
     }
 }
 #endif

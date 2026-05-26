@@ -1138,3 +1138,40 @@
 "notify_rescrape_done_title" = "Rescrape complete";
 "notify_scrape_missing_done_title" = "Missing-metadata scrape complete";
 "dup_cleaning_progress_format" = "Cleaning %d / %d";
+
+// MARK: - macOS sidebar (1.6 redesign)
+"sidebar_playlists_empty" = "No playlists yet";
+"sidebar_sources_empty" = "No sources yet";
+"search_placeholder_universal" = "Search local + Apple Music";
+"sidebar_toggle" = "Toggle sidebar";
+
+// MARK: - 1.6 macOS Home redesign
+"home_recently_added_subtitle" = "Newest in your library";
+"home_recently_played_subtitle" = "On repeat lately";
+"home_artists_subtitle" = "Who you listen to most";
+"home_section_view_all" = "See all";
+"home_no_scans_short" = "Idle";
+"home_no_playing" = "Nothing playing";
+"home_pipeline_metadata_done" = "Done";
+"desktop_lyrics_locked_hint" = "Locked · ⌘⇧L to unlock";
+"search_chip_all" = "All";
+"search_chip_local" = "Local";
+"search_chip_apple_music" = "Apple Music";
+"save_as_playlist" = "Save as Playlist...";
+"material" = "Material";
+"sidebar_width" = "Sidebar Width";
+"ambient_strength" = "Ambient Strength";
+
+// MARK: - 1.6 macOS Home Hero narrative / Update banner
+"home_hero_narrative_morning" = "Good morning. Your library holds %@ stories";
+"home_hero_narrative_afternoon" = "Good afternoon. Your library holds %@ stories";
+"home_hero_narrative_evening" = "Good evening. Your library holds %@ stories";
+"home_hero_narrative_night" = "Tonight, your library holds %@ stories";
+"home_hero_stats_with_days" = "From %d sources · %d albums · %d artists · %d days %d hrs total";
+"home_hero_stats_hours_only" = "From %d sources · %d albums · %d artists · %d hrs total";
+"update_banner_title_format" = "Primuse %@ is out";
+"update_banner_subtitle" = "Update via the App Store";
+"update_banner_action" = "Update";
+"go_to_album" = "Go to Album";
+"go_to_artist" = "Go to Artist";
+"playback_settings_title" = "Playback Settings";

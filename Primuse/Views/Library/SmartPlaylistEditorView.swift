@@ -51,6 +51,14 @@ struct SmartPlaylistEditorView: View {
     }
 
     var body: some View {
+        #if os(macOS)
+        macBody
+        #else
+        iosBody
+        #endif
+    }
+
+    private var iosBody: some View {
         NavigationStack {
             Form {
                 Section {
@@ -137,22 +145,243 @@ struct SmartPlaylistEditorView: View {
                     dismiss()
                 }
             }
-            .onAppear {
-                if let existing {
-                    name = existing.name
-                    ruleGroups = existing.effectiveRuleGroups
-                    if ruleGroups.isEmpty {
-                        ruleGroups = [Self.defaultGroup()]
+            .onAppear(perform: loadInitialState)
+        }
+    }
+
+    #if os(macOS)
+    private var macBody: some View {
+        VStack(spacing: 0) {
+            macHeader
+
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 14) {
+                    macNameCard
+
+                    ForEach($ruleGroups) { $group in
+                        MacSmartRuleGroupCard(
+                            group: $group,
+                            canDelete: ruleGroups.count > 1,
+                            onDelete: { removeGroup(id: group.id) }
+                        )
                     }
-                    sortField = existing.sortField
-                    sortDirection = existing.sortDirection
-                    limitText = existing.limit.map(String.init) ?? ""
-                } else if ruleGroups.isEmpty {
-                    ruleGroups = [Self.defaultGroup()]
+
+                    Button {
+                        ruleGroups.append(Self.defaultGroup())
+                    } label: {
+                        Label("smart_rule_group_add", systemImage: "plus.rectangle.on.rectangle")
+                            .font(.system(size: 12.5, weight: .semibold))
+                            .foregroundStyle(PMColor.brand)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 14)
+                            .frame(height: 38)
+                            .background(PMColor.brand.opacity(0.12), in: .rect(cornerRadius: 10))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .strokeBorder(PMColor.brand.opacity(0.20), lineWidth: 0.5)
+                            }
+                    }
+                    .buttonStyle(.plain)
+
+                    macSortCard
+
+                    if isEditing {
+                        Button(role: .destructive) {
+                            showDeleteConfirm = true
+                        } label: {
+                            Label("delete", systemImage: "trash")
+                                .font(.system(size: 12.5, weight: .semibold))
+                                .foregroundStyle(PMColor.bad)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 14)
+                                .frame(height: 38)
+                                .background(PMColor.bad.opacity(0.10), in: .rect(cornerRadius: 10))
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
+                .padding(18)
+            }
+
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+
+            HStack {
+                Text("LIB-05 · Smart Playlist Rule Editor")
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(PMColor.textFaint)
+                Spacer()
+                Button("cancel") { dismiss() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(PMColor.text)
+                    .padding(.horizontal, 14)
+                    .frame(height: 30)
+                    .background(PMColor.glassBtn, in: .rect(cornerRadius: 7))
+
+                Button("save") { save() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .frame(height: 30)
+                    .background(canSave ? PMColor.brand : PMColor.textFaint, in: .rect(cornerRadius: 7))
+                    .disabled(!canSave)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+        }
+        .frame(width: 620, height: 680)
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(.ultraThinMaterial)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(PMColor.bg.opacity(0.78))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
+        .shadow(color: .black.opacity(0.24), radius: 28, y: 14)
+        .onAppear(perform: loadInitialState)
+        .alert("smart_playlist_delete_confirm", isPresented: $showDeleteConfirm) {
+            Button("cancel", role: .cancel) {}
+            Button("delete", role: .destructive) {
+                if let existing {
+                    library.deleteSmartPlaylist(id: existing.id)
+                }
+                dismiss()
             }
         }
     }
+
+    private var macHeader: some View {
+        HStack(spacing: 14) {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(LinearGradient(
+                    colors: [PMColor.brand, Color(red: 0.46, green: 0.30, blue: 0.92)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ))
+                .frame(width: 44, height: 44)
+                .overlay {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(isEditing ? "编辑智能歌单" : "新建智能歌单")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
+                Text("规则组 · 排序 · 上限 · 自动生成动态歌单")
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(PMColor.textMuted)
+            }
+
+            Spacer()
+
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(PMColor.textMuted)
+                    .frame(width: 26, height: 26)
+                    .background(PMColor.glassBtn, in: .circle)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
+    }
+
+    private var macNameCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("smart_playlist_name")
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(PMColor.textMuted)
+            TextField("smart_playlist_name", text: $name)
+                .textFieldStyle(.plain)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(PMColor.text)
+                .padding(.horizontal, 12)
+                .frame(height: 40)
+                .background(PMColor.card.opacity(0.72), in: .rect(cornerRadius: 8))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                }
+        }
+        .padding(14)
+        .background(PMColor.bgElev.opacity(0.84), in: .rect(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
+    }
+
+    private var macSortCard: some View {
+        VStack(spacing: 0) {
+            macSortRow("smart_sort_field") {
+                Picker("smart_sort_field", selection: $sortField) {
+                    ForEach(SmartPlaylistSortField.allCases, id: \.self) { f in
+                        Text(sortFieldLabel(f)).tag(f)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 190)
+            }
+
+            if sortField != .random {
+                Rectangle().fill(PMColor.divider).frame(height: 0.5).padding(.leading, 14)
+                macSortRow("smart_sort_direction") {
+                    Picker("smart_sort_direction", selection: $sortDirection) {
+                        Text("smart_sort_ascending").tag(SmartPlaylistSortDirection.ascending)
+                        Text("smart_sort_descending").tag(SmartPlaylistSortDirection.descending)
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: 190)
+                }
+            }
+
+            Rectangle().fill(PMColor.divider).frame(height: 0.5).padding(.leading, 14)
+            macSortRow("smart_limit") {
+                TextField("smart_limit_placeholder", text: $limitText)
+                    .textFieldStyle(.plain)
+                    .multilineTextAlignment(.trailing)
+                    .font(.system(size: 12.5, design: .monospaced))
+                    .padding(.horizontal, 10)
+                    .frame(width: 96, height: 28)
+                    .background(PMColor.card.opacity(0.74), in: .rect(cornerRadius: 6))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                    }
+            }
+        }
+        .background(PMColor.bgElev.opacity(0.84), in: .rect(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
+    }
+
+    private func macSortRow<Content: View>(_ title: LocalizedStringKey,
+                                           @ViewBuilder control: () -> Content) -> some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(PMColor.text)
+            Spacer()
+            control()
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 44)
+    }
+    #endif
 
     private func save() {
         var smart = existing ?? SmartPlaylist(name: "")
@@ -197,6 +426,21 @@ struct SmartPlaylistEditorView: View {
             ],
             combinator: .and
         )
+    }
+
+    private func loadInitialState() {
+        if let existing {
+            name = existing.name
+            ruleGroups = existing.effectiveRuleGroups
+            if ruleGroups.isEmpty {
+                ruleGroups = [Self.defaultGroup()]
+            }
+            sortField = existing.sortField
+            sortDirection = existing.sortDirection
+            limitText = existing.limit.map(String.init) ?? ""
+        } else if ruleGroups.isEmpty {
+            ruleGroups = [Self.defaultGroup()]
+        }
     }
 
     private func sortFieldLabel(_ f: SmartPlaylistSortField) -> String {
@@ -261,6 +505,144 @@ private struct SmartPlaylistRuleGroupEditor: View {
         }
     }
 }
+
+#if os(macOS)
+private struct MacSmartRuleGroupCard: View {
+    @Binding var group: SmartPlaylistRuleGroup
+    let canDelete: Bool
+    let onDelete: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+
+            if group.rules.count >= 2 {
+                Rectangle().fill(PMColor.divider).frame(height: 0.5)
+                HStack {
+                    Text("smart_combinator")
+                        .font(.system(size: 12.5, weight: .medium))
+                        .foregroundStyle(PMColor.text)
+                    Spacer()
+                    Picker("smart_combinator", selection: $group.combinator) {
+                        Text("smart_combinator_and").tag(SmartPlaylistCombinator.and)
+                        Text("smart_combinator_or").tag(SmartPlaylistCombinator.or)
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: 170)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+            }
+
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach($group.rules) { $rule in
+                    let ruleID = rule.id
+                    HStack(alignment: .top, spacing: 10) {
+                        SmartPlaylistRuleEditorRow(rule: $rule)
+                            .padding(12)
+                            .background(PMColor.card.opacity(0.70), in: .rect(cornerRadius: 10))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                            }
+
+                        if group.rules.count > 1 {
+                            Button {
+                                deleteRule(id: ruleID)
+                            } label: {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(PMColor.bad)
+                                    .frame(width: 26, height: 26)
+                                    .background(PMColor.bad.opacity(0.10), in: .circle)
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.top, 4)
+                        }
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    Button {
+                        group.rules.append(SmartPlaylistRule(field: .title, op: .contains, value: ""))
+                    } label: {
+                        Label("smart_rule_add", systemImage: "plus.circle")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(PMColor.brand)
+                            .padding(.horizontal, 10)
+                            .frame(height: 28)
+                            .background(PMColor.brand.opacity(0.12), in: .rect(cornerRadius: 7))
+                    }
+                    .buttonStyle(.plain)
+
+                    if canDelete {
+                        Button(role: .destructive) {
+                            onDelete()
+                        } label: {
+                            Label("smart_rule_group_delete", systemImage: "minus.circle")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(PMColor.bad)
+                                .padding(.horizontal, 10)
+                                .frame(height: 28)
+                                .background(PMColor.bad.opacity(0.08), in: .rect(cornerRadius: 7))
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    Spacer()
+                }
+            }
+            .padding(14)
+        }
+        .background(PMColor.bgElev.opacity(0.84), in: .rect(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 10) {
+            Image(systemName: group.isExcluded ? "minus.circle" : "line.3.horizontal.decrease.circle")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(group.isExcluded ? PMColor.bad : PMColor.brand)
+                .frame(width: 26, height: 26)
+                .background((group.isExcluded ? PMColor.bad : PMColor.brand).opacity(0.12), in: .circle)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(group.isExcluded ? "smart_rule_group_excluded" : "smart_rule_group")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
+                Text(group.rules.count >= 2
+                     ? (group.combinator == .and ? "smart_combinator_and_desc" : "smart_combinator_or_desc")
+                     : "smart_rule_group_footer")
+                    .font(.system(size: 11))
+                    .foregroundStyle(PMColor.textFaint)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Toggle("smart_rule_group_exclude", isOn: $group.isExcluded)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .tint(PMColor.brand)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+    }
+
+    private func deleteRule(id: String) {
+        group.rules.removeAll { $0.id == id }
+        if group.rules.isEmpty {
+            group.rules = [SmartPlaylistRule(field: .title, op: .contains, value: "")]
+        }
+    }
+}
+#endif
 
 /// 单条规则编辑行 ── 卡片式视觉。
 ///

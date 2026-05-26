@@ -28,16 +28,25 @@ final class ScrapeWindowController: NSObject, NSWindowDelegate {
             return
         }
 
-        // 跟 macOS 设置窗口同款:只保留关闭红灯,黄灯 (最小化) 和绿灯
-        // (缩放) 灰掉。styleMask 不带 .miniaturizable / .resizable 系统
-        // 自动把那两个按钮置灰,窗口尺寸也固定不能拖边缘缩放。
         let win = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 580, height: 540),
-            styleMask: [.titled, .closable, .fullSizeContentView],
+            contentRect: NSRect(x: 0, y: 0, width: 940, height: 640),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         win.title = String(localized: "scrape_song")
+        win.titleVisibility = .hidden
+        win.titlebarAppearsTransparent = true
+        win.toolbar = nil
+        win.backgroundColor = .clear
+        win.isMovableByWindowBackground = true
+        [
+            NSWindow.ButtonType.closeButton,
+            .miniaturizeButton,
+            .zoomButton,
+        ].forEach { type in
+            win.standardWindowButton(type)?.isHidden = true
+        }
         win.center()
         win.setFrameAutosaveName("PrimuseScrapeOptions")
         // isReleasedWhenClosed=false + delegate.windowShouldClose 让窗口

@@ -575,22 +575,29 @@ final class AudioPlayerService {
         isLoading = true
         isPlaying = false
         startAppleMusicMirror()
-        await AppServices.shared.appleMusicLibrary.play(primuseSong: song)
-        // 4s 兜底 ── ApplicationMusicPlayer.play 本身没有失败回调,
-        // 如果 lookup / DRM / 订阅校验等任何一步失败, mirror 永远收不到
-        // playing 信号, isLoading 卡死。给一个超时清 loading 并把错误
-        // (如果 service 写进了 lastPlaybackError) 暴露给用户。
+        let appleMusicLibrary = AppServices.shared.appleMusicLibrary
+
+        // 4s 兜底必须先注册。Apple Music user-library sync 在缺 entitlement
+        // 或系统账户服务异常时可能卡住；如果把 timeout 放在 await 之后,
+        // UI 会永远停在 isLoading=true。
         Task { @MainActor [weak self, songID = song.id] in
             try? await Task.sleep(for: .seconds(4))
             guard let self,
                   self.currentSong?.id == songID,
                   self.isLoading else { return }
+            appleMusicLibrary.cancel()
             self.isLoading = false
             let am = AppServices.shared.appleMusic
             if !am.isAppleMusicPlaying, am.currentPlaybackTime == 0 {
                 self.lastPlaybackError = am.lastPlaybackError
                     ?? String(localized: "playback_error_apple_music_generic")
             }
+        }
+
+        // 不阻塞 play(song:) 调用方。成功后 AppleMusicService 的 mirror 会把
+        // nowPlaying / progress 同步回来；失败或卡住由上面的 timeout 收口。
+        Task {
+            await appleMusicLibrary.play(primuseSong: song)
         }
     }
 

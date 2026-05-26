@@ -176,7 +176,7 @@ struct PlaylistListView: View {
     @ViewBuilder
     private var macBody: some View {
         Group {
-            if playlists.isEmpty {
+            if playlists.isEmpty && smartPlaylists.isEmpty {
                 ContentUnavailableView {
                     Label("no_playlists", systemImage: "music.note.list")
                 } description: {
@@ -190,40 +190,60 @@ struct PlaylistListView: View {
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 18) {
+                        macPlaylistsHeader
                         playlistOverview
 
-                        LazyVStack(spacing: 10) {
-                            ForEach(playlists) { playlist in
-                                NavigationLink(value: playlist) {
-                                    playlistCard(playlist)
+                        if !smartPlaylists.isEmpty {
+                            VStack(alignment: .leading, spacing: 10) {
+                                macSubsectionTitle("smart_playlists_section")
+                                LazyVStack(spacing: 10) {
+                                    ForEach(smartPlaylists) { smart in
+                                        NavigationLink(value: smart) {
+                                            smartPlaylistCard(smart)
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
                                 }
-                                .buttonStyle(.plain)
-                                .contextMenu {
-                                    Button(role: .destructive) {
-                                        library.deletePlaylist(id: playlist.id)
-                                    } label: {
-                                        Label("delete", systemImage: "trash")
+                            }
+                        }
+
+                        if !playlists.isEmpty {
+                            VStack(alignment: .leading, spacing: 10) {
+                                if !smartPlaylists.isEmpty {
+                                    macSubsectionTitle("playlists_section")
+                                }
+
+                                LazyVStack(spacing: 10) {
+                                    ForEach(playlists) { playlist in
+                                        NavigationLink(value: playlist) {
+                                            playlistCard(playlist)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .contextMenu {
+                                            if !isSystemPlaylist(playlist.id) {
+                                                Button(role: .destructive) {
+                                                    library.deletePlaylist(id: playlist.id)
+                                                } label: {
+                                                    Label("delete", systemImage: "trash")
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                    .padding(.horizontal, 24)
-                    .padding(.top, 16)
+                    .padding(.horizontal, 36)
+                    .padding(.top, 32)
                     .padding(.bottom, 112)
-                    .frame(maxWidth: 860, alignment: .leading)
+                    .frame(maxWidth: 980, alignment: .leading)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
+                .background(PMColor.bg.ignoresSafeArea())
             }
         }
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    showNewPlaylist = true
-                } label: {
-                    Image(systemName: "plus")
-                }
-            }
+        .navigationDestination(for: SmartPlaylist.self) { smart in
+            SmartPlaylistDetailView(smartPlaylistID: smart.id)
         }
         .alert("new_playlist", isPresented: $showNewPlaylist) {
             TextField("playlist_name", text: $newPlaylistName)
@@ -234,32 +254,136 @@ struct PlaylistListView: View {
                 createPlaylist()
             }
         }
+        .sheet(isPresented: $showSmartEditor) {
+            SmartPlaylistEditorView(existing: nil)
+        }
+    }
+
+    private var macPlaylistsHeader: some View {
+        HStack(alignment: .bottom, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("资料库")
+                    .font(.system(size: 11, weight: .semibold))
+                    .tracking(0.8)
+                    .textCase(.uppercase)
+                    .foregroundStyle(PMColor.textMuted)
+                Text("歌单")
+                    .font(.system(size: 32, weight: .bold))
+                    .foregroundStyle(PMColor.text)
+            }
+            Spacer()
+            Button {
+                showNewPlaylist = true
+            } label: {
+                Label("new_playlist", systemImage: "plus")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .frame(height: 32)
+                    .background(PMColor.brand, in: .rect(cornerRadius: 8))
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                showSmartEditor = true
+            } label: {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
+                    .frame(width: 32, height: 32)
+                    .background(PMColor.glassBtn, in: .rect(cornerRadius: 8))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                    }
+            }
+            .buttonStyle(.plain)
+            .help(Text("new_smart_playlist"))
+        }
     }
 
     private var playlistOverview: some View {
         HStack(spacing: 14) {
             Image(systemName: "music.note.list")
-                .font(.title2.weight(.semibold))
-                .foregroundStyle(Color.accentColor)
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(PMColor.brand)
                 .frame(width: 52, height: 52)
-                .background(.tint.opacity(0.14), in: .rect(cornerRadius: 8))
+                .background(PMColor.brand.opacity(0.14), in: .rect(cornerRadius: 10))
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("tab_playlists")
-                    .font(.title3.weight(.semibold))
-                Text("\(playlists.count) · \(totalPlaylistSongs) \(String(localized: "songs_count"))")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
+                Text("\(playlists.count) \(String(localized: "playlists_section")) · \(smartPlaylists.count) \(String(localized: "smart_playlists_section")) · \(totalPlaylistSongs) \(String(localized: "songs_count"))")
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(PMColor.textMuted)
             }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background.secondary, in: .rect(cornerRadius: 8))
+        .background(PMColor.card.opacity(0.78), in: .rect(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
     }
 
     private var totalPlaylistSongs: Int {
         playlists.reduce(0) { partialResult, playlist in
             partialResult + library.songs(forPlaylist: playlist.id).count
+        }
+    }
+
+    private func macSubsectionTitle(_ key: LocalizedStringKey) -> some View {
+        Text(key)
+            .font(.system(size: 11, weight: .semibold))
+            .textCase(.uppercase)
+            .foregroundStyle(PMColor.textFaint)
+            .padding(.horizontal, 2)
+    }
+
+    private func smartPlaylistCard(_ smart: SmartPlaylist) -> some View {
+        let count = SmartPlaylistEngine.match(smart, in: library, history: PlayHistoryStore.shared).count
+        return HStack(spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [PMColor.brand.opacity(0.92), Color(red: 0.36, green: 0.45, blue: 0.68)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                Image(systemName: "sparkles")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 58, height: 58)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(smart.name)
+                    .font(.system(size: 13.5, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
+                    .lineLimit(1)
+
+                Text("\(count) \(String(localized: "songs_count")) · \(smart.rules.count + (smart.ruleGroups?.flatMap(\.rules).count ?? 0)) \(String(localized: "rules_count"))")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(PMColor.textMuted)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(PMColor.textFaint)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: 82, alignment: .leading)
+        .background(PMColor.card.opacity(0.72), in: .rect(cornerRadius: 10))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
         }
     }
 
@@ -270,7 +394,8 @@ struct PlaylistListView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(playlist.name)
-                    .font(.headline)
+                    .font(.system(size: 13.5, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
                     .lineLimit(1)
 
                 HStack(spacing: 5) {
@@ -278,19 +403,23 @@ struct PlaylistListView: View {
                     Text("·")
                     Text(playlist.updatedAt, style: .date)
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 11.5))
+                .foregroundStyle(PMColor.textMuted)
             }
 
             Spacer(minLength: 0)
 
             Image(systemName: "chevron.right")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.tertiary)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(PMColor.textFaint)
         }
         .padding(12)
         .frame(maxWidth: .infinity, minHeight: 82, alignment: .leading)
-        .background(.background.secondary, in: .rect(cornerRadius: 8))
+        .background(PMColor.card.opacity(0.72), in: .rect(cornerRadius: 10))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
     }
     #endif
 

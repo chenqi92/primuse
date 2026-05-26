@@ -27,6 +27,7 @@ struct DesktopLyricsView: View {
     @State private var currentIndex: Int = 0
     @State private var isHovering = false
     @State private var colorPaletteShown = false
+    @State private var settingsShown = false
 
     @AppStorage("desktopLyricsFontScale") private var fontScale: Double = 1.0
     /// 排版模式:single / dual / vertical。旧版本只有 showNext bool,
@@ -114,15 +115,32 @@ struct DesktopLyricsView: View {
         }
     }
 
-    /// 锁定状态下 hover 浮现的解锁按钮 —— 单个按钮浮在右上角,
-    /// 一点就解锁,不挡歌词。
+    /// 锁定状态下 hover 浮现的解锁按钮 — 显示 lock icon + "已锁定 · ⌘⇧L 解锁" 提示,
+    /// 按设计稿的单按钮 wide pill 风格 (rgba(0,0,0,.42) + 20pt blur + 12pt radius)。
     private var lockedHoverOverlay: some View {
         VStack {
             HStack {
                 Spacer()
-                edgeButton("lock.fill", help: "desktop_lyrics_unlocked") {
-                    locked = false
+                Button { locked = false } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text("desktop_lyrics_locked_hint")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .foregroundStyle(.white.opacity(0.92))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(.ultraThinMaterial)
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color.black.opacity(0.42))
+                    }
+                    .contentShape(RoundedRectangle(cornerRadius: 12))
                 }
+                .buttonStyle(.plain)
+                .help(Text("desktop_lyrics_unlocked"))
             }
             Spacer()
         }
@@ -334,15 +352,13 @@ struct DesktopLyricsView: View {
         return 1
     }
 
-    // MARK: - Edge toolbar (按钮分散在 panel 四周)
+    // MARK: - Edge toolbar
 
-    /// 把所有按钮整合成顶部一行 HStack,横向 / 纵向都摆在同一处。
-    /// 按钮按功能组分 (媒体 / 排版 / 字号 / 锁定&关闭),组间用一个
-    /// 小 spacer 分开,组内紧凑排列。横向 panel 宽度足够,纵向 260pt
-    /// 左右也刚好够装下全部 10 个按钮 (220pt) + 留 padding。
+    /// 设计稿里的 hover chrome 只露出五个控制：上一首 / 播放 / 下一首 /
+    /// 锁定 / 设置。其它排版、颜色、字号和关闭动作放进设置 popover，
+    /// 避免按钮条压住歌词主体。
     private var topToolbar: some View {
         HStack(spacing: 2) {
-            // 媒体控制
             edgeButton("backward.fill", help: "previous_song") {
                 Task { await player.previous() }
             }
@@ -353,49 +369,105 @@ struct DesktopLyricsView: View {
             edgeButton("forward.fill", help: "next_song") {
                 Task { await player.next() }
             }
+            edgeButton("lock.open.fill", help: "lock_desktop_lyrics") {
+                locked = true
+            }
 
-            Spacer().frame(width: 8)
+            Button { settingsShown.toggle() } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.92))
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(Text("settings_title"))
+            .popover(isPresented: $settingsShown, arrowEdge: .bottom) {
+                settingsPopover
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background {
+            // 设计稿要求整条工具栏共享一个 rgba(0,0,0,.42) + 20pt blur + 12pt radius 玻璃面板
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.ultraThinMaterial)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.black.opacity(0.42))
+        }
+        .padding(.top, 6)
+        .padding(.trailing, 6)
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
 
-            // 排版 / 背景 / 颜色
-            edgeButton(layoutIconName, help: nextLayoutHelpKey) {
+    private var settingsPopover: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            settingsRow(icon: layoutIconName, title: nextLayoutHelpKey) {
                 let nextLayout = layout.next
                 layoutRaw = nextLayout.rawValue
                 onLayoutChange?(nextLayout)
             }
-            edgeButton(showBackground ? "rectangle.fill" : "rectangle",
-                       help: showBackground ? "hide_lyrics_background"
-                                            : "show_lyrics_background") {
+
+            settingsRow(icon: showBackground ? "rectangle.fill" : "rectangle",
+                        title: showBackground ? "hide_lyrics_background" : "show_lyrics_background") {
                 showBackground.toggle()
             }
-            edgeButton("paintpalette", help: "lyrics_color") {
-                colorPaletteShown.toggle()
+
+            Button { colorPaletteShown.toggle() } label: {
+                settingsRowLabel(icon: "paintpalette", title: "lyrics_color")
             }
-            .popover(isPresented: $colorPaletteShown, arrowEdge: .bottom) {
+            .buttonStyle(.plain)
+            .popover(isPresented: $colorPaletteShown, arrowEdge: .trailing) {
                 colorPalette
             }
 
-            Spacer().frame(width: 8)
+            Divider().padding(.vertical, 3)
 
-            // 字号
-            edgeButton("textformat.size.smaller", help: "lyrics_font_smaller") {
+            settingsRow(icon: "textformat.size.smaller", title: "lyrics_font_smaller") {
                 fontScale = max(minScale, fontScale - 0.15)
             }
-            edgeButton("textformat.size.larger", help: "lyrics_font_larger") {
+            settingsRow(icon: "textformat.size.larger", title: "lyrics_font_larger") {
                 fontScale = min(maxScale, fontScale + 0.15)
             }
 
-            Spacer().frame(width: 8)
+            Divider().padding(.vertical, 3)
 
-            // 锁定 / 关闭
-            edgeButton("lock.open.fill", help: "lock_desktop_lyrics") {
-                locked = true
-            }
-            edgeButton("xmark", help: "hide_desktop_lyrics") {
+            settingsRow(icon: "xmark", title: "hide_desktop_lyrics", role: .destructive) {
+                settingsShown = false
                 onClose()
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.top, 8)
+        .padding(6)
+        .frame(width: 220)
+    }
+
+    private func settingsRow(icon: String,
+                             title: LocalizedStringKey,
+                             role: ButtonRole? = nil,
+                             action: @escaping () -> Void) -> some View {
+        Button(role: role) {
+            action()
+        } label: {
+            settingsRowLabel(icon: icon, title: title, role: role)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func settingsRowLabel(icon: String,
+                                  title: LocalizedStringKey,
+                                  role: ButtonRole? = nil) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .medium))
+                .frame(width: 16)
+            Text(title)
+                .font(.system(size: 12.5))
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(role == .destructive ? Color.red : Color.primary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
     }
 
     /// 当前布局对应的图标 (按钮上显示的) + 切换 tooltip 翻译键
@@ -421,12 +493,11 @@ struct DesktopLyricsView: View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.85))
-                .frame(width: 22, height: 22)
-                .contentShape(Circle())
+                .foregroundStyle(.white.opacity(0.92))
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(Color.black.opacity(0.5), in: Circle())
         .help(Text(help))
     }
 

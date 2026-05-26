@@ -49,6 +49,14 @@ struct TagEditorView: View {
     }
 
     var body: some View {
+        #if os(macOS)
+        macBody
+        #else
+        legacyBody
+        #endif
+    }
+
+    private var legacyBody: some View {
         NavigationStack {
             Form {
                 coverSection
@@ -104,6 +112,268 @@ struct TagEditorView: View {
             }
         }
     }
+
+    #if os(macOS)
+    private var macBody: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 14) {
+                macCoverPreview(size: 56)
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                    }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("编辑标签")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(PMColor.text)
+                    Text("LIB-08 · 1 首选中 · 改动会写入资料库记录")
+                        .font(PMFont.caption)
+                        .foregroundStyle(PMColor.textMuted)
+                }
+
+                Spacer()
+
+                PhotosPicker(
+                    selection: $coverPickerItem,
+                    matching: .images,
+                    photoLibrary: .shared()
+                ) {
+                    Label("更换封面", systemImage: "photo.on.rectangle")
+                        .font(PMFont.bodyM)
+                        .foregroundStyle(PMColor.text)
+                        .padding(.horizontal, 10)
+                        .frame(height: 26)
+                        .background(PMColor.glassBtn, in: .rect(cornerRadius: 5))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                        }
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+
+            ScrollView {
+                VStack(spacing: 6) {
+                    macField("标题", text: $title, original: song.title)
+                    macField("艺术家", text: $artist, original: song.artistName ?? "")
+                    macField("专辑", text: $album, original: song.albumTitle ?? "")
+                    macReadOnlyField("格式", value: song.fileFormat.displayName)
+                    macReadOnlyField("音频规格", value: macAudioSpec)
+                    macField("流派", text: $genre, original: song.genre ?? "")
+                    macField("发行年", text: $yearText, original: song.year.map(String.init) ?? "")
+
+                    HStack(spacing: 10) {
+                        macField("曲目号", text: $trackText, original: song.trackNumber.map(String.init) ?? "")
+                        macField("碟号", text: $discText, original: song.discNumber.map(String.init) ?? "")
+                    }
+
+                    macReadOnlyField("文件大小", value: macFileSizeText)
+                    macReadOnlyField("时长", value: macDurationText)
+                    macReadOnlyField("文件位置", value: song.filePath, monospace: true)
+
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(PMColor.textFaint)
+                            .padding(.top, 1)
+                        Text("改动会保存到 Primuse 资料库记录；封面会写入本地缓存并同步显示。")
+                            .font(PMFont.caption)
+                            .foregroundStyle(PMColor.textFaint)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+                    .background(PMColor.rowHover, in: .rect(cornerRadius: 6))
+                    .padding(.top, 6)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+            }
+
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+
+            HStack(spacing: 10) {
+                Text(hasChanges ? "● \(macChangedCount) 处改动" : "未改动")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(hasChanges ? PMColor.brand : PMColor.textFaint)
+
+                Spacer()
+
+                Button {
+                    showResetConfirm = true
+                } label: {
+                    Text(String(localized: "tag_editor_reset"))
+                        .font(PMFont.bodyM)
+                        .foregroundStyle(hasChanges ? PMColor.text : PMColor.textFaint)
+                        .frame(height: 26)
+                        .padding(.horizontal, 12)
+                        .background(PMColor.glassBtn, in: .rect(cornerRadius: 5))
+                }
+                .buttonStyle(.plain)
+                .disabled(!hasChanges)
+
+                Button {
+                    dismiss()
+                } label: {
+                    Text(String(localized: "cancel"))
+                        .font(PMFont.bodyM)
+                        .foregroundStyle(PMColor.text)
+                        .frame(height: 26)
+                        .padding(.horizontal, 14)
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    save()
+                } label: {
+                    Text("保存并写回")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(height: 26)
+                        .padding(.horizontal, 14)
+                        .background(hasChanges ? PMColor.brand : PMColor.textFaint.opacity(0.45),
+                                    in: .rect(cornerRadius: 5))
+                }
+                .buttonStyle(.plain)
+                .disabled(!hasChanges)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+        }
+        .frame(width: 520, height: 620)
+        .background(PMColor.bg)
+        .foregroundStyle(PMColor.text)
+        .confirmationDialog(
+            String(localized: "tag_editor_reset_confirm"),
+            isPresented: $showResetConfirm,
+            titleVisibility: .visible
+        ) {
+            Button(String(localized: "tag_editor_reset"), role: .destructive) { resetFromOriginal() }
+            Button(String(localized: "cancel"), role: .cancel) {}
+        }
+        .onChange(of: coverPickerItem) { _, newItem in
+            Task { await loadPickedCover(newItem) }
+        }
+    }
+
+    @ViewBuilder
+    private func macCoverPreview(size: CGFloat) -> some View {
+        if let data = pickedCoverData, let img = PlatformImage(data: data) {
+            Image(nsImage: img)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: size, height: size)
+        } else {
+            CachedArtworkView(
+                coverRef: song.coverArtFileName,
+                songID: song.id,
+                size: size,
+                cornerRadius: 6,
+                sourceID: song.sourceID,
+                filePath: song.filePath
+            )
+        }
+    }
+
+    private func macField(_ label: String, text: Binding<String>, original: String) -> some View {
+        let changed = fieldChanged(text.wrappedValue, original)
+
+        return HStack(spacing: 10) {
+            Text(label)
+                .font(PMFont.bodyS)
+                .foregroundStyle(PMColor.textMuted)
+                .frame(width: 110, alignment: .leading)
+
+            TextField(label, text: text, prompt: Text(verbatim: "—"))
+                .textFieldStyle(.plain)
+                .font(PMFont.bodyS)
+                .foregroundStyle(PMColor.text)
+                .padding(.horizontal, 10)
+                .frame(height: 26)
+                .background(PMColor.bgElev, in: .rect(cornerRadius: 5))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .strokeBorder(changed ? PMColor.brand.opacity(0.55) : PMColor.dividerStrong, lineWidth: 0.5)
+                }
+
+            Circle()
+                .fill(changed ? PMColor.brand : .clear)
+                .frame(width: 8, height: 8)
+                .help(changed ? Text("已改动") : Text(verbatim: ""))
+        }
+    }
+
+    private func macReadOnlyField(_ label: String, value: String, monospace: Bool = false) -> some View {
+        HStack(spacing: 10) {
+            Text(label)
+                .font(PMFont.bodyS)
+                .foregroundStyle(PMColor.textMuted)
+                .frame(width: 110, alignment: .leading)
+
+            Text(value.isEmpty ? "—" : value)
+                .font(monospace ? .system(size: 11.5, design: .monospaced) : PMFont.bodyS)
+                .foregroundStyle(value.isEmpty ? PMColor.textFaint : PMColor.text)
+                .lineLimit(monospace ? 2 : 1)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 10)
+                .frame(height: monospace ? 34 : 26, alignment: .center)
+                .background(PMColor.bgElev.opacity(0.72), in: .rect(cornerRadius: 5))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .strokeBorder(PMColor.dividerStrong, lineWidth: 0.5)
+                }
+
+            Circle()
+                .fill(.clear)
+                .frame(width: 8, height: 8)
+        }
+    }
+
+    private var macChangedCount: Int {
+        var count = 0
+        if pickedCoverData != nil { count += 1 }
+        if fieldChanged(title, song.title) { count += 1 }
+        if fieldChanged(artist, song.artistName ?? "") { count += 1 }
+        if fieldChanged(album, song.albumTitle ?? "") { count += 1 }
+        if fieldChanged(genre, song.genre ?? "") { count += 1 }
+        if fieldChanged(yearText, song.year.map(String.init) ?? "") { count += 1 }
+        if fieldChanged(trackText, song.trackNumber.map(String.init) ?? "") { count += 1 }
+        if fieldChanged(discText, song.discNumber.map(String.init) ?? "") { count += 1 }
+        return count
+    }
+
+    private var macAudioSpec: String {
+        var parts: [String] = []
+        if let sr = song.sampleRate, sr > 0 { parts.append("\(sr / 1000) kHz") }
+        if let depth = song.bitDepth, depth > 0 { parts.append("\(depth)-bit") }
+        if let bitrate = song.bitRate, bitrate > 0 { parts.append("\(bitrate / 1000) kbps") }
+        return parts.isEmpty ? "—" : parts.joined(separator: " · ")
+    }
+
+    private var macFileSizeText: String {
+        guard song.fileSize > 0 else { return "—" }
+        return ByteCountFormatter.string(fromByteCount: song.fileSize, countStyle: .file)
+    }
+
+    private var macDurationText: String {
+        guard song.duration > 0 else { return "—" }
+        let total = Int(song.duration.rounded())
+        return String(format: "%d:%02d", total / 60, total % 60)
+    }
+
+    private func fieldChanged(_ current: String, _ original: String) -> Bool {
+        current.trimmingCharacters(in: .whitespacesAndNewlines)
+            != original.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    #endif
 
     @ViewBuilder
     private var coverSection: some View {

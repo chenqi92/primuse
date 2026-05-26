@@ -27,6 +27,14 @@ struct SmartPlaylistDetailView: View {
     }
 
     var body: some View {
+        #if os(macOS)
+        macBody
+        #else
+        legacyBody
+        #endif
+    }
+
+    private var legacyBody: some View {
         Group {
             if let smart {
                 ScrollView {
@@ -143,6 +151,212 @@ struct SmartPlaylistDetailView: View {
             }
         }
     }
+
+    #if os(macOS)
+    private var macBody: some View {
+        Group {
+            if let smart {
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        macHeader(smart)
+
+                        VStack(alignment: .leading, spacing: PMSpace.l) {
+                            macRuleCard(smart)
+                            macToolbar(smart)
+
+                            if matched.isEmpty {
+                                EmptyStateView(
+                                    titleKey: "smart_playlist_no_matches",
+                                    descriptionKey: "smart_playlist_no_matches_desc",
+                                    systemImage: "magnifyingglass"
+                                )
+                                .frame(maxWidth: .infinity)
+                                .padding(.top, 48)
+                            } else {
+                                macSongTable
+                            }
+                        }
+                        .padding(.horizontal, PMSpace.xxxl)
+                        .padding(.top, PMSpace.l)
+                    }
+                    .padding(.bottom, 112)
+                }
+                .background(PMColor.bg.ignoresSafeArea())
+                .navigationBarTitleDisplayMode(.inline)
+                .sheet(isPresented: $showEditor) {
+                    SmartPlaylistEditorView(existing: smart)
+                }
+            } else {
+                ContentUnavailableView(
+                    "smart_playlist_unavailable",
+                    systemImage: "questionmark.circle"
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(PMColor.bg.ignoresSafeArea())
+            }
+        }
+    }
+
+    private func macHeader(_ smart: SmartPlaylist) -> some View {
+        MacLibraryHeader(
+            eyebrow: "smart_playlists_section",
+            title: smart.name,
+            subtitle: "\(matched.count) \(String(localized: "songs_count")) · \(rulesSummary(smart))",
+            iconSystemName: "sparkles",
+            coverSong: matched.first(where: { $0.coverArtFileName?.isEmpty == false }) ?? matched.first,
+            accent: Color(red: 0.62, green: 0.44, blue: 0.90),
+            darkAccent: Color(red: 0.22, green: 0.24, blue: 0.42),
+            onPlay: playAll,
+            onShuffle: {
+                player.shuffleEnabled = true
+                playAll()
+            },
+            onMore: { showEditor = true }
+        )
+    }
+
+    private func macRuleCard(_ smart: SmartPlaylist) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "slider.horizontal.3")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(PMColor.brand)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(verbatim: "智能规则")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
+                Text(rulesSummary(smart))
+                    .font(.system(size: 12))
+                    .foregroundStyle(PMColor.textMuted)
+                    .lineLimit(2)
+            }
+
+            Spacer()
+
+            Button {
+                showEditor = true
+            } label: {
+                Text(verbatim: "编辑规则")
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(PMColor.text)
+                    .padding(.horizontal, 10)
+                    .frame(height: 24)
+                    .background(PMColor.glassBtn, in: .rect(cornerRadius: 6))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .pmGlass(cornerRadius: PMRadius.m10)
+    }
+
+    private func macToolbar(_ smart: SmartPlaylist) -> some View {
+        HStack(spacing: 8) {
+            Text("songs_count")
+                .font(.system(size: 11, weight: .semibold))
+                .textCase(.uppercase)
+                .foregroundStyle(PMColor.textFaint)
+            Spacer()
+            PMRoundBtn(icon: "arrow.down.circle", size: 26, iconSize: 12, style: .glass,
+                       help: "offline_download") {
+                sourceManager.downloadForOffline(songs: matched)
+            }
+            .disabled(matched.filteredPlayable().isEmpty)
+
+            PMRoundBtn(icon: "slider.horizontal.3", size: 26, iconSize: 12, style: .glass,
+                       help: "edit") {
+                showEditor = true
+            }
+        }
+        .padding(.top, -2)
+    }
+
+    private var macSongTable: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: PMSpace.s10) {
+                Text("#").frame(width: 28, alignment: .center)
+                Color.clear.frame(width: 36)
+                Text("sort_title").frame(maxWidth: .infinity, alignment: .leading)
+                Text("sort_artist").frame(width: 180, alignment: .leading)
+                Text("sort_album").frame(width: 180, alignment: .leading)
+                Text("sort_format").frame(width: 64, alignment: .leading)
+                Text("track_duration_short").frame(width: 56, alignment: .trailing)
+            }
+            .font(.system(size: 10.5, weight: .semibold))
+            .textCase(.uppercase)
+            .foregroundStyle(PMColor.textFaint)
+            .padding(.horizontal, PMSpace.s8)
+            .padding(.vertical, 6)
+
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+
+            LazyVStack(spacing: 1) {
+                ForEach(Array(matched.enumerated()), id: \.element.id) { index, song in
+                    macSongRow(song, index: index)
+                }
+            }
+            .padding(.vertical, 4)
+        }
+    }
+
+    private func macSongRow(_ song: Song, index: Int) -> some View {
+        let isCurrent = player.currentSong?.id == song.id
+        return Button { playSong(song) } label: {
+            HStack(spacing: PMSpace.s10) {
+                ZStack {
+                    if isCurrent {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(PMColor.brand)
+                    } else {
+                        Text("\(index + 1)")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(PMColor.textFaint)
+                    }
+                }
+                .frame(width: 28, alignment: .center)
+
+                CachedArtworkView(
+                    coverRef: song.coverArtFileName, songID: song.id,
+                    size: 32, cornerRadius: PMRadius.xs,
+                    sourceID: song.sourceID, filePath: song.filePath
+                )
+
+                Text(song.title)
+                    .font(.system(size: 12.5, weight: isCurrent ? .semibold : .regular))
+                    .foregroundStyle(isCurrent ? PMColor.brand : PMColor.text)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Text(song.artistName ?? "—")
+                    .font(.system(size: 12))
+                    .foregroundStyle(PMColor.textMuted)
+                    .lineLimit(1)
+                    .frame(width: 180, alignment: .leading)
+
+                Text(song.albumTitle ?? "—")
+                    .font(.system(size: 12))
+                    .foregroundStyle(PMColor.textMuted)
+                    .lineLimit(1)
+                    .frame(width: 180, alignment: .leading)
+
+                PMFormatPill.forFormat(song.fileFormat.displayName)
+                    .frame(width: 64, alignment: .leading)
+
+                Text(song.duration.formattedDuration)
+                    .font(.system(size: 11, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundStyle(PMColor.textFaint)
+                    .frame(width: 56, alignment: .trailing)
+            }
+            .padding(.horizontal, PMSpace.s8)
+            .padding(.vertical, 6)
+            .pmRowBackground(selected: isCurrent)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+    #endif
 
     // MARK: - Playback
 

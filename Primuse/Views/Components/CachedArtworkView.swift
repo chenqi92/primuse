@@ -44,7 +44,7 @@ struct CachedArtworkView: View {
 
     @Environment(SourceManager.self) private var sourceManager
     @State private var image: PlatformImage?
-    @State private var loadTask: Task<Void, Never>?
+    @State private var loadedIdentity: String?
 
 
     /// Memory cache holds *already-decoded* PlatformImages. Cost is reported
@@ -135,13 +135,9 @@ struct CachedArtworkView: View {
         }
         .aspectRatio(1, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-        .onAppear { loadImage() }
-        .onChange(of: coverRef) { _, _ in loadImage() }
-        .onChange(of: songID) { _, _ in loadImage() }
-        .onChange(of: albumID) { _, _ in loadImage() }
-        .onChange(of: artistID) { _, _ in loadImage() }
-        .onChange(of: revisionToken) { _, _ in loadImage() }
-        .onDisappear { loadTask?.cancel() }
+        .task(id: loadIdentity) {
+            await loadImage(for: loadIdentity)
+        }
     }
 
     /// body 拆出来 ── 直接写 if/else 链 SwiftUI ResultBuilder 类型推断超时,
@@ -210,19 +206,31 @@ struct CachedArtworkView: View {
         return (songID ?? coverRef ?? "") + suffix
     }
 
-    private func loadImage() {
+    private var loadIdentity: String {
+        "\(cacheKey)#rev\(revisionToken)"
+    }
+
+    private func loadImage(for identity: String) async {
         let key = cacheKey
-        guard !key.isEmpty else { image = nil; return }
+        guard !key.isEmpty else {
+            if image != nil { image = nil }
+            loadedIdentity = identity
+            return
+        }
+
+        guard loadedIdentity != identity || image == nil else { return }
+        if loadedIdentity != identity, image != nil {
+            image = nil
+        }
 
         let cacheNSKey = key as NSString
 
         // Tier 1: Memory cache — already decoded, hand it to the View directly.
         if let cached = Self.memoryCache.object(forKey: cacheNSKey) {
+            loadedIdentity = identity
             image = cached
             return
         }
-
-        loadTask?.cancel()
 
         // Capture everything the off-main path needs. SwiftUI Views are
         // @MainActor; the awaited helper is `nonisolated`, so the IO and
@@ -238,22 +246,25 @@ struct CachedArtworkView: View {
         let capturedFilePath = filePath
         let capturedSourceManager = sourceManager
 
-        loadTask = Task {
-            let decoded = await Self.loadAndDecode(
-                cacheKey: key,
-                bucket: capturedBucket,
-                ref: capturedRef,
-                songID: capturedSongID,
-                albumID: capturedAlbumID,
-                albumTitle: capturedAlbumTitle,
-                artistID: capturedArtistID,
-                artistName: capturedArtistName,
-                sourceID: capturedSourceID,
-                filePath: capturedFilePath,
-                sourceManager: capturedSourceManager
-            )
-            guard let decoded, !Task.isCancelled else { return }
+        let decoded = await Self.loadAndDecode(
+            cacheKey: key,
+            bucket: capturedBucket,
+            ref: capturedRef,
+            songID: capturedSongID,
+            albumID: capturedAlbumID,
+            albumTitle: capturedAlbumTitle,
+            artistID: capturedArtistID,
+            artistName: capturedArtistName,
+            sourceID: capturedSourceID,
+            filePath: capturedFilePath,
+            sourceManager: capturedSourceManager
+        )
+        guard !Task.isCancelled, loadIdentity == identity else { return }
+        loadedIdentity = identity
+        if let decoded {
             image = decoded
+        } else if image != nil {
+            image = nil
         }
     }
 

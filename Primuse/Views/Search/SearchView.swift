@@ -30,49 +30,11 @@ struct SearchView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if searchText.isEmpty {
-                    if library.visibleSongs.isEmpty {
-                        // Empty-library prompt — distinct from
-                        // "no search results", so use the unified
-                        // illustration. The "no matches for query"
-                        // path keeps Apple's polished system view.
-                        EmptyStateView(
-                            titleKey: "search_empty_library",
-                            descriptionKey: "search_empty_library_desc",
-                            systemImage: "magnifyingglass"
-                        )
-                    } else {
-                        recentSearchView
-                    }
-                } else if searchResults.isEmpty && matchingAlbums.isEmpty && appleMusic.searchResults.isEmpty {
-                    // 本地 + Apple Music 都没结果时才走 "无匹配" 视图。之前的
-                    // bug: 本地 0 + Apple Music 25 也会被这条分支吃掉, Apple
-                    // Music section 一起不显示, 用户搜长 query "街角的晚风"
-                    // 时表现成 "搜不到任何结果"。
-                    if isSearching || renderedQuery != searchText {
-                        searchingPlaceholder
-                    } else {
-                        ContentUnavailableView.search(text: searchText)
-                    }
-                } else {
-                    searchResultsView
-                }
-            }
-            .navigationTitle("search_title")
-            .toolbarTitleDisplayMode(.inlineLarge)
-            .searchable(text: $searchText, prompt: Text("search_prompt"))
-            .onSubmit(of: .search) {
-                addRecentSearch(searchText)
-            }
-            // SearchView 用自己的 NavigationStack, 没继承 ContentView 那边的
-            // album / artist 目的地, 需要自己再挂一遍。
-            .navigationDestination(for: PrimuseKit.Album.self) { album in
-                AlbumDetailView(album: album)
-            }
-            .navigationDestination(for: PrimuseKit.Artist.self) { artist in
-                ArtistDetailView(artist: artist)
-            }
+            #if os(macOS)
+            macBody
+            #else
+            iosBody
+            #endif
         }
         .onAppear(perform: loadRecentSearches)
         .onReceive(NotificationCenter.default.publisher(for: CloudKVSSync.externalChangeNotification)) { note in
@@ -82,21 +44,566 @@ struct SearchView: View {
         }
         .onChange(of: searchText) { _, newValue in
             performSearch(query: newValue)
-            // 同步触发 Apple Music 搜索, 服务内部自己 debounce + 鉴权
             appleMusic.search(query: newValue)
         }
         .onChange(of: library.searchRevision) { _, _ in
-            // 只 invalidate 歌词缓存 — 不立即重跑 performSearch。
-            // 后台 backfill / scan 会频繁翻 searchRevision (一批 50 首一次),
-            // 之前每次都触发 cancel + restart, 永远没 task 能跑完, 搜索条
-            // 卡在 loading。改成 lazy: 等用户下次输入或者 query 没变也无所谓
-            // (用户感知就是结果稍微 stale 而已, 而不是卡死)。
             lyricsSearchCache = LibrarySearchCache()
         }
-        .onDisappear {
-            searchTask?.cancel()
+        .onDisappear { searchTask?.cancel() }
+    }
+
+    private var iosBody: some View {
+        Group {
+            if searchText.isEmpty {
+                if library.visibleSongs.isEmpty {
+                    EmptyStateView(
+                        titleKey: "search_empty_library",
+                        descriptionKey: "search_empty_library_desc",
+                        systemImage: "magnifyingglass"
+                    )
+                } else {
+                    recentSearchView
+                }
+            } else if searchResults.isEmpty && matchingAlbums.isEmpty && appleMusic.searchResults.isEmpty {
+                if isSearching || renderedQuery != searchText {
+                    searchingPlaceholder
+                } else {
+                    ContentUnavailableView.search(text: searchText)
+                }
+            } else {
+                searchResultsView
+            }
+        }
+        .navigationTitle("search_title")
+        .toolbarTitleDisplayMode(.inlineLarge)
+        .searchable(text: $searchText, prompt: Text("search_prompt"))
+        .onSubmit(of: .search) { addRecentSearch(searchText) }
+        .navigationDestination(for: PrimuseKit.Album.self) { AlbumDetailView(album: $0) }
+        .navigationDestination(for: PrimuseKit.Artist.self) { ArtistDetailView(artist: $0) }
+    }
+
+    #if os(macOS)
+    private var macBody: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            macSearchHeader
+            macSearchContent
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .background(PMColor.bg.ignoresSafeArea())
+        .onSubmit(of: .search) { addRecentSearch(searchText) }
+        .navigationDestination(for: PrimuseKit.Album.self) { AlbumDetailView(album: $0) }
+        .navigationDestination(for: PrimuseKit.Artist.self) { ArtistDetailView(artist: $0) }
+    }
+
+    /// 顶部 48pt 圆角搜索框 + 过滤芯片。搜索框其实绑在主窗口 PMTitleBar 上, 这里
+    /// 仅展示当前查询并提供快速清除入口, 视觉上跟设计稿 S-01 对齐。
+    private var macSearchHeader: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(PMColor.brand)
+
+                if searchText.isEmpty {
+                    Text("search_placeholder_universal")
+                        .font(.system(size: 14))
+                        .foregroundStyle(PMColor.textFaint)
+                } else {
+                    Text(verbatim: searchText)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(PMColor.text)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                if !searchText.isEmpty {
+                    Button { searchText = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 14))
+                            .foregroundStyle(PMColor.textFaint)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 48)
+            .pmCard(cornerRadius: 12)
+
+            HStack(spacing: 8) {
+                chipText("\(String(localized: "search_chip_all")) · \(macTotalResultCount)", active: true)
+                chipText("\(String(localized: "tab_songs")) · \(searchResults.count)", active: false)
+                chipText("\(String(localized: "tab_albums")) · \(matchingAlbums.count)", active: false)
+                chipText("歌词命中 · \(searchResults.filter { $0.matchKind == .lyrics }.count)", active: false)
+                chipText("Apple Music · \(appleMusic.searchResults.count)", active: false)
+                Spacer()
+            }
+        }
+        .padding(.horizontal, PMSpace.xxxl)
+        .padding(.top, PMSpace.l)
+        .padding(.bottom, PMSpace.m)
+    }
+
+    @ViewBuilder
+    private var macSearchContent: some View {
+        if searchText.isEmpty {
+            if library.visibleSongs.isEmpty {
+                EmptyStateView(
+                    titleKey: "search_empty_library",
+                    descriptionKey: "search_empty_library_desc",
+                    systemImage: "magnifyingglass"
+                )
+            } else {
+                macRecentSearchView
+            }
+        } else if searchResults.isEmpty && matchingAlbums.isEmpty && appleMusic.searchResults.isEmpty {
+            if isSearching || renderedQuery != searchText {
+                macSearchingPlaceholder
+            } else {
+                ContentUnavailableView.search(text: searchText)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        } else {
+            macSearchResultsView
         }
     }
+
+    private var macRecentSearchView: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 10) {
+                    macSectionLabel("recent_searches")
+                    if recentSearches.isEmpty {
+                        Text("search_prompt")
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(PMColor.textFaint)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .pmCard(cornerRadius: 10)
+                    } else {
+                        HStack(alignment: .top) {
+                            MacSearchFlowLayout(spacing: 8, rowSpacing: 8) {
+                                ForEach(recentSearches, id: \.self) { query in
+                                    Button {
+                                        addRecentSearch(query)
+                                        searchText = query
+                                    } label: {
+                                        HStack(spacing: 6) {
+                                            Text(verbatim: query)
+                                            Image(systemName: "xmark")
+                                                .font(.system(size: 8, weight: .bold))
+                                                .opacity(0.55)
+                                        }
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(PMColor.textMuted)
+                                        .padding(.horizontal, 10)
+                                        .frame(height: 24)
+                                        .background(PMColor.glassBtn, in: Capsule())
+                                        .overlay { Capsule().strokeBorder(PMColor.cardBorder, lineWidth: 0.5) }
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            Spacer(minLength: 16)
+                            Button("clear_all", role: .destructive, action: clearRecentSearches)
+                                .font(.system(size: 11.5))
+                                .buttonStyle(.plain)
+                                .foregroundStyle(PMColor.bad)
+                        }
+                    }
+                }
+
+                HStack(spacing: 14) {
+                    macSummaryTile(value: "\(library.visibleSongs.count)", label: "tab_songs", icon: "music.note")
+                    macSummaryTile(value: "\(library.albums.count)", label: "tab_albums", icon: "square.stack")
+                    macSummaryTile(value: "\(library.artists.count)", label: "tab_artists", icon: "music.mic")
+                }
+            }
+            .padding(.horizontal, PMSpace.xxxl)
+            .padding(.bottom, 100)
+        }
+        .background(PMColor.bg)
+    }
+
+    private var macSearchResultsView: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            LazyVGrid(
+                columns: [GridItem(.flexible(), spacing: 32, alignment: .top),
+                          GridItem(.flexible(), spacing: 32, alignment: .top)],
+                alignment: .leading,
+                spacing: 24
+            ) {
+                VStack(alignment: .leading, spacing: 14) {
+                    macTopMatchSection
+                    macSongBucket(kind: .metadata, title: "search_section_metadata")
+                    macSongBucket(kind: .lyrics, title: "search_section_lyrics")
+                    macSongBucket(kind: .fuzzy, title: "search_section_fuzzy")
+                }
+
+                VStack(alignment: .leading, spacing: 24) {
+                    macAlbumsSection
+                    macAppleMusicSection
+                    macRecentSearchInlineSection
+                }
+            }
+            .padding(.horizontal, PMSpace.xxxl)
+            .padding(.bottom, 100)
+        }
+        .background(PMColor.bg)
+    }
+
+    private var macSearchingPlaceholder: some View {
+        VStack(spacing: 14) {
+            ProgressView().controlSize(.large)
+            Text("search_running")
+                .font(.system(size: 13))
+                .foregroundStyle(PMColor.textMuted)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(PMColor.bg)
+    }
+
+    private var macTopMatchSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            macSectionLabelText("顶部匹配")
+            if let album = matchingAlbums.first {
+                NavigationLink(value: album) {
+                    macTopCard(title: album.title,
+                               subtitle: "\(album.artistName ?? "") · \(String(localized: "tab_albums"))",
+                               systemImage: "square.stack",
+                               album: album)
+                }
+                .buttonStyle(.plain)
+            } else if let result = searchResults.first {
+                Button {
+                    playSong(result.song, lyricsHint: result.lyricSnippet, matchKind: result.matchKind)
+                } label: {
+                    macTopCard(title: result.song.title,
+                               subtitle: result.song.artistName ?? "",
+                               systemImage: "music.note",
+                               song: result.song)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var macAlbumsSection: some View {
+        if !matchingAlbums.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                macSectionLabel("tab_albums")
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 116), spacing: 14)], alignment: .leading, spacing: 14) {
+                    ForEach(Array(matchingAlbums.prefix(6))) { album in
+                        NavigationLink(value: album) {
+                            VStack(alignment: .leading, spacing: 7) {
+                                CachedArtworkView(albumID: album.id,
+                                                  albumTitle: album.title,
+                                                  artistName: album.artistName,
+                                                  size: nil,
+                                                  cornerRadius: 6)
+                                    .aspectRatio(1, contentMode: .fit)
+                                Text(album.title)
+                                    .font(.system(size: 11.5, weight: .medium))
+                                    .foregroundStyle(PMColor.text)
+                                    .lineLimit(1)
+                                Text(album.artistName ?? "")
+                                    .font(.system(size: 10.5))
+                                    .foregroundStyle(PMColor.textFaint)
+                                    .lineLimit(1)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var macAppleMusicSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            macSectionLabelText("Apple Music · Catalog")
+            HStack(spacing: 10) {
+                Image(systemName: "applelogo")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 20, height: 20)
+                    .background(Color(red: 0.98, green: 0.14, blue: 0.23), in: .rect(cornerRadius: 4))
+                Text(appleMusicStatusText)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(PMColor.textMuted)
+                Spacer()
+            }
+            .padding(14)
+            .pmCard(cornerRadius: 10)
+
+            ForEach(appleMusic.searchResults.prefix(5), id: \.id) { song in
+                Button {
+                    Task { await appleMusic.play(song) }
+                } label: {
+                    HStack(spacing: 10) {
+                        AsyncImage(url: song.artwork?.url(width: 64, height: 64)) { phase in
+                            if let image = phase.image {
+                                image.resizable().aspectRatio(contentMode: .fill)
+                            } else {
+                                RoundedRectangle(cornerRadius: 5).fill(PMColor.rowHover)
+                            }
+                        }
+                        .frame(width: 32, height: 32)
+                        .clipShape(RoundedRectangle(cornerRadius: 5))
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(song.title)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(PMColor.text)
+                                .lineLimit(1)
+                            Text(song.artistName)
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(PMColor.textFaint)
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        Image(systemName: "plus")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(PMColor.textFaint)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .pmRowBackground(cornerRadius: 6)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var macRecentSearchInlineSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            macSectionLabel("recent_searches")
+            MacSearchFlowLayout(spacing: 8, rowSpacing: 8) {
+                ForEach(recentSearches.prefix(8), id: \.self) { query in
+                    Button {
+                        addRecentSearch(query)
+                        searchText = query
+                    } label: {
+                        Text(verbatim: query)
+                            .font(.system(size: 11))
+                            .foregroundStyle(PMColor.textMuted)
+                            .padding(.horizontal, 10)
+                            .frame(height: 24)
+                            .background(PMColor.glassBtn, in: Capsule())
+                            .overlay { Capsule().strokeBorder(PMColor.cardBorder, lineWidth: 0.5) }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func macSongBucket(kind: LibrarySearchMatchKind, title: LocalizedStringKey) -> some View {
+        let bucket = Array(searchResults.filter { $0.matchKind == kind }.prefix(kind == .lyrics ? 3 : 6))
+        if !bucket.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                macSectionLabel(title)
+                ForEach(bucket) { result in
+                    if kind == .lyrics, let snippet = result.lyricSnippet {
+                        macLyricsResultCard(result: result, snippet: snippet)
+                    } else {
+                        macSongResultRow(result)
+                    }
+                }
+            }
+        }
+    }
+
+    private func macTopCard(title: String,
+                            subtitle: String,
+                            systemImage: String,
+                            album: PrimuseKit.Album? = nil,
+                            song: PrimuseKit.Song? = nil) -> some View {
+        HStack(spacing: 16) {
+            Group {
+                if let song {
+                    CachedArtworkView(coverRef: song.coverArtFileName,
+                                      songID: song.id,
+                                      size: 80,
+                                      cornerRadius: 40,
+                                      sourceID: song.sourceID,
+                                      filePath: song.filePath)
+                } else if let album {
+                    CachedArtworkView(albumID: album.id,
+                                      albumTitle: album.title,
+                                      artistName: album.artistName,
+                                      size: 80,
+                                      cornerRadius: 40)
+                } else {
+                    Circle()
+                        .fill(PMColor.rowHover)
+                        .frame(width: 80, height: 80)
+                        .overlay { Image(systemName: systemImage).foregroundStyle(PMColor.textFaint) }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(verbatim: title)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
+                    .lineLimit(1)
+                Text(verbatim: subtitle)
+                    .font(.system(size: 12))
+                    .foregroundStyle(PMColor.textMuted)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Image(systemName: "play.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 36, height: 36)
+                .background(PMColor.brand, in: Circle())
+        }
+        .padding(16)
+        .pmCard(cornerRadius: 12)
+    }
+
+    private func macSongResultRow(_ result: LibrarySearchResult) -> some View {
+        Button {
+            playSong(result.song, lyricsHint: result.lyricSnippet, matchKind: result.matchKind)
+        } label: {
+            HStack(spacing: 12) {
+                CachedArtworkView(coverRef: result.song.coverArtFileName,
+                                  songID: result.song.id,
+                                  size: 32,
+                                  cornerRadius: 5,
+                                  sourceID: result.song.sourceID,
+                                  filePath: result.song.filePath)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(result.song.title)
+                        .font(.system(size: 12.5, weight: .medium))
+                        .foregroundStyle(PMColor.text)
+                        .lineLimit(1)
+                    Text(result.song.artistName ?? "")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(PMColor.textFaint)
+                        .lineLimit(1)
+                }
+                Spacer()
+                Text(formatSearchTime(result.song.duration))
+                    .font(.system(size: 11, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundStyle(PMColor.textMuted)
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(PMColor.textFaint)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .pmRowBackground(cornerRadius: 6)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func macLyricsResultCard(result: LibrarySearchResult, snippet: String) -> some View {
+        Button {
+            playSong(result.song, lyricsHint: snippet, matchKind: .lyrics)
+        } label: {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(result.song.title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
+                    .lineLimit(1)
+                Text(snippet)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(PMColor.textMuted)
+                    .lineLimit(2)
+                Text("跳到歌词上下文")
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(PMColor.textFaint)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(PMColor.rowHover, in: .rect(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func macSummaryTile(value: String, label: LocalizedStringKey, icon: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(PMColor.brand)
+            Text(verbatim: value)
+                .font(.system(size: 28, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(PMColor.text)
+            Text(label)
+                .font(.system(size: 12))
+                .foregroundStyle(PMColor.textMuted)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .pmCard(cornerRadius: 12)
+    }
+
+    private func macSectionLabel(_ key: LocalizedStringKey) -> some View {
+        Text(key)
+            .font(.system(size: 11, weight: .semibold))
+            .tracking(0.8)
+            .textCase(.uppercase)
+            .foregroundStyle(PMColor.textFaint)
+    }
+
+    private func macSectionLabelText(_ text: String) -> some View {
+        Text(verbatim: text)
+            .font(.system(size: 11, weight: .semibold))
+            .tracking(0.8)
+            .textCase(.uppercase)
+            .foregroundStyle(PMColor.textFaint)
+    }
+
+    private func chipText(_ title: String, active: Bool) -> some View {
+        Text(verbatim: title)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(active ? .white : PMColor.textMuted)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+            .background(
+                active ? AnyShapeStyle(PMColor.brand) : AnyShapeStyle(PMColor.glassBtn),
+                in: Capsule()
+            )
+            .overlay {
+                Capsule().strokeBorder(active ? .clear : PMColor.cardBorder, lineWidth: 0.5)
+            }
+    }
+
+    private var macTotalResultCount: Int {
+        searchResults.count + matchingAlbums.count + appleMusic.searchResults.count
+    }
+
+    private var appleMusicStatusText: String {
+        switch appleMusic.authState {
+        case .notDetermined:
+            return String(localized: "apple_music_notice_notDetermined")
+        case .denied, .restricted:
+            return String(localized: "apple_music_notice_denied")
+        case .authorized:
+            if appleMusic.isSearching {
+                return String(localized: "search_apple_music_loading")
+            }
+            if let error = appleMusic.lastSearchError {
+                return error
+            }
+            return "已订阅 · 同步用户库 · \(appleMusic.searchResults.count) 个结果"
+        }
+    }
+
+    private func formatSearchTime(_ t: TimeInterval) -> String {
+        guard t.isFinite, t >= 0 else { return "0:00" }
+        let total = Int(t)
+        return String(format: "%d:%02d", total / 60, total % 60)
+    }
+    #endif
 
     private var recentSearchView: some View {
         List {
@@ -405,3 +912,58 @@ struct SearchView: View {
         CloudKVSSync.shared.markChanged(key: Self.recentSearchesKey)
     }
 }
+
+#if os(macOS)
+private struct MacSearchFlowLayout: Layout {
+    var spacing: CGFloat = 8
+    var rowSpacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? 480
+        let rows = rows(in: maxWidth, subviews: subviews)
+        return CGSize(width: maxWidth, height: rows.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX
+        var y = bounds.minY
+        var lineHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > bounds.minX, x + size.width > bounds.maxX {
+                x = bounds.minX
+                y += lineHeight + rowSpacing
+                lineHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            lineHeight = max(lineHeight, size.height)
+        }
+    }
+
+    private func rows(in maxWidth: CGFloat, subviews: Subviews) -> (height: CGFloat, count: Int) {
+        guard subviews.isEmpty == false else { return (0, 0) }
+
+        var x: CGFloat = 0
+        var height: CGFloat = 0
+        var lineHeight: CGFloat = 0
+        var count = 1
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > maxWidth {
+                height += lineHeight + rowSpacing
+                x = 0
+                lineHeight = 0
+                count += 1
+            }
+            x += size.width + spacing
+            lineHeight = max(lineHeight, size.height)
+        }
+
+        height += lineHeight
+        return (height, count)
+    }
+}
+#endif

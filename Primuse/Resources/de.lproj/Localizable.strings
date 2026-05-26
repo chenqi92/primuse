@@ -83,3 +83,22 @@
 "a11y_close_lyrics" = "Liedtext ausblenden";
 "a11y_favorite_add" = "Zur Wiedergabeliste hinzufügen";
 "a11y_more_actions" = "Weitere Aktionen";
+
+// MARK: - macOS Seitenleiste (1.6)
+"sidebar_playlists_empty" = "Keine Wiedergabelisten";
+"sidebar_sources_empty" = "Keine Quellen";
+"search_placeholder_universal" = "Lokal + Apple Music suchen";
+"sidebar_toggle" = "Seitenleiste umschalten";
+
+// MARK: - 1.6 macOS Home redesign
+"home_recently_added_subtitle" = "Newest in your library";
+"home_recently_played_subtitle" = "On repeat lately";
+"home_artists_subtitle" = "Who you listen to most";
+"home_section_view_all" = "See all";
+"home_no_scans_short" = "Idle";
+"home_no_playing" = "Nothing playing";
+"home_pipeline_metadata_done" = "Done";
+"save_as_playlist" = "Als Playlist sichern...";
+"material" = "Material";
+"sidebar_width" = "Seitenleistenbreite";
+"ambient_strength" = "Ambient-Stärke";

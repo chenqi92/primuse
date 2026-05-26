@@ -1,4 +1,5 @@
 #if os(macOS)
+import AppKit
 import SwiftUI
 import PrimuseKit
 
@@ -23,6 +24,8 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @State private var showAddToPlaylist = false
     @State private var showScrapeOptions = false
     @State private var showSongInfo = false
+    @State private var showTagEditor = false
+    @State private var showSimilarSongs = false
     @State private var showSleepTimer = false
     @State private var showDeleteConfirm = false
     @State private var scrapeAlertMessage: String?
@@ -40,6 +43,29 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     }
 
     var body: some View {
+        #if os(macOS)
+        baseBody
+            .popover(isPresented: $showSleepTimer, arrowEdge: .top) {
+                MacSleepTimerPopover {
+                    showSleepTimer = false
+                }
+            }
+        #else
+        baseBody
+            .confirmationDialog(String(localized: "sleep_timer"), isPresented: $showSleepTimer) {
+                Button("15 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 15) }
+                Button("30 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 30) }
+                Button("45 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 45) }
+                Button("60 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 60) }
+                if player.isSleepTimerActive {
+                    Button(String(localized: "cancel_timer"), role: .destructive) { player.cancelSleep() }
+                }
+                Button(String(localized: "cancel"), role: .cancel) {}
+            }
+        #endif
+    }
+
+    private var baseBody: some View {
         Button { menuShown.toggle() } label: {
             label()
         }
@@ -74,15 +100,19 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 SongInfoSheet(song: song)
             }
         }
-        .confirmationDialog(String(localized: "sleep_timer"), isPresented: $showSleepTimer) {
-            Button("15 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 15) }
-            Button("30 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 30) }
-            Button("45 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 45) }
-            Button("60 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 60) }
-            if player.isSleepTimerActive {
-                Button(String(localized: "cancel_timer"), role: .destructive) { player.cancelSleep() }
+        .sheet(isPresented: $showTagEditor) {
+            if let song = player.currentSong {
+                TagEditorView(song: song) { updated in
+                    player.syncSongMetadata(updated)
+                    player.forceRefreshNowPlayingArtwork()
+                }
             }
-            Button(String(localized: "cancel"), role: .cancel) {}
+        }
+        .sheet(isPresented: $showSimilarSongs) {
+            if let song = player.currentSong {
+                SimilarSongsSheet(seed: song)
+                    .frame(minWidth: 420, minHeight: 420)
+            }
         }
         .alert(String(localized: "scrape_song"),
                isPresented: Binding(get: { scrapeAlertMessage != nil },
@@ -128,6 +158,31 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                     disabled: player.currentSong == nil) {
                 showAddToPlaylist = true
             }
+            menuRow(title: "similar_songs",
+                    symbol: "sparkles",
+                    disabled: player.currentSong == nil) {
+                showSimilarSongs = true
+            }
+            if let song = player.currentSong {
+                if let album = matchingAlbum(for: song) {
+                    menuRow(titleText: "\(goToAlbumTitle) · \(album.title)",
+                            symbol: "rectangle.stack.fill") {
+                        NotificationCenter.default.post(name: .primuseDetailOpenAlbum, object: album)
+                    }
+                }
+                if let artist = matchingArtist(for: song) {
+                    menuRow(titleText: "\(goToArtistTitle) · \(artist.name)",
+                            symbol: "music.mic") {
+                        NotificationCenter.default.post(name: .primuseDetailOpenArtist, object: artist)
+                    }
+                }
+            }
+            divider()
+            menuRow(title: "tag_editor_menu",
+                    symbol: "tag",
+                    disabled: player.currentSong == nil) {
+                showTagEditor = true
+            }
             menuRow(title: "scrape_song", symbol: "wand.and.stars",
                     disabled: player.currentSong == nil || isScrapingCurrentSong) {
                 showScrapeOptions = true
@@ -142,10 +197,14 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                     HStack(spacing: 10) {
                         Image(systemName: "square.and.arrow.up")
                             .frame(width: 18)
-                        Text("share").font(.callout)
+                            .foregroundStyle(PMColor.textMuted)
+                        Text("share")
+                            .font(.callout)
+                            .foregroundStyle(PMColor.text)
                         Spacer()
                     }
                     .padding(.horizontal, 12).padding(.vertical, 6)
+                    .pmRowBackground(cornerRadius: 6)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -155,11 +214,15 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             Button { fontPickerShown.toggle() } label: {
                 HStack(spacing: 10) {
                     Image(systemName: "textformat.size").frame(width: 18)
-                    Text("lyrics_font_size").font(.callout)
+                        .foregroundStyle(PMColor.textMuted)
+                    Text("lyrics_font_size")
+                        .font(.callout)
+                        .foregroundStyle(PMColor.text)
                     Spacer()
-                    Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.secondary)
+                    Image(systemName: "chevron.right").font(.caption2).foregroundStyle(PMColor.textFaint)
                 }
                 .padding(.horizontal, 12).padding(.vertical, 6)
+                .pmRowBackground(cornerRadius: 6)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -171,6 +234,12 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                     symbol: player.isSleepTimerActive ? "moon.zzz.fill" : "moon.zzz") {
                 showSleepTimer = true
             }
+            menuRow(title: "scrobble_title", symbol: "waveform.path.ecg") {
+                NotificationCenter.default.post(name: .primuseSelectScrobble, object: nil)
+            }
+            menuRow(titleText: playbackSettingsTitle, symbol: "slider.horizontal.3") {
+                openSettingsWindow()
+            }
             divider()
             menuRow(title: "delete_song", symbol: "trash", role: .destructive,
                     disabled: player.currentSong == nil) {
@@ -179,7 +248,17 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         }
         .padding(.vertical, 6)
         .frame(width: 260)
-        .background(.regularMaterial)
+        .background {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.ultraThinMaterial)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(PMColor.bg.opacity(0.68))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
+        .shadow(color: .black.opacity(0.22), radius: 18, y: 8)
     }
 
     private func menuHeader(_ song: Song) -> some View {
@@ -196,10 +275,11 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(song.title)
                     .font(.callout.weight(.semibold))
+                    .foregroundStyle(PMColor.text)
                     .lineLimit(1)
                 Text(song.artistName ?? String(localized: "unknown_artist"))
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(PMColor.textMuted)
                     .lineLimit(1)
             }
 
@@ -219,13 +299,39 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             HStack(spacing: 10) {
                 Image(systemName: symbol)
                     .frame(width: 18)
-                    .foregroundStyle(role == .destructive ? Color.red : .primary)
+                    .foregroundStyle(role == .destructive ? PMColor.bad : PMColor.textMuted)
                 Text(title)
                     .font(.callout)
-                    .foregroundStyle(role == .destructive ? Color.red : .primary)
+                    .foregroundStyle(role == .destructive ? PMColor.bad : PMColor.text)
                 Spacer()
             }
             .padding(.horizontal, 12).padding(.vertical, 6)
+            .pmRowBackground(cornerRadius: 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+    }
+
+    private func menuRow(titleText: String, symbol: String,
+                         role: ButtonRole? = nil, disabled: Bool = false,
+                         action: @escaping () -> Void) -> some View {
+        Button(role: role) {
+            menuShown = false
+            action()
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: symbol)
+                    .frame(width: 18)
+                    .foregroundStyle(role == .destructive ? PMColor.bad : PMColor.textMuted)
+                Text(verbatim: titleText)
+                    .font(.callout)
+                    .foregroundStyle(role == .destructive ? PMColor.bad : PMColor.text)
+                    .lineLimit(1)
+                Spacer()
+            }
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .pmRowBackground(cornerRadius: 6)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -233,7 +339,11 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     }
 
     private func divider() -> some View {
-        Divider().padding(.vertical, 4).padding(.horizontal, 8)
+        Rectangle()
+            .fill(PMColor.divider)
+            .frame(height: 0.5)
+            .padding(.vertical, 4)
+            .padding(.horizontal, 8)
     }
 
     private var fontPickerPopover: some View {
@@ -245,6 +355,16 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         }
         .padding(.vertical, 6)
         .frame(width: 160)
+        .background {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(.ultraThinMaterial)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(PMColor.bg.opacity(0.70))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
     }
 
     private func fontPickerRow(_ title: LocalizedStringKey, value: Double) -> some View {
@@ -253,14 +373,18 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             fontPickerShown = false
         } label: {
             HStack {
-                Text(title).font(.callout)
+                Text(title)
+                    .font(.callout)
+                    .foregroundStyle(PMColor.text)
                 Spacer()
                 if abs(lyricsFontScale - value) < 0.001 {
                     Image(systemName: "checkmark")
-                        .font(.caption).foregroundStyle(Color.accentColor)
+                        .font(.caption)
+                        .foregroundStyle(PMColor.brand)
                 }
             }
             .padding(.horizontal, 12).padding(.vertical, 6)
+            .pmRowBackground(cornerRadius: 6)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -294,6 +418,231 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         sourceManager.deleteAudioCache(for: song)
         let remaining = library.deleteSong(song)
         sourcesStore.updateLocal(song.sourceID) { $0.songCount = remaining }
+    }
+
+    private var goToAlbumTitle: String {
+        NSLocalizedString("go_to_album", tableName: nil, bundle: .main, value: "Go to Album", comment: "")
+    }
+
+    private var goToArtistTitle: String {
+        NSLocalizedString("go_to_artist", tableName: nil, bundle: .main, value: "Go to Artist", comment: "")
+    }
+
+    private var playbackSettingsTitle: String {
+        NSLocalizedString("playback_settings_title", tableName: nil, bundle: .main, value: "Playback Settings", comment: "")
+    }
+
+    private func matchingAlbum(for song: Song) -> Album? {
+        if let id = song.albumID,
+           let album = library.visibleAlbums.first(where: { $0.id == id }) {
+            return album
+        }
+
+        guard let title = trimmed(song.albumTitle), !title.isEmpty else { return nil }
+        let artistName = trimmed(song.artistName)
+        return library.visibleAlbums.first { album in
+            guard album.title.localizedCaseInsensitiveCompare(title) == .orderedSame else { return false }
+            guard let artistName, !artistName.isEmpty else { return true }
+            return (album.artistName ?? "").localizedCaseInsensitiveCompare(artistName) == .orderedSame
+        }
+    }
+
+    private func matchingArtist(for song: Song) -> Artist? {
+        if let id = song.artistID,
+           let artist = library.visibleArtists.first(where: { $0.id == id }) {
+            return artist
+        }
+
+        guard let name = trimmed(song.artistName), !name.isEmpty else { return nil }
+        return library.visibleArtists.first {
+            $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame
+        }
+    }
+
+    private func trimmed(_ value: String?) -> String? {
+        value?.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func openSettingsWindow() {
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+}
+
+private struct MacSleepTimerPopover: View {
+    var onClose: () -> Void
+
+    @Environment(AudioPlayerService.self) private var player
+    @State private var customMinutes: Double = 30
+    @State private var now = Date()
+
+    private let presets = [15, 30, 45, 60]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                ForEach(presets, id: \.self) { minutes in
+                    presetButton(minutes)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 8)
+            .padding(.bottom, 12)
+
+            VStack(alignment: .leading, spacing: 10) {
+                Button {
+                    player.scheduleSleepAtTrackEnd()
+                    onClose()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 10))
+                        Text("sleep_at_track_end")
+                            .font(.system(size: 12, weight: .medium))
+                        Spacer()
+                        if player.sleepStopAfterSongID != nil {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 10, weight: .semibold))
+                        }
+                    }
+                    .foregroundStyle(PMColor.text)
+                    .padding(.horizontal, 12)
+                    .frame(height: 34)
+                    .background(PMColor.glassBtn, in: .rect(cornerRadius: 8))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                    }
+                }
+                .buttonStyle(.plain)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("自定义 (分钟)")
+                            .font(.system(size: 11))
+                            .foregroundStyle(PMColor.textFaint)
+                        Spacer()
+                        Text("\(Int(customMinutes))")
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(PMColor.textMuted)
+                    }
+                    Slider(value: $customMinutes, in: 5...120, step: 5)
+                        .tint(PMColor.brand)
+                    Button {
+                        player.scheduleSleep(minutes: Int(customMinutes))
+                        onClose()
+                    } label: {
+                        Text("设置自定义定时")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 28)
+                            .background(PMColor.brand, in: .rect(cornerRadius: 7))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.bottom, 12)
+
+            footer
+        }
+        .frame(width: 280)
+        .background {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(.ultraThinMaterial)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(PMColor.bg.opacity(0.72))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
+        .shadow(color: .black.opacity(0.24), radius: 22, y: 10)
+        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { value in
+            now = value
+        }
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("睡眠定时器")
+                .font(.system(size: 13.5, weight: .semibold))
+                .foregroundStyle(PMColor.text)
+            Text("P-14 · SleepTimerService")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(PMColor.textFaint)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .padding(.bottom, 6)
+    }
+
+    private func presetButton(_ minutes: Int) -> some View {
+        let selected = selectedPreset == minutes
+        return Button {
+            player.scheduleSleep(minutes: minutes)
+            onClose()
+        } label: {
+            Text("\(minutes) \(String(localized: "minutes"))")
+                .font(.system(size: 12.5, weight: selected ? .semibold : .medium))
+                .foregroundStyle(selected ? .white : PMColor.text)
+                .frame(maxWidth: .infinity)
+                .frame(height: 34)
+                .background(selected ? PMColor.brand : PMColor.glassBtn, in: .rect(cornerRadius: 8))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(selected ? .clear : PMColor.cardBorder, lineWidth: 0.5)
+                }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var footer: some View {
+        HStack {
+            Text(statusText)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(player.isSleepTimerActive ? PMColor.brand : PMColor.textFaint)
+                .lineLimit(1)
+            Spacer()
+            if player.isSleepTimerActive {
+                Button {
+                    player.cancelSleep()
+                    onClose()
+                } label: {
+                    Text("cancel_timer")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(PMColor.bad)
+                        .frame(height: 24)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .overlay(alignment: .top) {
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+        }
+    }
+
+    private var selectedPreset: Int? {
+        guard let end = player.sleepTimerEndDate else { return nil }
+        let minutes = Int(round(end.timeIntervalSince(now) / 60.0))
+        return presets.min(by: { abs($0 - minutes) < abs($1 - minutes) })
+            .flatMap { abs($0 - minutes) <= 1 ? $0 : nil }
+    }
+
+    private var statusText: String {
+        if let end = player.sleepTimerEndDate {
+            let remaining = max(0, Int(end.timeIntervalSince(now)))
+            return "剩余 \(TimeInterval(remaining).formattedDuration)"
+        }
+        if player.sleepStopAfterSongID != nil {
+            return "当前歌曲结束后停止"
+        }
+        return "未启用"
     }
 }
 #endif

@@ -31,22 +31,226 @@ struct ArtistDetailView: View {
     ]
 
     var body: some View {
-        Group {
-            #if os(macOS)
-            ScrollView(.vertical, showsIndicators: false) {
-                detailContent
-                    .frame(maxWidth: 980, alignment: .leading)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-                    .padding(.bottom, 112)
-            }
-            #else
-            ScrollView {
-                detailContent
-            }
-            #endif
+        #if os(macOS)
+        macBody
+        #else
+        ScrollView {
+            detailContent
         }
         .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
+
+    #if os(macOS)
+    private var macBody: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+                macHero
+
+                VStack(alignment: .leading, spacing: 24) {
+                    if albums.isEmpty && songs.isEmpty {
+                        EmptyStateView(
+                            titleKey: "no_songs",
+                            descriptionKey: "no_songs_desc",
+                            systemImage: "music.mic"
+                        )
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 48)
+                    } else {
+                        if !songs.isEmpty {
+                            macActionRow
+                            macTopSongs
+                        }
+
+                        if !albums.isEmpty {
+                            macAlbums
+                        }
+                    }
+                }
+                .padding(.horizontal, PMSpace.xxxl)
+                .padding(.top, PMSpace.l24)
+            }
+            .padding(.bottom, 112)
+        }
+        .background(PMColor.bg.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var macHero: some View {
+        ZStack(alignment: .bottomLeading) {
+            AmbientBackdrop(
+                accent: Color(red: 0.78, green: 0.43, blue: 0.34),
+                darkAccent: Color(red: 0.18, green: 0.13, blue: 0.20),
+                strength: 0.82
+            )
+
+            HStack(alignment: .bottom, spacing: 22) {
+                CachedArtworkView(
+                    artistID: artist.id,
+                    artistName: artist.name,
+                    size: 138,
+                    cornerRadius: 69
+                )
+                .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
+
+                VStack(alignment: .leading, spacing: 9) {
+                    Text(verbatim: "艺术家")
+                        .font(.system(size: 11, weight: .semibold))
+                        .textCase(.uppercase)
+                        .foregroundStyle(Color.white.opacity(0.72))
+
+                    Text(artist.name)
+                        .font(.system(size: 48, weight: .bold))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.72)
+
+                    Text(verbatim: "\(visibleSongCount) \(String(localized: "songs_count")) · \(albums.count) \(String(localized: "albums_count"))")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color.white.opacity(0.74))
+                }
+
+                Spacer()
+            }
+            .padding(.horizontal, 36)
+            .padding(.vertical, 32)
+        }
+        .frame(height: 260)
+        .clipped()
+    }
+
+    private var macActionRow: some View {
+        HStack(spacing: 8) {
+            Button(action: playAll) {
+                Label("play_all", systemImage: "play.fill")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .padding(.horizontal, 18)
+                    .frame(height: 32)
+                    .background(PMColor.brand, in: .rect(cornerRadius: 8))
+                    .foregroundStyle(.white)
+            }
+            .buttonStyle(.plain)
+            .disabled(playableSongs.isEmpty)
+
+            Button(action: shuffleAll) {
+                Label("shuffle", systemImage: "shuffle")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .padding(.horizontal, 14)
+                    .frame(height: 32)
+                    .background(PMColor.glassBtn, in: .rect(cornerRadius: 8))
+                    .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(PMColor.cardBorder, lineWidth: 0.5) }
+                    .foregroundStyle(PMColor.text)
+            }
+            .buttonStyle(.plain)
+            .disabled(playableSongs.count < 2)
+
+            Spacer()
+        }
+    }
+
+    private var macTopSongs: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            macSectionTitle("热门")
+
+            VStack(spacing: 1) {
+                ForEach(Array(songs.prefix(8).enumerated()), id: \.element.id) { index, song in
+                    macTopSongRow(song, index: index)
+                }
+            }
+        }
+    }
+
+    private var macAlbums: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            macSectionTitle(String(localized: "albums_section"))
+
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 140, maximum: 180), spacing: 18, alignment: .top)],
+                alignment: .leading,
+                spacing: 22
+            ) {
+                ForEach(albums) { album in
+                    NavigationLink(value: album) {
+                        macAlbumTile(album)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private func macSectionTitle(_ title: String) -> some View {
+        Text(verbatim: title)
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(PMColor.text)
+    }
+
+    private func macTopSongRow(_ song: Song, index: Int) -> some View {
+        let isCurrent = player.currentSong?.id == song.id
+        return Button { playSong(song) } label: {
+            HStack(spacing: 12) {
+                Text("\(index + 1)")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(PMColor.textFaint)
+                    .frame(width: 24, alignment: .center)
+
+                CachedArtworkView(
+                    coverRef: song.coverArtFileName,
+                    songID: song.id,
+                    size: 32,
+                    cornerRadius: 4,
+                    sourceID: song.sourceID,
+                    filePath: song.filePath
+                )
+
+                Text(song.title)
+                    .font(.system(size: 12.5, weight: isCurrent ? .semibold : .medium))
+                    .foregroundStyle(isCurrent ? PMColor.brand : PMColor.text)
+                    .lineLimit(1)
+
+                Spacer(minLength: 12)
+
+                PMFormatPill.forFormat(song.fileFormat.displayName)
+                    .frame(width: 70, alignment: .leading)
+
+                Text(song.duration.formattedDuration)
+                    .font(.system(size: 11, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundStyle(PMColor.textMuted)
+                    .frame(width: 58, alignment: .trailing)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .pmRowBackground(selected: isCurrent)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func macAlbumTile(_ album: Album) -> some View {
+        let song = library.songs(forAlbum: album.id).first
+        return VStack(alignment: .leading, spacing: 8) {
+            CachedArtworkView(
+                coverRef: song?.coverArtFileName,
+                songID: song?.id ?? "",
+                cornerRadius: PMRadius.s,
+                sourceID: song?.sourceID,
+                filePath: song?.filePath
+            )
+            .aspectRatio(1, contentMode: .fit)
+            .shadow(color: .black.opacity(0.20), radius: 8, y: 4)
+
+            Text(album.title)
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(PMColor.text)
+                .lineLimit(1)
+            Text(album.year.map(String.init) ?? "\(library.songs(forAlbum: album.id).count) \(String(localized: "songs_count"))")
+                .font(.system(size: 10.5))
+                .foregroundStyle(PMColor.textFaint)
+                .lineLimit(1)
+        }
+    }
+    #endif
 
     private var detailContent: some View {
         VStack(spacing: 24) {
@@ -149,7 +353,7 @@ struct ArtistDetailView: View {
                         }
                         #if os(macOS)
                         .padding(.horizontal, 12)
-                        .background(.background.secondary, in: .rect(cornerRadius: 8))
+                        .background(PMColor.bgElev, in: .rect(cornerRadius: 8))
                         .padding(.horizontal, 24)
                         #endif
                     }

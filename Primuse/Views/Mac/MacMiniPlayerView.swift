@@ -15,12 +15,10 @@ struct MacMiniPlayerView: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(AudioEngine.self) private var engine
     @Environment(SourceManager.self) private var sourceManager
-    @Environment(SourcesStore.self) private var sourcesStore
-    @Environment(MetadataBackfillService.self) private var backfill
+    @Environment(ThemeService.self) private var theme
     @State private var lyrics: [LyricLine] = []
     @State private var currentIndex: Int = 0
     @State private var airPlayShown = false
-    @State private var volumeShown = false
 
     /// 下半部分内容模式 —— 跟 Apple Music 一样,Lyrics / Queue 是互斥的
     /// 内容面板,工具条上的按钮高亮的就是当前激活模式。默认折叠 (.none)
@@ -32,25 +30,54 @@ struct MacMiniPlayerView: View {
     var body: some View {
         ZStack {
             ambientBackdrop
-            VStack(spacing: 12) {
-                topToolbar
-                scrubber
-                transport
-                // 折叠时不渲染分割线和面板,VStack 只剩控件,窗口缩成一
-                // 小块。展开时分割线+面板接在控件下面,窗口高度由 controller
-                // 拉到 540。transition + 顶层 animation 让面板淡入淡出
-                // 跟窗口尺寸动画对齐,看起来一气呵成。
-                if bottomMode != .none {
-                    Divider().opacity(0.3)
-                        .transition(.opacity)
-                    bottomPanel
-                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+            VStack(spacing: 0) {
+                Color.clear.frame(height: 32)
+
+                VStack(spacing: 10) {
+                    coverArea
+                    metaArea
+                    scrubber
+                    transport
+
+                    if bottomMode != .none {
+                        subviewTabs
+                            .padding(.top, 4)
+                            .transition(.opacity)
+                    }
                 }
+                .padding(.horizontal, 16)
+
+                if bottomMode != .none {
+                    bottomPanel
+                        .padding(.horizontal, 18)
+                        .padding(.top, 14)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                } else {
+                    Spacer(minLength: 0)
+                }
+
+                footerToolbar
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 14)
-            .padding(.bottom, 16)
             .animation(.easeInOut(duration: 0.28), value: bottomMode)
+        }
+        .overlay(alignment: .topLeading) {
+            PMWindowTrafficLights()
+                .padding(.top, 3)
+                .padding(.leading, 10)
+        }
+        .overlay(alignment: .topTrailing) {
+            Button {
+                bottomMode = bottomMode == .none ? .lyrics : .none
+            } label: {
+                miniIcon(bottomMode == .none ? "chevron.up" : "chevron.down",
+                         tint: .white.opacity(0.86))
+                    .frame(width: 22, height: 22)
+            }
+            .buttonStyle(.plain)
+            .glassEffect(.regular.interactive(), in: .circle)
+            .padding(.top, 5)
+            .padding(.trailing, 12)
+            .help(Text(bottomMode == .none ? "show" : "hide"))
         }
         .task(id: player.currentSong?.id) { await reloadLyrics() }
         .onChange(of: player.currentTime) { _, t in updateIndex(time: t) }
@@ -65,39 +92,85 @@ struct MacMiniPlayerView: View {
     // MARK: - Backdrop
 
     private var ambientBackdrop: some View {
-        ZStack {
-            Color(nsColor: .windowBackgroundColor)
+        AmbientBackdrop(
+            accent: theme.accentColor,
+            darkAccent: theme.darkAccent,
+            strength: 0.78
+        )
+        .ignoresSafeArea()
+    }
+
+    /// 折叠态居中显示的 96pt 封面 — 跟设计稿 NP-Mini 一致。
+    private var coverArea: some View {
+        Group {
             if let song = player.currentSong {
                 CachedArtworkView(
-                    coverRef: song.coverArtFileName,
-                    songID: song.id,
-                    size: nil,
-                    cornerRadius: 0,
-                    sourceID: song.sourceID,
-                    filePath: song.filePath
+                    coverRef: song.coverArtFileName, songID: song.id,
+                    size: 96, cornerRadius: 10,
+                    sourceID: song.sourceID, filePath: song.filePath
                 )
-                .blur(radius: 50)
-                .opacity(0.55)
-                .scaleEffect(2.0)
-                .clipped()
-                .allowsHitTesting(false)
+            } else {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(.white.opacity(0.12))
+                    .frame(width: 96, height: 96)
+                    .overlay {
+                        Image(systemName: "music.note")
+                            .font(.system(size: 30))
+                            .foregroundStyle(.white.opacity(0.55))
+                    }
             }
-            Rectangle().fill(.ultraThinMaterial)
         }
-        .ignoresSafeArea()
+        .frame(maxWidth: .infinity)
+        .shadow(color: .black.opacity(0.32), radius: 12, y: 5)
+    }
+
+    /// 标题/艺术家 — 居中显示, 紧贴 cover 下方。
+    private var metaArea: some View {
+        VStack(spacing: 2) {
+            Text(player.currentSong?.title ?? "—")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Text(player.currentSong?.artistName ?? "")
+                .font(.system(size: 11))
+                .foregroundStyle(.white.opacity(0.72))
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: - Top toolbar
 
-    private var topToolbar: some View {
-        HStack(spacing: 6) {
-            PlayerMoreMenu {
-                miniIcon("ellipsis")
-            }
-            .frame(width: 28, height: 28)
-            .fixedSize()
-            .glassEffect(.regular.interactive(), in: .circle)
+    private var subviewTabs: some View {
+        HStack(spacing: 16) {
+            miniTab("lyrics_word", mode: .lyrics)
+            miniTab("queue_title", mode: .queue)
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
 
+    private func miniTab(_ title: LocalizedStringKey, mode: BottomMode) -> some View {
+        let active = bottomMode == mode
+        return Button {
+            bottomMode = mode
+        } label: {
+            Text(title)
+                .font(.system(size: 11.5, weight: active ? .semibold : .medium))
+                .foregroundStyle(active ? .white : .white.opacity(0.5))
+                .padding(.vertical, 4)
+                .overlay(alignment: .bottom) {
+                    Capsule()
+                        .fill(active ? Color.white : Color.clear)
+                        .frame(height: 2)
+                }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var footerToolbar: some View {
+        HStack(spacing: 6) {
             // Lyrics 切换 —— 高亮 = 当前下半部分显示歌词。再点切到 .none
             // 隐藏面板,留给封面更多空间。
             Button {
@@ -131,37 +204,32 @@ struct MacMiniPlayerView: View {
             }
             .help(Text("audio_output"))
 
-            // Volume —— 点击弹一个小 popover,里面是音量 slider。
-            Button { volumeShown.toggle() } label: {
-                miniIcon(volumeSymbol, tint: volumeShown ? Color.accentColor : .secondary)
+            Spacer(minLength: 8)
+
+            Image(systemName: volumeSymbol)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.white.opacity(0.62))
+                .frame(width: 14)
+
+            MiniVolumeSlider(value: Binding(
+                get: { Double(engine.volume) },
+                set: { engine.volume = Float($0) }
+            ))
+            .frame(width: 60, height: 14)
+
+            PlayerMoreMenu {
+                miniIcon("ellipsis", tint: .secondary)
             }
-            .buttonStyle(.plain)
+            .frame(width: 28, height: 28)
+            .fixedSize()
             .glassEffect(.regular.interactive(), in: .circle)
-            .popover(isPresented: $volumeShown, arrowEdge: .top) {
-                volumePopover
-            }
         }
         .frame(maxWidth: .infinity, alignment: .center)
-    }
-
-    private var volumePopover: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "speaker.fill")
-                .font(.caption).foregroundStyle(.secondary)
-            Slider(
-                value: Binding(
-                    get: { Double(engine.volume) },
-                    set: { engine.volume = Float($0) }
-                ),
-                in: 0...1
-            )
-            .controlSize(.small)
-            .frame(width: 160)
-            Image(systemName: "speaker.wave.2.fill")
-                .font(.caption).foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 12)
         .padding(.vertical, 10)
+        .overlay(alignment: .top) {
+            Rectangle().fill(.white.opacity(0.08)).frame(height: 0.5)
+        }
     }
 
     private var volumeSymbol: String {
@@ -192,7 +260,7 @@ struct MacMiniPlayerView: View {
             HStack {
                 Text(formatTime(player.currentTime))
                 Spacer()
-                Text("-\(formatTime(max(0, player.duration - player.currentTime)))")
+                Text(formatTime(player.duration))
             }
             .font(.caption2).monospacedDigit().foregroundStyle(.secondary)
         }
@@ -460,6 +528,34 @@ private struct ScrubberLine: View {
         )
         .controlSize(.small)
         .tint(.secondary)
+    }
+}
+
+private struct MiniVolumeSlider: View {
+    @Binding var value: Double
+
+    var body: some View {
+        GeometryReader { geo in
+            let width = geo.size.width
+            let fraction = CGFloat(max(0, min(1, value)))
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(.white.opacity(0.18))
+                    .frame(height: 3)
+                Capsule()
+                    .fill(.white.opacity(0.78))
+                    .frame(width: width * fraction, height: 3)
+            }
+            .frame(height: geo.size.height, alignment: .center)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { gesture in
+                        guard width > 0 else { return }
+                        value = Double(max(0, min(1, gesture.location.x / width)))
+                    }
+            )
+        }
     }
 }
 #endif

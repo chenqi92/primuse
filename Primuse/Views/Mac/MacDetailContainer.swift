@@ -15,11 +15,36 @@ struct MacDetailContainer: View {
     var body: some View {
         NavigationStack(path: $path) {
             content
+                .id(route.stableID)
+                .transaction { transaction in
+                    transaction.animation = nil
+                }
                 .navigationDestination(for: Album.self) { AlbumDetailView(album: $0) }
                 .navigationDestination(for: Artist.self) { ArtistDetailView(artist: $0) }
                 .navigationDestination(for: Playlist.self) { PlaylistDetailView(playlist: $0) }
+                // 隐藏 NavigationStack 顶部的原生 toolbar 区域 — 我们用 PMTitleBar
+                // 自定义了全局 titlebar, 子视图里的 .toolbar/.searchable 不应再
+                // 叠出第二条系统 bar (会出现 "搜索歌曲" + 排序按钮悬空在最顶)。
+                .toolbar(.hidden, for: .windowToolbar)
         }
-        .onChange(of: route) { _, _ in path = NavigationPath() }
+        .onChange(of: route) { _, _ in
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                path = NavigationPath()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .primuseDetailGoBack)) { _ in
+            if !path.isEmpty { path.removeLast() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .primuseDetailOpenAlbum)) { note in
+            guard let album = note.object as? Album else { return }
+            pushAlbum(album)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .primuseDetailOpenArtist)) { note in
+            guard let artist = note.object as? Artist else { return }
+            pushArtist(artist)
+        }
     }
 
     @ViewBuilder
@@ -59,6 +84,15 @@ struct MacDetailContainer: View {
                 PlaylistListView()
                     .navigationTitle(section.title)
             }
+        case .liked:
+            PlaylistDetailView(
+                playlist: library.playlists.first(where: { $0.id == MusicLibrary.likedSongsPlaylistID })
+                    ?? Playlist(id: MusicLibrary.likedSongsPlaylistID, name: String(localized: "playlist_liked_name"))
+            )
+            .navigationTitle("playlist_liked_name")
+        case .playlist(let playlist):
+            PlaylistDetailView(playlist: playlist)
+                .navigationTitle(Text(verbatim: playlist.name))
         case .source(let id):
             // Sources don't yet have a per-source detail view — for now
             // route the click to the songs filtered by that source.
@@ -66,6 +100,22 @@ struct MacDetailContainer: View {
             let name = sourcesStore.sources.first(where: { $0.id == id })?.name ?? ""
             SongListView(songs: songs)
                 .navigationTitle(Text(verbatim: name))
+        }
+    }
+
+    private func pushAlbum(_ album: Album) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            path.append(album)
+        }
+    }
+
+    private func pushArtist(_ artist: Artist) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            path.append(artist)
         }
     }
 }

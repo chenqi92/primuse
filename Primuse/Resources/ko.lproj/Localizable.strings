@@ -83,3 +83,22 @@
 "a11y_close_lyrics" = "가사 숨김";
 "a11y_favorite_add" = "재생 목록에 추가";
 "a11y_more_actions" = "추가 작업";
+
+// MARK: - macOS 사이드바 (1.6)
+"sidebar_playlists_empty" = "플레이리스트 없음";
+"sidebar_sources_empty" = "소스 없음";
+"search_placeholder_universal" = "로컬 + Apple Music 검색";
+"sidebar_toggle" = "사이드바 토글";
+
+// MARK: - 1.6 macOS Home redesign
+"home_recently_added_subtitle" = "Newest in your library";
+"home_recently_played_subtitle" = "On repeat lately";
+"home_artists_subtitle" = "Who you listen to most";
+"home_section_view_all" = "See all";
+"home_no_scans_short" = "Idle";
+"home_no_playing" = "Nothing playing";
+"home_pipeline_metadata_done" = "Done";
+"save_as_playlist" = "플레이리스트로 저장...";
+"material" = "재질";
+"sidebar_width" = "사이드바 너비";
+"ambient_strength" = "앰비언트 강도";

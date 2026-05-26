@@ -65,55 +65,63 @@ struct ArtistListView: View {
             } else if filteredArtists.isEmpty {
                 ContentUnavailableView.search(text: searchText)
             } else {
-                ScrollView(.vertical, showsIndicators: false) {
-                    LazyVGrid(
-                        columns: [GridItem(.adaptive(minimum: 220, maximum: 320), spacing: 12, alignment: .top)],
-                        alignment: .leading,
-                        spacing: 12
-                    ) {
-                        ForEach(filteredArtists) { artist in
-                            NavigationLink(value: artist) {
-                                artistCard(artist)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(.horizontal, 24)
-                    .padding(.top, 16)
-                    .padding(.bottom, 112)
-                }
+                macArtistsContent
             }
         }
-        .searchable(text: $searchText,
-                    placement: .toolbar,
-                    prompt: Text("search_artists_prompt"))
     }
 
-    private func artistCard(_ artist: Artist) -> some View {
+    private var macArtistsContent: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+                MacLibraryHeader(
+                    eyebrow: "library_title",
+                    title: "tab_artists",
+                    subtitle: "\(artists.count) \(String(localized: "artists_count"))",
+                    iconSystemName: "music.mic"
+                )
+
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 220, maximum: 280), spacing: PMSpace.m, alignment: .top)],
+                    alignment: .leading,
+                    spacing: PMSpace.m
+                ) {
+                    ForEach(filteredArtists) { artist in
+                        NavigationLink(value: artist) {
+                            macArtistCard(artist)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, PMSpace.xxxl)
+                .padding(.top, PMSpace.l)
+            }
+            .padding(.bottom, 112)
+        }
+        .background(PMColor.bg.ignoresSafeArea())
+    }
+
+    private func macArtistCard(_ artist: Artist) -> some View {
         HStack(spacing: 12) {
             CachedArtworkView(artistID: artist.id, artistName: artist.name,
-                              size: 54, cornerRadius: 27)
-
-            VStack(alignment: .leading, spacing: 4) {
+                              size: 48, cornerRadius: 24)
+            VStack(alignment: .leading, spacing: 3) {
                 Text(artist.name)
-                    .font(.headline)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
                     .lineLimit(1)
-
                 Text("\(artist.albumCount) \(String(localized: "albums_count")) · \(artist.songCount) \(String(localized: "songs_count"))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 11))
+                    .foregroundStyle(PMColor.textFaint)
                     .lineLimit(1)
             }
-
             Spacer(minLength: 0)
-
             Image(systemName: "chevron.right")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.tertiary)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(PMColor.textFaint)
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, minHeight: 78, alignment: .leading)
-        .background(.background.secondary, in: .rect(cornerRadius: 8))
+        .padding(.horizontal, PMSpace.m)
+        .padding(.vertical, 10)
+        .pmCard(cornerRadius: PMRadius.m)
     }
     #endif
 }

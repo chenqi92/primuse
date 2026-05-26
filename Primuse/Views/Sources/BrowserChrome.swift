@@ -84,7 +84,15 @@ struct DirectoryBreadcrumb: View {
             }
         }
         #if os(macOS)
-        .background(.regularMaterial)
+        .background {
+            ZStack {
+                PMColor.bg
+                PMColor.card.opacity(0.72)
+            }
+        }
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+        }
         #else
         .background(.bar)
         #endif
@@ -155,7 +163,10 @@ struct BrowserBottomBar: View {
             #endif
         }
         #if os(macOS)
-        .background(.regularMaterial)
+        .background(PMColor.bg)
+        .overlay(alignment: .top) {
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+        }
         #else
         .background(.bar)
         #endif

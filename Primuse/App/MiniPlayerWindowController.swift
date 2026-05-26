@@ -27,7 +27,7 @@ final class MiniPlayerWindowController: NSWindowController, NSWindowDelegate {
 
     convenience init() {
         let win = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: Self.collapsedHeight),
+            contentRect: NSRect(x: 0, y: 0, width: 300, height: Self.collapsedHeight),
             styleMask: [.titled, .closable, .fullSizeContentView, .resizable],
             backing: .buffered,
             defer: false
@@ -35,10 +35,17 @@ final class MiniPlayerWindowController: NSWindowController, NSWindowDelegate {
         win.titlebarAppearsTransparent = true
         win.titleVisibility = .hidden
         win.isMovableByWindowBackground = true
+        [
+            NSWindow.ButtonType.closeButton,
+            .miniaturizeButton,
+            .zoomButton,
+        ].forEach { type in
+            win.standardWindowButton(type)?.isHidden = true
+        }
         win.level = .floating
         win.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         win.isReleasedWhenClosed = false
-        win.minSize = NSSize(width: 280, height: Self.collapsedHeight)
+        win.minSize = NSSize(width: 300, height: Self.collapsedHeight)
         win.title = "Primuse Mini Player"
 
         // 第一次展示居中右下,跟 macOS 习惯的 mini 播放器位置一致。

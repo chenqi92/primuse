@@ -1139,3 +1139,41 @@
 "notify_rescrape_done_title" = "重新刮削完成";
 "notify_scrape_missing_done_title" = "缺失元数据补全完成";
 "dup_cleaning_progress_format" = "正在清理 %d / %d";
+
+// MARK: - 新版 macOS 侧栏 (1.6 重设计)
+"sidebar_playlists_empty" = "暂无歌单";
+"sidebar_sources_empty" = "暂无音乐源";
+"search_placeholder_universal" = "搜索本地库 + Apple Music";
+"sidebar_toggle" = "切换侧栏";
+
+// MARK: - 1.6 macOS Home 重设计
+"home_recently_added_subtitle" = "最新加入资料库";
+"home_recently_played_subtitle" = "你最近的循环";
+"home_artists_subtitle" = "经常听的人";
+"home_section_view_all" = "全部";
+"home_no_scans_short" = "无扫描";
+"home_no_playing" = "未播放";
+"home_pipeline_metadata_done" = "已完成";
+"track_duration_short" = "时长";
+"desktop_lyrics_locked_hint" = "已锁定 · ⌘⇧L 解锁";
+"search_chip_all" = "全部";
+"search_chip_local" = "本地";
+"search_chip_apple_music" = "Apple Music";
+"save_as_playlist" = "保存为歌单...";
+"material" = "材质";
+"sidebar_width" = "侧栏宽度";
+"ambient_strength" = "环境色强度";
+
+// MARK: - 1.6 macOS Home Hero 叙事 / Update banner
+"home_hero_narrative_morning" = "早上好, 你的资料库里有 %@ 个故事";
+"home_hero_narrative_afternoon" = "下午好, 你的资料库里有 %@ 个故事";
+"home_hero_narrative_evening" = "晚上好, 你的资料库里藏着 %@ 个故事";
+"home_hero_narrative_night" = "今晚, 你的资料库里藏着 %@ 个故事";
+"home_hero_stats_with_days" = "来自 %d 个源 · %d 张专辑 · %d 位艺术家 · 总时长 %d 天 %d 小时";
+"home_hero_stats_hours_only" = "来自 %d 个源 · %d 张专辑 · %d 位艺术家 · 总时长 %d 小时";
+"update_banner_title_format" = "Primuse %@ 已发布";
+"update_banner_subtitle" = "前往 App Store 立即更新";
+"update_banner_action" = "立即更新";
+"go_to_album" = "前往专辑";
+"go_to_artist" = "前往艺术家";
+"playback_settings_title" = "播放设置";

@@ -79,6 +79,8 @@
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>猿音需要访问本地网络以发现和连接您的 NAS 设备、媒体服务器及其他音乐源。</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Primuse uses headphone motion to keep Spatial Audio anchored while you move your head.</string>
 	<key>NSSiriUsageDescription</key>
 	<string>用 Siri 语音点播、控制猿音播放。</string>
 	<key>NSSupportsLiveActivities</key>
@@ -86,6 +88,7 @@
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>INPlayMediaIntent</string>
+		<string>com.welape.yuanyin.nowplaying</string>
 	</array>
 	<key>PrimuseBaiduClientID</key>
 	<string>$(BAIDU_CLIENT_ID)</string>
@@ -120,6 +123,17 @@
 					<string>CarPlay</string>
 					<key>UISceneDelegateClassName</key>
 					<string>$(PRODUCT_MODULE_NAME).CarPlaySceneDelegate</string>
+				</dict>
+			</array>
+			<key>UIWindowSceneSessionRoleExternalDisplayNonInteractive</key>
+			<array>
+				<dict>
+					<key>UISceneClassName</key>
+					<string>UIWindowScene</string>
+					<key>UISceneConfigurationName</key>
+					<string>ExternalDisplay</string>
+					<key>UISceneDelegateClassName</key>
+					<string>$(PRODUCT_MODULE_NAME).ExternalDisplaySceneDelegate</string>
 				</dict>
 			</array>
 		</dict>

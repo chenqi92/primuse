@@ -21,13 +21,12 @@ struct MacNowPlayingView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(SourceManager.self) private var sourceManager
-    @Environment(SourcesStore.self) private var sourcesStore
+    @Environment(ThemeService.self) private var theme
 
     @State private var lyrics: [LyricLine] = []
     @State private var currentIndex: Int = 0
     @State private var isScrapingCurrentSong = false
     @State private var scrapeAlertMessage: String?
-    @State private var showAddToPlaylist = false
     /// 当前主窗口是否处于 macOS 全屏。全屏时切到 Apple Music 风格的极
     /// 简布局——只显示巨幅封面和歌曲信息,不再排歌词列表/浮动按钮。
     @State private var isWindowFullScreen = false
@@ -39,12 +38,14 @@ struct MacNowPlayingView: View {
 
     private static let lyricsMinScale: Double = 0.7
     private static let lyricsMaxScale: Double = 1.8
-    private static let lyricsActiveBaseSize: CGFloat = 22
-    private static let lyricsInactiveBaseSize: CGFloat = 17
+    private static let lyricsActiveBaseSize: CGFloat = 30
+    private static let lyricsInactiveBaseSize: CGFloat = 22
+    private static let lyricsActiveBaseSizeFS: CGFloat = 44
+    private static let lyricsInactiveBaseSizeFS: CGFloat = 28
 
-    private var isInAnyPlaylist: Bool {
+    private var isCurrentLiked: Bool {
         guard let songID = player.currentSong?.id else { return false }
-        return library.playlists.contains { library.contains(songID: songID, inPlaylist: $0.id) }
+        return library.isLiked(songID: songID)
     }
 
     var body: some View {
@@ -92,13 +93,6 @@ struct MacNowPlayingView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
             isWindowFullScreen = false
         }
-        // heart 直接弹「加入播放列表」sheet,这里独立保留;其余 more 菜单
-        // 项全部走 PlayerMoreMenu(底栏 + NowPlaying 共用同一份逻辑)。
-        .sheet(isPresented: $showAddToPlaylist) {
-            if let song = player.currentSong {
-                AddToPlaylistSheet(song: song)
-            }
-        }
         .alert(String(localized: "scrape_song"),
                isPresented: Binding(get: { scrapeAlertMessage != nil },
                                     set: { if !$0 { scrapeAlertMessage = nil } })) {
@@ -122,10 +116,10 @@ struct MacNowPlayingView: View {
             VStack(spacing: 8) {
                 Text("player_empty_title")
                     .font(.system(size: 34, weight: .bold))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(.white)
                 Text("player_empty_message")
                     .font(.title3)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white.opacity(0.72))
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
             }
@@ -133,33 +127,15 @@ struct MacNowPlayingView: View {
         }
     }
 
-    /// 完全铺满的 ambient backdrop —— 之前 `regularMaterial + 0.35
-    /// 透明度的 cover blur` 在浅色模式下两侧像两条白边,封面色完全
-    /// 没扩散到边缘。改成: 底层放放大的封面虚化(更高 opacity + 更大
-    /// scaleEffect 保证铺满) → 上面叠 ultraThinMaterial 软化 → 外层
-    /// .ignoresSafeArea 让 backdrop 也覆盖到 NowPlaying 容器边缘外。
+    /// 1.6 重设计后的 ambient backdrop — 由 ThemeService 的动态 accent (从封面提取)
+    /// 驱动多色斑模糊, 替代之前的 cover blur + ultraThinMaterial 组合, 让背景跟着
+    /// 当前歌曲色调走, 跟设计稿 AmbientBackdrop 视觉一致。
     private var backdrop: some View {
-        ZStack {
-            // 浅色基底,确保 cover blur 没图时也不会透出底层 detail 视图。
-            Color(nsColor: .windowBackgroundColor)
-            if let song = player.currentSong {
-                CachedArtworkView(
-                    coverRef: song.coverArtFileName,
-                    songID: song.id,
-                    size: nil,
-                    cornerRadius: 0,
-                    sourceID: song.sourceID,
-                    filePath: song.filePath
-                )
-                .blur(radius: 60)
-                .opacity(0.55)
-                .scaleEffect(2.4)
-                .clipped()
-                .allowsHitTesting(false)
-            }
-            // 软化 cover 的强烈色块,变成 Apple Music 那种朦胧渐变感。
-            Rectangle().fill(.ultraThinMaterial)
-        }
+        AmbientBackdrop(
+            accent: theme.accentColor,
+            darkAccent: theme.darkAccent,
+            strength: 0.85
+        )
         .ignoresSafeArea()
     }
 
@@ -192,18 +168,25 @@ struct MacNowPlayingView: View {
             .shadow(color: .black.opacity(0.18), radius: 20, y: 8)
 
             VStack(alignment: .leading, spacing: 6) {
+                if let format = player.currentSong?.fileFormat.displayName, !format.isEmpty {
+                    Text(format.uppercased())
+                        .font(.system(size: 11, weight: .semibold))
+                        .tracking(1.2)
+                        .foregroundStyle(.white.opacity(0.62))
+                }
                 Text(player.currentSong?.title ?? "")
-                    .font(.system(size: 26, weight: .bold))
-                    .foregroundStyle(.primary)
+                    .font(.system(size: isWindowFullScreen ? 44 : 32, weight: .bold))
+                    .tracking(-0.6)
+                    .foregroundStyle(.white)
                     .lineLimit(2)
                 Text(player.currentSong?.artistName ?? "")
                     .font(.system(size: 16))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white.opacity(0.78))
                     .lineLimit(1)
                 if let album = player.currentSong?.albumTitle, !album.isEmpty {
                     Text(album)
-                        .font(.system(size: 14))
-                        .foregroundStyle(.tertiary)
+                        .font(.system(size: 13.5))
+                        .foregroundStyle(.white.opacity(0.62))
                         .lineLimit(1)
                 }
             }
@@ -225,15 +208,19 @@ struct MacNowPlayingView: View {
                             VStack(spacing: 12) {
                                 Text("no_lyrics")
                                     .font(.title3)
-                                    .foregroundStyle(.tertiary)
+                                    .foregroundStyle(.white.opacity(0.6))
                                 Button {
                                     Task { await scrapeCurrentSong() }
                                 } label: {
                                     Label("scrape_song", systemImage: "wand.and.stars")
-                                        .font(.subheadline)
+                                        .font(.system(size: 12.5, weight: .semibold))
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 7)
+                                        .background(Color.white.opacity(0.18), in: Capsule())
+                                        .overlay { Capsule().strokeBorder(.white.opacity(0.22), lineWidth: 0.5) }
+                                        .foregroundStyle(.white)
                                 }
-                                .buttonStyle(.bordered)
-                                .controlSize(.regular)
+                                .buttonStyle(.plain)
                                 .disabled(isScrapingCurrentSong)
                             }
                             .frame(maxWidth: .infinity, alignment: .center)
@@ -241,7 +228,7 @@ struct MacNowPlayingView: View {
                     } else {
                         ForEach(Array(lyrics.enumerated()), id: \.element.id) { i, line in
                             let isActive = i == currentIndex
-                            let baseSize = isActive ? Self.lyricsActiveBaseSize : Self.lyricsInactiveBaseSize
+                            let baseSize = activeFontSize(isActive: isActive)
                             macLyricLine(line: line, index: i, isActive: isActive, fontSize: baseSize)
                                 .id(line.id)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -252,8 +239,9 @@ struct MacNowPlayingView: View {
                     }
                     Spacer(minLength: 200).frame(height: 200)
                 }
-                .padding(.horizontal, 24)
+                .padding(.horizontal, PMSpace.l24)
             }
+            .pmVerticalFadeMask(startStop: 0.12, endStop: 0.88)
             .onChange(of: currentIndex) { _, new in
                 guard !lyrics.isEmpty, new < lyrics.count else { return }
                 withAnimation(.easeInOut(duration: 0.3)) {
@@ -263,24 +251,33 @@ struct MacNowPlayingView: View {
         }
     }
 
+    private func activeFontSize(isActive: Bool) -> CGFloat {
+        if isWindowFullScreen {
+            return isActive ? Self.lyricsActiveBaseSizeFS : Self.lyricsInactiveBaseSizeFS
+        }
+        return isActive ? Self.lyricsActiveBaseSize : Self.lyricsInactiveBaseSize
+    }
+
     @ViewBuilder
     private func macLyricLine(line: LyricLine, index: Int, isActive: Bool, fontSize: CGFloat) -> some View {
         let scaledSize = fontSize * CGFloat(lyricsFontScale)
         let weight: Font.Weight = isActive ? .semibold : .regular
+        let tint = theme.accentColor
         if shouldRenderWordTimeline(line: line, index: index, isActive: isActive) {
             KaraokeLineView(
                 line: line,
                 fontSize: scaledSize,
                 weight: weight,
-                activeColor: .primary.opacity(isActive ? 1 : 0.65),
-                inactiveColor: .secondary.opacity(isActive ? 0.55 : 0.42),
+                activeColor: isActive ? tint : .white.opacity(0.6),
+                inactiveColor: .white.opacity(isActive ? 0.55 : 0.32),
                 timeAt: { date in player.interpolatedTime(at: date) }
             )
+            .shadow(color: isActive ? tint.opacity(0.45) : .clear, radius: 14)
         } else {
             Text(line.text)
                 .font(.system(size: scaledSize, weight: weight))
-                .foregroundStyle(isActive ? .primary : .secondary)
-                .opacity(isActive ? 1 : 0.6)
+                .foregroundStyle(isActive ? .white : .white.opacity(0.5))
+                .opacity(isActive ? 1 : 0.7)
         }
     }
 
@@ -294,21 +291,46 @@ struct MacNowPlayingView: View {
     private var floatingControls: some View {
         HStack(spacing: 8) {
             // Heart
-            Button { showAddToPlaylist = true } label: {
-                circleIcon(isInAnyPlaylist ? "heart.fill" : "heart",
-                           tint: isInAnyPlaylist ? Color.red : .secondary)
+            Button { toggleLikedCurrent() } label: {
+                circleIcon(isCurrentLiked ? "heart.fill" : "heart",
+                           tint: isCurrentLiked ? Color.white : Color.white.opacity(0.85),
+                           fill: isCurrentLiked ? theme.accentColor : nil)
                     .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(.plain)
             .glassEffect(.regular.interactive(), in: .circle)
-            .help(Text("add_to_playlist"))
+            .help(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
             .disabled(player.currentSong == nil)
+
+            Button {} label: {
+                circleIcon("text.bubble.fill",
+                           tint: Color.white,
+                           fill: theme.accentColor.opacity(0.9))
+            }
+            .buttonStyle(.plain)
+            .glassEffect(.regular.interactive(), in: .circle)
+            .help(Text("lyrics_word"))
+            .disabled(player.currentSong == nil)
+
+            Button {
+                onClose()
+                NotificationCenter.default.post(name: .primuseFocusSearch, object: nil)
+            } label: {
+                circleIcon("magnifyingglass")
+            }
+            .buttonStyle(.plain)
+            .glassEffect(.regular.interactive(), in: .circle)
+            .help(Text("search_title"))
 
             // Font smaller
             Button {
                 lyricsFontScale = max(Self.lyricsMinScale, lyricsFontScale - 0.15)
             } label: {
-                circleIcon("textformat.size.smaller")
+                Text(verbatim: "A-")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.88))
+                    .frame(width: 36, height: 36)
+                    .contentShape(Circle())
             }
             .buttonStyle(.plain)
             .glassEffect(.regular.interactive(), in: .circle)
@@ -319,7 +341,11 @@ struct MacNowPlayingView: View {
             Button {
                 lyricsFontScale = min(Self.lyricsMaxScale, lyricsFontScale + 0.15)
             } label: {
-                circleIcon("textformat.size.larger")
+                Text(verbatim: "A+")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.88))
+                    .frame(width: 36, height: 36)
+                    .contentShape(Circle())
             }
             .buttonStyle(.plain)
             .glassEffect(.regular.interactive(), in: .circle)
@@ -358,12 +384,24 @@ struct MacNowPlayingView: View {
     /// (而不是包在 Button 外面),这样整个圆形区域都是 Button 的有效点击
     /// 区——之前 .frame 套在 Button 外面,Button 的实际命中区只跟图标
     /// 一样大,玻璃外圈那一圈点了没反应。
-    private func circleIcon(_ symbol: String, tint: Color = .secondary) -> some View {
-        Image(systemName: symbol)
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(tint)
-            .frame(width: 36, height: 36)
-            .contentShape(Circle())
+    private func circleIcon(_ symbol: String,
+                            tint: Color = .white.opacity(0.85),
+                            fill: Color? = nil) -> some View {
+        ZStack {
+            if let fill {
+                Circle().fill(fill)
+            }
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(tint)
+        }
+        .frame(width: 36, height: 36)
+        .contentShape(Circle())
+    }
+
+    private func toggleLikedCurrent() {
+        guard let songID = player.currentSong?.id else { return }
+        library.toggleLiked(songID: songID)
     }
 
     // MARK: - Lyrics loading

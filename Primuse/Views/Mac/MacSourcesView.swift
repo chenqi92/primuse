@@ -26,7 +26,6 @@ struct MacSourcesView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             actionBar
-            Divider()
             content
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -54,21 +53,40 @@ struct MacSourcesView: View {
     // MARK: - Action bar
 
     private var actionBar: some View {
-        HStack(spacing: 8) {
-            Button {
-                showAddSource = true
-            } label: {
-                Label("add_source", systemImage: "plus")
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .bottom, spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("音乐源")
+                        .font(.system(size: 11, weight: .semibold))
+                        .tracking(0.8)
+                        .textCase(.uppercase)
+                        .foregroundStyle(PMColor.textMuted)
+                    Text("已连接")
+                        .font(.system(size: 32, weight: .bold))
+                        .tracking(-0.5)
+                        .foregroundStyle(PMColor.text)
+                }
+                Spacer()
+                Button {
+                    showAddSource = true
+                } label: {
+                    Label("add_source", systemImage: "plus")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16)
+                        .frame(height: 32)
+                        .background(PMColor.brand, in: .rect(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.regular)
-            Spacer()
+
             Text(String(format: String(localized: "sources_count_format"), sources.count))
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 13))
+                .foregroundStyle(PMColor.textMuted)
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 36)
+        .padding(.top, 28)
+        .padding(.bottom, 20)
     }
 
     // MARK: - Content
@@ -92,30 +110,36 @@ struct MacSourcesView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 18) {
+                LazyVStack(alignment: .leading, spacing: PMSpace.xl) {
                     ForEach(groupedSources, id: \.0) { category, items in
-                        VStack(alignment: .leading, spacing: 8) {
+                        VStack(alignment: .leading, spacing: PMSpace.s8) {
                             Text(category.displayName)
-                                .font(.caption)
-                                .fontWeight(.semibold)
-                                .foregroundStyle(.secondary)
+                                .font(.system(size: 10.5, weight: .semibold))
+                                .tracking(0.8)
                                 .textCase(.uppercase)
+                                .foregroundStyle(PMColor.textFaint)
                                 .padding(.horizontal, 4)
 
-                            VStack(spacing: 0) {
-                                ForEach(Array(items.enumerated()), id: \.element.id) { index, source in
+                            // 设计稿要求 2 列卡片网格;少量源时单列,多列自适应。
+                            LazyVGrid(
+                                columns: [GridItem(.adaptive(minimum: 320, maximum: 460),
+                                                   spacing: PMSpace.m14, alignment: .top)],
+                                alignment: .leading,
+                                spacing: PMSpace.m14
+                            ) {
+                                ForEach(items, id: \.id) { source in
                                     sourceRow(source)
-                                    if index < items.count - 1 {
-                                        Divider().padding(.leading, 56)
-                                    }
+                                        .pmCard(cornerRadius: PMRadius.l)
                                 }
                             }
-                            .background(.background.secondary, in: .rect(cornerRadius: 10))
                         }
                     }
                 }
-                .padding(18)
+                .padding(.horizontal, PMSpace.xxxl)
+                .padding(.vertical, PMSpace.l)
+                .padding(.bottom, 80)
             }
+            .background(PMColor.bg.ignoresSafeArea())
         }
     }
 
