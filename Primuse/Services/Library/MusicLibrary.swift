@@ -687,6 +687,14 @@ final class MusicLibrary {
     private(set) var visibleArtists: [Artist] = []
     private(set) var searchRevision: Int = 0
 
+    /// `Song.id` → index into `visibleSongs`, rebuilt alongside the filtered
+    /// views above. Lets playlist / history lookups resolve song IDs in O(1)
+    /// instead of rebuilding a whole-library dictionary on every call. The old
+    /// per-call rebuild ran on the main thread inside SwiftUI `body`, so opening
+    /// a playlist in a large library stalled for seconds (`body` reads the song
+    /// list several times and re-evaluates during the push animation).
+    private var visibleSongIndexByID: [String: Int] = [:]
+
     private let snapshotURL: URL
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
@@ -712,6 +720,10 @@ final class MusicLibrary {
             let visibleArtistIDs = Set(visibleSongs.compactMap(\.artistID))
             visibleArtists = artists.filter { visibleArtistIDs.contains($0.id) }
         }
+        visibleSongIndexByID = Dictionary(
+            visibleSongs.enumerated().map { ($0.element.id, $0.offset) },
+            uniquingKeysWith: { first, _ in first }
+        )
     }
 
     private func invalidateSearchCaches() {
@@ -1088,13 +1100,15 @@ final class MusicLibrary {
     }
 
     func songs(forPlaylist playlistID: String) -> [Song] {
-        let songLookup = Dictionary(uniqueKeysWithValues: visibleSongs.map { ($0.id, $0) })
-        return (playlistSongIDs[playlistID] ?? []).compactMap { songLookup[$0] }
+        (playlistSongIDs[playlistID] ?? []).compactMap { id in
+            visibleSongIndexByID[id].map { visibleSongs[$0] }
+        }
     }
 
     func recentlyPlayedSongs(limit: Int = 6) -> [Song] {
-        let songLookup = Dictionary(uniqueKeysWithValues: visibleSongs.map { ($0.id, $0) })
-        return Array(recentPlaybackSongIDs.prefix(limit).compactMap { songLookup[$0] })
+        recentPlaybackSongIDs.prefix(limit).compactMap { id in
+            visibleSongIndexByID[id].map { visibleSongs[$0] }
+        }
     }
 
     func contains(songID: String, inPlaylist playlistID: String) -> Bool {
