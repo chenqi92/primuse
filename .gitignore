@@ -22,3 +22,4 @@ Config/Secrets.local.xcconfig
 # Local secret backups / legacy per-developer secret files
 Primuse/Services/Scrobble/AppSecrets.local.swift*
 *.log
+design
