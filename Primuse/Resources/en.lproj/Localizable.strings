@@ -668,6 +668,7 @@
 "stats_range_week" = "This Week";
 "stats_range_month" = "This Month";
 "stats_range_year" = "This Year";
+"stats_range_all" = "All";
 "stats_total_plays" = "Plays";
 "stats_total_time" = "Total Time";
 "stats_active_days" = "Active Days";
@@ -1175,3 +1176,10 @@
 "go_to_album" = "Go to Album";
 "go_to_artist" = "Go to Artist";
 "playback_settings_title" = "Playback Settings";
+"shuffle_all" = "Shuffle all";
+"sidebar_all_songs" = "All Songs";
+"sidebar_liked_songs" = "Liked Songs";
+"home_playable_count_short" = "Plays";
+"source" = "Source";
+"delete_forever" = "Delete forever";
+"deleted_at_format" = "Deleted %@";

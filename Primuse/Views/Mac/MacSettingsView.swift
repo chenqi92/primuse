@@ -89,7 +89,10 @@ struct MacSettingsView: View {
                 contentPane
             }
         }
-        .frame(minWidth: 820, minHeight: 560)
+        // 设计稿 Settings 窗口尺寸: sidebar 200 + content max-width 720 + L/R padding 32×2
+        // ≈ 984pt 宽。之前设 1040×720, 右侧 max-width 限制让 56pt 留白; 用户截图看着
+        // "右边空一片"。改成 940×680, content 几乎贴右边缘。
+        .frame(minWidth: 940, idealWidth: 960, minHeight: 680, idealHeight: 720)
         .environment(\.pmAppearance, MacUIPreferences.shared.appearance)
         .background(PMColor.bg.ignoresSafeArea())
         .background(PMWindowChromeConfigurator())
@@ -259,28 +262,38 @@ private struct MacSettingsScroll<Content: View>: View {
     }
 
     var body: some View {
-        ScrollView(.vertical, showsIndicators: true) {
-            VStack(alignment: .leading, spacing: 0) {
+        VStack(spacing: 0) {
+            // 标题区固定不滚 — 之前放在 ScrollView 里, 滚动条会贴到窗口最顶,
+            // 跟 macOS 原生 Settings.app 的"内容滚, 标题/工具栏固定"行为不一致。
+            VStack(alignment: .leading, spacing: 4) {
                 Text(verbatim: title)
                     .font(.system(size: 22, weight: .bold))
                     .tracking(-0.3)
                     .foregroundStyle(PMColor.text)
-                    .padding(.bottom, 4)
-
                 Text(verbatim: spec)
                     .font(.system(size: 11.5, design: .monospaced))
                     .foregroundStyle(PMColor.textFaint)
-                    .padding(.bottom, 24)
-
-                content
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 32)
-            .padding(.top, 26)
-            .padding(.bottom, 36)
-            .frame(maxWidth: 720, alignment: .leading)
+            .padding(.top, 22)
+            .padding(.bottom, 14)
+            .background(PMColor.bg)
+
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+
+            ScrollView(.vertical, showsIndicators: true) {
+                VStack(alignment: .leading, spacing: 0) {
+                    content
+                }
+                .padding(.horizontal, 32)
+                .padding(.top, 18)
+                .padding(.bottom, 36)
+                .frame(maxWidth: 720, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .background(PMColor.bg)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(PMColor.bg)
     }
 }
 
@@ -460,6 +473,8 @@ private struct MacSTSlider: View {
     }
 }
 
+/// 静态显示版本 — 仅 label, 没有真 Picker 绑定。保留用于"无对应 Store 字段"的占位
+/// 行 (例如某些纯展示信息)。需要真下拉时改用 MacSTPicker。
 private struct MacSTSelect: View {
     let value: String
     var width: CGFloat = 200
@@ -482,6 +497,46 @@ private struct MacSTSelect: View {
             RoundedRectangle(cornerRadius: 5, style: .continuous)
                 .strokeBorder(PMColor.dividerStrong, lineWidth: 0.5)
         }
+    }
+}
+
+/// 真实 Picker — Menu 下拉, 维持跟 MacSTSelect 同样的视觉, 但点击会弹真菜单。
+private struct MacSTPicker<T: Hashable>: View {
+    @Binding var selection: T
+    let options: [(value: T, label: String)]
+    var width: CGFloat = 200
+
+    var body: some View {
+        Menu {
+            ForEach(Array(options.enumerated()), id: \.offset) { _, opt in
+                Button(opt.label) { selection = opt.value }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Text(verbatim: currentLabel)
+                    .font(.system(size: 12))
+                    .foregroundStyle(PMColor.text)
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(PMColor.textFaint)
+            }
+            .padding(.horizontal, 10)
+            .frame(width: width, height: 22)
+            .background(PMColor.bgElev, in: .rect(cornerRadius: 5))
+            .overlay {
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .strokeBorder(PMColor.dividerStrong, lineWidth: 0.5)
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+    }
+
+    private var currentLabel: String {
+        options.first(where: { $0.value == selection })?.label ?? "—"
     }
 }
 
@@ -567,55 +622,84 @@ private struct MacSTInfoText: View {
 // MARK: - ST-01 Playback
 
 private struct MacSTPlaybackView: View {
-    @State private var playbackRate = 100.0
-    @State private var spatialAudio = true
-    @State private var crossfade = 3.0
-    @State private var gapless = true
-    @State private var skipHeadSilence = true
-    @State private var skipTailSilence = false
-    @State private var cacheSize = 500.0
-    @State private var prewarmCount = 5.0
+    // 接真 Store, 拖滑块/切 toggle 会立即写回 PlaybackSettingsStore 并 persist。
+    @Environment(PlaybackSettingsStore.self) private var store
 
     var body: some View {
+        @Bindable var s = store
+
         MacSTSection("播放速率与音质") {
             MacSTGroup {
-                MacSTRow("播放速率", hint: "0.5x - 2.0x · 影响所有源", divider: false) {
-                    MacSTSlider(value: $playbackRate, in: 50...200)
+                MacSTRow("播放速率", hint: "0.5x - 2.0x · 保持音调", divider: false) {
+                    MacSTSlider(
+                        value: Binding(
+                            get: { Double(s.playbackRate * 100) },
+                            set: { s.playbackRate = Float($0 / 100) }
+                        ),
+                        in: 50...200,
+                        formatter: { String(format: "%.2fx", $0 / 100) }
+                    )
                 }
                 MacSTRow("空间音频", hint: "Apple AirPods · 头部追踪") {
-                    MacSTToggle(isOn: $spatialAudio)
+                    MacSTToggle(isOn: $s.spatialAudioEnabled)
                 }
                 MacSTRow("ReplayGain", hint: "自动音量平衡") {
-                    MacSTSelect(value: "Album mode (推荐)", width: 160)
+                    MacSTToggle(isOn: $s.replayGainEnabled)
+                }
+                if s.replayGainEnabled {
+                    MacSTRow("RG 模式", hint: "Track vs Album") {
+                        MacSTPicker(
+                            selection: $s.replayGainMode,
+                            options: ReplayGainMode.allCases.map { ($0, $0.displayName) },
+                            width: 160
+                        )
+                    }
                 }
             }
         }
 
         MacSTSection("衔接与无缝") {
             MacSTGroup {
-                MacSTRow("Crossfade 时长", hint: "0 = 关闭", divider: false) {
-                    MacSTSlider(value: $crossfade, in: 0...15)
+                MacSTRow("Gapless 无缝播放", hint: "P-16 · 默认开启", divider: false) {
+                    MacSTToggle(isOn: $s.gaplessEnabled)
                 }
-                MacSTRow("Gapless 无缝播放", hint: "P-16 · 默认开启") {
-                    MacSTToggle(isOn: $gapless)
+                MacSTRow("Crossfade", hint: "跟 Gapless 互斥") {
+                    MacSTToggle(isOn: $s.crossfadeEnabled)
                 }
-                MacSTRow("跳过开头静音") {
-                    MacSTToggle(isOn: $skipHeadSilence)
+                if s.crossfadeEnabled {
+                    MacSTRow("Crossfade 时长", hint: "1-12 秒") {
+                        MacSTSlider(
+                            value: $s.crossfadeDuration,
+                            in: 1...12,
+                            formatter: { "\(Int($0))s" }
+                        )
+                    }
                 }
-                MacSTRow("跳过结尾静音") {
-                    MacSTToggle(isOn: $skipTailSilence)
+                MacSTRow("匹配硬件采样率", hint: "iOS 真机有效, 部分硬件忽略") {
+                    MacSTToggle(isOn: $s.matchOutputSampleRate)
                 }
             }
         }
 
         MacSTSection("缓存") {
             MacSTGroup {
-                MacSTRow("流式缓存大小", hint: "StreamingDownloadDecoder · LRU", divider: false) {
-                    MacSTSlider(value: $cacheSize, in: 0...2000)
-                    MacSTButton(title: "立即清理")
+                MacSTRow("启用音频缓存", hint: "AudioCacheManager · LRU", divider: false) {
+                    MacSTToggle(isOn: $s.audioCacheEnabled)
                 }
-                MacSTRow("预热队列前几首", hint: "P-24 · SourceManager.prewarm") {
-                    MacSTSlider(value: $prewarmCount, in: 0...10)
+                if s.audioCacheEnabled {
+                    MacSTRow("缓存上限 (MB)", hint: "默认 500 MB") {
+                        MacSTSlider(
+                            value: Binding(
+                                get: { Double(s.audioCacheLimitBytes) / 1_048_576 },
+                                set: { s.audioCacheLimitBytes = Int64($0 * 1_048_576) }
+                            ),
+                            in: 100...4000,
+                            formatter: { "\(Int($0)) MB" }
+                        )
+                        MacSTButton(title: "立即清理") {
+                            AudioCacheManager.shared.clearAll()
+                        }
+                    }
                 }
             }
         }
@@ -625,46 +709,81 @@ private struct MacSTPlaybackView: View {
 // MARK: - ST-02 Equalizer
 
 private struct MacSTEqualizerView: View {
-    @State private var eqEnabled = true
-    private let presets = ["平直", "Pop", "Rock", "Jazz", "Classical", "Vocal", "Bass Boost", "Treble", "Loudness"]
-    private let bands = ["32", "64", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"]
-    private let gains = [4, 3, 1, -1, -2, -1, 0, 2, 3, 2]
+    @Environment(EqualizerService.self) private var eq
 
     var body: some View {
+        @Bindable var eq = eq
+
         MacSTSection("10 段均衡器") {
             MacSTGroup {
                 MacSTRow("启用 EQ", hint: "FX-01", divider: false) {
-                    MacSTToggle(isOn: $eqEnabled)
+                    MacSTToggle(isOn: $eq.isEnabled)
                 }
                 MacSTRow("当前预设") {
-                    MacSTSelect(value: "Vocal · 人声增强", width: 160)
+                    MacSTPicker(
+                        selection: Binding(
+                            get: { eq.currentPreset.id },
+                            set: { id in
+                                if let preset = EQPreset.builtInPresets.first(where: { $0.id == id }) {
+                                    eq.applyPreset(preset)
+                                }
+                            }
+                        ),
+                        options: EQPreset.builtInPresets.map { ($0.id, $0.localizedName) },
+                        width: 180
+                    )
                 }
-                MacSTRow("预设", hint: "点击切换 · 拖拽调节即转为自定义", block: true) {
+                MacSTRow("预设", hint: "点击切换 · 拖拽下方滑块即转为自定义", block: true) {
                     HStack(spacing: 6) {
-                        ForEach(presets, id: \.self) { preset in
-                            MacSTChip(text: preset, selected: preset == "Vocal")
+                        ForEach(EQPreset.builtInPresets) { preset in
+                            Button {
+                                eq.applyPreset(preset)
+                            } label: {
+                                MacSTChip(text: preset.localizedName,
+                                          selected: preset.id == eq.currentPreset.id)
+                            }
+                            .buttonStyle(.plain)
                         }
                         Spacer(minLength: 6)
-                        MacSTButton(title: "重置")
+                        MacSTButton(title: "重置") { eq.reset() }
                     }
                 }
             }
         }
 
-        MacEQFaderCard(bands: bands, gains: gains)
+        MacEQFaderCard(
+            bands: eq.bandFrequencyLabels,
+            gains: Binding(
+                get: { eq.bands.map { Int($0.rounded()) } },
+                set: { newGains in
+                    for (i, g) in newGains.enumerated() {
+                        eq.setBand(i, gain: Float(g))
+                    }
+                }
+            )
+        )
     }
 }
 
 private struct MacEQFaderCard: View {
     let bands: [String]
-    let gains: [Int]
+    @Binding var gains: [Int]
 
     var body: some View {
         VStack(spacing: 8) {
             HStack(alignment: .bottom, spacing: 0) {
                 ForEach(Array(bands.enumerated()), id: \.offset) { index, band in
-                    MacEQFader(band: band, gain: gains[index])
-                        .frame(maxWidth: .infinity)
+                    MacEQFader(
+                        band: band,
+                        gain: Binding(
+                            get: { gains.indices.contains(index) ? gains[index] : 0 },
+                            set: { newValue in
+                                guard gains.indices.contains(index) else { return }
+                                gains[index] = max(-12, min(12, newValue))
+                            }
+                        )
+                    )
+                    .frame(maxWidth: .infinity)
                 }
             }
             .frame(height: 220)
@@ -693,7 +812,14 @@ private struct MacEQFaderCard: View {
 
 private struct MacEQFader: View {
     let band: String
-    let gain: Int
+    @Binding var gain: Int
+
+    /// 滑轨可用纵向高度 (跟 frame height 一致)。每 dB ≈ trackHeight/24, 拖动时
+    /// 把垂直位移换算成 dB 增量。
+    private let trackHeight: CGFloat = 140
+    @State private var dragStartGain: Int? = nil
+
+    private var dbPerPoint: CGFloat { trackHeight / 24 }
 
     var body: some View {
         VStack(spacing: 8) {
@@ -702,20 +828,40 @@ private struct MacEQFader: View {
                 .foregroundStyle(gain >= 0 ? PMColor.ok : PMColor.brand)
 
             ZStack {
+                // 轨道
                 Capsule()
                     .fill(PMColor.dividerStrong)
-                    .frame(width: 5, height: 140)
+                    .frame(width: 5, height: trackHeight)
+
+                // 进度填充 (从中点出发往 ± 方向)
                 Rectangle()
                     .fill(PMColor.brand)
-                    .frame(width: 9, height: CGFloat(abs(gain)) * 7)
+                    .frame(width: 9, height: CGFloat(abs(gain)) * dbPerPoint)
                     .cornerRadius(2)
-                    .offset(y: gain >= 0 ? -CGFloat(abs(gain)) * 3.5 : CGFloat(abs(gain)) * 3.5)
+                    .offset(y: gain >= 0
+                            ? -CGFloat(abs(gain)) * dbPerPoint / 2
+                            : CGFloat(abs(gain)) * dbPerPoint / 2)
+
+                // 拖把
                 RoundedRectangle(cornerRadius: 2, style: .continuous)
                     .fill(.white)
-                    .frame(width: 15, height: 8)
-                    .shadow(color: .black.opacity(0.22), radius: 3, y: 1)
-                    .offset(y: CGFloat(-gain) * 7)
+                    .frame(width: 18, height: 10)
+                    .shadow(color: .black.opacity(0.30), radius: 3, y: 1)
+                    .offset(y: CGFloat(-gain) * dbPerPoint)
             }
+            .frame(width: 24, height: trackHeight)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { g in
+                        if dragStartGain == nil { dragStartGain = gain }
+                        guard let start = dragStartGain else { return }
+                        // 上拖 (negative y) → 增益变高
+                        let deltaDB = -g.translation.height / dbPerPoint
+                        gain = max(-12, min(12, start + Int(deltaDB.rounded())))
+                    }
+                    .onEnded { _ in dragStartGain = nil }
+            )
 
             Text(verbatim: band)
                 .font(.system(size: 10.5, design: .monospaced))
@@ -727,40 +873,35 @@ private struct MacEQFader: View {
 // MARK: - ST-03 Audio Effects
 
 private struct MacSTEffectsView: View {
-    @State private var effectsEnabled = true
-    @State private var reverbEnabled = true
-    @State private var wetDry = 28.0
-    @State private var roomSize = 62.0
-    @State private var compressorEnabled = false
-    @State private var threshold = -12.0
-    @State private var ratio = 4.0
-    @State private var attack = 20.0
-    @State private var release = 120.0
-    @State private var stereoEnabled = true
-    @State private var width = 75.0
+    @Environment(AudioEffectsService.self) private var fx
 
     var body: some View {
-        MacSTSection("效果链") {
-            MacSTGroup {
-                MacSTRow("启用效果链", hint: "FX-06 · 总开关", divider: false) {
-                    MacSTToggle(isOn: $effectsEnabled)
-                }
-            }
-        }
+        @Bindable var fx = fx
 
+        // 设计稿"启用效果链"是总开关; 真 Store 里没有这个字段, 用 reverb || compressor
+        // 任一启用作为总开关的"指示", 切到 off 时一次性关掉两个。
         MacSTSection("混响 (Reverb)") {
             MacSTGroup {
                 MacSTRow("开关", hint: "FX-03", divider: false) {
-                    MacSTToggle(isOn: $reverbEnabled)
+                    MacSTToggle(isOn: $fx.reverbEnabled)
                 }
-                MacSTRow("类型") {
-                    MacSTSelect(value: "Hall · 大厅")
-                }
-                MacSTRow("Wet / Dry") {
-                    MacSTSlider(value: $wetDry)
-                }
-                MacSTRow("房间大小") {
-                    MacSTSlider(value: $roomSize)
+                if fx.reverbEnabled {
+                    MacSTRow("类型") {
+                        MacSTPicker(
+                            selection: $fx.reverbPreset,
+                            options: ReverbPreset.allCases.map { ($0, $0.localizedName) },
+                            width: 180
+                        )
+                    }
+                    MacSTRow("Wet / Dry %", hint: "0 = 干声, 100 = 全湿") {
+                        MacSTSlider(
+                            value: Binding(
+                                get: { Double(fx.reverbWetDryMix) },
+                                set: { fx.reverbWetDryMix = Float($0) }
+                            ),
+                            in: 0...100
+                        )
+                    }
                 }
             }
         }
@@ -768,23 +909,84 @@ private struct MacSTEffectsView: View {
         MacSTSection("压缩 / 限幅 (Compressor)") {
             MacSTGroup {
                 MacSTRow("开关", hint: "FX-04", divider: false) {
-                    MacSTToggle(isOn: $compressorEnabled)
+                    MacSTToggle(isOn: $fx.compressorEnabled)
                 }
-                MacSTRow("Threshold (dB)") {
-                    MacSTSlider(value: $threshold, in: -40...0)
-                }
-                MacSTRow("Ratio (x)") {
-                    MacSTSlider(value: $ratio, in: 0...20)
-                }
-                MacSTRow("Attack (ms)") {
-                    MacSTSlider(value: $attack, in: 0...200)
-                }
-                MacSTRow("Release (ms)") {
-                    MacSTSlider(value: $release, in: 0...1000)
+                if fx.compressorEnabled {
+                    MacSTRow("预设") {
+                        MacSTPicker(
+                            selection: Binding(
+                                get: { fx.compressorPresetId ?? "" },
+                                set: { id in
+                                    if let p = CompressorPreset.allPresets.first(where: { $0.id == id }) {
+                                        fx.applyCompressorPreset(p)
+                                    }
+                                }
+                            ),
+                            options: [("", "自定义")]
+                                + CompressorPreset.allPresets.map { ($0.id, $0.localizedName) },
+                            width: 160
+                        )
+                    }
+                    MacSTRow("Threshold (dB)") {
+                        MacSTSlider(
+                            value: Binding(
+                                get: { Double(fx.compressorThreshold) },
+                                set: { fx.compressorThreshold = Float($0) }
+                            ),
+                            in: -40...0,
+                            formatter: { String(format: "%.0f", $0) }
+                        )
+                    }
+                    MacSTRow("HeadRoom (dB)") {
+                        MacSTSlider(
+                            value: Binding(
+                                get: { Double(fx.compressorHeadRoom) },
+                                set: { fx.compressorHeadRoom = Float($0) }
+                            ),
+                            in: 0...20
+                        )
+                    }
+                    MacSTRow("Attack (s)") {
+                        MacSTSlider(
+                            value: Binding(
+                                get: { Double(fx.compressorAttackTime) },
+                                set: { fx.compressorAttackTime = Float($0) }
+                            ),
+                            in: 0.0001...0.2,
+                            formatter: { String(format: "%.3fs", $0) }
+                        )
+                    }
+                    MacSTRow("Release (s)") {
+                        MacSTSlider(
+                            value: Binding(
+                                get: { Double(fx.compressorReleaseTime) },
+                                set: { fx.compressorReleaseTime = Float($0) }
+                            ),
+                            in: 0.01...3,
+                            formatter: { String(format: "%.2fs", $0) }
+                        )
+                    }
+                    MacSTRow("Master Gain (dB)") {
+                        MacSTSlider(
+                            value: Binding(
+                                get: { Double(fx.compressorMasterGain) },
+                                set: { fx.compressorMasterGain = Float($0) }
+                            ),
+                            in: -20...20
+                        )
+                    }
                 }
             }
         }
+    }
+}
 
+// 设计稿里的"立体声增强"目前 PlaybackSettingsStore / AudioEffectsService 没对应字段,
+// 暂时不渲染 — 等 audio engine 真接了 AVAudioUnitStereoMixer 再补 UI。
+private struct MacSTEffectsViewLegacy_REMOVE: View {
+    @State private var stereoEnabled = true
+    @State private var width = 75.0
+    var body: some View {
         MacSTSection("立体声增强") {
             MacSTGroup {
                 MacSTRow("开关", hint: "FX-05", divider: false) {
@@ -1106,8 +1308,6 @@ private struct MacScraperSourceRow: View {
 private struct MacSTLyricsView: View {
     @State private var settings = LyricsTranslationSettingsStore.shared
     @AppStorage("lyricsFontScale") private var lyricsFontScale = 1.0
-    @State private var onlyExpanded = true
-    @State private var offlineModelReady = true
 
     private var targetLanguageName: String {
         let current = LyricsTranslationSettingsStore.availableTargetLanguages.first {
@@ -1118,6 +1318,8 @@ private struct MacSTLyricsView: View {
     }
 
     var body: some View {
+        // 删了"离线模型"/"翻译颜色"/"仅 NowPlaying 展开时显示翻译" 三行 —— 这些 mock
+        // 控件没接到任何 Store, 之前是纯视觉占位, 真翻译走的是云端 API (LyricsTranslationSettingsStore)。
         MacSTSection("翻译歌词") {
             MacSTGroup {
                 MacSTRow("启用翻译", hint: "L-08 · 双行展示", divider: false) {
@@ -1138,13 +1340,6 @@ private struct MacSTLyricsView: View {
                     }
                     .buttonStyle(.plain)
                 }
-                MacSTRow("离线模型", hint: "首次下载约 100 MB") {
-                    MacSTInfoText(text: offlineModelReady ? "● 已下载 · 92 MB" : "● 未下载",
-                                  color: offlineModelReady ? PMColor.ok : PMColor.textMuted)
-                    MacSTButton(title: "重新下载") {
-                        offlineModelReady = true
-                    }
-                }
             }
         }
 
@@ -1156,14 +1351,9 @@ private struct MacSTLyricsView: View {
                             get: { lyricsFontScale * 100 },
                             set: { lyricsFontScale = $0 / 100 }
                         ),
-                        in: 70...180
+                        in: 70...180,
+                        formatter: { String(format: "%.0f%%", $0) }
                     )
-                }
-                MacSTRow("只在 NowPlaying 展开时显示翻译") {
-                    MacSTToggle(isOn: $onlyExpanded)
-                }
-                MacSTRow("译文颜色") {
-                    MacSTSelect(value: "跟随封面取色")
                 }
             }
         }
@@ -1173,9 +1363,8 @@ private struct MacSTLyricsView: View {
 // MARK: - ST-06 Apple Music
 
 private struct MacSTAppleMusicView: View {
-    @State private var syncLibrary = true
-    @State private var catalogSearch = true
-    @State private var autoPlaylist = false
+    @Environment(AppleMusicService.self) private var appleMusic
+    @Environment(AppleMusicLibraryService.self) private var library
 
     var body: some View {
         MacSTSection("账号") {
@@ -1193,16 +1382,28 @@ private struct MacSTAppleMusicView: View {
                     }
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(verbatim: "Apple Music · 已订阅")
+                    Text(verbatim: accountTitle)
                         .font(.system(size: 13.5, weight: .semibold))
                         .foregroundStyle(PMColor.text)
-                    Text(verbatim: "family@icloud.com · 家庭计划")
+                    Text(verbatim: accountSubtitle)
                         .font(.system(size: 11.5))
                         .foregroundStyle(PMColor.textMuted)
                 }
 
                 Spacer()
-                MacSTButton(title: "登出")
+
+                // 未授权 → "授权" 按钮; 已授权 → "去系统设置" (macOS 不让 app 主动撤销)
+                if appleMusic.authState == .authorized {
+                    MacSTButton(title: "去系统设置") {
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.preferences.AppleAccount") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                } else {
+                    MacSTButton(title: "授权", prominent: true) {
+                        Task { await appleMusic.requestAuthorization() }
+                    }
+                }
             }
             .padding(16)
             .background(PMColor.bgElev, in: .rect(cornerRadius: 10))
@@ -1212,22 +1413,74 @@ private struct MacSTAppleMusicView: View {
             }
         }
 
-        MacSTSection("资料库同步") {
-            MacSTGroup {
-                MacSTRow("同步用户库", hint: "SRC-29 · 532 首", divider: false) {
-                    MacSTToggle(isOn: $syncLibrary)
-                }
-                MacSTRow("Catalog 搜索", hint: "S-02") {
-                    MacSTToggle(isOn: $catalogSearch)
-                }
-                MacSTRow("自动添加到智能歌单") {
-                    MacSTToggle(isOn: $autoPlaylist)
-                }
-                MacSTRow("上次同步") {
-                    MacSTInfoText(text: "11 分钟前 · 532 首 · 增加 3 首")
+        if appleMusic.authState == .authorized {
+            MacSTSection("资料库同步") {
+                MacSTGroup {
+                    MacSTRow("同步状态", hint: "SRC-29 · 跨进程缓存", divider: false) {
+                        MacSTInfoText(text: syncStateText,
+                                      color: syncStateColor)
+                    }
+                    MacSTRow("上次同步") {
+                        MacSTInfoText(text: lastSyncText)
+                        MacSTButton(title: "重新同步", systemImage: "arrow.clockwise") {
+                            library.sync()
+                        }
+                    }
                 }
             }
         }
+
+        if let err = appleMusic.lastPlaybackError {
+            MacSTSection("最近播放错误") {
+                MacSTGroup {
+                    MacSTRow("错误信息", divider: false) {
+                        MacSTInfoText(text: err, color: PMColor.bad)
+                    }
+                }
+            }
+        }
+    }
+
+    private var accountTitle: String {
+        switch appleMusic.authState {
+        case .notDetermined: return "Apple Music · 未授权"
+        case .denied:        return "Apple Music · 已拒绝"
+        case .restricted:    return "Apple Music · 受限制"
+        case .authorized:    return "Apple Music · 已授权"
+        }
+    }
+
+    private var accountSubtitle: String {
+        switch appleMusic.authState {
+        case .notDetermined: return "点击右侧授权以连接你的订阅"
+        case .denied:        return "前往 系统设置 → 隐私 重新启用"
+        case .restricted:    return "由屏幕使用时间或 MDM 限制"
+        case .authorized:    return "MusicKit 已连接"
+        }
+    }
+
+    private var syncStateText: String {
+        switch library.state {
+        case .idle:                 return "● 就绪"
+        case .syncing:              return "● 正在同步…"
+        case .done(let count, _):   return "● 已同步 · \(count) 首"
+        case .failed(let msg):      return "● 失败: \(msg)"
+        }
+    }
+
+    private var syncStateColor: Color {
+        switch library.state {
+        case .idle, .done: return PMColor.ok
+        case .syncing:     return PMColor.warn
+        case .failed:      return PMColor.bad
+        }
+    }
+
+    private var lastSyncText: String {
+        guard let at = library.lastSyncAt else { return "—" }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        return formatter.localizedString(for: at, relativeTo: Date())
     }
 }
 
@@ -1427,17 +1680,19 @@ private struct MacWidgetShell<Content: View>: View {
     enum Size {
         case small, medium, large
 
+        /// 实际 macOS widget 尺寸 (155 / 342) 在设置页里太大, 缩到 ~70% 给 preview
+        /// 用。一行能放下 3 个 medium (≈ 240 × 3 + spacing ≈ 760pt), 不再横向溢出。
         var width: CGFloat {
             switch self {
-            case .small: return 155
-            case .medium, .large: return 342
+            case .small: return 110
+            case .medium, .large: return 240
             }
         }
 
         var height: CGFloat {
             switch self {
-            case .small, .medium: return 155
-            case .large: return 342
+            case .small, .medium: return 110
+            case .large: return 240
             }
         }
     }
@@ -2086,11 +2341,27 @@ private struct MacSTThemeView: View {
 
         MacSTSection("封面取色") {
             MacSTGroup {
-                MacSTRow("封面取色驱动 ambient", hint: "THEME-03 · 每首歌不同色调", divider: false) {
-                    MacSTToggle(isOn: $ambientEnabled)
+                MacSTRow("Ambient 强度",
+                         hint: "THEME-03 · 控制 NowPlaying / Mini / 桌面歌词背景色斑浓度",
+                         divider: false) {
+                    MacSTSlider(
+                        value: Binding(
+                            get: { preferences.ambientStrength * 100 },
+                            set: { preferences.ambientStrength = $0 / 100 }
+                        ),
+                        in: 0...100,
+                        formatter: { String(format: "%.0f%%", $0) }
+                    )
                 }
-                MacSTRow("取色饱和度") {
-                    MacSTSlider(value: $saturation)
+                MacSTRow("歌词字号缩放") {
+                    MacSTSlider(
+                        value: Binding(
+                            get: { Double(preferences.lyricsFontScale * 100) },
+                            set: { preferences.lyricsFontScale = CGFloat($0 / 100) }
+                        ),
+                        in: 70...180,
+                        formatter: { String(format: "%.0f%%", $0) }
+                    )
                 }
             }
         }
@@ -2309,22 +2580,146 @@ private struct MacMaterialCard: View {
 // MARK: - ST-09 Deleted
 
 private struct MacSTDeletedView: View {
-    private let removed = [
-        ("周杰伦 - 七里香", "删除于 1 天前"),
-        ("陈奕迅 - 十年", "删除于 2 天前"),
-        ("Eagles - Hotel California", "删除于 3 天前"),
-        ("五月天 - 突然好想你", "删除于 4 天前"),
-        ("Pink Floyd - Money", "删除于 5 天前"),
-        ("John Coltrane - Moment's Notice", "删除于 6 天前"),
-    ]
+    @Environment(MusicLibrary.self) private var library
+    @Environment(SourcesStore.self) private var sourcesStore
+    @State private var configsTick: Int = 0
+
+    private var hasAny: Bool {
+        let _ = configsTick
+        return !library.recentlyDeletedPlaylists.isEmpty
+            || !sourcesStore.recentlyDeletedSources.isEmpty
+            || !ScraperConfigStore.shared.recentlyDeletedConfigs.isEmpty
+    }
 
     var body: some View {
-        MacSTSection("最近删除", hint: "7 天内可恢复 · 6 首歌曲 · 共 218 MB") {
-            MacSTGroup {
-                ForEach(Array(removed.enumerated()), id: \.offset) { index, item in
-                    MacDeletedRow(title: item.0, sub: item.1, divider: index != 0)
+        if !hasAny {
+            VStack(spacing: 14) {
+                Image(systemName: "trash")
+                    .font(.system(size: 44))
+                    .foregroundStyle(PMColor.textFaint)
+                Text("recently_deleted_empty")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
+                Text("recently_deleted_empty_desc")
+                    .font(PMFont.caption)
+                    .foregroundStyle(PMColor.textMuted)
+            }
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.top, 80)
+        }
+
+        let playlists = library.recentlyDeletedPlaylists
+        if !playlists.isEmpty {
+            MacSTSection("recently_deleted_playlists",
+                         hint: "ST-09 · 30 天内可恢复") {
+                MacSTGroup {
+                    ForEach(Array(playlists.enumerated()), id: \.element.id) { index, p in
+                        MacDeletedRealRow(
+                            title: p.name,
+                            sub: deletedAtText(p.deletedAt),
+                            icon: "music.note.list",
+                            divider: index != 0,
+                            restore: { library.restorePlaylist(id: p.id) },
+                            purge:   { library.permanentlyDeletePlaylist(id: p.id) }
+                        )
+                    }
                 }
             }
+        }
+
+        let sources = sourcesStore.recentlyDeletedSources
+        if !sources.isEmpty {
+            MacSTSection("recently_deleted_sources",
+                         hint: "ST-09 · 包含连接凭据") {
+                MacSTGroup {
+                    ForEach(Array(sources.enumerated()), id: \.element.id) { index, s in
+                        MacDeletedRealRow(
+                            title: s.name,
+                            sub: deletedAtText(s.deletedAt),
+                            icon: s.type.iconName,
+                            divider: index != 0,
+                            restore: { sourcesStore.restore(id: s.id) },
+                            purge:   { sourcesStore.permanentlyDelete(id: s.id) }
+                        )
+                    }
+                }
+            }
+        }
+
+        let configs = ScraperConfigStore.shared.recentlyDeletedConfigs
+        if !configs.isEmpty {
+            MacSTSection("recently_deleted_scraper_configs",
+                         hint: "ST-09 · 元数据刮削自定义源") {
+                MacSTGroup {
+                    ForEach(Array(configs.enumerated()), id: \.element.id) { index, c in
+                        MacDeletedRealRow(
+                            title: c.name,
+                            sub: deletedAtText(c.deletedAt),
+                            icon: "wand.and.stars",
+                            divider: index != 0,
+                            restore: {
+                                ScraperConfigStore.shared.restore(id: c.id)
+                                configsTick &+= 1
+                            },
+                            purge: {
+                                ScraperConfigStore.shared.permanentlyDelete(id: c.id)
+                                configsTick &+= 1
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private func deletedAtText(_ date: Date?) -> String {
+        guard let date else { return "—" }
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .short
+        return String(format: String(localized: "deleted_at_format"),
+                      f.localizedString(for: date, relativeTo: Date()))
+    }
+}
+
+private struct MacDeletedRealRow: View {
+    let title: String
+    let sub: String
+    let icon: String
+    let divider: Bool
+    let restore: () -> Void
+    let purge: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if divider {
+                Rectangle().fill(PMColor.divider).frame(height: 0.5)
+            }
+            HStack(spacing: 10) {
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(PMColor.glassBtn)
+                    .frame(width: 32, height: 32)
+                    .overlay {
+                        Image(systemName: icon)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(PMColor.textFaint)
+                    }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(verbatim: title)
+                        .font(.system(size: 12.5, weight: .medium))
+                        .foregroundStyle(PMColor.text)
+                        .lineLimit(1)
+                    Text(verbatim: sub)
+                        .font(.system(size: 11))
+                        .foregroundStyle(PMColor.textMuted)
+                }
+
+                Spacer()
+                MacSTButton(title: "restore", action: restore)
+                MacSTButton(title: "delete_forever", destructive: true, action: purge)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
         }
     }
 }

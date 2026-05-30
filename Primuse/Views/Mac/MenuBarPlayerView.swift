@@ -12,6 +12,7 @@ struct MenuBarPlayerView: View {
 
     @AppStorage("desktopLyricsLocked") private var desktopLyricsLocked: Bool = false
     @AppStorage("desktopLyricsVisible") private var desktopLyricsVisible: Bool = false
+    @AppStorage("miniPlayerVisible") private var miniPlayerVisible: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -37,8 +38,11 @@ struct MenuBarPlayerView: View {
                 desktopLyricsLocked.toggle()
             }
 
-            menuRow(icon: "rectangle.inset.filled.on.rectangle", title: "mini_player") {
-                PrimuseAppDelegate.shared?.showMiniPlayer()
+            menuRow(icon: "rectangle.inset.filled.on.rectangle",
+                    title: "mini_player",
+                    active: miniPlayerVisible,
+                    showsCheckmark: miniPlayerVisible) {
+                PrimuseAppDelegate.shared?.toggleMiniPlayer()
             }
 
             menuRow(icon: "arrow.up.left.and.arrow.down.right", title: "full_screen_player") {

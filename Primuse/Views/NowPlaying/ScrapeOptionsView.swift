@@ -78,9 +78,17 @@ struct ScrapeOptionsView: View {
     @State private var applyArtist = false
     @State private var applyAlbum = false
     @State private var applyYear = false
+    @State private var applyTrack = false
     @State private var applyGenre = false
     @State private var applyCover = false
     @State private var applyLyrics = false
+
+    #if os(macOS)
+    /// 候选优先单页 (macOS): 窗口打开后只触发一次自动搜索 + 自动选中第一个候选。
+    @State private var macDidInitialLoad = false
+    /// 当前在左栏选中的候选 id, 用于高亮 + 取中栏封面对比的来源名。
+    @State private var selectedItemID: String?
+    #endif
 
     enum ScrapeMode {
         case options
@@ -98,9 +106,13 @@ struct ScrapeOptionsView: View {
         var scrapedArtist: String?
         var scrapedAlbum: String?
         var scrapedYear: Int?
+        var scrapedTrackNumber: Int?
         var scrapedGenre: String?
         var hasCover: Bool
         var hasLyrics: Bool
+        // 候选封面像素尺寸 / 字节数, 用于中栏封面对比下方的 "2400×2400 · 612 KB"。
+        var coverPixelWidth: Int? = nil
+        var coverPixelHeight: Int? = nil
         var lyricsIsWordLevel: Bool { lyricsLines?.contains(where: { $0.isWordLevel }) ?? false }
     }
 
@@ -109,10 +121,13 @@ struct ScrapeOptionsView: View {
         let title: String
         let artist: String?
         let album: String?
+        let year: Int?
         let durationMs: Int?
         let coverUrl: String?
         let externalId: String
         let sourceConfig: ScraperSourceConfig
+        /// 0...1 匹配度 (时长 + 标题 + 艺术家 归一化打分), 用于候选行右侧的 % 显示与排序。
+        var confidence: Double = 0
 
         var source: String { sourceConfig.displayName }
 
@@ -152,18 +167,25 @@ struct ScrapeOptionsView: View {
     private var macBody: some View {
         VStack(spacing: 0) {
             macChrome
-            Group {
-                switch mode {
-                case .options: macOptionsView
-                case .preview: macPreviewView
-                case .manual: macManualView
-                }
-            }
+            macScrapeBoard
             macFooter
         }
-        .frame(minWidth: 860, idealWidth: 940, minHeight: 560, idealHeight: 640)
+        // 三栏的硬最小宽度 ≈ 候选 320 + sidecar 280 + 封面对比两张 120 图 ≈ 906,
+        // 所以窗口最小宽必须 ≥ 这个值, 否则内容被居中后左右两边都被窗口圆角裁掉
+        // (左栏 "候选" 被切成 "选")。maxWidth/maxHeight 撑满窗口, 不用 idealWidth。
+        .frame(minWidth: 920, maxWidth: .infinity, minHeight: 560, maxHeight: .infinity)
         .background(PMColor.bg.ignoresSafeArea())
         .foregroundStyle(PMColor.text)
+        // 自定义 44pt title bar 要占住真正的窗口顶边 —— 跟 MacContentView 一样
+        // 忽略顶部 safe area, 否则 titlebar 上方会多出一条系统 gutter。
+        .ignoresSafeArea(.container, edges: .top)
+        .task {
+            // 窗口打开 → 自动用智能 query 搜一遍候选并选中第一个。只跑一次,
+            // 用户回到窗口 / view 重建不重复联网。
+            guard !macDidInitialLoad else { return }
+            macDidInitialLoad = true
+            await macInitialLoad()
+        }
     }
 
     private var macChrome: some View {
@@ -192,7 +214,8 @@ struct ScrapeOptionsView: View {
         }
     }
 
-    private var macOptionsView: some View {
+    /// 候选优先单页: 左候选列表 / 中封面对比 + 字段勾选 / 右 Sidecar 预览。
+    private var macScrapeBoard: some View {
         HStack(spacing: 0) {
             macCandidateRail
                 .frame(width: 320)
@@ -200,44 +223,8 @@ struct ScrapeOptionsView: View {
                     Rectangle().fill(PMColor.divider).frame(width: 0.5)
                 }
 
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 18) {
-                    macSectionTitle("字段勾选")
-                    VStack(spacing: 0) {
-                        macToggleRow("scrape_metadata_toggle", isOn: $scrapeMetadata, detail: "标题、艺术家、专辑、年份、曲目号")
-                        macToggleRow("scrape_cover_toggle", isOn: $scrapeCover, detail: "封面图会先预览, 确认后写入缓存")
-                        macToggleRow("scrape_lyrics_toggle", isOn: $scrapeLyrics, detail: "支持 LRC 和逐字歌词候选")
-                    }
-                    .pmCard(cornerRadius: 10)
-
-                    macSectionTitle("手动搜索")
-                    VStack(spacing: 0) {
-                        HStack(spacing: 12) {
-                            Text("search_limit_per_source")
-                                .font(.system(size: 12.5, weight: .medium))
-                            Spacer()
-                            Picker("", selection: $searchLimit) {
-                                ForEach([10, 20, 30, 50, 100], id: \.self) { Text("\($0)").tag($0) }
-                            }
-                            .labelsHidden()
-                            .frame(width: 120)
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                    }
-                    .pmCard(cornerRadius: 10)
-
-                    if let error = errorMessage {
-                        Label(error, systemImage: "exclamationmark.triangle")
-                            .font(.system(size: 12))
-                            .foregroundStyle(PMColor.bad)
-                            .padding(12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(PMColor.bad.opacity(0.12), in: .rect(cornerRadius: 8))
-                    }
-                }
-                .padding(24)
-            }
+            macDiffPane
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             macSidecarPane
                 .frame(width: 280)
@@ -245,158 +232,90 @@ struct ScrapeOptionsView: View {
                     Rectangle().fill(PMColor.divider).frame(width: 0.5)
                 }
         }
+        .frame(maxHeight: .infinity)
     }
 
-    private var macManualView: some View {
-        HStack(spacing: 0) {
-            VStack(spacing: 0) {
-                HStack(spacing: 10) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(PMColor.brand)
-                    TextField("search_query", text: $manualSearchQuery)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 13))
-                        .onSubmit { Task { await performManualSearch() } }
-                }
-                .padding(.horizontal, 14)
-                .frame(height: 42)
-                .background(PMColor.card)
-                .overlay(alignment: .bottom) {
-                    Rectangle().fill(PMColor.divider).frame(height: 0.5)
-                }
+    // MARK: Left — candidates
 
-                ScrollView(.vertical, showsIndicators: false) {
-                    LazyVStack(spacing: 0) {
-                        if searchResults.isEmpty && !isSearching {
-                            ContentUnavailableView("no_results",
-                                                   systemImage: "magnifyingglass",
-                                                   description: Text("no_scrape_results_desc"))
-                                .frame(maxWidth: .infinity, minHeight: 280)
-                        } else {
-                            ForEach(searchResults) { item in
-                                macManualCandidateRow(item)
-                            }
-                        }
-                    }
-                    .padding(.vertical, 14)
-                }
-            }
-            .frame(width: 320)
-            .overlay(alignment: .trailing) {
-                Rectangle().fill(PMColor.divider).frame(width: 0.5)
-            }
-
-            VStack(alignment: .leading, spacing: 18) {
-                macCoverCompare
-                macSectionTitle("选择一个候选后预览字段差异")
-                Text("从左侧候选列表选择结果后, Primuse 会拉取详情、封面和歌词, 然后进入字段勾选预览。")
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(PMColor.textMuted)
-            }
-            .padding(24)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-
-            macSidecarPane
-                .frame(width: 280)
-                .overlay(alignment: .leading) {
-                    Rectangle().fill(PMColor.divider).frame(width: 0.5)
-                }
-        }
-    }
-
-    private var macPreviewView: some View {
-        HStack(spacing: 0) {
-            macCandidateRail
-                .frame(width: 320)
-                .overlay(alignment: .trailing) {
-                    Rectangle().fill(PMColor.divider).frame(width: 0.5)
-                }
-
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 18) {
-                    macCoverCompare
-                    macSectionTitle("字段勾选")
-                    if let preview = previewResult {
-                        VStack(spacing: 4) {
-                            macFieldToggle(isOn: $applyTitle, label: "title", localValue: song.title, scrapedValue: preview.scrapedTitle)
-                            macFieldToggle(isOn: $applyArtist, label: "artist", localValue: song.artistName ?? "-", scrapedValue: preview.scrapedArtist)
-                            macFieldToggle(isOn: $applyAlbum, label: "album", localValue: song.albumTitle ?? "-", scrapedValue: preview.scrapedAlbum)
-                            macFieldToggle(isOn: $applyYear, label: "year", localValue: song.year.map { "\($0)" } ?? "-", scrapedValue: preview.scrapedYear.map { "\($0)" })
-                            macFieldToggle(isOn: $applyGenre, label: "genre", localValue: song.genre ?? "-", scrapedValue: preview.scrapedGenre)
-                            if preview.hasCover {
-                                macBooleanToggle(isOn: $applyCover, label: "cover", detail: "封面图 \(preview.coverData == nil ? "" : "已下载")")
-                            }
-                            if preview.hasLyrics {
-                                macBooleanToggle(isOn: $applyLyrics, label: "lyrics_word", detail: "\(preview.lyricsCount) 行 · \(preview.lyricsIsWordLevel ? String(localized: "lyrics_word_level_badge") : "LRC")")
-                            }
-                        }
-                    }
-                }
-                .padding(24)
-            }
-
-            macSidecarPane
-                .frame(width: 280)
-                .overlay(alignment: .leading) {
-                    Rectangle().fill(PMColor.divider).frame(width: 0.5)
-                }
-        }
+    private var macSelectedItem: SearchResultItem? {
+        searchResults.first { $0.id == selectedItemID }
     }
 
     private var macCandidateRail: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 0) {
-                macSectionTitle("候选")
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 8)
-                macCurrentSongCandidate
-                ForEach(searchResults.prefix(4)) { item in
-                    macManualCandidateRow(item)
-                }
+        VStack(spacing: 0) {
+            HStack {
+                macSectionTitle("候选 (\(searchResults.count))")
+                Spacer()
             }
-            .padding(.vertical, 14)
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+            .padding(.bottom, 10)
+
+            macRailSearchField
+                .padding(.horizontal, 14)
+                .padding(.bottom, 8)
+
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVStack(spacing: 0) {
+                    if isSearching && searchResults.isEmpty {
+                        macRailPlaceholder(icon: "magnifyingglass", text: "搜索候选中…")
+                    } else if searchResults.isEmpty {
+                        macRailPlaceholder(icon: "questionmark.magnifyingglass",
+                                           text: String(localized: "no_scrape_results_desc"))
+                    } else {
+                        ForEach(searchResults) { item in
+                            macCandidateRow(item)
+                        }
+                    }
+                }
+                .padding(.bottom, 14)
+            }
         }
         .background(PMColor.bg)
     }
 
-    private var macCurrentSongCandidate: some View {
-        HStack(spacing: 10) {
-            CachedArtworkView(coverRef: song.coverArtFileName,
-                              songID: song.id,
-                              size: 48,
-                              cornerRadius: 5,
-                              sourceID: song.sourceID,
-                              filePath: song.filePath)
-            VStack(alignment: .leading, spacing: 3) {
-                Text("当前文件")
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(PMColor.textFaint)
-                    .textCase(.uppercase)
-                Text(song.title)
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(PMColor.text)
-                    .lineLimit(1)
-                Text(song.artistName ?? "-")
-                    .font(.system(size: 11))
-                    .foregroundStyle(PMColor.textMuted)
-                    .lineLimit(1)
-            }
-            Spacer()
-            Text("本地")
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+    private var macRailSearchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(PMColor.textFaint)
+            TextField("", text: $manualSearchQuery, prompt: Text(verbatim: "搜索候选"))
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .onSubmit { Task { await macRunSearch() } }
+            if !manualSearchQuery.isEmpty {
+                Button { manualSearchQuery = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(PMColor.textFaint)
+                }
+                .buttonStyle(.plain)
+            }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(PMColor.brand.opacity(0.14))
-        .overlay(alignment: .leading) {
-            Rectangle().fill(PMColor.brand).frame(width: 3)
-        }
+        .padding(.horizontal, 10)
+        .frame(height: 30)
+        .background(PMColor.card, in: .rect(cornerRadius: 7))
+        .overlay { RoundedRectangle(cornerRadius: 7).strokeBorder(PMColor.cardBorder, lineWidth: 0.5) }
     }
 
-    private func macManualCandidateRow(_ item: SearchResultItem) -> some View {
-        Button {
+    private func macRailPlaceholder(icon: String, text: String) -> some View {
+        VStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 22))
+                .foregroundStyle(PMColor.textFaint)
+            Text(verbatim: text)
+                .font(.system(size: 12))
+                .foregroundStyle(PMColor.textMuted)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, minHeight: 220)
+        .padding(.horizontal, 24)
+    }
+
+    private func macCandidateRow(_ item: SearchResultItem) -> some View {
+        let isSelected = item.id == selectedItemID
+        return Button {
+            selectedItemID = item.id
             Task { await selectManualResult(item) }
         } label: {
             HStack(spacing: 10) {
@@ -408,13 +327,12 @@ struct ScrapeOptionsView: View {
                 .frame(width: 48, height: 48)
                 .overlay {
                     if loadingItemID == item.id {
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(Color.black.opacity(0.45))
+                        RoundedRectangle(cornerRadius: 6).fill(Color.black.opacity(0.45))
                         ProgressView().controlSize(.small).tint(.white)
                     }
                 }
 
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(item.source)
                         .font(.system(size: 11.5))
                         .foregroundStyle(PMColor.textFaint)
@@ -423,30 +341,115 @@ struct ScrapeOptionsView: View {
                         .font(.system(size: 12.5, weight: .semibold))
                         .foregroundStyle(PMColor.text)
                         .lineLimit(1)
-                    Text([item.artist, item.album].compactMap { $0 }.joined(separator: " · "))
+                    Text(verbatim: macCandidateSubtitle(item))
                         .font(.system(size: 11))
                         .foregroundStyle(PMColor.textMuted)
                         .lineLimit(1)
                 }
-                Spacer()
-                if let duration = item.durationText {
-                    Text(duration)
+                Spacer(minLength: 6)
+
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(verbatim: "\(Int((item.confidence * 100).rounded()))%")
                         .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(PMColor.textMuted)
+                        .foregroundStyle(item.confidence > 0.9 ? PMColor.ok : PMColor.brand)
+                    if item.sourceConfig.type.supportsWordLevelLyrics {
+                        Text("歌词")
+                            .font(.system(size: 9.5))
+                            .textCase(.uppercase)
+                            .foregroundStyle(PMColor.textFaint)
+                    }
                 }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
+            .background(isSelected ? PMColor.brand.opacity(0.14) : Color.clear)
+            .overlay(alignment: .leading) {
+                Rectangle()
+                    .fill(isSelected ? PMColor.brand : Color.clear)
+                    .frame(width: 3)
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(isScraping)
     }
 
+    private func macCandidateSubtitle(_ item: SearchResultItem) -> String {
+        var parts: [String] = []
+        if let a = item.artist, !a.isEmpty { parts.append(a) }
+        if let y = item.year { parts.append(String(y)) }
+        return parts.isEmpty ? "—" : parts.joined(separator: " · ")
+    }
+
+    // MARK: Middle — cover compare + field diff
+
+    private var macDiffPane: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 20) {
+                macCoverCompare
+
+                if let preview = previewResult {
+                    VStack(alignment: .leading, spacing: 8) {
+                        macSectionTitle("字段勾选")
+                        VStack(spacing: 4) {
+                            macFieldRows(preview)
+                        }
+                    }
+                } else if let error = errorMessage {
+                    Label(error, systemImage: "exclamationmark.triangle")
+                        .font(.system(size: 12))
+                        .foregroundStyle(PMColor.bad)
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(PMColor.bad.opacity(0.12), in: .rect(cornerRadius: 8))
+                } else {
+                    macDiffEmptyState
+                }
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+    }
+
+    /// 中栏没有可预览的字段时的占位 —— 按真实状态区分: 搜索中 / 拉详情中 /
+    /// 搜不到候选 / 有候选但还没选, 让用户知道下一步该干嘛。
+    @ViewBuilder
+    private var macDiffEmptyState: some View {
+        VStack(spacing: 10) {
+            if isSearching || isScraping {
+                ProgressView().controlSize(.small)
+                Text(verbatim: isSearching ? "正在搜索候选…" : "正在拉取候选详情…")
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(PMColor.textMuted)
+            } else if searchResults.isEmpty {
+                Image(systemName: "questionmark.magnifyingglass")
+                    .font(.system(size: 26))
+                    .foregroundStyle(PMColor.textFaint)
+                Text(verbatim: "没有搜到候选")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
+                Text(verbatim: "在左侧搜索框换个关键词重搜，或到设置里确认已启用刮削源。")
+                    .font(.system(size: 12))
+                    .foregroundStyle(PMColor.textMuted)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 300)
+            } else {
+                Image(systemName: "arrow.left")
+                    .font(.system(size: 22))
+                    .foregroundStyle(PMColor.textFaint)
+                Text(verbatim: "从左侧候选中选择一个结果")
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(PMColor.textMuted)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 220, alignment: .center)
+        .padding(.top, 8)
+    }
+
     private var macCoverCompare: some View {
-        HStack(spacing: 18) {
+        HStack(alignment: .top, spacing: 18) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("current")
+                Text("当前")
                     .font(.system(size: 11))
                     .foregroundStyle(PMColor.textFaint)
                 CachedArtworkView(coverRef: song.coverArtFileName,
@@ -458,183 +461,222 @@ struct ScrapeOptionsView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(previewSource == .manual ? "手动候选" : "候选")
+                Text(verbatim: macCandidateCoverLabel)
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(PMColor.brand)
-                if let preview = previewResult,
-                   let data = preview.coverData,
-                   let image = PlatformImage(data: data) {
-                    Image(platformImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: 120, height: 120)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                } else {
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(PMColor.rowHover)
-                        .frame(width: 120, height: 120)
-                        .overlay {
-                            Image(systemName: "photo")
-                                .foregroundStyle(PMColor.textFaint)
-                        }
+                macCandidateCover
+                if let meta = macCoverMeta {
+                    Text(verbatim: meta)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(PMColor.textFaint)
                 }
             }
+            Spacer(minLength: 0)
         }
     }
 
+    private var macCandidateCoverLabel: String {
+        if let src = macSelectedItem?.source { return "\(src) 候选" }
+        return "候选"
+    }
+
+    /// 候选封面 + 写入开关: 点击封面切换是否写入 (默认开)。设计稿没有单独的
+    /// "封面"勾选行, 用封面本身做开关, 右上角的勾表示会写入。
+    @ViewBuilder
+    private var macCandidateCover: some View {
+        if let preview = previewResult, preview.hasCover,
+           let data = preview.coverData, let image = PlatformImage(data: data) {
+            Button { applyCover.toggle() } label: {
+                Image(platformImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 120, height: 120)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .overlay(alignment: .topTrailing) {
+                        Image(systemName: applyCover ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(applyCover ? PMColor.ok : Color.white.opacity(0.85))
+                            .padding(2)
+                            .background(Circle().fill(Color.black.opacity(0.35)))
+                            .padding(5)
+                    }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 6)
+                            .strokeBorder(applyCover ? PMColor.brand : Color.clear, lineWidth: 2)
+                    }
+                    .opacity(applyCover ? 1 : 0.5)
+            }
+            .buttonStyle(.plain)
+            .help(applyCover ? "点击取消写入此封面" : "点击写入此封面")
+        } else {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(PMColor.rowHover)
+                .frame(width: 120, height: 120)
+                .overlay {
+                    Image(systemName: "photo")
+                        .foregroundStyle(PMColor.textFaint)
+                }
+        }
+    }
+
+    private var macCoverMeta: String? {
+        guard let preview = previewResult, preview.hasCover, let data = preview.coverData else { return nil }
+        let kb = max(1, data.count / 1024)
+        if let w = preview.coverPixelWidth, let h = preview.coverPixelHeight {
+            return "\(w)×\(h) · \(kb) KB"
+        }
+        return "\(kb) KB"
+    }
+
+    @ViewBuilder
+    private func macFieldRows(_ preview: ScrapePreview) -> some View {
+        macTextFieldRow(title: "标题", isOn: $applyTitle,
+                        local: song.title, scraped: preview.scrapedTitle)
+        macTextFieldRow(title: "艺术家", isOn: $applyArtist,
+                        local: song.artistName, scraped: preview.scrapedArtist)
+        macTextFieldRow(title: "专辑", isOn: $applyAlbum,
+                        local: song.albumTitle, scraped: preview.scrapedAlbum)
+        macTextFieldRow(title: "发行年", isOn: $applyYear,
+                        local: song.year.map(String.init), scraped: preview.scrapedYear.map(String.init))
+        macTextFieldRow(title: "曲目号", isOn: $applyTrack,
+                        local: song.trackNumber.map(String.init), scraped: preview.scrapedTrackNumber.map(String.init))
+        macTextFieldRow(title: "流派", isOn: $applyGenre,
+                        local: song.genre, scraped: preview.scrapedGenre)
+        if preview.hasLyrics {
+            macCheckRow(title: "歌词 (.lrc)", isOn: $applyLyrics, diff: macLyricsDiff(preview))
+        }
+        if !hasAnyScrapeResult(preview) {
+            Label(String(localized: "scrape_no_changes"), systemImage: "info.circle")
+                .font(.system(size: 12))
+                .foregroundStyle(PMColor.textMuted)
+                .padding(.top, 4)
+        }
+    }
+
+    @ViewBuilder
+    private func macTextFieldRow(title: String, isOn: Binding<Bool>, local: String?, scraped: String?) -> some View {
+        if let scraped, !scraped.isEmpty {
+            let localText = (local?.isEmpty == false) ? local! : "?"
+            let changed = local != scraped
+            macCheckRow(title: title, isOn: isOn,
+                        diff: changed ? "\(localText) → \(scraped)" : scraped)
+        }
+    }
+
+    private func macLyricsDiff(_ preview: ScrapePreview) -> String {
+        let from = song.lyricsFileName == nil ? "空" : "已有"
+        var detail = "\(from) → \(preview.lyricsCount) 行"
+        if let src = macSelectedItem?.source { detail += " · 来自 \(src)" }
+        if preview.lyricsIsWordLevel { detail += " · 逐字" }
+        return detail
+    }
+
+    private func macCheckRow(title: String, isOn: Binding<Bool>, diff: String) -> some View {
+        Button { isOn.wrappedValue.toggle() } label: {
+            HStack(spacing: 10) {
+                macCheckbox(on: isOn.wrappedValue)
+                Text(verbatim: title)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(PMColor.text)
+                    .frame(width: 72, alignment: .leading)
+                Text(verbatim: diff)
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .foregroundStyle(PMColor.textMuted)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(PMColor.rowHover, in: .rect(cornerRadius: 5))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func macCheckbox(on: Bool) -> some View {
+        RoundedRectangle(cornerRadius: 3)
+            .fill(on ? PMColor.brand : Color.clear)
+            .frame(width: 14, height: 14)
+            .overlay {
+                RoundedRectangle(cornerRadius: 3)
+                    .strokeBorder(on ? PMColor.brand : PMColor.dividerStrong, lineWidth: 1)
+            }
+            .overlay {
+                if on {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+            }
+    }
+
+    // MARK: Right — sidecar
+
     private var macSidecarPane: some View {
         VStack(alignment: .leading, spacing: 18) {
-            macSectionTitle("Sidecar 回写")
             VStack(alignment: .leading, spacing: 8) {
-                macSidecarRow("cover.jpg", enabled: scrapeCover || applyCover)
-                macSidecarRow(".lrc", enabled: scrapeLyrics || applyLyrics)
-                Text("写入到源目录旁路文件, 非主线程执行。")
+                macSectionTitle("Sidecar 回写")
+                macSidecarRow(suffix: "-cover.jpg",
+                              enabled: applyCover && (previewResult?.hasCover ?? false))
+                macSidecarRow(suffix: ".lrc",
+                              enabled: applyLyrics && (previewResult?.hasLyrics ?? false))
+                Text("写入到源目录旁路文件 · 30s 超时 · 非主线程")
                     .font(.system(size: 11))
                     .foregroundStyle(PMColor.textFaint)
                     .padding(.top, 4)
             }
 
-            macSectionTitle("预览歌词")
-            ScrollView(.vertical, showsIndicators: false) {
-                Text(macLyricsPreview)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(PMColor.text)
-                    .lineSpacing(5)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 8) {
+                macSectionTitle("预览歌词")
+                ScrollView(.vertical, showsIndicators: false) {
+                    Text(verbatim: macLyricsPreview)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(PMColor.text)
+                        .lineSpacing(5)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                // 让歌词预览撑满右栏剩余高度, 不再留大片空白; 只在最底边渐隐一小段,
+                // 暗示"下面还有", 而不是把整段歌词都淡掉。
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .mask(
+                    LinearGradient(
+                        stops: [
+                            .init(color: .black, location: 0),
+                            .init(color: .black, location: 0.9),
+                            .init(color: .clear, location: 1)
+                        ],
+                        startPoint: .top, endPoint: .bottom
+                    )
+                )
             }
-            .frame(maxHeight: 220)
-            .mask(LinearGradient(colors: [.black, .black, .clear], startPoint: .top, endPoint: .bottom))
-            Spacer()
+            .frame(maxHeight: .infinity, alignment: .top)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 20)
+        .frame(maxHeight: .infinity, alignment: .top)
         .background(PMColor.bgDeep)
     }
 
-    private var macFooter: some View {
-        HStack(spacing: 10) {
-            if mode == .manual || mode == .preview {
-                Button("back_to_options") { mode = .options }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 12))
-                    .foregroundStyle(PMColor.textMuted)
-            }
-            Spacer()
-            Button("cancel") { closeView() }
-                .keyboardShortcut(.cancelAction)
-                .buttonStyle(.plain)
-                .font(.system(size: 12))
-                .foregroundStyle(PMColor.text)
-                .padding(.horizontal, 14)
-                .frame(height: 28)
-                .background(PMColor.glassBtn, in: .rect(cornerRadius: 6))
-                .overlay { RoundedRectangle(cornerRadius: 6).strokeBorder(PMColor.cardBorder, lineWidth: 0.5) }
-
-            switch mode {
-            case .options:
-                Button("manual_scrape") { Task { await manualSearch() } }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 12))
-                    .foregroundStyle(PMColor.text)
-                    .padding(.horizontal, 14)
-                    .frame(height: 28)
-                    .background(PMColor.glassBtn, in: .rect(cornerRadius: 6))
-                    .overlay { RoundedRectangle(cornerRadius: 6).strokeBorder(PMColor.cardBorder, lineWidth: 0.5) }
-                    .disabled(isSearching)
-
-                Button("auto_scrape") { Task { await autoScrape() } }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 14)
-                    .frame(height: 28)
-                    .background(PMColor.brand, in: .rect(cornerRadius: 6))
-                    .disabled(isScraping || (!scrapeMetadata && !scrapeCover && !scrapeLyrics))
-            case .manual:
-                Button("searching") { Task { await performManualSearch() } }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 14)
-                    .frame(height: 28)
-                    .background(PMColor.brand, in: .rect(cornerRadius: 6))
-                    .disabled(manualSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearching)
-            case .preview:
-                Button("apply_changes") { applySelectedChanges() }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 14)
-                    .frame(height: 28)
-                    .background((hasAnySelectedChange ? PMColor.brand : PMColor.textFaint), in: .rect(cornerRadius: 6))
-                    .disabled(!hasAnySelectedChange)
-            }
-        }
-        .padding(.horizontal, 18)
-        .frame(height: 56)
-        .background(PMColor.bg)
-        .overlay(alignment: .top) {
-            Rectangle().fill(PMColor.divider).frame(height: 0.5)
-        }
-    }
-
-    private func macToggleRow(_ label: LocalizedStringKey, isOn: Binding<Bool>, detail: String) -> some View {
-        HStack(spacing: 12) {
-            Toggle("", isOn: isOn).labelsHidden().toggleStyle(.switch)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(label)
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(PMColor.text)
-                Text(verbatim: detail)
-                    .font(.system(size: 11))
-                    .foregroundStyle(PMColor.textFaint)
-            }
-            Spacer()
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .overlay(alignment: .top) { Rectangle().fill(PMColor.divider).frame(height: 0.5) }
-    }
-
-    private func macFieldToggle(isOn: Binding<Bool>, label: LocalizedStringKey, localValue: String, scrapedValue: String?) -> some View {
-        guard let scrapedValue else {
-            return AnyView(EmptyView())
-        }
-        return AnyView(macBooleanToggle(
-            isOn: isOn,
-            label: label,
-            detail: "\(localValue) → \(scrapedValue)"
-        ))
-    }
-
-    private func macBooleanToggle(isOn: Binding<Bool>, label: LocalizedStringKey, detail: String) -> some View {
-        HStack(spacing: 10) {
-            Toggle("", isOn: isOn).labelsHidden().toggleStyle(.checkbox)
-            Text(label)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(PMColor.text)
-                .frame(width: 82, alignment: .leading)
-            Text(verbatim: detail)
-                .font(.system(size: 11.5, design: .monospaced))
-                .foregroundStyle(PMColor.textMuted)
-                .lineLimit(1)
-            Spacer()
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(PMColor.rowHover, in: .rect(cornerRadius: 5))
-    }
-
-    private func macSidecarRow(_ suffix: String, enabled: Bool) -> some View {
+    private func macSidecarRow(suffix: String, enabled: Bool) -> some View {
         HStack(spacing: 7) {
             Image(systemName: enabled ? "checkmark.circle.fill" : "circle")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(enabled ? PMColor.ok : PMColor.textFaint)
-            Text(verbatim: "\(song.title)-\(suffix)")
+            Text(verbatim: "\(macSidecarBaseName)\(suffix)")
                 .font(.system(size: 11.5, design: .monospaced))
-                .foregroundStyle(PMColor.textMuted)
+                .foregroundStyle(enabled ? PMColor.textMuted : PMColor.textFaint)
                 .lineLimit(1)
+                .truncationMode(.middle)
         }
+    }
+
+    /// Sidecar 文件名跟着源音频文件走 (`<basename>-cover.jpg` / `<basename>.lrc`),
+    /// 不是歌曲标题 —— 跟 SidecarWriteService 实际写盘逻辑一致。
+    private var macSidecarBaseName: String {
+        let last = (song.filePath as NSString).lastPathComponent
+        let base = (last as NSString).deletingPathExtension
+        return base.isEmpty ? song.title : base
     }
 
     private func macSectionTitle(_ title: LocalizedStringKey) -> some View {
@@ -649,17 +691,82 @@ struct ScrapeOptionsView: View {
         if let preview = previewResult,
            let lines = preview.lyricsLines,
            lines.isEmpty == false {
-            return lines.prefix(8).map { line in
-                "[\(formatDuration(line.timestamp))] \(line.text)"
-            }.joined(separator: "\n")
+            var out: [String] = []
+            if let artist = preview.scrapedArtist ?? song.artistName, !artist.isEmpty {
+                out.append("[ar:\(artist)]")
+            }
+            out.append("[ti:\(preview.scrapedTitle ?? song.title)]")
+            if let album = preview.scrapedAlbum ?? song.albumTitle, !album.isEmpty {
+                out.append("[al:\(album)]")
+            }
+            // 多展示一些行把右栏撑满 (可滚动), 不再只给 8 行。封顶 80 行防止
+            // 个别超长歌词把文本渲染拖重。
+            out += lines.prefix(80).map { line in
+                "[\(formatDuration(line.timestamp))]\(line.text)"
+            }
+            return out.joined(separator: "\n")
         }
         return """
         [ar:\(song.artistName ?? "-")]
         [ti:\(song.title)]
         [00:00.00]\(song.title)
-        [00:18.42]...
-        [00:22.13]...
+        [00:18.42]…
+        [00:22.13]…
         """
+    }
+
+    // MARK: macOS footer & load
+
+    private var macFooter: some View {
+        HStack(spacing: 10) {
+            Spacer()
+            Button("cancel") { closeView() }
+                .keyboardShortcut(.cancelAction)
+                .buttonStyle(.plain)
+                .font(.system(size: 12))
+                .foregroundStyle(PMColor.text)
+                .padding(.horizontal, 14)
+                .frame(height: 28)
+                .background(PMColor.glassBtn, in: .rect(cornerRadius: 6))
+                .overlay { RoundedRectangle(cornerRadius: 6).strokeBorder(PMColor.cardBorder, lineWidth: 0.5) }
+
+            Button("apply_changes") { applySelectedChanges() }
+                .buttonStyle(.plain)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .frame(height: 28)
+                .background((hasAnySelectedChange ? PMColor.brand : PMColor.textFaint), in: .rect(cornerRadius: 6))
+                .disabled(!hasAnySelectedChange)
+        }
+        .padding(.horizontal, 18)
+        .frame(height: 56)
+        .background(PMColor.bg)
+        .overlay(alignment: .top) {
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+        }
+    }
+
+    private func macInitialLoad() async {
+        manualSearchQuery = ScraperManager.searchTitle(song.title, artist: song.artistName)
+        if let artist = song.artistName,
+           !artist.isEmpty,
+           ScraperManager.shouldAppendArtist(to: manualSearchQuery, artist: artist) {
+            manualSearchQuery += " \(artist)"
+        }
+        await macRunSearch()
+    }
+
+    /// 搜一遍候选, 然后自动选中匹配度最高 (排序后第一个) 的候选并拉详情。
+    private func macRunSearch() async {
+        await performManualSearch()
+        if let first = searchResults.first {
+            selectedItemID = first.id
+            await selectManualResult(first)
+        } else {
+            selectedItemID = nil
+            previewResult = nil
+        }
     }
     #endif
 
@@ -908,6 +1015,7 @@ struct ScrapeOptionsView: View {
         let artistChanged = p.scrapedArtist != nil && p.scrapedArtist != song.artistName
         let albumChanged = p.scrapedAlbum != nil && p.scrapedAlbum != song.albumTitle
         let yearChanged = p.scrapedYear != nil && p.scrapedYear != song.year
+        let trackChanged = p.scrapedTrackNumber != nil && p.scrapedTrackNumber != song.trackNumber
         let genreChanged = p.scrapedGenre != nil && p.scrapedGenre != song.genre
 
         // Swift 编译器对长 || 链 type-check 超时, 拆成数组 reduce。
@@ -916,6 +1024,7 @@ struct ScrapeOptionsView: View {
             artistChanged && applyArtist,
             albumChanged && applyAlbum,
             yearChanged && applyYear,
+            trackChanged && applyTrack,
             genreChanged && applyGenre,
             p.hasCover && applyCover,
             p.hasLyrics && applyLyrics
@@ -1029,17 +1138,21 @@ struct ScrapeOptionsView: View {
             isScraping = false
 
             let lyricsCount = lyricsLines?.count ?? 0
+            let coverPx = coverData.flatMap { coverPixelSize(from: $0) }
 
             previewResult = ScrapePreview(
                 updatedSong: updated, coverData: coverData, lyricsCount: lyricsCount,
                 lyricsLines: lyricsLines,
-                scrapedTitle: updated.title != song.title ? updated.title : updated.title,
+                scrapedTitle: updated.title,
                 scrapedArtist: updated.artistName,
                 scrapedAlbum: updated.albumTitle,
                 scrapedYear: updated.year,
+                scrapedTrackNumber: updated.trackNumber,
                 scrapedGenre: updated.genre,
                 hasCover: coverData != nil,
-                hasLyrics: lyricsLines != nil && !lyricsLines!.isEmpty
+                hasLyrics: lyricsLines != nil && !lyricsLines!.isEmpty,
+                coverPixelWidth: coverPx?.0,
+                coverPixelHeight: coverPx?.1
             )
 
             // 跟本地相同的字段(unchanged)默认不勾,跟本地不同的(changed)默认勾。
@@ -1047,6 +1160,7 @@ struct ScrapeOptionsView: View {
             applyArtist = updated.artistName != song.artistName
             applyAlbum = updated.albumTitle != song.albumTitle
             applyYear = updated.year != song.year && updated.year != nil
+            applyTrack = updated.trackNumber != song.trackNumber && updated.trackNumber != nil
             applyGenre = updated.genre != song.genre && updated.genre != nil
             applyCover = coverData != nil
             applyLyrics = lyricsLines != nil && !lyricsLines!.isEmpty
@@ -1093,10 +1207,12 @@ struct ScrapeOptionsView: View {
                         title: item.title,
                         artist: item.artist,
                         album: item.album,
+                        year: item.year,
                         durationMs: item.durationMs,
                         coverUrl: item.coverUrl,
                         externalId: item.externalId,
-                        sourceConfig: config
+                        sourceConfig: config,
+                        confidence: scrapeConfidence(title: item.title, artist: item.artist, durationMs: item.durationMs)
                     ))
                 }
             } catch {
@@ -1104,15 +1220,9 @@ struct ScrapeOptionsView: View {
             }
         }
 
-        // Sort by duration match
-        if song.duration.sanitizedDuration > 0 {
-            let targetMs = Int((song.duration.sanitizedDuration * 1000).rounded(.down))
-            aggregatedResults.sort { a, b in
-                let diffA = abs((a.durationMs ?? 0) - targetMs)
-                let diffB = abs((b.durationMs ?? 0) - targetMs)
-                return diffA < diffB
-            }
-        }
+        // 按匹配度 (时长 + 标题 + 艺术家 综合分) 降序, 高的排前面 —— 候选优先单页
+        // 默认自动选中第一个, 所以排序直接决定首选候选。
+        aggregatedResults.sort { $0.confidence > $1.confidence }
 
         searchResults = aggregatedResults
         isSearching = false
@@ -1187,6 +1297,7 @@ struct ScrapeOptionsView: View {
             }
 
             isScraping = false
+            let coverPx = coverData.flatMap { coverPixelSize(from: $0) }
 
             previewResult = ScrapePreview(
                 updatedSong: updated, coverData: coverData, lyricsCount: lyricsCount,
@@ -1195,15 +1306,19 @@ struct ScrapeOptionsView: View {
                 scrapedArtist: updated.artistName,
                 scrapedAlbum: updated.albumTitle,
                 scrapedYear: updated.year,
+                scrapedTrackNumber: updated.trackNumber,
                 scrapedGenre: updated.genre,
                 hasCover: hasCover,
-                hasLyrics: hasLyrics
+                hasLyrics: hasLyrics,
+                coverPixelWidth: coverPx?.0,
+                coverPixelHeight: coverPx?.1
             )
             // 跟本地相同的字段(unchanged)默认不勾,跟本地不同的(changed)默认勾。
             applyTitle = updated.title != song.title
             applyArtist = updated.artistName != song.artistName
             applyAlbum = updated.albumTitle != song.albumTitle
             applyYear = updated.year != song.year && updated.year != nil
+            applyTrack = updated.trackNumber != song.trackNumber && updated.trackNumber != nil
             applyGenre = updated.genre != song.genre && updated.genre != nil
             applyCover = hasCover
             applyLyrics = hasLyrics
@@ -1223,6 +1338,7 @@ struct ScrapeOptionsView: View {
         let artistChanged = preview.scrapedArtist != nil && preview.scrapedArtist != song.artistName
         let albumChanged = preview.scrapedAlbum != nil && preview.scrapedAlbum != song.albumTitle
         let yearChanged = preview.scrapedYear != nil && preview.scrapedYear != song.year
+        let trackChanged = preview.scrapedTrackNumber != nil && preview.scrapedTrackNumber != song.trackNumber
         let genreChanged = preview.scrapedGenre != nil && preview.scrapedGenre != song.genre
 
         let needsCover = preview.hasCover && applyCover
@@ -1246,7 +1362,7 @@ struct ScrapeOptionsView: View {
             albumID: song.albumID, artistID: song.artistID,
             albumTitle: (albumChanged && applyAlbum) ? u.albumTitle : song.albumTitle,
             artistName: (artistChanged && applyArtist) ? u.artistName : song.artistName,
-            trackNumber: u.trackNumber ?? song.trackNumber,
+            trackNumber: (trackChanged && applyTrack) ? u.trackNumber : song.trackNumber,
             discNumber: u.discNumber ?? song.discNumber,
             duration: u.duration > 0 ? u.duration : song.duration,
             fileFormat: song.fileFormat,
@@ -1403,6 +1519,69 @@ struct ScrapeOptionsView: View {
 
     private func formatDuration(_ t: TimeInterval) -> String {
         t.formattedDuration
+    }
+
+    /// 候选匹配度 0...1。镜像 ScraperManager.score 的权重 (时长 50 / 标题 30 /
+    /// 艺术家 20), 按"当前可用的信号维度"归一化 —— 没时长 / 没艺术家信息时不会
+    /// 因为拿不到那部分分而被压低百分比。仅用于显示与排序, 不参与实际写回。
+    private func scrapeConfidence(title: String, artist: String?, durationMs: Int?) -> Double {
+        var score = 0.0
+        var maxScore = 0.0
+
+        let targetMs = song.duration.sanitizedDuration > 0
+            ? Int((song.duration.sanitizedDuration * 1000).rounded())
+            : nil
+        if let target = targetMs, let ms = durationMs {
+            maxScore += 50
+            let diff = abs(ms - target)
+            if diff < 2000 { score += 50 }
+            else if diff < 5000 { score += 30 }
+            else if diff < 10000 { score += 10 }
+            else { score -= 20 }
+        }
+
+        maxScore += 30
+        let normTitle = Self.normalizedForMatch(song.title)
+        let itemTitle = Self.normalizedForMatch(title)
+        if !itemTitle.isEmpty && itemTitle == normTitle { score += 30 }
+        else if !itemTitle.isEmpty && !normTitle.isEmpty &&
+                    (itemTitle.contains(normTitle) || normTitle.contains(itemTitle)) { score += 15 }
+
+        let normArtist = Self.normalizedForMatch(song.artistName ?? "")
+        if !normArtist.isEmpty, let artist {
+            let itemArtist = Self.normalizedForMatch(artist)
+            if !itemArtist.isEmpty {
+                maxScore += 20
+                if itemArtist == normArtist { score += 20 }
+                else if itemArtist.contains(normArtist) || normArtist.contains(itemArtist) { score += 10 }
+            }
+        }
+
+        guard maxScore > 0 else { return 0 }
+        return max(0, min(1, score / maxScore))
+    }
+
+    private static func normalizedForMatch(_ s: String) -> String {
+        s.lowercased()
+            .folding(options: .diacriticInsensitive, locale: nil)
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .joined()
+    }
+
+    /// 解码封面字节流的真实像素尺寸 (NSBitmapImageRep / CGImage), 用于
+    /// "2400×2400 · 612 KB" 这种信息展示。失败返回 nil。
+    private func coverPixelSize(from data: Data) -> (Int, Int)? {
+        #if os(macOS)
+        if let rep = NSBitmapImageRep(data: data) {
+            return (rep.pixelsWide, rep.pixelsHigh)
+        }
+        return nil
+        #else
+        if let cg = UIImage(data: data)?.cgImage {
+            return (cg.width, cg.height)
+        }
+        return nil
+        #endif
     }
 
     private func canUseSourceInManualSearch(_ sourceConfig: ScraperSourceConfig) -> Bool {

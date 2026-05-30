@@ -18,63 +18,75 @@ struct MacLibraryHeader: View {
 
     var body: some View {
         ZStack(alignment: .leading) {
-            AmbientBackdrop(accent: accent, darkAccent: darkAccent, strength: 0.7)
+            // 设计稿 LibraryHeader 用 strength 0.4 (subtle), 不像 Home Hero 那么饱和。
+            // 这里 ambient 是配角, 不能盖过封面 + 标题。
+            AmbientBackdrop(accent: accent, darkAccent: darkAccent, strength: 0.4)
 
             HStack(alignment: .bottom, spacing: 24) {
                 coverArt
                     .frame(width: 160, height: 160)
 
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 8) {
                     Text(eyebrow)
                         .font(.system(size: 11, weight: .semibold))
-                        .tracking(1.2)
+                        .tracking(0.8)
                         .textCase(.uppercase)
-                        .foregroundStyle(.white.opacity(0.78))
+                        .foregroundStyle(.white.opacity(0.72))
 
                     Text(verbatim: title)
-                        .font(.system(size: 40, weight: .bold))
-                        .tracking(-0.5)
+                        .font(.system(size: 44, weight: .bold))
+                        .tracking(-0.8)
+                        .lineSpacing(0)
                         .foregroundStyle(.white)
                         .lineLimit(1)
 
                     Text(verbatim: subtitle)
                         .font(.system(size: 13))
                         .foregroundStyle(.white.opacity(0.72))
-                        .lineLimit(2)
+                        .lineLimit(1)
 
                     HStack(spacing: 8) {
                         Button(action: onPlay) {
-                            Label("play_all", systemImage: "play.fill")
-                                .font(.system(size: 12.5, weight: .semibold))
-                                .padding(.horizontal, 18)
-                                .frame(height: 32)
-                                .background(PMColor.brand, in: .rect(cornerRadius: 8))
-                                .foregroundStyle(.white)
+                            HStack(spacing: 7) {
+                                Image(systemName: "play.fill")
+                                    .font(.system(size: 12))
+                                Text("play")
+                                    .font(.system(size: 12.5, weight: .semibold))
+                            }
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 18)
+                            .frame(height: 32)
+                            .background(PMColor.brand, in: .rect(cornerRadius: 8))
                         }
                         .buttonStyle(.plain)
+                        .shadow(color: PMColor.brand.opacity(0.35), radius: 6, y: 2)
 
                         Button(action: onShuffle) {
-                            Label("shuffle", systemImage: "shuffle")
-                                .font(.system(size: 12.5, weight: .semibold))
-                                .padding(.horizontal, 14)
-                                .frame(height: 32)
-                                .background(Color.white.opacity(0.16), in: .rect(cornerRadius: 8))
-                                .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.22), lineWidth: 0.5) }
-                                .foregroundStyle(.white)
+                            HStack(spacing: 7) {
+                                Image(systemName: "shuffle")
+                                    .font(.system(size: 12))
+                                Text("shuffle")
+                                    .font(.system(size: 12.5, weight: .semibold))
+                            }
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 14)
+                            .frame(height: 32)
+                            .background(Color.white.opacity(0.16), in: .rect(cornerRadius: 8))
+                            .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.22), lineWidth: 0.5) }
                         }
                         .buttonStyle(.plain)
 
                         Button(action: onMore) {
                             Image(systemName: "ellipsis")
-                                .font(.system(size: 12.5, weight: .semibold))
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(.white)
                                 .frame(width: 32, height: 32)
                                 .background(Color.white.opacity(0.16), in: .rect(cornerRadius: 8))
                                 .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.22), lineWidth: 0.5) }
-                                .foregroundStyle(.white)
                         }
                         .buttonStyle(.plain)
                     }
-                    .padding(.top, 4)
+                    .padding(.top, 8)
                 }
                 Spacer(minLength: 0)
             }
@@ -82,7 +94,7 @@ struct MacLibraryHeader: View {
             .padding(.top, 32)
             .padding(.bottom, 24)
         }
-        .frame(height: 232)
+        .frame(height: 240)
         .clipped()
     }
 

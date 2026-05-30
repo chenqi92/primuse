@@ -165,7 +165,10 @@ struct MacSourcesView: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
-                        Text(source.name).font(.body).fontWeight(.medium)
+                        Text(source.name)
+                            .font(.body).fontWeight(.medium)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                         if !source.isEnabled {
                             Text("disabled")
                                 .font(.caption2)
@@ -185,9 +188,12 @@ struct MacSourcesView: View {
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-                Spacer()
+                Spacer(minLength: 4)
 
                 rowActions(source: source, dirs: dirs, scanning: scanning)
             }

@@ -193,7 +193,10 @@ struct PlaylistDetailView: View {
                 )
 
                 VStack(alignment: .leading, spacing: PMSpace.l) {
-                    macPlaylistRuleCard
+                    // 设计稿: 普通歌单只有 LibraryHeader + 歌曲表。智能歌单才显示
+                    // smart rule callout (放在 SmartPlaylistDetailView 里)。原来这里
+                    // 给所有非 Liked/AM 歌单都套了一个 "reorder + 导出" 工具卡, 不在
+                    // 设计稿里, 现在直接换成 toolbar (排序/导出/更多) 工具条。
                     macPlaylistToolbar
 
                     if songs.isEmpty {
@@ -316,21 +319,24 @@ struct PlaylistDetailView: View {
     private var macSongTable: some View {
         let rows = Array(songs.enumerated())
         return VStack(spacing: 0) {
-            HStack(spacing: PMSpace.s10) {
-                Text("#").frame(width: 28, alignment: .center)
-                Color.clear.frame(width: 36)
+            // 设计稿 9 列: # / cover / 标题 / 艺术家 / 专辑 / 格式 / 时长 / 播放 / 源
+            HStack(spacing: 12) {
+                Text("#").frame(width: 32, alignment: .leading)
+                Color.clear.frame(width: 32, height: 1)
                 Text("sort_title").frame(maxWidth: .infinity, alignment: .leading)
-                Text("sort_artist").frame(width: 180, alignment: .leading)
-                Text("sort_album").frame(width: 180, alignment: .leading)
-                Text("sort_format").frame(width: 64, alignment: .leading)
-                Text("track_duration_short").frame(width: 56, alignment: .trailing)
+                Text("sort_artist").frame(maxWidth: .infinity, alignment: .leading)
+                Text("sort_album").frame(maxWidth: .infinity, alignment: .leading)
+                Text("sort_format").frame(width: 100, alignment: .leading)
+                Text("track_duration_short").frame(width: 80, alignment: .trailing)
+                Text("home_playable_count_short").frame(width: 80, alignment: .trailing)
+                Text("source").frame(width: 60, alignment: .leading)
             }
             .font(.system(size: 10.5, weight: .semibold))
-            .tracking(0.5)
+            .tracking(0.6)
             .textCase(.uppercase)
             .foregroundStyle(PMColor.textFaint)
-            .padding(.horizontal, PMSpace.s8)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
 
             Rectangle().fill(PMColor.divider).frame(height: 0.5)
 
@@ -343,9 +349,19 @@ struct PlaylistDetailView: View {
         }
     }
 
+    private var playCountsBySongID: [String: Int] {
+        var dict: [String: Int] = [:]
+        for e in PlayHistoryStore.shared.entries {
+            dict[e.songID, default: 0] += 1
+        }
+        return dict
+    }
+
     private func macSongRow(_ song: Song, index: Int) -> some View {
         let isCurrent = player.currentSong?.id == song.id
-        return HStack(spacing: PMSpace.s10) {
+        let plays = playCountsBySongID[song.id] ?? 0
+        let source = sourcesStore.sources.first(where: { $0.id == song.sourceID })
+        return HStack(spacing: 12) {
             ZStack {
                 if isCurrent {
                     Image(systemName: "play.fill")
@@ -357,42 +373,86 @@ struct PlaylistDetailView: View {
                         .foregroundStyle(PMColor.textFaint)
                 }
             }
-            .frame(width: 28, alignment: .center)
+            .frame(width: 32, alignment: .leading)
 
             CachedArtworkView(
                 coverRef: song.coverArtFileName, songID: song.id,
-                size: 32, cornerRadius: PMRadius.xs,
+                size: 28, cornerRadius: 4,
                 sourceID: song.sourceID, filePath: song.filePath
             )
+            .frame(width: 32, alignment: .leading)
 
             Text(song.title)
-                .font(.system(size: 12.5, weight: isCurrent ? .semibold : .regular))
+                .font(.system(size: 12.5, weight: isCurrent ? .semibold : .medium))
                 .foregroundStyle(isCurrent ? PMColor.brand : PMColor.text)
                 .lineLimit(1)
+                .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             Text(song.artistName ?? "—")
-                .font(.system(size: 12))
+                .font(.system(size: 12.5))
                 .foregroundStyle(PMColor.textMuted)
                 .lineLimit(1)
-                .frame(width: 180, alignment: .leading)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             Text(song.albumTitle ?? "—")
-                .font(.system(size: 12))
+                .font(.system(size: 12.5))
                 .foregroundStyle(PMColor.textMuted)
                 .lineLimit(1)
-                .frame(width: 180, alignment: .leading)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-            PMFormatPill.forFormat(song.fileFormat.displayName)
-                .frame(width: 64, alignment: .leading)
+            HStack(spacing: 6) {
+                PMFormatPill.forFormat(song.fileFormat.displayName)
+                if let sr = song.sampleRate, sr > 0 {
+                    Text(verbatim: "\(sr / 1000)k")
+                        .font(.system(size: 10.5, design: .monospaced))
+                        .foregroundStyle(PMColor.textFaint)
+                }
+            }
+            .frame(width: 100, alignment: .leading)
 
             Text(song.duration.formattedDuration)
-                .font(.system(size: 11, design: .monospaced))
+                .font(.system(size: 11.5, design: .monospaced))
                 .monospacedDigit()
-                .foregroundStyle(PMColor.textFaint)
-                .frame(width: 56, alignment: .trailing)
+                .foregroundStyle(PMColor.textMuted)
+                .frame(width: 80, alignment: .trailing)
+
+            Group {
+                if plays > 0 {
+                    Text("\(plays)")
+                        .font(.system(size: 11.5, design: .monospaced))
+                        .monospacedDigit()
+                        .foregroundStyle(PMColor.textMuted)
+                } else {
+                    Text(verbatim: "—")
+                        .font(.system(size: 11.5, design: .monospaced))
+                        .foregroundStyle(PMColor.textFaint)
+                }
+            }
+            .frame(width: 80, alignment: .trailing)
+
+            HStack(spacing: 5) {
+                if let source {
+                    Circle()
+                        .fill(macSourceDotColor(for: source))
+                        .frame(width: 6, height: 6)
+                    Text(verbatim: source.name.components(separatedBy: "·").first?
+                        .trimmingCharacters(in: .whitespaces) ?? source.name)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(PMColor.textFaint)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                } else {
+                    Text(verbatim: "—")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(PMColor.textFaint)
+                }
+            }
+            .frame(width: 60, alignment: .leading)
         }
-        .padding(.horizontal, PMSpace.s8)
+        .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .frame(minHeight: 44)
         .pmRowBackground(selected: isCurrent)
@@ -407,6 +467,16 @@ struct PlaylistDetailView: View {
                 }
             }
         }
+    }
+
+    private func macSourceDotColor(for source: MusicSource) -> Color {
+        let palette: [Color] = [
+            PMColor.flac, PMColor.dsd, PMColor.warn, PMColor.brand,
+            Color(red: 0.4, green: 0.7, blue: 0.95),
+            Color(red: 0.7, green: 0.6, blue: 0.95),
+        ]
+        let h = abs(source.type.rawValue.hashValue) % palette.count
+        return palette[h]
     }
     #endif
 

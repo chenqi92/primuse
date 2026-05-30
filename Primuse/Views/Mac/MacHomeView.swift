@@ -17,7 +17,7 @@ struct MacHomeView: View {
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: PMSpace.xl) {
+            VStack(alignment: .leading, spacing: PMSpace.xxl) {
                 if updateChecker.availableUpdate != nil {
                     updateBanner
                 }
@@ -37,7 +37,7 @@ struct MacHomeView: View {
                 }
             }
             .padding(.horizontal, PMSpace.xxxl)
-            .padding(.top, PMSpace.xl)
+            .padding(.top, PMSpace.l24)
             .padding(.bottom, 104)
         }
         .background(PMColor.bg.ignoresSafeArea())
@@ -48,19 +48,21 @@ struct MacHomeView: View {
     private var updateBanner: some View {
         HStack(spacing: PMSpace.m) {
             Image(systemName: "arrow.down.circle.fill")
-                .font(.system(size: 16, weight: .semibold))
+                .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(PMColor.brand)
+                .frame(width: 22)
 
-            VStack(alignment: .leading, spacing: 1) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 if let v = updateChecker.availableUpdate?.version {
                     Text(String(format: String(localized: "update_banner_title_format"), v))
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(PMColor.text)
                 }
                 Text("update_banner_subtitle")
-                    .font(.system(size: 11.5))
+                    .font(.system(size: 12.5))
                     .foregroundStyle(PMColor.textMuted)
                     .lineLimit(1)
+                    .truncationMode(.tail)
             }
 
             Spacer(minLength: 8)
@@ -70,12 +72,13 @@ struct MacHomeView: View {
             } label: {
                 Text("update_banner_action")
                     .font(.system(size: 12, weight: .semibold))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 5)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
                     .background(PMColor.brand, in: Capsule())
                     .foregroundStyle(.white)
             }
             .buttonStyle(.plain)
+            .shadow(color: PMColor.brand.opacity(0.35), radius: 6, y: 2)
 
             Button {
                 updateChecker.snooze()
@@ -91,7 +94,18 @@ struct MacHomeView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .pmCard(cornerRadius: PMRadius.m10)
+        .background {
+            // 设计稿 update banner 是带轻微 brand 暖色调的卡片, 不能像普通 pmCard
+            // 那样几乎贴底色 — 用 bgElev 实色 + 6% brand tint 拉对比。
+            RoundedRectangle(cornerRadius: PMRadius.m10, style: .continuous)
+                .fill(PMColor.bgElev)
+            RoundedRectangle(cornerRadius: PMRadius.m10, style: .continuous)
+                .fill(PMColor.brand.opacity(0.07))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: PMRadius.m10, style: .continuous)
+                .strokeBorder(PMColor.brand.opacity(0.28), lineWidth: 0.5)
+        }
     }
 
     // MARK: - Hero
@@ -143,69 +157,89 @@ struct MacHomeView: View {
 
     private var heroSection: some View {
         ZStack {
+            // 1. 卡片底色 — 暗色模式必须明显高于窗口 bg, 否则跟背景融在一起。设计里 hero
+            //    是一张清晰可见的卡。先铺 bgElev, 再叠 AmbientBackdrop 给暖色调。
+            RoundedRectangle(cornerRadius: PMRadius.xxl, style: .continuous)
+                .fill(PMColor.bgElev)
+
+            // 2. Hero 的 ambient 用固定 brand 暖色, 不跟 theme.accentColor 走 — 设计稿
+            //    里 hero 一直是温暖的 pink/cream 调, 跟当前播放歌曲色相无关。
+            //    AmbientBackdrop 内部用 blur + offset 把色圈推到 Hero 边界外, 不依靠
+            //    内部 clipShape (drawingGroup 栅格化会让 clip 失效), 改在最外层 ZStack
+            //    统一裁剪。
             AmbientBackdrop(
-                accent: theme.accentColor,
-                darkAccent: theme.darkAccent,
-                strength: 0.85
+                accent: PMColor.brand,
+                darkAccent: PMColor.brand.opacity(0.55),
+                strength: 0.72
             )
-            .clipShape(RoundedRectangle(cornerRadius: PMRadius.xxl, style: .continuous))
 
-            HStack(alignment: .center, spacing: PMSpace.xl) {
+            HStack(alignment: .center, spacing: 36) {
                 coverMosaic
-                    .frame(width: 200, height: 200)
+                    .frame(width: 240, height: 240)
 
-                VStack(alignment: .leading, spacing: PMSpace.m16) {
+                VStack(alignment: .leading, spacing: 14) {
                     Text(verbatim: greeting)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.white.opacity(0.78))
 
                     Text(verbatim: heroNarrative)
-                        .font(.system(size: 36, weight: .bold))
-                        .tracking(-0.6)
+                        .font(.system(size: 40, weight: .bold))
+                        .tracking(-0.8)
                         .lineSpacing(2)
                         .foregroundStyle(.white)
                         .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
 
                     Text(verbatim: heroStats)
                         .font(.system(size: 13.5, weight: .medium))
                         .lineSpacing(3)
                         .foregroundStyle(.white.opacity(0.78))
                         .lineLimit(2)
-                        .frame(maxWidth: 600, alignment: .leading)
+                        .frame(maxWidth: 660, alignment: .leading)
 
                     HStack(spacing: PMSpace.s10) {
-                        Button { playLibrary(shuffled: false) } label: {
-                            Label("play_all", systemImage: "play.fill")
-                                .font(.system(size: 13, weight: .semibold))
-                                .padding(.horizontal, 18)
-                                .padding(.vertical, 9)
+                        Button { playLibrary(shuffled: true) } label: {
+                            Label("shuffle_all", systemImage: "shuffle")
+                                .font(.system(size: 13.5, weight: .semibold))
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 11)
                                 .background(PMColor.brand, in: Capsule())
                                 .foregroundStyle(.white)
                         }
                         .buttonStyle(.plain)
                         .disabled(!hasContent)
-                        .shadow(color: PMColor.brand.opacity(0.4), radius: 8, y: 3)
+                        .shadow(color: PMColor.brand.opacity(0.45), radius: 10, y: 4)
 
-                        Button { playLibrary(shuffled: true) } label: {
-                            Label("shuffle", systemImage: "shuffle")
-                                .font(.system(size: 13, weight: .semibold))
-                                .padding(.horizontal, 18)
-                                .padding(.vertical, 9)
+                        Button { playLibrary(shuffled: false) } label: {
+                            Label("play_all", systemImage: "play.fill")
+                                .font(.system(size: 13.5, weight: .semibold))
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 11)
                                 .background(Color.white.opacity(0.18), in: Capsule())
-                                .overlay { Capsule().strokeBorder(.white.opacity(0.22), lineWidth: 0.5) }
+                                .overlay { Capsule().strokeBorder(.white.opacity(0.24), lineWidth: 0.5) }
                                 .foregroundStyle(.white)
                         }
                         .buttonStyle(.plain)
                         .disabled(!hasContent)
                     }
-                    .padding(.top, PMSpace.xs)
+                    .padding(.top, 8)
                 }
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, PMSpace.xxl)
-            .padding(.vertical, PMSpace.xl)
+            .padding(.vertical, PMSpace.l24)
         }
-        .frame(height: 264)
+        .frame(height: 296)
+        // 3. 整张 Hero 强制裁剪到圆角矩形 — AmbientBackdrop 的 blur 圈会越界, 必须在
+        //    最外层统一切, 否则暖色会"漏"到 Hero 上下方区域。
+        .clipShape(RoundedRectangle(cornerRadius: PMRadius.xxl, style: .continuous))
+        // 4. 边框 + 收紧的浮动阴影 (radius 18→8, 防止 shadow 把卡片边缘的暖色又扩散
+        //    回外面)。
+        .overlay {
+            RoundedRectangle(cornerRadius: PMRadius.xxl, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5)
+        }
+        .shadow(color: .black.opacity(0.45), radius: 8, y: 4)
     }
 
     private var coverMosaic: some View {
@@ -218,7 +252,7 @@ struct MacHomeView: View {
                             .font(.system(size: 36))
                             .foregroundStyle(.white.opacity(0.42))
                     }
-            } else if mosaicSongs.count == 1, let song = mosaicSongs.first {
+            } else if mosaicLayout.columns == 1, let song = mosaicLayout.songs.first {
                 CachedArtworkView(
                     coverRef: song.coverArtFileName, songID: song.id,
                     cornerRadius: PMRadius.l,
@@ -227,22 +261,42 @@ struct MacHomeView: View {
                 .aspectRatio(1, contentMode: .fit)
                 .shadow(color: .black.opacity(0.32), radius: 18, y: 8)
             } else {
+                // 设计稿的封面马赛克是"散落叠放"的: 每张按固定角度轻微倾斜 + 上下错位,
+                // 不是横平竖直的网格。这里复刻 home.jsx CoverMosaic 的 transforms。
                 LazyVGrid(
-                    columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3),
-                    spacing: 6
+                    columns: Array(repeating: GridItem(.flexible(), spacing: 8),
+                                   count: mosaicLayout.columns),
+                    spacing: 8
                 ) {
-                    ForEach(Array(mosaicSongs.prefix(6).enumerated()), id: \.element.id) { _, song in
+                    ForEach(Array(mosaicLayout.songs.enumerated()), id: \.element.id) { idx, song in
                         CachedArtworkView(
                             coverRef: song.coverArtFileName, songID: song.id,
                             cornerRadius: PMRadius.m,
                             sourceID: song.sourceID, filePath: song.filePath
                         )
                         .aspectRatio(1, contentMode: .fit)
+                        .shadow(color: .black.opacity(0.22), radius: 6, y: 3)
+                        .rotationEffect(.degrees(Self.mosaicTilt[idx % Self.mosaicTilt.count]))
+                        .offset(y: Self.mosaicYOffset[idx % Self.mosaicYOffset.count])
                     }
                 }
-                .shadow(color: .black.opacity(0.25), radius: 12, y: 6)
+                // 留点内边距, 让倾斜出界的封面角不被 hero 圆角裁掉。
+                .padding(6)
             }
         }
+    }
+
+    /// home.jsx CoverMosaic 的散落参数: 每张封面的旋转角度 (度) 与垂直错位 (pt)。
+    private static let mosaicTilt: [Double] = [-4, 2, -1, 4, -3, 1]
+    private static let mosaicYOffset: [CGFloat] = [-6, 0, 4, -4, 2, 0]
+
+    /// 把候选封面收敛成"整行铺满"的网格: ≥6 张走 3×2, 4–5 张走 2×2, 其余只展示
+    /// 单张大封面。这样马赛克始终是横平竖直的完整矩形, 不会出现落单的半行。
+    private var mosaicLayout: (songs: [Song], columns: Int) {
+        let pool = mosaicSongs
+        if pool.count >= 6 { return (Array(pool.prefix(6)), 3) }
+        if pool.count >= 4 { return (Array(pool.prefix(4)), 2) }
+        return (Array(pool.prefix(1)), 1)
     }
 
     private var mosaicSongs: [Song] {
@@ -263,6 +317,11 @@ struct MacHomeView: View {
             libraryHealthCard
             sourceStatusCard
         }
+        // 两张卡用 equal-height: HStack 默认会拉到两边最高的那张, 但 homeCard 内部
+        // VStack 自然高度小的那张就会留白。fixedSize 关掉自动收缩, 让 HStack 强制
+        // 两边 .frame(maxHeight: .infinity), 这样卡片背景填满, 不会出现"音乐源卡
+        // 比库健康度卡矮一截"。
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private var libraryHealthCard: some View {
@@ -325,9 +384,12 @@ struct MacHomeView: View {
                     .foregroundStyle(PMColor.textFaint)
             }
             content()
+            // 用一个透明 Spacer 把内容顶到顶部, 让 .frame(maxHeight: .infinity) 真
+            // 把卡片拉到行高。source 卡内容短的时候就靠它把高度撑到跟健康度卡相同。
+            Spacer(minLength: 0)
         }
         .padding(PMSpace.l)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .pmCard(cornerRadius: PMRadius.l)
     }
 
@@ -411,21 +473,21 @@ struct MacHomeView: View {
 
     private func pipelineNode(_ icon: String, _ title: String,
                               statusText: String, isActive: Bool) -> some View {
-        VStack(alignment: .center, spacing: 8) {
+        VStack(alignment: .center, spacing: 10) {
             Image(systemName: icon)
-                .font(.system(size: 17, weight: .semibold))
+                .font(.system(size: 22, weight: .semibold))
                 .foregroundStyle(PMColor.brand)
-                .frame(width: 38, height: 38)
+                .frame(width: 52, height: 52)
                 .background(
-                    (isActive ? PMColor.brand.opacity(0.16) : PMColor.glassBtn),
-                    in: .rect(cornerRadius: PMRadius.m10)
+                    (isActive ? PMColor.brand.opacity(0.18) : PMColor.brand.opacity(0.10)),
+                    in: .rect(cornerRadius: 12, style: .continuous)
                 )
             Text(verbatim: title)
-                .font(.system(size: 12.5, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(PMColor.text)
                 .lineLimit(1)
             Text(statusText)
-                .font(.system(size: 10.5))
+                .font(.system(size: 11))
                 .foregroundStyle(PMColor.textFaint)
                 .lineLimit(1)
         }
@@ -568,6 +630,12 @@ struct MacHomeView: View {
                 }
                 .padding(.horizontal, 2)
             }
+            // 系统"总是显示滚动条"设置下 showsIndicators 不生效, 直接在底层
+            // NSScrollView 上强制隐藏横向滚动条。
+            .pmForceHideScrollers()
+            // 鼠标按住可拖动滚动 — SwiftUI 横向 ScrollView 默认只响应触控板/滚轮,
+            // 这个 modifier 在底层 NSScrollView 上加 pan gesture, 鼠标拖也能滚。
+            .pmEnableHorizontalDragScroll()
         }
     }
 

@@ -103,3 +103,10 @@
 "material" = "マテリアル";
 "sidebar_width" = "サイドバー幅";
 "ambient_strength" = "アンビエント強度";
+"shuffle_all" = "Shuffle all";
+"sidebar_all_songs" = "All Songs";
+"sidebar_liked_songs" = "Liked Songs";
+"home_playable_count_short" = "Plays";
+"source" = "Source";
+"delete_forever" = "Delete forever";
+"deleted_at_format" = "Deleted %@";

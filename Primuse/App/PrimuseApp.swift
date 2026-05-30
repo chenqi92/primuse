@@ -207,9 +207,9 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @MainActor
-    func showMiniPlayer() {
-        plog("🪟 AppDelegate.showMiniPlayer miniPlayer=\(miniPlayer == nil ? "nil" : "ok")")
-        miniPlayer?.show()
+    func toggleMiniPlayer() {
+        plog("🪟 AppDelegate.toggleMiniPlayer miniPlayer=\(miniPlayer == nil ? "nil" : "ok")")
+        miniPlayer?.toggle()
     }
 
     @MainActor

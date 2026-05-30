@@ -102,3 +102,10 @@
 "material" = "Matériau";
 "sidebar_width" = "Largeur de barre latérale";
 "ambient_strength" = "Intensité ambiante";
+"shuffle_all" = "Shuffle all";
+"sidebar_all_songs" = "All Songs";
+"sidebar_liked_songs" = "Liked Songs";
+"home_playable_count_short" = "Plays";
+"source" = "Source";
+"delete_forever" = "Delete forever";
+"deleted_at_format" = "Deleted %@";

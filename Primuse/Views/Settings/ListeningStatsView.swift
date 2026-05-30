@@ -70,30 +70,18 @@ struct ListeningStatsView: View {
                     macEmptyState
                 } else {
                     macSummarySection
-                    HStack(alignment: .top, spacing: 24) {
-                        macHeatmapSection
-                            .frame(width: 340)
-                        macRankingSection
-                            .frame(maxWidth: .infinity)
-                    }
-                    macClearSection
+                    macHeatmapCard
+                    macTopCards
                 }
             }
-            .padding(.horizontal, 32)
-            .padding(.top, 24)
-            .padding(.bottom, 120)
-            .frame(maxWidth: 980, alignment: .leading)
+            .padding(.horizontal, 36)
+            .padding(.top, 32)
+            .padding(.bottom, 100)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .background(PMColor.bg.ignoresSafeArea())
         .navigationTitle("stats_title")
         .task(id: range) { logHeatmapStats() }
-        .alert("stats_clear_confirm", isPresented: $showClearConfirm) {
-            Button("delete", role: .destructive) { store.clearAll() }
-            Button("cancel", role: .cancel) {}
-        } message: {
-            Text("stats_clear_message")
-        }
     }
 
     private var macStatsHeader: some View {
@@ -137,12 +125,14 @@ struct ListeningStatsView: View {
         }
     }
 
+    /// 设计稿副标题: "2026 年 1 月 1 日 — 今天 · 365 天"。起点取热力图首日,
+    /// 天数取整个区间天数。
     private var statsRangeSubtitle: String {
-        switch range {
-        case .week: return "最近 7 天 · 本地播放历史"
-        case .month: return "最近 30 天 · 本地播放历史"
-        case .year: return "最近 365 天 · 本地播放历史"
-        }
+        let counts = store.dailyPlayCounts(in: range)
+        let start = counts.first?.date ?? Date()
+        let df = DateFormatter()
+        df.dateFormat = "yyyy 年 M 月 d 日"
+        return "\(df.string(from: start)) — 今天 · \(counts.count) 天"
     }
 
     private var macEmptyState: some View {
@@ -164,118 +154,103 @@ struct ListeningStatsView: View {
         .background(PMColor.card.opacity(0.60), in: .rect(cornerRadius: 12))
     }
 
+    // MARK: 摘要四卡 (STATS-04)
+
     private var macSummarySection: some View {
         let s = store.summary(in: range)
-        return VStack(alignment: .leading, spacing: 12) {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
-                macSummaryCell(value: "\(s.totalPlays)",
-                               label: String(localized: "stats_total_plays"),
-                               sub: "播放次数",
-                               color: PMColor.brand)
-                macSummaryCell(value: formatHours(s.totalSec),
-                               label: String(localized: "stats_total_time"),
-                               sub: "累计时长",
-                               color: PMColor.ok)
-                macSummaryCell(value: "\(s.activeDays)",
-                               label: String(localized: "stats_active_days"),
-                               sub: "有播放的日子",
-                               color: PMColor.warn)
-                macSummaryCell(value: "\(s.uniqueSongs)",
-                               label: String(localized: "stats_unique_songs"),
-                               sub: "不重复曲目",
-                               color: Color(red: 0.64, green: 0.48, blue: 0.96))
-            }
+        let counts = store.dailyPlayCounts(in: range)
+        let days = max(counts.count, 1)
+        let totalMin = Int(s.totalSec / 60)
+        let coverage = Int((Double(s.activeDays) / Double(days) * 100).rounded())
+        let coverLabel = (range == .week || range == .month) ? "覆盖率" : "全年覆盖率"
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 4), spacing: 14) {
+            macSummaryCell(value: decimal(s.totalPlays),
+                           label: "总播放",
+                           sub: playsDeltaSub(currentStart: counts.first?.date, spanDays: days, current: s.totalPlays))
+            macSummaryCell(value: "\(totalMin / 60)h \(totalMin % 60)m",
+                           label: "总时长",
+                           sub: "\(decimal(totalMin)) 分钟")
+            macSummaryCell(value: decimal(s.activeDays),
+                           label: "活跃天数",
+                           sub: "\(coverage)% \(coverLabel)")
+            macSummaryCell(value: decimal(s.uniqueSongs),
+                           label: "不重复曲目",
+                           sub: "其中 \(heavyRotationCount()) 首播放 ≥ 5 次")
         }
     }
 
-    private func macSummaryCell(value: String, label: String, sub: String, color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+    private func macSummaryCell(value: String, label: String, sub: String) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
             Text(value)
-                .font(.system(size: 30, weight: .bold, design: .rounded))
-                .tracking(-0.5)
+                .font(.system(size: 32, weight: .bold, design: .monospaced))
+                .tracking(-0.6)
                 .foregroundStyle(PMColor.text)
-                .monospacedDigit()
                 .lineLimit(1)
-                .minimumScaleFactor(0.75)
-            Text(label)
-                .font(.system(size: 12, weight: .medium))
+                .minimumScaleFactor(0.55)
+            Text(verbatim: label)
+                .font(.system(size: 12))
                 .foregroundStyle(PMColor.textMuted)
-            Text(sub)
+                .padding(.top, 4)
+            Text(verbatim: sub)
                 .font(.system(size: 10.5))
                 .foregroundStyle(PMColor.textFaint)
+                .padding(.top, 6)
+                .lineLimit(1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
         .background(PMColor.card.opacity(0.78), in: .rect(cornerRadius: 12))
-        .overlay(alignment: .topTrailing) {
-            Circle()
-                .fill(color.opacity(0.22))
-                .frame(width: 10, height: 10)
-                .padding(14)
-        }
         .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
         }
     }
 
-    private var macHeatmapSection: some View {
+    /// 总播放卡副标题 —— 跟上一个等长周期比的增减。`.all` 没有"上一周期"。
+    private func playsDeltaSub(currentStart: Date?, spanDays: Int, current: Int) -> String {
+        guard range != .all, let curStart = currentStart,
+              let prevStart = Calendar.current.date(byAdding: .day, value: -spanDays, to: curStart) else {
+            return "全部历史累计"
+        }
+        let prev = store.entries.filter { $0.playedAt >= prevStart && $0.playedAt < curStart }.count
+        guard prev > 0 else { return "暂无往期对比" }
+        let pct = Int((Double(current - prev) / Double(prev) * 100).rounded())
+        let vs: String
+        switch range {
+        case .week:  vs = "上周"
+        case .month: vs = "上月"
+        case .year:  vs = "去年"
+        case .all:   vs = ""
+        }
+        return "\(pct >= 0 ? "+" : "")\(pct)% vs \(vs)"
+    }
+
+    /// 区间内播放 ≥ 5 次的歌曲数 (不重复曲目卡副标题用)。
+    private func heavyRotationCount() -> Int {
+        Dictionary(grouping: store.entries(in: range)) { $0.songID }
+            .values.filter { $0.count >= 5 }.count
+    }
+
+    private func decimal(_ n: Int) -> String { n.formatted(.number) }
+
+    // MARK: 热力图 (STATS-02)
+
+    private var macHeatmapCard: some View {
         let counts = store.dailyPlayCounts(in: range)
-        let maxCount = counts.map(\.count).max() ?? 0
-        return VStack(alignment: .leading, spacing: 10) {
-            Label("stats_heatmap_title", systemImage: "square.grid.3x3.fill")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(PMColor.text)
-            heatmapGrid(counts: counts, maxCount: maxCount)
-            heatmapLegend(maxCount: maxCount)
-            Text("stats_heatmap_footer")
-                .font(.system(size: 11.5))
-                .foregroundStyle(PMColor.textMuted)
-        }
-        .padding(18)
-        .background(PMColor.card.opacity(0.78), in: .rect(cornerRadius: 12))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-        }
-    }
-
-    private var macRankingSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Label("stats_top_header", systemImage: "chart.bar.fill")
+        let weeks = groupByWeek(counts: counts, cal: Calendar.current)
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(verbatim: "GitHub 风格热力图")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(PMColor.text)
                 Spacer()
-                Picker("rank_by", selection: $rankTab) {
-                    ForEach(RankTab.allCases, id: \.self) { tab in
-                        Text(tab.label).tag(tab)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.segmented)
-                .frame(width: 260)
+                Text(verbatim: "STATS-02 · 7×\(weeks.count) = \(counts.count) 天")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(PMColor.textFaint)
             }
-
-            let items = rankItems()
-            if items.isEmpty {
-                Text("stats_rank_empty")
-                    .foregroundStyle(PMColor.textMuted)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 16)
-            } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                        rankingRow(rank: index + 1, item: item)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                        if index != items.count - 1 {
-                            Divider().overlay(PMColor.divider).padding(.leading, 48)
-                        }
-                    }
-                }
-                .background(PMColor.card.opacity(0.60), in: .rect(cornerRadius: 8))
-            }
+            macHeatmapGrid(weeks: weeks)
+            macHeatmapMonths(counts: counts)
+            macHeatmapLegend
         }
         .padding(18)
         .background(PMColor.card.opacity(0.78), in: .rect(cornerRadius: 12))
@@ -285,20 +260,141 @@ struct ListeningStatsView: View {
         }
     }
 
-    private var macClearSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Button(role: .destructive) {
-                showClearConfirm = true
-            } label: {
-                Label("stats_clear_action", systemImage: "trash")
+    /// 7 行 × N 周。格子边长按卡片宽度平分 (上限 16pt), 满一年时正好铺满整行;
+    /// 区间短 (本周/本月) 时不会被拉成巨大方块, 靠左排列。
+    private func macHeatmapGrid(weeks: [[Int: (date: Date, count: Int)]]) -> some View {
+        let gap: CGFloat = 3
+        let maxCell: CGFloat = 16
+        return GeometryReader { geo in
+            let n = CGFloat(max(weeks.count, 1))
+            let cell = min(maxCell, max(6, (geo.size.width - gap * (n - 1)) / n))
+            HStack(alignment: .top, spacing: gap) {
+                ForEach(weeks.indices, id: \.self) { wIdx in
+                    let column = weeks[wIdx]
+                    VStack(spacing: gap) {
+                        ForEach(0..<7, id: \.self) { dow in
+                            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                                .fill(column[dow].map { heatColor(count: $0.count) } ?? Color.clear)
+                                .frame(width: cell, height: cell)
+                        }
+                    }
+                }
             }
-            .buttonStyle(.bordered)
-            Text("stats_privacy_footer")
-                .font(.system(size: 11.5))
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(height: maxCell * 7 + gap * 6)
+    }
+
+    private func macHeatmapMonths(counts: [(date: Date, count: Int)]) -> some View {
+        let cal = Calendar.current
+        var seen = Set<Int>()
+        var labels: [String] = []
+        for c in counts {
+            let comp = cal.dateComponents([.year, .month], from: c.date)
+            let key = (comp.year ?? 0) * 100 + (comp.month ?? 0)
+            if seen.insert(key).inserted {
+                labels.append("\(comp.month ?? 0)月")
+            }
+        }
+        return HStack(spacing: 0) {
+            ForEach(labels.indices, id: \.self) { i in
+                Text(verbatim: labels[i])
+                    .font(.system(size: 10))
+                    .foregroundStyle(PMColor.textFaint)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    private var macHeatmapLegend: some View {
+        HStack(spacing: 6) {
+            Spacer()
+            Text(verbatim: "少").font(.system(size: 10.5)).foregroundStyle(PMColor.textFaint)
+            ForEach([0, 2, 4, 8, 14], id: \.self) { v in
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(heatColor(count: v))
+                    .frame(width: 10, height: 10)
+            }
+            Text(verbatim: "多").font(.system(size: 10.5)).foregroundStyle(PMColor.textFaint)
+        }
+    }
+
+    /// 设计稿色阶: 0 灰底; <3 / <6 / <10 / ≥10 四档品牌色透明度。
+    private func heatColor(count: Int) -> Color {
+        let a = PMColor.brand
+        switch count {
+        case 0: return PMColor.divider
+        case 1..<3: return a.opacity(0.28)
+        case 3..<6: return a.opacity(0.52)
+        case 6..<10: return a.opacity(0.78)
+        default: return a
+        }
+    }
+
+    // MARK: Top 三栏 (STATS-03)
+
+    private var macTopCards: some View {
+        HStack(alignment: .top, spacing: 14) {
+            macTopCard(title: "Top 歌曲", items: store.topSongs(in: range, limit: 6))
+            macTopCard(title: "Top 艺术家", items: store.topArtists(in: range, limit: 6))
+            macTopCard(title: "Top 专辑", items: store.topAlbums(in: range, limit: 6))
+        }
+    }
+
+    private func macTopCard(title: String, items: [PlayHistoryStore.RankedItem]) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(verbatim: title)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(PMColor.text)
+                .padding(.bottom, 10)
+            if items.isEmpty {
+                Text("stats_rank_empty")
+                    .font(.system(size: 12))
+                    .foregroundStyle(PMColor.textFaint)
+                    .padding(.vertical, 8)
+            } else {
+                ForEach(Array(items.enumerated()), id: \.element.id) { idx, item in
+                    if idx != 0 {
+                        Rectangle().fill(PMColor.divider).frame(height: 0.5)
+                    }
+                    macTopRow(rank: idx + 1, item: item)
+                        .padding(.vertical, 5)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(PMColor.card.opacity(0.78), in: .rect(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
+    }
+
+    private func macTopRow(rank: Int, item: PlayHistoryStore.RankedItem) -> some View {
+        HStack(spacing: 10) {
+            Text("\(rank)")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(PMColor.textFaint)
+                .frame(width: 18, alignment: .leading)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(item.title)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(PMColor.text)
+                    .lineLimit(1)
+                if !item.subtitle.isEmpty {
+                    Text(item.subtitle)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(PMColor.textFaint)
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 6)
+            Text("\(item.playCount)")
+                .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(PMColor.textMuted)
         }
-        .padding(16)
-        .background(PMColor.card.opacity(0.60), in: .rect(cornerRadius: 12))
     }
     #endif
 

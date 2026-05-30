@@ -134,6 +134,7 @@ struct SearchView: View {
                 chipText("\(String(localized: "search_chip_all")) · \(macTotalResultCount)", active: true)
                 chipText("\(String(localized: "tab_songs")) · \(searchResults.count)", active: false)
                 chipText("\(String(localized: "tab_albums")) · \(matchingAlbums.count)", active: false)
+                chipText("\(String(localized: "tab_artists")) · \(matchingArtistCount)", active: false)
                 chipText("歌词命中 · \(searchResults.filter { $0.matchKind == .lyrics }.count)", active: false)
                 chipText("Apple Music · \(appleMusic.searchResults.count)", active: false)
                 Spacer()
@@ -578,7 +579,21 @@ struct SearchView: View {
     }
 
     private var macTotalResultCount: Int {
-        searchResults.count + matchingAlbums.count + appleMusic.searchResults.count
+        searchResults.count + matchingAlbums.count + matchingArtistCount + appleMusic.searchResults.count
+    }
+
+    /// 从搜索结果歌曲里反推 distinct 艺术家数 — 没有专用 artist search 结果时
+    /// 用这个近似值给搜索芯片显示计数。
+    private var matchingArtistCount: Int {
+        var seen = Set<String>()
+        var distinct = 0
+        for r in searchResults {
+            let name = r.song.artistName ?? ""
+            guard !name.isEmpty, !seen.contains(name) else { continue }
+            seen.insert(name)
+            distinct += 1
+        }
+        return distinct
     }
 
     private var appleMusicStatusText: String {

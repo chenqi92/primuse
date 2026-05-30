@@ -120,16 +120,18 @@ final class PlayHistoryStore {
     // MARK: - 查询 / 聚合
 
     enum Range: String, CaseIterable, Identifiable {
-        case week, month, year
+        case week, month, year, all
         var id: String { rawValue }
         var localizationKey: String {
             switch self {
             case .week: return "stats_range_week"
             case .month: return "stats_range_month"
             case .year: return "stats_range_year"
+            case .all: return "stats_range_all"
             }
         }
-        /// 起点 — 包含这个时刻之后的所有 entry。
+        /// 起点 — 包含这个时刻之后的所有 entry。`.all` 用 distantPast 表示"全部历史"
+        /// (热力图侧另做截断, 见 `dailyPlayCounts`)。
         func startDate(now: Date = Date()) -> Date {
             let cal = Calendar.current
             switch self {
@@ -139,6 +141,8 @@ final class PlayHistoryStore {
                 return cal.date(byAdding: .day, value: -30, to: now) ?? now
             case .year:
                 return cal.date(byAdding: .day, value: -365, to: now) ?? now
+            case .all:
+                return .distantPast
             }
         }
     }
@@ -220,9 +224,18 @@ final class PlayHistoryStore {
     /// 跨度从 `range` 起点到今天, 缺失的日子值为 0。
     func dailyPlayCounts(in range: Range, now: Date = Date()) -> [(date: Date, count: Int)] {
         let cal = Calendar.current
-        let start = cal.startOfDay(for: range.startDate(now: now))
         let end = cal.startOfDay(for: now)
         let scoped = entries(in: range)
+        // `.all` 没有固定起点 —— 从最早一条记录那天开始; 同时兜底最多回看 ~2 年,
+        // 避免极端长的历史把热力图撑出成千上万列。
+        let rawStart: Date
+        if range == .all {
+            rawStart = scoped.map(\.playedAt).min().map { cal.startOfDay(for: $0) } ?? end
+        } else {
+            rawStart = cal.startOfDay(for: range.startDate(now: now))
+        }
+        let floor = cal.date(byAdding: .day, value: -740, to: end) ?? rawStart
+        let start = max(rawStart, floor)
         let bucketed = Dictionary(grouping: scoped) {
             cal.startOfDay(for: $0.playedAt)
         }.mapValues(\.count)

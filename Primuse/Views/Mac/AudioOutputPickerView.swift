@@ -47,41 +47,41 @@ struct AudioOutputPickerView: View {
 
             Rectangle().fill(PMColor.divider).frame(height: 0.5)
 
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
+            // 设备少 (一般 ≤10 台), 直接全部平铺, popover 高度跟内容走, 不需要
+            // ScrollView。之前用 ScrollView + maxHeight 240 + 强制隐滚动条, 还
+            // 是会被系统"总是显示"模式偷偷加一条粗滚动条。
+            VStack(alignment: .leading, spacing: 0) {
+                deviceRow(
+                    title: String(localized: "audio_output_follow_system"),
+                    symbol: "checkmark.circle",
+                    isSelected: followsSystem,
+                    accent: nil
+                ) {
+                    followsSystem = true
+                    if let sysID = manager.systemDefaultID { applyDevice(sysID) }
+                }
+
+                if !manager.devices.isEmpty {
+                    Rectangle()
+                        .fill(PMColor.divider)
+                        .frame(height: 0.5)
+                        .padding(.vertical, 4)
+                        .padding(.horizontal, 10)
+                }
+
+                ForEach(manager.devices) { device in
                     deviceRow(
-                        title: String(localized: "audio_output_follow_system"),
-                        symbol: "checkmark.circle",
-                        isSelected: followsSystem,
-                        accent: nil
+                        title: device.name,
+                        symbol: device.symbolName,
+                        isSelected: !followsSystem && selectedID == device.id,
+                        accent: device.isAirPlay ? .accentColor : nil
                     ) {
-                        followsSystem = true
-                        if let sysID = manager.systemDefaultID { applyDevice(sysID) }
-                    }
-
-                    if !manager.devices.isEmpty {
-                        Rectangle()
-                            .fill(PMColor.divider)
-                            .frame(height: 0.5)
-                            .padding(.vertical, 4)
-                            .padding(.horizontal, 10)
-                    }
-
-                    ForEach(manager.devices) { device in
-                        deviceRow(
-                            title: device.name,
-                            symbol: device.symbolName,
-                            isSelected: !followsSystem && selectedID == device.id,
-                            accent: device.isAirPlay ? .accentColor : nil
-                        ) {
-                            followsSystem = false
-                            applyDevice(device.id)
-                        }
+                        followsSystem = false
+                        applyDevice(device.id)
                     }
                 }
-                .padding(.vertical, 6)
             }
-            .frame(minHeight: 60, maxHeight: 240)
+            .padding(.vertical, 6)
 
             if let errorMessage {
                 Rectangle().fill(PMColor.divider).frame(height: 0.5)
@@ -93,17 +93,9 @@ struct AudioOutputPickerView: View {
             }
         }
         .frame(width: 280)
-        .background {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(.ultraThinMaterial)
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(PMColor.bg.opacity(0.72))
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-        }
-        .shadow(color: .black.opacity(0.20), radius: 18, y: 8)
+        // 系统 popover 已经包了 chrome (material + 圆角 + 边框 + 阴影 + 箭头), 不要
+        // 再自己画 RoundedRectangle / strokeBorder / shadow, 否则跟系统 chrome 叠成
+        // 双层框 (用户截图里那一圈外框就是这么来的)。同 CastDevicePickerSheet。
         .onAppear {
             manager.refresh()
             // 没显式选过的话,初始就跟随系统。

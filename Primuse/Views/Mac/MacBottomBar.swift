@@ -36,7 +36,9 @@ struct MacBottomBar: View {
         .padding(.vertical, 8)
         .frame(height: PMSize.bottomBar)
         .background {
-            // 设计规范: A 套玻璃模式 14px 顶部圆角, B 套实色无圆角。
+            // 设计规范: A 套玻璃模式 14px 顶部圆角, B 套实色无圆角。底栏铺满窗宽,
+            // 不再浮在中间留左右间距 —— 否则左下 / 右下角会露出窗口底色, 看着像
+            // 多压了一层背景 / 有断层。
             let shape = UnevenRoundedRectangle(
                 topLeadingRadius: mode == .glass ? 14 : 0,
                 bottomLeadingRadius: 0,
@@ -45,28 +47,32 @@ struct MacBottomBar: View {
                 style: .continuous
             )
             ZStack {
-                // 玻璃模式: regularMaterial 比 bar 更明显, 再叠一层 elev 色调让 bar
-                // 跟窗体暗背景拉开对比, 不至于看着像贴着边。
                 if mode == .glass {
-                    shape.fill(.regularMaterial)
-                    shape.fill(PMColor.bgElev.opacity(0.55))
-                    shape.fill(Color.white.opacity(0.04))
+                    // 玻璃模式: NSVisualEffectView 提供"吸窗后模糊", 上面盖一层
+                    // barGlassFill 半透色拉对比 —— 这样底栏是真正的半透材质, 跟
+                    // 侧栏同一套观感, 不是一张实色卡片浮在内容上。
+                    NSVisualEffectBackdrop(material: .sidebar, blending: .behindWindow)
+                    shape.fill(PMColor.barGlassFill)
                 } else {
+                    // 经典模式: 实色 bgElev, 比窗口 bg 亮一档。
                     shape.fill(PMColor.bgElev)
                 }
                 // 顶边 1px 高光 (Apple "玻璃感" 经典配方 inset 0 1px 0 rgba(255,255,255,.3))
                 shape.strokeBorder(
                     LinearGradient(
-                        colors: [.white.opacity(0.35), .white.opacity(0.05)],
+                        colors: [.white.opacity(0.4), .white.opacity(0.06)],
                         startPoint: .top, endPoint: .bottom
                     ),
                     lineWidth: 0.5
                 )
             }
+            .clipShape(shape)
+            // 顶部 0.5pt 分割线, 跟上方内容区分隔 (设计 borderTop)。
+            .overlay(alignment: .top) {
+                Rectangle().fill(PMColor.divider).frame(height: 0.5)
+            }
         }
-        .shadow(color: .black.opacity(mode == .glass ? 0.35 : 0), radius: 18, y: -4)
-        // 设计规范: margin: 0 10px (glass) — 让 bar 跟左右窗边有 10pt 间距浮起。
-        .padding(.horizontal, mode == .glass ? 10 : 0)
+        .shadow(color: .black.opacity(mode == .glass ? 0.18 : 0), radius: 10, y: -2)
     }
 
     // MARK: - Left column

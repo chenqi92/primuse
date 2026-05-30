@@ -34,10 +34,17 @@ enum PMColor {
     static let bg     = dyn(dark: hex(0x1A1715), light: hex(0xF6F4EF))
     static let bgElev = dyn(dark: hex(0x2A2522), light: hex(0xFFFFFF))
     static let bgDeep = dyn(dark: hex(0x0D0C0A), light: hex(0xE9E3DA))
+    /// 大播放器恒为暗底 (设计稿 AmbientBackdrop dark=true 用的 #0E0D0B), 不随系统浅色
+    /// 变亮 —— 否则浅色模式下白色歌词 / 按钮在浅底上看不清。
+    static let ambientDarkBase = hex(0x0E0D0B)
 
     // 侧栏 (玻璃半透 + 经典实色两套, 由 modifier 选择)
     static let sidebarGlass   = dyn(dark: hex(0x0A0907).opacity(0.85), light: hex(0xEEE8DC).opacity(0.65))
     static let sidebarClassic = dyn(dark: hex(0x0F0D0B),               light: hex(0xEBE5D9))
+
+    /// 底部播放栏玻璃模式的半透色 (设计稿 --pm-glass-fill): 盖在 NSVisualEffectView
+    /// 模糊层上, 让底栏是"半透材质"而不是实色卡片, 跟窗口融为一体。
+    static let barGlassFill = dyn(dark: hex(0x3A342E).opacity(0.55), light: Color.white.opacity(0.55))
 
     // 分割线
     static let divider       = dyn(dark: Color.white.opacity(0.10), light: Color.black.opacity(0.10))
@@ -136,7 +143,10 @@ enum PMRadius {
 }
 
 enum PMSize {
-    static let titlebar: CGFloat = 44
+    /// 设计稿 TitleBar 标 44pt, 但跟 macOS Tahoe 实际 toolbar 高度 (48-52pt) 对比偏矮,
+    /// 跟设计 PNG 视觉对比也偏矮一点。提到 48pt 跟 macOS 系统 toolbar 接近, 同时给搜索
+    /// 框 / 按钮更多呼吸空间, 不至于看起来挤。
+    static let titlebar: CGFloat = 48
     static let bottomBar: CGFloat = 74
     static let sidebarDefault: CGFloat = 220
     static let sidebarMin: CGFloat = 180
@@ -309,11 +319,14 @@ struct AmbientBackdrop: View {
     var accent: Color
     var darkAccent: Color
     var strength: Double = 0.7
+    /// 恒暗模式: 底色用固定深色 (而非随系统切换的 bgDeep)。大播放器需要它,
+    /// 这样浅色系统外观下背景也保持暗, 白色歌词 / 浮动按钮才有对比。
+    var forceDark: Bool = false
 
     var body: some View {
         ZStack {
             // 底色
-            PMColor.bgDeep
+            (forceDark ? PMColor.ambientDarkBase : PMColor.bgDeep)
 
             // 三个色斑
             Circle()
@@ -531,6 +544,111 @@ private struct PMWindowResolver: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         DispatchQueue.main.async { onResolve(nsView.window) }
+    }
+}
+
+// MARK: - Force-hide NSScrollView scrollers
+
+/// SwiftUI 的 `.scrollIndicators(.hidden)` 在用户系统设置「总是显示滚动条」时
+/// 会被忽略 — Apple 的 SDK 文档明确说明 indicator visibility 仅在 "Auto" /
+/// "When scrolling" 模式下才生效。
+///
+/// 这个 NSViewRepresentable 通过反向遍历 view hierarchy 找到包裹 SwiftUI
+/// ScrollView 的 NSScrollView, 然后强制隐藏它的两个 NSScroller (无视系统
+/// 偏好), 用在那种空间紧凑、滚动条会很碍眼的 popover 场景。
+private struct PMNSScrollerHider: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        DispatchQueue.main.async { hide(from: view) }
+        return view
+    }
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { hide(from: nsView) }
+    }
+    private func hide(from view: NSView) {
+        // 沿 superview 向上找 NSScrollView (SwiftUI ScrollView 在 macOS 上
+        // 实际就是 NSScrollView)。
+        var node: NSView? = view.superview
+        while let n = node {
+            if let sv = n as? NSScrollView {
+                sv.hasVerticalScroller = false
+                sv.hasHorizontalScroller = false
+                sv.verticalScroller?.isHidden = true
+                sv.horizontalScroller?.isHidden = true
+                sv.scrollerStyle = .overlay
+                sv.autohidesScrollers = true
+                return
+            }
+            node = n.superview
+        }
+    }
+}
+
+extension View {
+    /// 强制隐藏被这个 View 所在的 NSScrollView 上的所有滚动条 — 即便用户系统
+    /// 设置是「总是显示滚动条」也无视。仅 macOS 有效。
+    func pmForceHideScrollers() -> some View {
+        background(PMNSScrollerHider().allowsHitTesting(false).frame(width: 0, height: 0))
+    }
+
+    /// 给 SwiftUI 横向 ScrollView 加上"鼠标点击拖动平移"能力 —— 默认 SwiftUI
+    /// ScrollView 只响应触控板/滚轮, 不支持鼠标按住拖动。这个 modifier 用
+    /// NSPanGestureRecognizer 在外层 NSScrollView 上挂上 pan handler, 把鼠标
+    /// 拖动距离换算成 scroll offset。
+    func pmEnableHorizontalDragScroll() -> some View {
+        background(PMHorizontalDragScroll().allowsHitTesting(false).frame(width: 0, height: 0))
+    }
+}
+
+/// 在所在 NSScrollView 上挂一个 NSPanGestureRecognizer, 鼠标按住拖动 → 改
+/// scroll origin。.minimumNumberOfTouches = 1 + 鼠标按钮事件让它响应鼠标。
+private struct PMHorizontalDragScroll: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let v = NSView(frame: .zero)
+        DispatchQueue.main.async { attach(to: v, context: context) }
+        return v
+    }
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { attach(to: nsView, context: context) }
+    }
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    private func attach(to view: NSView, context: Context) {
+        var node: NSView? = view.superview
+        while let n = node {
+            if let sv = n as? NSScrollView {
+                // 避免重复挂 — 用 associated object 标记一次
+                let key = "pmHorizontalDragInstalled"
+                if objc_getAssociatedObject(sv, key) != nil { return }
+                objc_setAssociatedObject(sv, key, true, .OBJC_ASSOCIATION_RETAIN)
+
+                let pan = NSPanGestureRecognizer(target: context.coordinator,
+                                                 action: #selector(Coordinator.handlePan(_:)))
+                pan.buttonMask = 0x1   // 左键
+                sv.addGestureRecognizer(pan)
+                context.coordinator.scrollView = sv
+                return
+            }
+            node = n.superview
+        }
+    }
+
+    final class Coordinator: NSObject {
+        weak var scrollView: NSScrollView?
+
+        @objc func handlePan(_ gesture: NSPanGestureRecognizer) {
+            guard let sv = scrollView, let doc = sv.documentView else { return }
+            let translation = gesture.translation(in: sv)
+            let clip = sv.contentView
+            var origin = clip.bounds.origin
+            origin.x -= translation.x
+            // clamp 在 0..documentWidth-clipWidth
+            let maxX = max(0, doc.frame.width - clip.bounds.width)
+            origin.x = min(max(0, origin.x), maxX)
+            clip.scroll(to: origin)
+            sv.reflectScrolledClipView(clip)
+            gesture.setTranslation(.zero, in: sv)
+        }
     }
 }
 

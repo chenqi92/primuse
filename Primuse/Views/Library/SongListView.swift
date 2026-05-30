@@ -218,8 +218,8 @@ struct SongListView: View {
     private var songTable: some View {
         VStack(spacing: 0) {
             tableHeader
-                .padding(.horizontal, PMSpace.s8)
-                .padding(.vertical, 6)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
                 .background(PMColor.bg)
 
             Rectangle().fill(PMColor.divider).frame(height: 0.5)
@@ -233,29 +233,46 @@ struct SongListView: View {
         }
     }
 
+    /// 设计稿表头 9 列: # / cover / 标题 / 艺术家 / 专辑 / 格式 / 时长 / 播放 / 源
+    /// gridTemplateColumns: 32px 32px 1fr 1.2fr 1fr 100px 80px 80px 60px
     private var tableHeader: some View {
-        HStack(spacing: PMSpace.s10) {
-            Text("#")
-                .frame(width: 28, alignment: .center)
-            Color.clear.frame(width: 36)   // cover col
+        HStack(spacing: 12) {
+            Text("#").frame(width: 32, alignment: .leading)
+            Color.clear.frame(width: 32, height: 1)
+            // 3 个 flex 列等分 — 之前 artist 加 layoutPriority(0.2) 反而导致 SwiftUI
+            // 把所有 flexible 空间全分给它, title / album 被压成 0 宽显示空。
             Text("sort_title").frame(maxWidth: .infinity, alignment: .leading)
-            Text("sort_artist").frame(width: 180, alignment: .leading)
-            Text("sort_album").frame(width: 180, alignment: .leading)
-            Text("sort_format").frame(width: 64, alignment: .leading)
-            Text("track_duration_short").frame(width: 56, alignment: .trailing)
+            Text("sort_artist").frame(maxWidth: .infinity, alignment: .leading)
+            Text("sort_album").frame(maxWidth: .infinity, alignment: .leading)
+            Text("sort_format").frame(width: 100, alignment: .leading)
+            Text("track_duration_short").frame(width: 80, alignment: .trailing)
+            Text("home_playable_count_short").frame(width: 80, alignment: .trailing)
+            Text("source").frame(width: 60, alignment: .leading)
         }
         .font(.system(size: 10.5, weight: .semibold))
-        .tracking(0.5)
+        .tracking(0.6)
         .textCase(.uppercase)
         .foregroundStyle(PMColor.textFaint)
+    }
+
+    /// 一次性把 PlayHistory 折叠成 songID → count 字典, 避免每行 O(N) 扫描。
+    private var playCountsBySongID: [String: Int] {
+        var dict: [String: Int] = [:]
+        for e in PlayHistoryStore.shared.entries {
+            dict[e.songID, default: 0] += 1
+        }
+        return dict
     }
 
     @ViewBuilder
     private func songTableRow(_ song: Song, index: Int) -> some View {
         let isCurrent = player.currentSong?.id == song.id
         let liked = playlistContains(song)
+        let plays = playCountsBySongID[song.id] ?? 0
+        let source = sourcesStore.sources.first(where: { $0.id == song.sourceID })
         Button { playSong(song) } label: {
-            HStack(spacing: PMSpace.s10) {
+            HStack(spacing: 12) {
+                // # / play indicator
                 ZStack {
                     if isCurrent {
                         Image(systemName: "play.fill")
@@ -267,19 +284,23 @@ struct SongListView: View {
                             .foregroundStyle(PMColor.textFaint)
                     }
                 }
-                .frame(width: 28, alignment: .center)
+                .frame(width: 32, alignment: .leading)
 
+                // Cover
                 CachedArtworkView(
                     coverRef: song.coverArtFileName, songID: song.id,
-                    size: 32, cornerRadius: PMRadius.xs,
+                    size: 28, cornerRadius: 4,
                     sourceID: song.sourceID, filePath: song.filePath
                 )
+                .frame(width: 32, alignment: .leading)
 
+                // Title + (optional heart)
                 HStack(spacing: 6) {
                     Text(song.title)
-                        .font(.system(size: 12.5, weight: isCurrent ? .semibold : .regular))
+                        .font(.system(size: 12.5, weight: isCurrent ? .semibold : .medium))
                         .foregroundStyle(isCurrent ? PMColor.brand : PMColor.text)
                         .lineLimit(1)
+                        .truncationMode(.tail)
                     if liked {
                         Image(systemName: "heart.fill")
                             .font(.system(size: 10))
@@ -288,33 +309,92 @@ struct SongListView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
+                // Artist
                 Text(song.artistName ?? "—")
-                    .font(.system(size: 12))
+                    .font(.system(size: 12.5))
                     .foregroundStyle(PMColor.textMuted)
                     .lineLimit(1)
-                    .frame(width: 180, alignment: .leading)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
+                // Album
                 Text(song.albumTitle ?? "—")
-                    .font(.system(size: 12))
+                    .font(.system(size: 12.5))
                     .foregroundStyle(PMColor.textMuted)
                     .lineLimit(1)
-                    .frame(width: 180, alignment: .leading)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                PMFormatPill.forFormat(song.fileFormat.displayName)
-                    .frame(width: 64, alignment: .leading)
+                // Format pill + sample rate
+                HStack(spacing: 6) {
+                    PMFormatPill.forFormat(song.fileFormat.displayName)
+                    if let sr = song.sampleRate, sr > 0 {
+                        Text(verbatim: "\(sr / 1000)k")
+                            .font(.system(size: 10.5, design: .monospaced))
+                            .foregroundStyle(PMColor.textFaint)
+                    }
+                }
+                .frame(width: 100, alignment: .leading)
 
+                // Duration
                 Text(song.duration.formattedDuration)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(size: 11.5, design: .monospaced))
                     .monospacedDigit()
-                    .foregroundStyle(PMColor.textFaint)
-                    .frame(width: 56, alignment: .trailing)
+                    .foregroundStyle(PMColor.textMuted)
+                    .frame(width: 80, alignment: .trailing)
+
+                // Plays
+                Group {
+                    if plays > 0 {
+                        Text("\(plays)")
+                            .font(.system(size: 11.5, design: .monospaced))
+                            .monospacedDigit()
+                            .foregroundStyle(PMColor.textMuted)
+                    } else {
+                        Text(verbatim: "—")
+                            .font(.system(size: 11.5, design: .monospaced))
+                            .foregroundStyle(PMColor.textFaint)
+                    }
+                }
+                .frame(width: 80, alignment: .trailing)
+
+                // Source (color dot + short name)
+                HStack(spacing: 5) {
+                    if let source {
+                        Circle()
+                            .fill(macSourceDotColor(for: source))
+                            .frame(width: 6, height: 6)
+                        Text(verbatim: source.name.components(separatedBy: "·").first?
+                            .trimmingCharacters(in: .whitespaces) ?? source.name)
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(PMColor.textFaint)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    } else {
+                        Text(verbatim: "—")
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(PMColor.textFaint)
+                    }
+                }
+                .frame(width: 60, alignment: .leading)
             }
-            .padding(.horizontal, PMSpace.s8)
+            .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .pmRowBackground(selected: isCurrent)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    /// 用源类型 hash 出稳定彩色点 (跟 sidebar 同算法)。
+    private func macSourceDotColor(for source: MusicSource) -> Color {
+        let palette: [Color] = [
+            PMColor.flac, PMColor.dsd, PMColor.warn, PMColor.brand,
+            Color(red: 0.4, green: 0.7, blue: 0.95),
+            Color(red: 0.7, green: 0.6, blue: 0.95),
+        ]
+        let h = abs(source.type.rawValue.hashValue) % palette.count
+        return palette[h]
     }
 
     private func playlistContains(_ song: Song) -> Bool {

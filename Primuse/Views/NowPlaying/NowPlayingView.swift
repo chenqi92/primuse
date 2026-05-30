@@ -2448,6 +2448,9 @@ struct CastDevicePickerSheet: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)
             }
+            #if os(macOS)
+            .pmForceHideScrollers()
+            #endif
             .frame(minHeight: 260, maxHeight: 340)
 
             Rectangle().fill(PMColor.divider).frame(height: 0.5)
@@ -2478,17 +2481,9 @@ struct CastDevicePickerSheet: View {
             .padding(.vertical, 10)
         }
         .frame(width: 380)
-        .background {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(.ultraThinMaterial)
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(PMColor.bg.opacity(0.74))
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-        }
-        .shadow(color: .black.opacity(0.26), radius: 24, y: 10)
+        // 当作为 popover/sheet 弹出时, SwiftUI 系统已经包了 chrome (圆角材质 +
+        // 边框 + 阴影 + 箭头), 这里不再画自己的 rounded rect + material + shadow,
+        // 否则跟系统 chrome 叠成双层框 (用户截图里那一圈外框就是这么来的)。
     }
 
     private var macLocalRendererRow: some View {

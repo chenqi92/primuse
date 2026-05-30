@@ -89,7 +89,7 @@ struct MacSidebar: View {
             sectionHeader("library_title")
 
             item(route: .section(.songs), icon: "music.note",
-                 title: LibrarySection.songs.title,
+                 title: "sidebar_all_songs",
                  trailing: countLabel(library.visibleSongs.count))
             item(route: .section(.albums), icon: "square.stack.fill",
                  title: LibrarySection.albums.title,
@@ -98,7 +98,7 @@ struct MacSidebar: View {
                  title: LibrarySection.artists.title,
                  trailing: countLabel(library.visibleArtists.count))
             item(route: .liked, icon: "heart.fill",
-                 title: "playlist_liked_name",
+                 title: "sidebar_liked_songs",
                  trailing: countLabel(library.songs(forPlaylist: MusicLibrary.likedSongsPlaylistID).count))
         }
         .padding(.horizontal, 6)
@@ -164,9 +164,16 @@ struct MacSidebar: View {
                             .lineLimit(1)
                             .truncationMode(.tail)
                         Spacer(minLength: 4)
+                        // 设计稿: 音乐源行右侧显示该源的歌曲数 (mono 字体 + textFaint)
+                        let count = library.visibleSongs.filter { $0.sourceID == source.id }.count
+                        if count > 0 {
+                            Text("\(count)")
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(PMColor.textFaint)
+                        }
                     }
                     .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
+                    .padding(.vertical, 6)
                     .pmRowBackground(selected: isSelected(.source(source.id)))
                     .contentShape(Rectangle())
                 }
@@ -239,7 +246,7 @@ struct MacSidebar: View {
                 if let trailing { trailing }
             }
             .padding(.horizontal, 10)
-            .padding(.vertical, 5)
+            .padding(.vertical, 6)
             .pmRowBackground(selected: selected)
             .contentShape(Rectangle())
         }

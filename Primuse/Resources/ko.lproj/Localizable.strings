@@ -102,3 +102,10 @@
 "material" = "재질";
 "sidebar_width" = "사이드바 너비";
 "ambient_strength" = "앰비언트 강도";
+"shuffle_all" = "Shuffle all";
+"sidebar_all_songs" = "All Songs";
+"sidebar_liked_songs" = "Liked Songs";
+"home_playable_count_short" = "Plays";
+"source" = "Source";
+"delete_forever" = "Delete forever";
+"deleted_at_format" = "Deleted %@";

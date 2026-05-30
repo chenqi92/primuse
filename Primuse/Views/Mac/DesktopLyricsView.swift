@@ -89,7 +89,13 @@ struct DesktopLyricsView: View {
         // 时,长歌词会把按钮挤出可视区。overlay 锚定 panel 自身 frame
         // 顶边,跟内容完全独立,不会被挤压也不会被裁。
         .overlay(alignment: .top) {
-            if isHovering || colorPaletteShown {
+            // chrome 只在以下任一情况下显示: 鼠标在 panel 上 / 有 popover 撑着
+            // (settingsShown / colorPaletteShown / colorSelectorOpen ...).
+            // 之前少了 settingsShown, 用户从 chrome 上的 gear 按钮点开 settings
+            // popover 后, 鼠标移到 popover 上 → isHovering = false → chrome
+            // 隐藏 → 锚在 chrome 上的 popover 跟着一起消失, 永远点不到 popover
+            // 里的二级菜单。
+            if isHovering || settingsShown || colorPaletteShown {
                 if locked {
                     lockedHoverOverlay
                 } else {

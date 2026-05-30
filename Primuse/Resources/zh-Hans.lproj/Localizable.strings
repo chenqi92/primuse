@@ -43,7 +43,7 @@
 "songs_count" = "首歌曲";
 "albums_section" = "专辑";
 "all_songs_section" = "所有歌曲";
-"play_all" = "播放全部";
+"play_all" = "全部播放";
 "shuffle" = "随机播放";
 "unknown_title" = "未知标题";
 "unknown_artist" = "未知艺术家";
@@ -669,6 +669,7 @@
 "stats_range_week" = "本周";
 "stats_range_month" = "本月";
 "stats_range_year" = "本年";
+"stats_range_all" = "全部";
 "stats_total_plays" = "播放次数";
 "stats_total_time" = "总听歌时长";
 "stats_active_days" = "活跃天数";
@@ -1177,3 +1178,10 @@
 "go_to_album" = "前往专辑";
 "go_to_artist" = "前往艺术家";
 "playback_settings_title" = "播放设置";
+"shuffle_all" = "随机播放全部";
+"sidebar_all_songs" = "全部歌曲";
+"sidebar_liked_songs" = "我喜欢的";
+"home_playable_count_short" = "播放";
+"source" = "源";
+"delete_forever" = "永久删除";
+"deleted_at_format" = "删除于 %@";

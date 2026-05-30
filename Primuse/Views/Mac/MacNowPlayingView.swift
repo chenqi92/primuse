@@ -130,12 +130,21 @@ struct MacNowPlayingView: View {
     /// 1.6 重设计后的 ambient backdrop — 由 ThemeService 的动态 accent (从封面提取)
     /// 驱动多色斑模糊, 替代之前的 cover blur + ultraThinMaterial 组合, 让背景跟着
     /// 当前歌曲色调走, 跟设计稿 AmbientBackdrop 视觉一致。
+    ///
+    /// 关键: 先铺一层不透明的 `bgDeep` 实色底。`AmbientBackdrop` 内部对整组 (含自身
+    /// 底色) 施加了 `.opacity(strength)`, 单独用时会半透 —— 这个 view 是盖在
+    /// MacDetailContainer (首页仪表盘) 之上的 overlay, 不补底就会"穿透"看到后面的
+    /// 内容。补一层不透明底后整页变实, 顶部玻璃按钮也回到暗背景上、白色图标恢复可读。
     private var backdrop: some View {
-        AmbientBackdrop(
-            accent: theme.accentColor,
-            darkAccent: theme.darkAccent,
-            strength: 0.85
-        )
+        ZStack {
+            PMColor.ambientDarkBase
+            AmbientBackdrop(
+                accent: theme.accentColor,
+                darkAccent: theme.darkAccent,
+                strength: 0.85,
+                forceDark: true
+            )
+        }
         .ignoresSafeArea()
     }
 

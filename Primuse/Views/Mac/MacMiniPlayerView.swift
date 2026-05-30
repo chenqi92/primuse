@@ -31,15 +31,25 @@ struct MacMiniPlayerView: View {
         ZStack {
             ambientBackdrop
             VStack(spacing: 0) {
-                Color.clear.frame(height: 32)
+                // 固定顶部 32pt top bar — 流量灯左, 折叠箭头右。设计稿 NP-Mini
+                // 的 title bar 高度就是 32pt。之前用 .overlay(.topLeading) 在
+                // titlebarAppearsTransparent + fullSizeContentView 的 NSPanel 上
+                // 显示/命中都不稳定 (用户报告 "展开队列后看不到流量灯, 没法关闭"),
+                // 改成真实布局元素就稳定可靠了。
+                miniTopBar
 
                 VStack(spacing: 10) {
                     coverArea
                     metaArea
                     scrubber
-                    transport
 
+                    // 折叠态(220pt)只展示封面 / 标题 / 进度,跟设计稿 NP-Mini
+                    // collapsed 一致;传输键、歌词/队列 tab、底部工具条都放到
+                    // 展开态(540pt)。否则折叠高度装不下全部内容,顶部流量灯 +
+                    // 关闭键会被挤出可视区——用户反馈的"顶部消失、没法关闭"正是
+                    // 内容溢出裁切造成的。
                     if bottomMode != .none {
+                        transport
                         subviewTabs
                             .padding(.top, 4)
                             .transition(.opacity)
@@ -52,33 +62,23 @@ struct MacMiniPlayerView: View {
                         .padding(.horizontal, 18)
                         .padding(.top, 14)
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    footerToolbar
                 } else {
                     Spacer(minLength: 0)
                 }
-
-                footerToolbar
             }
             .animation(.easeInOut(duration: 0.28), value: bottomMode)
         }
-        .overlay(alignment: .topLeading) {
-            PMWindowTrafficLights()
-                .padding(.top, 3)
-                .padding(.leading, 10)
-        }
-        .overlay(alignment: .topTrailing) {
-            Button {
-                bottomMode = bottomMode == .none ? .lyrics : .none
-            } label: {
-                miniIcon(bottomMode == .none ? "chevron.up" : "chevron.down",
-                         tint: .white.opacity(0.86))
-                    .frame(width: 22, height: 22)
-            }
-            .buttonStyle(.plain)
-            .glassEffect(.regular.interactive(), in: .circle)
-            .padding(.top, 5)
-            .padding(.trailing, 12)
-            .help(Text(bottomMode == .none ? "show" : "hide"))
-        }
+        // 固定内容尺寸:宽恒 300,高随折叠/展开在 220 / 540 间切换。承载这个 view
+        // 的 NSHostingView 会按内容 fitting size 决定 mini player 窗口大小(顶层
+        // hosting view 这个行为关不掉),所以这里把 fitting size 直接钉成设计尺寸,
+        // 窗口就正好是 300×220 / 300×540,不会被 ScrollView 等无界内容撑成一大片。
+        .frame(
+            width: MiniPlayerWindowController.fixedWidth,
+            height: bottomMode == .none
+                ? MiniPlayerWindowController.collapsedHeight
+                : MiniPlayerWindowController.expandedHeight
+        )
         .task(id: player.currentSong?.id) { await reloadLyrics() }
         .onChange(of: player.currentTime) { _, t in updateIndex(time: t) }
         .onChange(of: bottomMode) { _, new in onBottomModeChange?(new) }
@@ -86,6 +86,55 @@ struct MacMiniPlayerView: View {
             guard let songID = note.object as? String,
                   songID == player.currentSong?.id else { return }
             Task { await reloadLyrics() }
+        }
+    }
+
+    /// 固定的 36pt 顶部 bar — 流量灯 (close/min/zoom) 左, 中间空白可拖拽,
+    /// 右侧两个按钮: 折叠/展开箭头 + 直接关窗 X (双保险, 防 NSPanel 上传统流量
+    /// 灯失效用户没法关窗)。底部 0.5pt divider 让 bar 跟下方内容分开, 视觉
+    /// 一定能找到。
+    private var miniTopBar: some View {
+        HStack(spacing: 8) {
+            PMWindowTrafficLights()
+                .padding(.leading, 12)
+            Spacer()
+            // 折叠 / 展开
+            Button {
+                bottomMode = bottomMode == .none ? .lyrics : .none
+            } label: {
+                Image(systemName: bottomMode == .none ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 24, height: 24)
+                    .background(Color.black.opacity(0.32), in: .circle)
+                    .overlay { Circle().strokeBorder(.white.opacity(0.22), lineWidth: 0.5) }
+            }
+            .buttonStyle(.plain)
+            .help(Text(bottomMode == .none ? "show" : "hide"))
+
+            // 直接关窗 X — 万一系统标准流量灯没渲染出来 (NSPanel +
+            // fullSizeContentView 历史已经踩过坑), 用户依然有明确的关窗入口。
+            Button {
+                onClose()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 24, height: 24)
+                    .background(Color.black.opacity(0.32), in: .circle)
+                    .overlay { Circle().strokeBorder(.white.opacity(0.22), lineWidth: 0.5) }
+            }
+            .buttonStyle(.plain)
+            .padding(.trailing, 12)
+            .help(Text("close"))
+        }
+        .frame(height: 36)
+        .background {
+            Rectangle()
+                .fill(Color.black.opacity(0.18))
+                .overlay(alignment: .bottom) {
+                    Rectangle().fill(.white.opacity(0.10)).frame(height: 0.5)
+                }
         }
     }
 
@@ -372,6 +421,7 @@ struct MacMiniPlayerView: View {
             }
             .padding(.vertical, 4)
         }
+        .scrollIndicators(.hidden)
     }
 
     private func queueRow(index: Int, song overrideSong: Song? = nil, isPlaying: Bool = false) -> some View {
