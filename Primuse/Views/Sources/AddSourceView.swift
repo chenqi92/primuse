@@ -333,6 +333,10 @@ struct AddSourceView: View {
     }
 
     private func saveSource() {
+        // 去除首尾空白/换行: 避免用户名密码混入不可见字符导致 NAS / 服务器认证失败。
+        let username = self.username.trimmingCharacters(in: .whitespacesAndNewlines)
+        let password = self.password.trimmingCharacters(in: .whitespacesAndNewlines)
+
         // S3 special mapping: host=endpoint, basePath=bucket, shareName→basePath, extraConfig={region}
         let finalHost: String?
         let finalBasePath: String?

@@ -259,9 +259,17 @@ actor SMBSource: MusicSourceConnector {
         let serverURL = try Self.buildSMBUrl(host: trimmedHost, port: port)
         NSLog("ℹ️ SMB connecting to \(serverURL.absoluteString) (original host: \(trimmedHost))")
 
+        // 凭证里若混入首尾空白 / 换行 / 粘贴带入的不可见字符, SMB 会直接判定认证失败。
+        // 用户名与密码统一去除首尾空白(NAS 账号密码极少以空格首尾)。
+        let cleanUser = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanPassword = password.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleanUser.count != username.count || cleanPassword.count != password.count {
+            NSLog("⚠️ SMB credential trimmed surrounding whitespace: user \(username.count)→\(cleanUser.count), password \(password.count)→\(cleanPassword.count)")
+        }
+
         let credential = URLCredential(
-            user: username,
-            password: password,
+            user: cleanUser,
+            password: cleanPassword,
             persistence: .forSession
         )
 
