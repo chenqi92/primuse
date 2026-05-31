@@ -16,6 +16,8 @@ final class AudioSessionManager {
 
     private init() {}
 
+#if os(iOS)
+
     @discardableResult
     func activatePlaybackSession() -> Bool {
         let session = AVAudioSession.sharedInstance()
@@ -120,4 +122,14 @@ final class AudioSessionManager {
             onConfigurationChange?()
         }
     }
+
+#else
+    // macOS has no AVAudioSession — Core Audio routes/interruptions don't
+    // need explicit setup. These no-op stubs let the iOS-shaped call sites
+    // stay platform-agnostic.
+    @discardableResult
+    func activatePlaybackSession() -> Bool { true }
+    func configureForPlayback() {}
+    func deactivate() {}
+#endif
 }

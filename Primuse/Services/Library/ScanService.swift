@@ -1,7 +1,11 @@
-import BackgroundTasks
 import Foundation
 import PrimuseKit
+#if os(iOS)
+import BackgroundTasks
+#if os(iOS)
 import UIKit
+#endif
+#endif
 
 /// Manages music source scanning state and tasks.
 /// Lives in the SwiftUI environment so scan progress persists across navigation.
@@ -42,7 +46,9 @@ final class ScanService {
     var synologyAPIs: [String: SynologyAPI] = [:]
     private var activeTasks: [String: Task<Void, Never>] = [:]
     private var checkpoints: [String: ScanCheckpoint] = [:]
+    #if os(iOS)
     private var backgroundTaskIDs: [String: UIBackgroundTaskIdentifier] = [:]
+    #endif
 
     private let checkpointURL: URL
     private let encoder = JSONEncoder()
@@ -68,10 +74,13 @@ final class ScanService {
     ) {
         guard activeTasks[source.id] == nil else { return }
 
-        // Media servers scan all libraries automatically; other sources need user-selected directories
+        // Media servers / Apple Music Library 都是自动全库扫描,没有"用户选
+        // 目录"这一步,用 "/" 哨兵触发 connector.scanSongs(from: "/") 走全
+        // 量列举。其余 NAS / Cloud / Protocol / Local 都依赖 extraConfig
+        // 里持久化的目录列表。
         let dirs: [String]
-        if source.type.isMediaServer {
-            dirs = ["/"]  // Sentinel: scan all libraries
+        if source.type.isMediaServer || source.type == .appleMusicLibrary {
+            dirs = ["/"]
         } else {
             dirs = decodeDirs(source.extraConfig)
             guard !dirs.isEmpty else { return }
@@ -134,7 +143,7 @@ final class ScanService {
                  .jellyfin, .emby, .plex,
                  .qnap, .ugreen, .fnos, .s3,
                  .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox,
-                 .local:
+                 .local, .appleMusicLibrary:
                 await scanConnectorSource(
                     source: source,
                     directories: normalizedDirs,
@@ -179,6 +188,11 @@ final class ScanService {
             guard activeTasks[sourceID] == nil,
                   let source = sourceStore.source(id: sourceID),
                   source.isEnabled, !source.isDeleted else { continue }
+            // Apple Music Library 扫描会触发 ITLibrary 初始化,弹出"访问其他
+            // App 数据"的 macOS Sandbox 授权对话框。它是读本地 iTunes 数据库
+            // 的全量枚举,没有"接着上次扫到一半的位置"这种增量语义,checkpoint
+            // 没意义。所以启动时不主动恢复,等用户在源列表里手动点扫描再触发。
+            if source.type == .appleMusicLibrary { continue }
             scanSource(
                 source,
                 sourceManager: sourceManager,
@@ -197,6 +211,7 @@ final class ScanService {
     ///   still has bare songs to process — we'll schedule even when no scan
     ///   has a checkpoint, so backfill can keep running in the background.
     func scheduleBackgroundResumeIfNeeded(backfillPending: Bool = false) {
+        #if os(iOS)
         // Only schedule if there's actually something pending.
         let hasScanWork = scanStates.values.contains(where: { $0.canResume || $0.isScanning })
         guard hasScanWork || backfillPending else { return }
@@ -213,6 +228,8 @@ final class ScanService {
             // Don't crash — auto-resume on foreground still works.
             plog("⚠️ BGProcessing submit failed: \(error)")
         }
+        #endif
+        // macOS has no BGTaskScheduler — scans run while the app is open.
     }
 
     func cancelScan(for sourceID: String) {
@@ -279,7 +296,7 @@ final class ScanService {
             let loginResult = await api.login(
                 account: source.username ?? "",
                 password: password,
-                deviceName: source.rememberDevice ? "Primuse-iOS" : nil,
+                deviceName: source.rememberDevice ? AppConstants.trustedDeviceName : nil,
                 deviceId: source.deviceId
             )
 
@@ -396,6 +413,7 @@ final class ScanService {
                 isScanning: false,
                 currentFile: sourceManager.scanFailureMessage(for: error, source: source)
             )
+            Self.notifyScanFailed(sourceName: source.name, error: error)
         }
     }
 
@@ -498,6 +516,23 @@ final class ScanService {
                 isScanning: false,
                 currentFile: sourceManager.scanFailureMessage(for: error, source: source)
             )
+            Self.notifyScanFailed(sourceName: source.name, error: error)
+        }
+    }
+
+    /// Build & post the "scan failed" error notification. Only the
+    /// localizedDescription leaks to the user — full error chains stay in the
+    /// log via the existing `currentFile` debug field.
+    private static func notifyScanFailed(sourceName: String, error: Error) {
+        let title = String(localized: "notify_scan_failed_title")
+        let format = String(localized: "notify_scan_failed_body")
+        let body = String(format: format, sourceName, error.localizedDescription)
+        Task { @MainActor in
+            await UserNotificationService.shared.postError(
+                category: .scanFailed,
+                title: title,
+                body: body
+            )
         }
     }
 
@@ -577,18 +612,22 @@ final class ScanService {
     }
 
     private func beginBackgroundTask(for sourceID: String) {
+        #if os(iOS)
         endBackgroundTask(for: sourceID)
         backgroundTaskIDs[sourceID] = UIApplication.shared.beginBackgroundTask(withName: "scan-\(sourceID)") { [weak self] in
             Task { @MainActor in
                 self?.cancelScan(for: sourceID)
             }
         }
+        #endif
     }
 
     private func endBackgroundTask(for sourceID: String) {
+        #if os(iOS)
         guard let taskID = backgroundTaskIDs.removeValue(forKey: sourceID),
               taskID != .invalid else { return }
         UIApplication.shared.endBackgroundTask(taskID)
+        #endif
     }
 
     private func normalizedDirectories(_ directories: [String]) -> [String] {

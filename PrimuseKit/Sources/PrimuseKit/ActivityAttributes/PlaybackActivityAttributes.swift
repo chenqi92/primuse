@@ -1,5 +1,8 @@
-import ActivityKit
 import Foundation
+// ActivityKit 在 Mac Catalyst 上也不可用,纯 iOS 才有。`#if os(iOS)`
+// 在 Catalyst 下也算 true, 所以必须额外排除 catalyst 环境。
+#if os(iOS) && !targetEnvironment(macCatalyst)
+import ActivityKit
 
 public struct PlaybackActivityAttributes: ActivityAttributes {
     public struct ContentState: Codable, Hashable, Sendable {
@@ -30,3 +33,4 @@ public struct PlaybackActivityAttributes: ActivityAttributes {
         self.coverImageName = coverImageName
     }
 }
+#endif

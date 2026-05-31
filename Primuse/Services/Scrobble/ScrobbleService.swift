@@ -14,6 +14,9 @@ final class ScrobbleService {
     /// 失败队列, 持久化到 UserDefaults。
     private var queue: [QueuedEntry] = []
     private static let queueKey = "primuse.scrobble.queue.v1"
+    private static let recentReportsKey = "primuse.scrobble.recentReports.v1"
+    private static let recentReportsLimit = 12
+    private(set) var recentReports: [RecentReport] = []
     /// 后台 retry task — settings 变化或网络恢复时启动。
     private var retryTask: Task<Void, Never>?
 
@@ -33,6 +36,16 @@ final class ScrobbleService {
         var nextRetryAt: TimeInterval
     }
 
+    struct RecentReport: Codable, Identifiable, Equatable, Sendable {
+        let entry: ScrobbleEntry
+        let provider: ScrobbleProviderID
+        let submittedAt: Date
+
+        var id: String {
+            "\(provider.rawValue)-\(entry.songID)-\(entry.startedAt)-\(Int(submittedAt.timeIntervalSince1970))"
+        }
+    }
+
     /// 当前播放的会话状态, 决定何时触发 scrobble。
     private struct PlaySession {
         let entry: ScrobbleEntry
@@ -43,6 +56,7 @@ final class ScrobbleService {
 
     private init() {
         loadQueue()
+        loadRecentReports()
         // Settings 变化 (启用 provider 切换) 时尝试 flush 队列。
         NotificationCenter.default.addObserver(
             forName: .scrobbleSettingsChanged,
@@ -140,27 +154,32 @@ final class ScrobbleService {
         guard !providers.isEmpty else { return }
         Task {
             var failed: Set<ScrobbleProviderID> = []
-            await withTaskGroup(of: (ScrobbleProviderID, Bool).self) { group in
+            var submitted: [ScrobbleProviderID] = []
+            await withTaskGroup(of: (ScrobbleProviderID, Bool, Bool).self) { group in
                 for provider in providers {
                     group.addTask {
                         do {
                             try await provider.submitListens([entry])
                             plog("🎵 scrobble [\(provider.id.displayName)] OK: \(entry.title)")
-                            return (provider.id, true)
+                            return (provider.id, true, true)
                         } catch let err as ScrobbleError {
                             plog("🎵 scrobble [\(provider.id.displayName)] failed (\(err.isRetryable ? "queued" : "dropped")): \(err.localizedDescription)")
-                            return (provider.id, !err.isRetryable)  // 不可重试 = 视作 "完成", 别留队列里
+                            return (provider.id, !err.isRetryable, false)  // 不可重试 = 视作 "完成", 别留队列里
                         } catch {
                             plog("🎵 scrobble [\(provider.id.displayName)] failed (queued): \(error.localizedDescription)")
-                            return (provider.id, false)
+                            return (provider.id, false, false)
                         }
                     }
                 }
-                for await (pid, done) in group {
+                for await (pid, done, didSubmit) in group {
                     if !done { failed.insert(pid) }
+                    if didSubmit { submitted.append(pid) }
                 }
             }
             await MainActor.run {
+                for provider in submitted {
+                    self.recordRecent(entry: entry, provider: provider)
+                }
                 if !failed.isEmpty { self.enqueue(entry: entry, providers: failed) }
             }
         }
@@ -225,6 +244,7 @@ final class ScrobbleService {
                     do {
                         try await provider.submitListens([item.entry])
                         plog("🎵 scrobble retry [\(provider.id.displayName)] OK")
+                        recordRecent(entry: item.entry, provider: provider.id)
                     } catch let err as ScrobbleError where !err.isRetryable {
                         plog("🎵 scrobble retry [\(provider.id.displayName)] dropped: \(err.localizedDescription)")
                     } catch {
@@ -301,6 +321,32 @@ final class ScrobbleService {
         if let data = UserDefaults.standard.data(forKey: Self.queueKey),
            let decoded = try? JSONDecoder().decode([QueuedEntry].self, from: data) {
             queue = decoded
+        }
+    }
+
+    private func recordRecent(entry: ScrobbleEntry, provider: ScrobbleProviderID) {
+        recentReports.removeAll {
+            $0.entry.songID == entry.songID
+                && $0.entry.startedAt == entry.startedAt
+                && $0.provider == provider
+        }
+        recentReports.insert(RecentReport(entry: entry, provider: provider, submittedAt: Date()), at: 0)
+        if recentReports.count > Self.recentReportsLimit {
+            recentReports.removeLast(recentReports.count - Self.recentReportsLimit)
+        }
+        saveRecentReports()
+    }
+
+    private func saveRecentReports() {
+        if let data = try? JSONEncoder().encode(recentReports) {
+            UserDefaults.standard.set(data, forKey: Self.recentReportsKey)
+        }
+    }
+
+    private func loadRecentReports() {
+        if let data = UserDefaults.standard.data(forKey: Self.recentReportsKey),
+           let decoded = try? JSONDecoder().decode([RecentReport].self, from: data) {
+            recentReports = Array(decoded.prefix(Self.recentReportsLimit))
         }
     }
 

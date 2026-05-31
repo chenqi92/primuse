@@ -1,6 +1,12 @@
 import Foundation
 import PrimuseKit
+#if os(iOS)
+#if os(iOS)
 import UIKit
+#endif
+#else
+import AppKit
+#endif
 
 /// Writes sidecar files (cover art, lyrics) alongside source audio files on NAS/remote storage.
 /// - Cover: `<basename>-cover.jpg` next to the audio file
@@ -38,13 +44,7 @@ actor SidecarWriteService {
 
         // 1. Write <basename>-cover.jpg next to audio file
         if let coverData, !coverData.isEmpty {
-            let jpegData: Data
-            if let image = UIImage(data: coverData),
-               let compressed = image.jpegData(compressionQuality: 0.85) {
-                jpegData = compressed
-            } else {
-                jpegData = coverData
-            }
+            let jpegData: Data = recompressJPEG(coverData) ?? coverData
 
             let coverFileName = "\(baseNameNoExt)-cover.jpg"
             let coverPath = (songDir as NSString).appendingPathComponent(coverFileName)
@@ -87,5 +87,20 @@ actor SidecarWriteService {
             output += String(format: "[%02d:%05.2f]%@\n", minutes, seconds, line.text)
         }
         return output
+    }
+
+    /// Re-encodes an arbitrary image blob (PNG, HEIC, JPEG…) as JPEG at
+    /// quality 0.85 so sidecars are uniform on disk. Returns nil if the
+    /// blob isn't a recognized image — caller falls back to the original.
+    private func recompressJPEG(_ data: Data) -> Data? {
+        #if os(iOS)
+        guard let image = UIImage(data: data) else { return nil }
+        return image.jpegData(compressionQuality: 0.85)
+        #else
+        guard let image = NSImage(data: data),
+              let tiff = image.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff) else { return nil }
+        return rep.representation(using: .jpeg, properties: [.compressionFactor: 0.85])
+        #endif
     }
 }

@@ -1,7 +1,9 @@
 import Foundation
 import Network
 import OSLog
+#if os(iOS)
 import UIKit
+#endif
 import PrimuseKit
 
 /// LAN 内被发现的 UPnP/AV MediaRenderer 设备 ── 投屏目标。
@@ -190,7 +192,11 @@ final class DLNARendererService {
             defaults.set(new, forKey: "dlna.deviceUUID")
             self.deviceUUID = new
         }
+        #if os(iOS)
         let device = UIDevice.current.name
+        #else
+        let device = Host.current().localizedName ?? "Mac"
+        #endif
         self.friendlyName = "猿音 · \(device)"
     }
 

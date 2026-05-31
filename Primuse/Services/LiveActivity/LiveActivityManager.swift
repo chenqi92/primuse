@@ -1,3 +1,4 @@
+#if os(iOS)
 import ActivityKit
 import Foundation
 import UIKit
@@ -155,3 +156,5 @@ final class LiveActivityManager {
         try? FileManager.default.removeItem(at: fileURL)
     }
 }
+
+#endif

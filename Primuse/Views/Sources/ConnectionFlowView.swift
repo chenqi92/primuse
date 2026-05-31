@@ -12,43 +12,31 @@ struct ConnectionFlowView: View {
 
     @State private var step: FlowStep = .connecting
     @State private var otpCode = ""
+    @State private var passwordInput = ""
     @State private var errorMessage = ""
     @State private var rememberDevice = true
     @State private var synologyAPI: SynologyAPI?
     @State private var rootItems: [SynologyAPI.FileItem] = []
     @FocusState private var otpFocused: Bool
+    @FocusState private var passwordFocused: Bool
     @State private var sslTrustDomain: String?
     @State private var sslTrustContinuation: CheckedContinuation<Bool, Never>?
 
-    enum FlowStep { case connecting, otp, browsing, failed }
+    enum FlowStep { case connecting, otp, password, browsing, failed }
 
     var body: some View {
-        NavigationStack {
-            Group {
-                switch step {
-                case .connecting: connectingView
-                case .otp: otpView
-                case .browsing:
-                    RealDirectoryBrowserView(
-                        synologyAPI: synologyAPI,
-                        initialItems: rootItems,
-                        selectedDirectories: $selectedDirectories
-                    )
-                case .failed: failedView
-                }
+        Group {
+            #if os(macOS)
+            // macOS 浏览步骤换成设计稿的树形浏览器 (自带 traffic-light 窗头 +
+            // 返回/完成 底栏), 不再套 NavigationStack —— 否则会和它的窗头叠两层。
+            if step == .browsing {
+                synologyMacBrowser
+            } else {
+                authFlow
             }
-            .navigationTitle(stepTitle)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("cancel") { dismiss() }
-                }
-                if step == .browsing {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("done") { dismiss() }.fontWeight(.semibold)
-                    }
-                }
-            }
+            #else
+            authFlow
+            #endif
         }
         .interactiveDismissDisabled(step == .connecting)
         .onAppear { startConnection() }
@@ -71,6 +59,74 @@ struct ConnectionFlowView: View {
             }
         }
     }
+
+    /// 连接 / 二步验证 / 选目录(iOS) 的 NavigationStack 主体。
+    private var authFlow: some View {
+        NavigationStack {
+            Group {
+                switch step {
+                case .connecting: connectingView
+                case .otp: otpView
+                case .password: passwordView
+                case .browsing:
+                    RealDirectoryBrowserView(
+                        synologyAPI: synologyAPI,
+                        initialItems: rootItems,
+                        selectedDirectories: $selectedDirectories
+                    )
+                case .failed: failedView
+                }
+            }
+            .navigationTitle(stepTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("cancel") { dismiss() }
+                }
+                if step == .browsing {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("done") { dismiss() }.fontWeight(.semibold)
+                    }
+                }
+            }
+        }
+    }
+
+    #if os(macOS)
+    /// Synology 的树形浏览器 —— 复用通用 `MacDirTreeBrowser`, 把 Synology 的
+    /// FileItem 映射成 RemoteFileItem; 根目录用已拿到的共享文件夹列表。
+    private var synologyMacBrowser: some View {
+        MacDirTreeBrowser(
+            title: "浏览 \(source.type.displayName) · \(source.name)",
+            subtitle: synologyConnectionString,
+            rootTitle: source.name,
+            selectedDirectories: $selectedDirectories,
+            load: { path in
+                if path == "/" {
+                    return rootItems.map(Self.mapSynologyItem)
+                }
+                guard let api = synologyAPI else { return [] }
+                let items = try await api.listDirectory(path: path)
+                return items.map(Self.mapSynologyItem)
+            }
+        )
+    }
+
+    private var synologyConnectionString: String {
+        let host = source.host ?? ""
+        return host.isEmpty ? source.type.displayName.lowercased() : "synology://\(host)"
+    }
+
+    private static func mapSynologyItem(_ item: SynologyAPI.FileItem) -> RemoteFileItem {
+        RemoteFileItem(
+            name: item.name,
+            path: item.path,
+            isDirectory: item.isDirectory,
+            size: item.size,
+            modifiedDate: nil
+        )
+    }
+    #endif
 
     private func resolveSSLTrust(approved: Bool) {
         if approved, let domain = sslTrustDomain {
@@ -95,6 +151,7 @@ struct ConnectionFlowView: View {
         switch step {
         case .connecting: return String(localized: "connecting_title")
         case .otp: return String(localized: "two_factor_auth")
+        case .password: return String(localized: "password_required_title")
         case .browsing: return String(localized: "select_directories")
         case .failed: return String(localized: "connection_failed")
         }
@@ -185,6 +242,71 @@ struct ConnectionFlowView: View {
         }
     }
 
+    // MARK: - Password prompt
+    //
+    // 仅在 DSM 真正返回 code=400(账号或密码错误)时才出现。用户输入的
+    // 密码写回本机 Keychain,下次连接自动复用。
+    private var passwordView: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                Spacer().frame(height: 30)
+
+                Image(systemName: "key.fill")
+                    .font(.system(size: 44))
+                    .foregroundStyle(.blue.gradient)
+
+                VStack(spacing: 6) {
+                    Text("password_required_title").font(.title3).fontWeight(.semibold)
+                    Text("\(source.username ?? "") @ \(source.host ?? "")")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .monospaced()
+                }
+
+                SecureField(String(localized: "password"), text: $passwordInput)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($passwordFocused)
+                    .onSubmit { submitPassword() }
+                    .padding(.horizontal, 30)
+
+                if !errorMessage.isEmpty {
+                    Text(errorMessage)
+                        .font(.caption).foregroundStyle(.red)
+                        .padding(.horizontal, 30)
+                        .multilineTextAlignment(.center)
+                }
+
+                Button {
+                    submitPassword()
+                } label: {
+                    Text("connect").fontWeight(.semibold).frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(passwordInput.isEmpty)
+                .padding(.horizontal, 30)
+
+                Spacer().frame(height: 30)
+            }
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { passwordFocused = true }
+        }
+    }
+
+    private func submitPassword() {
+        let pwd = passwordInput
+        guard !pwd.isEmpty else { return }
+        // 顺手写一份到 Keychain (下次免输);但 connectSynology 这一次
+        // 直接用 overridePassword,不依赖 keychain 读回去——否则 keychain
+        // 写失败时密码就丢了。
+        KeychainService.setPassword(pwd, for: source.id)
+        errorMessage = ""
+        passwordInput = ""
+        step = .connecting
+        Task { await connectSynology(otpCode: nil, overridePassword: pwd) }
+    }
+
     // MARK: - Failed
 
     private var failedView: some View {
@@ -218,7 +340,7 @@ struct ConnectionFlowView: View {
         }
     }
 
-    private func connectSynology(otpCode: String?) async {
+    private func connectSynology(otpCode: String?, overridePassword: String? = nil) async {
         let api = SynologyAPI(
             host: source.host ?? "",
             port: source.port ?? 5001,
@@ -226,14 +348,16 @@ struct ConnectionFlowView: View {
         )
         synologyAPI = api
 
-        let password = KeychainService.getPassword(for: source.id) ?? ""
+        // overridePassword 不为空时直接用刚输入的明文,绕开 keychain
+        // 读写中任何潜在的字节损失;否则才回落到 keychain 里上次保存的值。
+        let password = overridePassword ?? KeychainService.getPassword(for: source.id) ?? ""
 
         // If we have a saved deviceId, try login with it (skip OTP)
         let result = await api.login(
             account: source.username ?? "",
             password: password,
             otpCode: otpCode,
-            deviceName: rememberDevice ? "Primuse-iOS" : nil,
+            deviceName: rememberDevice ? AppConstants.trustedDeviceName : nil,
             deviceId: source.deviceId
         )
 
@@ -274,6 +398,19 @@ struct ConnectionFlowView: View {
                     return
                 }
             }
+
+            // 凭据错误（DSM 错误码 400)→ 弹密码输入框让用户重输,而不是
+            // 直接进 failed 页。SynologyAPI 把错误码翻译成中文消息,这里
+            // 用消息内容反查;其他错误(IP 封禁/账号停用/2FA 等）走 failed
+            // 页让用户看到具体原因。
+            if (result.errorMessage ?? "").contains("用户名或密码错误") {
+                await MainActor.run {
+                    errorMessage = String(localized: "password_wrong_hint")
+                    withAnimation { step = .password }
+                }
+                return
+            }
+
             errorMessage = result.errorMessage ?? "Unknown error"
             withAnimation { step = .failed }
         }
@@ -336,8 +473,36 @@ struct RealDirectoryBrowserView: View {
             } else {
                 directoryList
             }
+            // macOS 把"已选择 N 个 / 清除全部"放进上方 toolbar(见
+            // ConnectionFlowView 的 toolbar item),不再叠一条全宽底栏 ——
+            // 那个浮动条是 iOS 的视觉模式,macOS 上挤掉一整行目录看起来也不清爽。
+            #if os(iOS)
             bottomBar
+            #endif
         }
+        #if os(macOS)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                if !selectedDirectories.isEmpty {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.tint)
+                        Text("\(selectedDirectories.count) \(String(localized: "directories_selected"))")
+                            .font(.subheadline).fontWeight(.medium)
+                        Button {
+                            withAnimation { selectedDirectories.removeAll() }
+                        } label: {
+                            Label("clear_all", systemImage: "xmark.circle")
+                                .labelStyle(.iconOnly)
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.borderless)
+                        .help(Text("clear_all"))
+                    }
+                }
+            }
+        }
+        #endif
         .onAppear {
             if currentPath == "/" { items = initialItems }
         }
@@ -385,7 +550,11 @@ struct RealDirectoryBrowserView: View {
                 }
             }
         }
+        #if os(macOS)
+        .listStyle(.inset)
+        #else
         .listStyle(.plain)
+        #endif
     }
 
     private func directoryRow(item: SynologyAPI.FileItem) -> some View {
@@ -482,12 +651,92 @@ struct DirectoryCheckRow: View {
 
     private var isSelected: Bool { selectedDirectories.contains(path) }
 
+    private var selectionBinding: Binding<Bool> {
+        Binding(
+            get: { selectedDirectories.contains(path) },
+            set: { newValue in
+                if newValue {
+                    if !selectedDirectories.contains(path) { selectedDirectories.append(path) }
+                } else {
+                    selectedDirectories.removeAll { $0 == path }
+                }
+            }
+        )
+    }
+
     var body: some View {
+        #if os(macOS)
+        macOSBody
+        #else
+        iOSBody
+        #endif
+    }
+
+    #if os(macOS)
+    @State private var isHovering = false
+
+    private var macOSBody: some View {
+        HStack(spacing: 8) {
+            Toggle("", isOn: selectionBinding)
+                .toggleStyle(.checkbox)
+                .labelsHidden()
+
+            Image(systemName: icon).foregroundStyle(iconColor)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(name).fontWeight(isNavigable ? .regular : .medium)
+                if let subtitle {
+                    Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+
+            Spacer()
+
+            if isNavigable {
+                Button { onNavigate?() } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(isHovering ? Color.secondary : Color.gray.opacity(0.45))
+                        .padding(.horizontal, 4)
+                }
+                .buttonStyle(.plain)
+                .help(String(localized: "open_folder"))
+            }
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) {
+            // Finder 风格:双击进入目录;非可导航行双击当作选中。
+            if isNavigable, let onNavigate {
+                onNavigate()
+            } else {
+                toggle()
+            }
+        }
+        .onTapGesture { toggle() }
+        .onHover { isHovering = $0 }
+        .listRowBackground(rowBackground)
+    }
+
+    @ViewBuilder
+    private var rowBackground: some View {
+        if isSelected {
+            Color.accentColor.opacity(0.12)
+        } else if isHovering {
+            Color.primary.opacity(0.05)
+        } else {
+            Color.clear
+        }
+    }
+    #endif
+
+    #if os(iOS)
+    private var iOSBody: some View {
         HStack(spacing: 10) {
             Button { toggle() } label: {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
-                    .foregroundStyle(isSelected ? Color.accentColor : Color(.systemGray3))
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.gray.opacity(0.4))
                     .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(.plain)
@@ -520,6 +769,7 @@ struct DirectoryCheckRow: View {
         .listRowBackground(isSelected ? Color.accentColor.opacity(0.08) : Color.clear)
         .animation(.easeInOut(duration: 0.15), value: isSelected)
     }
+    #endif
 
     private func toggle() {
         if selectedDirectories.contains(path) {

@@ -73,11 +73,18 @@ final class AudioEffectsService {
     private let settingsStore: PlaybackSettingsStore
     private var isApplyingPreset = false
 
+    var effectChainEnabled: Bool {
+        didSet {
+            applyEffectBypass()
+            settingsStore.effectChainEnabled = effectChainEnabled
+        }
+    }
+
     // MARK: - Compressor State
 
     var compressorEnabled: Bool {
         didSet {
-            audioEngine.compressorNode?.bypass = !compressorEnabled
+            applyEffectBypass()
             settingsStore.compressorEnabled = compressorEnabled
         }
     }
@@ -124,7 +131,7 @@ final class AudioEffectsService {
 
     var reverbEnabled: Bool {
         didSet {
-            audioEngine.reverbNode?.bypass = !reverbEnabled
+            applyEffectBypass()
             settingsStore.reverbEnabled = reverbEnabled
         }
     }
@@ -140,6 +147,11 @@ final class AudioEffectsService {
             settingsStore.reverbWetDryMix = reverbWetDryMix
         }
     }
+    var reverbRoomSize: Float {
+        didSet {
+            settingsStore.reverbRoomSize = max(0, min(100, reverbRoomSize))
+        }
+    }
 
     // MARK: - Init
 
@@ -149,6 +161,7 @@ final class AudioEffectsService {
 
         // Load persisted settings
         let s = settingsStore.snapshot()
+        self.effectChainEnabled = s.effectChainEnabled
         self.compressorEnabled = s.compressorEnabled
         self.compressorThreshold = s.compressorThreshold
         self.compressorHeadRoom = s.compressorHeadRoom
@@ -158,6 +171,7 @@ final class AudioEffectsService {
         self.reverbEnabled = s.reverbEnabled
         self.reverbPreset = ReverbPreset(rawValue: s.reverbPresetIndex) ?? .mediumHall
         self.reverbWetDryMix = s.reverbWetDryMix
+        self.reverbRoomSize = s.reverbRoomSize
 
         self.compressorPresetId = s.compressorPresetId
     }
@@ -166,7 +180,7 @@ final class AudioEffectsService {
     func applySettings() {
         // Compressor
         if let comp = audioEngine.compressorNode {
-            comp.bypass = !compressorEnabled
+            comp.bypass = !effectChainEnabled || !compressorEnabled
             setCompressorParam(kDynamicsProcessorParam_Threshold, value: compressorThreshold)
             setCompressorParam(kDynamicsProcessorParam_HeadRoom, value: compressorHeadRoom)
             setCompressorParam(kDynamicsProcessorParam_AttackTime, value: compressorAttackTime)
@@ -176,7 +190,7 @@ final class AudioEffectsService {
 
         // Reverb
         if let reverb = audioEngine.reverbNode {
-            reverb.bypass = !reverbEnabled
+            reverb.bypass = !effectChainEnabled || !reverbEnabled
             reverb.loadFactoryPreset(reverbPreset.avPreset)
             reverb.wetDryMix = reverbWetDryMix
         }
@@ -203,6 +217,7 @@ final class AudioEffectsService {
     func resetReverb() {
         reverbPreset = .mediumHall
         reverbWetDryMix = 20
+        reverbRoomSize = 55
     }
 
     // MARK: - AudioUnit Parameter Helpers
@@ -213,5 +228,10 @@ final class AudioEffectsService {
         if status != noErr {
             NSLog("⚠️ AudioEffects: failed to set compressor param \(param) = \(value), OSStatus = \(status)")
         }
+    }
+
+    private func applyEffectBypass() {
+        audioEngine.compressorNode?.bypass = !effectChainEnabled || !compressorEnabled
+        audioEngine.reverbNode?.bypass = !effectChainEnabled || !reverbEnabled
     }
 }

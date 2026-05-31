@@ -1,5 +1,8 @@
+#if os(iOS)
 import SwiftUI
+#if os(iOS)
 import UIKit
+#endif
 import WidgetKit
 import PrimuseKit
 
@@ -139,3 +142,5 @@ final class AppIconService {
         WidgetCenter.shared.reloadAllTimelines()
     }
 }
+
+#endif

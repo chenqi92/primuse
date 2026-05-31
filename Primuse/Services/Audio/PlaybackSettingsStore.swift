@@ -24,6 +24,9 @@ struct PlaybackSettings: Codable, Sendable {
     var spatialHeadTrackingEnabled: Bool = false
     var audioCacheEnabled: Bool = true
     var audioCacheLimitBytes: Int64 = AudioCacheManager.defaultMaxCacheSize
+    var skipLeadingSilenceEnabled: Bool = true
+    var skipTrailingSilenceEnabled: Bool = false
+    var prewarmQueueCount: Int = 3
     /// 播放速度倍率, 0.5x ~ 2.0x。1.0 = 正常。走 AVAudioUnitTimePitch
     /// 节点，自动保持音调不变。
     var playbackRate: Float = 1.0
@@ -32,6 +35,7 @@ struct PlaybackSettings: Codable, Sendable {
     var matchOutputSampleRate: Bool = false
 
     // Compressor / Limiter
+    var effectChainEnabled: Bool = true
     var compressorEnabled: Bool = false
     var compressorThreshold: Float = -20
     var compressorHeadRoom: Float = 5
@@ -45,6 +49,7 @@ struct PlaybackSettings: Codable, Sendable {
     var reverbEnabled: Bool = false
     var reverbPresetIndex: Int = 3  // mediumHall
     var reverbWetDryMix: Float = 20
+    var reverbRoomSize: Float = 55
 
     // Custom decoding: use decodeIfPresent for new fields so that older
     // persisted JSON (without compressor/reverb keys) does not fail to
@@ -60,8 +65,12 @@ struct PlaybackSettings: Codable, Sendable {
         spatialHeadTrackingEnabled = try c.decodeIfPresent(Bool.self, forKey: .spatialHeadTrackingEnabled) ?? false
         audioCacheEnabled = try c.decodeIfPresent(Bool.self, forKey: .audioCacheEnabled) ?? true
         audioCacheLimitBytes = try c.decodeIfPresent(Int64.self, forKey: .audioCacheLimitBytes) ?? AudioCacheManager.defaultMaxCacheSize
+        skipLeadingSilenceEnabled = try c.decodeIfPresent(Bool.self, forKey: .skipLeadingSilenceEnabled) ?? true
+        skipTrailingSilenceEnabled = try c.decodeIfPresent(Bool.self, forKey: .skipTrailingSilenceEnabled) ?? false
+        prewarmQueueCount = try c.decodeIfPresent(Int.self, forKey: .prewarmQueueCount) ?? 3
         playbackRate = try c.decodeIfPresent(Float.self, forKey: .playbackRate) ?? 1.0
         matchOutputSampleRate = try c.decodeIfPresent(Bool.self, forKey: .matchOutputSampleRate) ?? false
+        effectChainEnabled = try c.decodeIfPresent(Bool.self, forKey: .effectChainEnabled) ?? true
         compressorEnabled = try c.decodeIfPresent(Bool.self, forKey: .compressorEnabled) ?? false
         compressorThreshold = try c.decodeIfPresent(Float.self, forKey: .compressorThreshold) ?? -20
         compressorHeadRoom = try c.decodeIfPresent(Float.self, forKey: .compressorHeadRoom) ?? 5
@@ -72,6 +81,7 @@ struct PlaybackSettings: Codable, Sendable {
         reverbEnabled = try c.decodeIfPresent(Bool.self, forKey: .reverbEnabled) ?? false
         reverbPresetIndex = try c.decodeIfPresent(Int.self, forKey: .reverbPresetIndex) ?? 3
         reverbWetDryMix = try c.decodeIfPresent(Float.self, forKey: .reverbWetDryMix) ?? 20
+        reverbRoomSize = try c.decodeIfPresent(Float.self, forKey: .reverbRoomSize) ?? 55
     }
 
     init(
@@ -84,8 +94,12 @@ struct PlaybackSettings: Codable, Sendable {
         spatialHeadTrackingEnabled: Bool = false,
         audioCacheEnabled: Bool = true,
         audioCacheLimitBytes: Int64 = AudioCacheManager.defaultMaxCacheSize,
+        skipLeadingSilenceEnabled: Bool = true,
+        skipTrailingSilenceEnabled: Bool = false,
+        prewarmQueueCount: Int = 3,
         playbackRate: Float = 1.0,
         matchOutputSampleRate: Bool = false,
+        effectChainEnabled: Bool = true,
         compressorEnabled: Bool = false,
         compressorThreshold: Float = -20,
         compressorHeadRoom: Float = 5,
@@ -95,7 +109,8 @@ struct PlaybackSettings: Codable, Sendable {
         compressorPresetId: String? = nil,
         reverbEnabled: Bool = false,
         reverbPresetIndex: Int = 3,
-        reverbWetDryMix: Float = 20
+        reverbWetDryMix: Float = 20,
+        reverbRoomSize: Float = 55
     ) {
         self.gaplessEnabled = gaplessEnabled
         self.crossfadeEnabled = crossfadeEnabled
@@ -106,8 +121,12 @@ struct PlaybackSettings: Codable, Sendable {
         self.spatialHeadTrackingEnabled = spatialHeadTrackingEnabled
         self.audioCacheEnabled = audioCacheEnabled
         self.audioCacheLimitBytes = audioCacheLimitBytes
+        self.skipLeadingSilenceEnabled = skipLeadingSilenceEnabled
+        self.skipTrailingSilenceEnabled = skipTrailingSilenceEnabled
+        self.prewarmQueueCount = prewarmQueueCount
         self.playbackRate = playbackRate
         self.matchOutputSampleRate = matchOutputSampleRate
+        self.effectChainEnabled = effectChainEnabled
         self.compressorEnabled = compressorEnabled
         self.compressorThreshold = compressorThreshold
         self.compressorHeadRoom = compressorHeadRoom
@@ -118,6 +137,7 @@ struct PlaybackSettings: Codable, Sendable {
         self.reverbEnabled = reverbEnabled
         self.reverbPresetIndex = reverbPresetIndex
         self.reverbWetDryMix = reverbWetDryMix
+        self.reverbRoomSize = reverbRoomSize
     }
 
     static func load(defaults: UserDefaults = .standard) -> PlaybackSettings {
@@ -174,6 +194,18 @@ final class PlaybackSettingsStore {
     }
     var audioCacheEnabled: Bool { didSet { persist() } }
     var audioCacheLimitBytes: Int64 { didSet { persist() } }
+    var skipLeadingSilenceEnabled: Bool { didSet { persist() } }
+    var skipTrailingSilenceEnabled: Bool { didSet { persist() } }
+    var prewarmQueueCount: Int {
+        didSet {
+            let clamped = max(0, min(8, prewarmQueueCount))
+            if clamped != prewarmQueueCount {
+                prewarmQueueCount = clamped
+                return
+            }
+            persist()
+        }
+    }
     var playbackRate: Float {
         didSet {
             // 限定 0.5x - 2.0x, AVAudioUnitTimePitch 单元在此区间外音质会明显劣化
@@ -188,6 +220,7 @@ final class PlaybackSettingsStore {
     var matchOutputSampleRate: Bool { didSet { persist() } }
 
     // Compressor / Limiter
+    var effectChainEnabled: Bool { didSet { persist() } }
     var compressorEnabled: Bool { didSet { persist() } }
     var compressorThreshold: Float { didSet { persist() } }
     var compressorHeadRoom: Float { didSet { persist() } }
@@ -200,6 +233,7 @@ final class PlaybackSettingsStore {
     var reverbEnabled: Bool { didSet { persist() } }
     var reverbPresetIndex: Int { didSet { persist() } }
     var reverbWetDryMix: Float { didSet { persist() } }
+    var reverbRoomSize: Float { didSet { persist() } }
 
     private let defaults: UserDefaults
     private var suppressPersist = false
@@ -216,8 +250,12 @@ final class PlaybackSettingsStore {
         self.spatialHeadTrackingEnabled = s.spatialAudioEnabled && s.spatialHeadTrackingEnabled
         self.audioCacheEnabled = s.audioCacheEnabled
         self.audioCacheLimitBytes = s.audioCacheLimitBytes
+        self.skipLeadingSilenceEnabled = s.skipLeadingSilenceEnabled
+        self.skipTrailingSilenceEnabled = s.skipTrailingSilenceEnabled
+        self.prewarmQueueCount = max(0, min(8, s.prewarmQueueCount))
         self.playbackRate = max(0.5, min(2.0, s.playbackRate))
         self.matchOutputSampleRate = s.matchOutputSampleRate
+        self.effectChainEnabled = s.effectChainEnabled
         self.compressorEnabled = s.compressorEnabled
         self.compressorThreshold = s.compressorThreshold
         self.compressorHeadRoom = s.compressorHeadRoom
@@ -228,6 +266,7 @@ final class PlaybackSettingsStore {
         self.reverbEnabled = s.reverbEnabled
         self.reverbPresetIndex = s.reverbPresetIndex
         self.reverbWetDryMix = s.reverbWetDryMix
+        self.reverbRoomSize = s.reverbRoomSize
 
         CloudKVSSync.shared.register(key: PlaybackSettings.defaultsKey) { [weak self] in
             self?.reloadFromDefaults()
@@ -249,8 +288,12 @@ final class PlaybackSettingsStore {
         spatialHeadTrackingEnabled = s.spatialAudioEnabled && s.spatialHeadTrackingEnabled
         audioCacheEnabled = s.audioCacheEnabled
         audioCacheLimitBytes = s.audioCacheLimitBytes
+        skipLeadingSilenceEnabled = s.skipLeadingSilenceEnabled
+        skipTrailingSilenceEnabled = s.skipTrailingSilenceEnabled
+        prewarmQueueCount = max(0, min(8, s.prewarmQueueCount))
         playbackRate = max(0.5, min(2.0, s.playbackRate))
         matchOutputSampleRate = s.matchOutputSampleRate
+        effectChainEnabled = s.effectChainEnabled
         compressorEnabled = s.compressorEnabled
         compressorThreshold = s.compressorThreshold
         compressorHeadRoom = s.compressorHeadRoom
@@ -261,6 +304,7 @@ final class PlaybackSettingsStore {
         reverbEnabled = s.reverbEnabled
         reverbPresetIndex = s.reverbPresetIndex
         reverbWetDryMix = s.reverbWetDryMix
+        reverbRoomSize = s.reverbRoomSize
     }
 
     func snapshot() -> PlaybackSettings {
@@ -274,8 +318,12 @@ final class PlaybackSettingsStore {
             spatialHeadTrackingEnabled: spatialHeadTrackingEnabled,
             audioCacheEnabled: audioCacheEnabled,
             audioCacheLimitBytes: audioCacheLimitBytes,
+            skipLeadingSilenceEnabled: skipLeadingSilenceEnabled,
+            skipTrailingSilenceEnabled: skipTrailingSilenceEnabled,
+            prewarmQueueCount: prewarmQueueCount,
             playbackRate: playbackRate,
             matchOutputSampleRate: matchOutputSampleRate,
+            effectChainEnabled: effectChainEnabled,
             compressorEnabled: compressorEnabled,
             compressorThreshold: compressorThreshold,
             compressorHeadRoom: compressorHeadRoom,
@@ -285,7 +333,8 @@ final class PlaybackSettingsStore {
             compressorPresetId: compressorPresetId,
             reverbEnabled: reverbEnabled,
             reverbPresetIndex: reverbPresetIndex,
-            reverbWetDryMix: reverbWetDryMix
+            reverbWetDryMix: reverbWetDryMix,
+            reverbRoomSize: reverbRoomSize
         )
     }
 

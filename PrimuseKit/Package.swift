@@ -3,7 +3,8 @@ import PackageDescription
 
 let package = Package(
     name: "PrimuseKit",
-    platforms: [.iOS(.v18)],
+    defaultLocalization: "en",
+    platforms: [.iOS(.v18), .macOS(.v15), .tvOS(.v17)],
     products: [
         .library(name: "PrimuseKit", targets: ["PrimuseKit"]),
     ],

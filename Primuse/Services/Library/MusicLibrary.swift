@@ -13,6 +13,7 @@ struct LibrarySearchResult: Identifiable, Sendable {
     let matchKind: LibrarySearchMatchKind
     let score: Int
     let lyricSnippet: String?
+    let lyricTimestamp: TimeInterval?
 
     var id: String { song.id }
 }
@@ -56,33 +57,27 @@ private struct LibrarySearchMatcher {
         return nil
     }
 
-    func matchesLyrics(_ lyrics: String) -> Bool {
-        guard !lyrics.isEmpty else { return false }
-        if lyrics.localizedCaseInsensitiveContains(rawQuery) { return true }
-        return Self.normalized(lyrics).contains(normalizedQuery)
-    }
+    func lyricsMatch(in lines: [LyricLine], contextLines: Int = 1) -> (snippet: String, timestamp: TimeInterval)? {
+        let indexedLines = lines
+            .enumerated()
+            .map { (offset: $0.offset, line: $0.element, text: $0.element.text.trimmingCharacters(in: .whitespacesAndNewlines)) }
+            .filter { !$0.text.isEmpty }
+        guard !indexedLines.isEmpty else { return nil }
 
-    func lyricsSnippet(in lyrics: String, contextLines: Int = 1) -> String? {
-        let lines = lyrics
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        guard !lines.isEmpty else { return nil }
-
-        let matchIndex = lines.firstIndex { line in
-            line.localizedCaseInsensitiveContains(rawQuery)
-                || Self.normalized(line).contains(normalizedQuery)
+        let matchPosition = indexedLines.firstIndex { item in
+            item.text.localizedCaseInsensitiveContains(rawQuery)
+                || Self.normalized(item.text).contains(normalizedQuery)
         }
 
-        guard let matchIndex else { return nil }
-        let lowerBound = max(0, matchIndex - contextLines)
-        let upperBound = min(lines.count - 1, matchIndex + contextLines)
-        var snippetLines = Array(lines[lowerBound...upperBound])
+        guard let matchPosition else { return nil }
+        let lowerBound = max(0, matchPosition - contextLines)
+        let upperBound = min(indexedLines.count - 1, matchPosition + contextLines)
+        var snippetLines = Array(indexedLines[lowerBound...upperBound].map(\.text))
         if lowerBound > 0 { snippetLines[0] = "..." + snippetLines[0] }
-        if upperBound < lines.count - 1 {
+        if upperBound < indexedLines.count - 1 {
             snippetLines[snippetLines.count - 1] += "..."
         }
-        return snippetLines.joined(separator: "\n")
+        return (snippetLines.joined(separator: "\n"), indexedLines[matchPosition].line.timestamp)
     }
 
     private static func normalized(_ text: String) -> String {
@@ -131,7 +126,7 @@ private struct LibrarySearchMatcher {
 }
 
 struct LibrarySearchCache: Sendable {
-    var lyricsTextByKey: [String: String] = [:]
+    var lyricsLinesByKey: [String: [LyricLine]] = [:]
     var missingLyricsKeys: Set<String> = []
 }
 
@@ -169,6 +164,7 @@ enum LibrarySearchWorker {
             var bestScore = 0
             var bestKind: LibrarySearchMatchKind?
             var lyricSnippet: String?
+            var lyricTimestamp: TimeInterval?
 
             func consider(_ candidate: String?, boost: Int) {
                 guard let candidate,
@@ -188,13 +184,14 @@ enum LibrarySearchWorker {
 
             if shouldSearchLyrics,
                bestScore < 90,
-               let lyrics = searchableLyricsText(for: song, cache: &cache),
-               matcher.matchesLyrics(lyrics) {
+               let lines = searchableLyricsLines(for: song, cache: &cache),
+               let match = matcher.lyricsMatch(in: lines) {
                 let score = 70
                 if score > bestScore {
                     bestScore = score
                     bestKind = .lyrics
-                    lyricSnippet = matcher.lyricsSnippet(in: lyrics)
+                    lyricSnippet = match.snippet
+                    lyricTimestamp = match.timestamp
                 }
             }
 
@@ -203,7 +200,8 @@ enum LibrarySearchWorker {
                 song: song,
                 matchKind: bestKind,
                 score: bestScore,
-                lyricSnippet: lyricSnippet
+                lyricSnippet: lyricSnippet,
+                lyricTimestamp: lyricTimestamp
             )
         }
 
@@ -238,9 +236,9 @@ enum LibrarySearchWorker {
         }.map(\.0).prefix(limit))
     }
 
-    private static func searchableLyricsText(for song: Song, cache: inout LibrarySearchCache) -> String? {
+    private static func searchableLyricsLines(for song: Song, cache: inout LibrarySearchCache) -> [LyricLine]? {
         let cacheKey = "\(song.id)|\(song.lyricsFileName ?? "")"
-        if let cached = cache.lyricsTextByKey[cacheKey] { return cached }
+        if let cached = cache.lyricsLinesByKey[cacheKey] { return cached }
         if cache.missingLyricsKeys.contains(cacheKey) { return nil }
 
         guard let lines = MetadataAssetStore.shared.cachedLyricsForSearch(
@@ -251,20 +249,20 @@ enum LibrarySearchWorker {
             return nil
         }
 
-        let text = lines.flatMap { line -> [String] in
-            var parts = [line.text]
+        let searchable = lines.flatMap { line -> [LyricLine] in
+            var parts = [line]
             if let background = line.background {
-                parts.append(contentsOf: background.map(\.text))
+                parts.append(contentsOf: background)
             }
             return parts
-        }.joined(separator: "\n")
+        }.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
-        guard !text.isEmpty else {
+        guard !searchable.isEmpty else {
             cache.missingLyricsKeys.insert(cacheKey)
             return nil
         }
-        cache.lyricsTextByKey[cacheKey] = text
-        return text
+        cache.lyricsLinesByKey[cacheKey] = searchable
+        return searchable
     }
 }
 
@@ -685,15 +683,8 @@ final class MusicLibrary {
     private(set) var visibleSongs: [Song] = []
     private(set) var visibleAlbums: [Album] = []
     private(set) var visibleArtists: [Artist] = []
+    private var visibleSongByID: [String: Song] = [:]
     private(set) var searchRevision: Int = 0
-
-    /// `Song.id` → index into `visibleSongs`, rebuilt alongside the filtered
-    /// views above. Lets playlist / history lookups resolve song IDs in O(1)
-    /// instead of rebuilding a whole-library dictionary on every call. The old
-    /// per-call rebuild ran on the main thread inside SwiftUI `body`, so opening
-    /// a playlist in a large library stalled for seconds (`body` reads the song
-    /// list several times and re-evaluates during the push animation).
-    private var visibleSongIndexByID: [String: Int] = [:]
 
     private let snapshotURL: URL
     private let encoder = JSONEncoder()
@@ -720,8 +711,8 @@ final class MusicLibrary {
             let visibleArtistIDs = Set(visibleSongs.compactMap(\.artistID))
             visibleArtists = artists.filter { visibleArtistIDs.contains($0.id) }
         }
-        visibleSongIndexByID = Dictionary(
-            visibleSongs.enumerated().map { ($0.element.id, $0.offset) },
+        visibleSongByID = Dictionary(
+            visibleSongs.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
     }
@@ -1100,15 +1091,11 @@ final class MusicLibrary {
     }
 
     func songs(forPlaylist playlistID: String) -> [Song] {
-        (playlistSongIDs[playlistID] ?? []).compactMap { id in
-            visibleSongIndexByID[id].map { visibleSongs[$0] }
-        }
+        (playlistSongIDs[playlistID] ?? []).compactMap { visibleSongByID[$0] }
     }
 
     func recentlyPlayedSongs(limit: Int = 6) -> [Song] {
-        recentPlaybackSongIDs.prefix(limit).compactMap { id in
-            visibleSongIndexByID[id].map { visibleSongs[$0] }
-        }
+        Array(recentPlaybackSongIDs.prefix(limit).compactMap { visibleSongByID[$0] })
     }
 
     func contains(songID: String, inPlaylist playlistID: String) -> Bool {
@@ -1684,12 +1671,17 @@ final class MusicLibrary {
 
     func replaceSong(_ updatedSong: Song) {
         guard let index = songs.firstIndex(where: { $0.id == updatedSong.id }) else { return }
+        let oldCoverRef = songs[index].coverArtFileName
         var s = updatedSong
         MusicLibrary.fillDerivedIDs(&s)
         songs[index] = s
+        rebuildVisibleCache()
         lastReplacedSong = s
         lastReplacedSongIDs = [s.id]
         songReplacementToken = UUID()
+        if oldCoverRef != s.coverArtFileName {
+            postArtworkInvalidation(songID: s.id, oldRef: oldCoverRef, newRef: s.coverArtFileName)
+        }
         invalidateSearchCaches()
         rebuildIndex()
         cleanPlaylistEntries()
@@ -1715,22 +1707,31 @@ final class MusicLibrary {
         var lastApplied: Song?
         var appliedIDs: Set<String> = []
         var missedIDs: [String] = []
+        var artworkChanges: [(songID: String, oldRef: String?, newRef: String?)] = []
         for updated in updatedSongs {
             guard let index = idToIndex[updated.id] else {
                 missedIDs.append(updated.id)
                 continue
             }
+            let oldCoverRef = songs[index].coverArtFileName
             var s = updated
             MusicLibrary.fillDerivedIDs(&s)
             songs[index] = s
             lastApplied = s
             appliedIDs.insert(s.id)
+            if oldCoverRef != s.coverArtFileName {
+                artworkChanges.append((s.id, oldCoverRef, s.coverArtFileName))
+            }
         }
         plog("📚 replaceSongs: requested=\(updatedSongs.count) applied=\(appliedIDs.count) missed=\(missedIDs.count) librarySongs=\(songs.count) missedSampleID=\(missedIDs.first ?? "-") sampleLibID=\(songs.first?.id ?? "-")")
         guard let lastApplied else { return }
+        rebuildVisibleCache()
         lastReplacedSong = lastApplied
         lastReplacedSongIDs = appliedIDs
         songReplacementToken = UUID()
+        for change in artworkChanges {
+            postArtworkInvalidation(songID: change.songID, oldRef: change.oldRef, newRef: change.newRef)
+        }
         invalidateSearchCaches()
         rebuildIndex()
         cleanPlaylistEntries()
@@ -1740,6 +1741,17 @@ final class MusicLibrary {
         flushPendingIdentities()
         refreshPlaylistArtworkReferences()
         persistSnapshot()
+    }
+
+    private func postArtworkInvalidation(songID: String, oldRef: String?, newRef: String?) {
+        var userInfo: [AnyHashable: Any] = ["songID": songID]
+        if let oldRef { userInfo["oldRef"] = oldRef }
+        if let newRef { userInfo["newRef"] = newRef }
+        NotificationCenter.default.post(
+            name: .primuseArtworkDidInvalidate,
+            object: songID,
+            userInfo: userInfo
+        )
     }
 
     // MARK: - Index Rebuild
@@ -2026,6 +2038,15 @@ extension Notification.Name {
     /// listeners (SourceManager, MetadataBackfillService) drop stale audio
     /// caches and clear failed-backfill marks for these IDs.
     static let primuseSongContentChanged = Notification.Name("primuse.songContentChanged")
+    /// Posted when lyrics for a song are replaced by a user action such as
+    /// manual scraping. Current playback surfaces (MacNowPlayingView,
+    /// MacMiniPlayerView, DesktopLyricsView) reload their in-memory lyrics
+    /// when their current song matches `note.object as? String`.
+    static let primuseLyricsDidChange = Notification.Name("primuse.lyricsDidChange")
+    /// Posted when artwork memory cache entries are invalidated. Visible
+    /// `CachedArtworkView`s whose song/ref matches reload even when the
+    /// deterministic cover file name did not change after scraping.
+    static let primuseArtworkDidInvalidate = Notification.Name("primuse.artworkDidInvalidate")
     /// Posted when songs leave the library because the user deleted them or a
     /// complete re-scan no longer sees their source files. `userInfo["songs"]`
     /// is the removed `[Song]`; listeners drop audio/artwork/lyrics caches.

@@ -4,8 +4,13 @@ import Foundation
 import MediaPlayer
 import PrimuseKit
 import SFBAudioEngine
+#if os(iOS)
 import UIKit
 import WidgetKit
+#elseif os(macOS)
+import AppKit
+import WidgetKit
+#endif
 
 /// Mutable counter that can be captured by @Sendable closures (e.g. Timer callbacks wrapped in Task).
 private final class StepCounter: @unchecked Sendable {
@@ -254,6 +259,13 @@ final class AudioPlayerService {
     private var needsPlaybackRecovery = false
     private var pendingRecoveryTime: TimeInterval = 0
 
+    /// 最近一段时间 gapless boundary 触发的时间戳, 用于侦测 partial-cache
+    /// 引起的死循环 (boundary 反复在几秒内连续触发, 队列里 1-2 首坏歌
+    /// 互相切来切去)。窗口外的记录会被丢掉。
+    private var recentBoundaryTimes: [Date] = []
+    private static let boundaryStormWindow: TimeInterval = 10
+    private static let boundaryStormThreshold = 4
+
     /// Seconds of buffered audio we let drain before forcibly advancing
     /// after a mid-stream decode error. Without this cap, the ~100 buffers
     /// already scheduled to the playerNode play out for ~20s before
@@ -347,7 +359,9 @@ final class AudioPlayerService {
     func applyOutputSampleRateMatching(for song: Song) {
         guard playbackSettings.matchOutputSampleRate,
               let sr = song.sampleRate, sr > 0 else { return }
+        #if os(iOS)
         AudioSessionManager.shared.setPreferredSampleRate(Double(sr))
+        #endif
     }
 
     private func observeSpatialAudioSettings() {
@@ -561,22 +575,29 @@ final class AudioPlayerService {
         isLoading = true
         isPlaying = false
         startAppleMusicMirror()
-        await AppServices.shared.appleMusicLibrary.play(primuseSong: song)
-        // 4s 兜底 ── ApplicationMusicPlayer.play 本身没有失败回调,
-        // 如果 lookup / DRM / 订阅校验等任何一步失败, mirror 永远收不到
-        // playing 信号, isLoading 卡死。给一个超时清 loading 并把错误
-        // (如果 service 写进了 lastPlaybackError) 暴露给用户。
+        let appleMusicLibrary = AppServices.shared.appleMusicLibrary
+
+        // 4s 兜底必须先注册。Apple Music user-library sync 在缺 entitlement
+        // 或系统账户服务异常时可能卡住；如果把 timeout 放在 await 之后,
+        // UI 会永远停在 isLoading=true。
         Task { @MainActor [weak self, songID = song.id] in
             try? await Task.sleep(for: .seconds(4))
             guard let self,
                   self.currentSong?.id == songID,
                   self.isLoading else { return }
+            appleMusicLibrary.cancel()
             self.isLoading = false
             let am = AppServices.shared.appleMusic
             if !am.isAppleMusicPlaying, am.currentPlaybackTime == 0 {
                 self.lastPlaybackError = am.lastPlaybackError
                     ?? String(localized: "playback_error_apple_music_generic")
             }
+        }
+
+        // 不阻塞 play(song:) 调用方。成功后 AppleMusicService 的 mirror 会把
+        // nowPlaying / progress 同步回来；失败或卡住由上面的 timeout 收口。
+        Task {
+            await appleMusicLibrary.play(primuseSong: song)
         }
     }
 
@@ -1179,11 +1200,10 @@ final class AudioPlayerService {
 
     private func prefetchNextSong() {
         prefetchTask?.cancel()
-        // Prefetch 接下来 3 首,而不是只 1 首 —— 用户连续 next 切歌时
+        // Prefetch 接下来几首,而不是只 1 首 —— 用户连续 next 切歌时
         // (4-5s/次), 单首 prefetch chain 来不及, 第 2、3 首切到时 partial
-        // 还是空, SFB 现拉 1MB chunk 卡 2-3s。3 首并发 prewarm 流量是
-        // 3 * 1.25MB = 3.75MB, NAS 内网完全 cover 得了。
-        let nextSongs = nextSongsInQueue(count: 3)
+        // 还是空, SFB 现拉 1MB chunk 卡 2-3s。数量由 ST-01 设置页控制。
+        let nextSongs = nextSongsInQueue(count: playbackSettings.prewarmQueueCount)
         guard !nextSongs.isEmpty else { return }
 
         prefetchTask = Task {
@@ -1376,9 +1396,12 @@ final class AudioPlayerService {
             buffer,
             completionCallbackType: .dataPlayedBack
         ) { [weak self, transition] _ in
-            plog("🔔 gapless boundary fired playID=\(id.uuidString.prefix(8))")
+            // .dataPlayedBack 在 playerNode.reset() / stopPlayback() 时也会
+            // 同步 fire (任何 yield / 新 play / 主动切歌都会触发), id 是闭包
+            // 捕获的旧 playID, 移到 guard 内才不会在 log 里产生误导事件。
             Task { @MainActor [weak self] in
                 guard let self, self.playID == id else { return }
+                plog("🔔 gapless boundary fired playID=\(id.uuidString.prefix(8))")
                 await self.handleGaplessBoundary(transition: transition, playID: id)
             }
         }
@@ -1410,9 +1433,9 @@ final class AudioPlayerService {
             buffer,
             completionCallbackType: .dataPlayedBack
         ) { [weak self] _ in
-            plog("🔔 lastBuffer dataPlayedBack fired playID=\(id.uuidString.prefix(8))")
             Task { @MainActor [weak self] in
                 guard let self, self.playID == id else { return }
+                plog("🔔 lastBuffer dataPlayedBack fired playID=\(id.uuidString.prefix(8))")
                 // In crossfade mode, only handle track end if crossfade wasn't triggered
                 if settings.crossfadeEnabled && self.crossfadeTriggered { return }
                 await self.handleTrackEnd()
@@ -1997,6 +2020,46 @@ final class AudioPlayerService {
         if shuffleEnabled { rebuildShuffleOrder() }
     }
 
+    /// Append songs to the end of the current queue without interrupting the
+    /// current track. Used by macOS list-level "add all to queue" actions.
+    func appendToQueue(_ songs: [Song]) {
+        let playable = songs.filteredPlayable()
+        guard !playable.isEmpty else { return }
+        queueGeneration += 1
+        queueEntries.append(contentsOf: playable.map { QueueEntry(song: $0) })
+        pendingNextShuffleIndices = nil
+        if shuffleEnabled { rebuildShuffleOrder() }
+    }
+
+    /// Insert songs immediately after the current queue position. If there is
+    /// no queue yet, this behaves like `setQueue`.
+    func insertNextInQueue(_ songs: [Song]) {
+        let playable = songs.filteredPlayable()
+        guard !playable.isEmpty else { return }
+        guard !queueEntries.isEmpty else {
+            setQueue(playable, startAt: 0)
+            return
+        }
+        let insertionIndex = min(currentIndex + 1, queueEntries.count)
+        queueGeneration += 1
+        queueEntries.insert(contentsOf: playable.map { QueueEntry(song: $0) }, at: insertionIndex)
+        pendingNextShuffleIndices = nil
+        if shuffleEnabled { rebuildShuffleOrder() }
+    }
+
+    /// 删掉队列前 `count` 首歌, 同时把 `currentIndex` 往前平移 (不让它跑负)。
+    /// MacQueuePanel 的 "清掉已播放" 按钮直接调这个 ── 之前是把 player.queue
+    /// 当 var 用, 但 queue 现在是 computed。
+    func removeQueuePrefix(count: Int) {
+        guard count > 0 else { return }
+        let toRemove = min(count, queueEntries.count)
+        queueGeneration += 1
+        queueEntries.removeFirst(toRemove)
+        currentIndex = max(0, currentIndex - toRemove)
+        pendingNextShuffleIndices = nil
+        if shuffleEnabled { rebuildShuffleOrder() }
+    }
+
     /// Wipe the queue. Replaces the legacy `player.queue = []` setter,
     /// which is no longer accessible since `queue` is now computed.
     func clearQueue() {
@@ -2026,6 +2089,10 @@ final class AudioPlayerService {
     func syncSongMetadata(_ updatedSong: Song) {
         if currentSong?.id == updatedSong.id {
             currentSong = updatedSong
+            let updatedDuration = updatedSong.duration.sanitizedDuration
+            if updatedDuration > 0 {
+                duration = updatedDuration
+            }
             updateNowPlayingInfo()
             updatePlaybackState()
         }
@@ -2051,6 +2118,37 @@ final class AudioPlayerService {
         playID id: UUID
     ) async {
         transition.didBoundaryFire = true
+
+        // 防御性兜底: 10 秒内 boundary 触发 ≥4 次 = 队列里有 partial/坏掉
+        // 的歌反复切歌, 强制 pause 并 cancel 后续准备, 避免占满
+        // CPU + 不停下载 + UI 像是 loading 卡死的体感。
+        let now = Date()
+        recentBoundaryTimes.append(now)
+        recentBoundaryTimes.removeAll { now.timeIntervalSince($0) > Self.boundaryStormWindow }
+        if recentBoundaryTimes.count >= Self.boundaryStormThreshold {
+            plog("⚠️ gapless boundary storm: \(recentBoundaryTimes.count) 次 / \(Int(Self.boundaryStormWindow))s — 暂停播放, 队列里可能有不完整的缓存文件")
+            recentBoundaryTimes.removeAll()
+            transition.shouldCancelPreparation = true
+            cancelGaplessTasks()
+            pause()
+            return
+        }
+
+        // Sanity check: 当前歌还远没听完就 fire boundary, 说明上游有问题
+        // (CloudPlaybackSource 短读 / decoder 误判 EOF / MP3 帧元数据偏差),
+        // 直接切歌会让用户体感是"歌没播完就跳了"。这里重建当前歌曲的
+        // decoder pipeline, 从当前进度前一点继续拉数据; 如果仍失败,
+        // seek 路径会停在当前曲而不是静默跳到下一首。
+        if duration > 30, currentTime < duration - 5, !isLoading {
+            plog("⚠️ premature gapless boundary suppressed: currentTime=\(String(format: "%.1f", currentTime))s duration=\(String(format: "%.1f", duration))s playID=\(id.uuidString.prefix(8))")
+            transition.shouldCancelPreparation = true
+            cancelGaplessTasks()
+            showPlaybackError(String(localized: "playback_error_connection"))
+            let recoveryTime = max(0, currentTime - 2)
+            seek(to: recoveryTime, startPlaying: true, isRecovery: true)
+            return
+        }
+
         let settings = playbackSettings.snapshot()
 
         // The user can switch Crossfade on after the gapless final buffer
@@ -2268,6 +2366,7 @@ final class AudioPlayerService {
         ) { [weak self, followingTransition] _ in
             Task { @MainActor [weak self] in
                 guard let self, self.playID == id else { return }
+                plog("🔔 gapless boundary fired (prepared) playID=\(id.uuidString.prefix(8))")
                 await self.handleGaplessBoundary(transition: followingTransition, playID: id)
             }
         }
@@ -2793,17 +2892,17 @@ final class AudioPlayerService {
             let store = MetadataAssetStore.shared
 
             // Tier 1: songID-based cache (透明处理 content-addressed redirect)
-            var loadedImage: UIImage?
+            var loadedImage: PlatformImage?
             let hashedName = store.expectedCoverFileName(for: songID)
             if let data = store.readCoverData(named: hashedName) {
-                loadedImage = UIImage(data: data)
+                loadedImage = PlatformImage(data: data)
             }
 
             // Tier 2: legacy filename (local hashed filename, no "/" or "://")
             if loadedImage == nil, let coverRef, !coverRef.isEmpty,
                !coverRef.contains("/"), !coverRef.contains("://") {
                 if let data = store.readCoverData(named: coverRef) {
-                    loadedImage = UIImage(data: data)
+                    loadedImage = PlatformImage(data: data)
                 }
             }
 
@@ -2830,7 +2929,7 @@ final class AudioPlayerService {
                 if let data = fetchedData {
                     // Cache for next time
                     await store.cacheCover(data, forSongID: songID)
-                    loadedImage = UIImage(data: data)
+                    loadedImage = PlatformImage(data: data)
                 }
             }
 
@@ -2843,7 +2942,7 @@ final class AudioPlayerService {
                     let metadata = await FileMetadataReader.read(from: cachedURL)
                     if let coverData = metadata.coverArtData {
                         await store.cacheCover(coverData, forSongID: songID)
-                        loadedImage = UIImage(data: coverData)
+                        loadedImage = PlatformImage(data: coverData)
                     }
                 }
             }
@@ -2870,7 +2969,7 @@ final class AudioPlayerService {
         updateNowPlayingArtworkIfNeeded()
     }
 
-    func updateNowPlayingArtwork(_ image: UIImage) {
+    func updateNowPlayingArtwork(_ image: PlatformImage) {
         lastArtworkFileName = currentSong?.coverArtFileName
         let artwork = Self.makeArtwork(from: image)
         var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
@@ -2881,7 +2980,7 @@ final class AudioPlayerService {
     /// Creates MPMediaItemArtwork with a non-isolated requestHandler closure.
     /// Must be nonisolated so the closure doesn't inherit @MainActor isolation —
     /// MediaPlayer calls the handler on a background dispatch queue.
-    nonisolated private static func makeArtwork(from image: UIImage) -> MPMediaItemArtwork {
+    nonisolated private static func makeArtwork(from image: PlatformImage) -> MPMediaItemArtwork {
         let safeImage = image
         return MPMediaItemArtwork(boundsSize: image.size) { _ in safeImage }
     }
@@ -2951,9 +3050,24 @@ final class AudioPlayerService {
     /// Coalesces repeated WidgetKit reload requests with identical content.
     private var lastWidgetTimelineSignature: String?
 
+    /// macOS Widget Sync 设置页里 "立即更新" 按钮直接调这个。包装一下 private
+     /// 的 updatePlaybackState, 让 mac 设置面板可以强制刷一遍 widget 状态而无需
+     /// 把整个内部方法暴露成 public。
+    func publishWidgetStateForMacWidgetSync() {
+        updatePlaybackState()
+    }
+
     private func updatePlaybackState() {
+        guard WidgetSettings.syncEnabled(),
+              WidgetSettings.widgetEnabled(PrimuseConstants.widgetNowPlayingEnabledKey) else {
+            PlaybackState.clear()
+            WidgetCenter.shared.reloadAllTimelines()
+            return
+        }
+
         var coverName: String?
         var recentAlbumsChanged = false
+        let recentAlbumsEnabled = WidgetSettings.widgetEnabled(PrimuseConstants.widgetRecentAlbumsEnabledKey)
 
         if let song = currentSong {
             let sharedCoverName = "widget_cover.png"
@@ -2970,7 +3084,7 @@ final class AudioPlayerService {
                     lastWidgetCoverSongID = nil
                 }
 
-                if let albumEntry = makeRecentAlbumEntry(for: song) {
+                if recentAlbumsEnabled, let albumEntry = makeRecentAlbumEntry(for: song) {
                     if let albumCoverName = albumEntry.coverImageName,
                        !sharedWidgetCoverExists(named: albumCoverName) {
                         _ = writeWidgetCover(song: song, fileName: albumCoverName, size: 200)
@@ -2981,6 +3095,10 @@ final class AudioPlayerService {
             } else {
                 coverName = sharedCoverName
             }
+            if !recentAlbumsEnabled {
+                RecentAlbumsStore.clear()
+                recentAlbumsChanged = true
+            }
         } else {
             lastWidgetCoverSongID = nil
         }
@@ -2990,6 +3108,7 @@ final class AudioPlayerService {
             songTitle: currentSong?.title,
             artistName: currentSong?.artistName,
             albumTitle: currentSong?.albumTitle,
+            fileFormat: currentSong.map { $0.fileFormat.displayName },
             coverImageName: coverName,
             isPlaying: isPlaying,
             currentTime: currentTime,
@@ -3007,8 +3126,12 @@ final class AudioPlayerService {
 
     /// Writes a cover image to the App Group shared container for Widget rendering.
     /// Returns the filename if successful.
+    ///
+    /// 仅 iOS 实现 ── macOS 上 WidgetKit 的桌面 widget 通过另外的 MacWidgetSync
+    /// 通道渲染, 不走 App Group cover.png 这条路。
     @discardableResult
     private func writeWidgetCover(song: Song, fileName: String, size: CGFloat = 300) -> String? {
+        #if os(iOS)
         guard let containerURL = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier
         ) else { return nil }
@@ -3063,6 +3186,9 @@ final class AudioPlayerService {
         } catch {
             return nil
         }
+        #else
+        return nil
+        #endif
     }
 
     private func sharedWidgetCoverExists(named fileName: String) -> Bool {

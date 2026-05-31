@@ -7,5 +7,11 @@ GOOGLE_REVERSED_CLIENT_ID =
 ONEDRIVE_CLIENT_ID =
 LASTFM_API_KEY =
 LASTFM_API_SECRET =
+PRIMUSE_IOS_APP_STORE_ID = 6761675450
+PRIMUSE_MAC_APP_STORE_ID =
+
+// APNs production environment for Release / TestFlight / App Store builds.
+// Substituted into `aps-environment` in entitlements at sign time.
+APS_ENVIRONMENT = production
 
 #include? "Secrets.local.xcconfig"

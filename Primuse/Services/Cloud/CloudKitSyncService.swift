@@ -43,7 +43,7 @@ final class CloudKitSyncService {
     /// 系统 sharing 接受后能看到这个 zone 里的 record。
     /// 哪些 record 类型进 family zone 由 `recordTypeIsShareable(_:)` 决定:
     /// - shared: Playlist / SmartPlaylist / MusicSource / CloudAccount (家庭共曲库)
-    /// - private (留在 PrimuseSync): PlaybackHistory / ScraperConfig (个人偏好)
+    /// - private (留在 PrimuseSync): PlaybackHistory / ListeningStats / ScraperConfig (个人偏好)
     nonisolated static let familyZoneID = CKRecordZone.ID(zoneName: "PrimuseFamily")
 
     /// 共享 CKShare 的固定 recordName, 跟 family zone 1:1 绑定。
@@ -55,6 +55,7 @@ final class CloudKitSyncService {
         static let musicSource = "MusicSource"
         static let cloudAccount = "CloudAccount"
         static let playbackHistory = "PlaybackHistory"
+        static let listeningStats = "ListeningStats"
         static let scraperConfig = "ScraperConfig"
     }
 
@@ -75,13 +76,13 @@ final class CloudKitSyncService {
              RecordType.musicSource, RecordType.cloudAccount:
             return true
         default:
-            return false   // history / scraperConfig 属于个人偏好不共享
+            return false   // history / stats / scraperConfig 属于个人偏好不共享
         }
     }
 
     /// 当前应该用哪个 zone 写指定 recordType + id。三层决定:
     /// - 未启用 family sharing → 一律 PrimuseSync
-    /// - 启用 + 非共享类型 (history / scraperConfig) → PrimuseSync
+    /// - 启用 + 非共享类型 (history / stats / scraperConfig) → PrimuseSync
     /// - 启用 + 共享类型 + 例外 record id → PrimuseSync
     ///   (「我喜欢」每人独立, 不进家庭共享; 升级前已在 PrimuseSync 的 record
     ///   也继续在那里, 不强制迁)
@@ -100,6 +101,8 @@ final class CloudKitSyncService {
 
     /// Singleton ID used for the playback-history record (one per user).
     static let playbackHistoryRecordName = "primuse.playbackHistory.singleton"
+    /// Singleton ID used for full listening stats (one per user).
+    static let listeningStatsRecordName = "primuse.listeningStats.singleton"
 
     // MARK: - Collaborators
 
@@ -128,6 +131,7 @@ final class CloudKitSyncService {
 
     /// Coalesces playback-history pushes to at most once per 5 minutes.
     private var pendingHistoryFlush: Task<Void, Never>?
+    private var pendingListeningStatsFlush: Task<Void, Never>?
     private static let historyThrottle: Duration = .seconds(300)
 
     /// Set true once the consumer calls `start()`. While false we don't propagate
@@ -138,7 +142,9 @@ final class CloudKitSyncService {
     private var observerTokens: [NSObjectProtocol] = []
 
     /// User-facing sync state — bound to the Settings UI.
-    private(set) var status: CloudSyncStatus = .disabled
+    private(set) var status: CloudSyncStatus = .disabled {
+        didSet { Self.notifyOnErrorTransition(old: oldValue, new: status) }
+    }
     private(set) var lastSyncedAt: Date?
 
     /// Listens for `CKAccountChanged` so we can flip into `.accountUnavailable`
@@ -222,7 +228,7 @@ final class CloudKitSyncService {
             plog("CloudKitSync: starting fetchChanges()")
             try await engine.fetchChanges()
             plog("CloudKitSync: fetchChanges OK, starting sendChanges()")
-            try await engine.sendChanges()
+            try await sendChangesResolvingRecoverableFailures(using: engine)
             plog("CloudKitSync: sendChanges OK")
             self.didCompleteInitialUpload = true
             self.status = .upToDate
@@ -489,6 +495,8 @@ final class CloudKitSyncService {
     func stop(updateStatus: Bool = true) {
         pendingHistoryFlush?.cancel()
         pendingHistoryFlush = nil
+        pendingListeningStatsFlush?.cancel()
+        pendingListeningStatsFlush = nil
         for token in observerTokens {
             NotificationCenter.default.removeObserver(token)
         }
@@ -515,6 +523,8 @@ final class CloudKitSyncService {
             sourcesChanged(ids: sourcesStore.allSources.map(\.id))
         case .playbackHistory:
             enqueueSaves(recordType: RecordType.playbackHistory, ids: [Self.playbackHistoryRecordName])
+        case .listeningStats:
+            enqueueSaves(recordType: RecordType.listeningStats, ids: [Self.listeningStatsRecordName])
         case .settings:
             scraperConfigsChanged(ids: scraperConfigStore.allConfigsIncludingDeleted.map(\.id))
             // KVS-mirrored UserDefaults keys: poke each so timestamps update.
@@ -536,11 +546,119 @@ final class CloudKitSyncService {
         status = .syncing
         do {
             try await engine.fetchChanges()
-            try await engine.sendChanges()
+            try await sendChangesResolvingRecoverableFailures(using: engine)
             status = .upToDate
             lastSyncedAt = Date()
         } catch {
             status = mapToSyncStatus(error)
+        }
+    }
+
+    /// `sendChanges()` may throw a top-level partial failure even when every
+    /// per-record error is recoverable. Repair those entries immediately, then
+    /// give the engine one clean retry so startup doesn't leave sync looking
+    /// failed after a harmless "record already exists" conflict.
+    private func sendChangesResolvingRecoverableFailures(using engine: CKSyncEngine) async throws {
+        do {
+            try await engine.sendChanges()
+        } catch {
+            guard resolveRecoverablePartialFailure(error, syncEngine: engine) else {
+                throw error
+            }
+            plog("CloudKitSync: resolved recoverable send conflicts, retrying sendChanges()")
+            try await engine.sendChanges()
+        }
+    }
+
+    @discardableResult
+    private func resolveRecoverablePartialFailure(_ error: any Error, syncEngine: CKSyncEngine) -> Bool {
+        guard let ckError = error as? CKError,
+              ckError.code == .partialFailure,
+              let partialErrors = ckError.partialErrorsByItemID else {
+            return false
+        }
+
+        var handledAny = false
+        var hasUnhandled = false
+
+        for (itemID, itemError) in partialErrors {
+            guard let recordID = itemID as? CKRecord.ID,
+                  let itemCKError = itemError as? CKError else {
+                hasUnhandled = true
+                continue
+            }
+
+            if resolveRecoverableRecordSaveFailure(
+                recordID: recordID,
+                error: itemCKError,
+                syncEngine: syncEngine
+            ) {
+                handledAny = true
+            } else {
+                hasUnhandled = true
+            }
+        }
+
+        return handledAny && !hasUnhandled
+    }
+
+    private func resolveRecoverableRecordSaveFailure(
+        recordID: CKRecord.ID,
+        error: CKError,
+        syncEngine: CKSyncEngine
+    ) -> Bool {
+        guard isSyncableRecordID(recordID) else {
+            dropPendingRecordZoneChanges(for: recordID, syncEngine: syncEngine)
+            return true
+        }
+
+        switch error.code {
+        case .serverRecordChanged:
+            guard let local = makeRecord(for: recordID) else {
+                dropPendingRecordZoneChanges(for: recordID, syncEngine: syncEngine)
+                return true
+            }
+            resolveServerRecordChanged(local: local, error: error, syncEngine: syncEngine)
+            return true
+        case .invalidArguments:
+            dropPendingRecordZoneChanges(for: recordID, syncEngine: syncEngine)
+            return true
+        case .unknownItem:
+            if let recordType = recordMetadata(for: recordID)?.recordType {
+                applyRemoteDeletion(recordID: recordID, recordType: recordType)
+            } else {
+                dropPendingRecordZoneChanges(for: recordID, syncEngine: syncEngine)
+            }
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Fire a user-visible notification when sync first transitions into a
+    /// hard error state. We deliberately ignore `.networkUnavailable` (will
+    /// auto-recover when the device reconnects) and `.syncing → upToDate`
+    /// roundtrips. Dedup'd by category identifier — repeat hits replace the
+    /// existing notification rather than stacking.
+    private static func notifyOnErrorTransition(old: CloudSyncStatus, new: CloudSyncStatus) {
+        guard old != new else { return }
+        let title = String(localized: "notify_cloud_sync_failed_title")
+        let message: String?
+        switch new {
+        case .error(let detail):
+            message = detail
+        case .quotaExceeded:
+            message = String(localized: "icloud_quota_exceeded")
+        default:
+            message = nil
+        }
+        guard let message else { return }
+        Task { @MainActor in
+            await UserNotificationService.shared.postError(
+                category: .cloudSyncFailed,
+                title: title,
+                body: message
+            )
         }
     }
 
@@ -669,24 +787,29 @@ final class CloudKitSyncService {
         observerTokens.append(nc.addObserver(forName: .primusePlaybackHistoryDidChange, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.playbackHistoryChanged() }
         })
+        observerTokens.append(nc.addObserver(forName: .primuseListeningStatsDidChange, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.listeningStatsChanged() }
+        })
     }
 
     // MARK: - Local-change hooks (called by stores after they persist locally)
 
     func playlistsChanged(ids: [String]) {
         guard CloudSyncChannel.isEnabled(.playlists) else { return }
-        let mirrorIDs = ids.filter { AppleMusicLibraryService.isAppleMusicMirrorPlaylist($0) }
-        let regularIDs = ids.filter { !AppleMusicLibraryService.isAppleMusicMirrorPlaylist($0) }
-        enqueueSaves(recordType: RecordType.playlist, ids: regularIDs)
         // Apple Music mirrors are regenerated locally from each device's
         // MusicKit library. Keeping them in Primuse CloudKit creates stale,
         // empty, or duplicate playlists on devices that cannot resolve the
-        // same Apple Music library.
+        // same Apple Music library. Existing mirrors are deleted from CloudKit
+        // to clean up older builds that used to sync them.
+        let syncable = ids.filter { !AppleMusicLibraryService.isAppleMusicMirrorPlaylist($0) }
+        let mirrorIDs = ids.filter { AppleMusicLibraryService.isAppleMusicMirrorPlaylist($0) }
+        enqueueSaves(recordType: RecordType.playlist, ids: syncable)
         enqueueDeletes(recordType: RecordType.playlist, ids: mirrorIDs)
     }
 
     func playlistDeleted(id: String) {
         guard CloudSyncChannel.isEnabled(.playlists) else { return }
+        guard !AppleMusicLibraryService.isAppleMusicMirrorPlaylist(id) else { return }
         enqueueDeletes(recordType: RecordType.playlist, ids: [id])
     }
 
@@ -750,6 +873,22 @@ final class CloudKitSyncService {
         }
     }
 
+    func listeningStatsChanged() {
+        guard isStarted, !isApplyingRemote else { return }
+        guard CloudSyncChannel.isEnabled(.listeningStats) else { return }
+        guard pendingListeningStatsFlush == nil else { return }
+
+        pendingListeningStatsFlush = Task { [weak self] in
+            try? await Task.sleep(for: Self.historyThrottle)
+            guard let self else { return }
+            self.pendingListeningStatsFlush = nil
+            self.enqueueSaves(
+                recordType: RecordType.listeningStats,
+                ids: [Self.listeningStatsRecordName]
+            )
+        }
+    }
+
     /// Maps a CloudKit record type to the channel that controls it. Used to
     /// gate inbound (apply-remote) processing.
     private static func channel(for recordType: String) -> CloudSyncChannel? {
@@ -759,6 +898,7 @@ final class CloudKitSyncService {
         case RecordType.musicSource: return .sources
         case RecordType.cloudAccount: return .sources
         case RecordType.playbackHistory: return .playbackHistory
+        case RecordType.listeningStats: return .listeningStats
         case RecordType.scraperConfig: return .settings
         default: return nil
         }
@@ -860,6 +1000,70 @@ final class CloudKitSyncService {
                     zoneID: Self.zoneFor(recordType: recordType, id: id))
     }
 
+    private func recordMetadata(for recordID: CKRecord.ID) -> (recordType: String, localID: String)? {
+        let parts = recordID.recordName.split(separator: "/", maxSplits: 1).map(String.init)
+        guard parts.count == 2 else { return nil }
+        return (parts[0], parts[1])
+    }
+
+    private func isSyncableRecordID(_ recordID: CKRecord.ID) -> Bool {
+        guard let metadata = recordMetadata(for: recordID) else { return true }
+        if metadata.recordType == RecordType.playlist,
+           AppleMusicLibraryService.isAppleMusicMirrorPlaylist(metadata.localID) {
+            return false
+        }
+        return true
+    }
+
+    private func pendingRecordID(from change: CKSyncEngine.PendingRecordZoneChange) -> CKRecord.ID? {
+        switch change {
+        case .saveRecord(let recordID), .deleteRecord(let recordID):
+            return recordID
+        @unknown default:
+            return nil
+        }
+    }
+
+    private func dropPendingRecordZoneChanges(for recordID: CKRecord.ID, syncEngine: CKSyncEngine) {
+        syncEngine.state.remove(pendingRecordZoneChanges: [
+            .saveRecord(recordID),
+            .deleteRecord(recordID)
+        ])
+        removeSystemFields(for: recordID)
+    }
+
+    private func filteredPendingRecordZoneChanges(
+        _ changes: [CKSyncEngine.PendingRecordZoneChange],
+        syncEngine: CKSyncEngine
+    ) -> [CKSyncEngine.PendingRecordZoneChange] {
+        var kept: [CKSyncEngine.PendingRecordZoneChange] = []
+        var dropped: [CKSyncEngine.PendingRecordZoneChange] = []
+
+        for change in changes {
+            guard let recordID = pendingRecordID(from: change) else {
+                kept.append(change)
+                continue
+            }
+            if isSyncableRecordID(recordID) {
+                kept.append(change)
+            } else {
+                dropped.append(change)
+            }
+        }
+
+        if !dropped.isEmpty {
+            syncEngine.state.remove(pendingRecordZoneChanges: dropped)
+            for change in dropped {
+                if let recordID = pendingRecordID(from: change) {
+                    removeSystemFields(for: recordID)
+                }
+            }
+            plog("CloudKitSync: dropped \(dropped.count) stale Apple Music mirror pending change(s)")
+        }
+
+        return kept
+    }
+
     /// On first start, push everything we have locally — including soft-deleted
     /// tombstones — so the engine can de-dupe against existing server records
     /// via change tags. Each call respects the per-channel toggles.
@@ -873,6 +1077,9 @@ final class CloudKitSyncService {
         // honour the channel toggle).
         if CloudSyncChannel.isEnabled(.playbackHistory) {
             enqueueSaves(recordType: RecordType.playbackHistory, ids: [Self.playbackHistoryRecordName])
+        }
+        if CloudSyncChannel.isEnabled(.listeningStats) {
+            enqueueSaves(recordType: RecordType.listeningStats, ids: [Self.listeningStatsRecordName])
         }
     }
 
@@ -927,14 +1134,34 @@ final class CloudKitSyncService {
         try? data.write(to: systemFieldsURL, options: .atomic)
     }
 
+    /// systemFieldsCache 的 key。必须带上 ownerName + zoneName: 同一条 record 在
+    /// 启用/关闭家庭共享时会在 PrimuseSync ↔ PrimuseFamily 之间迁移, 只用
+    /// recordName 做 key 会让两个 zone 的同 id 记录共用一个 etag 槽。
+    private nonisolated static func systemFieldsKey(for recordID: CKRecord.ID) -> String {
+        "\(recordID.zoneID.ownerName)|\(recordID.zoneID.zoneName)|\(recordID.recordName)"
+    }
+
+    private nonisolated static func legacySystemFieldsKeys(for recordID: CKRecord.ID) -> [String] {
+        [
+            "\(recordID.zoneID.zoneName)/\(recordID.recordName)",
+            recordID.recordName
+        ]
+    }
+
+    /// 把 `record` 的 system fields(含 changeTag/etag)序列化下来,以便下次
+    /// 重建 CKRecord 时复用。CKSyncEngine 必须看到带 changeTag 的 record 才会
+    /// 把 saveRecord 翻译成 update,否则 server 直接拒。
     fileprivate func storeSystemFields(_ record: CKRecord) {
         loadSystemFieldsCacheIfNeeded()
         let coder = NSKeyedArchiver(requiringSecureCoding: true)
         record.encodeSystemFields(with: coder)
         coder.finishEncoding()
         let data = coder.encodedData
-        let key = systemFieldsKey(for: record.recordID)
-        let removedLegacy = systemFieldsCache.removeValue(forKey: record.recordID.recordName) != nil
+        let key = Self.systemFieldsKey(for: record.recordID)
+        var removedLegacy = false
+        for legacyKey in Self.legacySystemFieldsKeys(for: record.recordID) {
+            removedLegacy = (systemFieldsCache.removeValue(forKey: legacyKey) != nil) || removedLegacy
+        }
         if systemFieldsCache[key] != data || removedLegacy {
             systemFieldsCache[key] = data
             persistSystemFieldsCache()
@@ -943,9 +1170,11 @@ final class CloudKitSyncService {
 
     fileprivate func removeSystemFields(for recordID: CKRecord.ID) {
         loadSystemFieldsCacheIfNeeded()
-        let removedScoped = systemFieldsCache.removeValue(forKey: systemFieldsKey(for: recordID)) != nil
-        let removedLegacy = systemFieldsCache.removeValue(forKey: recordID.recordName) != nil
-        if removedScoped || removedLegacy {
+        var removed = systemFieldsCache.removeValue(forKey: Self.systemFieldsKey(for: recordID)) != nil
+        for legacyKey in Self.legacySystemFieldsKeys(for: recordID) {
+            removed = (systemFieldsCache.removeValue(forKey: legacyKey) != nil) || removed
+        }
+        if removed {
             persistSystemFieldsCache()
         }
     }
@@ -958,7 +1187,7 @@ final class CloudKitSyncService {
 
     private func cachedRecord(for recordID: CKRecord.ID) -> CKRecord? {
         loadSystemFieldsCacheIfNeeded()
-        let keys = [systemFieldsKey(for: recordID), recordID.recordName]
+        let keys = [Self.systemFieldsKey(for: recordID)] + Self.legacySystemFieldsKeys(for: recordID)
         for key in keys {
             guard let data = systemFieldsCache[key],
                   let unarchiver = try? NSKeyedUnarchiver(forReadingFrom: data) else {
@@ -972,10 +1201,6 @@ final class CloudKitSyncService {
             return record
         }
         return nil
-    }
-
-    private nonisolated func systemFieldsKey(for recordID: CKRecord.ID) -> String {
-        "\(recordID.zoneID.ownerName)|\(recordID.zoneID.zoneName)|\(recordID.recordName)"
     }
 
     private nonisolated static func sameRecordID(_ lhs: CKRecord.ID, _ rhs: CKRecord.ID) -> Bool {
@@ -1000,6 +1225,8 @@ final class CloudKitSyncService {
             return populateScraperConfigRecord(record, configID: id)
         case RecordType.playbackHistory:
             return populatePlaybackHistoryRecord(record)
+        case RecordType.listeningStats:
+            return populateListeningStatsRecord(record)
         default:
             return false
         }
@@ -1031,6 +1258,8 @@ final class CloudKitSyncService {
             applyScraperConfigRecord(record)
         case RecordType.playbackHistory:
             applyPlaybackHistoryRecord(record)
+        case RecordType.listeningStats:
+            applyListeningStatsRecord(record)
         default:
             break
         }
@@ -1078,6 +1307,8 @@ final class CloudKitSyncService {
             scraperConfigStore.deleteFromRemote(id: id)
         case RecordType.playbackHistory:
             library.clearPlaybackHistory()
+        case RecordType.listeningStats:
+            PlayHistoryStore.shared.clearFromRemote()
         default:
             break
         }
@@ -1258,6 +1489,31 @@ final class CloudKitSyncService {
         library.applyRemotePlaybackHistory(songIDs: songIDs, identities: identities)
     }
 
+    // MARK: - Listening stats mapping
+
+    private func populateListeningStatsRecord(_ record: CKRecord) -> Bool {
+        let entries = PlayHistoryStore.shared.entriesForSync
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .secondsSince1970
+        guard let data = try? encoder.encode(entries) else { return false }
+        record["payload"] = data
+        record["entryCount"] = entries.count
+        record["updatedAt"] = Date()
+        return true
+    }
+
+    private func applyListeningStatsRecord(_ record: CKRecord) {
+        guard let entries = decodeListeningStatsEntries(record) else { return }
+        PlayHistoryStore.shared.mergeRemoteEntries(entries)
+    }
+
+    private func decodeListeningStatsEntries(_ record: CKRecord) -> [PlayHistoryStore.Entry]? {
+        guard let data = record["payload"] as? Data else { return nil }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .secondsSince1970
+        return try? decoder.decode([PlayHistoryStore.Entry].self, from: data)
+    }
+
     // MARK: - Song identity / cross-device resolution
 
     private static let songIdentitiesField = "songIdentities"
@@ -1355,7 +1611,9 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
             }
         case .accountChange(let change):
             await MainActor.run { self.handleAccountChange(change) }
-        case .willFetchChanges, .willSendChanges, .didFetchChanges, .didSendChanges:
+        case .willFetchChanges, .willFetchRecordZoneChanges,
+             .willSendChanges, .didFetchRecordZoneChanges,
+             .didFetchChanges, .didSendChanges:
             // Lifecycle markers — useful for debugging but no action needed.
             break
         @unknown default:
@@ -1374,8 +1632,11 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
     ) async -> CKSyncEngine.RecordZoneChangeBatch? {
         let scope = context.options.scope
         let scopedPending = syncEngine.state.pendingRecordZoneChanges.filter { scope.contains($0) }
-        let pending = Self.coalescedRecordZoneChanges(scopedPending)
-        if pending.count != scopedPending.count {
+        let filtered = await MainActor.run {
+            self.filteredPendingRecordZoneChanges(scopedPending, syncEngine: syncEngine)
+        }
+        let pending = Self.coalescedRecordZoneChanges(filtered)
+        if pending.count != filtered.count {
             Self.replacePendingRecordZoneChanges(
                 with: pending,
                 in: syncEngine,
@@ -1399,10 +1660,7 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
         syncEngine: CKSyncEngine
     ) {
         let recordID = failed.record.recordID
-        guard let ckError = failed.error as? CKError else {
-            plog("CloudKitSync: unhandled save error: \(failed.error.localizedDescription)")
-            return
-        }
+        let ckError = failed.error
 
         switch ckError.code {
         case .serverRecordChanged:
@@ -1427,6 +1685,14 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
             status = .quotaExceeded
         case .notAuthenticated:
             status = .accountUnavailable(.noAccount)
+        case .invalidArguments:
+            // CKError 12, 常见信息 "You can't save the same record twice" — 同一
+            // 条 record 在一次 send 周期里被重复保存(引擎自动重试 + 冲突处理手动
+            // 重排叠加)。把这条多余的 pending 丢掉打断死循环, 并清掉可能已失真的
+            // system fields; 下次本地真有改动时会带新的 changeTag 干净地重传。
+            // 不在此处立即重排, 否则可能与引擎自身重试再次撞车形成新循环。
+            syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(recordID)])
+            removeSystemFields(for: recordID)
         default:
             plog("CloudKitSync: unhandled save error code \(ckError.code.rawValue): \(ckError.localizedDescription)")
         }
@@ -1464,12 +1730,15 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
             mergePlaylistRecord(local: local, server: server)
         case RecordType.playbackHistory:
             mergePlaybackHistoryRecord(local: local, server: server)
+        case RecordType.listeningStats:
+            mergeListeningStatsRecord(local: local, server: server)
         default:
             // MusicSource / ScraperConfig: payload is atomic, LWW on updatedAt.
             let localUpdated = (local["updatedAt"] as? Date) ?? .distantPast
             let serverUpdated = (server["updatedAt"] as? Date) ?? .distantPast
             if serverUpdated >= localUpdated {
                 applyRemoteRecord(server)
+                syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(local.recordID)])
                 return  // local save dropped
             }
             // Local wins: keep our store as-is and re-push.
@@ -1548,6 +1817,16 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
     }
 
     @MainActor
+    private func mergeListeningStatsRecord(local: CKRecord, server: CKRecord) {
+        let localEntries = decodeListeningStatsEntries(local) ?? []
+        let serverEntries = decodeListeningStatsEntries(server) ?? []
+
+        applyRemoteEnvelope {
+            PlayHistoryStore.shared.mergeRemoteEntries(localEntries + serverEntries)
+        }
+    }
+
+    @MainActor
     private func applyRemoteEnvelope(_ work: () -> Void) {
         isApplyingRemote = true
         defer { isApplyingRemote = false }
@@ -1556,10 +1835,12 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
 
     @MainActor
     private func makeRecord(for recordID: CKRecord.ID) -> CKRecord? {
-        let parts = recordID.recordName.split(separator: "/", maxSplits: 1).map(String.init)
-        guard parts.count == 2 else { return nil }
-        let recordType = parts[0]
-        let localID = parts[1]
+        guard isSyncableRecordID(recordID),
+              let metadata = recordMetadata(for: recordID) else {
+            return nil
+        }
+        let recordType = metadata.recordType
+        let localID = metadata.localID
         // 优先从缓存还原带 changeTag 的 record;否则只能新建 (server 会当成 insert)
         let record = cachedRecord(for: recordID)
             ?? CKRecord(recordType: recordType, recordID: recordID)

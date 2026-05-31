@@ -50,7 +50,7 @@ struct QuickAccessWidget: Widget {
         .contentMarginsDisabled()
         .configurationDisplayName("最近播放")
         .description("把最近播放的专辑直接放到桌面上")
-        .supportedFamilies([.systemMedium, .systemLarge])
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 }
 
@@ -62,14 +62,80 @@ struct QuickAccessWidgetView: View {
     var body: some View {
         if entry.recentAlbums.isEmpty {
             switch family {
+            case .systemSmall: SmallQuickAccessEmptyState()
             case .systemLarge: LargeQuickAccessEmptyState()
             default: MediumQuickAccessEmptyState()
             }
         } else {
             switch family {
+            case .systemSmall: SmallQuickAccessView(albums: entry.recentAlbums)
             case .systemLarge: LargeQuickAccessView(albums: entry.recentAlbums)
             default: MediumQuickAccessView(albums: entry.recentAlbums)
             }
+        }
+    }
+}
+
+// MARK: - Small
+//
+// 对齐设计稿 ST-07「最近播放 · 小号」: 顶部一行 eyebrow + 2×2 专辑封面网格。
+// 方格按可用区域取正方形边长, 保证在 155×155 里不溢出。
+
+private struct SmallQuickAccessView: View {
+    let albums: [RecentAlbumEntry]
+
+    private var tiles: [RecentAlbumEntry] { Array(albums.prefix(4)) }
+
+    var body: some View {
+        WidgetCanvas(padding: 14) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("最近播放")
+                    .font(.system(size: 9.5, weight: .bold))
+                    .foregroundStyle(WidgetDesign.tertiaryText)
+                    .tracking(0.4)
+
+                GeometryReader { geo in
+                    let gap: CGFloat = 5
+                    let side = min((geo.size.width - gap) / 2, (geo.size.height - gap) / 2)
+                    VStack(spacing: gap) {
+                        ForEach(0..<2, id: \.self) { row in
+                            HStack(spacing: gap) {
+                                ForEach(0..<2, id: \.self) { col in
+                                    let idx = row * 2 + col
+                                    if idx < tiles.count {
+                                        RecentAlbumCoverView(entry: tiles[idx], cornerRadius: 5, placeholderIndex: idx)
+                                            .frame(width: side, height: side)
+                                    } else {
+                                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                            .fill(Color.primary.opacity(0.06))
+                                            .frame(width: side, height: side)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+    }
+}
+
+private struct SmallQuickAccessEmptyState: View {
+    var body: some View {
+        WidgetCanvas(padding: 14) {
+            VStack(alignment: .leading, spacing: 8) {
+                Spacer()
+                WidgetEmptyStateIcon(systemName: "square.stack.fill", size: 42)
+                Text("暂无最近播放")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(WidgetDesign.strongText)
+                Text("开始播放后出现")
+                    .font(.system(size: 10))
+                    .foregroundStyle(WidgetDesign.secondaryText)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
     }
 }
@@ -205,10 +271,10 @@ private struct MediumQuickAccessEmptyState: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("暂无最近播放")
                         .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(WidgetDesign.strongText)
                     Text("开始播放后,最近专辑会出现在这里")
                         .font(.system(size: 12))
-                        .foregroundStyle(.white.opacity(0.62))
+                        .foregroundStyle(WidgetDesign.secondaryText)
                         .lineLimit(2)
                 }
                 Spacer()
@@ -226,10 +292,10 @@ private struct LargeQuickAccessEmptyState: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("暂无最近播放")
                         .font(.system(size: 24, weight: .bold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(WidgetDesign.strongText)
                     Text("最近播放过的专辑会自动同步到桌面")
                         .font(.system(size: 13))
-                        .foregroundStyle(.white.opacity(0.62))
+                        .foregroundStyle(WidgetDesign.secondaryText)
                         .lineLimit(3)
                 }
                 Spacer()

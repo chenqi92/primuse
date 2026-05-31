@@ -1,4 +1,9 @@
 import SwiftUI
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 /// 更新提示居中弹框 ── 走主流软件 (微信 / 小红书 / 抖音) 的简洁更新提示风格:
 /// 不展示 release notes 长文 (用户进 App Store 自己看), 焦点放在"有新版"和
@@ -104,11 +109,16 @@ struct UpdateBannerSheet: View {
             .padding(.top, 4)
             .padding(.bottom, 16)
         }
+        #if os(iOS)
         .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 22))
+        #else
+        .background(Color(NSColor.windowBackgroundColor), in: RoundedRectangle(cornerRadius: 22))
+        #endif
         .shadow(color: .black.opacity(0.3), radius: 30, y: 10)
     }
 }
 
+#if os(iOS)
 private struct BackgroundClearView: UIViewRepresentable {
     func makeUIView(context: Context) -> UIView {
         let view = UIView()
@@ -119,3 +129,9 @@ private struct BackgroundClearView: UIViewRepresentable {
     }
     func updateUIView(_ uiView: UIView, context: Context) {}
 }
+#else
+/// macOS 上 sheet 默认是不透明窗口背景, 不需要透明背景 trick。
+private struct BackgroundClearView: View {
+    var body: some View { Color.clear }
+}
+#endif

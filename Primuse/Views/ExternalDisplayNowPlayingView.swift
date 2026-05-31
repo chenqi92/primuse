@@ -42,48 +42,52 @@ struct ExternalDisplayNowPlayingView: View {
 
     @ViewBuilder
     private func activeBody(geo: GeometryProxy) -> some View {
-        let artSize = min(geo.size.width * 0.42, geo.size.height * 0.82)
+        let artSize = min(520, min(geo.size.width * 0.40, geo.size.height * 0.72))
 
-        HStack(spacing: 60) {
+        HStack(spacing: 80) {
             // 左: 封面
-            CachedArtworkView(
-                coverRef: player.currentSong?.coverArtFileName,
-                songID: player.currentSong?.id ?? "",
-                size: artSize,
-                cornerRadius: 24,
-                sourceID: player.currentSong?.sourceID,
-                filePath: player.currentSong?.filePath,
-                revisionToken: player.coverRevision
-            )
-            .shadow(color: .black.opacity(0.40), radius: 48, y: 18)
+            VStack {
+                CachedArtworkView(
+                    coverRef: player.currentSong?.coverArtFileName,
+                    songID: player.currentSong?.id ?? "",
+                    size: artSize,
+                    cornerRadius: 20,
+                    sourceID: player.currentSong?.sourceID,
+                    filePath: player.currentSong?.filePath,
+                    revisionToken: player.coverRevision
+                )
+                .shadow(color: .black.opacity(0.40), radius: 48, y: 18)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
 
             // 右: 标题 + 歌词
             VStack(alignment: .leading, spacing: 24) {
+                Text("外接显示器 · 第二屏")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.55))
+                    .textCase(.uppercase)
+
                 VStack(alignment: .leading, spacing: 10) {
                     Text(player.currentSong?.title ?? "")
-                        .font(.system(size: 52, weight: .bold))
+                        .font(.system(size: 48, weight: .bold))
                         .foregroundStyle(.white)
+                        .lineSpacing(4)
                         .lineLimit(2)
                     Text(player.currentSong?.artistName ?? "")
-                        .font(.system(size: 28, weight: .medium))
+                        .font(.system(size: 22, weight: .medium))
                         .foregroundStyle(.white.opacity(0.70))
                         .lineLimit(1)
                     if let album = player.currentSong?.albumTitle, !album.isEmpty {
                         Text(album)
-                            .font(.system(size: 22, weight: .regular))
+                            .font(.system(size: 18, weight: .regular))
                             .foregroundStyle(.white.opacity(0.50))
                             .lineLimit(1)
                     }
                 }
+                .padding(.bottom, 16)
 
                 if !lyrics.isEmpty {
-                    LyricsScrollView(
-                        lyrics: lyrics,
-                        player: player,
-                        songID: player.currentSong?.id,
-                        isScrapingCurrentSong: false,
-                        onScrape: {}
-                    )
+                    externalLyrics
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 } else {
                     Spacer()
@@ -91,8 +95,37 @@ struct ExternalDisplayNowPlayingView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .padding(.horizontal, 80)
-        .padding(.vertical, 60)
+        .padding(.horizontal, 100)
+        .padding(.vertical, 80)
+    }
+
+    private var externalLyrics: some View {
+        let index = currentLyricIndex
+        let lower = max(0, index - 2)
+        let upper = min(lyrics.count, index + 6)
+
+        return VStack(alignment: .leading, spacing: 22) {
+            ForEach(Array(lower..<upper), id: \.self) { realIndex in
+                let line = lyrics[realIndex]
+                let current = realIndex == index
+                let distance = abs(realIndex - index)
+                Text(line.text)
+                    .font(.system(size: current ? 42 : 28, weight: current ? .bold : .semibold))
+                    .foregroundStyle(current ? Color.white : Color.white.opacity(max(0.18, 0.58 - Double(distance) * 0.14)))
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.74)
+                    .shadow(color: current ? theme.accentColor.opacity(0.42) : .clear, radius: 18)
+            }
+        }
+    }
+
+    private var currentLyricIndex: Int {
+        guard !lyrics.isEmpty else { return 0 }
+        var result = 0
+        for index in lyrics.indices where lyrics[index].timestamp <= player.currentTime {
+            result = index
+        }
+        return result
     }
 
     private var idleBody: some View {

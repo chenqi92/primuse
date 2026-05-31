@@ -145,7 +145,54 @@ final class AudioEngine {
         isPlaying = false
     }
 
-    // MARK: - DLNA Background Keep-Alive
+    // MARK: - Output device routing (macOS only)
+
+    #if os(macOS)
+    /// 把这个 app 的音频输出切到指定的 Core Audio 设备。系统默认输出
+    /// 不变 —— 这只影响 Primuse 自己。设备 ID 来自 AudioOutputDeviceManager,
+    /// 通常对应内置扬声器、AirPlay 接收器(HomePod / Apple TV)、蓝牙
+    /// 耳机等。设备拔掉后会自动回退到系统默认。
+    func setOutputDevice(deviceID: AudioDeviceID) throws {
+        try setUp()
+        guard let engine else { return }
+        let outputUnit = engine.outputNode.audioUnit
+        guard let outputUnit else { return }
+
+        var id = deviceID
+        let status = AudioUnitSetProperty(
+            outputUnit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &id,
+            UInt32(MemoryLayout<AudioDeviceID>.size)
+        )
+        if status != noErr {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status), userInfo: [
+                NSLocalizedDescriptionKey: "Failed to set output device (status=\(status))"
+            ])
+        }
+    }
+
+    /// 取当前 audio unit 在用的设备 ID,用于在 picker 里高亮当前选中项。
+    var currentOutputDeviceID: AudioDeviceID? {
+        guard let engine, let outputUnit = engine.outputNode.audioUnit else { return nil }
+        var id: AudioDeviceID = 0
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = AudioUnitGetProperty(
+            outputUnit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &id,
+            &size
+        )
+        return status == noErr ? id : nil
+    }
+    #endif
+
+    // MARK: - DLNA Background Keep-Alive (主要 iOS 用; macOS 没 background
+    // suspend 问题, 但 API 保留跨平台一致, 调用方一律可用)
 
     /// 启动一个静音 AVAudioPlayerNode 喂极小振幅 buffer ── 让 iOS 的
     /// audio background mode 把 app 标记为 "正在播音频", 进程不被 suspend,
@@ -153,10 +200,6 @@ final class AudioEngine {
     ///
     /// 振幅用 1/32768 (-90 dB FS, 已经在 16-bit 量化噪声以下), 用户听不到。
     /// 用交替正负避免全 0 buffer 被 iOS 静音检测当成"没在播"。
-    ///
-    /// 跟主播放共存: keepAlive node 单独 attach, 跟 playerNode 平级挂 mainMixer,
-    /// 不影响 EQ / spatial / 主路径 volume。真歌在播时调用方应该停 keepAlive
-    /// (主路径自己撑 session, 没必要双管齐下耗电)。
     func startSilenceKeepAlive() {
         guard keepAlivePlayerNode == nil else { return }
         do { try setUp() } catch {
@@ -171,7 +214,6 @@ final class AudioEngine {
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames) else { return }
         buffer.frameLength = frames
 
-        // 极小振幅交替波 ── 不能全 0 (iOS 静音检测会判定无效流然后 suspend)。
         let amplitude: Float = 1.0 / 32_768
         if let channelData = buffer.floatChannelData {
             for ch in 0..<Int(format.channelCount) {
@@ -184,7 +226,7 @@ final class AudioEngine {
         let node = AVAudioPlayerNode()
         engine.attach(node)
         engine.connect(node, to: mainMixer, format: format)
-        node.volume = 0.001   // 即便有人调系统音量到极大也基本听不见
+        node.volume = 0.001
 
         if !engine.isRunning {
             do { try engine.start() } catch {

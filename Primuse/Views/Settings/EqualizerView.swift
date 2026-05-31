@@ -5,83 +5,135 @@ struct EqualizerView: View {
     @Environment(EqualizerService.self) private var eq
 
     var body: some View {
+        #if os(macOS)
+        macBody
+        #else
+        iosBody
+        #endif
+    }
+
+    #if os(macOS)
+    /// macOS 版用 grouped Form 视觉,跟其他设置 tab 对齐:启用开关一段、
+    /// 预设/EQ 一段、底部一行重置。VStack 太"空旷"——这里收紧到一屏内能
+    /// 看完,EQ 高度 160 也比 200 更适合 macOS 设置窗口。
+    private var macBody: some View {
+        Form {
+            Section {
+                Toggle("eq_enabled", isOn: Binding(
+                    get: { eq.isEnabled },
+                    set: { eq.setEnabled($0) }
+                ))
+            }
+
+            Section {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(EQPreset.builtInPresets) { preset in
+                            presetChip(preset)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                .frame(height: 36)
+
+                HStack(spacing: 4) {
+                    ForEach(0..<PrimuseConstants.eqBandCount, id: \.self) { index in
+                        bandSlider(index: index, height: 160)
+                    }
+                }
+                .opacity(eq.isEnabled ? 1 : 0.4)
+                .disabled(!eq.isEnabled)
+                .padding(.vertical, 6)
+
+                HStack {
+                    Spacer()
+                    Button("eq_reset") { eq.reset() }
+                        .controlSize(.small)
+                }
+            } header: {
+                Text("eq_preset")
+            }
+        }
+        .formStyle(.grouped)
+    }
+    #endif
+
+    private var iosBody: some View {
         VStack(spacing: 20) {
-            // Enable toggle
             Toggle("eq_enabled", isOn: Binding(
                 get: { eq.isEnabled },
                 set: { eq.setEnabled($0) }
             ))
             .padding(.horizontal)
 
-            // Preset picker
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(EQPreset.builtInPresets) { preset in
-                        Button {
-                            eq.applyPreset(preset)
-                        } label: {
-                            Text(preset.localizedName)
-                                .font(.caption)
-                                .fontWeight(.medium)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .background(
-                                    eq.currentPreset.id == preset.id
-                                    ? AnyShapeStyle(.tint)
-                                    : AnyShapeStyle(.ultraThinMaterial)
-                                )
-                                .foregroundStyle(
-                                    eq.currentPreset.id == preset.id ? .white : .primary
-                                )
-                                .clipShape(Capsule())
-                        }
+                        presetChip(preset)
                     }
                 }
                 .padding(.horizontal)
             }
 
-            // EQ Bands
             HStack(spacing: 4) {
                 ForEach(0..<PrimuseConstants.eqBandCount, id: \.self) { index in
-                    VStack(spacing: 4) {
-                        // Gain value
-                        Text(String(format: "%.0f", eq.bands[index]))
-                            .font(.system(size: 9))
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-
-                        // Vertical slider
-                        VerticalSlider(
-                            value: Binding(
-                                get: { eq.bands[index] },
-                                set: { eq.setBand(index, gain: $0) }
-                            ),
-                            range: PrimuseConstants.eqMinGain...PrimuseConstants.eqMaxGain
-                        )
-                        .frame(height: 200)
-
-                        // Frequency label
-                        Text(eq.bandFrequencyLabels[index])
-                            .font(.system(size: 9))
-                            .foregroundStyle(.secondary)
-                    }
+                    bandSlider(index: index, height: 200)
                 }
             }
             .padding(.horizontal, 12)
             .opacity(eq.isEnabled ? 1 : 0.4)
             .disabled(!eq.isEnabled)
 
-            // Reset button
-            Button("eq_reset") {
-                eq.reset()
-            }
-            .buttonStyle(.bordered)
+            Button("eq_reset") { eq.reset() }
+                .buttonStyle(.bordered)
 
             Spacer()
         }
         .padding(.top)
         .navigationTitle("equalizer")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func presetChip(_ preset: EQPreset) -> some View {
+        Button {
+            eq.applyPreset(preset)
+        } label: {
+            Text(preset.localizedName)
+                .font(.caption)
+                .fontWeight(.medium)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    eq.currentPreset.id == preset.id
+                    ? AnyShapeStyle(.tint)
+                    : AnyShapeStyle(.ultraThinMaterial)
+                )
+                .foregroundStyle(
+                    eq.currentPreset.id == preset.id ? .white : .primary
+                )
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func bandSlider(index: Int, height: CGFloat) -> some View {
+        VStack(spacing: 4) {
+            Text(String(format: "%.0f", eq.bands[index]))
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+            VerticalSlider(
+                value: Binding(
+                    get: { eq.bands[index] },
+                    set: { eq.setBand(index, gain: $0) }
+                ),
+                range: PrimuseConstants.eqMinGain...PrimuseConstants.eqMaxGain
+            )
+            .frame(height: height)
+            Text(eq.bandFrequencyLabels[index])
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+        }
     }
 }
 

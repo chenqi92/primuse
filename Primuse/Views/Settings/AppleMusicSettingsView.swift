@@ -1,6 +1,11 @@
 import SwiftUI
 import MusicKit
 import PrimuseKit
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 /// 让用户在 Settings 主动 opt-in 给 Apple Music 权限。授权后 SearchView 才
 /// 会去访问 catalog —— 避免用户搜歌时被无端弹系统授权对话框。
@@ -23,12 +28,24 @@ struct AppleMusicSettingsView: View {
                     Text(String(localized: "settings_apple_music_denied"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    #if os(iOS)
                     if let url = URL(string: UIApplication.openSettingsURLString) {
                         Link(destination: url) {
                             Label(String(localized: "settings_apple_music_connect"),
                                   systemImage: "gearshape")
                         }
                     }
+                    #else
+                    // macOS 走系统设置 → 隐私 → 媒体与 Apple Music。
+                    Button {
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Media") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    } label: {
+                        Label(String(localized: "settings_apple_music_connect"),
+                              systemImage: "gearshape")
+                    }
+                    #endif
                 }
             } footer: {
                 Text(String(localized: "settings_apple_music_footer"))
@@ -40,7 +57,9 @@ struct AppleMusicSettingsView: View {
             }
         }
         .navigationTitle("settings_apple_music_section")
+        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 
     /// 把 Apple Music 用户资料库拉进猿音 Library。state 切换时直接 reflect

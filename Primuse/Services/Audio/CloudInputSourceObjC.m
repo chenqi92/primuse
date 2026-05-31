@@ -75,6 +75,21 @@
     }
 
     NSInteger copied = (NSInteger)MIN((NSUInteger)toRead, data.length);
+    // 关键: copied=0 但 _offset 还没到 _totalLength 时, 必须返回错误而不是
+    // YES+0。SFB 把 "bytesRead=0 且 return YES" 当成自然 EOF, 会把 decoder
+    // position 拉到 totalFrames, 解码循环退出, AudioPlayerService 把短数据
+    // 末尾的 buffer 当成 "歌唱完了" 调度 gapless boundary callback ——
+    // 用户体感就是歌没播完就切下一首。返回错误让上层走 retry / autoAdvance
+    // 路径而不是误判 EOF。
+    if (copied == 0) {
+        if (error) {
+            *error = [NSError errorWithDomain:NSPOSIXErrorDomain
+                                         code:EIO
+                                     userInfo:@{NSLocalizedDescriptionKey: @"Cloud source returned 0 bytes mid-stream"}];
+        }
+        *bytesRead = 0;
+        return NO;
+    }
     memcpy(buffer, data.bytes, (size_t)copied);
     _offset += copied;
     *bytesRead = copied;

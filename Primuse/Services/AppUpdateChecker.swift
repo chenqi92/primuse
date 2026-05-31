@@ -1,6 +1,10 @@
 import Foundation
 import SwiftUI
+#if os(iOS)
 import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 /// Polls Apple's iTunes Lookup API to learn whether the current build is
 /// behind App Store, surfaces a banner inviting the user to update.
@@ -10,8 +14,9 @@ import UIKit
 /// on TestFlight or with auto-update off won't see new builds without a
 /// nudge. This checker provides that nudge:
 ///
-/// - Hits `https://itunes.apple.com/lookup?bundleId=...` (region-aware so
-///   `releaseNotes` come back in the user's language).
+/// - Hits Apple's lookup endpoint for the current platform only. macOS native
+///   builds must not treat an iOS/iPad app that is available on Mac as the
+///   native Mac App Store version line.
 /// - Compares `version` semantically against the running build's
 ///   `CFBundleShortVersionString`.
 /// - Persists "skip this version" / "remind later" in UserDefaults so the
@@ -22,14 +27,25 @@ final class AppUpdateChecker {
     struct UpdateInfo: Sendable, Equatable {
         let version: String
         let storeURL: URL
+        let releaseNotes: String?
+        let releaseDate: Date?
+        let minimumOSVersion: String?
+        let trackName: String?
     }
 
     /// Non-nil when a strictly newer App Store version exists AND the
     /// user hasn't dismissed it. Banner observes this.
     private(set) var availableUpdate: UpdateInfo?
+    private(set) var latestUpdateInfo: UpdateInfo?
+    private(set) var latestStoreVersion: String?
+    private(set) var storeURL: URL?
+    private(set) var lastCheckedAt: Date?
+    private(set) var lastErrorMessage: String?
+    private(set) var isChecking = false
 
     private let bundleID: String
     private let currentVersion: String
+    private let explicitAppStoreID: String?
     private let defaults: UserDefaults
     private let session: URLSession
 
@@ -47,8 +63,44 @@ final class AppUpdateChecker {
         let info = Bundle.main.infoDictionary
         self.bundleID = info?["CFBundleIdentifier"] as? String ?? "com.welape.yuanyin"
         self.currentVersion = info?["CFBundleShortVersionString"] as? String ?? "0"
+        #if os(macOS)
+        self.explicitAppStoreID = Self.cleanInfoString(info?["PrimuseMacAppStoreID"] as? String)
+            ?? Self.cleanInfoString(info?["PrimuseAppStoreID"] as? String)
+        #else
+        self.explicitAppStoreID = Self.cleanInfoString(info?["PrimuseIOSAppStoreID"] as? String)
+            ?? Self.cleanInfoString(info?["PrimuseAppStoreID"] as? String)
+        #endif
         self.defaults = defaults
         self.session = session
+        self.lastCheckedAt = defaults.object(forKey: Self.lastCheckKey) as? Date
+    }
+
+    var installedVersion: String { currentVersion }
+    var appStoreBundleID: String { bundleID }
+    var appStoreLookupTarget: String {
+        if let explicitAppStoreID {
+            return "\(platformName) · App Store ID \(explicitAppStoreID)"
+        }
+        return "\(platformName) · Bundle ID \(bundleID)"
+    }
+
+    var versionPolicyDescription: String {
+        #if os(macOS)
+        if explicitAppStoreID == nil {
+            return "macOS 与 iOS 分开检查；当前未配置 Mac App Store ID，因此只接受 Bundle ID 查询里 kind=mac-software 的原生 Mac 记录，忽略 iOS 1.x 版本线。"
+        }
+        return "macOS 与 iOS 分开检查；当前使用 Mac App Store ID 查询原生 Mac 版本线，iOS 版本不会触发 macOS 更新提示。"
+        #else
+        return "iOS 与 macOS 分开检查；当前仅检查 iOS App Store 版本线。"
+        #endif
+    }
+
+    var platformName: String {
+        #if os(macOS)
+        return "macOS"
+        #else
+        return "iOS"
+        #endif
     }
 
     /// Throttled to once per `throttleInterval` unless `force` is true
@@ -60,13 +112,23 @@ final class AppUpdateChecker {
             return
         }
 
+        isChecking = true
+        defer { isChecking = false }
+
         let info: UpdateInfo?
         do {
             info = try await fetchLatest()
+            lastErrorMessage = nil
         } catch {
+            lastErrorMessage = error.localizedDescription
             return
         }
-        defaults.set(Date(), forKey: Self.lastCheckKey)
+        let checkedAt = Date()
+        defaults.set(checkedAt, forKey: Self.lastCheckKey)
+        lastCheckedAt = checkedAt
+        latestUpdateInfo = info
+        latestStoreVersion = info?.version
+        storeURL = info?.storeURL
 
         guard let info, isVersion(info.version, newerThan: currentVersion) else {
             availableUpdate = nil
@@ -106,8 +168,12 @@ final class AppUpdateChecker {
 
     /// Open App Store at the app's listing.
     func openAppStore() {
-        guard let url = availableUpdate?.storeURL else { return }
+        guard let url = availableUpdate?.storeURL ?? storeURL else { return }
+        #if os(iOS)
         UIApplication.shared.open(url)
+        #elseif os(macOS)
+        NSWorkspace.shared.open(url)
+        #endif
     }
 
     // MARK: - Private
@@ -116,15 +182,20 @@ final class AppUpdateChecker {
         struct Result: Decodable {
             let version: String
             let trackViewUrl: String
+            let kind: String?
+            let bundleId: String?
+            let trackId: Int?
+            let releaseNotes: String?
+            let currentVersionReleaseDate: String?
+            let releaseDate: String?
+            let minimumOsVersion: String?
+            let trackName: String?
         }
         let results: [Result]
     }
 
-    /// 不再走 country 参数 ── 之前是为了拿对应 storefront 的 localized
-    /// release notes, 现在弹框不展示 release notes 也不需要本地化版本号,
-    /// bare lookup 一次到位即可。
     private func fetchLatest() async throws -> UpdateInfo? {
-        guard let url = URL(string: "https://itunes.apple.com/lookup?bundleId=\(bundleID)") else {
+        guard let url = lookupURL() else {
             return nil
         }
         var req = URLRequest(url: url)
@@ -132,9 +203,64 @@ final class AppUpdateChecker {
         req.timeoutInterval = 10
         let (data, _) = try await session.data(for: req)
         let response = try JSONDecoder().decode(LookupResponse.self, from: data)
-        guard let r = response.results.first,
+        guard let r = response.results.first(where: isResultForCurrentPlatform),
               let storeURL = URL(string: r.trackViewUrl) else { return nil }
-        return UpdateInfo(version: r.version, storeURL: storeURL)
+        return UpdateInfo(
+            version: r.version,
+            storeURL: storeURL,
+            releaseNotes: Self.cleanInfoString(r.releaseNotes),
+            releaseDate: Self.parseAppStoreDate(r.currentVersionReleaseDate ?? r.releaseDate),
+            minimumOSVersion: Self.cleanInfoString(r.minimumOsVersion),
+            trackName: Self.cleanInfoString(r.trackName)
+        )
+    }
+
+    private func lookupURL() -> URL? {
+        var components = URLComponents(string: "https://itunes.apple.com/lookup")
+        if let explicitAppStoreID {
+            components?.queryItems = [
+                URLQueryItem(name: "id", value: explicitAppStoreID),
+                URLQueryItem(name: "entity", value: lookupEntity),
+            ]
+        } else {
+            components?.queryItems = [
+                URLQueryItem(name: "bundleId", value: bundleID),
+                URLQueryItem(name: "entity", value: lookupEntity),
+            ]
+        }
+        return components?.url
+    }
+
+    private var lookupEntity: String {
+        #if os(macOS)
+        return "macSoftware"
+        #else
+        return "software"
+        #endif
+    }
+
+    private func isResultForCurrentPlatform(_ result: LookupResponse.Result) -> Bool {
+        #if os(macOS)
+        // Apple's lookup can return an iOS app that is installable on Mac
+        // (`kind=software`, supportedDevices contains MacDesktop) even when
+        // `entity=macSoftware` is present. The native macOS build must only
+        // compare against true Mac App Store records.
+        return result.kind == "mac-software"
+        #else
+        return result.kind == nil || result.kind == "software"
+        #endif
+    }
+
+    private static func cleanInfoString(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.hasPrefix("$(") else { return nil }
+        return trimmed
+    }
+
+    private static func parseAppStoreDate(_ value: String?) -> Date? {
+        guard let value else { return nil }
+        return ISO8601DateFormatter().date(from: value)
     }
 
     /// Numeric semantic compare — "1.10.0" > "1.2.0" (which the default

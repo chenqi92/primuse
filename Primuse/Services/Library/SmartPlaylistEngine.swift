@@ -21,13 +21,14 @@ enum SmartPlaylistEngine {
         history: PlayHistoryStore
     ) -> [Song] {
         let startedAt = Date()
-        let totalSongs = library.visibleSongs.count
+        let songs = candidateSongs(in: library)
+        let totalSongs = songs.count
 
         let ruleGroups = smart.effectiveRuleGroups
 
         // 空规则集合: 命中 library 全部 (用户可能新建后还没编辑规则就先看个全量)
         guard !ruleGroups.isEmpty else {
-            let result = sortAndLimit(library.visibleSongs, smart: smart, history: history)
+            let result = sortAndLimit(songs, smart: smart, history: history)
             let elapsed = Date().timeIntervalSince(startedAt)
             plog(String(format: "🎯 SmartPlaylist '%@' match: 0 rules → matched=%d/%d in %.0fms",
                         smart.name, result.count, totalSongs, elapsed * 1000))
@@ -36,8 +37,10 @@ enum SmartPlaylistEngine {
 
         let stats = PlayStats(history: history)
 
-        let matched = library.visibleSongs.filter { song in
-            evaluate(groups: ruleGroups, song: song, stats: stats, library: library)
+        let groupCombinator = smart.effectiveGroupCombinator
+        let matched = songs.filter { song in
+            evaluate(groups: ruleGroups, groupCombinator: groupCombinator,
+                     song: song, stats: stats, library: library)
         }
         let result = sortAndLimit(matched, smart: smart, history: history)
         let elapsed = Date().timeIntervalSince(startedAt)
@@ -53,16 +56,28 @@ enum SmartPlaylistEngine {
         return result
     }
 
+    private static func candidateSongs(in library: MusicLibrary) -> [Song] {
+        guard !AppleMusicFeatureSettings.autoAddToSmartPlaylistsEnabled else {
+            return library.visibleSongs
+        }
+        return library.visibleSongs.filter { $0.sourceID != AppleMusicLibraryService.systemSourceID }
+    }
+
     // MARK: - Rule evaluation
 
     private static func evaluate(
         groups: [SmartPlaylistRuleGroup],
+        groupCombinator: SmartPlaylistCombinator,
         song: Song,
         stats: PlayStats,
         library: MusicLibrary
     ) -> Bool {
-        groups.allSatisfy { group in
-            guard !group.rules.isEmpty else { return true }
+        // 空组 (无规则) 不参与组合 —— AND 下它是中性的, OR 下让它返回 true 会
+        // 把全部命中, 语义都不对, 直接剔除。剔完没组了 = 没有有效规则 = 命中全部。
+        let activeGroups = groups.filter { !$0.rules.isEmpty }
+        guard !activeGroups.isEmpty else { return true }
+
+        let matches: (SmartPlaylistRuleGroup) -> Bool = { group in
             let matched = evaluate(
                 rules: group.rules,
                 combinator: group.combinator,
@@ -71,6 +86,13 @@ enum SmartPlaylistEngine {
                 library: library
             )
             return group.isExcluded ? !matched : matched
+        }
+
+        switch groupCombinator {
+        case .and:
+            return activeGroups.allSatisfy(matches)
+        case .or:
+            return activeGroups.contains(where: matches)
         }
     }
 

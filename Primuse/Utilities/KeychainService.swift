@@ -3,11 +3,41 @@ import Security
 import PrimuseKit
 
 enum KeychainService {
+    /// In-memory mirror of every password seen in this app session — written
+    /// eagerly on `setPassword` (before keychain) and read first on
+    /// `getPassword`. Two reasons:
+    ///
+    /// 1. macOS 26 sandbox keychain occasionally surfaces transient -34018 /
+    ///    -25300 errors even after a successful write. Without a memory
+    ///    fallback a freshly-typed password silently disappears between
+    ///    "Save" and "Connect" → user sees 400 with no clue why.
+    /// 2. Avoids hitting the keychain on the hot connect path for repeated
+    ///    `connector(for:)` calls within a single session.
+    private static let cacheLock = NSLock()
+    nonisolated(unsafe) private static var memoryCache: [String: String] = [:]
+
+    private static func cacheRead(_ account: String) -> String? {
+        cacheLock.lock(); defer { cacheLock.unlock() }
+        return memoryCache[account]
+    }
+
+    private static func cacheWrite(_ password: String?, for account: String) {
+        cacheLock.lock(); defer { cacheLock.unlock() }
+        if let password { memoryCache[account] = password }
+        else { memoryCache.removeValue(forKey: account) }
+    }
+
     static func setPassword(_ password: String, for account: String) {
+        // Cache eagerly — this guarantees the just-typed password survives
+        // even if every keychain write below silently fails.
+        cacheWrite(password, for: account)
+
         let data = Data(password.utf8)
 
         // Delete any existing entry (both synchronizable and non-synchronizable variants).
         deletePassword(for: account)
+        // The delete above also wipes our cache; restore it.
+        cacheWrite(password, for: account)
 
         // The `credentials` channel toggle decides whether new writes go to
         // iCloud Keychain (synchronizable) or stay local. Past entries already
@@ -26,6 +56,13 @@ enum KeychainService {
     }
 
     static func getPassword(for account: String) -> String? {
+        // 1) Memory cache — populated by setPassword in this session.
+        if let cached = cacheRead(account) {
+            plog("🔑 Keychain getPassword HIT (memory) account=\(account) len=\(cached.count)")
+            return cached
+        }
+
+        // 2) Keychain fallback — covers passwords saved in a previous session.
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: PrimuseConstants.keychainServiceName,
@@ -39,13 +76,21 @@ enum KeychainService {
         let status = SecItemCopyMatching(query as CFDictionary, &result)
 
         guard status == errSecSuccess, let data = result as? Data else {
+            plog("🔑 Keychain getPassword MISS status=\(status) account=\(account)")
             return nil
         }
 
-        return String(data: data, encoding: .utf8)
+        let pw = String(data: data, encoding: .utf8)
+        if let pw {
+            // Promote to memory cache so subsequent reads skip the keychain.
+            cacheWrite(pw, for: account)
+        }
+        plog("🔑 Keychain getPassword HIT (keychain) account=\(account) len=\(pw?.count ?? 0)")
+        return pw
     }
 
     static func deletePassword(for account: String) {
+        cacheWrite(nil, for: account)
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: PrimuseConstants.keychainServiceName,

@@ -47,4 +47,8 @@ public enum RecentAlbumsStore {
         }
         defaults.set(data, forKey: key)
     }
+
+    public static func clear() {
+        UserDefaults(suiteName: PrimuseConstants.appGroupIdentifier)?.removeObject(forKey: key)
+    }
 }

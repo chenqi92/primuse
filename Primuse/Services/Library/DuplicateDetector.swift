@@ -13,7 +13,9 @@ import PrimuseKit
 ///     // group.redundantSongs 推荐删除的其他版本
 /// }
 /// ```
-@MainActor
+/// 纯算法, 不依赖 MainActor — 10k+ 歌的 Dictionary(grouping:) + folding
+/// 在主线程跑会卡 1-3s 让 UI 冻住。改成 nonisolated 后调用方用
+/// `Task.detached` 丢到后台跑, 主线程只负责 ProgressView 显示。
 enum DuplicateDetector {
     /// duration ±2s 容差: 同一首歌不同 encoder 转出来 duration 可能差几百
     /// 毫秒, 取 2s bucket (实际 ±1s) 容错。
@@ -86,7 +88,7 @@ enum DuplicateDetector {
 }
 
 /// 重复分组 — 多个 Song 共享 title+artist+duration 桶。
-struct DuplicateGroup: Identifiable {
+struct DuplicateGroup: Identifiable, Sendable {
     let id: String
     let title: String
     let artist: String

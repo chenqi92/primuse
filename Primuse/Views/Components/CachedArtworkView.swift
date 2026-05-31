@@ -2,6 +2,11 @@ import SwiftUI
 import ImageIO
 import MusicKit
 import PrimuseKit
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 /// Loads cover art with a unified three-tier strategy:
 /// 1. Memory cache (NSCache, keyed by songID + size bucket)
@@ -9,8 +14,8 @@ import PrimuseKit
 /// 3. Source fetch (URL download / sidecar download / embedded extraction)
 ///
 /// Decoding runs off the main thread via ImageIO so list scrolling never
-/// pays for `UIImage(data:)` lazy decode at draw time. Each cover is also
-/// downsampled to one of two pixel buckets:
+/// pays for `PlatformImage(data:)` lazy decode at draw time. Each cover is
+/// also downsampled to one of two pixel buckets:
 /// - `thumb` (max 288px) for list-cell sized requests (size <= 96pt)
 /// - `full`  (max 1536px) for hero / large views
 /// so a 1500×1500 source image never sits decoded inside a 44pt row cell.
@@ -38,15 +43,16 @@ struct CachedArtworkView: View {
     var revisionToken: Int = 0
 
     @Environment(SourceManager.self) private var sourceManager
-    @State private var image: UIImage?
-    @State private var loadTask: Task<Void, Never>?
+    @State private var image: PlatformImage?
+    @State private var loadedIdentity: String?
+    @State private var cacheInvalidationRevision = 0
 
 
-    /// Memory cache holds *already-decoded* UIImages. Cost is reported as
-    /// real pixel byte count so the limit reflects actual memory pressure
+    /// Memory cache holds *already-decoded* PlatformImages. Cost is reported
+    /// as real pixel byte count so the limit reflects actual memory pressure
     /// rather than the compressed source size.
-    nonisolated(unsafe) private static let memoryCache: NSCache<NSString, UIImage> = {
-        let cache = NSCache<NSString, UIImage>()
+    nonisolated(unsafe) private static let memoryCache: NSCache<NSString, PlatformImage> = {
+        let cache = NSCache<NSString, PlatformImage>()
         cache.countLimit = 600
         cache.totalCostLimit = 64 * 1024 * 1024
         return cache
@@ -68,7 +74,7 @@ struct CachedArtworkView: View {
     }
 
     /// 96pt × 3x display scale. ImageIO downsamples in the GPU and the
-    /// resulting CGImage is fed to UIImage at scale 1, so cost stays small.
+    /// resulting CGImage is fed to PlatformImage at scale 1, so cost stays small.
     private static let thumbMaxPixel: Int = 288
 
     /// Cap full-resolution decodes so a pathological 4000×4000 source can't
@@ -130,13 +136,14 @@ struct CachedArtworkView: View {
         }
         .aspectRatio(1, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-        .onAppear { loadImage() }
-        .onChange(of: coverRef) { _, _ in loadImage() }
-        .onChange(of: songID) { _, _ in loadImage() }
-        .onChange(of: albumID) { _, _ in loadImage() }
-        .onChange(of: artistID) { _, _ in loadImage() }
-        .onChange(of: revisionToken) { _, _ in loadImage() }
-        .onDisappear { loadTask?.cancel() }
+        .task(id: loadIdentity) {
+            await loadImage(for: loadIdentity)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidInvalidate)) { note in
+            guard shouldReload(after: note) else { return }
+            Self.memoryCache.removeObject(forKey: cacheKey as NSString)
+            cacheInvalidationRevision += 1
+        }
     }
 
     /// body 拆出来 ── 直接写 if/else 链 SwiftUI ResultBuilder 类型推断超时,
@@ -147,9 +154,22 @@ struct CachedArtworkView: View {
             // Apple Music user library 的 song.artwork.url 返回 musicKit://
             // 自定义 scheme, URLSession 拉不到, 必须走 MusicKit 自家的
             // ArtworkImage SwiftUI view 让 framework 内部解码。
-            ArtworkImage(artwork, width: CGFloat(artworkPixelSize), height: CGFloat(artworkPixelSize))
+            //
+            // ArtworkImage 必须给定具体 width/height, 它不像普通 Image 那样
+            // .resizable() 会跟着容器伸缩 —— 给个固定大尺寸 (size==nil 时是
+            // 200pt) 在弹性网格 cell 里就会撑成一张巨图, 把整个网格挤裂。
+            // 用 GeometryReader 拿到容器真实边长再喂给它, 让 Apple Music 封面
+            // 跟其它来源的封面一样填满 cell。ArtworkImage 自身按 display scale
+            // 解码, 所以传点数即可, 不用再乘 scale。
+            GeometryReader { geo in
+                let side = max(geo.size.width, geo.size.height, 1)
+                ArtworkImage(artwork, width: side, height: side)
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .clipped()
+            }
+            .aspectRatio(1, contentMode: .fit)
         } else if let image {
-            Image(uiImage: image)
+            Image(platformImage: image)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
         } else {
@@ -166,21 +186,12 @@ struct CachedArtworkView: View {
         return AppServices.shared.appleMusicLibrary.cachedMusicKitSong(amID: amID)?.artwork
     }
 
-    /// ArtworkImage 接受 Int 像素值。size 是 pt, 乘上 display scale 才是
-    /// 实际像素 — list cell 44pt × 3x = 132px, 比 ArtworkImage 默认拿 1x
-    /// 清得多。
-    private var artworkPixelSize: Int {
-        let pt = size ?? 200
-        let scale = UIScreen.main.scale
-        return max(64, Int(pt * scale))
-    }
-
     private var placeholderView: some View {
         ZStack {
             RoundedRectangle(cornerRadius: cornerRadius)
                 .fill(
                     LinearGradient(
-                        colors: [Color(.systemGray5), Color(.systemGray4)],
+                        colors: [Color.gray.opacity(0.2), Color.gray.opacity(0.3)],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
@@ -192,8 +203,8 @@ struct CachedArtworkView: View {
     }
 
     /// Composite cache key — different sized views share the underlying disk
-    /// cache but get separate decoded UIImage entries so the 44pt list cell
-    /// never has to display (or hold) the 1500×1500 original.
+    /// cache but get separate decoded PlatformImage entries so the 44pt list
+    /// cell never has to display (or hold) the 1500×1500 original.
     private var cacheKey: String {
         let suffix = "@\(bucket.rawValue)"
         if let albumID { return "album_\(albumID)\(suffix)" }
@@ -201,19 +212,51 @@ struct CachedArtworkView: View {
         return (songID ?? coverRef ?? "") + suffix
     }
 
-    private func loadImage() {
+    private var loadIdentity: String {
+        let refIdentity = coverRef ?? ""
+        let sourceIdentity = "\(sourceID ?? "")|\(filePath ?? "")"
+        return "\(cacheKey)#ref\(refIdentity)#src\(sourceIdentity)#rev\(revisionToken)#inv\(cacheInvalidationRevision)"
+    }
+
+    private func shouldReload(after note: Notification) -> Bool {
+        if note.userInfo?["all"] as? Bool == true { return true }
+
+        let localTokens = Set([songID, coverRef, albumID, artistID].compactMap { $0 }.filter { !$0.isEmpty })
+        guard !localTokens.isEmpty else { return false }
+
+        var invalidatedTokens: [String] = []
+        if let token = note.object as? String, !token.isEmpty {
+            invalidatedTokens.append(token)
+        }
+        for key in ["songID", "oldRef", "newRef", "albumID", "artistID"] {
+            if let token = note.userInfo?[key] as? String, !token.isEmpty {
+                invalidatedTokens.append(token)
+            }
+        }
+        return invalidatedTokens.contains { localTokens.contains($0) }
+    }
+
+    private func loadImage(for identity: String) async {
         let key = cacheKey
-        guard !key.isEmpty else { image = nil; return }
+        guard !key.isEmpty else {
+            if image != nil { image = nil }
+            loadedIdentity = identity
+            return
+        }
+
+        guard loadedIdentity != identity || image == nil else { return }
+        if loadedIdentity != identity, image != nil {
+            image = nil
+        }
 
         let cacheNSKey = key as NSString
 
         // Tier 1: Memory cache — already decoded, hand it to the View directly.
         if let cached = Self.memoryCache.object(forKey: cacheNSKey) {
+            loadedIdentity = identity
             image = cached
             return
         }
-
-        loadTask?.cancel()
 
         // Capture everything the off-main path needs. SwiftUI Views are
         // @MainActor; the awaited helper is `nonisolated`, so the IO and
@@ -229,22 +272,25 @@ struct CachedArtworkView: View {
         let capturedFilePath = filePath
         let capturedSourceManager = sourceManager
 
-        loadTask = Task {
-            let decoded = await Self.loadAndDecode(
-                cacheKey: key,
-                bucket: capturedBucket,
-                ref: capturedRef,
-                songID: capturedSongID,
-                albumID: capturedAlbumID,
-                albumTitle: capturedAlbumTitle,
-                artistID: capturedArtistID,
-                artistName: capturedArtistName,
-                sourceID: capturedSourceID,
-                filePath: capturedFilePath,
-                sourceManager: capturedSourceManager
-            )
-            guard let decoded, !Task.isCancelled else { return }
+        let decoded = await Self.loadAndDecode(
+            cacheKey: key,
+            bucket: capturedBucket,
+            ref: capturedRef,
+            songID: capturedSongID,
+            albumID: capturedAlbumID,
+            albumTitle: capturedAlbumTitle,
+            artistID: capturedArtistID,
+            artistName: capturedArtistName,
+            sourceID: capturedSourceID,
+            filePath: capturedFilePath,
+            sourceManager: capturedSourceManager
+        )
+        guard !Task.isCancelled, loadIdentity == identity else { return }
+        loadedIdentity = identity
+        if let decoded {
             image = decoded
+        } else if image != nil {
+            image = nil
         }
     }
 
@@ -252,7 +298,7 @@ struct CachedArtworkView: View {
 
     /// Top-level loader: tries memory cache, disk cache, then falls back to
     /// the source. Decodes via ImageIO, writes both layers of cache, returns
-    /// the decoded UIImage. Runs on the cooperative pool.
+    /// the decoded PlatformImage. Runs on the cooperative pool.
     private static func loadAndDecode(
         cacheKey: String,
         bucket: Bucket,
@@ -265,7 +311,10 @@ struct CachedArtworkView: View {
         sourceID: String?,
         filePath: String?,
         sourceManager: SourceManager
-    ) async -> UIImage? {
+    ) async -> PlatformImage? {
+        let ignoredGenericFolderCover = shouldIgnoreGenericFolderCover(ref: ref, filePath: filePath)
+        let effectiveRef = ignoredGenericFolderCover ? nil : ref
+
         // Album path — ArtworkFetchService
         if let albumID, let albumTitle {
             let data: Data?
@@ -295,15 +344,15 @@ struct CachedArtworkView: View {
         }
 
         // Song path
-        if let data = await loadFromDiskCache(songID: songID, ref: ref) {
+        if let data = await loadFromDiskCache(songID: ignoredGenericFolderCover ? nil : songID, ref: effectiveRef) {
             return finalize(data: data, bucket: bucket, cacheKey: cacheKey)
         }
 
-        let fetchKey = songID ?? ref ?? ""
+        let fetchKey = songID ?? effectiveRef ?? ""
         guard !fetchKey.isEmpty else { return nil }
         let fetched = await inFlightTracker.deduplicated(key: fetchKey) {
             await loadFromSource(
-                ref: ref,
+                ref: effectiveRef,
                 songID: songID,
                 sourceID: sourceID,
                 filePath: filePath,
@@ -319,7 +368,7 @@ struct CachedArtworkView: View {
 
     /// Decode + write to memory cache. NSCache is thread-safe so this can
     /// happen on the cooperative pool.
-    private static func finalize(data: Data, bucket: Bucket, cacheKey: String) -> UIImage? {
+    private static func finalize(data: Data, bucket: Bucket, cacheKey: String) -> PlatformImage? {
         guard let decoded = decode(data, bucket: bucket) else { return nil }
         memoryCache.setObject(decoded, forKey: cacheKey as NSString, cost: imageCost(decoded))
         return decoded
@@ -353,6 +402,22 @@ struct CachedArtworkView: View {
             return MetadataAssetStore.shared.readCoverData(named: ref)
         }
         return nil
+    }
+
+    private static func shouldIgnoreGenericFolderCover(ref: String?, filePath: String?) -> Bool {
+        guard let ref, let filePath, ref.contains("/") else { return false }
+        let refName = (ref as NSString).lastPathComponent
+        let refBase = (refName as NSString).deletingPathExtension.lowercased()
+        guard PrimuseConstants.folderCoverNames.contains(refBase) else { return false }
+
+        let refDir = (ref as NSString).deletingLastPathComponent
+        let songDir = (filePath as NSString).deletingLastPathComponent
+        guard refDir.caseInsensitiveCompare(songDir) == .orderedSame else { return false }
+
+        let dirName = (songDir as NSString).lastPathComponent
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return ["music", "音乐", "songs", "audio", "media", "downloads"].contains(dirName)
     }
 
     // MARK: - Source Fetch
@@ -399,11 +464,11 @@ struct CachedArtworkView: View {
     /// pool, not the main thread. Uses ImageIO's thumbnail API which both
     /// downsamples and force-decodes the bitmap so SwiftUI never re-decodes
     /// at draw time.
-    private static func decode(_ data: Data, bucket: Bucket) -> UIImage? {
+    private static func decode(_ data: Data, bucket: Bucket) -> PlatformImage? {
         guard let src = CGImageSourceCreateWithData(data as CFData, nil) else {
-            // Fallback for formats ImageIO can't open (rare): UIImage(data:)
+            // Fallback for formats ImageIO can't open (rare): PlatformImage(data:)
             // still defers decode to first draw, but this is a graceful path.
-            return UIImage(data: data)
+            return PlatformImage(data: data)
         }
         let maxPixel = bucket == .thumb ? thumbMaxPixel : fullMaxPixel
         let opts: [CFString: Any] = [
@@ -413,16 +478,20 @@ struct CachedArtworkView: View {
             kCGImageSourceThumbnailMaxPixelSize: maxPixel
         ]
         if let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) {
-            return UIImage(cgImage: cg)
+            return PlatformImage.fromCGImage(cg)
         }
-        return UIImage(data: data)
+        return PlatformImage(data: data)
     }
 
-    private static func imageCost(_ image: UIImage) -> Int {
-        if let cg = image.cgImage {
+    private static func imageCost(_ image: PlatformImage) -> Int {
+        if let cg = image.platformCGImage {
             return cg.bytesPerRow * cg.height
         }
+        #if os(iOS)
         return Int(image.size.width * image.size.height * image.scale * image.scale * 4)
+        #else
+        return Int(image.size.width * image.size.height * 4)
+        #endif
     }
 
     // MARK: - Static helpers
@@ -433,10 +502,30 @@ struct CachedArtworkView: View {
             memoryCache.removeObject(forKey: "album_\(fileName)@\(bucket)" as NSString)
             memoryCache.removeObject(forKey: "artist_\(fileName)@\(bucket)" as NSString)
         }
+        postArtworkInvalidation(token: fileName)
     }
 
     static func clearMemoryCache() {
         memoryCache.removeAllObjects()
+        postArtworkInvalidation(token: nil, userInfo: ["all": true])
+    }
+
+    private static func postArtworkInvalidation(token: String?, userInfo: [AnyHashable: Any] = [:]) {
+        if Thread.isMainThread {
+            NotificationCenter.default.post(
+                name: .primuseArtworkDidInvalidate,
+                object: token,
+                userInfo: userInfo
+            )
+        } else {
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(
+                    name: .primuseArtworkDidInvalidate,
+                    object: token,
+                    userInfo: userInfo
+                )
+            }
+        }
     }
 }
 

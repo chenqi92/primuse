@@ -64,5 +64,8 @@ struct LyricsTranslationSettingsView: View {
             }
             Button("cancel", role: .cancel) {}
         }
+        #if os(macOS)
+        .macReadablePane(maxWidth: 720)
+        #endif
     }
 }

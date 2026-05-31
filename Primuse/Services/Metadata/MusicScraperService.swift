@@ -4,6 +4,10 @@ import PrimuseKit
 @MainActor
 @Observable
 final class MusicScraperService {
+    nonisolated static let sidecarCoverWriteEnabledKey = "primuse.sidecar.coverWriteEnabled"
+    nonisolated static let sidecarLyricsWriteEnabledKey = "primuse.sidecar.lyricsWriteEnabled"
+    nonisolated static let sidecarWriteTimeoutKey = "primuse.sidecar.writeTimeout"
+
     private let sourceManager: SourceManager
     private let metadataService = MetadataService()
     private var scrapingTask: Task<Void, Never>?
@@ -31,6 +35,10 @@ final class MusicScraperService {
 
     func scrapeMissingMetadata(in library: MusicLibrary) {
         startScraping(in: library, forceRescrape: false)
+    }
+
+    func scrapeMissingMetadata(songs: [Song], in library: MusicLibrary) {
+        startScraping(songs: songs, in: library, forceRescrape: false)
     }
 
     func rescrapeLibrary(in library: MusicLibrary) {
@@ -89,6 +97,9 @@ final class MusicScraperService {
             // task 写 cache 已经晚了 (UI 不会再 reload)。
             let lyricsLines = result.lyricsLines
             let coverData = result.coverData
+            let sidecarSettings = Self.sidecarSettings()
+            let sidecarCoverData = sidecarSettings.coverEnabled ? coverData : nil
+            let sidecarLyricsLines = sidecarSettings.lyricsEnabled ? lyricsLines : nil
             if let coverData {
                 await MetadataAssetStore.shared.cacheCover(coverData, forSongID: updatedSong.id)
                 updatedSong.coverArtFileName = MetadataAssetStore.shared.expectedCoverFileName(for: updatedSong.id)
@@ -101,8 +112,8 @@ final class MusicScraperService {
             library.replaceSong(updatedSong)
 
             // Write sidecar files to source (cover.jpg, .lrc) and update Song refs
-            plog("📝 Sidecar: coverData=\(coverData?.count ?? 0)B lyricsLines=\(lyricsLines?.count ?? 0) for '\(updatedSong.title)'")
-            if coverData != nil || lyricsLines != nil {
+            plog("📝 Sidecar: coverData=\(sidecarCoverData?.count ?? 0)B lyricsLines=\(sidecarLyricsLines?.count ?? 0) for '\(updatedSong.title)'")
+            if sidecarCoverData != nil || sidecarLyricsLines != nil {
                 let canWriteSidecar = await sourceManager.supportsSidecarWriting(for: updatedSong)
                 if canWriteSidecar {
                     let songForWrite = updatedSong
@@ -112,10 +123,10 @@ final class MusicScraperService {
                         do {
                             plog("📝 Sidecar: getting auxiliary connector for '\(songForWrite.title)' source=\(songForWrite.sourceID)")
                             let writeResult = try await MusicScraperService.writeSidecarWithTimeout(
-                                seconds: 30,
+                                seconds: sidecarSettings.timeout,
                                 sourceManager: sourceManager,
                                 for: songForWrite,
-                                coverData: coverData, lyricsLines: lyricsLines
+                                coverData: sidecarCoverData, lyricsLines: sidecarLyricsLines
                             )
                             plog("📝 Sidecar: result cover=\(writeResult.coverWritten) lyrics=\(writeResult.lyricsWritten) errors=\(writeResult.errors)")
 
@@ -153,7 +164,7 @@ final class MusicScraperService {
                                 plog("⚠️ Sidecar write errors: \(writeResult.errors)")
                             }
                         } catch is CancellationError {
-                            plog("⚠️ Sidecar write timed out (30s) for '\(songForWrite.title)'")
+                            plog("⚠️ Sidecar write timed out (\(Int(sidecarSettings.timeout))s) for '\(songForWrite.title)'")
                         } catch {
                             plog("⚠️ Sidecar write skipped for '\(songForWrite.title)': \(error.localizedDescription)")
                         }
@@ -188,9 +199,17 @@ final class MusicScraperService {
     }
 
     private func startScraping(in library: MusicLibrary, forceRescrape: Bool) {
+        startScraping(songs: library.visibleSongs, in: library, forceRescrape: forceRescrape)
+    }
+
+    private func startScraping(songs requestedSongs: [Song], in library: MusicLibrary, forceRescrape: Bool) {
         guard !isScraping else { return }
 
-        let songs = library.visibleSongs
+        let latestByID = Dictionary(library.visibleSongs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let songs = requestedSongs.reduce(into: (ordered: [Song](), seen: Set<String>())) { result, song in
+            guard result.seen.insert(song.id).inserted else { return }
+            result.ordered.append(latestByID[song.id] ?? song)
+        }.ordered
         totalCount = songs.count
         processedCount = 0
         updatedCount = 0
@@ -201,9 +220,23 @@ final class MusicScraperService {
 
         scrapingTask = Task {
             defer {
+                let cancelled = Task.isCancelled
+                let updated = updatedCount
+                let failed = failedCount
                 isScraping = false
                 currentSongTitle = ""
                 scrapingTask = nil
+                // Fire the completion notification only when the run actually
+                // finished — cancellation (user hit "stop") shouldn't pop one.
+                if !cancelled {
+                    Task { @MainActor in
+                        await Self.postScrapeCompletionNotification(
+                            forceRescrape: forceRescrape,
+                            updatedCount: updated,
+                            failedCount: failed
+                        )
+                    }
+                }
             }
 
             let settings = ScraperSettings.load()
@@ -239,8 +272,9 @@ final class MusicScraperService {
                             shouldWriteLyrics = result.lyricsLines != nil
                         }
 
-                        let coverData = shouldWriteCover ? result.coverData : nil
-                        let lyricsLines = shouldWriteLyrics ? result.lyricsLines : nil
+                        let sidecarSettings = Self.sidecarSettings()
+                        let coverData = shouldWriteCover && sidecarSettings.coverEnabled ? result.coverData : nil
+                        let lyricsLines = shouldWriteLyrics && sidecarSettings.lyricsEnabled ? result.lyricsLines : nil
 
                         if let coverData {
                             await MetadataAssetStore.shared.cacheCover(coverData, forSongID: updatedSong.id)
@@ -270,7 +304,7 @@ final class MusicScraperService {
                             Task.detached(priority: .utility) {
                                 do {
                                     let writeResult = try await MusicScraperService.writeSidecarWithTimeout(
-                                        seconds: 30,
+                                        seconds: sidecarSettings.timeout,
                                         sourceManager: sourceManager,
                                         for: songForWrite,
                                         coverData: coverData, lyricsLines: lyricsLines
@@ -307,7 +341,7 @@ final class MusicScraperService {
                                         plog("⚠️ Batch sidecar errors for '\(songForWrite.title)': \(writeResult.errors)")
                                     }
                                 } catch is CancellationError {
-                                    plog("⚠️ Batch sidecar timed out (30s) for '\(songForWrite.title)'")
+                                    plog("⚠️ Batch sidecar timed out (\(Int(sidecarSettings.timeout))s) for '\(songForWrite.title)'")
                                 } catch {
                                     plog("⚠️ Batch sidecar skipped for '\(songForWrite.title)': \(error.localizedDescription)")
                                 }
@@ -326,11 +360,22 @@ final class MusicScraperService {
             guard !Task.isCancelled else { return }
 
             let assetStore = MetadataAssetStore.shared
+            let isWholeVisibleLibrary = Set(songs.map(\.id)) == Set(library.visibleSongs.map(\.id))
+            let targetAlbumIDs = Set(songs.compactMap(\.albumID))
+            let targetArtistIDs = Set(songs.compactMap(\.artistID))
+            let targetArtistNames = Set(
+                songs.compactMap(\.artistName)
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+                    .filter { !$0.isEmpty }
+            )
             let albumsNeedingCover = library.albums.filter { album in
-                !assetStore.hasAlbumCover(forAlbumID: album.id)
+                (isWholeVisibleLibrary || targetAlbumIDs.contains(album.id))
+                    && !assetStore.hasAlbumCover(forAlbumID: album.id)
             }
             let artistsNeedingImage = library.artists.filter { artist in
-                !assetStore.hasArtistImage(forArtistID: artist.id)
+                let name = artist.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                return (isWholeVisibleLibrary || targetArtistIDs.contains(artist.id) || targetArtistNames.contains(name))
+                    && !assetStore.hasArtistImage(forArtistID: artist.id)
             }
             totalCount += albumsNeedingCover.count + artistsNeedingImage.count
 
@@ -340,6 +385,33 @@ final class MusicScraperService {
                 artistsNeedingImage: artistsNeedingImage
             )
         }
+    }
+
+    /// Builds the user-visible "scrape finished" notification body and posts it.
+    /// Split out so both manual scrape (B1) and full-library rescrape (B2) share
+    /// the same wording / dedup behaviour.
+    private static func postScrapeCompletionNotification(
+        forceRescrape: Bool,
+        updatedCount: Int,
+        failedCount: Int
+    ) async {
+        let titleKey = forceRescrape
+            ? "notify_rescrape_done_title"
+            : "notify_scrape_missing_done_title"
+        let title = String(localized: String.LocalizationValue(titleKey))
+        let body: String
+        if failedCount > 0 {
+            let format = String(localized: "notify_scrape_done_body_with_failures")
+            body = String(format: format, updatedCount, failedCount)
+        } else {
+            let format = String(localized: "notify_scrape_done_body")
+            body = String(format: format, updatedCount)
+        }
+        await UserNotificationService.shared.postLongTaskCompletion(
+            category: forceRescrape ? .rescrapeLibraryDone : .scrapeMissingDone,
+            title: title,
+            body: body
+        )
     }
 
     /// Batch-fetch album covers and artist images for items missing artwork.
@@ -579,5 +651,19 @@ final class MusicScraperService {
             group.cancelAll()
             return result
         }
+    }
+
+    private nonisolated static func sidecarSettings() -> (coverEnabled: Bool, lyricsEnabled: Bool, timeout: TimeInterval) {
+        let defaults = UserDefaults.standard
+        let coverEnabled = defaults.object(forKey: sidecarCoverWriteEnabledKey) == nil
+            ? true
+            : defaults.bool(forKey: sidecarCoverWriteEnabledKey)
+        let lyricsEnabled = defaults.object(forKey: sidecarLyricsWriteEnabledKey) == nil
+            ? true
+            : defaults.bool(forKey: sidecarLyricsWriteEnabledKey)
+        let timeout = defaults.object(forKey: sidecarWriteTimeoutKey) == nil
+            ? 30
+            : defaults.double(forKey: sidecarWriteTimeoutKey)
+        return (coverEnabled, lyricsEnabled, max(5, min(120, timeout)))
     }
 }

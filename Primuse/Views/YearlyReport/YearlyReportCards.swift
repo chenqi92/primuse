@@ -13,32 +13,46 @@ struct YearlyArtView: View {
     let fallbackText: String?
 
     var body: some View {
+        #if os(iOS)
         if let img = UIImage(named: assetName) {
             Image(uiImage: img)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
         } else {
-            ZStack {
-                RoundedRectangle(cornerRadius: 24)
-                    .fill(LinearGradient(
-                        colors: [Color.white.opacity(0.18), Color.white.opacity(0.05)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    ))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 24)
-                            .stroke(Color.white.opacity(0.2), lineWidth: 1)
-                    )
-                VStack(spacing: 6) {
-                    Image(systemName: fallbackSymbol)
-                        .font(.system(size: 50, weight: .light))
-                    if let fallbackText {
-                        Text(fallbackText)
-                            .font(.caption2.weight(.semibold))
-                    }
+            fallbackContent
+        }
+        #else
+        if let img = NSImage(named: assetName) {
+            Image(nsImage: img)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+        } else {
+            fallbackContent
+        }
+        #endif
+    }
+
+    private var fallbackContent: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 24)
+                .fill(LinearGradient(
+                    colors: [Color.white.opacity(0.18), Color.white.opacity(0.05)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                ))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24)
+                        .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                )
+            VStack(spacing: 6) {
+                Image(systemName: fallbackSymbol)
+                    .font(.system(size: 50, weight: .light))
+                if let fallbackText {
+                    Text(fallbackText)
+                        .font(.caption2.weight(.semibold))
                 }
-                .foregroundStyle(.white.opacity(0.8))
             }
+            .foregroundStyle(.white.opacity(0.8))
         }
     }
 }
@@ -575,7 +589,138 @@ struct TimeOfDayCard: View {
     }
 }
 
-// MARK: - Card 9: 音乐人格
+// MARK: - Card 9: 流派画像
+
+struct GenreCard: View {
+    let data: YearlyReportData
+
+    private var genres: [YearlyReportData.RankedItem] {
+        Array(data.topGenres.prefix(5))
+    }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            YearlyArtView(
+                assetName: "decor_record_stack",
+                fallbackSymbol: "guitars",
+                fallbackText: nil
+            )
+            .frame(width: 190, height: 150)
+
+            CardSubtitle(text: "今年听过的流派")
+                .padding(.top, 10)
+
+            BigNumber(value: "\(data.genreCount)", unit: "种")
+
+            VStack(spacing: 9) {
+                if genres.isEmpty {
+                    Text("补齐歌曲 genre 后, 这里会出现你的流派地图")
+                        .font(.system(.callout, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.75))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
+                } else {
+                    ForEach(Array(genres.enumerated()), id: \.element.id) { index, genre in
+                        genreRow(rank: index + 1, genre: genre)
+                    }
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 4)
+            Spacer()
+        }
+    }
+
+    private func genreRow(rank: Int, genre: YearlyReportData.RankedItem) -> some View {
+        HStack(spacing: 12) {
+            Text("\(rank)")
+                .font(.system(.headline, design: .rounded).weight(.bold))
+                .foregroundStyle(.white.opacity(0.62))
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(genre.title)
+                    .font(.system(.callout, design: .rounded).weight(.semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Text("\(genre.playCount) 次播放")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.62))
+            }
+            Spacer()
+            Text(formatDuration(genre.totalSec))
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.white.opacity(0.72))
+        }
+        .padding(.vertical, 9)
+        .padding(.horizontal, 14)
+        .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
+    }
+}
+
+// MARK: - Card 10: 探索度
+
+struct ExplorationCard: View {
+    let data: YearlyReportData
+
+    private var focusPercent: Int {
+        Int((data.explorationTopArtistShare * 100).rounded())
+    }
+
+    private var explorationPercent: Int {
+        max(0, 100 - focusPercent)
+    }
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Spacer()
+            YearlyArtView(
+                assetName: "decor_sources_pipeline",
+                fallbackSymbol: "safari.fill",
+                fallbackText: nil
+            )
+            .frame(width: 200, height: 130)
+
+            CardSubtitle(text: "你的探索度")
+                .padding(.top, 12)
+
+            BigNumber(value: "\(explorationPercent)", unit: "%")
+
+            Text(data.personality?.exploration == .explorer ? "今年你把耳朵交给了更多新名字" : "今年你更愿意把喜欢的声音听深")
+                .font(.system(.body, design: .rounded))
+                .foregroundStyle(.white.opacity(0.85))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Top 5 艺术家占比")
+                    Spacer()
+                    Text("\(focusPercent)%")
+                        .monospacedDigit()
+                }
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.white.opacity(0.70))
+
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(.white.opacity(0.16))
+                        Capsule()
+                            .fill(.white.opacity(0.86))
+                            .frame(width: geo.size.width * CGFloat(min(max(data.explorationTopArtistShare, 0), 1)))
+                    }
+                }
+                .frame(height: 10)
+            }
+            .padding(.horizontal, 32)
+            .padding(.top, 12)
+
+            Spacer()
+        }
+    }
+}
+
+// MARK: - Card 11: 音乐人格
 
 struct PersonalityCard: View {
     let data: YearlyReportData
@@ -618,7 +763,7 @@ struct PersonalityCard: View {
     }
 }
 
-// MARK: - Card 10: 音乐源画像
+// MARK: - Card 12: 音乐源画像
 
 struct SourcesCard: View {
     let data: YearlyReportData
@@ -683,7 +828,7 @@ struct SourcesCard: View {
     }
 }
 
-// MARK: - Card 11: 代表月份
+// MARK: - Card 13: 代表月份
 
 struct PeakMonthCard: View {
     let data: YearlyReportData
@@ -729,7 +874,7 @@ struct PeakMonthCard: View {
     }
 }
 
-// MARK: - Card 12: 年终感言
+// MARK: - Card 14: 年终感言
 
 struct ClosingCard: View {
     let data: YearlyReportData

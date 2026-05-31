@@ -16,6 +16,8 @@ enum CloudSyncChannel: String, CaseIterable, Sendable {
     /// iCloud Keychain `kSecAttrSynchronizable` flag for new writes.
     /// Past entries already on iCloud Keychain remain there — system-controlled.
     case credentials
+    /// Full listening-stat events from `PlayHistoryStore`, used by Stats.
+    case listeningStats
 
     var defaultsKey: String {
         "primuse.iCloudSync.channel.\(rawValue)"

@@ -137,13 +137,15 @@ final class SourceManager {
         let connector: any MusicSourceConnector
         switch source.type {
         case .synology:
+            let pw = KeychainService.getPassword(for: source.id) ?? ""
+            plog("🔧 SourceManager creating SynologySource id=\(source.id) host=\(source.host ?? "?") userLen=\(source.username?.count ?? 0) pwLen=\(pw.count)")
             connector = SynologySource(
                 sourceID: source.id,
                 host: source.host ?? "",
                 port: source.port ?? 5001,
                 useSsl: source.useSsl,
                 username: source.username ?? "",
-                password: KeychainService.getPassword(for: source.id) ?? "",
+                password: pw,
                 rememberDevice: source.rememberDevice,
                 deviceId: source.deviceId
             )
@@ -152,6 +154,15 @@ final class SourceManager {
                 sourceID: source.id,
                 basePath: URL(fileURLWithPath: source.basePath ?? "/")
             )
+        case .appleMusicLibrary:
+            #if os(macOS)
+            connector = AppleMusicLibrarySource(sourceID: source.id)
+            #else
+            // appleMusicLibrary is filtered out of the iOS source picker; if
+            // a CloudKit-synced source row of this type ever lands on iOS we
+            // surface a stub that errors gracefully instead of crashing.
+            connector = UnsupportedSourceConnector(sourceID: source.id, sourceType: .appleMusicLibrary)
+            #endif
         case .smb:
             connector = SMBSource(
                 sourceID: source.id,
@@ -792,6 +803,22 @@ final class SourceManager {
         let sanitized = song.filePath.replacingOccurrences(of: "/", with: "_")
         let fileURL = audioCacheDirectory(for: song.sourceID).appendingPathComponent(sanitized)
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return nil }
+        // 完整性校验: 云盘断流 / 用户中途切歌时会留下 partial 文件
+        // (比如 1MB 但实际应该 9MB)。命中后 SFBDecoder 只能解码前面那段,
+        // 引擎播完触发 gapless boundary → 队列死循环。这里把不完整的
+        // 缓存当作未命中, 删掉强制重下。 song.fileSize<=0 表示元数据没拿到,
+        // 跳过校验避免误删。
+        if song.fileSize > 0,
+           let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
+           let actual = attrs[.size] as? Int64 {
+            // 5% tolerance: 部分 sidecar / tag 改写后大小会差几 KB
+            let minAcceptable = Int64(Double(song.fileSize) * 0.95)
+            if actual < minAcceptable {
+                plog("🗑 cachedURL: 缓存不完整 '\(song.title)' actual=\(actual / 1024)KB expected=\(song.fileSize / 1024)KB — 删除并强制重下")
+                try? FileManager.default.removeItem(at: fileURL)
+                return nil
+            }
+        }
         let relativePath = "\(song.sourceID)/\(sanitized)"
         Task { await AudioCacheManager.shared.recordAccess(path: relativePath) }
         return fileURL
@@ -1268,6 +1295,26 @@ final class SourceManager {
         let partial = URL(fileURLWithPath: url.path + ".partial")
         try? FileManager.default.removeItem(at: partial)
         try? FileManager.default.removeItem(at: URL(fileURLWithPath: partial.path + CloudPlaybackSource.prewarmMarkerSuffix))
+    }
+
+    func deleteSourceCaches(sourceID: String) {
+        let fileManager = FileManager.default
+        let caches = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let temp = fileManager.temporaryDirectory
+        let paths = [
+            caches.appendingPathComponent(Self.audioCacheDirName).appendingPathComponent(sourceID),
+            caches.appendingPathComponent("primuse_cloud_cache").appendingPathComponent(sourceID),
+            temp.appendingPathComponent("primuse_smb_cache").appendingPathComponent(sourceID),
+            temp.appendingPathComponent("primuse_sftp_cache").appendingPathComponent(sourceID),
+            temp.appendingPathComponent("primuse_ftp_cache").appendingPathComponent(sourceID),
+            temp.appendingPathComponent("primuse_nfs_cache").appendingPathComponent(sourceID),
+            temp.appendingPathComponent("primuse_upnp_cache").appendingPathComponent(sourceID),
+            temp.appendingPathComponent("primuse_scan_\(sourceID)"),
+        ]
+        for path in paths {
+            try? fileManager.removeItem(at: path)
+        }
+        Task { await AudioCacheManager.shared.removeAllEntries(forSourcePrefix: "\(sourceID)/") }
     }
 
     /// 清空所有音频缓存。返回 (成功删除字节数, 失败文件数)。

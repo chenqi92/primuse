@@ -1,5 +1,9 @@
 import Foundation
 import PrimuseKit
+#if os(macOS)
+import AppKit
+import UniformTypeIdentifiers
+#endif
 
 /// 把歌单序列化成可分享的文件 — 两种格式:
 ///
@@ -52,6 +56,29 @@ enum PlaylistExporter {
         try data.write(to: url, options: .atomic)
         return url
     }
+
+    #if os(macOS)
+    /// macOS: 弹 `NSSavePanel` 让用户选择保存位置, 把已导出到临时目录的文件
+    /// 拷贝过去 (而不是走 iOS 那种系统分享面板)。用户取消返回 `false`, 写入
+    /// 失败 throw。
+    @discardableResult
+    static func presentSavePanel(for exportedURL: URL) throws -> Bool {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = exportedURL.lastPathComponent
+        if let type = UTType(filenameExtension: exportedURL.pathExtension) {
+            panel.allowedContentTypes = [type]
+        }
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let destination = panel.url else { return false }
+
+        let fm = FileManager.default
+        if fm.fileExists(atPath: destination.path) {
+            try fm.removeItem(at: destination)
+        }
+        try fm.copyItem(at: exportedURL, to: destination)
+        return true
+    }
+    #endif
 
     // MARK: - m3u8
 

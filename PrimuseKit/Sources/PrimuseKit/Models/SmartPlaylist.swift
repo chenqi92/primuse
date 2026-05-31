@@ -145,9 +145,14 @@ public struct SmartPlaylist: Codable, Identifiable, Hashable, Sendable {
     /// clients that do not yet understand grouped rules.
     public var rules: [SmartPlaylistRule]
     public var combinator: SmartPlaylistCombinator
-    /// v2 grouped rules. Multiple groups are ANDed together; excluded groups
-    /// act as NOT(group). nil/empty means fall back to legacy flat rules.
+    /// v2 grouped rules. Multiple groups are combined by `groupCombinator`;
+    /// excluded groups act as NOT(group). nil/empty means fall back to legacy
+    /// flat rules.
     public var ruleGroups: [SmartPlaylistRuleGroup]?
+    /// 分组之间的组合方式: `.and` = 所有组都要满足 (默认, 兼容旧数据);
+    /// `.or` = 任一组满足即可。Optional 让旧 JSON 缺这个键时解码成 nil → 当 .and,
+    /// 维持历史行为; 旧客户端解码新 JSON 时也会忽略这个未知键。
+    public var groupCombinator: SmartPlaylistCombinator?
     /// 匹配上限 (nil = 不限)。命中超过此数时按 sortField 截断。
     public var limit: Int?
     public var sortField: SmartPlaylistSortField
@@ -164,6 +169,7 @@ public struct SmartPlaylist: Codable, Identifiable, Hashable, Sendable {
         rules: [SmartPlaylistRule] = [],
         combinator: SmartPlaylistCombinator = .and,
         ruleGroups: [SmartPlaylistRuleGroup]? = nil,
+        groupCombinator: SmartPlaylistCombinator? = nil,
         limit: Int? = nil,
         sortField: SmartPlaylistSortField = .dateAdded,
         sortDirection: SmartPlaylistSortDirection = .descending,
@@ -177,6 +183,7 @@ public struct SmartPlaylist: Codable, Identifiable, Hashable, Sendable {
         self.rules = rules
         self.combinator = combinator
         self.ruleGroups = ruleGroups
+        self.groupCombinator = groupCombinator
         self.limit = limit
         self.sortField = sortField
         self.sortDirection = sortDirection
@@ -200,6 +207,11 @@ public struct SmartPlaylist: Codable, Identifiable, Hashable, Sendable {
                 isExcluded: false
             )
         ]
+    }
+
+    /// 分组之间的有效组合方式 (旧数据 / nil → AND, 维持历史行为)。
+    public var effectiveGroupCombinator: SmartPlaylistCombinator {
+        groupCombinator ?? .and
     }
 }
 

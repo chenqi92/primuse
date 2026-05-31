@@ -35,6 +35,7 @@ actor SynologyAPI {
 
     func login(account: String, password: String, otpCode: String? = nil,
                deviceName: String? = nil, deviceId: String? = nil) async -> LoginResult {
+        plog("🔐 Synology login start account=\(account) pwLen=\(password.count) otp=\(otpCode != nil) host=\(host):\(port) ssl=\(useSsl)")
         var params: [String: String] = [
             "api": "SYNO.API.Auth",
             "version": "7",
@@ -59,7 +60,12 @@ actor SynologyAPI {
         plog("☁️ Synology login start host=\(redactedHost(host)) port=\(port) ssl=\(useSsl) accountSet=\(!account.isEmpty) passwordSet=\(!password.isEmpty) otpSet=\(!(otpCode ?? "").isEmpty) deviceNameSet=\(!(deviceName ?? "").isEmpty) deviceIdSet=\(!(deviceId ?? "").isEmpty)")
 
         do {
-            let data = try await request(path: "/webapi/auth.cgi", params: params)
+            // POST + form-urlencoded body for login: avoids GET query-string
+            // encoding quirks where multi-byte chars (e.g. CJK punctuation
+            // accidentally typed in a password) get mangled by some Synology
+            // versions, causing a deceptive 400 "wrong password" with the
+            // exact bytes the user typed.
+            let data = try await request(path: "/webapi/auth.cgi", params: params, usePost: true)
             let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
             let success = json["success"] as? Bool ?? false
 
@@ -334,15 +340,36 @@ actor SynologyAPI {
 
     // MARK: - HTTP
 
-    private func request(path: String, params: [String: String]) async throws -> Data {
-        var components = URLComponents(string: "\(baseURL)\(path)")!
-        components.queryItems = params.map { URLQueryItem(name: $0.key, value: $0.value) }
-        guard let url = components.url else { throw SynologyError.invalidURL }
+    private func request(path: String, params: [String: String], usePost: Bool = false) async throws -> Data {
+        let urlRequest: URLRequest
+        if usePost {
+            guard let url = URL(string: "\(baseURL)\(path)") else { throw SynologyError.invalidURL }
+            var req = URLRequest(url: url)
+            req.httpMethod = "POST"
+            req.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
+            // Form-encode params: same percent-encoding rules as URL query
+            // but '+' is reserved for space in form bodies — encode it as %2B
+            // to avoid Synology decoding it as space.
+            var allowed = CharacterSet.urlQueryAllowed
+            allowed.remove(charactersIn: "+&=")
+            let body = params.map { (k, v) -> String in
+                let ek = k.addingPercentEncoding(withAllowedCharacters: allowed) ?? k
+                let ev = v.addingPercentEncoding(withAllowedCharacters: allowed) ?? v
+                return "\(ek)=\(ev)"
+            }.joined(separator: "&")
+            req.httpBody = body.data(using: .utf8)
+            urlRequest = req
+        } else {
+            var components = URLComponents(string: "\(baseURL)\(path)")!
+            components.queryItems = params.map { URLQueryItem(name: $0.key, value: $0.value) }
+            guard let url = components.url else { throw SynologyError.invalidURL }
+            urlRequest = URLRequest(url: url)
+        }
 
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 15
         let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
-        let (data, response) = try await session.data(from: url)
+        let (data, response) = try await session.data(for: urlRequest)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw SynologyError.httpError((response as? HTTPURLResponse)?.statusCode ?? 0)
         }

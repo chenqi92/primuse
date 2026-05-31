@@ -32,34 +32,91 @@ struct CloudDriveConnectionView: View {
                 selectedDirectories: $selectedDirectories
             )
         } else {
+            #if os(macOS)
+            macAuthChrome
+            #else
             NavigationStack {
-                Group {
-                    switch step {
-                    case .checking:
-                        checkingView
-                    case .needsSetup:
-                        setupGuideView
-                    case .readyToAuth:
-                        authPromptView
-                    case .authorizing:
-                        authorizingView
-                    case .failed:
-                        failedView
-                    case .browsing:
-                        EmptyView() // Handled above
-                    }
-                }
+                stepContent
                 .navigationTitle(source.name)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("cancel") { dismiss() }
+                            .keyboardShortcut(.cancelAction)
                     }
                 }
             }
             .onAppear { checkStatus() }
+            #endif
         }
     }
+
+    @ViewBuilder
+    private var stepContent: some View {
+        switch step {
+        case .checking:
+            checkingView
+        case .needsSetup:
+            setupGuideView
+        case .readyToAuth:
+            authPromptView
+        case .authorizing:
+            authorizingView
+        case .failed:
+            failedView
+        case .browsing:
+            EmptyView() // Handled above
+        }
+    }
+
+    #if os(macOS)
+    /// 云盘 OAuth 授权页的设计稿外壳 —— closeOnly traffic-light 窗头
+    /// (「百度网盘 · OAuth」+ 授权说明) + 步骤内容 + 取消底栏, 跟其它源弹框统一,
+    /// 不再用 NavigationStack 的原生标题栏 (那个跟整套自定义弹框对不上)。
+    private var macAuthChrome: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                PMWindowTrafficLights(closeOnly: true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(verbatim: "\(source.type.displayName) · OAuth")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(PMColor.text)
+                    Text(verbatim: "系统浏览器授权")
+                        .font(.system(size: 11))
+                        .foregroundStyle(PMColor.textFaint)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 56)
+
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+
+            stepContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+
+            HStack {
+                Spacer()
+                Button("cancel") { dismiss() }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(.cancelAction)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(PMColor.text)
+                    .padding(.horizontal, 16)
+                    .frame(height: 30)
+                    .background(PMColor.glassBtn, in: .rect(cornerRadius: 7))
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 56)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(PMColor.bg)
+        .onAppear { checkStatus() }
+    }
+
+    #endif
 
     // MARK: - Checking View
 
@@ -121,12 +178,20 @@ struct CloudDriveConnectionView: View {
 
     private func guideStep(number: Int, text: String) -> some View {
         HStack(alignment: .top, spacing: 12) {
+            #if os(macOS)
+            // macOS 用 SF Symbol 数字圆,跟系统字号风格一致,颜色用 accent。
+            Image(systemName: "\(number).circle.fill")
+                .font(.system(size: 18))
+                .foregroundStyle(Color.accentColor)
+                .padding(.top, 1)
+            #else
             Text("\(number)")
                 .font(.caption).fontWeight(.bold)
                 .foregroundStyle(.white)
                 .frame(width: 22, height: 22)
                 .background(Color.accentColor.gradient)
                 .clipShape(Circle())
+            #endif
             Text(text)
                 .font(.subheadline)
                 .foregroundStyle(.primary)
@@ -136,6 +201,45 @@ struct CloudDriveConnectionView: View {
     // MARK: - Auth Prompt View
 
     private var authPromptView: some View {
+        #if os(macOS)
+        VStack(spacing: 20) {
+            Spacer()
+
+            Image(systemName: cloudIcon)
+                .font(.system(size: 42))
+                .foregroundStyle(.blue.gradient)
+
+            VStack(spacing: 6) {
+                Text("连接 \(source.type.displayName)")
+                    .font(.title3).fontWeight(.semibold)
+                Text("点击「授权连接」,将在系统浏览器中打开授权页。\n登录并同意授权后会自动返回猿音。")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 36)
+            }
+
+            Button {
+                startOAuth()
+            } label: {
+                Label("授权连接", systemImage: "link.badge.plus")
+                    .frame(maxWidth: 220)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .keyboardShortcut(.defaultAction)
+
+            if !errorMessage.isEmpty {
+                Label(errorMessage, systemImage: "exclamationmark.triangle")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.red)
+                    .padding(.horizontal, 30)
+                    .multilineTextAlignment(.center)
+            }
+
+            Spacer()
+        }
+        #else
         VStack(spacing: 28) {
             Spacer()
 
@@ -173,6 +277,7 @@ struct CloudDriveConnectionView: View {
 
             Spacer()
         }
+        #endif
     }
 
     private var cloudIcon: String {
@@ -187,18 +292,102 @@ struct CloudDriveConnectionView: View {
     // MARK: - Authorizing View
 
     private var authorizingView: some View {
-        VStack(spacing: 20) {
-            Spacer()
-            ProgressView().scaleEffect(1.3)
-            VStack(spacing: 6) {
-                Text("正在授权…")
-                    .font(.headline)
-                Text("请在弹出的浏览器中完成登录")
-                    .font(.subheadline)
+        VStack(spacing: 22) {
+            Spacer(minLength: 18)
+
+            ZStack {
+                Circle()
+                    .fill(Color.accentColor.opacity(0.14))
+                Image(systemName: cloudIcon)
+                    .font(.system(size: 30, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
+            }
+            .frame(width: 72, height: 72)
+
+            VStack(spacing: 7) {
+                Text("\(source.type.displayName) · 授权")
+                    .font(.title3.weight(.semibold))
+                Text("等待系统浏览器返回授权码…")
+                    .font(.system(size: 13))
                     .foregroundStyle(.secondary)
             }
-            Spacer()
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text("授权步骤")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+
+                oauthStep(number: 1, text: "已在系统浏览器打开 \(oauthProviderHost)")
+                oauthStep(number: 2, text: "登录账号并确认读取音乐文件权限")
+                oauthStep(number: 3, text: "浏览器重定向到 \(oauthCallbackDisplay)")
+                oauthStep(number: 4, text: "猿音接收回调并保存访问令牌")
+            }
+            .padding(18)
+            .frame(maxWidth: 430, alignment: .leading)
+            .background(.quaternary.opacity(0.24), in: .rect(cornerRadius: 14))
+            .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(.quaternary, lineWidth: 0.5)
+            }
+
+            HStack(spacing: 10) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("正在监听 URL Scheme · \(oauthBridgeDisplay)")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 34)
+            .background(.quaternary.opacity(0.22), in: .capsule)
+
+            Text("授权完成后此窗口会自动进入目录浏览器。请不要关闭系统浏览器中的回调页。")
+                .font(.system(size: 11.5))
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 420)
+
+            Spacer(minLength: 18)
         }
+        .padding(.horizontal, 34)
+    }
+
+    private func oauthStep(number: Int, text: String) -> some View {
+        HStack(alignment: .top, spacing: 11) {
+            Image(systemName: "\(number).circle.fill")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+                .padding(.top, 1)
+            Text(text)
+                .font(.system(size: 13))
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var oauthProviderHost: String {
+        switch source.type {
+        case .baiduPan: return "pan.baidu.com"
+        case .aliyunDrive: return "open.aliyundrive.com"
+        case .googleDrive: return "accounts.google.com"
+        case .oneDrive: return "login.microsoftonline.com"
+        case .dropbox: return "dropbox.com"
+        default: return "授权服务"
+        }
+    }
+
+    private var oauthCallbackDisplay: String {
+        "\(CloudOAuthConfig.callbackScheme)://callback"
+    }
+
+    private var oauthBridgeDisplay: String {
+        #if os(macOS)
+        "MacOAuthBridge.shared"
+        #else
+        "OAuth URL Scheme"
+        #endif
     }
 
     // MARK: - Failed View

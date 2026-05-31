@@ -1,6 +1,24 @@
 import SwiftUI
-import UIKit
 import PrimuseKit
+#if canImport(UIKit)
+import UIKit
+typealias WidgetImage = UIImage
+#elseif canImport(AppKit)
+import AppKit
+typealias WidgetImage = NSImage
+#endif
+
+extension Image {
+    /// Cross-platform image init — `Image(uiImage:)` on iOS, `Image(nsImage:)`
+    /// on native macOS. Lets the widget views stay platform-agnostic.
+    init(widgetImage: WidgetImage) {
+        #if canImport(UIKit)
+        self.init(uiImage: widgetImage)
+        #elseif canImport(AppKit)
+        self.init(nsImage: widgetImage)
+        #endif
+    }
+}
 
 enum WidgetDesign {
     static let ink = Color(red: 0.043, green: 0.067, blue: 0.071)
@@ -28,6 +46,7 @@ enum WidgetDesign {
     /// Neutral base for widget chrome. The selected app-icon tint is still used
     /// as an accent, but it no longer paints the whole surface purple.
     static let canvasBase = ink
+    static let lightCanvasBase = Color(red: 0.955, green: 0.958, blue: 0.945)
 
     static let panelGradient = LinearGradient(
         colors: [
@@ -38,10 +57,10 @@ enum WidgetDesign {
         endPoint: .bottomTrailing
     )
 
-    static let strongText = Color.white.opacity(0.96)
-    static let secondaryText = Color.white.opacity(0.76)
-    static let tertiaryText = Color.white.opacity(0.52)
-    static let hairline = Color.white.opacity(0.10)
+    static let strongText = Color.primary.opacity(0.94)
+    static let secondaryText = Color.secondary.opacity(0.86)
+    static let tertiaryText = Color.secondary.opacity(0.64)
+    static let hairline = Color.primary.opacity(0.10)
     static let glowHighlight = Color.white.opacity(0.12)
 
     static let placeholderGradients: [(Color, Color, Color)] = [
@@ -80,6 +99,7 @@ enum WidgetDesign {
 struct WidgetCanvas<Content: View>: View {
     let content: Content
     var padding: CGFloat
+    @Environment(\.colorScheme) private var colorScheme
 
     init(padding: CGFloat = 16, @ViewBuilder content: () -> Content) {
         self.padding = padding
@@ -88,16 +108,38 @@ struct WidgetCanvas<Content: View>: View {
 
     var body: some View {
         let tint = WidgetDesign.brandTint
+        let isDark = colorScheme == .dark
         ZStack {
-            WidgetDesign.canvasBase
-            WidgetDesign.chromeGradient(tint: tint)
+            isDark ? WidgetDesign.canvasBase : WidgetDesign.lightCanvasBase
+            if isDark {
+                WidgetDesign.chromeGradient(tint: tint)
+            } else {
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(0.78),
+                        tint.opacity(0.10),
+                        WidgetDesign.amber.opacity(0.12),
+                        Color.black.opacity(0.035)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            }
             LinearGradient(
-                colors: [tint.opacity(0.06), .clear, WidgetDesign.clay.opacity(0.12)],
+                colors: [
+                    tint.opacity(isDark ? 0.06 : 0.12),
+                    .clear,
+                    WidgetDesign.clay.opacity(isDark ? 0.12 : 0.08)
+                ],
                 startPoint: .topTrailing,
                 endPoint: .bottomLeading
             )
             LinearGradient(
-                colors: [WidgetDesign.glowHighlight, .clear, Color.black.opacity(0.18)],
+                colors: [
+                    Color.white.opacity(isDark ? 0.12 : 0.34),
+                    .clear,
+                    Color.black.opacity(isDark ? 0.18 : 0.04)
+                ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
@@ -110,7 +152,10 @@ struct WidgetCanvas<Content: View>: View {
             RoundedRectangle(cornerRadius: 26, style: .continuous)
                 .strokeBorder(
                     LinearGradient(
-                        colors: [Color.white.opacity(0.18), Color.white.opacity(0.04)],
+                        colors: [
+                            Color.white.opacity(isDark ? 0.18 : 0.72),
+                            Color.black.opacity(isDark ? 0.00 : 0.10)
+                        ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     ),
@@ -124,6 +169,7 @@ struct WidgetPanel<Content: View>: View {
     let content: Content
     var padding: CGFloat
     var cornerRadius: CGFloat
+    @Environment(\.colorScheme) private var colorScheme
 
     init(padding: CGFloat = 12, cornerRadius: CGFloat = 18, @ViewBuilder content: () -> Content) {
         self.padding = padding
@@ -132,13 +178,18 @@ struct WidgetPanel<Content: View>: View {
     }
 
     var body: some View {
+        let isDark = colorScheme == .dark
         ZStack {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(Color.black.opacity(0.20))
+                .fill(isDark ? Color.black.opacity(0.20) : Color.white.opacity(0.62))
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(WidgetDesign.panelGradient)
+                .fill(isDark ? WidgetDesign.panelGradient : LinearGradient(
+                    colors: [Color.white.opacity(0.74), Color.white.opacity(0.34)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ))
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                .strokeBorder(isDark ? Color.white.opacity(0.08) : Color.black.opacity(0.08), lineWidth: 1)
 
             content
                 .padding(padding)
@@ -181,6 +232,7 @@ struct WidgetStatusPill: View {
     let text: String
     let systemImage: String
     var tint: Color = WidgetDesign.brandTint
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         HStack(spacing: 6) {
@@ -195,7 +247,7 @@ struct WidgetStatusPill: View {
         .padding(.vertical, 6)
         .background(
             Capsule(style: .continuous)
-                .fill(Color.black.opacity(0.30))
+                .fill(colorScheme == .dark ? Color.black.opacity(0.30) : Color.white.opacity(0.68))
                 .overlay(
                     Capsule(style: .continuous)
                         .strokeBorder(tint.opacity(0.30), lineWidth: 1)
@@ -258,7 +310,7 @@ struct WidgetCoverImageView: View {
 
     var body: some View {
         if let image = loadImage() {
-            Image(uiImage: image)
+            Image(widgetImage: image)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
                 .overlay(
@@ -275,7 +327,7 @@ struct WidgetCoverImageView: View {
         }
     }
 
-    private func loadImage() -> UIImage? {
+    private func loadImage() -> WidgetImage? {
         guard let coverImageName, !coverImageName.isEmpty else { return nil }
         guard let containerURL = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier
@@ -284,7 +336,7 @@ struct WidgetCoverImageView: View {
         let fileURL = containerURL.appendingPathComponent(coverImageName)
         guard FileManager.default.fileExists(atPath: fileURL.path),
               let data = try? Data(contentsOf: fileURL),
-              let image = UIImage(data: data) else {
+              let image = WidgetImage(data: data) else {
             return nil
         }
         return image
@@ -298,7 +350,7 @@ struct RecentAlbumCoverView: View {
 
     var body: some View {
         if let image = loadImage() {
-            Image(uiImage: image)
+            Image(widgetImage: image)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
                 .overlay(
@@ -315,7 +367,7 @@ struct RecentAlbumCoverView: View {
         }
     }
 
-    private func loadImage() -> UIImage? {
+    private func loadImage() -> WidgetImage? {
         guard let coverName = entry.coverImageName, !coverName.isEmpty else { return nil }
         guard let containerURL = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier
@@ -324,7 +376,7 @@ struct RecentAlbumCoverView: View {
         let fileURL = containerURL.appendingPathComponent(coverName)
         guard FileManager.default.fileExists(atPath: fileURL.path),
               let data = try? Data(contentsOf: fileURL),
-              let image = UIImage(data: data) else {
+              let image = WidgetImage(data: data) else {
             return nil
         }
         return image
@@ -377,12 +429,13 @@ struct WidgetProgressBar: View {
     var total: Double
     var tintColor: Color = WidgetDesign.brandTint
     var height: CGFloat = 6
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
                 Capsule(style: .continuous)
-                    .fill(Color.white.opacity(0.12))
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.10))
                     .frame(height: height)
 
                 Capsule(style: .continuous)

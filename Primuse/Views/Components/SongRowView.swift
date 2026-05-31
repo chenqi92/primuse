@@ -292,11 +292,7 @@ struct SongRowView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
-        .sheet(isPresented: $showSimilarSongs) {
-            SimilarSongsSheet(seed: song)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-        }
+        .similarSongsPanel(isPresented: $showSimilarSongs, seed: song)
         .sheet(isPresented: $showSongInfo) {
             SongInfoSheet(song: song)
                 .presentationDetents([.medium])
@@ -669,6 +665,33 @@ private struct SimilarSongResultRow: View {
         }
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
+    }
+}
+
+extension View {
+    /// 相似歌曲呈现:macOS 用会自动消失的 PM 悬浮浮层 (`MacSimilarSongsPopover`),
+    /// iOS 仍用半屏 sheet。统一入口,各调用点不用各写一份平台分支。
+    @ViewBuilder
+    func similarSongsPanel(
+        isPresented: Binding<Bool>,
+        seed: Song?,
+        arrowEdge: Edge = .trailing
+    ) -> some View {
+        #if os(macOS)
+        popover(isPresented: isPresented, arrowEdge: arrowEdge) {
+            if let seed {
+                MacSimilarSongsPopover(seed: seed) { isPresented.wrappedValue = false }
+            }
+        }
+        #else
+        sheet(isPresented: isPresented) {
+            if let seed {
+                SimilarSongsSheet(seed: seed)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+            }
+        }
+        #endif
     }
 }
 

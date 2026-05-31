@@ -83,3 +83,51 @@
 "a11y_close_lyrics" = "Liedtext ausblenden";
 "a11y_favorite_add" = "Zur Wiedergabeliste hinzufügen";
 "a11y_more_actions" = "Weitere Aktionen";
+
+// MARK: - macOS Seitenleiste (1.6)
+"sidebar_playlists_empty" = "Keine Wiedergabelisten";
+"sidebar_sources_empty" = "Keine Quellen";
+"search_placeholder_universal" = "Lokal + Apple Music suchen";
+"sidebar_toggle" = "Seitenleiste umschalten";
+
+// MARK: - 1.6 macOS Home redesign
+"home_recently_added_subtitle" = "Newest in your library";
+"home_recently_played_subtitle" = "On repeat lately";
+"home_artists_subtitle" = "Who you listen to most";
+"home_section_view_all" = "See all";
+"home_no_scans_short" = "Idle";
+"home_no_playing" = "Nothing playing";
+"home_pipeline_metadata_done" = "Done";
+"save_as_playlist" = "Als Playlist sichern...";
+"material" = "Material";
+"sidebar_width" = "Seitenleistenbreite";
+"ambient_strength" = "Ambient-Stärke";
+"shuffle_all" = "Shuffle all";
+"sidebar_all_songs" = "All Songs";
+"sidebar_liked_songs" = "Liked Songs";
+"home_playable_count_short" = "Plays";
+"source" = "Source";
+"delete_forever" = "Delete forever";
+"deleted_at_format" = "Deleted %@";
+
+"track_duration_short" = "Time";
+"desktop_lyrics_locked_hint" = "Locked · ⌘⇧L to unlock";
+"search_chip_all" = "All";
+"search_chip_local" = "Local";
+"search_chip_apple_music" = "Apple Music";
+
+// MARK: - 1.6 macOS Home Hero narrative / Update banner
+"home_hero_narrative_morning" = "Good morning. Your library holds %@ stories";
+"home_hero_narrative_afternoon" = "Good afternoon. Your library holds %@ stories";
+"home_hero_narrative_evening" = "Good evening. Your library holds %@ stories";
+"home_hero_narrative_night" = "Tonight, your library holds %@ stories";
+"home_hero_stats_with_days" = "From %d sources · %d albums · %d artists · %d days %d hrs total";
+"home_hero_stats_hours_only" = "From %d sources · %d albums · %d artists · %d hrs total";
+"update_banner_title_format" = "Primuse %@ is out";
+"update_banner_subtitle" = "Update via the App Store";
+"update_banner_action" = "Update";
+"source_state_online" = "Online";
+"source_state_attention" = "Aktion erforderlich";
+"sources_attention_banner_title" = "%d Quelle(n) erfordern Aktion";
+"source_synced_ago_format" = "Synchronisiert %@";
+"source_never_synced" = "Noch nicht synchronisiert";

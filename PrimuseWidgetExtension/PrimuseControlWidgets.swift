@@ -3,6 +3,10 @@ import SwiftUI
 import WidgetKit
 import PrimuseKit
 
+// ControlWidget 是 iOS 18+ 专有 API, 原生 macOS 不存在该类型 —— 整个文件用
+// `#if os(iOS)` 守卫, 让扩展能为 macOS 编译。
+#if os(iOS)
+
 // iOS 18 引入的 Control Widget —— 用户在控制中心 / 锁屏 / 设置侧"操作"页加入,
 // 一键播控,不用先开 app。
 //
@@ -114,3 +118,5 @@ struct PrimusePreviousControl: ControlWidget {
         .description("回到上一首")
     }
 }
+
+#endif

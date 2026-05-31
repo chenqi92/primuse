@@ -60,15 +60,20 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
 
     // Local
     case local
+    /// macOS-only: reads songs from the user's Apple Music / iTunes library
+    /// via `iTunesLibrary.framework`. No host / credentials — gated by the
+    /// `com.apple.security.assets.music.read-only` sandbox entitlement and
+    /// `NSAppleMusicUsageDescription` privacy prompt.
+    case appleMusicLibrary
 
     public var displayName: String {
         switch self {
         case .synology: return "Synology"
         case .qnap: return "QNAP"
         case .ugreen:
-            return String(localized: "src.displayName.ugreen", bundle: .primuseKit)
+            return String(localized: "src.displayName.ugreen", bundle: Bundle.primuseKit)
         case .fnos:
-            return String(localized: "src.displayName.fnos", bundle: .primuseKit)
+            return String(localized: "src.displayName.fnos", bundle: Bundle.primuseKit)
         case .webdav: return "WebDAV"
         case .smb: return "SMB/CIFS"
         case .ftp: return "FTP"
@@ -80,14 +85,15 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .plex: return "Plex"
         case .s3: return "S3"
         case .baiduPan:
-            return String(localized: "src.displayName.baiduPan", bundle: .primuseKit)
+            return String(localized: "src.displayName.baiduPan", bundle: Bundle.primuseKit)
         case .aliyunDrive:
-            return String(localized: "src.displayName.aliyunDrive", bundle: .primuseKit)
+            return String(localized: "src.displayName.aliyunDrive", bundle: Bundle.primuseKit)
         case .googleDrive: return "Google Drive"
         case .oneDrive: return "OneDrive"
         case .dropbox: return "Dropbox"
         case .appleMusic: return "Apple Music"
         case .local: return "Local"
+        case .appleMusicLibrary: return "Apple Music 资料库"
         }
     }
 
@@ -114,11 +120,23 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .dropbox: return "cloud.fill"
         case .appleMusic: return "music.note"
         case .local: return "iphone"
+        case .appleMusicLibrary: return "music.note.house"
         }
     }
 
     public var isMediaServer: Bool {
         self == .jellyfin || self == .emby || self == .plex
+    }
+
+    /// True for sources whose "scope" is the whole source itself, with no
+    /// per-folder selection step. Drives the Sources UI to show "scan now"
+    /// directly instead of a "connect & pick directories" flow.
+    public var scansEntireLibrary: Bool {
+        switch self {
+        case .jellyfin, .emby, .plex: return true   // server-side library
+        case .local, .appleMusicLibrary: return true // already scoped by basePath / library
+        default: return false
+        }
     }
 
     public var category: SourceCategory {
@@ -128,7 +146,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .jellyfin, .emby, .plex: return .mediaServer
         case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox: return .cloudDrive
         case .appleMusic: return .streaming
-        case .local: return .local
+        case .local, .appleMusicLibrary: return .local
         }
     }
 
@@ -155,6 +173,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .dropbox: return 0
         case .appleMusic: return 0
         case .local: return 0
+        case .appleMusicLibrary: return 0
         }
     }
 
@@ -167,7 +186,8 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
 
     public var requiresHost: Bool {
         switch self {
-        case .local, .upnp, .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .appleMusic: return false
+        case .local, .appleMusicLibrary, .upnp, .baiduPan, .aliyunDrive,
+             .googleDrive, .oneDrive, .dropbox, .appleMusic: return false
         default: return true
         }
     }
@@ -182,7 +202,8 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
 
     public var requiresCredentials: Bool {
         switch self {
-        case .local, .upnp, .nfs, .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .appleMusic: return false
+        case .local, .appleMusicLibrary, .upnp, .nfs, .baiduPan, .aliyunDrive,
+             .googleDrive, .oneDrive, .dropbox, .appleMusic: return false
         default: return true
         }
     }
@@ -211,7 +232,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .qnap: return "QTS/QuTS"
         case .ugreen: return "UGOS"
         case .fnos:
-            return String(localized: "src.subtitle.fnos", bundle: .primuseKit)
+            return String(localized: "src.subtitle.fnos", bundle: Bundle.primuseKit)
         case .webdav: return "HTTPS/HTTP"
         case .smb: return "SMB2/3, CIFS"
         case .ftp: return "FTP/FTPS/FTPES"
@@ -223,14 +244,15 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .plex: return "Plex Media"
         case .s3: return "AWS S3 / MinIO / R2"
         case .baiduPan:
-            return String(localized: "src.subtitle.baiduPan", bundle: .primuseKit)
+            return String(localized: "src.subtitle.baiduPan", bundle: Bundle.primuseKit)
         case .aliyunDrive:
-            return String(localized: "src.subtitle.aliyunDrive", bundle: .primuseKit)
+            return String(localized: "src.subtitle.aliyunDrive", bundle: Bundle.primuseKit)
         case .googleDrive: return "Google OAuth"
         case .oneDrive: return "Microsoft Graph"
         case .dropbox: return "Dropbox API v2"
         case .appleMusic: return "Apple Music"
         case .local: return "iPhone Storage"
+        case .appleMusicLibrary: return "本机 Apple Music / iTunes"
         }
     }
 

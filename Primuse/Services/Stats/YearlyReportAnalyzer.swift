@@ -43,7 +43,7 @@ enum YearlyReportAnalyzer {
         case .smb, .webdav, .ftp, .sftp, .nfs, .upnp: return "network"
         case .baiduPan, .aliyunDrive, .oneDrive, .dropbox, .googleDrive, .s3: return "icloud.fill"
         case .jellyfin, .emby, .plex: return "play.tv.fill"
-        case .appleMusic: return "music.note"
+        case .appleMusic, .appleMusicLibrary: return "music.note"
         }
     }
 
@@ -116,6 +116,28 @@ enum YearlyReportAnalyzer {
             }
             .sorted { $0.playCount > $1.playCount }
 
+        var genreGroups: [String: [PlayHistoryStore.Entry]] = [:]
+        var genreDisplayNames: [String: String] = [:]
+        for entry in entries {
+            guard let rawGenre = songLookup[entry.songID]?.genre else { continue }
+            let genre = rawGenre.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !genre.isEmpty else { continue }
+            let key = genre.lowercased()
+            genreDisplayNames[key] = genreDisplayNames[key] ?? genre
+            genreGroups[key, default: []].append(entry)
+        }
+        let topGenres: [YearlyReportData.RankedItem] = genreGroups
+            .map { key, plays in
+                YearlyReportData.RankedItem(
+                    id: "genre:\(key)",
+                    title: genreDisplayNames[key] ?? key,
+                    subtitle: nil,
+                    playCount: plays.count,
+                    totalSec: plays.reduce(0.0) { $0 + $1.listenedSec }
+                )
+            }
+            .sorted { $0.playCount > $1.playCount }
+
         // 首播之歌
         let firstSongEntry = entries.min(by: { $0.playedAt < $1.playedAt })
 
@@ -180,12 +202,7 @@ enum YearlyReportAnalyzer {
         let exploration: MusicPersonality.Exploration = top5ArtistShare < 0.35 ? .explorer : .loyalist
 
         // O/F: 不同 genre 数 (从 library 反查)
-        var genreSet: Set<String> = []
-        for entry in entries {
-            if let genre = songLookup[entry.songID]?.genre, !genre.isEmpty {
-                genreSet.insert(genre.lowercased())
-            }
-        }
+        let genreSet = Set(genreGroups.keys)
         let diversity: MusicPersonality.Diversity = genreSet.count >= 6 ? .omnivore : .focused
 
         // N/V: year 中位数
@@ -221,6 +238,9 @@ enum YearlyReportAnalyzer {
             topArtists: Array(topArtists.prefix(10)),
             topSongs: Array(topSongs.prefix(10)),
             topAlbums: Array(topAlbums.prefix(10)),
+            topGenres: Array(topGenres.prefix(6)),
+            genreCount: genreSet.count,
+            explorationTopArtistShare: top5ArtistShare,
             firstSong: firstSongEntry.map { entryToBrief($0) },
             mostPlayedSong: mostPlayedSongEntry,
             longestSession: connectedSessions,
@@ -316,6 +336,9 @@ struct YearlyReportData: Sendable, Identifiable {
     var topArtists: [RankedItem] = []
     var topSongs: [RankedItem] = []
     var topAlbums: [RankedItem] = []
+    var topGenres: [RankedItem] = []
+    var genreCount: Int = 0
+    var explorationTopArtistShare: Double = 0
 
     // 关键时刻
     var firstSong: EntryBrief?

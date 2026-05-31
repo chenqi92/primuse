@@ -6,8 +6,8 @@ struct ArtworkView: View {
 
     var body: some View {
         Group {
-            if let data, let uiImage = UIImage(data: data) {
-                Image(uiImage: uiImage)
+            if let data, let image = PlatformImage(data: data) {
+                Image(platformImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
             } else {

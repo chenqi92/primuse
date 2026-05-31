@@ -71,6 +71,7 @@ final class AppleMusicLibraryService {
     private let library: MusicLibrary
     private let appleMusic: AppleMusicService
     private var syncTask: Task<Void, Never>?
+    private var syncGeneration = UUID()
     /// in-memory cache: PrimuseKit.Song.filePath (= MusicItemID.rawValue)
     /// → MusicKit.Song. sync 时填, play 时查 — 让 player.play(primuseSong)
     /// 不用每次再发 catalog lookup。冷启动后 cache 空, miss 时回退到
@@ -86,21 +87,29 @@ final class AppleMusicLibraryService {
     /// 不大 (大部分用户几百到几千首), 一次性拉全。失败时 state=.failed, UI
     /// 显示错误并允许重试。
     func sync() {
+        guard AppleMusicFeatureSettings.syncUserLibraryEnabled else {
+            cancel()
+            return
+        }
         guard syncTask == nil else { return }
         guard appleMusic.authState == .authorized else {
             state = .failed("Apple Music 未授权, 去 Settings → Apple Music 启用")
             return
         }
         state = .syncing
+        let generation = UUID()
+        syncGeneration = generation
         syncTask = Task { [weak self] in
-            await self?.runSync()
+            await self?.runSync(generation: generation)
         }
+        scheduleSyncTimeout(generation: generation)
     }
 
     /// play 入口用 ── songCache 空 (重启或刚装) 时同步等一次完整 sync, 让
     /// ApplicationMusicPlayer queue 能装上 user library 全集; 已经在跑的 sync
     /// 任务会被 await 直接复用, 不会重复触发。
     func ensureCachePopulated() async {
+        guard AppleMusicFeatureSettings.syncUserLibraryEnabled else { return }
         if !songCache.isEmpty { return }
         guard appleMusic.authState == .authorized else { return }
         if let existing = syncTask {
@@ -108,10 +117,13 @@ final class AppleMusicLibraryService {
             return
         }
         state = .syncing
+        let generation = UUID()
+        syncGeneration = generation
         let task: Task<Void, Never> = Task { [weak self] in
-            await self?.runSync()
+            await self?.runSync(generation: generation)
         }
         syncTask = task
+        scheduleSyncTimeout(generation: generation)
         await task.value
     }
 
@@ -198,6 +210,7 @@ final class AppleMusicLibraryService {
     }
 
     func cancel() {
+        syncGeneration = UUID()
         syncTask?.cancel()
         syncTask = nil
         state = .idle
@@ -266,8 +279,28 @@ final class AppleMusicLibraryService {
         return s
     }
 
-    private func runSync() async {
-        defer { syncTask = nil }
+    private func scheduleSyncTimeout(generation: UUID) {
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 12_000_000_000)
+            await MainActor.run { [weak self] in
+                guard let self,
+                      self.syncGeneration == generation,
+                      self.syncTask != nil else { return }
+                self.syncTask?.cancel()
+                self.syncTask = nil
+                self.syncGeneration = UUID()
+                self.state = .failed("Apple Music 同步超时, 请检查 Music 权限或稍后重试")
+                plog("⚠️Apple Music library sync timeout")
+            }
+        }
+    }
+
+    private func runSync(generation: UUID) async {
+        defer {
+            if syncGeneration == generation {
+                syncTask = nil
+            }
+        }
         do {
             // MusicLibraryRequest 一次性拉 user library 内 Song。limit 设到
             // 上限 (默认 25, 调大到 100 一页), 后续翻页直到 nextBatch 为 nil。
@@ -289,6 +322,7 @@ final class AppleMusicLibraryService {
 
             if Task.isCancelled { return }
             plog("🎵 Apple Music library fetched: \(allMusicKitSongs.count) songs")
+            guard syncGeneration == generation else { return }
 
             // 把 MusicKit.Song 缓存住, play 时直接喂给 ApplicationMusicPlayer
             // 不用走 catalog lookup。
@@ -324,15 +358,20 @@ final class AppleMusicLibraryService {
             // (跟「Apple Music 资料库」全集并存)。tracks 走 .with([.tracks])
             // 延迟加载关系, 失败的 playlist 跳过不阻塞整体 sync。
             let syncedUserPlaylistCount = await syncUserPlaylists()
+            guard syncGeneration == generation else { return }
 
             lastSyncAt = Date()
             state = .done(songCount: songs.count, at: lastSyncAt!)
             plog("🎵 Apple Music library synced: \(songs.count) songs, \(syncedUserPlaylistCount) playlists → playlist \(Self.systemPlaylistID)")
         } catch is CancellationError {
-            state = .idle
+            if syncGeneration == generation {
+                state = .idle
+            }
         } catch {
             plog("⚠️Apple Music library sync failed: \(error.localizedDescription)")
-            state = .failed(error.localizedDescription)
+            if syncGeneration == generation {
+                state = .failed(error.localizedDescription)
+            }
         }
     }
 

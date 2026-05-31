@@ -47,7 +47,27 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
         case .lrclib: "LRCLIB"
         case .itunes: "Apple Music"
         case .custom(let configId):
-            ScraperConfigStore.shared.config(for: configId)?.name ?? configId
+            Self.localizedCustomDisplayName(ScraperConfigStore.shared.config(for: configId)?.name ?? configId)
+        }
+    }
+
+    private static func localizedCustomDisplayName(_ name: String) -> String {
+        guard Locale.preferredLanguages.first?.hasPrefix("zh") != true else {
+            return name
+        }
+        switch name.trimmingCharacters(in: .whitespacesAndNewlines) {
+        case "酷狗音乐", "酷狗":
+            return "KuGou Music"
+        case "网易云音乐", "网易云":
+            return "NetEase Cloud Music"
+        case "QQ音乐", "QQ 音乐":
+            return "QQ Music"
+        case "咪咕音乐", "咪咕":
+            return "Migu Music"
+        case "千千音乐", "千千":
+            return "Qianqian Music"
+        default:
+            return name
         }
     }
 

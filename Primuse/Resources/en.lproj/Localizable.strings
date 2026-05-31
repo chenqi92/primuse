@@ -148,7 +148,9 @@
 "cat_local" = "Local";
 "edit_source" = "Edit Source";
 "edit" = "Edit";
+"open" = "Open";
 "delete" = "Delete";
+"delete_playlist" = "Delete Playlist";
 "disable" = "Disable";
 "enable" = "Enable";
 "disabled" = "Disabled";
@@ -284,6 +286,8 @@
 "similar_empty_hint" = "None of Last.fm's recommendations matched your library.";
 "similar_source_lastfm" = "Recommendations from Last.fm";
 "similar_section_lastfm" = "Listeners also like (Last.fm)";
+"play_similar_radio" = "Play Similar Radio";
+"similar_subtitle_format" = "Based on “%@” · %@";
 "apple_music_needs_subscription" = "An active Apple Music subscription is required to play this track in Primuse. Subscribe in the Apple Music app and try again.";
 "apple_music_unavailable" = "Apple Music streaming isn't available for this account or region.";
 "apple_music_notice_notDetermined" = "Apple Music isn't connected yet. Go to Settings → Apple Music to enable catalog search.";
@@ -412,6 +416,7 @@
 
 // MARK: - Player More Features
 "add_to_playlist" = "Add to Playlist";
+"add_to_queue" = "Add to Queue";
 "playlists_title" = "Playlists";
 "sleep_timer" = "Sleep Timer";
 "sleep_timer_active" = "Timer Active";
@@ -525,7 +530,7 @@
 // MARK: - Recently Deleted
 "recently_deleted" = "Recently Deleted";
 "recently_deleted_empty" = "Nothing recently deleted";
-"recently_deleted_empty_desc" = "Deleted playlists, music sources and scraper configs are kept here for 30 days.";
+"recently_deleted_empty_desc" = "Deleted playlists, music sources and scraper configs are kept here for 7 days.";
 "recently_deleted_playlists" = "Playlists";
 "recently_deleted_sources" = "Music Sources";
 "recently_deleted_scraper_configs" = "Scraper Configs";
@@ -568,6 +573,38 @@
 "playlist_import_err_format" = "Unsupported file format (only .m3u/.m3u8/.json accepted)";
 "playlist_import_err_malformed_format" = "Malformed file: %@";
 "playlist_import_err_empty" = "Playlist has no tracks";
+"playlist_import_mac_subtitle" = "M3U8 / JSON · automatically matches your local library after you pick a file";
+"playlist_import_mac_intro_title" = "Choose a playlist file to begin";
+"playlist_import_mac_intro_desc" = "Supports .m3u, .m3u8, and .json. Matches and missing entries are previewed before import.";
+"playlist_import_matched_count_format" = "%d matched";
+"playlist_import_pending_count_format" = "%d pending";
+"playlist_import_entries_count_format" = "%d entries";
+"playlist_import_match_results" = "Match Results";
+"playlist_import_unmatched_skip_hint" = "Unmatched entries won't be added to the new playlist";
+"playlist_import_matched_group" = "Matched";
+"playlist_import_unmatched_group" = "Unmatched";
+"playlist_import_no_manual_items" = "No entries need manual handling";
+"playlist_import_export_unmatched_csv" = "Export Unmatched → CSV";
+"playlist_import_change_file" = "Change File";
+"playlist_import_create_matched_only_format" = "Create Matched Only (%d)";
+"playlist_import_manual_match" = "Manual Match…";
+"playlist_import_manual_match_title" = "Manual Match";
+"playlist_import_search_library" = "Search library songs";
+"playlist_import_use_first_result" = "Use First Result";
+"Duplicate Song Cleanup" = "Duplicate Song Cleanup";
+"dup_keep_highest_bitrate" = "Keep Highest Bitrate";
+"dup_keep_largest_file" = "Keep Largest File";
+"dup_keep_newest" = "Keep Newest";
+"dup_mac_summary_format" = "Scan complete · found %d duplicate groups · %d files total";
+"dup_mac_match_hint_format" = "Matched by fingerprint (acoustid) + title/artist · recover %@";
+"dup_mac_delete_footer_format" = "Will delete %d files · recover %@";
+"dup_mac_cleanup_action" = "Clean Duplicates (Move to Recently Deleted)";
+"dup_mac_cleaning_footer_format" = "Cleaning in background %d / %d · continues after closing";
+"dup_mac_continue_background" = "Continue in Background";
+"dup_mac_copies_format" = "%d copies";
+"dup_mac_keep" = "Keep";
+"dup_mac_delete" = "Delete";
+"Unknown Source" = "Unknown Source";
 "carplay_recent_title" = "Recently Added";
 "carplay_albums_title" = "Albums";
 "carplay_artists_title" = "Artists";
@@ -621,6 +658,31 @@
 "scrobble_retry_now" = "Retry Now";
 "scrobble_clear_queue" = "Clear Queue";
 "scrobble_clear_queue_confirm" = "Clear all pending listens?";
+"scrobble_mac_footer_empty" = "Tokens are stored only in the local Keychain · no recent submissions";
+"scrobble_mac_footer_success_format" = "Recent submissions · %d successful";
+"scrobble_mac_title" = "Scrobble";
+"scrobble_mac_subtitle" = "Last.fm / ListenBrainz · submits after 50% or 4 minutes";
+"scrobble_mac_enabled_subtitle" = "Submit local listening history; tokens stay in the local Keychain";
+"scrobble_mac_now_playing_subtitle" = "Sync the current track when playback starts; not counted as history";
+"scrobble_mac_token_saved" = "Token saved";
+"scrobble_mac_user_token_login" = "User token sign-in";
+"scrobble_mac_validating" = "Validating";
+"scrobble_mac_waiting_browser_auth" = "Waiting for browser authorization";
+"scrobble_mac_confirming" = "Confirming";
+"scrobble_mac_i_authorized" = "I Authorized It";
+"scrobble_mac_connecting" = "Connecting";
+"scrobble_mac_create_api_app" = "Create API App";
+"scrobble_mac_rules_title" = "Submission Rules";
+"scrobble_mac_rules_subtitle" = "Submit after 50% or 4 minutes played; short audio is handled proportionally";
+"scrobble_mac_queue_subtitle" = "Failed scrobbles are kept until the next submission";
+"scrobble_mac_recent_reports_title" = "Recent Submissions";
+"scrobble_mac_recent_reports_subtitle" = "Recently submitted to Last.fm / ListenBrainz";
+"scrobble_mac_no_recent_reports" = "No recent submissions";
+"scrobble_mac_disabled_title" = "Scrobble is off";
+"scrobble_mac_disabled_desc" = "Enable it, then choose Last.fm or ListenBrainz.";
+"scrobble_mac_session_saved" = "Session saved";
+"scrobble_mac_waiting_authorization" = "Waiting for authorization";
+"scrobble_mac_browser_oauth" = "Browser OAuth sign-in";
 "ok" = "OK";
 
 // MARK: - Lyrics Translation
@@ -668,6 +730,7 @@
 "stats_range_week" = "This Week";
 "stats_range_month" = "This Month";
 "stats_range_year" = "This Year";
+"stats_range_all" = "All";
 "stats_total_plays" = "Plays";
 "stats_total_time" = "Total Time";
 "stats_active_days" = "Active Days";
@@ -1014,3 +1077,273 @@
 "source_diag_advice_server_title" = "Source response error";
 "source_diag_advice_server_suggestion" = "Check the server status and retry. If it keeps failing, export logs from Storage.";
 "source_diag_advice_invalid_response" = "The source returned an unreadable response.";
+
+// MARK: - macOS Playback menu
+"settings_menu_item" = "Settings…";
+"playback_menu" = "Playback";
+"play_pause" = "Play / Pause";
+"next_song" = "Next";
+"previous_song" = "Previous";
+"repeat" = "Repeat";
+"volume_up" = "Volume Up";
+"volume_down" = "Volume Down";
+
+// MARK: - macOS Home dashboard / Player empty / Keychain
+"home_dashboard_title" = "Primuse";
+"home_dashboard_subtitle" = "Your local files, NAS, cloud drives and Apple Music — all in one place.";
+"home_health_title" = "Library health";
+"home_cover_art" = "Cover coverage";
+"home_lyrics" = "Lyrics coverage";
+"home_playable" = "Playable ratio";
+"home_sources_title" = "Sources";
+"home_enabled_sources" = "Enabled";
+"home_active_scans" = "Scanning";
+"home_pending_details" = "Pending";
+"home_no_scans" = "No scans in progress";
+"home_source_pipeline" = "Pipeline";
+"home_pipeline_sources" = "Sources";
+"home_pipeline_scan" = "Scan";
+"home_pipeline_metadata" = "Metadata";
+"home_pipeline_listen" = "Listen";
+"home_empty_mac_hint" = "Add a NAS or cloud drive from Sources on the left, or authorize Apple Music to start.";
+"player_empty_title" = "Pick a song to play";
+"player_empty_message" = "Choose one from the library or search on the left.";
+"mac_sidebar_tools" = "Tools";
+"desktop_widgets" = "Desktop widgets";
+"keychain_sync_hint_title" = "Keychain sync";
+"keychain_sync_hint_body" = "Source passwords and cloud-drive tokens sync end-to-end-encrypted via iCloud Keychain. Enable Keychain sync in System Settings to use it.";
+
+// MARK: - macOS UI gaps (1.4.0 audit)
+"sources_count_format" = "%d sources";
+"songs_count_inline" = "songs";
+"source_state_online" = "Online";
+"source_state_attention" = "Needs attention";
+"sources_attention_banner_title" = "%d source(s) need attention";
+"source_synced_ago_format" = "Synced %@";
+"source_never_synced" = "Not synced yet";
+"close" = "Close";
+"more" = "More";
+"new" = "New";
+"current" = "Current";
+"export" = "Export";
+"connect" = "Connect";
+"min" = "Min";
+"max" = "Max";
+"play" = "Play";
+"pause" = "Pause";
+"choose_folder" = "Choose folder";
+"open_folder" = "Open folder";
+"no_folder_selected" = "No folder selected";
+"apple_music_library_hint" = "Songs in your Apple Music library appear alongside the rest of your music in Primuse.";
+"audio_output_follow_system" = "Follow system default";
+"eq_preset" = "EQ preset";
+"rank_by" = "Rank by";
+"mini_player" = "Mini player";
+"menu_bar_show_title" = "Show Primuse in menu bar";
+"open_main_window" = "Open main window";
+"quit_app" = "Quit Primuse";
+"metadata_scraping_desc" = "Fill in covers, lyrics, album and artist info for songs in your library. Choose your providers; failed fetches fall back automatically.";
+"trusted_domains_desc" = "Allow Primuse to access HTTPS resources from the domains below (sources, cover downloads, lyrics) even when the certificate is self-signed or the hostname doesn't match. Only add domains you trust.";
+"icloud_quota_exceeded" = "iCloud storage full";
+
+// MARK: - Desktop Lyrics / Menu Bar
+"show_desktop_lyrics" = "Show desktop lyrics";
+"hide_desktop_lyrics" = "Hide desktop lyrics";
+"lock_desktop_lyrics" = "Lock desktop lyrics";
+"toggle_desktop_lyrics_lock" = "Lock / unlock desktop lyrics";
+"desktop_lyrics_locked" = "Desktop lyrics locked";
+"desktop_lyrics_unlocked" = "Desktop lyrics unlocked";
+"desktop_lyrics_no_song" = "Nothing playing";
+"lyrics_color" = "Lyrics color";
+"lyrics_font_larger" = "Larger font";
+"lyrics_font_smaller" = "Smaller font";
+
+// MARK: - Desktop Widget Sync
+"desktop_widget_sync_enabled" = "Enable desktop widget sync";
+"desktop_widget_sync_footer" = "Push the current playback state to the macOS desktop widget, so you can see what's playing and control it without switching back to Primuse.";
+"desktop_widget_sync_status_enabled" = "Enabled";
+"desktop_widget_sync_status_disabled" = "Disabled";
+"desktop_widget_sync_update_now" = "Push update now";
+"desktop_widget_sync_privacy_footer" = "Status data is written only to this device's widget container. Nothing is uploaded to any server.";
+"desktop_widget_sync_explanation_title" = "Enable desktop widget sync";
+"desktop_widget_sync_explanation_message" = "Primuse will write the current playback info (title, artist, cover, progress) to the macOS desktop widget so you can see what's playing right from your desktop. Stored locally only — nothing is uploaded.";
+"desktop_widget_sync_continue" = "Continue";
+
+// MARK: - Auth / connection
+"password_required_title" = "Password required";
+"password_wrong_hint" = "Wrong password. Please try again.";
+"scrobble_lastfm_signin_browser_prompt" = "Opening your browser to complete Last.fm authorization. Return to Primuse and tap “I authorized it” when done.";
+
+// MARK: - Search prompts
+"search_songs_prompt" = "Search songs";
+"search_artists_prompt" = "Search artists";
+
+// MARK: - Smart Playlist
+"smart_playlist_combinator_and" = "All conditions";
+"smart_playlist_combinator_or" = "Any condition";
+
+// MARK: - Notifications
+"notify_scan_failed_title" = "Scan failed";
+"notify_scan_failed_body" = "“%@” scan interrupted: %@";
+"notify_scrape_done_body" = "“%@” metadata fill-in complete (%d songs).";
+"notify_scrape_done_body_with_failures" = "“%@” metadata fill-in complete (%d songs, %d failed).";
+"notify_cloud_sync_failed_title" = "iCloud sync failed";
+
+// MARK: - macOS Cloud Sync settings
+"open_keychain_settings" = "Open Keychain settings";
+
+// MARK: - Duplicate Songs view
+"dup_show_all_format" = "Show remaining %d groups";
+"dup_show_all_hint" = "Showing the first 100 groups to keep the UI responsive. Use “Clean all” above to handle obvious duplicates first.";
+
+// MARK: - More macOS i18n gaps round 2
+"full_screen_player" = "Full screen";
+"show_lyrics_background" = "Show lyrics background";
+"hide_lyrics_background" = "Hide lyrics background";
+"single_line_lyrics" = "Single-line lyrics";
+"dual_line_lyrics" = "Two-line lyrics";
+"vertical_lyrics" = "Vertical lyrics";
+"notify_rescrape_done_title" = "Rescrape complete";
+"notify_scrape_missing_done_title" = "Missing-metadata scrape complete";
+"dup_cleaning_progress_format" = "Cleaning %d / %d";
+
+// MARK: - macOS sidebar (1.6 redesign)
+"sidebar_playlists_empty" = "No playlists yet";
+"sidebar_sources_empty" = "No sources yet";
+"search_placeholder_universal" = "Search local + Apple Music";
+"sidebar_toggle" = "Toggle sidebar";
+
+// MARK: - 1.6 macOS Home redesign
+"home_recently_added_subtitle" = "Newest in your library";
+"home_recently_played_subtitle" = "On repeat lately";
+"home_artists_subtitle" = "Who you listen to most";
+"home_section_view_all" = "See all";
+"home_no_scans_short" = "Idle";
+"home_no_playing" = "Nothing playing";
+"home_pipeline_metadata_done" = "Done";
+"desktop_lyrics_locked_hint" = "Locked · ⌘⇧L to unlock";
+"search_chip_all" = "All";
+"search_chip_local" = "Local";
+"search_chip_apple_music" = "Apple Music";
+"save_as_playlist" = "Save as Playlist...";
+"material" = "Material";
+"sidebar_width" = "Sidebar Width";
+"ambient_strength" = "Ambient Strength";
+
+// MARK: - 1.6 macOS Home Hero narrative / Update banner
+"home_hero_narrative_morning" = "Good morning. Your library holds %@ stories";
+"home_hero_narrative_afternoon" = "Good afternoon. Your library holds %@ stories";
+"home_hero_narrative_evening" = "Good evening. Your library holds %@ stories";
+"home_hero_narrative_night" = "Tonight, your library holds %@ stories";
+"home_hero_stats_with_days" = "From %d sources · %d albums · %d artists · %d days %d hrs total";
+"home_hero_stats_hours_only" = "From %d sources · %d albums · %d artists · %d hrs total";
+"update_banner_title_format" = "Primuse %@ is out";
+"update_banner_subtitle" = "Update via the App Store";
+"update_banner_action" = "Update";
+"go_to_album" = "Go to Album";
+"go_to_artist" = "Go to Artist";
+"playback_settings_title" = "Playback Settings";
+"shuffle_all" = "Shuffle all";
+"sidebar_all_songs" = "All Songs";
+"sidebar_liked_songs" = "Liked Songs";
+"home_playable_count_short" = "Plays";
+"source" = "Source";
+"delete_forever" = "Delete forever";
+"deleted_at_format" = "Deleted %@";
+"track_duration_short" = "Time";
+
+// MARK: - macOS screenshot i18n polish
+"Source Status" = "Source Status";
+"Reading files" = "Reading files";
+"Resume pending" = "Resume pending";
+"Metadata backfill" = "Metadata backfill";
+"Reading tags" = "Reading tags";
+"Metadata scraping" = "Metadata scraping";
+"Covers / Lyrics" = "Covers / Lyrics";
+"Effects Chain" = "Effects Chain";
+"Enable Effects Chain" = "Enable Effects Chain";
+"Master bypass" = "Master bypass";
+"Sidecar Write-Back" = "Sidecar Write-Back";
+"Write sidecar files next to source tracks" = "Write sidecar files next to source tracks";
+"Cover Write-Back" = "Cover Write-Back";
+"<Song Name>-cover.jpg" = "<Song Name>-cover.jpg";
+"Lyrics Write-Back" = "Lyrics Write-Back";
+"<Song Name>.lrc" = "<Song Name>.lrc";
+"Write Timeout" = "Write Timeout";
+"Network sidecar write timeout" = "Network sidecar write timeout";
+"Widget payload" = "Widget payload";
+"Title + Artist + Cover + Progress + Lyrics" = "Title + Artist + Cover + Progress + Lyrics";
+"Title + Artist + Cover + Progress" = "Title + Artist + Cover + Progress";
+"Title + Artist" = "Title + Artist";
+"Clickable Interaction" = "Clickable Interaction";
+"Available Widgets" = "Available Widgets";
+"WidgetKit still manages the system widget gallery; checked items control which data Primuse pushes." = "WidgetKit still manages the system widget gallery; checked items control which data Primuse pushes.";
+"Software Update" = "Software Update";
+"Diagnostic Logs" = "Diagnostic Logs";
+"Update Available" = "Update Available";
+"Checking for Updates" = "Checking for Updates";
+"Couldn't Check for Updates" = "Couldn't Check for Updates";
+"You're up to date" = "You're up to date";
+"%@ · Current %@ · App Store %@" = "%@ · Current %@ · App Store %@";
+"%@ · Current version %@" = "%@ · Current version %@";
+"Not checked yet" = "Not checked yet";
+"Just now" = "Just now";
+"Go to App Store" = "Go to App Store";
+"Open App Store" = "Open App Store";
+"Last checked: %@" = "Last checked: %@";
+"The update will be installed from the App Store." = "The update will be installed from the App Store.";
+"No updates available." = "No updates available.";
+"Current" = "Current";
+"Minimum OS" = "Minimum OS";
+"Release Date" = "Release Date";
+"App Store does not provide release notes yet." = "App Store does not provide release notes yet.";
+"Auto-check for updates (daily)" = "Auto-check for updates (daily)";
+"Checking..." = "Checking...";
+"Check Again" = "Check Again";
+"Skip leading silence" = "Skip leading silence";
+"Skip trailing silence" = "Skip trailing silence";
+"Prewarm queue head" = "Prewarm queue head";
+"Add Custom Scraper Source" = "Add Custom Scraper Source";
+"Import from URL" = "Import from URL";
+"Paste JSON" = "Paste JSON";
+"JSON Configuration" = "JSON Configuration";
+"Valid format" = "Valid format";
+"Waiting for valid JSON" = "Waiting for valid JSON";
+"Manifest URL" = "Manifest URL";
+"Points to scraper.json manifest · downloads manifest and referenced JS scripts" = "Points to scraper.json manifest · downloads manifest and referenced JS scripts";
+"Manifest fetched · 4.2 KB" = "Manifest fetched · 4.2 KB";
+"Parse Result" = "Parse Result";
+"Capabilities" = "Capabilities";
+"Custom Headers" = "Custom Headers";
+"SSL Trusted Domains" = "SSL Trusted Domains";
+"Endpoint Scripts" = "Endpoint Scripts";
+"JS runs in a JavaScriptCore sandbox and can only access declared domains." = "JS runs in a JavaScriptCore sandbox and can only access declared domains.";
+"Add and Enable" = "Add and Enable";
+"Metadata" = "Metadata";
+"Cover" = "Cover";
+"Lyrics" = "Lyrics";
+"Open-Source Licenses" = "Open-Source Licenses";
+"Open-source components used by Primuse" = "Open-source components used by Primuse";
+"%@ · Full license text" = "%@ · Full license text";
+"Select an item to view the full license text" = "Select an item to view the full license text";
+"License text follows component versions; distribution uses the LICENSE file in the repository." = "License text follows component versions; distribution uses the LICENSE file in the repository.";
+"Audio decoding engine" = "Audio decoding engine";
+"Additional format decoding" = "Additional format decoding";
+"SMB / CIFS connection" = "SMB / CIFS connection";
+"SFTP client" = "SFTP client";
+"NFS browsing" = "NFS browsing";
+"Cover image loading and cache" = "Cover image loading and cache";
+"Data structures" = "Data structures";
+"Credential storage" = "Credential storage";
+"Logging" = "Logging";
+"Diagnostics" = "Diagnostics";
+"MetricKit + crash logs" = "MetricKit + crash logs";
+"Export Logs" = "Export Logs";
+"Memory" = "Memory";
+"CPU (playback)" = "CPU (playback)";
+"Cache" = "Cache";
+"Crashes (30 days)" = "Crashes (30 days)";
+"Live Logs" = "Live Logs";
+"Copied" = "Copied";
+"Click to copy this log line" = "Click to copy this log line";
+"All" = "All";

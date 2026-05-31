@@ -74,27 +74,26 @@ private struct MediaServerLibraryBrowserView: View {
                     .padding(.horizontal, 40)
                     Spacer()
                 } else {
-                    libraryList
+                    browserContent
                 }
 
-                bottomBar
+                BrowserBottomBar(
+                    selectedCount: selectedDirectories.count,
+                    idleIcon: "music.note.list"
+                ) {
+                    withAnimation { selectedDirectories.removeAll() }
+                }
             }
             .navigationTitle(source.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("cancel") {
-                        dismiss()
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("done") {
-                        dismiss()
-                    }
-                    .fontWeight(.semibold)
-                }
+                DirectoryBrowserToolbar(
+                    onCancel: { dismiss() },
+                    onConfirm: { dismiss() }
+                )
             }
         }
+        .directoryBrowserSheetFrame()
         .onAppear {
             guard hasLoadedLibraries == false else { return }
             hasLoadedLibraries = true
@@ -151,42 +150,25 @@ private struct MediaServerLibraryBrowserView: View {
                 }
             }
         }
-        .listStyle(.plain)
+        .directoryBrowserListStyle()
     }
 
-    private var bottomBar: some View {
-        VStack(spacing: 0) {
-            Divider()
-            HStack {
-                if selectedDirectories.isEmpty {
-                    Label("no_dirs_selected", systemImage: "music.note.list")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Label(
-                        "\(selectedDirectories.count) \(String(localized: "directories_selected"))",
-                        systemImage: "checkmark.circle.fill"
-                    )
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .foregroundStyle(Color.accentColor)
-
-                    Spacer()
-
-                    Button("clear_all") {
-                        withAnimation {
-                            selectedDirectories.removeAll()
-                        }
-                    }
-                    .font(.caption)
-                }
-
-                Spacer()
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+    @ViewBuilder
+    private var browserContent: some View {
+        #if os(macOS)
+        HStack(spacing: 0) {
+            libraryList
+            Rectangle().fill(PMColor.divider).frame(width: 0.5)
+            DirectoryPreviewPane(
+                title: source.name,
+                path: "/",
+                items: libraries,
+                selectedCount: selectedDirectories.count
+            )
         }
-        .background(.bar)
+        #else
+        libraryList
+        #endif
     }
 
     private func loadLibraries() {

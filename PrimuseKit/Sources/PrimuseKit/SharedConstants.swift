@@ -5,6 +5,24 @@ public enum PrimuseConstants {
     public static let playbackStateKey = "playbackState"
     public static let keychainServiceName = "com.welape.primuse.credentials"
 
+    // Widget shared snapshots (App Group). Written by the main app, read by
+    // the WidgetKit extension. Keys also double as the @AppStorage keys the
+    // settings UI binds to (sync toggle / refresh mode) so both sides agree.
+    public static let lyricsSnapshotKey = "widget.lyricsSnapshot"
+    public static let listeningStatsKey = "widget.listeningStats"
+    public static let sourcesSnapshotKey = "widget.sourcesSnapshot"
+    public static let wrappedSnapshotKey = "widget.wrappedSnapshot"
+    public static let widgetSyncEnabledKey = "widget.syncEnabled"
+    public static let widgetRefreshModeKey = "widget.refreshMode"
+    public static let widgetSharedDataScopeKey = "widget.sharedDataScope"
+    public static let widgetClickableInteractionKey = "widget.clickableInteraction"
+    public static let widgetNowPlayingEnabledKey = "widget.enabled.nowPlaying"
+    public static let widgetLyricsEnabledKey = "widget.enabled.lyrics"
+    public static let widgetListeningStatsEnabledKey = "widget.enabled.listeningStats"
+    public static let widgetRecentAlbumsEnabledKey = "widget.enabled.recentAlbums"
+    public static let widgetSourcesEnabledKey = "widget.enabled.sources"
+    public static let widgetWrappedEnabledKey = "widget.enabled.wrapped"
+
     public static let eqBandFrequencies: [Float] = [
         31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000
     ]

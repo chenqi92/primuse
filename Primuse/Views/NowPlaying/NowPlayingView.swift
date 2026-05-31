@@ -2,6 +2,11 @@ import AVKit
 import SwiftUI
 import Translation
 import PrimuseKit
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 struct NowPlayingView: View {
     var onMinimize: (() -> Void)? = nil
@@ -62,8 +67,14 @@ struct NowPlayingView: View {
 
     /// Top safe area height (dynamic island / status bar)
     private var topSafeArea: CGFloat {
+        #if os(iOS)
         (UIApplication.shared.connectedScenes.first as? UIWindowScene)?
             .keyWindow?.safeAreaInsets.top ?? 59
+        #else
+        // macOS 没有 dynamic island / 状态栏 safe area, 标题栏由窗口 chrome
+        // 负责, NowPlayingView 内容直接顶到窗口客户区上沿即可。
+        0
+        #endif
     }
 
     /// iPad 横屏(regular size class + 宽 > 高)启用左右双栏 —— 左封面 + 控件,
@@ -134,12 +145,7 @@ struct NowPlayingView: View {
                 .presentationDetents([.large])
             }
         }
-        .sheet(isPresented: $showSimilarSongs) {
-            if let song = player.currentSong {
-                SimilarSongsSheet(seed: song)
-                    .presentationDetents([.large])
-            }
-        }
+        .similarSongsPanel(isPresented: $showSimilarSongs, seed: player.currentSong)
         .sheet(isPresented: $showCastPicker) {
             CastDevicePickerSheet()
                 .presentationDetents([.medium, .large])
@@ -1207,6 +1213,14 @@ struct SongInfoSheet: View {
     @State private var showSimilarSongs = false
 
     var body: some View {
+        #if os(macOS)
+        macBody
+        #else
+        legacyBody
+        #endif
+    }
+
+    private var legacyBody: some View {
         NavigationStack {
             List {
                 infoRow(String(localized: "title_label"), song.title)
@@ -1253,6 +1267,145 @@ struct SongInfoSheet: View {
         }
     }
 
+    #if os(macOS)
+    private var macBody: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .top, spacing: 18) {
+                CachedArtworkView(
+                    coverRef: song.coverArtFileName,
+                    songID: song.id,
+                    size: 120,
+                    cornerRadius: 8,
+                    sourceID: song.sourceID,
+                    filePath: song.filePath
+                )
+                .shadow(color: .black.opacity(0.20), radius: 12, y: 6)
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(verbatim: "歌曲信息")
+                        .font(.system(size: 11, weight: .semibold))
+                        .textCase(.uppercase)
+                        .foregroundStyle(PMColor.textFaint)
+                    Text(song.title)
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(PMColor.text)
+                        .lineLimit(2)
+                    Text(song.artistName ?? String(localized: "unknown_artist"))
+                        .font(.system(size: 13))
+                        .foregroundStyle(PMColor.textMuted)
+                        .lineLimit(1)
+                    Text(song.albumTitle ?? "—")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(PMColor.textMuted)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                PMRoundBtn(icon: "xmark", size: 26, iconSize: 11, style: .glass,
+                           help: "done") {
+                    dismiss()
+                }
+            }
+            .padding(22)
+            .background(PMColor.card.opacity(0.54))
+
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVGrid(columns: [
+                    GridItem(.fixed(120), spacing: 18, alignment: .leading),
+                    GridItem(.flexible(), spacing: 18, alignment: .leading),
+                ], alignment: .leading, spacing: 8) {
+                    ForEach(macInfoRows, id: \.label) { row in
+                        Text(row.label)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(PMColor.textMuted)
+                        Text(row.value)
+                            .font(row.monospace
+                                  ? .system(size: 12.5, design: .monospaced)
+                                  : .system(size: 12.5))
+                            .foregroundStyle(PMColor.text)
+                            .lineLimit(row.monospace ? 3 : 1)
+                            .textSelection(.enabled)
+                    }
+                }
+                .padding(22)
+            }
+
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+
+            HStack {
+                Button {
+                    showSimilarSongs = true
+                } label: {
+                    Label(String(localized: "similar_songs"), systemImage: "sparkles")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(PMColor.text)
+                        .padding(.horizontal, 12)
+                        .frame(height: 28)
+                        .background(PMColor.glassBtn, in: .rect(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+
+                Button(String(localized: "done")) { dismiss() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .frame(height: 28)
+                    .background(PMColor.brand, in: .rect(cornerRadius: 6))
+            }
+            .padding(.horizontal, 22)
+            .padding(.vertical, 12)
+        }
+        .frame(width: 500, height: 620)
+        .background {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(.ultraThinMaterial)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(PMColor.bg.opacity(0.84))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
+        .similarSongsPanel(isPresented: $showSimilarSongs, seed: song)
+    }
+
+    private var macInfoRows: [(label: String, value: String, monospace: Bool)] {
+        var rows: [(String, String, Bool)] = [
+            (String(localized: "title_label"), song.title, false),
+        ]
+        if let artist = song.artistName { rows.append((String(localized: "artist_label"), artist, false)) }
+        if let album = song.albumTitle { rows.append((String(localized: "album_label"), album, false)) }
+        if let genre = song.genre { rows.append((String(localized: "genre_label"), genre, false)) }
+        if let year = song.year { rows.append((String(localized: "year_label"), "\(year)", false)) }
+        if let track = song.trackNumber { rows.append((String(localized: "track_label"), "\(track)", false)) }
+        rows.append((String(localized: "format_label"), song.fileFormat.displayName, false))
+        if let sr = song.sampleRate {
+            rows.append((String(localized: "sample_rate_label"), "\(sr) Hz", false))
+        }
+        if let bits = song.bitDepth {
+            rows.append((String(localized: "bit_depth_label"), "\(bits) bit", false))
+        }
+        if let bitRate = song.bitRate {
+            rows.append(("Bitrate", "\(bitRate) kbps", false))
+        }
+        if song.fileSize > 0 {
+            rows.append(("文件大小", ByteCountFormatter.string(fromByteCount: song.fileSize, countStyle: .file), false))
+        }
+        rows.append((String(localized: "duration_label"), formatDuration(song.duration), false))
+        if let source = sourcesStore.source(id: song.sourceID) {
+            rows.append((String(localized: "source_label"), source.name, false))
+        }
+        rows.append(("文件位置", song.filePath, true))
+        return rows.map { ($0.0, $0.1, $0.2) }
+    }
+    #endif
+
     private func infoRow(_ label: String, _ value: String) -> some View {
         HStack {
             Text(label).foregroundStyle(.secondary)
@@ -1276,6 +1429,14 @@ struct AddToPlaylistSheet: View {
     @State private var newPlaylistName = ""
 
     var body: some View {
+        #if os(macOS)
+        macBody
+        #else
+        legacyBody
+        #endif
+    }
+
+    private var legacyBody: some View {
         NavigationStack {
             List {
                 Section {
@@ -1318,6 +1479,145 @@ struct AddToPlaylistSheet: View {
         }
     }
 
+    #if os(macOS)
+    private var macBody: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("add_to_playlist")
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .foregroundStyle(PMColor.text)
+                    Text(verbatim: "\(song.title) · \(song.artistName ?? String(localized: "unknown_artist"))")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(PMColor.textMuted)
+                        .lineLimit(1)
+                }
+                Spacer()
+                PMRoundBtn(icon: "xmark", size: 24, iconSize: 10.5, style: .plain,
+                           help: "cancel") { dismiss() }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+
+            Button {
+                showNewPlaylist = true
+            } label: {
+                Label(String(localized: "new_playlist"), systemImage: "plus")
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(PMColor.brand)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .frame(height: 30)
+                    .background(PMColor.glassBtn, in: .rect(cornerRadius: 6))
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVStack(spacing: 2) {
+                    if library.playlists.isEmpty {
+                        ContentUnavailableView {
+                            Label(String(localized: "no_playlists"), systemImage: "music.note.list")
+                        }
+                        .padding(.vertical, 48)
+                    } else {
+                        ForEach(library.playlists) { playlist in
+                            macPlaylistRow(playlist)
+                        }
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.bottom, 12)
+            }
+
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+
+            HStack(spacing: 10) {
+                Spacer()
+                Button(String(localized: "cancel")) { dismiss() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12))
+                    .foregroundStyle(PMColor.textMuted)
+                    .padding(.horizontal, 14)
+                    .frame(height: 26)
+                Button(String(localized: "done")) { dismiss() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .frame(height: 26)
+                    .background(PMColor.brand, in: .rect(cornerRadius: 5))
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 10)
+        }
+        .frame(width: 380, height: 480)
+        .background {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(.ultraThinMaterial)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(PMColor.bg.opacity(0.86))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
+        .alert(String(localized: "new_playlist"), isPresented: $showNewPlaylist) {
+            TextField(String(localized: "playlist_name"), text: $newPlaylistName)
+            Button(String(localized: "cancel"), role: .cancel) { newPlaylistName = "" }
+            Button(String(localized: "create")) {
+                guard !newPlaylistName.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+                let pl = library.createPlaylist(name: newPlaylistName)
+                library.add(songID: song.id, toPlaylist: pl.id)
+                newPlaylistName = ""
+            }
+        }
+    }
+
+    private func macPlaylistRow(_ playlist: Playlist) -> some View {
+        let isAdded = library.contains(songID: song.id, inPlaylist: playlist.id)
+        let count = library.songs(forPlaylist: playlist.id).count
+
+        return Button {
+            if isAdded {
+                library.remove(songID: song.id, fromPlaylist: playlist.id)
+            } else {
+                library.add(songID: song.id, toPlaylist: playlist.id)
+            }
+        } label: {
+            HStack(spacing: 10) {
+                StoredCoverArtView(fileName: playlist.coverArtPath, size: 32, cornerRadius: 4)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(playlist.name)
+                        .font(.system(size: 12.5, weight: .medium))
+                        .foregroundStyle(PMColor.text)
+                        .lineLimit(1)
+                    Text("\(count) \(String(localized: "songs_count"))")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(PMColor.textFaint)
+                }
+
+                Spacer()
+
+                if isAdded {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(PMColor.brand)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .pmRowBackground(selected: isAdded, cornerRadius: 5)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+    #endif
+
     @ViewBuilder
     private func playlistRow(playlist: Playlist) -> some View {
         let isAdded = library.contains(songID: song.id, inPlaylist: playlist.id)
@@ -1346,6 +1646,7 @@ struct AddToPlaylistSheet: View {
     }
 }
 
+#if os(iOS)
 struct AirPlayButton: UIViewRepresentable {
     func makeUIView(context: Context) -> AVRoutePickerView {
         let v = AVRoutePickerView()
@@ -1356,6 +1657,15 @@ struct AirPlayButton: UIViewRepresentable {
     }
     func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
 }
+#else
+/// macOS 上 AVRoutePickerView 是 NSView, tint / activeTint API 也不一样。
+/// 但 NowPlayingView 的 iOS 全屏播放器 (含 AirPlay 按钮) 在 macOS 上不会出现
+/// (Mac 用 MacNowPlayingView), 这里给一个能编译的占位空视图, 避免 import
+/// 链断开。真用到再走 AVRoutePickerView (NSView) 适配。
+struct AirPlayButton: View {
+    var body: some View { Color.clear.frame(width: 44, height: 44) }
+}
+#endif
 
 // MARK: - LyricsScrollView (隔离的歌词渲染子 view)
 
@@ -2070,6 +2380,215 @@ struct CastDevicePickerSheet: View {
     @Environment(DLNARendererService.self) private var renderer
 
     var body: some View {
+        #if os(macOS)
+        macBody
+            .task {
+                renderer.refreshRemoteRenderers()
+            }
+        #else
+        iosBody
+        #endif
+    }
+
+    #if os(macOS)
+    private var macBody: some View {
+        let remoteRenderers = renderer.discoveredRenderers.values.sorted { $0.friendlyName < $1.friendlyName }
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: "tv.and.hifispeaker.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(PMColor.brand)
+                    .frame(width: 30, height: 30)
+                    .background(PMColor.brand.opacity(0.14), in: .rect(cornerRadius: 7))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("DLNA 投屏")
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .foregroundStyle(PMColor.text)
+                    Text("局域网 Renderer · \(remoteRenderers.count) 个设备")
+                        .font(.system(size: 11))
+                        .foregroundStyle(PMColor.textMuted)
+                }
+                Spacer()
+                Button {
+                    renderer.refreshRemoteRenderers()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(PMColor.textMuted)
+                        .frame(width: 24, height: 24)
+                        .background(PMColor.glassBtn, in: .circle)
+                }
+                .buttonStyle(.plain)
+                .help(Text("refresh"))
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVStack(alignment: .leading, spacing: 4) {
+                    macLocalRendererRow
+
+                    if remoteRenderers.isEmpty {
+                        macScanningState
+                    } else {
+                        ForEach(remoteRenderers) { dev in
+                            macRendererRow(dev)
+                        }
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+            }
+            #if os(macOS)
+            .pmForceHideScrollers()
+            #endif
+            .frame(minHeight: 260, maxHeight: 340)
+
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+
+            HStack(spacing: 10) {
+                Text("本机也可被投送")
+                    .font(.system(size: 11))
+                    .foregroundStyle(PMColor.textFaint)
+                Spacer()
+                if player.isCastingMode {
+                    Button {
+                        Task {
+                            await player.stopCasting()
+                            dismiss()
+                        }
+                    } label: {
+                        Text("停止投屏")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(PMColor.text)
+                            .padding(.horizontal, 12)
+                            .frame(height: 26)
+                            .background(PMColor.glassBtn, in: .rect(cornerRadius: 5))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 10)
+        }
+        .frame(width: 380)
+        // 当作为 popover/sheet 弹出时, SwiftUI 系统已经包了 chrome (圆角材质 +
+        // 边框 + 阴影 + 箭头), 这里不再画自己的 rounded rect + material + shadow,
+        // 否则跟系统 chrome 叠成双层框 (用户截图里那一圈外框就是这么来的)。
+    }
+
+    private var macLocalRendererRow: some View {
+        Button {
+            Task {
+                await player.stopCasting()
+                dismiss()
+            }
+        } label: {
+            HStack(spacing: 10) {
+                macRendererIcon("macbook.and.iphone")
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("cast_local_device")
+                        .font(.system(size: 12.5, weight: !player.isCastingMode ? .semibold : .medium))
+                        .foregroundStyle(PMColor.text)
+                    Text("cast_local_subtitle")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(PMColor.textFaint)
+                }
+                Spacer()
+                if !player.isCastingMode {
+                    Text("● 已连接")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundStyle(PMColor.brand)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 8)
+            .pmRowBackground(selected: !player.isCastingMode, cornerRadius: 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func macRendererRow(_ dev: RemoteRenderer) -> some View {
+        let selected = player.castingRenderer?.udn == dev.udn
+        return Button {
+            Task {
+                await player.startCasting(to: dev)
+                dismiss()
+            }
+        } label: {
+            HStack(spacing: 10) {
+                macRendererIcon(rendererSymbol(for: dev))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(dev.friendlyName)
+                        .font(.system(size: 12.5, weight: selected ? .semibold : .medium))
+                        .foregroundStyle(PMColor.text)
+                        .lineLimit(1)
+                    Text(rendererSubtitle(for: dev))
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(PMColor.textFaint)
+                        .lineLimit(1)
+                }
+                Spacer()
+                if selected {
+                    Text("● 已连接")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundStyle(PMColor.brand)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 8)
+            .pmRowBackground(selected: selected, cornerRadius: 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var macScanningState: some View {
+        VStack(spacing: 9) {
+            ProgressView().controlSize(.small)
+            Text("cast_scanning")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(PMColor.textMuted)
+            Text("cast_dlna_required_hint")
+                .font(.system(size: 10.5))
+                .foregroundStyle(PMColor.textFaint)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 26)
+    }
+
+    private func macRendererIcon(_ symbol: String) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(PMColor.brand)
+            .frame(width: 32, height: 32)
+            .background(PMColor.brand.opacity(0.14), in: .rect(cornerRadius: 6))
+    }
+
+    private func rendererSymbol(for dev: RemoteRenderer) -> String {
+        let text = [dev.friendlyName, dev.modelName, dev.manufacturer]
+            .compactMap { $0?.lowercased() }
+            .joined(separator: " ")
+        if text.contains("tv") || text.contains("bravia") { return "tv" }
+        if text.contains("speaker") || text.contains("sonos") || text.contains("音箱") { return "hifispeaker.fill" }
+        if text.contains("nas") || text.contains("synology") || text.contains("群晖") { return "externaldrive.fill" }
+        return "desktopcomputer"
+    }
+
+    private func rendererSubtitle(for dev: RemoteRenderer) -> String {
+        if let model = dev.modelName, let maker = dev.manufacturer {
+            return "\(maker) · \(model)"
+        }
+        if let model = dev.modelName { return model }
+        return dev.host
+    }
+    #endif
+
+    private var iosBody: some View {
         NavigationStack {
             List {
                 Section {
@@ -2153,6 +2672,7 @@ struct CastDevicePickerSheet: View {
             .navigationTitle("cast_picker_title")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                #if os(iOS)
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(action: { renderer.refreshRemoteRenderers() }) {
                         Image(systemName: "arrow.clockwise")
@@ -2162,6 +2682,17 @@ struct CastDevicePickerSheet: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button(String(localized: "done")) { dismiss() }
                 }
+                #else
+                ToolbarItem(placement: .primaryAction) {
+                    Button(action: { renderer.refreshRemoteRenderers() }) {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .accessibilityLabel(Text("refresh"))
+                }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(String(localized: "done")) { dismiss() }
+                }
+                #endif
             }
             .task {
                 // 进 sheet 立刻主动扫一遍, 不等下一次周期触发

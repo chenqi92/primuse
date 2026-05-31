@@ -1,4 +1,11 @@
 import SwiftUI
+#if os(iOS)
+#if os(iOS)
+import UIKit
+#endif
+#else
+import AppKit
+#endif
 
 struct CloudSyncSettingsView: View {
     @Environment(CloudKitSyncService.self) private var sync
@@ -8,6 +15,7 @@ struct CloudSyncSettingsView: View {
     @AppStorage(CloudSyncChannel.playbackHistory.defaultsKey) private var syncPlaybackHistory: Bool = true
     @AppStorage(CloudSyncChannel.settings.defaultsKey) private var syncSettings: Bool = true
     @AppStorage(CloudSyncChannel.credentials.defaultsKey) private var syncCredentials: Bool = true
+    @AppStorage(CloudSyncChannel.listeningStats.defaultsKey) private var syncListeningStats: Bool = true
     @State private var isSyncingNow = false
 
     var body: some View {
@@ -30,10 +38,9 @@ struct CloudSyncSettingsView: View {
             if enabled {
                 Section("icloud_sync_status") {
                     HStack {
-                        Text("status")
-                        Spacer()
                         statusLabel
                             .foregroundStyle(.secondary)
+                        Spacer()
                     }
 
                     if let lastSyncedAt = sync.lastSyncedAt {
@@ -49,9 +56,16 @@ struct CloudSyncSettingsView: View {
 
                     if case .accountUnavailable(.noAccount) = sync.status {
                         Button {
+                            #if os(iOS)
                             if let url = URL(string: UIApplication.openSettingsURLString) {
                                 UIApplication.shared.open(url)
                             }
+                            #else
+                            // macOS — open the iCloud System Settings pane.
+                            if let url = URL(string: "x-apple.systempreferences:com.apple.systempreferences.AppleIDSettings") {
+                                NSWorkspace.shared.open(url)
+                            }
+                            #endif
                         } label: {
                             Label("open_system_settings", systemImage: "gear")
                         }
@@ -82,6 +96,7 @@ struct CloudSyncSettingsView: View {
                 channelToggle("synced_playback_history", systemImage: "clock.arrow.circlepath", isOn: $syncPlaybackHistory, channel: .playbackHistory)
                 channelToggle("synced_settings", systemImage: "slider.horizontal.3", isOn: $syncSettings, channel: .settings)
                 channelToggle("synced_credentials", systemImage: "lock.shield", isOn: $syncCredentials, channel: .credentials)
+                channelToggle("stats_title", systemImage: "chart.bar.xaxis", isOn: $syncListeningStats, channel: .listeningStats)
             } header: {
                 Text("synced_items")
             } footer: {

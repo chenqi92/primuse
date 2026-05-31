@@ -24,9 +24,41 @@ struct ConnectorDirectoryBrowserView: View {
     @State private var sslTrustContinuation: CheckedContinuation<Bool, Never>?
 
     var body: some View {
+        #if os(macOS)
+        MacDirTreeBrowser(
+            title: "浏览 \(source.type.displayName) · \(source.name)",
+            subtitle: macConnectionString,
+            rootTitle: source.name,
+            selectedDirectories: $selectedDirectories,
+            load: { path in
+                try await connector.connect()
+                return try await connector.listFiles(at: path)
+            }
+        )
+        #else
+        iosBody
+        #endif
+    }
+
+    #if os(macOS)
+    /// 顶栏副标题用的连接串, 例如 `smb://10.0.0.4/Music`。
+    private var macConnectionString: String {
+        let scheme = source.type.displayName.lowercased()
+        let host = source.host ?? ""
+        let share = source.shareName ?? ""
+        if host.isEmpty { return scheme }
+        if share.isEmpty { return "\(scheme)://\(host)" }
+        return "\(scheme)://\(host)/\(share)"
+    }
+    #endif
+
+    private var iosBody: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                breadcrumbBar
+                DirectoryBreadcrumb(
+                    segments: pathStack.map { .init(path: $0.path, title: $0.title) },
+                    onSelect: navigateTo
+                )
                 Divider()
 
                 if isLoading {
@@ -53,23 +85,23 @@ struct ConnectorDirectoryBrowserView: View {
                     .padding(.horizontal, 40)
                     Spacer()
                 } else {
-                    directoryList
+                    browserContent
                 }
 
-                bottomBar
+                BrowserBottomBar(selectedCount: selectedDirectories.count) {
+                    withAnimation { selectedDirectories.removeAll() }
+                }
             }
             .navigationTitle(source.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("done") { dismiss() }
-                        .fontWeight(.semibold)
-                }
+                DirectoryBrowserToolbar(
+                    onCancel: { dismiss() },
+                    onConfirm: { dismiss() }
+                )
             }
         }
+        .directoryBrowserSheetFrame()
         .onAppear {
             guard !hasLoadedRoot else { return }
             hasLoadedRoot = true
@@ -102,38 +134,6 @@ struct ConnectorDirectoryBrowserView: View {
         return await withCheckedContinuation { continuation in
             sslTrustDomain = domain; sslTrustContinuation = continuation
         }
-    }
-
-    private var breadcrumbBar: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 2) {
-                    ForEach(Array(pathStack.enumerated()), id: \.offset) { index, segment in
-                        if index > 0 {
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.tertiary)
-                        }
-
-                        Button { navigateTo(index: index) } label: {
-                            Text(segment.title)
-                                .font(.caption)
-                                .fontWeight(index == pathStack.count - 1 ? .semibold : .regular)
-                                .foregroundStyle(index == pathStack.count - 1 ? Color.primary : Color.accentColor)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 4)
-                        }
-                        .id(index)
-                    }
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 6)
-            }
-            .onChange(of: pathStack.count) { _, _ in
-                withAnimation { proxy.scrollTo(pathStack.count - 1, anchor: .trailing) }
-            }
-        }
-        .background(.bar)
     }
 
     private var directoryList: some View {
@@ -173,44 +173,25 @@ struct ConnectorDirectoryBrowserView: View {
                 }
             }
         }
-        .listStyle(.plain)
+        .directoryBrowserListStyle()
     }
 
-    private var bottomBar: some View {
-        VStack(spacing: 0) {
-            Divider()
-            HStack {
-                if selectedDirectories.isEmpty {
-                    Label("no_dirs_selected", systemImage: "folder.badge.questionmark")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Label(
-                        "\(selectedDirectories.count) \(String(localized: "directories_selected"))",
-                        systemImage: "checkmark.circle.fill"
-                    )
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .foregroundStyle(Color.accentColor)
-
-                    Spacer()
-
-                    Button(role: .destructive) {
-                        withAnimation { selectedDirectories.removeAll() }
-                    } label: {
-                        Label("clear_all", systemImage: "xmark.circle")
-                            .font(.caption).fontWeight(.medium)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-
-                Spacer()
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+    @ViewBuilder
+    private var browserContent: some View {
+        #if os(macOS)
+        HStack(spacing: 0) {
+            directoryList
+            Rectangle().fill(PMColor.divider).frame(width: 0.5)
+            DirectoryPreviewPane(
+                title: pathStack.last?.title ?? source.name,
+                path: currentPath,
+                items: items,
+                selectedCount: selectedDirectories.count
+            )
         }
-        .background(.bar)
+        #else
+        directoryList
+        #endif
     }
 
     private var currentDirectorySubtitle: String? {

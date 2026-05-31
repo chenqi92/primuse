@@ -11,6 +11,7 @@ public struct PlaybackState: Codable, Sendable {
     public var songTitle: String?
     public var artistName: String?
     public var albumTitle: String?
+    public var fileFormat: String?
     public var coverArtData: Data? // small thumbnail < 100KB
     /// Filename of cover image stored in the App Group shared container (for Widget rendering)
     public var coverImageName: String?
@@ -24,6 +25,7 @@ public struct PlaybackState: Codable, Sendable {
         songTitle: String? = nil,
         artistName: String? = nil,
         albumTitle: String? = nil,
+        fileFormat: String? = nil,
         coverArtData: Data? = nil,
         coverImageName: String? = nil,
         isPlaying: Bool = false,
@@ -35,6 +37,7 @@ public struct PlaybackState: Codable, Sendable {
         self.songTitle = songTitle
         self.artistName = artistName
         self.albumTitle = albumTitle
+        self.fileFormat = fileFormat
         self.coverArtData = coverArtData
         self.coverImageName = coverImageName
         self.isPlaying = isPlaying
@@ -57,5 +60,9 @@ public struct PlaybackState: Codable, Sendable {
             return
         }
         defaults.set(data, forKey: PrimuseConstants.playbackStateKey)
+    }
+
+    public static func clear() {
+        UserDefaults(suiteName: PrimuseConstants.appGroupIdentifier)?.removeObject(forKey: PrimuseConstants.playbackStateKey)
     }
 }

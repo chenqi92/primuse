@@ -1,4 +1,6 @@
 import Foundation
+import CryptoKit
+import Security
 
 /// Manages a set of trusted domains whose SSL certificate errors should be ignored.
 /// Persisted to UserDefaults so trust decisions survive app restarts.
@@ -8,14 +10,26 @@ final class SSLTrustStore {
     static let shared = SSLTrustStore()
 
     nonisolated private static let defaultsKey = "primuse_trusted_ssl_domains"
+    nonisolated private static let certificateDefaultsKey = "primuse_trusted_ssl_certificates_v1"
 
     private(set) var trustedDomains: [String] = []
+    private(set) var trustedCertificates: [TrustedCertificateInfo] = []
 
     // MARK: - SSL Trust Request (for UI alert flow)
+
+    struct TrustedCertificateInfo: Codable, Equatable, Identifiable, Sendable {
+        var id: String { domain }
+        let domain: String
+        let fingerprintSHA256: String?
+        let expiresAt: Date?
+        let subjectSummary: String?
+        let trustedAt: Date
+    }
 
     struct TrustRequest: Identifiable {
         let id = UUID()
         let domain: String
+        let certificateInfo: TrustedCertificateInfo?
         let continuation: CheckedContinuation<Bool, Never>
     }
 
@@ -48,15 +62,48 @@ final class SSLTrustStore {
     }
 
     func trust(domain: String) {
-        guard !trustedDomains.contains(domain) else { return }
-        trustedDomains.append(domain)
+        trust(domain: domain, certificateInfo: nil)
+    }
+
+    func trust(domain: String, certificateInfo: TrustedCertificateInfo?) {
+        let normalized = domain.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return }
+        if !trustedDomains.contains(normalized) {
+            trustedDomains.append(normalized)
+        }
         trustedDomains.sort()
+        let info = certificateInfo.map {
+            TrustedCertificateInfo(
+                domain: normalized,
+                fingerprintSHA256: $0.fingerprintSHA256,
+                expiresAt: $0.expiresAt,
+                subjectSummary: $0.subjectSummary,
+                trustedAt: $0.trustedAt
+            )
+        } ?? TrustedCertificateInfo(
+            domain: normalized,
+            fingerprintSHA256: nil,
+            expiresAt: nil,
+            subjectSummary: nil,
+            trustedAt: Date()
+        )
+        if let index = trustedCertificates.firstIndex(where: { $0.domain == normalized }) {
+            trustedCertificates[index] = info
+        } else {
+            trustedCertificates.append(info)
+        }
+        trustedCertificates.sort { $0.domain < $1.domain }
         saveToDefaults()
     }
 
     func untrust(domain: String) {
         trustedDomains.removeAll { $0 == domain }
+        trustedCertificates.removeAll { $0.domain == domain }
         saveToDefaults()
+    }
+
+    func certificateInfo(for domain: String) -> TrustedCertificateInfo? {
+        trustedCertificates.first { $0.domain == domain }
     }
 
     /// Thread-safe synchronous check for use from URLSession delegate callbacks (non-MainActor).
@@ -68,12 +115,16 @@ final class SSLTrustStore {
 
     /// Show a trust prompt to the user. Returns `true` if user chose to trust the domain.
     /// The UI layer (ContentView) observes `pendingTrustRequest` and shows an alert.
-    func requestTrust(domain: String) async -> Bool {
+    func requestTrust(domain: String, certificateInfo: TrustedCertificateInfo? = nil) async -> Bool {
         // Already trusted — no need to ask
         if isTrusted(domain: domain) { return true }
 
         return await withCheckedContinuation { continuation in
-            pendingTrustRequest = TrustRequest(domain: domain, continuation: continuation)
+            pendingTrustRequest = TrustRequest(
+                domain: domain,
+                certificateInfo: certificateInfo,
+                continuation: continuation
+            )
         }
     }
 
@@ -81,7 +132,7 @@ final class SSLTrustStore {
     func resolveTrustRequest(approved: Bool) {
         guard let request = pendingTrustRequest else { return }
         if approved {
-            trust(domain: request.domain)
+            trust(domain: request.domain, certificateInfo: request.certificateInfo)
         }
         pendingTrustRequest = nil
         request.continuation.resume(returning: approved)
@@ -122,10 +173,64 @@ final class SSLTrustStore {
 
     private func loadFromDefaults() {
         trustedDomains = UserDefaults.standard.stringArray(forKey: Self.defaultsKey) ?? []
+        if let data = UserDefaults.standard.data(forKey: Self.certificateDefaultsKey),
+           let decoded = try? JSONDecoder().decode([TrustedCertificateInfo].self, from: data) {
+            trustedCertificates = decoded
+        }
+        let domainsWithInfo = Set(trustedCertificates.map(\.domain))
+        for domain in trustedDomains where !domainsWithInfo.contains(domain) {
+            trustedCertificates.append(TrustedCertificateInfo(
+                domain: domain,
+                fingerprintSHA256: nil,
+                expiresAt: nil,
+                subjectSummary: nil,
+                trustedAt: Date.distantPast
+            ))
+        }
+        trustedDomains.sort()
+        trustedCertificates.sort { $0.domain < $1.domain }
     }
 
     private func saveToDefaults() {
         UserDefaults.standard.set(trustedDomains, forKey: Self.defaultsKey)
+        if let data = try? JSONEncoder().encode(trustedCertificates) {
+            UserDefaults.standard.set(data, forKey: Self.certificateDefaultsKey)
+        }
+    }
+
+    nonisolated static func certificateInfo(domain: String, trust: SecTrust) -> TrustedCertificateInfo? {
+        guard let certificate = leafCertificate(from: trust) else { return nil }
+        let data = SecCertificateCopyData(certificate) as Data
+        let fingerprint = SHA256.hash(data: data)
+            .map { String(format: "%02X", $0) }
+            .joined()
+        return TrustedCertificateInfo(
+            domain: domain.lowercased(),
+            fingerprintSHA256: fingerprint,
+            expiresAt: certificateExpiry(certificate),
+            subjectSummary: SecCertificateCopySubjectSummary(certificate) as String?,
+            trustedAt: Date()
+        )
+    }
+
+    nonisolated private static func leafCertificate(from trust: SecTrust) -> SecCertificate? {
+        if #available(macOS 12.0, iOS 15.0, *) {
+            return (SecTrustCopyCertificateChain(trust) as? [SecCertificate])?.first
+        }
+        return SecTrustGetCertificateAtIndex(trust, 0)
+    }
+
+    nonisolated private static func certificateExpiry(_ certificate: SecCertificate) -> Date? {
+#if os(macOS)
+        let keys = [kSecOIDX509V1ValidityNotAfter] as CFArray
+        guard
+            let values = SecCertificateCopyValues(certificate, keys, nil) as? [String: Any],
+            let entry = values[kSecOIDX509V1ValidityNotAfter as String] as? [String: Any]
+        else { return nil }
+        return entry[kSecPropertyKeyValue as String] as? Date
+#else
+        return nil
+#endif
     }
 }
 
@@ -144,6 +249,16 @@ final class SmartSSLDelegate: NSObject, URLSessionDelegate, Sendable {
             if SSLTrustStore.isTrustedSync(domain: domain) {
                 return (.useCredential, URLCredential(trust: trust))
             }
+            var trustError: CFError?
+            if SecTrustEvaluateWithError(trust, &trustError) {
+                return (.performDefaultHandling, nil)
+            }
+            let info = SSLTrustStore.certificateInfo(domain: domain, trust: trust)
+            let approved = await SSLTrustStore.shared.requestTrust(domain: domain, certificateInfo: info)
+            if approved {
+                return (.useCredential, URLCredential(trust: trust))
+            }
+            return (.cancelAuthenticationChallenge, nil)
         }
         return (.performDefaultHandling, nil)
     }

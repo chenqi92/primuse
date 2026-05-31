@@ -26,6 +26,7 @@ final class AppServices {
     let dlnaRenderer: DLNARendererService
     let visualizer: AudioVisualizerService
     let crashDiagnostics: CrashDiagnosticsService
+    let duplicateCleanup: DuplicateCleanupService
 
     private init() {
         // Class is @MainActor so this initializer is too — but the static
@@ -68,7 +69,12 @@ final class AppServices {
         // Pull the user's chosen app icon tint into the theme so the in-app
         // accent matches the icon they picked. Cover-art-derived colors will
         // override this while a song with artwork plays.
+        #if os(iOS)
         theme.setBaseAccent(AppIconService.shared.currentTint)
+        #else
+        // macOS: 用用户在「外观」里选的品牌色作为 ambient fallback (没封面取色时)。
+        theme.setBaseAccent(MacUIPreferences.shared.brandColor)
+        #endif
         self.themeService = theme
         self.scanService = ScanService()
         self.metadataBackfill = MetadataBackfillService(library: library, sourceManager: manager)
@@ -102,6 +108,11 @@ final class AppServices {
         let crash = CrashDiagnosticsService()
         crash.register()
         self.crashDiagnostics = crash
+        self.duplicateCleanup = DuplicateCleanupService(
+            library: library,
+            sourceManager: manager,
+            sourcesStore: store
+        )
 
         library.updateDisabledSourceIDs(
             Set(store.sources.filter { !$0.isEnabled }.map(\.id))
@@ -116,7 +127,7 @@ final class AppServices {
             store?.allSources.first(where: { $0.id == sourceID })?.cloudAccountID
         }
 
-        let pruneThreshold = Date(timeIntervalSinceNow: -30 * 24 * 60 * 60)
+        let pruneThreshold = Date(timeIntervalSinceNow: -7 * 24 * 60 * 60)
         library.prunePlaylists(deletedBefore: pruneThreshold)
         store.pruneSources(deletedBefore: pruneThreshold)
         ScraperConfigStore.shared.pruneConfigs(deletedBefore: pruneThreshold)

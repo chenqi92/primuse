@@ -1,3 +1,6 @@
+// WatchConnectivity 在 macOS 上不可用, 整个文件 iOS-only。macOS 端的
+// Mac app 没有 Watch 伴侣关系 ── Watch app 跟 Mac 桌面端不配对。
+#if os(iOS)
 import Foundation
 import UIKit
 import SwiftUI
@@ -423,3 +426,4 @@ extension WatchSessionBridge: WCSessionDelegate {
         pushIfMeaningfulChange(force: true)
     }
 }
+#endif

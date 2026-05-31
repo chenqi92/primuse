@@ -2,6 +2,30 @@ import Foundation
 import MusicKit
 import PrimuseKit
 
+enum AppleMusicFeatureSettings {
+    static let syncUserLibraryKey = "primuse.appleMusic.syncUserLibrary"
+    static let catalogSearchEnabledKey = "primuse.appleMusic.catalogSearchEnabled"
+    static let autoAddToSmartPlaylistsKey = "primuse.appleMusic.autoAddToSmartPlaylists"
+
+    static var syncUserLibraryEnabled: Bool {
+        bool(forKey: syncUserLibraryKey, defaultValue: true)
+    }
+
+    static var catalogSearchEnabled: Bool {
+        bool(forKey: catalogSearchEnabledKey, defaultValue: true)
+    }
+
+    static var autoAddToSmartPlaylistsEnabled: Bool {
+        bool(forKey: autoAddToSmartPlaylistsKey, defaultValue: false)
+    }
+
+    private static func bool(forKey key: String, defaultValue: Bool) -> Bool {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: key) != nil else { return defaultValue }
+        return defaults.bool(forKey: key)
+    }
+}
+
 /// Apple Music 桥 ── 仅做"在搜索里多挂一组结果 + 调系统播放器开播"这件事,
 /// 不试图把 Apple Music 歌混进 MusicLibrary。原因:
 /// - Apple Music 是 DRM 流, 必须经 `ApplicationMusicPlayer` 才能播,我们自己
@@ -80,6 +104,11 @@ final class AppleMusicService {
     /// debounce 错开 (这边再叠 200ms 防止用户连击触发多次 catalog 调用)。
     /// 未授权时直接清结果,不试着 silently request 授权 (避免无端弹窗)。
     func search(query: String) {
+        guard AppleMusicFeatureSettings.catalogSearchEnabled else {
+            clearCatalogSearchResults()
+            return
+        }
+
         // 用户可能在外部 (iOS Settings) 修改了授权状态, 重读一次以保持同步。
         // 比 init 时只读一次更可靠 — 用户首次启动 → 去设置授权 → 回 app 搜索
         // 这条路径下 authState 不会陷在 notDetermined。
@@ -109,6 +138,15 @@ final class AppleMusicService {
             guard !Task.isCancelled, let self else { return }
             await self.runSearch(term: trimmed)
         }
+    }
+
+    func clearCatalogSearchResults() {
+        searchTask?.cancel()
+        searchTask = nil
+        searchResults = []
+        isSearching = false
+        lastSearchError = nil
+        lastSearchHitCount = -1
     }
 
     private func runSearch(term: String) async {
