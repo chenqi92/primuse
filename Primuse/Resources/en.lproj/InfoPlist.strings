@@ -7,3 +7,4 @@
 "NSSiriUsageDescription" = "Used to start playback and control Primuse with Siri voice commands.";
 "NSAppleMusicUsageDescription" = "Primuse needs access to your Apple Music / iTunes library to import its local tracks as a playback source.";
 "NSLocalNetworkUsageDescription" = "Primuse needs local network access to discover and connect to your NAS devices, media servers, and other music sources.";
+"NSMotionUsageDescription" = "Primuse uses headphone motion to keep Spatial Audio anchored while you move your head.";

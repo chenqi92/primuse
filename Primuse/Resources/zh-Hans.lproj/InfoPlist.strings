@@ -6,3 +6,4 @@
 "NSSiriUsageDescription" = "用 Siri 语音点播、控制猿音播放。";
 "NSAppleMusicUsageDescription" = "猿音需要访问您的 Apple Music / iTunes 资料库，以将本机音乐导入为播放源。";
 "NSLocalNetworkUsageDescription" = "猿音需要访问本地网络以发现和连接您的 NAS 设备、媒体服务器及其他音乐源。";
+"NSMotionUsageDescription" = "猿音会使用支持的耳机运动数据，让空间音频在您转动头部时保持稳定定位。";
