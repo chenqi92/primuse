@@ -52,6 +52,17 @@ struct LibraryView: View {
     private var playlists: [Playlist] { library.playlists }
     private var hasContent: Bool { !songs.isEmpty }
 
+    /// 「我喜欢的」系统歌单 ── 资料库置顶快捷入口指向它。歌单可能还没建出来
+    /// (用户一次都没点过 heart), 这里给个同 ID 的占位; PlaylistDetailView 全程按
+    /// id 取实时数据, 进去照样能点喜欢、收到后续 toggle。
+    private var likedPlaylist: Playlist {
+        library.playlists.first(where: { $0.id == MusicLibrary.likedSongsPlaylistID })
+            ?? Playlist(id: MusicLibrary.likedSongsPlaylistID, name: String(localized: "playlist_liked_name"))
+    }
+    private var likedSongsCount: Int {
+        library.songs(forPlaylist: MusicLibrary.likedSongsPlaylistID).count
+    }
+
     init(deepLink: Binding<LibraryDeepLink?> = .constant(nil)) {
         self._deepLink = deepLink
     }
@@ -59,11 +70,24 @@ struct LibraryView: View {
     var body: some View {
         NavigationStack(path: $navigationPath) {
             List {
-                // 主入口 ── 大行 List 风格 (类似 Apple Music 资料库主页),
-                // 4 个分类按 内容窄→宽 排序 (歌单 < 艺人 < 专辑 < 全部歌曲)。
-                // 每行带数量徽标方便扫读。「我喜欢」就是歌单里的一个 system
-                // 歌单, 不单独提到这里, 用户从「歌单」入口能看到。
+                // 主入口 ── 大行 List 风格 (类似 Apple Music 资料库主页)。
+                // 「我喜欢的」作为固定快捷入口置顶, 它底层就是 likedSongsPlaylistID
+                // 那个 system 歌单, PlaylistListView 会把它从「歌单」列表过滤掉, 避免
+                // 同一个东西出现两次 (跟 macOS 侧栏一致)。下面 4 个分类按 内容窄→宽
+                // 排序 (歌单 < 艺人 < 专辑 < 全部歌曲), 每行带数量徽标方便扫读。
                 Section {
+                    Button {
+                        navigationPath.append(likedPlaylist)
+                    } label: {
+                        libraryEntryRowLabel(
+                            icon: "heart.fill",
+                            color: .pink,
+                            title: Text("sidebar_liked_songs"),
+                            count: likedSongsCount
+                        )
+                    }
+                    .buttonStyle(.plain)
+
                     ForEach(LibrarySection.allCases, id: \.self) { section in
                         Button {
                             navigationPath.append(section)
