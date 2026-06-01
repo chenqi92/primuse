@@ -124,7 +124,7 @@ struct HomeView: View {
             }
 
             // Top artists — replaces the alphabetical
-            // library.artists.prefix(8). When PlayHistoryStore has
+            // library.visibleArtists.prefix(8). When PlayHistoryStore has
             // history we sort by play count; otherwise fall back to
             // alphabetical so the section isn't empty.
             if showTopArtists, !homeSnapshot.topArtists.isEmpty {
@@ -738,9 +738,9 @@ struct HomeView: View {
     /// history doesn't fill the row.
     private func topArtistsForHome(history: [PlayHistoryStore.RankedItem]) -> [Artist] {
         guard !history.isEmpty else {
-            return Array(library.artists.prefix(8))
+            return Array(library.visibleArtists.prefix(8))
         }
-        let byName = Dictionary(library.artists.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
+        let byName = Dictionary(library.visibleArtists.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
         var result: [Artist] = []
         var seen = Set<String>()
         for item in history {
@@ -750,7 +750,7 @@ struct HomeView: View {
             }
         }
         if result.count < 8 {
-            for a in library.artists where !seen.contains(a.id) {
+            for a in library.visibleArtists where !seen.contains(a.id) {
                 result.append(a)
                 seen.insert(a.id)
                 if result.count >= 8 { break }

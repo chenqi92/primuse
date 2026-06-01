@@ -702,7 +702,7 @@ struct DuplicateSongsView: View {
         defer { isScanning = false }
         // 主线程只负责拍 snapshot, 实际 Dictionary(grouping:) + folding
         // + sort 全部到后台跑。10k+ 库主线程跑要 1-3s 直接卡 UI。
-        let snapshot = library.songs
+        let snapshot = library.visibleSongs
         let detected = await Task.detached(priority: .userInitiated) {
             DuplicateDetector.detect(in: snapshot)
         }.value

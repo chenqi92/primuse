@@ -745,9 +745,9 @@ struct PlaylistImportView: View {
 
     private var manualMatchResults: [Song] {
         let query = manualMatchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return Array(library.songs.prefix(40)) }
+        guard !query.isEmpty else { return Array(library.visibleSongs.prefix(40)) }
         let folded = query.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-        return library.songs
+        return library.visibleSongs
             .filter { song in
                 [song.title, song.artistName, song.albumTitle]
                     .compactMap { $0 }

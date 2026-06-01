@@ -188,7 +188,7 @@ struct AlbumDetailView: View {
     }
 
     private var albumArtist: Artist? {
-        library.artists.first { $0.id == album.artistID || $0.name == album.artistName }
+        library.visibleArtists.first { $0.id == album.artistID || $0.name == album.artistName }
     }
 
     private var albumSubtitle: String {

@@ -10,7 +10,7 @@ struct AlbumGridView: View {
     #endif
 
     var body: some View {
-        if library.albums.isEmpty {
+        if library.visibleAlbums.isEmpty {
             EmptyStateView(
                 titleKey: "no_albums",
                 descriptionKey: "no_albums_desc",
@@ -22,7 +22,7 @@ struct AlbumGridView: View {
             #else
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 20) {
-                    ForEach(library.albums) { album in
+                    ForEach(library.visibleAlbums) { album in
                         NavigationLink(value: album) {
                             AlbumCardView(album: album)
                         }
@@ -67,8 +67,8 @@ struct AlbumGridView: View {
 
     private var filteredAlbums: [Album] {
         let q = albumFilter.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !q.isEmpty else { return library.albums }
-        return library.albums.filter { album in
+        guard !q.isEmpty else { return library.visibleAlbums }
+        return library.visibleAlbums.filter { album in
             album.title.localizedCaseInsensitiveContains(q)
                 || (album.artistName?.localizedCaseInsensitiveContains(q) ?? false)
                 || album.year.map(String.init)?.contains(q) == true
@@ -152,7 +152,7 @@ struct AlbumGridView: View {
             Spacer()
 
             HStack(spacing: 10) {
-                Text(verbatim: "\(sortedAlbums.count)/\(library.albums.count) \(String(localized: "albums_count")) · 按\(albumSort.label)")
+                Text(verbatim: "\(sortedAlbums.count)/\(library.visibleAlbums.count) \(String(localized: "albums_count")) · 按\(albumSort.label)")
                     .font(.system(size: 12))
                     .foregroundStyle(PMColor.textFaint)
                 albumFilterField

@@ -214,8 +214,8 @@ struct SearchView: View {
 
                 HStack(spacing: 14) {
                     macSummaryTile(value: "\(library.visibleSongs.count)", label: "tab_songs", icon: "music.note")
-                    macSummaryTile(value: "\(library.albums.count)", label: "tab_albums", icon: "square.stack")
-                    macSummaryTile(value: "\(library.artists.count)", label: "tab_artists", icon: "music.mic")
+                    macSummaryTile(value: "\(library.visibleAlbums.count)", label: "tab_albums", icon: "square.stack")
+                    macSummaryTile(value: "\(library.visibleArtists.count)", label: "tab_artists", icon: "music.mic")
                 }
             }
             .padding(.horizontal, PMSpace.xxxl)
@@ -675,9 +675,9 @@ struct SearchView: View {
                         .foregroundStyle(.secondary)
                     Text("\(library.visibleSongs.count) \(String(localized: "tab_songs"))")
                     Spacer()
-                    Text("\(library.albums.count) \(String(localized: "tab_albums"))")
+                    Text("\(library.visibleAlbums.count) \(String(localized: "tab_albums"))")
                     Text("·")
-                    Text("\(library.artists.count) \(String(localized: "tab_artists"))")
+                    Text("\(library.visibleArtists.count) \(String(localized: "tab_artists"))")
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
