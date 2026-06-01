@@ -22,6 +22,19 @@ struct PlaylistDetailView: View {
         library.songs(forPlaylist: playlist.id)
     }
 
+    /// 歌单封面取自首歌 ── 跟 PlaylistListView 行封面同源, coverArtPath 字段不再
+    /// 读 (老 path 常跟实际歌曲不同步、Liked 系统歌单更是经常为空)。优先挑有
+    /// coverArtFileName 的歌, 没有就退回第一首 (CachedArtworkView 仍能按
+    /// sourceID/filePath 在线解析封面)。
+    private var coverSong: Song? {
+        songs.first(where: { $0.coverArtFileName?.isEmpty == false }) ?? songs.first
+    }
+
+    /// 空态占位图标 ── Liked 用 heart, 其它歌单用列表图标。
+    private var coverPlaceholderIcon: String {
+        playlist.id == MusicLibrary.likedSongsPlaylistID ? "heart.fill" : "music.note.list"
+    }
+
     /// 给 .sheet 用 — URL 不是 Identifiable, 包一层。
     struct ExportShareItem: Identifiable {
         let id = UUID()
@@ -42,10 +55,14 @@ struct PlaylistDetailView: View {
             VStack(spacing: 20) {
                 // Playlist header
                 VStack(spacing: 8) {
-                    StoredCoverArtView(
-                        fileName: currentPlaylist?.coverArtPath,
+                    CachedArtworkView(
+                        coverRef: coverSong?.coverArtFileName,
+                        songID: coverSong?.id,
                         size: 180,
-                        cornerRadius: 14
+                        cornerRadius: 14,
+                        sourceID: coverSong?.sourceID,
+                        filePath: coverSong?.filePath,
+                        placeholderIcon: coverPlaceholderIcon
                     )
 
                     Text(currentPlaylist?.name ?? playlist.name)
@@ -202,8 +219,8 @@ struct PlaylistDetailView: View {
                     eyebrow: "playlist",
                     title: currentPlaylist?.name ?? playlist.name,
                     subtitle: playlistSubtitle,
-                    iconSystemName: playlist.id == MusicLibrary.likedSongsPlaylistID ? "heart.fill" : "music.note.list",
-                    coverSong: songs.first(where: { $0.coverArtFileName?.isEmpty == false }),
+                    iconSystemName: coverPlaceholderIcon,
+                    coverSong: coverSong,
                     onPlay: playAll,
                     onShuffle: {
                         player.shuffleEnabled = true

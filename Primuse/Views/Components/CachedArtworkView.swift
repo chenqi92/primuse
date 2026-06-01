@@ -94,8 +94,9 @@ struct CachedArtworkView: View {
     }
 
     // New init with explicit songID
-    init(coverRef: String?, songID: String, size: CGFloat? = nil, cornerRadius: CGFloat = 12,
+    init(coverRef: String?, songID: String?, size: CGFloat? = nil, cornerRadius: CGFloat = 12,
          sourceID: String? = nil, filePath: String? = nil,
+         placeholderIcon: String = "music.note",
          revisionToken: Int = 0) {
         self.coverRef = coverRef
         self.songID = songID
@@ -103,6 +104,7 @@ struct CachedArtworkView: View {
         self.cornerRadius = cornerRadius
         self.sourceID = sourceID
         self.filePath = filePath
+        self.placeholderIcon = placeholderIcon
         self.revisionToken = revisionToken
     }
 
