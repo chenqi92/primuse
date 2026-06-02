@@ -603,6 +603,12 @@ struct PrimuseApp: App {
                     case .background, .inactive:
                         playerService.handleAppWillResignActive()
                         musicLibrary.persistNow()
+                        // 把整库快照上传到 iCloud,供 tvOS 等不扫描的端下载浏览。
+                        if iCloudSyncEnabled {
+                            Task.detached(priority: .background) {
+                                await LibrarySnapshotSync.shared.uploadNow()
+                            }
+                        }
                         // If a scan was running OR backfill has pending work, ask
                         // iOS to wake us later via BGProcessingTask so we can keep
                         // going past the beginBackgroundTask 30s ceiling. (No-op

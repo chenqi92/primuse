@@ -1799,6 +1799,9 @@ final class MusicLibrary {
         rebuildVisibleCache()
     }
 
+    /// tvOS 下载到新快照后重新从磁盘加载整库(songs/playlists 等)。
+    func reloadFromDisk() { loadSnapshot() }
+
     private func loadSnapshot() {
         guard let data = try? Data(contentsOf: snapshotURL),
               let snapshot = try? decoder.decode(Snapshot.self, from: data) else {

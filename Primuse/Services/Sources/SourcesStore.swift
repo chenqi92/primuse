@@ -55,6 +55,9 @@ final class SourcesStore {
         allSources.first(where: { $0.id == id })
     }
 
+    /// tvOS 下载到新 sources.json 后重新从磁盘加载。
+    func reloadFromDisk() { load(); loadAccounts() }
+
     func add(_ source: MusicSource) {
         upsert(source)
     }
