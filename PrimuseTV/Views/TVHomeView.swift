@@ -7,7 +7,11 @@ struct TVHomeView: View {
     var openPlayer: () -> Void = {}
 
     private var hero: TVAlbum {
-        store.album("a08") ?? store.albums.first ?? TVSampleData.albums[7]
+        store.album("a08")
+            ?? store.albums.first
+            ?? TVSampleData.albums.first
+            ?? TVAlbum(id: "_", title: "Primuse", artist: "", year: 0,
+                       tint: TVColor.brand, tint2: .black, glyph: "♪")
     }
     private var heroSongs: [TVSong] { store.songs(forAlbum: hero.id) }
     private var heroSubtitle: String {
