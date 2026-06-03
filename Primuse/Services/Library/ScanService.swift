@@ -143,7 +143,7 @@ final class ScanService {
                  .jellyfin, .emby, .plex,
                  .subsonic, .navidrome, .airsonic, .gonic,
                  .qnap, .ugreen, .fnos, .s3,
-                 .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .pan115,
+                 .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .pan115, .pan123,
                  .local, .appleMusicLibrary:
                 await scanConnectorSource(
                     source: source,

@@ -173,6 +173,7 @@ struct CloudDriveConnectionView: View {
         case .oneDrive: return "前往 entra.microsoft.com 注册应用"
         case .dropbox: return "前往 dropbox.com/developers/apps 创建应用"
         case .pan115: return "前往 115.com 开放平台申请开发者应用"
+        case .pan123: return "前往 123pan.cn/developer 申请开发者应用"
         default: return "前往对应平台的开发者中心注册"
         }
     }
@@ -376,6 +377,7 @@ struct CloudDriveConnectionView: View {
         case .oneDrive: return "login.microsoftonline.com"
         case .dropbox: return "dropbox.com"
         case .pan115: return "115.com"
+        case .pan123: return "123pan.com"
         default: return "授权服务"
         }
     }
@@ -581,6 +583,8 @@ struct CloudDriveConnectionView: View {
             return DropboxSource.oauthConfig(clientId: clientId, clientSecret: clientSecret)
         case .pan115:
             return U115Source.oauthConfig(clientId: clientId, clientSecret: clientSecret)
+        case .pan123:
+            return Pan123Source.oauthConfig(clientId: clientId, clientSecret: clientSecret)
         default:
             // Fallback — shouldn't happen
             return CloudOAuthConfig(

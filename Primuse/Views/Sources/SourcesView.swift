@@ -398,7 +398,7 @@ struct SourcesView: View {
             NFSBrowserView(source: source, selectedDirectories: selectedDirectories)
         case .upnp:
             UPnPBrowserView(source: source, selectedDirectories: selectedDirectories)
-        case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .pan115:
+        case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .pan115, .pan123:
             CloudDriveConnectionView(
                 source: source,
                 selectedDirectories: selectedDirectories

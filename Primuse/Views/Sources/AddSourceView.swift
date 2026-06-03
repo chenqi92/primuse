@@ -354,7 +354,7 @@ struct AddSourceView: View {
                 }
                 macToggleRow("use_ssl", isOn: $useSsl)
             }
-        case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .pan115:
+        case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .pan115, .pan123:
             macSection("cloud_oauth_config") {
                 if BuiltInCloudCredentials.hasBuiltIn(for: sourceType) {
                     Label("已内置官方凭证,保存后直接授权即可", systemImage: "checkmark.seal.fill")
@@ -672,7 +672,7 @@ struct AddSourceView: View {
                     .focused($focusedField, equals: .password)
                 Toggle("use_ssl", isOn: $useSsl)
             }
-        case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .pan115:
+        case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .pan115, .pan123:
             Section("cloud_oauth_config") {
                 if BuiltInCloudCredentials.hasBuiltIn(for: sourceType) {
                     // Built-in credentials available — no input needed

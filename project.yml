@@ -171,6 +171,8 @@ targets:
         PrimuseOneDriveClientID: "$(ONEDRIVE_CLIENT_ID)"
         PrimuseU115ClientID: "$(U115_CLIENT_ID)"
         PrimuseU115ClientSecret: "$(U115_CLIENT_SECRET)"
+        PrimusePan123ClientID: "$(PAN123_CLIENT_ID)"
+        PrimusePan123ClientSecret: "$(PAN123_CLIENT_SECRET)"
         PrimuseLastFmAPIKey: "$(LASTFM_API_KEY)"
         PrimuseLastFmAPISecret: "$(LASTFM_API_SECRET)"
         UILaunchScreen: {}
@@ -431,6 +433,8 @@ targets:
         PrimuseOneDriveClientID: "$(ONEDRIVE_CLIENT_ID)"
         PrimuseU115ClientID: "$(U115_CLIENT_ID)"
         PrimuseU115ClientSecret: "$(U115_CLIENT_SECRET)"
+        PrimusePan123ClientID: "$(PAN123_CLIENT_ID)"
+        PrimusePan123ClientSecret: "$(PAN123_CLIENT_SECRET)"
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
           NSAllowsLocalNetworking: true

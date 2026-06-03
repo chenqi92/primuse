@@ -4,8 +4,10 @@
 "src.displayName.baiduPan"   = "百度网盘";
 "src.displayName.aliyunDrive" = "阿里云盘";
 "src.displayName.pan115"     = "115 网盘";
+"src.displayName.pan123"     = "123 云盘";
 
 "src.subtitle.fnos"          = "飞牛 OS";
 "src.subtitle.baiduPan"      = "百度网盘 OAuth";
 "src.subtitle.aliyunDrive"   = "阿里云盘 PDS";
 "src.subtitle.pan115"        = "115 开放平台";
+"src.subtitle.pan123"        = "123 开放平台";

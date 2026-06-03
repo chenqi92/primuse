@@ -49,6 +49,7 @@
 		10E2E9512E5EEA74BCBE5E9C /* LastFmSimilarAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86755A200F0E3D194EE50F3E /* LastFmSimilarAPI.swift */; };
 		119D802D4B34C39D6F5B3D5A /* SidecarMetadataLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7F90F8D26A59F3DF6BF867F /* SidecarMetadataLoader.swift */; };
 		11CB33E17845B102955BD7D4 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A41F54083A82815533AA0C36 /* SwiftUI.framework */; };
+		13753B3DF25C5DF4CFD69FDB /* Pan123Source.swift in Sources */ = {isa = PBXBuildFile; fileRef = 309F9BB53ECA9FA54F805457 /* Pan123Source.swift */; };
 		13DD1FC0A9A63C8DD65490E1 /* SourceTypeSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C50B958D5A7FEF1F9E8AD24 /* SourceTypeSelectionView.swift */; };
 		14679BA5BB14B1054E5D6265 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 769C39487B88BFC43377D781 /* WidgetKit.framework */; };
 		152D4F76DC785ACF53D9B854 /* AudioVisualizerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEEDF841710389644E89A3A1 /* AudioVisualizerService.swift */; };
@@ -362,6 +363,7 @@
 		9DDF813005BEC7D6D53E4BB7 /* ITunesScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1254C88A6F33F2A3A73C2CA /* ITunesScraper.swift */; };
 		9EF475BC087A3FAE66D9BBD0 /* LibraryWatchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06F450E1573013F6EC1F48E6 /* LibraryWatchView.swift */; };
 		9FFA8FE518DD0500CA0B913B /* PlaybackLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AA5AE882AD3B192D6A6764E /* PlaybackLiveActivity.swift */; };
+		A145E09220ABEC39967A4B66 /* Pan123Source.swift in Sources */ = {isa = PBXBuildFile; fileRef = 309F9BB53ECA9FA54F805457 /* Pan123Source.swift */; };
 		A16CCCDDB616A31F67877A67 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E8868307C8B45B391847C2B /* SettingsView.swift */; };
 		A19AAA0FCB37214487EC2B79 /* MusicLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2105927D98B1DF9885EB81 /* MusicLibrary.swift */; };
 		A313D01D254364AF38081E23 /* PlaybackSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80BF155F8BD6EBFBBAA9B83A /* PlaybackSettingsStore.swift */; };
@@ -788,6 +790,7 @@
 		2ED64A9CEF96E0A4A91703E4 /* ScraperSettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScraperSettingsStore.swift; sourceTree = "<group>"; };
 		2FD2BBC1EC1BECCE0D1EEF17 /* S3Source.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = S3Source.swift; sourceTree = "<group>"; };
 		30745B2257303D586ECADA6D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		309F9BB53ECA9FA54F805457 /* Pan123Source.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pan123Source.swift; sourceTree = "<group>"; };
 		30B7398D5BCEB0CAED2FB0E0 /* CoverTintProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoverTintProvider.swift; sourceTree = "<group>"; };
 		3305EA479E0347F99584ABAE /* MediaDetailActionBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaDetailActionBar.swift; sourceTree = "<group>"; };
 		33778B5B75AE878513F91C1B /* ConnectionFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionFlowView.swift; sourceTree = "<group>"; };
@@ -1800,6 +1803,7 @@
 				6FF18B2B6584B7988608C004 /* GoogleDriveSource.swift */,
 				3C85D6EDF29DAED03773957A /* OAuthService.swift */,
 				3E648713A25DB3912120693A /* OneDriveSource.swift */,
+				309F9BB53ECA9FA54F805457 /* Pan123Source.swift */,
 				4DB4788BFEC669118576E7E2 /* U115Source.swift */,
 			);
 			path = CloudDrive;
@@ -2468,6 +2472,7 @@
 				49A5B455D71D7C8E0FE0E628 /* OnboardingView.swift in Sources */,
 				3F8513D64E7EAB2667895EEC /* OneDriveSource.swift in Sources */,
 				33291B00F794529D46E2B888 /* PMTitleBar.swift in Sources */,
+				A145E09220ABEC39967A4B66 /* Pan123Source.swift in Sources */,
 				287112ACD7B473C32EF89924 /* PlatformShims.swift in Sources */,
 				15D68850E066D89C71F3C9A4 /* PlayHistoryArchiver.swift in Sources */,
 				BEB7D80462349BF2B227ED79 /* PlayHistoryStore.swift in Sources */,
@@ -2725,6 +2730,7 @@
 				F45510F7EDAE425A749A03CF /* OnboardingView.swift in Sources */,
 				235C8FC6F296376EB5E6A8F1 /* OneDriveSource.swift in Sources */,
 				E3900CCC1A7A9AEC7FAB20FE /* PMTitleBar.swift in Sources */,
+				13753B3DF25C5DF4CFD69FDB /* Pan123Source.swift in Sources */,
 				C0A9D1EA92EADB6659E5438F /* PlatformShims.swift in Sources */,
 				FDADB4614F54492B17C9A53F /* PlayHistoryArchiver.swift in Sources */,
 				316F7D3AFEC3687155A303D4 /* PlayHistoryStore.swift in Sources */,
