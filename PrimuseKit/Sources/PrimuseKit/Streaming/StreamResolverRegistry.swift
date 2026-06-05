@@ -15,6 +15,7 @@ public actor StreamResolverRegistry {
         let synology = SynologyStreamResolver()
         let s3 = S3StreamResolver()
         let cloud = CloudDriveStreamResolver()
+        let baidu = BaiduPanStreamResolver()
         let media = MediaServerStreamResolver()
         let nas = NasHttpStreamResolver()
         let ugreen = UgreenStreamResolver()
@@ -32,10 +33,10 @@ public actor StreamResolverRegistry {
         }
         map[.ugreen] = ugreen
         // 云盘:阿里/OneDrive/Dropbox/123 直链直连;Google/115 经 resource loader 带播放头。
-        // (百度需 fs_id,当前快照未携带,暂不接。)
         for type in [MusicSourceType.aliyunDrive, .oneDrive, .dropbox, .pan123, .googleDrive, .pan115] {
             map[type] = cloud
         }
+        map[.baiduPan] = baidu   // list→fs_id→filemetas→CDN,播放带 UA(resource loader)
         resolvers = map
     }
 

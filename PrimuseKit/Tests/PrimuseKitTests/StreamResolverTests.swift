@@ -77,10 +77,9 @@ import Testing
     #expect(supported.isSuperset(of: [.subsonic, .navidrome, .airsonic, .gonic, .synology, .s3,
                                       .aliyunDrive, .oneDrive, .dropbox, .pan123,
                                       .jellyfin, .emby, .plex, .qnap, .fnos, .ugreen,
-                                      .googleDrive, .pan115]))
-    #expect(!supported.contains(.smb))          // 原生库源仍不支持
+                                      .googleDrive, .pan115, .baiduPan]))
+    #expect(!supported.contains(.smb))          // 原生库源仍不支持(需 Phase 3 中继)
     #expect(!supported.contains(.appleMusic))
-    #expect(!supported.contains(.baiduPan))     // 需播放头/UA,待引擎支持后再接
 }
 
 // MARK: - 媒体服务器(Jellyfin/Emby/Plex)
@@ -195,6 +194,19 @@ import Testing
     #expect(resolved.url.absoluteString
             == "https://www.googleapis.com/drive/v3/files/FILEID123?alt=media&acknowledgeAbuse=true")
     #expect(resolved.headers["Authorization"] == "Bearer GT")
+}
+
+@Test func baiduParsing() {
+    let entries: [[String: Any]] = [
+        ["server_filename": "a.flac", "fs_id": Int64(123)],
+        ["server_filename": "b.mp3", "fs_id": 456],
+    ]
+    #expect(BaiduPanStreamResolver.fsId(in: entries, name: "b.mp3") == 456)
+    #expect(BaiduPanStreamResolver.fsId(in: entries, name: "a.flac") == 123)
+    #expect(BaiduPanStreamResolver.fsId(in: entries, name: "missing") == nil)
+    let meta: [String: Any] = ["list": [["dlink": "https://d.pcs.baidu.com/file/abc"]]]
+    #expect(BaiduPanStreamResolver.dlink(in: meta) == "https://d.pcs.baidu.com/file/abc")
+    #expect(BaiduPanStreamResolver.dlink(in: ["list": []]) == nil)
 }
 
 @Test func cloudRequestBuilders() {
