@@ -972,6 +972,10 @@
 "settings_dlna_footer" = "Other devices on the same Wi-Fi (VLC, Synology Audio Station, Plex, Hi-Fi Cast, etc.) will see Primuse as a media renderer and can push audio for playback.";
 "settings_dlna_keepalive" = "Receive in background";
 "settings_dlna_keepalive_footer" = "When enabled, Primuse keeps accepting pushes from other devices even when it's in the background and not playing music. Trade-off: the lock screen / Control Center will show Primuse as playing, and battery use rises slightly.";
+"settings_relay_section" = "Apple TV Relay";
+"settings_relay_enable" = "Let Apple TV play via this device";
+"settings_relay_footer" = "When on, an Apple TV signed in to the same Apple ID can play local, SMB, SFTP, NFS, WebDAV and other sources it can't reach directly — relayed through this device over the LAN. Keep Primuse open in the foreground and both devices on the same Wi-Fi.";
+"settings_relay_waiting" = "Getting LAN address… (make sure Wi-Fi is connected)";
 "cast_to_device" = "Cast to device";
 "cast_casting_to_format" = "Casting to: %@";
 "cast_picker_title" = "Playback device";
