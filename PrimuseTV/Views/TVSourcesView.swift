@@ -10,17 +10,24 @@ struct TVSourcesView: View {
     var body: some View {
         ZStack {
             TVColor.bg.ignoresSafeArea()
-            if store.sources.isEmpty {
-                TVEmptyState(icon: "server.rack", title: "还没有音乐源",
-                             subtitle: "在 iPhone / Mac 上添加音乐源,经 iCloud 同步后在此显示").tvPage()
-            } else {
-                HStack(alignment: .top, spacing: 60) {
-                    ScrollView(.vertical, showsIndicators: false) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            TVEyebrow(text: "音乐源")
-                            Text("音乐源 · \(store.sources.count) 个")
-                                .font(TVFont.pageTitle).foregroundStyle(.white)
-                                .padding(.bottom, 22)
+            HStack(alignment: .top, spacing: 60) {
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        TVEyebrow(text: "音乐源")
+                        Text("音乐源 · \(store.sources.count) 个")
+                            .font(TVFont.pageTitle).foregroundStyle(.white)
+                            .padding(.bottom, 22)
+                        if store.sources.isEmpty {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Image(systemName: "server.rack").font(.system(size: 54))
+                                    .foregroundStyle(.white.opacity(0.35))
+                                Text("还没有音乐源").font(.system(size: 26, weight: .bold)).foregroundStyle(.white)
+                                Text("扫右侧二维码在手机上添加,或在 iPhone / Mac 上添加后经 iCloud 同步过来。")
+                                    .font(.system(size: 18)).foregroundStyle(.white.opacity(0.6))
+                                    .frame(maxWidth: 560, alignment: .leading).lineSpacing(4)
+                            }
+                            .padding(.top, 24)
+                        } else {
                             VStack(spacing: 12) {
                                 ForEach(store.sources) { s in
                                     TVSourceRow(source: s, onSelect: { pendingDelete = s })
@@ -28,16 +35,16 @@ struct TVSourcesView: View {
                             }
                         }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    VStack(alignment: .leading, spacing: 0) {
-                        TVEyebrow(text: "添加音乐源").padding(.bottom, 16)
-                        TVSourcesInfoCard()
-                    }
-                    .frame(width: 520)
                 }
-                .tvPage()
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 0) {
+                    TVEyebrow(text: "添加音乐源").padding(.bottom, 16)
+                    TVSourcesInfoCard()
+                }
+                .frame(width: 520)
             }
+            .tvPage()
         }
         .alert("删除音乐源?", isPresented: Binding(
             get: { pendingDelete != nil },
@@ -79,7 +86,8 @@ private struct TVSourceRow: View {
     var onSelect: () -> Void = {}
 
     var body: some View {
-        TVFocusButton(radius: TVRadius.card, scale: 1.01, lift: 0, action: onSelect) { focused in
+        // 不缩放:全宽行缩放会溢出 ScrollView 横向裁切,导致描边左右被裁(只剩上下)。
+        TVFocusButton(radius: TVRadius.card, scale: 1.0, lift: 0, action: onSelect) { focused in
             HStack(spacing: 18) {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(LinearGradient(colors: [source.color, .black.opacity(0.4)],

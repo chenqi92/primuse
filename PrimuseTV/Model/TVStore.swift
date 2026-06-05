@@ -250,13 +250,21 @@ final class TVStore {
     func reload() {
         library.reloadFromDisk()
         sourcesStore.reloadFromDisk()
+        refreshVisibility()
     }
 
-    /// 在 Apple TV 上删除音乐源:本地软删除 + 尽力把快照上传回 iCloud。
+    /// 隐藏「停用 / 已删除」音乐源的歌曲——资料库只显示有效源的内容。
+    private func refreshVisibility() {
+        let hidden = Set(sourcesStore.allSources.filter { $0.isDeleted || !$0.isEnabled }.map(\.id))
+        library.updateDisabledSourceIDs(hidden)
+    }
+
+    /// 在 Apple TV 上删除音乐源:本地软删除 + 隐藏其歌曲 + 尽力把快照上传回 iCloud。
     /// 注意:手机才是源的权威方——若该源在手机上仍存在,下次同步可能回来,
     /// 彻底删除请在手机/电脑上操作。
     func deleteSource(_ id: String) {
         sourcesStore.remove(id: id)
+        refreshVisibility()
         Task.detached { await LibrarySnapshotSync.shared.uploadNow() }
     }
 
