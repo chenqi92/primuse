@@ -48,13 +48,20 @@ targets:
     dependencies:
       - target: PrimuseKit
       - package: GRDB
+    info:
+      path: PrimuseTV/Info-preview.plist
+      properties:
+        CFBundleDisplayName: Primuse
+        CFBundleName: Primuse
+        # 与正式 tvOS target 一致:允许局域网明文 HTTP(iPhone 中继 / http NAS 直链)。
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+          NSAllowsLocalNetworking: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.welape.yuanyin.tvpreview
         TARGETED_DEVICE_FAMILY: "3"
         TVOS_DEPLOYMENT_TARGET: "17.0"
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: Primuse
         CODE_SIGN_ENTITLEMENTS: Config/PrimuseTV.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor

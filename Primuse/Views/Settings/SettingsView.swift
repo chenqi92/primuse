@@ -92,12 +92,20 @@ struct SettingsView: View {
                     } label: {
                         Label("settings_dlna_section", systemImage: "antenna.radiowaves.left.and.right")
                     }
+                }
+
+                Section {
+                    AppleTVPushRow()
 
                     NavigationLink {
                         RelaySettingsView()
                     } label: {
                         Label("settings_relay_section", systemImage: "appletv")
                     }
+                } header: {
+                    Text("settings_appletv_section")
+                } footer: {
+                    Text("settings_push_to_tv_footer").font(.footnote)
                 }
 
                 Section("playback") {
@@ -762,6 +770,43 @@ struct PlaybackSettingsView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+    }
+}
+
+// MARK: - Send to Apple TV
+
+/// 一键把当前曲库 + 音乐源 + 凭据(含中继端点)立刻上传到 iCloud,供 Apple TV 拉取。
+/// 平时退后台也会自动上传;这个按钮是「立即、可见」的显式入口。
+private struct AppleTVPushRow: View {
+    @AppStorage("primuse.iCloudSyncEnabled") private var iCloudSyncEnabled: Bool = true
+    @State private var pushing = false
+    @State private var showDone = false
+
+    var body: some View {
+        Button {
+            guard !pushing else { return }
+            pushing = true; showDone = false
+            Task {
+                await LibrarySnapshotSync.shared.uploadNow()
+                pushing = false; showDone = true
+                try? await Task.sleep(for: .seconds(3))
+                showDone = false
+            }
+        } label: {
+            HStack {
+                Label("settings_push_to_tv", systemImage: "appletv.fill")
+                Spacer()
+                if pushing {
+                    ProgressView()
+                } else if showDone {
+                    Label("settings_push_to_tv_done", systemImage: "checkmark.circle.fill")
+                        .labelStyle(.titleAndIcon)
+                        .font(.subheadline)
+                        .foregroundStyle(.green)
+                }
+            }
+        }
+        .disabled(pushing || !iCloudSyncEnabled)
     }
 }
 

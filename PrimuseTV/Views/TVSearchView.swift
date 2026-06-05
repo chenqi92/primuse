@@ -7,7 +7,7 @@ struct TVSearchView: View {
     var openPlayer: () -> Void = {}
 
     @State private var query: String = ""
-    @FocusState private var fieldFocused: Bool
+    @FocusState private var inputActive: Bool
 
     private var matchedSongs: [TVSong] {
         let q = query.trimmingCharacters(in: .whitespaces)
@@ -32,6 +32,12 @@ struct TVSearchView: View {
         ZStack {
             TVAmbientBackdrop(tint: store.albums.first?.tint ?? TVColor.brand,
                               tint2: store.albums.first?.tint2 ?? .black, strength: 0.4)
+            // 隐藏但可被程序聚焦的输入框:按下搜索框 → 聚焦它 → 唤出 tvOS 全屏键盘
+            //(含语音听写)。可见的搜索框是统一风格的 TVFocusButton,不再有系统白底叠层。
+            TextField("", text: $query)
+                .focused($inputActive)
+                .opacity(0.02).frame(width: 1, height: 1)
+                .allowsHitTesting(false)
             HStack(alignment: .top, spacing: 60) {
                 leftColumn
                 rightColumn
@@ -40,34 +46,29 @@ struct TVSearchView: View {
         }
     }
 
-    // MARK: 左列 — 搜索框(系统键盘,支持语音听写)
+    // MARK: 左列 — 搜索框(选中唤出系统键盘,支持语音听写)
 
     private var leftColumn: some View {
         VStack(alignment: .leading, spacing: 0) {
             TVEyebrow(text: "搜索").padding(.bottom, 16)
 
-            HStack(spacing: 18) {
-                Image(systemName: "magnifyingglass").font(.system(size: 26, weight: .semibold))
-                    .foregroundStyle(fieldFocused ? TVColor.brand : .white.opacity(0.55))
-                TextField("搜索歌曲、专辑、艺术家", text: $query)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 30, weight: .medium))
-                    .foregroundStyle(.white)
-                    .focused($fieldFocused)
-                    .focusEffectDisabled()   // 去掉聚焦时的系统白底,保留暗色主题
+            TVFocusButton(radius: 14, scale: 1.0, lift: 0, action: { inputActive = true }) { focused in
+                HStack(spacing: 18) {
+                    Image(systemName: "magnifyingglass").font(.system(size: 26, weight: .semibold))
+                        .foregroundStyle(focused ? TVColor.brand : .white.opacity(0.55))
+                    Text(query.isEmpty ? "搜索歌曲、专辑、艺术家" : query)
+                        .font(.system(size: 30, weight: .medium))
+                        .foregroundStyle(query.isEmpty ? TVColor.textGhost : .white)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 28).padding(.vertical, 20)
+                .frame(maxWidth: .infinity)
+                .background(focused ? Color.white.opacity(0.16) : Color.white.opacity(0.07))
             }
-            .padding(.horizontal, 28).padding(.vertical, 20)
-            .background(fieldFocused ? Color.white.opacity(0.16) : Color.white.opacity(0.07),
-                        in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(fieldFocused ? TVColor.brand : Color.white.opacity(0.12),
-                                  lineWidth: fieldFocused ? 4 : 1)
-            }
-            .animation(.easeOut(duration: 0.18), value: fieldFocused)
-            .padding(.bottom, 20)
+            .padding(.bottom, 14)
 
-            Text("选择搜索框唤出系统键盘,可用语音听写输入")
+            Text("选中搜索框唤出系统键盘,可用语音听写输入")
                 .font(.system(size: 15)).foregroundStyle(TVColor.textGhost)
                 .padding(.bottom, 28)
 

@@ -30,3 +30,4 @@ Primuse/Services/Scrobble/AppSecrets.local.swift*
 
 # 独立 tvOS 预览工程(由 tvpreview.yml 生成)
 PrimuseTVPreview.xcodeproj/
+PrimuseTV/Info-preview.plist

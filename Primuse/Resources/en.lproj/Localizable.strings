@@ -976,6 +976,10 @@
 "settings_relay_enable" = "Let Apple TV play via this device";
 "settings_relay_footer" = "When on, an Apple TV signed in to the same Apple ID can play local, SMB, SFTP, NFS, WebDAV and other sources it can't reach directly — relayed through this device over the LAN. Keep Primuse open in the foreground and both devices on the same Wi-Fi.";
 "settings_relay_waiting" = "Getting LAN address… (make sure Wi-Fi is connected)";
+"settings_appletv_section" = "Apple TV";
+"settings_push_to_tv" = "Send to Apple TV now";
+"settings_push_to_tv_footer" = "Install Primuse on your Apple TV and sign in with the same iCloud account to see your library and sources here — credentials (passwords / tokens) included, nothing to re-enter. Primuse uploads automatically in the background; tap “Send to Apple TV now” to update immediately. Sources the TV can't reach directly — local files, SMB / SFTP / NFS / WebDAV — need the Relay below, which streams them from this phone over the same Wi-Fi.";
+"settings_push_to_tv_done" = "Sent";
 "cast_to_device" = "Cast to device";
 "cast_casting_to_format" = "Casting to: %@";
 "cast_picker_title" = "Playback device";

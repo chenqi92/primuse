@@ -473,6 +473,10 @@ targets:
     platform: tvOS
     sources:
       - path: PrimuseTV
+        excludes:
+          # 仅供独立预览 target(tvpreview.yml)使用、被 git 忽略的生成文件,
+          # 不应进入正式 tvOS app 的资源/源
+          - "Info-preview.plist"
     resources:
       - path: PrimuseTV/Resources
     dependencies:
@@ -485,6 +489,10 @@ targets:
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         CFBundleDisplayName: "Primuse"
         CFBundleName: "Primuse"
+        # 允许播放局域网明文 HTTP(iPhone 中继 / http NAS 直链);AVPlayer 默认被 ATS 拦截
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+          NSAllowsLocalNetworking: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.welape.yuanyin.tv
