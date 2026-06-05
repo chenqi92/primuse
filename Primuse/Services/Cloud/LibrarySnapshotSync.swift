@@ -101,9 +101,9 @@ final class LibrarySnapshotSync: Sendable {
         }
     }
 
-    /// 覆盖上传加密凭据包(空包跳过)。
+    /// 覆盖上传加密凭据包(空包且无中继端点时跳过)。
     func uploadCredentials(_ bundle: CredentialBundle) async {
-        guard !bundle.entries.isEmpty, let data = try? bundle.jsonData() else { return }
+        guard !bundle.entries.isEmpty || bundle.relay != nil, let data = try? bundle.jsonData() else { return }
         let record = CKRecord(recordType: credRecordType, recordID: credRecordID)
         record.encryptedValues["credentials"] = data
         record["modifiedAt"] = Date() as CKRecordValue
@@ -140,7 +140,9 @@ final class LibrarySnapshotSync: Sendable {
             }
             if !entry.isEmpty { entries[source.id] = entry }
         }
-        await uploadCredentials(CredentialBundle(entries: entries))
+        var bundle = CredentialBundle(entries: entries)
+        bundle.relay = PhoneRelayServer.shared.endpoint()   // iPhone 中继端点(开启时)
+        await uploadCredentials(bundle)
     }
     #endif
 }

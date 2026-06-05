@@ -135,6 +135,10 @@ final class AppServices {
         CloudKVSSync.shared.register(key: CloudKVSKey.lyricsFontScale) { }
         CloudKVSSync.shared.register(key: CloudKVSKey.recentSearches) { }
 
+        // Phase 3:Apple TV 中继(默认关闭,用户在设置开启)。开启后 Apple TV 可经本机
+        // 局域网播放本地 / SMB / SFTP / NFS / WebDAV 等不可直连的源。
+        PhoneRelayServer.shared.startIfEnabled(sourceManager: manager, sourcesStore: store, library: library)
+
         wireIntentBridge()
         observeSpotlightReindex()
     }
