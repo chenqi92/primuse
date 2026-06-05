@@ -5,6 +5,7 @@ import SwiftUI
 /// tvOS 不跑原生连接器,音乐源在 iPhone / Mac 上添加后同步到此。
 struct TVSourcesView: View {
     @Environment(TVStore.self) private var store
+    @State private var pendingDelete: TVSource?
 
     var body: some View {
         ZStack {
@@ -21,7 +22,9 @@ struct TVSourcesView: View {
                                 .font(TVFont.pageTitle).foregroundStyle(.white)
                                 .padding(.bottom, 22)
                             VStack(spacing: 12) {
-                                ForEach(store.sources) { s in TVSourceRow(source: s) }
+                                ForEach(store.sources) { s in
+                                    TVSourceRow(source: s, onSelect: { pendingDelete = s })
+                                }
                             }
                         }
                     }
@@ -35,6 +38,15 @@ struct TVSourcesView: View {
                 }
                 .tvPage()
             }
+        }
+        .alert("删除音乐源?", isPresented: Binding(
+            get: { pendingDelete != nil },
+            set: { if !$0 { pendingDelete = nil } }
+        ), presenting: pendingDelete) { source in
+            Button("删除", role: .destructive) { store.deleteSource(source.id); pendingDelete = nil }
+            Button("取消", role: .cancel) { pendingDelete = nil }
+        } message: { source in
+            Text("「\(source.name)」将从 Apple TV 移除。它在 iPhone / Mac 上仍是权威方,彻底删除请在手机/电脑上操作。")
         }
     }
 }
@@ -64,9 +76,10 @@ private struct TVSourcesInfoCard: View {
 
 private struct TVSourceRow: View {
     let source: TVSource
+    var onSelect: () -> Void = {}
 
     var body: some View {
-        TVFocusButton(radius: TVRadius.card, scale: 1.01, lift: 0) { focused in
+        TVFocusButton(radius: TVRadius.card, scale: 1.01, lift: 0, action: onSelect) { focused in
             HStack(spacing: 18) {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(LinearGradient(colors: [source.color, .black.opacity(0.4)],
@@ -89,6 +102,10 @@ private struct TVSourceRow: View {
                     Text(statusLabel).font(.system(size: 16, weight: .semibold))
                 }
                 .foregroundStyle(statusColor)
+                if focused {
+                    Image(systemName: "trash").font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(TVColor.bad).padding(.leading, 10)
+                }
             }
             .padding(.horizontal, 22).padding(.vertical, 18)
             .frame(maxWidth: .infinity)

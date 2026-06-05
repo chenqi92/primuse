@@ -252,6 +252,14 @@ final class TVStore {
         sourcesStore.reloadFromDisk()
     }
 
+    /// 在 Apple TV 上删除音乐源:本地软删除 + 尽力把快照上传回 iCloud。
+    /// 注意:手机才是源的权威方——若该源在手机上仍存在,下次同步可能回来,
+    /// 彻底删除请在手机/电脑上操作。
+    func deleteSource(_ id: String) {
+        sourcesStore.remove(id: id)
+        Task.detached { await LibrarySnapshotSync.shared.uploadNow() }
+    }
+
     // MARK: 歌词
 
     /// 当前播放时间所在的歌词行索引。
