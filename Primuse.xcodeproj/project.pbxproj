@@ -382,6 +382,7 @@
 		988DA2043A4AF89477D2B837 /* ArtworkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 363F869C6171BAEF3E787B3A /* ArtworkView.swift */; };
 		99577D17289CE95A12530D1E /* YearlyReportAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E155726354BEF06B6BCABFB7 /* YearlyReportAnalyzer.swift */; };
 		996C1B4150BF531114D218FD /* SynologySource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E60AA3C090087F657145292 /* SynologySource.swift */; };
+		9979267D96DDD94E79B457EA /* TCPRangeFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77301F04EF850775B481E2D1 /* TCPRangeFetcher.swift */; };
 		9B2A49C180BA29D56A74D9CD /* QueueView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D2741FA5052447F5E1B27A4 /* QueueView.swift */; };
 		9B3BBD394A37766E6A1DFF89 /* AudioVisualizerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEEDF841710389644E89A3A1 /* AudioVisualizerService.swift */; };
 		9D5390F04D31B3CB4EAAAFC2 /* ScrobbleProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74A342EFF9101DE4480355B9 /* ScrobbleProvider.swift */; };
@@ -510,6 +511,7 @@
 		CC3A1BFFBC9A8DD1D551B632 /* URL+AudioFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81BF3B3BCA7A1454E6731DDC /* URL+AudioFormat.swift */; };
 		CC9675B11D330108D649DB12 /* SourcesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E43D86A7277FFD6BA412DECF /* SourcesStore.swift */; };
 		CD41F2EAFFA298FFF0349D83 /* MacMiniPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77CFFB7676F782904120A304 /* MacMiniPlayerView.swift */; };
+		CD4B2426744C5766BA0882BC /* TCPRangeFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77301F04EF850775B481E2D1 /* TCPRangeFetcher.swift */; };
 		CD9A71AAAF2507192D415B71 /* AppleMusicLibrarySource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BE82C5DF65A566D6D3CDE4E /* AppleMusicLibrarySource.swift */; };
 		CDD434F7F68630E857D9F91F /* MacMetadataScrapingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5916FE20BD4F062349303341 /* MacMetadataScrapingView.swift */; };
 		CF775FD46311E91C91E10E64 /* NowPlayingWatchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21957BB2BE1463BE4D9884FB /* NowPlayingWatchView.swift */; };
@@ -959,6 +961,7 @@
 		767EFEC3E3EDDF4D07DBB168 /* CloudAccountMigrationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudAccountMigrationService.swift; sourceTree = "<group>"; };
 		768665CEDF081091A5DFAED7 /* BrowserChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserChrome.swift; sourceTree = "<group>"; };
 		769C39487B88BFC43377D781 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		77301F04EF850775B481E2D1 /* TCPRangeFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TCPRangeFetcher.swift; sourceTree = "<group>"; };
 		77CFFB7676F782904120A304 /* MacMiniPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacMiniPlayerView.swift; sourceTree = "<group>"; };
 		77F4CE0ADBC65CBECCD665AC /* AudioEffectsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioEffectsView.swift; sourceTree = "<group>"; };
 		78324748ACDF339A48E0E8D4 /* AudioEffectsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioEffectsService.swift; sourceTree = "<group>"; };
@@ -1948,6 +1951,7 @@
 				3C85D6EDF29DAED03773957A /* OAuthService.swift */,
 				3E648713A25DB3912120693A /* OneDriveSource.swift */,
 				309F9BB53ECA9FA54F805457 /* Pan123Source.swift */,
+				77301F04EF850775B481E2D1 /* TCPRangeFetcher.swift */,
 				4DB4788BFEC669118576E7E2 /* U115Source.swift */,
 			);
 			path = CloudDrive;
@@ -2748,6 +2752,7 @@
 				D63EE924A334339A844F4FDC /* SynologyAPI.swift in Sources */,
 				A46EDBA046E094FC1E93056F /* SynologyScanner.swift in Sources */,
 				2258673CDC1F146D06F403A0 /* SynologySource.swift in Sources */,
+				9979267D96DDD94E79B457EA /* TCPRangeFetcher.swift in Sources */,
 				81373227466DA7A6E21BCEFC /* TagEditorView.swift in Sources */,
 				5E0C4FB858DCCE7E784D422A /* ThemeService.swift in Sources */,
 				560D91EBC760440688500942 /* TimeInterval+Format.swift in Sources */,
@@ -3024,6 +3029,7 @@
 				48AD291EAE5EB38148B61BDA /* SynologyAPI.swift in Sources */,
 				BF1658CCB669A554E8DF831D /* SynologyScanner.swift in Sources */,
 				996C1B4150BF531114D218FD /* SynologySource.swift in Sources */,
+				CD4B2426744C5766BA0882BC /* TCPRangeFetcher.swift in Sources */,
 				C704ABB3376C76160612D0D6 /* TagEditorView.swift in Sources */,
 				4F666C6937E399679D7AC5D4 /* ThemeService.swift in Sources */,
 				38F1CB896290BA69CF5682C3 /* TimeInterval+Format.swift in Sources */,

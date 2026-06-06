@@ -130,8 +130,27 @@ struct CloudDriveHelper: Sendable {
         accessToken: String? = nil,
         userAgent: String? = nil,
         referer: String? = nil,
-        timeoutSeconds: TimeInterval = 60
+        timeoutSeconds: TimeInterval = 60,
+        forceTCP: Bool = false
     ) async throws -> Data {
+        // forceTCP：用 NWConnection 走 TCP+HTTP/1.1 绕开 HTTP/3(QUIC)。OneDrive CDN
+        // 的 QUIC 路径在 iOS 上慢 20~30 倍(实测 ~100KB/s vs macOS h2 ~2MB/s)，而
+        // URLSession 无法可靠禁用 QUIC。只对预授权直链(无需 Bearer/Referer)生效。
+        if forceTCP, accessToken == nil {
+            let t0 = Date()
+            do {
+                let data = try await TCPRangeFetcher.fetch(
+                    url: url, offset: offset, length: length,
+                    userAgent: userAgent, timeoutSeconds: timeoutSeconds
+                )
+                plog(String(format: "🔌 TCP range host=%@ off=%lld got=%dKB in %.2fs (h1.1, no-QUIC)",
+                            url.host ?? "?", offset, data.count / 1024, Date().timeIntervalSince(t0)))
+                return data
+            } catch let TCPRangeFetcher.FetchError.http(code) {
+                // 让上层的 401/403/410→刷新直链 逻辑照常生效。
+                throw CloudDriveError.apiError(code, "Range request failed (TCP)")
+            }
+        }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         let rangeHeader: String
