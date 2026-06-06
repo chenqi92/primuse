@@ -9,8 +9,6 @@ import SwiftUI
 @main
 struct PrimuseTVApp: App {
     @State private var store = TVStore()
-    @Environment(\.scenePhase) private var scenePhase
-    @State private var didInitialBootstrap = false
 
     var body: some Scene {
         WindowGroup {
@@ -30,16 +28,10 @@ struct PrimuseTVApp: App {
                     #endif
                     let autoSync = UserDefaults.standard.object(forKey: "tvAutoSync") as? Bool ?? true
                     if autoSync { await store.bootstrap() } else { store.reload() }
-                    didInitialBootstrap = true
                 }
-                // 每次回到前台都重新拉一次快照:手机推送后只要切回 tvOS app(无需彻底退出)
-                // 就能看到新数据,也消除「TV 比手机早拉一步」的时序竞态。
-                .onChange(of: scenePhase) { _, phase in
-                    guard phase == .active, didInitialBootstrap else { return }
-                    let autoSync = UserDefaults.standard.object(forKey: "tvAutoSync") as? Bool ?? true
-                    guard autoSync else { return }
-                    Task { await store.bootstrap() }
-                }
+                // 注意:不在回到前台时自动重新拉快照。否则会用手机端的权威状态覆盖
+                // Apple TV 上的本地改动(如本地启用某个源)。仅在启动时拉一次 + 设置页
+                // 手动刷新;手机端发送即是「主动触发」,下次启动 TV app 会拉到。
         }
     }
 }
