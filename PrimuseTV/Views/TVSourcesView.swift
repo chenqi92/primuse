@@ -92,14 +92,12 @@ private struct TVSourceRow: View {
         // 不缩放:全宽行缩放会溢出 ScrollView 横向裁切,导致描边左右被裁(只剩上下)。
         TVFocusButton(radius: TVRadius.card, scale: 1.0, lift: 0, action: onSelect) { focused in
             HStack(spacing: 18) {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(LinearGradient(colors: [source.color, .black.opacity(0.4)],
-                                         startPoint: .topLeading, endPoint: .bottomTrailing))
+                // 与手机端一致:用音乐源类型对应的 SF Symbol(非渐变 + 首字母)。
+                Image(systemName: source.iconName)
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(.white)
                     .frame(width: 46, height: 46)
-                    .overlay {
-                        Text(source.type.prefix(1).uppercased())
-                            .font(.system(size: 22, weight: .bold)).foregroundStyle(.white)
-                    }
+                    .background(source.color, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 VStack(alignment: .leading, spacing: 3) {
                     Text(source.name).font(.system(size: 22, weight: .semibold))
                         .foregroundStyle(.white).lineLimit(1)

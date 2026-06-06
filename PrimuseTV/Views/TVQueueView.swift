@@ -45,7 +45,8 @@ struct TVQueueView: View {
 
     private func queueRow(index idx: Int, song: TVSong) -> some View {
         let album = store.albumOf(song)
-        return TVFocusButton(radius: TVRadius.card, scale: 1.01, lift: 0) { focused in
+        return TVFocusButton(radius: TVRadius.card, scale: 1.01, lift: 0,
+                             action: { store.playQueueItem(at: idx); dismiss() }) { focused in
             HStack(spacing: 18) {
                 Text("\(idx + 1)").font(.system(size: 20, design: .monospaced))
                     .foregroundStyle(TVColor.textGhost).frame(width: 28)

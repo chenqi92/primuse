@@ -16,7 +16,9 @@ struct TVRow<Content: View>: View {
             }
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 22) { content() }
-                    .padding(.vertical, 16)
+                    // 焦点态卡片会上抬 12pt + 放大 ~7pt,纵向留 30pt 才不会把顶/底描边
+                    // 裁掉(之前 16pt 不够,顶部选中框线看不见)。
+                    .padding(.vertical, 30)
                     .padding(.horizontal, 4)
             }
         }

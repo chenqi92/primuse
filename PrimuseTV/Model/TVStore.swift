@@ -61,6 +61,7 @@ struct TVSource: Identifiable, Hashable {
     let id: String
     let name: String
     let type: String
+    let iconName: String   // 与手机端一致:MusicSourceType.iconName 的 SF Symbol
     let host: String
     let status: TVSourceStatus
     let songs: Int
@@ -106,7 +107,7 @@ final class TVStore {
     @ObservationIgnored private lazy var coordinator = TVPlaybackCoordinator(store: self, engine: engine)
 
     init() {
-        engine.onEnded = { [weak self] in self?.next() }
+        engine.onEnded = { [weak self] in self?.advanceAfterEnd() }
     }
 
     var hasRealLibrary: Bool { !library.visibleAlbums.isEmpty }
@@ -121,6 +122,16 @@ final class TVStore {
     private var queue: [String] = []      // 当前队列(真实 Song id)
     private var queueIndex = 0
     private var localLiked = Set<String>()
+
+    // 播放模式(随机 / 循环)——供正在播放页传输键展示与切换。
+    enum RepeatMode { case off, all, one }
+    var shuffleEnabled = false
+    var repeatMode: RepeatMode = .off
+    var sleepTimerMinutes = 0   // 0 = 关闭
+    @ObservationIgnored private var sleepWorkItem: DispatchWorkItem?
+
+    /// 当前正在播放的真实 Song id(队列当前位)。
+    var currentSongID: String? { queue.indices.contains(queueIndex) ? queue[queueIndex] : nil }
 
     /// 播放状态镜像自引擎(@Observable 组合,视图读取即订阅引擎变化)。
     var isPlaying: Bool { engine.isPlaying }
@@ -202,6 +213,7 @@ final class TVStore {
         let cnt = hasRealLibrary ? library.visibleSongs.filter { $0.sourceID == s.id }.count : s.songCount
         let (c, _) = Self.tint(s.id)
         return TVSource(id: s.id, name: s.name, type: s.type.rawValue,
+                        iconName: s.type.iconName,
                         host: s.host ?? s.basePath ?? s.type.displayName,
                         status: s.isEnabled ? .connected : .disabled, songs: cnt, color: c)
     }
@@ -368,9 +380,64 @@ final class TVStore {
     }
 
     func next() {
-        guard queueIndex + 1 < queue.count, let s = song(queue[queueIndex + 1]) else { return }
-        queueIndex += 1
+        // 手动下一首:忽略「单曲循环」;到队尾时「列表循环」则回到队首。
+        if queueIndex + 1 < queue.count, let s = song(queue[queueIndex + 1]) {
+            queueIndex += 1
+            startPlaying(s)
+        } else if repeatMode == .all, let first = queue.first, let s = song(first) {
+            queueIndex = 0
+            startPlaying(s)
+        }
+    }
+
+    /// 一曲自然播完后的推进:单曲循环重播本曲,否则等同手动下一首。
+    private func advanceAfterEnd() {
+        if repeatMode == .one, queue.indices.contains(queueIndex), let s = song(queue[queueIndex]) {
+            startPlaying(s)
+        } else {
+            next()
+        }
+    }
+
+    /// 点击「下一首」队列里的某首,直接跳到它播放。
+    func playQueueItem(at upNextIndex: Int) {
+        let abs = queueIndex + 1 + upNextIndex
+        guard queue.indices.contains(abs), let s = song(queue[abs]) else { return }
+        queueIndex = abs
         startPlaying(s)
+    }
+
+    func toggleShuffle() {
+        shuffleEnabled.toggle()
+        guard shuffleEnabled, queue.count > queueIndex + 1 else { refreshUpNext(); return }
+        // 只打乱「当前曲之后」的部分,当前曲不动。
+        var tail = Array(queue[(queueIndex + 1)...])
+        tail.shuffle()
+        queue = Array(queue[0...queueIndex]) + tail
+        refreshUpNext()
+    }
+
+    func cycleRepeatMode() {
+        repeatMode = repeatMode == .off ? .all : (repeatMode == .all ? .one : .off)
+    }
+
+    /// 睡眠定时:关→15→30→60→关 分钟。到点暂停播放。
+    func cycleSleepTimer() {
+        let presets = [0, 15, 30, 60]
+        let cur = presets.firstIndex(of: sleepTimerMinutes) ?? 0
+        sleepTimerMinutes = presets[(cur + 1) % presets.count]
+        sleepWorkItem?.cancel()
+        guard sleepTimerMinutes > 0 else { return }
+        let work = DispatchWorkItem { [weak self] in
+            self?.engine.pause()
+            self?.sleepTimerMinutes = 0
+        }
+        sleepWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Double(sleepTimerMinutes) * 60, execute: work)
+    }
+
+    private func refreshUpNext() {
+        queueUpNextIDs = queueIndex + 1 < queue.count ? Array(queue[(queueIndex + 1)...]) : []
     }
 
     func previous() {

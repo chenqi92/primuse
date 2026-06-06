@@ -101,12 +101,13 @@ struct TVNowPlayingView: View {
     private var transport: some View {
         HStack(spacing: 22) {
             Spacer()
-            TVRoundBtn(icon: "shuffle", size: 68) {}
+            TVRoundBtn(icon: "shuffle", size: 68, active: store.shuffleEnabled) { store.toggleShuffle() }
             TVRoundBtn(icon: "backward.fill", size: 68) { store.previous() }
             TVRoundBtn(icon: store.isPlaying ? "pause.fill" : "play.fill", size: 92,
                        primary: true) { store.togglePlayPause() }
             TVRoundBtn(icon: "forward.fill", size: 68) { store.next() }
-            TVRoundBtn(icon: "repeat", size: 68) {}
+            TVRoundBtn(icon: store.repeatMode == .one ? "repeat.1" : "repeat", size: 68,
+                       active: store.repeatMode != .off) { store.cycleRepeatMode() }
             Spacer()
         }
     }
@@ -258,13 +259,14 @@ struct TVRoundBtn: View {
     let icon: String
     var size: CGFloat = 68
     var primary: Bool = false
+    var active: Bool = false   // 开启态(随机/循环)——图标染品牌色
     var action: () -> Void = {}
 
     var body: some View {
         TVFocusButton(radius: size / 2, accent: .white, scale: 1.14, lift: 8, action: action) { _ in
             Image(systemName: icon)
                 .font(.system(size: size * 0.4, weight: .semibold))
-                .foregroundStyle(primary ? Color(hex: "#1f1c19") : .white)
+                .foregroundStyle(primary ? Color(hex: "#1f1c19") : (active ? TVColor.brand : .white))
                 .frame(width: size, height: size)
                 .background(primary ? AnyShapeStyle(.white) : AnyShapeStyle(Color.white.opacity(0.14)),
                             in: Circle())

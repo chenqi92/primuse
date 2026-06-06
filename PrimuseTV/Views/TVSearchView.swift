@@ -32,12 +32,6 @@ struct TVSearchView: View {
         ZStack {
             TVAmbientBackdrop(tint: store.albums.first?.tint ?? TVColor.brand,
                               tint2: store.albums.first?.tint2 ?? .black, strength: 0.4)
-            // 隐藏但可被程序聚焦的输入框:按下搜索框 → 聚焦它 → 唤出 tvOS 全屏键盘
-            //(含语音听写)。可见的搜索框是统一风格的 TVFocusButton,不再有系统白底叠层。
-            TextField("", text: $query)
-                .focused($inputActive)
-                .opacity(0.02).frame(width: 1, height: 1)
-                .allowsHitTesting(false)
             HStack(alignment: .top, spacing: 60) {
                 leftColumn
                 rightColumn
@@ -52,20 +46,20 @@ struct TVSearchView: View {
         VStack(alignment: .leading, spacing: 0) {
             TVEyebrow(text: "搜索").padding(.bottom, 16)
 
-            TVFocusButton(radius: 14, scale: 1.0, lift: 0, action: { inputActive = true }) { focused in
-                HStack(spacing: 18) {
-                    Image(systemName: "magnifyingglass").font(.system(size: 26, weight: .semibold))
-                        .foregroundStyle(focused ? TVColor.brand : .white.opacity(0.55))
-                    Text(query.isEmpty ? "搜索歌曲、专辑、艺术家" : query)
-                        .font(.system(size: 30, weight: .medium))
-                        .foregroundStyle(query.isEmpty ? TVColor.textGhost : .white)
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 28).padding(.vertical, 20)
-                .frame(maxWidth: .infinity)
-                .background(focused ? Color.white.opacity(0.16) : Color.white.opacity(0.07))
+            // 真实可聚焦 TextField:tvOS 上选中它会自动唤出全屏系统键盘(含语音听写)。
+            HStack(spacing: 18) {
+                Image(systemName: "magnifyingglass").font(.system(size: 26, weight: .semibold))
+                    .foregroundStyle(inputActive ? TVColor.brand : .white.opacity(0.55))
+                TextField("搜索歌曲、专辑、艺术家", text: $query)
+                    .focused($inputActive)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 30, weight: .medium))
+                    .foregroundStyle(.white)
             }
+            .padding(.horizontal, 28).padding(.vertical, 20)
+            .frame(maxWidth: .infinity)
+            .background(inputActive ? Color.white.opacity(0.16) : Color.white.opacity(0.07),
+                        in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .padding(.bottom, 14)
 
             Text("选中搜索框唤出系统键盘,可用语音听写输入")

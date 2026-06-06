@@ -12,17 +12,21 @@ struct TVOptionsView: View {
         let icon: String
         let label: String
         var on: Bool = false
+        let run: () -> Void
     }
 
+    // 仅保留已真实接通的动作(其余如「加入歌单/相似歌曲/AirPlay 输出」需额外基建,
+    // 暂不放占位假按钮)。
     private var actions: [Action] {
-        [
-            .init(icon: "heart.fill", label: "已喜欢", on: true),
-            .init(icon: "plus", label: "加入歌单"),
-            .init(icon: "hifispeaker.fill", label: "输出设备"),
-            .init(icon: "airplayaudio", label: "AirPlay"),
-            .init(icon: "moon.zzz.fill", label: "睡眠定时"),
-            .init(icon: "sparkles", label: "相似歌曲"),
-            .init(icon: "music.mic", label: "前往艺术家"),
+        let liked = store.currentSongID.map(store.isLiked) ?? false
+        let sleepOn = store.sleepTimerMinutes > 0
+        return [
+            .init(icon: liked ? "heart.fill" : "heart",
+                  label: liked ? "已喜欢" : "喜欢", on: liked,
+                  run: { if let id = store.currentSongID { store.toggleLiked(id) } }),
+            .init(icon: "moon.zzz.fill",
+                  label: sleepOn ? "睡眠 \(store.sleepTimerMinutes) 分" : "睡眠定时", on: sleepOn,
+                  run: { store.cycleSleepTimer() }),
         ]
     }
 
@@ -67,7 +71,8 @@ struct TVOptionsView: View {
     }
 
     private func actionTile(_ a: Action) -> some View {
-        TVFocusButton(radius: 16, scale: 1.08, lift: 8, action: { dismiss() }) { focused in
+        // 不 dismiss:执行后菜单保留,用户能看到状态变化(喜欢/睡眠定时切换);按返回键关闭。
+        TVFocusButton(radius: 16, scale: 1.08, lift: 8, action: { a.run() }) { focused in
             VStack(spacing: 14) {
                 Image(systemName: a.icon).font(.system(size: 40, weight: .regular))
                     .foregroundStyle(a.on ? TVColor.brand : (focused ? Color(hex: "#1f1c19") : .white))
