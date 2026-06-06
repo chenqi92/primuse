@@ -12,13 +12,15 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, @un
 
     private let realURL: URL
     private let headers: [String: String]
+    private let explicitContentType: String?   // 已知文件格式推得的 UTType id(覆盖服务器误报的 octet-stream)
     private let session: URLSession
     private let lock = NSLock()
     private var tasks: [ObjectIdentifier: URLSessionDataTask] = [:]
 
-    init(realURL: URL, headers: [String: String]) {
+    init(realURL: URL, headers: [String: String], fileExtension: String? = nil) {
         self.realURL = realURL
         self.headers = headers
+        self.explicitContentType = fileExtension.flatMap { UTType(filenameExtension: $0)?.identifier }
         let cfg = URLSessionConfiguration.default
         cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
         // 关键:带一个接受自签/不受信任证书的 TLS delegate。个人 NAS(Synology 等)
@@ -54,14 +56,17 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, @un
         req.setValue("bytes=\(offset)-\(offset + Int64(max(1, length)) - 1)", forHTTPHeaderField: "Range")
 
         let id = ObjectIdentifier(loadingRequest)
+        let isInfoReq = loadingRequest.contentInformationRequest != nil
         let task = session.dataTask(with: req) { [weak self] data, response, error in
             self?.lock.lock(); self?.tasks[id] = nil; self?.lock.unlock()
             if let error {
+                plog("📺 loader \(isInfoReq ? "info" : "data") off=\(offset) ERROR — \(error.localizedDescription)")
                 if (error as NSError).code != NSURLErrorCancelled { loadingRequest.finishLoading(with: error) }
                 return
             }
             if let info = loadingRequest.contentInformationRequest, let http = response as? HTTPURLResponse {
-                Self.fillContentInfo(info, from: http)
+                Self.fillContentInfo(info, from: http, explicit: self?.explicitContentType)
+                plog("📺 loader info status=\(http.statusCode) ct=\(info.contentType ?? "nil") len=\(info.contentLength) ranges=\(info.isByteRangeAccessSupported) serverCT=\(http.value(forHTTPHeaderField: "Content-Type") ?? "nil")")
             }
             if let dataReq = loadingRequest.dataRequest, let data {
                 dataReq.respond(with: data)
@@ -80,8 +85,14 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, @un
         task?.cancel()
     }
 
-    static func fillContentInfo(_ info: AVAssetResourceLoadingContentInformationRequest, from http: HTTPURLResponse) {
-        if let raw = http.value(forHTTPHeaderField: "Content-Type")?
+    static func fillContentInfo(_ info: AVAssetResourceLoadingContentInformationRequest,
+                                from http: HTTPURLResponse, explicit: String? = nil) {
+        // 优先用「已知文件格式」推得的 UTType:个人 NAS / 云盘下载端常返回
+        // application/octet-stream,UTType(mimeType:) 解析不出可播类型 → AVPlayer
+        // 直接「Cannot Open」。显式给定 FLAC/MP3 等类型才能播。
+        if let explicit {
+            info.contentType = explicit
+        } else if let raw = http.value(forHTTPHeaderField: "Content-Type")?
             .split(separator: ";").first.map({ $0.trimmingCharacters(in: .whitespaces) }),
            let uti = UTType(mimeType: raw) {
             info.contentType = uti.identifier

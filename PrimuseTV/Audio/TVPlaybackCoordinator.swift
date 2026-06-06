@@ -49,6 +49,7 @@ final class TVPlaybackCoordinator {
             plog("🎬 TV play: resolved → host=\(resolved.url.host ?? "?") headers=\(resolved.headers.count)")
             engine.load(url: resolved.url,
                         headers: resolved.headers,
+                        fileExtension: song.fileFormat.rawValue,
                         title: song.title,
                         artist: song.artistName ?? "",
                         album: song.albumTitle ?? "",
