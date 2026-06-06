@@ -93,6 +93,11 @@ final class AppServices {
         // 这里手动 upsert 一个 enabled=true 的固定 ID source, 让 song.sourceID
         // 总能对得上。
         let amSourceID = AppleMusicLibraryService.systemSourceID
+        // 清理误加的重复 Apple Music 源:Apple Music 是系统单例,只该有 systemSourceID 这一个。
+        // 早期"添加源"列表把 .appleMusic 也列了出来,用户可能加出 type=.appleMusic 但 id 非系统的重复源。
+        for dup in store.allSources where dup.type == .appleMusic && dup.id != amSourceID && !dup.isDeleted {
+            store.remove(id: dup.id)
+        }
         if store.allSources.first(where: { $0.id == amSourceID }) == nil {
             store.upsert(MusicSource(
                 id: amSourceID,

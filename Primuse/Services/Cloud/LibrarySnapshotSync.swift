@@ -34,12 +34,14 @@ final class LibrarySnapshotSync: Sendable {
 
     // MARK: 上传(iOS / macOS)
 
-    /// 把本地快照覆盖上传到 iCloud。无本地快照则跳过。
-    func uploadNow() async {
+    /// 把本地快照覆盖上传到 iCloud。无本地快照则跳过。返回是否真正上传成功
+    /// (供 UI 给出真实反馈;失败/跳过都返回 false)。
+    @discardableResult
+    func uploadNow() async -> Bool {
         let fm = FileManager.default
         guard fm.fileExists(atPath: libraryCacheURL.path) else {
             plog("LibrarySnapshotSync: no local library-cache.json, skip upload")
-            return
+            return false
         }
         let record = CKRecord(recordType: recordType, recordID: recordID)
         record["library"] = CKAsset(fileURL: libraryCacheURL)
@@ -47,15 +49,18 @@ final class LibrarySnapshotSync: Sendable {
             record["sources"] = CKAsset(fileURL: sourcesURL)
         }
         record["modifiedAt"] = Date() as CKRecordValue
+        var ok = false
         do {
             _ = try await database.modifyRecords(saving: [record], deleting: [], savePolicy: .allKeys)
             plog("LibrarySnapshotSync: uploaded snapshot")
+            ok = true
         } catch {
             plog("LibrarySnapshotSync: upload failed — \(error)")
         }
         #if !os(tvOS)
         await gatherAndUploadCredentials()
         #endif
+        return ok
     }
 
     // MARK: 下载(tvOS)

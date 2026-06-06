@@ -66,7 +66,7 @@ struct SourceTypeSelectionView: View {
                     )
 
                     ForEach(MusicSourceType.groupedByCategory, id: \.0) { category, types in
-                        let filtered = types.filter { $0 != .appleMusicLibrary }
+                        let filtered = types.filter { $0 != .appleMusicLibrary && $0 != .appleMusic }
                         if !filtered.isEmpty {
                             macProtocolSection(
                                 title: category.displayNameFallback,
@@ -338,7 +338,7 @@ struct SourceTypeSelectionView: View {
 
             // 其它来源按 category 分组,过滤掉已在上面单独展示的 appleMusicLibrary
             ForEach(MusicSourceType.groupedByCategory, id: \.0) { category, types in
-                let filtered = types.filter { $0 != .appleMusicLibrary }
+                let filtered = types.filter { $0 != .appleMusicLibrary && $0 != .appleMusic }
                 if !filtered.isEmpty {
                     Section(category.displayNameFallback) {
                         ForEach(filtered, id: \.self) { typeButton($0) }

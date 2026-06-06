@@ -981,6 +981,14 @@
 "settings_push_to_tv" = "立即推送到 Apple TV";
 "settings_push_to_tv_footer" = "在 Apple TV 上安装猿音并登录同一 iCloud 账号,即可看到这里的曲库与音乐源——含密码 / token,无需重新输入。平时退到后台会自动上传,点「立即推送」可马上更新。本机文件、SMB / SFTP / NFS / WebDAV 等 TV 无法直连的源,需开启下方「中继」,由这台手机在同一 Wi-Fi 下转发播放。";
 "settings_push_to_tv_done" = "已推送";
+"settings_push_to_tv_failed" = "推送失败";
+"send_to_tv_title" = "发送到 Apple TV";
+"send_to_tv_message" = "把当前曲库、音乐源与凭据(密码 / token)上传到 iCloud,Apple TV 上登录同一账号即可看到,无需重新输入。";
+"send_to_tv_action" = "立即发送";
+"send_to_tv_sent" = "已发送";
+"send_to_tv_failed" = "发送失败,请检查 iCloud 登录后重试";
+"send_to_tv_add_source" = "改为添加新的音乐源";
+"send_to_tv_need_icloud" = "需先在「设置 → iCloud 同步」中开启同步";
 "cast_to_device" = "投屏到设备";
 "cast_casting_to_format" = "投屏中: %@";
 "cast_picker_title" = "选择播放设备";

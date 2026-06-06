@@ -980,6 +980,14 @@
 "settings_push_to_tv" = "Send to Apple TV now";
 "settings_push_to_tv_footer" = "Install Primuse on your Apple TV and sign in with the same iCloud account to see your library and sources here — credentials (passwords / tokens) included, nothing to re-enter. Primuse uploads automatically in the background; tap “Send to Apple TV now” to update immediately. Sources the TV can't reach directly — local files, SMB / SFTP / NFS / WebDAV — need the Relay below, which streams them from this phone over the same Wi-Fi.";
 "settings_push_to_tv_done" = "Sent";
+"settings_push_to_tv_failed" = "Send failed";
+"send_to_tv_title" = "Send to Apple TV";
+"send_to_tv_message" = "Upload your library, sources and credentials (passwords / tokens) to iCloud. Sign in with the same account on Apple TV to see them — nothing to re-enter.";
+"send_to_tv_action" = "Send now";
+"send_to_tv_sent" = "Sent";
+"send_to_tv_failed" = "Send failed — check iCloud sign-in and try again";
+"send_to_tv_add_source" = "Add a new music source instead";
+"send_to_tv_need_icloud" = "Enable sync in Settings → iCloud Sync first";
 "cast_to_device" = "Cast to device";
 "cast_casting_to_format" = "Casting to: %@";
 "cast_picker_title" = "Playback device";

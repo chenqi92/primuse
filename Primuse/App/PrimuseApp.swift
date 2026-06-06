@@ -590,7 +590,8 @@ struct PrimuseApp: App {
                 }
                 .onOpenURL { url in
                     plog("🔗 onOpenURL: \(url.absoluteString)")
-                    // Apple TV 二维码:primuse://add-source → 手机扫码后打开"添加音乐源"。
+                    // Apple TV 二维码:primuse://add-source → 手机扫码后弹「发送到 Apple TV」
+                    // (把已有曲库/源/凭据发过去;也可在其中新建源)。
                     if url.scheme == "primuse", url.host == "add-source" {
                         deepLinkAddSource = true
                         return
@@ -688,7 +689,9 @@ struct PrimuseApp: App {
                     }
                 }
                 .sheet(isPresented: $deepLinkAddSource) {
-                    SourceTypeSelectionView { source in sourcesStore.add(source) }
+                    SendToTVSheet()
+                        .environment(musicLibrary)
+                        .environment(sourcesStore)
                 }
         }
         #if os(macOS)

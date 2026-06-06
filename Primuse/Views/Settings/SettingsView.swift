@@ -777,18 +777,21 @@ struct PlaybackSettingsView: View {
 /// 平时退后台也会自动上传;这个按钮是「立即、可见」的显式入口。
 private struct AppleTVPushRow: View {
     @AppStorage("primuse.iCloudSyncEnabled") private var iCloudSyncEnabled: Bool = true
+    @Environment(MusicLibrary.self) private var musicLibrary
     @State private var pushing = false
-    @State private var showDone = false
+    @State private var result: Bool?   // nil=空闲, true=已推送, false=失败
 
     var body: some View {
         Button {
             guard !pushing else { return }
-            pushing = true; showDone = false
+            pushing = true; result = nil
+            // 先把最新曲库落盘成快照,否则 uploadNow 会因本地没有 library-cache.json 直接跳过(按钮看似没反应)。
+            musicLibrary.persistNow()
             Task {
-                await LibrarySnapshotSync.shared.uploadNow()
-                pushing = false; showDone = true
-                try? await Task.sleep(for: .seconds(3))
-                showDone = false
+                let ok = await LibrarySnapshotSync.shared.uploadNow()
+                pushing = false; result = ok
+                try? await Task.sleep(for: .seconds(4))
+                result = nil
             }
         } label: {
             HStack {
@@ -796,11 +799,12 @@ private struct AppleTVPushRow: View {
                 Spacer()
                 if pushing {
                     ProgressView()
-                } else if showDone {
-                    Label("settings_push_to_tv_done", systemImage: "checkmark.circle.fill")
+                } else if let result {
+                    Label(result ? "settings_push_to_tv_done" : "settings_push_to_tv_failed",
+                          systemImage: result ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                         .labelStyle(.titleAndIcon)
                         .font(.subheadline)
-                        .foregroundStyle(.green)
+                        .foregroundStyle(result ? .green : .orange)
                 }
             }
         }
