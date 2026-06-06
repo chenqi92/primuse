@@ -321,6 +321,14 @@ final class TVStore {
         Task.detached { await LibrarySnapshotSync.shared.uploadNow() }
     }
 
+    /// 在 Apple TV 上启用 / 停用音乐源。停用源的歌曲在资料库里是隐藏的,启用后即可
+    /// 浏览 / 播放(快照含全量歌曲,显隐由各源的 enabled 状态决定)。
+    func setSourceEnabled(_ id: String, _ enabled: Bool) {
+        sourcesStore.updateLocal(id) { $0.isEnabled = enabled }
+        refreshVisibility()
+        Task.detached { await LibrarySnapshotSync.shared.uploadNow() }
+    }
+
     // MARK: 歌词
 
     /// 当前播放时间所在的歌词行索引。

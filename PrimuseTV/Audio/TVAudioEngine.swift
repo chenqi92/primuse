@@ -22,6 +22,7 @@ final class TVAudioEngine {
     private let player = AVPlayer()
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
+    private var itemStatusObs: NSKeyValueObservation?
     private var sessionConfigured = false
     private var resourceLoader: TVStreamResourceLoader?   // 自定义播放头时强引用(delegate 弱持有)
 
@@ -80,6 +81,21 @@ final class TVAudioEngine {
         } else {
             resourceLoader = nil
             item = AVPlayerItem(url: url)
+        }
+        plog("📺 TV engine.load host=\(url.host ?? "?") scheme=\(url.scheme ?? "?") headers=\(headers.count) dur=\(duration)")
+        itemStatusObs = item.observe(\.status, options: [.new]) { [weak self] item, _ in
+            MainActor.assumeIsolated {
+                switch item.status {
+                case .readyToPlay:
+                    plog("📺 TV engine: item readyToPlay dur=\(item.duration.seconds)")
+                case .failed:
+                    let msg = item.error?.localizedDescription ?? "播放失败"
+                    plog("📺 TV engine: item FAILED — \(msg)")
+                    self?.status = .failed(msg)
+                    self?.isPlaying = false
+                default: break
+                }
+            }
         }
         player.replaceCurrentItem(with: item)
         updateNowPlayingInfo()

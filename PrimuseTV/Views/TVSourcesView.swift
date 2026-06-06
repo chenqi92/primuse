@@ -30,7 +30,9 @@ struct TVSourcesView: View {
                         } else {
                             VStack(spacing: 12) {
                                 ForEach(store.sources) { s in
-                                    TVSourceRow(source: s, onSelect: { pendingDelete = s })
+                                    TVSourceRow(source: s,
+                                                onSelect: { store.setSourceEnabled(s.id, s.status == .disabled) },
+                                                onDelete: { pendingDelete = s })
                                 }
                             }
                         }
@@ -83,7 +85,8 @@ private struct TVSourcesInfoCard: View {
 
 private struct TVSourceRow: View {
     let source: TVSource
-    var onSelect: () -> Void = {}
+    var onSelect: () -> Void = {}   // 点击:启用 / 停用切换
+    var onDelete: () -> Void = {}   // 长按菜单:从 Apple TV 移除
 
     var body: some View {
         // 不缩放:全宽行缩放会溢出 ScrollView 横向裁切,导致描边左右被裁(只剩上下)。
@@ -111,13 +114,26 @@ private struct TVSourceRow: View {
                 }
                 .foregroundStyle(statusColor)
                 if focused {
-                    Image(systemName: "trash").font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(TVColor.bad).padding(.leading, 10)
+                    // 焦点提示:点击会「启用 / 停用」这个源(不再是直接删除)。
+                    Image(systemName: source.status == .disabled ? "play.circle.fill" : "pause.circle.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(source.status == .disabled ? TVColor.ok : TVColor.textFaint)
+                        .padding(.leading, 10)
                 }
             }
             .padding(.horizontal, 22).padding(.vertical, 18)
             .frame(maxWidth: .infinity)
             .background(focused ? Color.white.opacity(0.12) : TVColor.card)
+        }
+        // 长按(Siri Remote)弹菜单:启用/停用 + 从 Apple TV 移除。
+        .contextMenu {
+            Button { onSelect() } label: {
+                Label(source.status == .disabled ? "启用" : "停用",
+                      systemImage: source.status == .disabled ? "power" : "pause.circle")
+            }
+            Button(role: .destructive) { onDelete() } label: {
+                Label("从 Apple TV 移除", systemImage: "trash")
+            }
         }
     }
 

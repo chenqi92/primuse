@@ -33,16 +33,20 @@ final class TVPlaybackCoordinator {
     func play(songID: String) async {
         store.playbackIssue = nil
         guard let song = store.library.song(id: songID) else {
+            plog("🎬 TV play: song not found id=\(songID)")
             store.playbackIssue = .failed("曲库中找不到这首歌")
             return
         }
         guard let source = store.sourcesStore.source(id: song.sourceID) else {
+            plog("🎬 TV play: NO source for '\(song.title)' sourceID=\(song.sourceID)")
             store.playbackIssue = .unsupported(song.sourceID)
             return
         }
         let credential = TVCredentialStore.credential(for: source, bundle: store.credentialBundle)
+        plog("🎬 TV play: '\(song.title)' src=\(source.type.rawValue)/\(source.name) cred=\(credential != nil) path=\(song.filePath.suffix(40))")
         do {
             let resolved = try await resolveStream(song: song, source: source, credential: credential, retried: false)
+            plog("🎬 TV play: resolved → host=\(resolved.url.host ?? "?") headers=\(resolved.headers.count)")
             engine.load(url: resolved.url,
                         headers: resolved.headers,
                         title: song.title,
@@ -51,8 +55,10 @@ final class TVPlaybackCoordinator {
                         duration: song.duration)
             engine.play()
         } catch let error as StreamResolveError {
+            plog("🎬 TV play: resolve FAILED — \(error)")
             store.playbackIssue = issue(for: error, source: source)
         } catch {
+            plog("🎬 TV play: resolve error — \(error)")
             store.playbackIssue = .failed(error.localizedDescription)
         }
     }
