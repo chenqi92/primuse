@@ -44,9 +44,12 @@ final class LibrarySnapshotSync: Sendable {
             return false
         }
         let record = CKRecord(recordType: recordType, recordID: recordID)
-        record["library"] = CKAsset(fileURL: libraryCacheURL)
+        // 整库快照走【内联 gzip Data】而非 CKAsset：实测 tvOS 下 CKAsset 的字节
+        // 经常下载失败(record 能取到、asset.fileURL 指向的缓存文件却不存在),而内联
+        // Data(和凭据同通道)稳定可靠。仅当压缩后超过 ~800KB(超大库)才回退 CKAsset。
+        attachSnapshot(record, fileURL: libraryCacheURL, gzKey: "libraryGz", assetKey: "library")
         if fm.fileExists(atPath: sourcesURL.path) {
-            record["sources"] = CKAsset(fileURL: sourcesURL)
+            attachSnapshot(record, fileURL: sourcesURL, gzKey: "sourcesGz", assetKey: "sources")
         }
         record["modifiedAt"] = Date() as CKRecordValue
         var ok = false
@@ -73,21 +76,47 @@ final class LibrarySnapshotSync: Sendable {
         do {
             let record = try await database.record(for: recordID)
             var changed = false
-            if let asset = record["library"] as? CKAsset, let url = asset.fileURL {
-                try? fm.removeItem(at: libraryCacheURL)
-                try fm.copyItem(at: url, to: libraryCacheURL)
+            // 先试内联 gzip(新版上传走这条),回退 CKAsset(旧记录/超大库)。
+            if extractSnapshot(record, gzKey: "libraryGz", assetKey: "library", to: libraryCacheURL, fm: fm) {
                 changed = true
             }
-            if let asset = record["sources"] as? CKAsset, let url = asset.fileURL {
-                try? fm.removeItem(at: sourcesURL)
-                try fm.copyItem(at: url, to: sourcesURL)
-            }
-            plog("LibrarySnapshotSync: downloaded snapshot")
+            _ = extractSnapshot(record, gzKey: "sourcesGz", assetKey: "sources", to: sourcesURL, fm: fm)
+            plog("LibrarySnapshotSync: downloaded snapshot (library=\(changed))")
             return changed
         } catch {
             plog("LibrarySnapshotSync: no snapshot / download failed — \(error)")
             return false
         }
+    }
+
+    // MARK: 快照字段编解码(内联 gzip 优先,CKAsset 回退)
+
+    /// 内联阈值:压缩后小于此值就内联进 CKRecord(单字段/整记录上限 1MB,留余量)。
+    private static let inlineGzLimit = 800_000
+
+    /// 把 `fileURL` 的内容压缩后内联进 record;过大则回退 CKAsset。
+    private func attachSnapshot(_ record: CKRecord, fileURL: URL, gzKey: String, assetKey: String) {
+        guard let raw = try? Data(contentsOf: fileURL) else { return }
+        if let gz = try? (raw as NSData).compressed(using: .zlib) as Data, gz.count < Self.inlineGzLimit {
+            record[gzKey] = gz as CKRecordValue
+        } else {
+            record[assetKey] = CKAsset(fileURL: fileURL)
+        }
+    }
+
+    /// 从 record 还原快照写到 `dest`:先试内联 gzip,再回退 CKAsset。成功返回 true。
+    private func extractSnapshot(_ record: CKRecord, gzKey: String, assetKey: String, to dest: URL, fm: FileManager) -> Bool {
+        if let gz = record[gzKey] as? Data,
+           let raw = try? (gz as NSData).decompressed(using: .zlib) as Data {
+            try? fm.removeItem(at: dest)
+            do { try raw.write(to: dest); return true } catch { return false }
+        }
+        if let asset = record[assetKey] as? CKAsset, let url = asset.fileURL,
+           fm.fileExists(atPath: url.path) {
+            try? fm.removeItem(at: dest)
+            do { try fm.copyItem(at: url, to: dest); return true } catch { return false }
+        }
+        return false
     }
 
     // MARK: 凭据(CloudKit encryptedValues 端到端加密;密钥由系统 iCloud 钥匙串托管)

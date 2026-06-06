@@ -532,8 +532,8 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
         SWIFT_EMIT_LOC_STRINGS: YES
-        MARKETING_VERSION: "1.0.0"
-        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "1.6.0"
+        CURRENT_PROJECT_VERSION: "12"
 
   # Apple TV「顶部内容展示」扩展:独立进程,经 App Group 读主 app 预取的曲库数据 + 封面
   PrimuseTopShelf:
