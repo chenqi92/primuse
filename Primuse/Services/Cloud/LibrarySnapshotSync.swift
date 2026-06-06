@@ -43,20 +43,37 @@ final class LibrarySnapshotSync: Sendable {
             plog("LibrarySnapshotSync: no local library-cache.json, skip upload")
             return false
         }
+        // 先删旧记录再重建:旧记录可能残留下载不下来的 library CKAsset;而且对一条
+        // 已存在的记录用「新建(无 change-tag)+ .allKeys」覆盖偶发不落字段。删后重建是
+        // 干净一致的写入。记录不存在时 deleteRecord 抛错,忽略即可。
+        do {
+            try await database.deleteRecord(withID: recordID)
+            plog("LibrarySnapshotSync: cleared old snapshot record before re-upload")
+        } catch {
+            // unknownItem(记录本就不存在)是正常的,不打扰。
+        }
+
         let record = CKRecord(recordType: recordType, recordID: recordID)
-        // 整库快照走【内联 gzip Data】而非 CKAsset：实测 tvOS 下 CKAsset 的字节
-        // 经常下载失败(record 能取到、asset.fileURL 指向的缓存文件却不存在),而内联
-        // Data(和凭据同通道)稳定可靠。仅当压缩后超过 ~800KB(超大库)才回退 CKAsset。
-        attachSnapshot(record, fileURL: libraryCacheURL, gzKey: "libraryGz", assetKey: "library")
+        // 整库快照走【内联 gzip Data】而非 CKAsset:实测 tvOS 下 CKAsset 的字节经常
+        // 下载失败,而内联 Data(和凭据同通道)稳定可靠。压缩后超 ~800KB 才回退 CKAsset。
+        let libInfo = attachSnapshot(record, fileURL: libraryCacheURL, gzKey: "libraryGz", assetKey: "library")
+        var srcInfo = "sources=skip"
         if fm.fileExists(atPath: sourcesURL.path) {
-            attachSnapshot(record, fileURL: sourcesURL, gzKey: "sourcesGz", assetKey: "sources")
+            srcInfo = attachSnapshot(record, fileURL: sourcesURL, gzKey: "sourcesGz", assetKey: "sources")
         }
         record["modifiedAt"] = Date() as CKRecordValue
         var ok = false
         do {
-            _ = try await database.modifyRecords(saving: [record], deleting: [], savePolicy: .allKeys)
-            plog("LibrarySnapshotSync: uploaded snapshot")
-            ok = true
+            let (saveResults, _) = try await database.modifyRecords(saving: [record], deleting: [], savePolicy: .allKeys)
+            switch saveResults[recordID] {
+            case .success:
+                plog("LibrarySnapshotSync: uploaded snapshot [\(libInfo); \(srcInfo)]")
+                ok = true
+            case .failure(let err):
+                plog("LibrarySnapshotSync: upload per-record FAILED — \(err)")
+            case .none:
+                plog("LibrarySnapshotSync: upload returned no result for record")
+            }
         } catch {
             plog("LibrarySnapshotSync: upload failed — \(error)")
         }
@@ -75,6 +92,10 @@ final class LibrarySnapshotSync: Sendable {
         try? fm.createDirectory(at: directory, withIntermediateDirectories: true)
         do {
             let record = try await database.record(for: recordID)
+            // 字段级诊断:服务器这条记录到底带了什么(libraryGz 有没有、多大)。
+            let gzSize = (record["libraryGz"] as? Data)?.count
+            let hasAsset = record["library"] as? CKAsset != nil
+            plog("LibrarySnapshotSync: record fields libraryGz=\(gzSize.map { "\($0)B" } ?? "nil") library(asset)=\(hasAsset) keys=\(record.allKeys())")
             var changed = false
             // 先试内联 gzip(新版上传走这条),回退 CKAsset(旧记录/超大库)。
             if extractSnapshot(record, gzKey: "libraryGz", assetKey: "library", to: libraryCacheURL, fm: fm) {
@@ -94,13 +115,16 @@ final class LibrarySnapshotSync: Sendable {
     /// 内联阈值:压缩后小于此值就内联进 CKRecord(单字段/整记录上限 1MB,留余量)。
     private static let inlineGzLimit = 800_000
 
-    /// 把 `fileURL` 的内容压缩后内联进 record;过大则回退 CKAsset。
-    private func attachSnapshot(_ record: CKRecord, fileURL: URL, gzKey: String, assetKey: String) {
-        guard let raw = try? Data(contentsOf: fileURL) else { return }
+    /// 把 `fileURL` 的内容压缩后内联进 record;过大则回退 CKAsset。返回简要说明供日志。
+    @discardableResult
+    private func attachSnapshot(_ record: CKRecord, fileURL: URL, gzKey: String, assetKey: String) -> String {
+        guard let raw = try? Data(contentsOf: fileURL) else { return "\(gzKey)=no-file" }
         if let gz = try? (raw as NSData).compressed(using: .zlib) as Data, gz.count < Self.inlineGzLimit {
             record[gzKey] = gz as CKRecordValue
+            return "\(gzKey)=inline \(gz.count)B"
         } else {
             record[assetKey] = CKAsset(fileURL: fileURL)
+            return "\(assetKey)=asset"
         }
     }
 
