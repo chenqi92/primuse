@@ -130,10 +130,25 @@ final class LibrarySnapshotSync: Sendable {
 
     /// 从 record 还原快照写到 `dest`:先试内联 gzip,再回退 CKAsset。成功返回 true。
     private func extractSnapshot(_ record: CKRecord, gzKey: String, assetKey: String, to dest: URL, fm: FileManager) -> Bool {
-        if let gz = record[gzKey] as? Data,
-           let raw = try? (gz as NSData).decompressed(using: .zlib) as Data {
+        if let gzField = record[gzKey] as? Data {
+            // CloudKit 返回的 Data 可能是非连续/特殊 backing,先强制连续拷贝再解压。
+            let gz = Data(gzField)
+            let raw: Data
+            do {
+                raw = try (gz as NSData).decompressed(using: .zlib) as Data
+            } catch {
+                plog("LibrarySnapshotSync: extract \(gzKey) DECOMPRESS failed (\(gz.count)B) — \(error)")
+                return false
+            }
             try? fm.removeItem(at: dest)
-            do { try raw.write(to: dest); return true } catch { return false }
+            do {
+                try raw.write(to: dest)
+                plog("LibrarySnapshotSync: extract \(gzKey) OK → \(raw.count)B at \(dest.path)")
+                return true
+            } catch {
+                plog("LibrarySnapshotSync: extract \(gzKey) WRITE failed → \(dest.path) — \(error)")
+                return false
+            }
         }
         if let asset = record[assetKey] as? CKAsset, let url = asset.fileURL,
            fm.fileExists(atPath: url.path) {
