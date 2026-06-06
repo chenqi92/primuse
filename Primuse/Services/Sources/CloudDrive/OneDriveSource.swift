@@ -4,6 +4,7 @@ import PrimuseKit
 /// OneDrive Source — Microsoft Graph API
 actor OneDriveSource: MusicSourceConnector, OAuthCloudSource {
     let sourceID: String
+    nonisolated let supportsSidecarWriting = true   // 刮削的歌词/封面写回 OneDrive(上传 sidecar)
     private let helper: CloudDriveHelper
     private static let graphBase = "https://graph.microsoft.com/v1.0"
     private static let authBase = "https://login.microsoftonline.com/common/oauth2/v2.0"
@@ -130,6 +131,42 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource {
     /// 下载很快 —— 大文件改走 StreamingDownloadDecoder 一次性渐进下载。
     func publicDownloadURL(path: String) async throws -> URL {
         try await getDownloadURL(for: path)
+    }
+
+    /// 把刮削的 sidecar(歌词 .lrc / 封面 -cover.jpg)上传回 OneDrive,放源歌曲同目录、
+    /// 用歌曲真实文件名命名(重新扫描时 findSameName* 能按同名读回,从而多设备共享)。
+    /// `path` 由 SidecarWriteService 用 song.filePath(OneDrive 是 item ID)拼成,形如
+    /// "{itemID}-cover.jpg" / "{itemID}.lrc"。这里反解出源 item → 查真实文件名+父目录 → 上传。
+    func writeFile(data: Data, to path: String) async throws {
+        let suffix: String
+        if path.hasSuffix("-cover.jpg") { suffix = "-cover.jpg" }
+        else if path.hasSuffix(".lrc") { suffix = ".lrc" }
+        else { throw CloudDriveError.invalidResponse }
+        let itemID = String(path.dropLast(suffix.count))
+        guard !itemID.isEmpty else { throw CloudDriveError.invalidResponse }
+
+        let token = try await getToken()
+        let (metaData, metaHTTP) = try await helper.makeAuthorizedRequest(
+            url: URL(string: "\(Self.graphBase)/me/drive/items/\(itemID)?$select=name,parentReference")!,
+            accessToken: token)
+        guard metaHTTP.statusCode == 200 else { throw CloudDriveError.apiError(metaHTTP.statusCode, "item lookup") }
+        let json = (try? JSONSerialization.jsonObject(with: metaData)) as? [String: Any] ?? [:]
+        guard let name = json["name"] as? String,
+              let parentID = (json["parentReference"] as? [String: Any])?["id"] as? String else {
+            throw CloudDriveError.invalidResponse
+        }
+        let sidecarName = (name as NSString).deletingPathExtension + suffix
+        let encoded = sidecarName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? sidecarName
+        let uploadURL = URL(string: "\(Self.graphBase)/me/drive/items/\(parentID):/\(encoded):/content")!
+        var req = URLRequest(url: uploadURL)
+        req.httpMethod = "PUT"
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.setValue(suffix == ".lrc" ? "text/plain; charset=utf-8" : "image/jpeg", forHTTPHeaderField: "Content-Type")
+        let (_, resp) = try await URLSession.shared.upload(for: req, from: data)
+        guard let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw CloudDriveError.apiError((resp as? HTTPURLResponse)?.statusCode ?? 0, "sidecar upload failed")
+        }
+        plog("📁 OneDrive sidecar uploaded: \(sidecarName)")
     }
 
     private var downloadURLCache: [String: (url: URL, expiresAt: Date)] = [:]
