@@ -4,10 +4,53 @@ import PrimuseKit
 /// Google Drive Source — Drive API v3
 actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource {
     let sourceID: String
+    nonisolated let supportsSidecarWriting = true   // 刮削歌词/封面写回 Google Drive 同目录
     private let helper: CloudDriveHelper
     private static let apiBase = "https://www.googleapis.com/drive/v3"
+    private static let uploadBase = "https://www.googleapis.com/upload/drive/v3"
     private static let tokenURL = "https://oauth2.googleapis.com/token"
     private static let reversedClientIdKey = "PrimuseGoogleReversedClientID"
+
+    /// 写 sidecar 到 Google Drive。filePath 是 file ID,SidecarWriteService 拼的 `to`
+    /// 形如 "{fileID}-cover.jpg" / "{fileID}.lrc"。反解出源 file → 查名+父目录 → multipart 上传。
+    func writeFile(data: Data, to path: String) async throws {
+        let suffix: String
+        if path.hasSuffix("-cover.jpg") { suffix = "-cover.jpg" }
+        else if path.hasSuffix(".lrc") { suffix = ".lrc" }
+        else { throw CloudDriveError.invalidResponse }
+        let fileID = String(path.dropLast(suffix.count))
+        guard !fileID.isEmpty else { throw CloudDriveError.invalidResponse }
+
+        let token = try await getToken()
+        let (meta, http0) = try await helper.makeAuthorizedRequest(
+            url: URL(string: "\(Self.apiBase)/files/\(fileID)?fields=name,parents")!, accessToken: token)
+        guard http0.statusCode == 200 else { throw CloudDriveError.apiError(http0.statusCode, "file lookup") }
+        let json = (try? JSONSerialization.jsonObject(with: meta)) as? [String: Any] ?? [:]
+        guard let name = json["name"] as? String,
+              let parentID = (json["parents"] as? [String])?.first else { throw CloudDriveError.invalidResponse }
+        let sidecarName = (name as NSString).deletingPathExtension + suffix
+        let mime = suffix == ".lrc" ? "text/plain" : "image/jpeg"
+
+        // multipart/related:元数据(name+parents) + 内容。
+        let metaJSON = try JSONSerialization.data(withJSONObject: ["name": sidecarName, "parents": [parentID]])
+        let boundary = "primuse\(UUID().uuidString)"
+        var body = Data()
+        body.append("--\(boundary)\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n".data(using: .utf8)!)
+        body.append(metaJSON)
+        body.append("\r\n--\(boundary)\r\nContent-Type: \(mime)\r\n\r\n".data(using: .utf8)!)
+        body.append(data)
+        body.append("\r\n--\(boundary)--".data(using: .utf8)!)
+
+        var req = URLRequest(url: URL(string: "\(Self.uploadBase)/files?uploadType=multipart")!)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.setValue("multipart/related; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        let (_, resp) = try await URLSession.shared.upload(for: req, from: body)
+        guard let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw CloudDriveError.apiError((resp as? HTTPURLResponse)?.statusCode ?? 0, "Google Drive sidecar upload failed")
+        }
+        plog("📁 Google Drive sidecar uploaded: \(sidecarName)")
+    }
 
     private static func parseISO8601(_ s: String) -> Date? {
         // Drive's modifiedTime is RFC 3339 with fractional seconds.

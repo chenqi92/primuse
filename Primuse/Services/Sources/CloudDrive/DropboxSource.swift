@@ -4,6 +4,7 @@ import PrimuseKit
 /// Dropbox Source — API v2
 actor DropboxSource: MusicSourceConnector, OAuthCloudSource {
     let sourceID: String
+    nonisolated let supportsSidecarWriting = true   // 刮削歌词/封面写回 Dropbox 同目录
     private let helper: CloudDriveHelper
     private static let apiBase = "https://api.dropboxapi.com/2"
     private static let contentBase = "https://content.dropboxapi.com/2"
@@ -15,6 +16,38 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource {
 
     func connect() async throws { _ = try await getToken() }
     func disconnect() async {}
+
+    /// 写 sidecar(歌词/封面)到 Dropbox。Dropbox 的 filePath 就是真实路径,SidecarWriteService
+    /// 直接拼好了同目录同名的 `to`(如 /music/x-cover.jpg、/music/x.lrc),覆盖上传即可。
+    func writeFile(data: Data, to path: String) async throws {
+        let token = try await getToken()
+        // Dropbox-API-Arg 必须是 ASCII,中文等需转 \uXXXX。
+        let arg = "{\"path\":\"\(Self.apiArgEscaped(path))\",\"mode\":\"overwrite\",\"mute\":true}"
+        var req = URLRequest(url: URL(string: "\(Self.contentBase)/files/upload")!)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.setValue(arg, forHTTPHeaderField: "Dropbox-API-Arg")
+        req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        let (_, resp) = try await URLSession.shared.upload(for: req, from: data)
+        guard let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw CloudDriveError.apiError((resp as? HTTPURLResponse)?.statusCode ?? 0, "Dropbox sidecar upload failed")
+        }
+        plog("📁 Dropbox sidecar uploaded: \((path as NSString).lastPathComponent)")
+    }
+
+    private static func apiArgEscaped(_ s: String) -> String {
+        var out = ""
+        for u in s.unicodeScalars {
+            switch u {
+            case "\"": out += "\\\""
+            case "\\": out += "\\\\"
+            default:
+                if u.value < 0x20 || u.value > 0x7E { out += String(format: "\\u%04x", u.value) }
+                else { out.unicodeScalars.append(u) }
+            }
+        }
+        return out
+    }
 
     /// `users/get_current_account` returns the Dropbox account record.
     /// `account_id` is the stable per-user identifier (format `dbid:...`).
