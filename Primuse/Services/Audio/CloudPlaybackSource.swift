@@ -107,7 +107,8 @@ enum CloudPlaybackSource {
         connector: any MusicSourceConnector,
         cacheURL: URL,
         persistOnComplete: Bool = true,
-        cacheRelativePath: String? = nil
+        cacheRelativePath: String? = nil,
+        prefetchAhead: Int = Self.prefetchAhead
     ) -> InputSource? {
         let path = song.filePath
         let connectorFetch: @Sendable (Int64, Int64) async throws -> Data = { off, len in
@@ -121,6 +122,7 @@ enum CloudPlaybackSource {
             cacheURL: cacheURL,
             persistOnComplete: persistOnComplete,
             cacheRelativePath: cacheRelativePath,
+            prefetchAhead: prefetchAhead,
             connectorFetch: connectorFetch
         )
     }
@@ -135,7 +137,8 @@ enum CloudPlaybackSource {
         totalLength: Int64,
         cacheURL: URL,
         persistOnComplete: Bool = true,
-        cacheRelativePath: String? = nil
+        cacheRelativePath: String? = nil,
+        prefetchAhead: Int = Self.prefetchAhead
     ) -> InputSource? {
         guard totalLength > 0,
               url.scheme == "http" || url.scheme == "https" else { return nil }
@@ -152,6 +155,7 @@ enum CloudPlaybackSource {
             cacheURL: cacheURL,
             persistOnComplete: persistOnComplete,
             cacheRelativePath: cacheRelativePath,
+            prefetchAhead: prefetchAhead,
             connectorFetch: fetch
         )
     }
@@ -163,6 +167,7 @@ enum CloudPlaybackSource {
         cacheURL: URL,
         persistOnComplete: Bool,
         cacheRelativePath: String?,
+        prefetchAhead: Int,
         connectorFetch: @escaping @Sendable (Int64, Int64) async throws -> Data
     ) -> InputSource? {
         let partialURL = URL(fileURLWithPath: cacheURL.path + ".partial")
@@ -199,6 +204,7 @@ enum CloudPlaybackSource {
             initialRanges: initialRanges,
             persistOnComplete: persistOnComplete,
             cacheRelativePath: cacheRelativePath,
+            prefetchAhead: prefetchAhead,
             connectorFetch: connectorFetch
         )
         registerActiveState(state, key: partialURL.path)
@@ -352,6 +358,10 @@ private final class State: @unchecked Sendable {
     private var cachedRanges: [Range<Int64>] = []
     /// Stored so background prefetch can run without an active SFB call.
     private let connectorFetch: @Sendable (Int64, Int64) async throws -> Data
+    /// Number of future chunks to fetch in the background after a served read.
+    /// OneDrive keeps a single serialized TCP Range connection, so it uses 0
+    /// to keep that connection reserved for foreground decoder reads.
+    private let prefetchAhead: Int
     /// Chunk start offsets currently being fetched in background. Stops
     /// us from racing two prefetches against the same range when SFB
     /// asks repeatedly while a prefetch is still in flight.
@@ -411,6 +421,7 @@ private final class State: @unchecked Sendable {
         initialRanges: [Range<Int64>] = [],
         persistOnComplete: Bool = true,
         cacheRelativePath: String? = nil,
+        prefetchAhead: Int = CloudPlaybackSource.prefetchAhead,
         connectorFetch: @escaping @Sendable (Int64, Int64) async throws -> Data
     ) {
         self.label = label
@@ -420,6 +431,7 @@ private final class State: @unchecked Sendable {
         self.totalLength = totalLength
         self.persistOnComplete = persistOnComplete
         self.cacheRelativePath = cacheRelativePath
+        self.prefetchAhead = max(0, prefetchAhead)
         self.connectorFetch = connectorFetch
         // 排序 + 简单 dedupe (调用方应保证 disjoint, 这里不强行 coalesce)
         self.cachedRanges = initialRanges.sorted { $0.lowerBound < $1.lowerBound }
@@ -648,6 +660,8 @@ private final class State: @unchecked Sendable {
     /// N 个并发 chunk(`prefetchAhead`)的关键: SFB 顺序读时不止快一个 chunk,
     /// 否则 mp3 全帧扫描场景下每个 chunk fetch 串行累加变成"整下时间"。
     private func prefetchIfNeeded(startOffset: Int64) {
+        let aheadCount = prefetchAhead
+        guard aheadCount > 0 else { return }
         let chunkSize = CloudPlaybackSource.chunkSize
         // Round UP to the next chunk boundary — the chunk *containing*
         // startOffset was just fetched (or hit cache). Prefetch the ones
@@ -656,7 +670,6 @@ private final class State: @unchecked Sendable {
         // 始终固定少量前瞻。不要按“小文件”切换成整首预取:
         // 真实音乐库里大部分 mp3 都小于 20MB, 那会让普通播放退化成
         // 整首后台下载, 在蜂窝 / 外网 NAS 上既抢前台带宽也浪费流量。
-        let aheadCount = CloudPlaybackSource.prefetchAhead
         for i in 0..<aheadCount {
             let nextChunkStart = baseChunkStart + Int64(i) * chunkSize
             guard nextChunkStart < totalLength else { return }

@@ -1476,6 +1476,12 @@ final class SourceManager {
                     plog("⚠️ Cache: source not found for '\(song.title)'")
                     return
                 }
+
+                if source.type == .oneDrive {
+                    plog("⏩ Cache: skip OneDrive prewarm for '\(song.title)' (foreground Range playback keeps priority)")
+                    return
+                }
+
                 let conn = connector(for: source)
                 try await conn.connect()
 
@@ -1555,6 +1561,7 @@ final class SourceManager {
         guard let sources = try? await sourcesProvider(),
               let source = sources.first(where: { $0.id == song.sourceID }),
               shouldUseRangeStreamingForPlayback(source: source, song: song) else { return }
+        guard source.type != .oneDrive else { return }
         let conn = connector(for: source)
         do { try await conn.connect() } catch { return }
         await prewarmCloudSong(song: song, connector: conn)
@@ -1698,13 +1705,19 @@ final class SourceManager {
             cacheRelativePath = nil
         }
 
+        let prefetchAhead = source.type == .oneDrive ? 0 : CloudPlaybackSource.prefetchAhead
+        if source.type == .oneDrive {
+            plog("☁️ OneDrive streaming: background chunk prefetch disabled for '\(song.title)'")
+        }
+
         return CloudPlaybackSource.makeInputSource(
             song: song,
             totalLength: song.fileSize,
             connector: conn,
             cacheURL: cache,
             persistOnComplete: cacheEnabled,
-            cacheRelativePath: cacheRelativePath
+            cacheRelativePath: cacheRelativePath,
+            prefetchAhead: prefetchAhead
         )
     }
 
