@@ -522,7 +522,9 @@ targets:
               - primuse
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.welape.yuanyin.tv
+        # 与 iOS / macOS 同一 bundle ID,走 Universal Purchase 并入同一个「Primuse」
+        # App Store 记录(共享评分 / 评论 / 价格,买一次全平台通用),而不是单开 app。
+        PRODUCT_BUNDLE_IDENTIFIER: com.welape.yuanyin
         # tvOS app 需引用 entitlements 才能拿到 App Group(Top Shelf 共享数据)+ iCloud/CloudKit
         CODE_SIGN_ENTITLEMENTS: Config/PrimuseTV.entitlements
         TARGETED_DEVICE_FAMILY: "3"

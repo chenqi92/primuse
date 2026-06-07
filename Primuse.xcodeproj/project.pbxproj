@@ -3244,7 +3244,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.welape.yuanyin.tv;
+				PRODUCT_BUNDLE_IDENTIFIER = com.welape.yuanyin;
 				SDKROOT = appletvos;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -3468,7 +3468,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.welape.yuanyin.tv;
+				PRODUCT_BUNDLE_IDENTIFIER = com.welape.yuanyin;
 				SDKROOT = appletvos;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
