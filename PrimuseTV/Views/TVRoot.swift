@@ -227,9 +227,9 @@ struct TVBottomBar: View {
                         }
                         .frame(height: 4)
                         HStack {
-                            Text(TVFmt.time(np.currentTime))
+                            Text(TVFmt.time(store.currentTime))
                             Spacer()
-                            Text(TVFmt.time(np.duration))
+                            Text(TVFmt.time(store.duration))
                         }
                         .font(.system(size: 14, design: .monospaced))
                         .foregroundStyle(.white.opacity(0.55))
@@ -266,8 +266,8 @@ struct TVBottomBar: View {
     }
 
     private var progress: Double {
-        let np = store.nowPlaying
-        return np.duration > 0 ? max(0, min(1, np.currentTime / np.duration)) : 0
+        let dur = store.duration
+        return dur > 0 ? max(0, min(1, store.currentTime / dur)) : 0
     }
 }
 
