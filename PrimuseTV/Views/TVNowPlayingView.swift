@@ -26,8 +26,8 @@ struct TVNowPlayingView: View {
             VStack(spacing: 18) {
                 Image(systemName: "play.circle").font(.system(size: 96))
                     .foregroundStyle(.white.opacity(0.5))
-                Text("未在播放").font(.system(size: 40, weight: .bold)).foregroundStyle(.white)
-                Text("在资料库选一首歌开始").font(.system(size: 22)).foregroundStyle(.white.opacity(0.6))
+                Text(TVL("未在播放", "Not Playing")).font(.system(size: 40, weight: .bold)).foregroundStyle(.white)
+                Text(TVL("在资料库选一首歌开始", "Pick a song from your library to start")).font(.system(size: 22)).foregroundStyle(.white.opacity(0.6))
             }
         }
     }
@@ -56,7 +56,7 @@ struct TVNowPlayingView: View {
     private var leftColumn: some View {
         let np = store.nowPlaying
         return VStack(alignment: .leading, spacing: 0) {
-            TVEyebrow(text: "正在播放").padding(.bottom, 16)
+            TVEyebrow(text: TVL("正在播放", "Now Playing")).padding(.bottom, 16)
             TVArtworkView(coverKey: np.albumID, artist: np.artist, album: np.album,
                           tint: np.tint, tint2: np.tint2, glyph: np.glyph, size: 420, radius: 20)
                 .shadow(color: .black.opacity(0.5), radius: 36, y: 18)
@@ -119,7 +119,7 @@ struct TVNowPlayingView: View {
         if store.lyrics.isEmpty {
             VStack(spacing: 12) {
                 Image(systemName: "text.quote").font(.system(size: 48)).foregroundStyle(.white.opacity(0.35))
-                Text("暂无歌词").font(.system(size: 26)).foregroundStyle(.white.opacity(0.5))
+                Text(TVL("暂无歌词", "No Lyrics")).font(.system(size: 26)).foregroundStyle(.white.opacity(0.5))
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         } else {

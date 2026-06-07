@@ -22,10 +22,10 @@ struct TVOptionsView: View {
         let sleepOn = store.sleepTimerMinutes > 0
         return [
             .init(icon: liked ? "heart.fill" : "heart",
-                  label: liked ? "已喜欢" : "喜欢", on: liked,
+                  label: liked ? TVL("已喜欢", "Loved") : TVL("喜欢", "Love"), on: liked,
                   run: { if let id = store.currentSongID { store.toggleLiked(id) } }),
             .init(icon: "moon.zzz.fill",
-                  label: sleepOn ? "睡眠 \(store.sleepTimerMinutes) 分" : "睡眠定时", on: sleepOn,
+                  label: sleepOn ? TVL("睡眠 \(store.sleepTimerMinutes) 分", "Sleep \(store.sleepTimerMinutes) min") : TVL("睡眠定时", "Sleep Timer"), on: sleepOn,
                   run: { store.cycleSleepTimer() }),
         ]
     }
@@ -52,7 +52,7 @@ struct TVOptionsView: View {
                 Spacer()
 
                 VStack(alignment: .leading, spacing: 24) {
-                    TVEyebrow(text: "选项")
+                    TVEyebrow(text: TVL("选项", "Options"))
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 20) {
                             ForEach(actions) { a in actionTile(a) }

@@ -9,6 +9,15 @@ struct TVLibraryView: View {
     enum Filter: String, CaseIterable, Identifiable {
         case all = "全部", artists = "艺术家", songs = "歌曲", playlists = "歌单", smart = "智能歌单"
         var id: String { rawValue }
+        var display: String {
+            switch self {
+            case .all: return TVL("全部", "All")
+            case .artists: return TVL("艺术家", "Artists")
+            case .songs: return TVL("歌曲", "Songs")
+            case .playlists: return TVL("歌单", "Playlists")
+            case .smart: return TVL("智能歌单", "Smart Playlists")
+            }
+        }
     }
     @State private var filter: Filter = .all
 
@@ -34,18 +43,18 @@ struct TVLibraryView: View {
 
     private var title: String {
         switch filter {
-        case .all: return "专辑 · \(store.albums.count)"
-        case .artists: return "艺术家 · \(store.artists.count)"
-        case .songs: return "歌曲 · \(TVFmt.count(store.songs.count))"
-        case .playlists: return "歌单 · \(store.playlists.filter { $0.kind != .smart }.count)"
-        case .smart: return "智能歌单 · \(store.playlists.filter { $0.kind == .smart }.count)"
+        case .all: return TVL("专辑 · \(store.albums.count)", "Albums · \(store.albums.count)")
+        case .artists: return TVL("艺术家 · \(store.artists.count)", "Artists · \(store.artists.count)")
+        case .songs: return TVL("歌曲 · \(TVFmt.count(store.songs.count))", "Songs · \(TVFmt.count(store.songs.count))")
+        case .playlists: return TVL("歌单 · \(store.playlists.filter { $0.kind != .smart }.count)", "Playlists · \(store.playlists.filter { $0.kind != .smart }.count)")
+        case .smart: return TVL("智能歌单 · \(store.playlists.filter { $0.kind == .smart }.count)", "Smart Playlists · \(store.playlists.filter { $0.kind == .smart }.count)")
         }
     }
 
     private var filterStrip: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 6) {
-                TVEyebrow(text: "资料库")
+                TVEyebrow(text: TVL("资料库", "Library"))
                 Text(title).font(TVFont.pageTitle).foregroundStyle(.white)
             }
             Spacer(minLength: 0)
@@ -53,7 +62,7 @@ struct TVLibraryView: View {
                 ForEach(Filter.allCases) { f in
                     TVFocusButton(radius: 28, accent: .white, scale: 1.06, lift: 4,
                                   action: { filter = f }) { _ in
-                        Text(f.rawValue)
+                        Text(f.display)
                             .font(.system(size: 18, weight: f == filter ? .bold : .medium))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 26).padding(.vertical, 12)

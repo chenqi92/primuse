@@ -66,6 +66,13 @@ struct TVRoot: View {
                 }
                 if let album = store.albums.first { store.play(album: album) }
                 showNowPlaying = true
+            case "nowPlayingDemo":   // 截图用:注入演示播放态+歌词,不走真实播放
+                var tries = 0
+                while store.albums.isEmpty && tries < 25 {
+                    try? await Task.sleep(nanoseconds: 200_000_000); tries += 1
+                }
+                store.loadDemoNowPlaying()
+                showNowPlaying = true
             case "queue": showQueue = true
             case "options": showOptions = true
             case "settings": showSettings = true
@@ -95,8 +102,9 @@ struct TVTabBar: View {
     var onSettings: () -> Void
 
     private let tabs: [(TVRoot.Tab, String)] = [
-        (.home, "首页"), (.library, "资料库"), (.playlists, "歌单"),
-        (.sources, "音乐源"), (.search, "搜索"),
+        (.home, TVL("首页", "Home")), (.library, TVL("资料库", "Library")),
+        (.playlists, TVL("歌单", "Playlists")),
+        (.sources, TVL("音乐源", "Sources")), (.search, TVL("搜索", "Search")),
     ]
 
     private var debugFocusTab: TVRoot.Tab? {

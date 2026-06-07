@@ -16,16 +16,16 @@ struct TVSourcesView: View {
             HStack(alignment: .top, spacing: 60) {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 6) {
-                        TVEyebrow(text: "音乐源")
-                        Text("音乐源 · \(store.sources.count) 个")
+                        TVEyebrow(text: TVL("音乐源", "Music Sources"))
+                        Text(TVL("音乐源 · \(store.sources.count) 个", "Music Sources · \(store.sources.count)"))
                             .font(TVFont.pageTitle).foregroundStyle(.white)
                             .padding(.bottom, 22)
                         if store.sources.isEmpty {
                             VStack(alignment: .leading, spacing: 12) {
                                 Image(systemName: "server.rack").font(.system(size: 54))
                                     .foregroundStyle(.white.opacity(0.35))
-                                Text("还没有音乐源").font(.system(size: 26, weight: .bold)).foregroundStyle(.white)
-                                Text("扫右侧二维码在手机上添加,或在 iPhone / Mac 上添加后经 iCloud 同步过来。")
+                                Text(TVL("还没有音乐源", "No Music Sources Yet")).font(.system(size: 26, weight: .bold)).foregroundStyle(.white)
+                                Text(TVL("扫右侧二维码在手机上添加,或在 iPhone / Mac 上添加后经 iCloud 同步过来。", "Scan the QR code on the right to add one from your phone, or add it on iPhone / Mac and it syncs over via iCloud."))
                                     .font(.system(size: 18)).foregroundStyle(.white.opacity(0.6))
                                     .frame(maxWidth: 560, alignment: .leading).lineSpacing(4)
                             }
@@ -47,27 +47,27 @@ struct TVSourcesView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 0) {
-                    TVEyebrow(text: "添加音乐源").padding(.bottom, 16)
+                    TVEyebrow(text: TVL("添加音乐源", "Add a Source")).padding(.bottom, 16)
                     TVSourcesInfoCard()
                 }
                 .frame(width: 520)
             }
             .tvPage()
         }
-        .alert("删除音乐源?", isPresented: Binding(
+        .alert(TVL("删除音乐源?", "Remove Source?"), isPresented: Binding(
             get: { pendingDelete != nil },
             set: { if !$0 { pendingDelete = nil } }
         ), presenting: pendingDelete) { source in
-            Button("删除", role: .destructive) { store.deleteSource(source.id); pendingDelete = nil }
-            Button("取消", role: .cancel) { pendingDelete = nil }
+            Button(TVL("删除", "Remove"), role: .destructive) { store.deleteSource(source.id); pendingDelete = nil }
+            Button(TVL("取消", "Cancel"), role: .cancel) { pendingDelete = nil }
         } message: { source in
-            Text("「\(source.name)」将从 Apple TV 移除。它在 iPhone / Mac 上仍是权威方,彻底删除请在手机/电脑上操作。")
+            Text(TVL("「\(source.name)」将从 Apple TV 移除。它在 iPhone / Mac 上仍是权威方,彻底删除请在手机/电脑上操作。", "“\(source.name)” will be removed from Apple TV. It remains authoritative on iPhone / Mac — delete it there to remove it completely."))
         }
-        .alert("测试连接", isPresented: Binding(
+        .alert(TVL("测试连接", "Test Connection"), isPresented: Binding(
             get: { testResult != nil },
             set: { if !$0 { testResult = nil } }
         ), presenting: testResult) { _ in
-            Button("好", role: .cancel) { testResult = nil }
+            Button(TVL("好", "OK"), role: .cancel) { testResult = nil }
         } message: { r in
             Text("「\(r.sourceName)」\n\(r.message)")
         }
@@ -98,14 +98,14 @@ private struct TVSourcesInfoCard: View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 10) {
                 Image(systemName: "qrcode").font(.system(size: 28)).foregroundStyle(TVColor.brand)
-                Text("扫码在手机上添加").font(.system(size: 26, weight: .bold)).foregroundStyle(.white)
+                Text(TVL("扫码在手机上添加", "Scan to Add on Phone")).font(.system(size: 26, weight: .bold)).foregroundStyle(.white)
             }
             HStack(alignment: .top, spacing: 22) {
                 TVQRCode(content: "primuse://add-source", size: 190)
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("用 iPhone 相机扫这个码,会打开 Primuse 到「添加音乐源」,可挨个添加 NAS / 云盘 / Subsonic 等。")
+                    Text(TVL("用 iPhone 相机扫这个码,会打开 Primuse 到「添加音乐源」,可挨个添加 NAS / 云盘 / Subsonic 等。", "Scan this code with your iPhone camera to open Primuse at “Add a Source,” where you can add NAS, cloud drives, Subsonic, and more."))
                         .font(.system(size: 18)).foregroundStyle(.white.opacity(0.72)).lineSpacing(5)
-                    Text("添加后经 iCloud 自动同步到 Apple TV;也可直接在 iPhone / Mac 上添加。")
+                    Text(TVL("添加后经 iCloud 自动同步到 Apple TV;也可直接在 iPhone / Mac 上添加。", "Once added, it syncs to Apple TV automatically via iCloud. You can also add it directly on iPhone / Mac."))
                         .font(.system(size: 15)).foregroundStyle(TVColor.textGhost).lineSpacing(4)
                 }
             }
@@ -136,7 +136,7 @@ private struct TVSourceRow: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(source.name).font(.system(size: 22, weight: .semibold))
                         .foregroundStyle(.white).lineLimit(1)
-                    Text("\(source.type.uppercased()) · \(TVFmt.count(source.songs)) 首")
+                    Text(TVL("\(source.type.uppercased()) · \(TVFmt.count(source.songs)) 首", "\(source.type.uppercased()) · \(TVFmt.count(source.songs)) songs"))
                         .font(.system(size: 16, design: .monospaced))
                         .foregroundStyle(TVColor.textFaint)
                 }
@@ -165,19 +165,19 @@ private struct TVSourceRow: View {
         // 长按(Siri Remote)弹菜单:启用/停用 + 输入凭证 + 测试连接 + 从 Apple TV 移除。
         .contextMenu {
             Button { onSelect() } label: {
-                Label(source.status == .disabled ? "启用" : "停用",
+                Label(source.status == .disabled ? TVL("启用", "Enable") : TVL("停用", "Disable"),
                       systemImage: source.status == .disabled ? "power" : "pause.circle")
             }
             if source.canEnterCredential {
                 Button { onEnterCredential() } label: {
-                    Label("输入登录凭据", systemImage: "key")
+                    Label(TVL("输入登录凭据", "Enter Credentials"), systemImage: "key")
                 }
             }
             Button { onTestConnection() } label: {
-                Label("测试连接", systemImage: "antenna.radiowaves.left.and.right")
+                Label(TVL("测试连接", "Test Connection"), systemImage: "antenna.radiowaves.left.and.right")
             }
             Button(role: .destructive) { onDelete() } label: {
-                Label("从 Apple TV 移除", systemImage: "trash")
+                Label(TVL("从 Apple TV 移除", "Remove from Apple TV"), systemImage: "trash")
             }
         }
     }
@@ -200,9 +200,9 @@ private struct TVSourceRow: View {
     private var badgeInfo: (label: String, color: Color, icon: String)? {
         switch source.playability {
         case .ok: return nil
-        case .missingCredential: return ("缺凭据", TVColor.warn, "key.slash")
-        case .needsRelay: return ("需 iPhone 中继", TVColor.brand, "iphone.radiowaves.left.and.right")
-        case .unsupported: return ("TV 不支持", TVColor.textGhost, "xmark.circle")
+        case .missingCredential: return (TVL("缺凭据", "No Credentials"), TVColor.warn, "key.slash")
+        case .needsRelay: return (TVL("需 iPhone 中继", "Needs iPhone Relay"), TVColor.brand, "iphone.radiowaves.left.and.right")
+        case .unsupported: return (TVL("TV 不支持", "Not on TV"), TVColor.textGhost, "xmark.circle")
         }
     }
 
@@ -216,10 +216,10 @@ private struct TVSourceRow: View {
     }
     private var statusLabel: String {
         switch source.status {
-        case .connected: return "已启用"
-        case .scanning: return "扫描中"
-        case .authFailed: return "凭据失败"
-        case .disabled: return "已停用"
+        case .connected: return TVL("已启用", "Enabled")
+        case .scanning: return TVL("扫描中", "Scanning")
+        case .authFailed: return TVL("凭据失败", "Auth Failed")
+        case .disabled: return TVL("已停用", "Disabled")
         }
     }
     private var statusColor: Color {
@@ -252,12 +252,12 @@ private struct TVCredentialEditorView: View {
             TVColor.bg.ignoresSafeArea()
             VStack(alignment: .leading, spacing: 22) {
                 header
-                Text("在 Apple TV 上直接为该源登录。凭据只存本机(不上传 / 不同步),并优先于从手机同步过来的凭据 —— 适合跨设备 session 不通用时。")
+                Text(TVL("在 Apple TV 上直接为该源登录。凭据只存本机(不上传 / 不同步),并优先于从手机同步过来的凭据 —— 适合跨设备 session 不通用时。", "Sign in to this source directly on Apple TV. Credentials are stored only on this device (never uploaded or synced) and take priority over those synced from your phone — handy when sessions don’t carry across devices."))
                     .font(.system(size: 18)).foregroundStyle(TVColor.textMuted)
                     .frame(maxWidth: 760, alignment: .leading).lineSpacing(5)
 
-                field(icon: "person", placeholder: "用户名", isFocused: focus == .username) {
-                    TextField("用户名", text: $username)
+                field(icon: "person", placeholder: TVL("用户名", "Username"), isFocused: focus == .username) {
+                    TextField(TVL("用户名", "Username"), text: $username)
                         .focused($focus, equals: .username)
                         .textContentType(.username)
                         .textInputAutocapitalization(.never)
@@ -267,8 +267,8 @@ private struct TVCredentialEditorView: View {
                         .foregroundStyle(.white)
                         .focusEffectDisabled()
                 }
-                field(icon: "lock", placeholder: "密码", isFocused: focus == .password) {
-                    SecureField("密码", text: $password)
+                field(icon: "lock", placeholder: TVL("密码", "Password"), isFocused: focus == .password) {
+                    SecureField(TVL("密码", "Password"), text: $password)
                         .focused($focus, equals: .password)
                         .textContentType(.password)
                         .textFieldStyle(.plain)
@@ -279,7 +279,7 @@ private struct TVCredentialEditorView: View {
 
                 HStack(spacing: 16) {
                     TVFocusButton(radius: 14, accent: TVColor.brand, scale: 1.02, lift: 0, action: save) { focused in
-                        Text("保存并启用")
+                        Text(TVL("保存并启用", "Save & Enable"))
                             .font(.system(size: 22, weight: .semibold))
                             .foregroundStyle(canSave ? .white : TVColor.textGhost)
                             .padding(.horizontal, 30).padding(.vertical, 16)
@@ -291,7 +291,7 @@ private struct TVCredentialEditorView: View {
 
                     if hasLocal {
                         TVFocusButton(radius: 14, scale: 1.02, lift: 0, action: clearLocal) { focused in
-                            Text("清除本地凭据")
+                            Text(TVL("清除本地凭据", "Clear Local Credentials"))
                                 .font(.system(size: 22, weight: .semibold)).foregroundStyle(TVColor.bad)
                                 .padding(.horizontal, 26).padding(.vertical, 16)
                                 .background(Color.white.opacity(focused ? 0.14 : 0.06),
@@ -300,7 +300,7 @@ private struct TVCredentialEditorView: View {
                     }
 
                     TVFocusButton(radius: 14, scale: 1.02, lift: 0, action: { dismiss() }) { focused in
-                        Text("取消")
+                        Text(TVL("取消", "Cancel"))
                             .font(.system(size: 22, weight: .semibold)).foregroundStyle(.white)
                             .padding(.horizontal, 26).padding(.vertical, 16)
                             .background(Color.white.opacity(focused ? 0.14 : 0.06),
@@ -326,7 +326,7 @@ private struct TVCredentialEditorView: View {
                 .frame(width: 60, height: 60)
                 .background(source.color, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             VStack(alignment: .leading, spacing: 4) {
-                Text("输入登录凭据").font(.system(size: 40, weight: .bold)).foregroundStyle(.white)
+                Text(TVL("输入登录凭据", "Enter Credentials")).font(.system(size: 40, weight: .bold)).foregroundStyle(.white)
                 Text("\(source.name) · \(source.type.uppercased())")
                     .font(.system(size: 18, design: .monospaced)).foregroundStyle(TVColor.textFaint)
             }

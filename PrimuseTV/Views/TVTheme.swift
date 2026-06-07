@@ -48,6 +48,27 @@ enum TVFont {
     static let eyebrow: Font = .system(size: 16, weight: .semibold)
 }
 
+// MARK: - 轻量双语
+
+/// tvOS 界面文案原本写死中文,这里按当前语言在中/英之间取串。
+/// 语言判定:DEBUG 下可用 `SIMCTL_CHILD_TV_LANG=en` 强制(截图用);否则跟随系统首选语言。
+enum TVLang {
+    static let isEnglish: Bool = {
+        #if DEBUG
+        if let v = ProcessInfo.processInfo.environment["TV_LANG"], !v.isEmpty {
+            return v.lowercased().hasPrefix("en")
+        }
+        #endif
+        let lang = (UserDefaults.standard.array(forKey: "AppleLanguages")?.first as? String)
+            ?? Locale.preferredLanguages.first
+            ?? "zh"
+        return lang.lowercased().hasPrefix("en")
+    }()
+}
+
+/// 双语取串:`TVL("首页", "Home")` —— 英文环境返回第二个参数,否则中文。
+func TVL(_ zh: String, _ en: String) -> String { TVLang.isEnglish ? en : zh }
+
 // MARK: - Hex 颜色
 
 extension Color {

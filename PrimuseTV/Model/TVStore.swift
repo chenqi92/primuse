@@ -200,12 +200,12 @@ final class TVStore {
 
     private func map(_ a: Album) -> TVAlbum {
         let (t1, t2) = Self.tint(a.id.isEmpty ? a.title : a.id)
-        return TVAlbum(id: a.id, title: a.title, artist: a.artistName ?? "未知艺术家",
+        return TVAlbum(id: a.id, title: a.title, artist: a.artistName ?? TVL("未知艺术家", "Unknown Artist"),
                        year: a.year ?? 0, tint: t1, tint2: t2, glyph: Self.glyph(a.title))
     }
     private func map(_ s: Song) -> TVSong {
         TVSong(id: s.id, albumID: s.albumID ?? "", title: s.title,
-               artist: s.artistName ?? "未知艺术家", duration: s.duration,
+               artist: s.artistName ?? TVL("未知艺术家", "Unknown Artist"), duration: s.duration,
                format: s.fileFormat.displayName, bitrate: s.bitRate ?? 0,
                sampleRate: Double(s.sampleRate ?? 0) / 1000,
                sourceID: s.sourceID, plays: 0, liked: localLiked.contains(s.id))
@@ -294,25 +294,33 @@ final class TVStore {
 
     /// 「测试连接」:用当前凭据尝试解析该源的一首歌,返回给用户看的结果文案。
     func testConnection(forSourceID id: String) async -> String {
-        guard let source = sourcesStore.source(id: id) else { return "找不到该音乐源" }
+        guard let source = sourcesStore.source(id: id) else { return TVL("找不到该音乐源", "Source not found") }
         guard let song = library.songs.first(where: { $0.sourceID == id }) else {
-            return "该源在曲库中暂无歌曲,无法测试解析"
+            return TVL("该源在曲库中暂无歌曲,无法测试解析", "This source has no songs in the library to test")
         }
         let cred = TVCredentialStore.credential(for: source, bundle: credentialBundle)
         do {
             let resolved = try await StreamResolverRegistry.shared.resolve(for: song, source: source, credential: cred)
-            return "连接成功 · \(resolved.url.host ?? "已解析")"
+            return TVL("连接成功 · ", "Connected · ") + (resolved.url.host ?? TVL("已解析", "resolved"))
         } catch let e as StreamResolveError {
             switch e {
-            case .unsupportedSourceType(let t): return "类型「\(t.displayName)」在 Apple TV 上不支持播放"
-            case .missingCredential: return "缺少登录凭据 —— 请在此输入账号密码"
-            case .authFailed: return "鉴权失败 —— 账号或密码不正确"
-            case .badServerResponse(let code): return "服务器返回 HTTP \(code)"
-            case .cannotBuildURL: return "无法构造播放地址"
-            case .relayUnavailable: return "需经 iPhone 中继 —— 请在手机上保持 Primuse 打开、与 TV 同一局域网"
+            case .unsupportedSourceType(let t):
+                return TVL("类型「\(t.displayName)」在 Apple TV 上不支持播放",
+                          "“\(t.displayName)” can’t be played directly on Apple TV")
+            case .missingCredential:
+                return TVL("缺少登录凭据 —— 请在此输入账号密码", "Missing credentials — enter your account and password here")
+            case .authFailed:
+                return TVL("鉴权失败 —— 账号或密码不正确", "Authentication failed — wrong account or password")
+            case .badServerResponse(let code):
+                return TVL("服务器返回 HTTP \(code)", "Server returned HTTP \(code)")
+            case .cannotBuildURL:
+                return TVL("无法构造播放地址", "Couldn’t build a playback URL")
+            case .relayUnavailable:
+                return TVL("需经 iPhone 中继 —— 请在手机上保持 Primuse 打开、与 TV 同一局域网",
+                          "Needs iPhone relay — keep Primuse open on your phone, on the same Wi-Fi as the TV")
             }
         } catch {
-            return "连接失败 · \(error.localizedDescription)"
+            return TVL("连接失败 · ", "Connection failed · ") + error.localizedDescription
         }
     }
 
@@ -354,6 +362,39 @@ final class TVStore {
         bundle.entries[parts[0]] = CredentialEntry(username: parts[1], password: parts[2])
         credentialBundle = bundle
     }
+    #endif
+
+    #if DEBUG
+    /// 截图用:直接注入一条「正在播放」+ 演示歌词,不走真实播放(模拟器无可达源)。
+    func loadDemoNowPlaying() {
+        guard let album = albums.first else { return }
+        let song = songs.first(where: { $0.albumID == album.id })
+        nowPlaying = TVNowPlaying(
+            title: song?.title ?? album.title,
+            artist: album.artist,
+            album: album.title,
+            albumID: album.id,
+            tint: album.tint, tint2: album.tint2, glyph: album.glyph,
+            duration: song?.duration ?? 245,
+            currentTime: 0,
+            format: song?.format ?? "FLAC",
+            bitrate: song?.bitrate ?? 1411,
+            sampleRate: song?.sampleRate ?? 96,
+            sourcePath: "")
+        hasNowPlaying = true
+        lyrics = Self.demoLyrics
+    }
+
+    static let demoLyrics: [TVLyricLine] = [
+        .init(time: 0,  text: "灯光落在窗台上",      syllables: [], translation: "Light settles on the windowsill"),
+        .init(time: 4,  text: "夜色把城市轻轻收起",   syllables: [], translation: "Night folds the city away"),
+        .init(time: 9,  text: "我们沿着旧巷往回走",   syllables: [], translation: "We wander home down the old lane"),
+        .init(time: 14, text: "把没说完的话留给风",   syllables: [], translation: "Leaving unfinished words to the wind"),
+        .init(time: 19, text: "再亮一会儿吧 慢下来的光", syllables: [], translation: "Stay a little longer, slow light"),
+        .init(time: 24, text: "让霓虹在水面上摇晃",   syllables: [], translation: "Let the neon sway on the water"),
+        .init(time: 29, text: "每一步都踩在回声里",   syllables: [], translation: "Every step lands in an echo"),
+        .init(time: 34, text: "带我回家 慢下来的光",  syllables: [], translation: "Slow light, take me home"),
+    ]
     #endif
 
     /// 仅从本地磁盘重载(不联网),用于关闭自动同步时的启动。

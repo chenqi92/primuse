@@ -13,9 +13,9 @@ struct TVHomeView: View {
     }
     private var heroSongs: [TVSong] { store.songs(forAlbum: hero.id) }
     private var heroSubtitle: String {
-        var parts = ["\(heroSongs.count) 首"]
+        var parts = [TVL("\(heroSongs.count) 首", "\(heroSongs.count) songs")]
         let mins = Int(heroSongs.reduce(0) { $0 + $1.duration } / 60)
-        if mins > 0 { parts.append("\(mins) 分钟") }
+        if mins > 0 { parts.append(TVL("\(mins) 分钟", "\(mins) min")) }
         if hero.year > 0 { parts.append("\(hero.year)") }
         parts.append(hero.artist)
         return parts.joined(separator: " · ")
@@ -38,27 +38,27 @@ struct TVHomeView: View {
             .ignoresSafeArea()
 
             if store.albums.isEmpty {
-                TVEmptyState(icon: "music.note.house", title: "还没有曲库").tvPage()
+                TVEmptyState(icon: "music.note.house", title: TVL("还没有曲库", "No music library yet")).tvPage()
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 30) {
                     heroZone
                     if !store.recentlyPlayed.isEmpty {
-                        TVRow(label: "最近播放") {
+                        TVRow(label: TVL("最近播放", "Recently Played")) {
                             ForEach(store.recentlyPlayed) { song in
                                 TVSongCard(song: song, action: openPlayer)
                             }
                         }
                     }
                     if !store.recentlyAddedAlbums.isEmpty {
-                        TVRow(label: "最近添加专辑") {
+                        TVRow(label: TVL("最近添加专辑", "Recently Added")) {
                             ForEach(store.recentlyAddedAlbums) { album in
                                 TVAlbumCard(album: album, action: openPlayer)
                             }
                         }
                     }
                     if !store.recommended.isEmpty {
-                        TVRow(label: "为你推荐") {
+                        TVRow(label: TVL("为你推荐", "Made for You")) {
                             ForEach(Array(store.recommended.enumerated()), id: \.offset) { _, album in
                                 TVAlbumCard(album: album, action: openPlayer)
                             }
@@ -74,7 +74,7 @@ struct TVHomeView: View {
     private var heroZone: some View {
         HStack(alignment: .center, spacing: 64) {
             VStack(alignment: .leading, spacing: 0) {
-                TVEyebrow(text: "今晚听")
+                TVEyebrow(text: TVL("今晚听", "Tonight's Pick"))
                 Text("\(hero.artist) · \(hero.title)")
                     .font(.system(size: 84, weight: .bold)).tracking(-1.5)
                     .foregroundStyle(.white).lineLimit(2)
@@ -84,11 +84,11 @@ struct TVHomeView: View {
                     .lineLimit(2).frame(maxWidth: 760, alignment: .leading)
                     .padding(.top, 14)
                 HStack(spacing: 16) {
-                    TVPillButton(title: "全部播放", systemImage: "play.fill", style: .solid,
+                    TVPillButton(title: TVL("全部播放", "Play All"), systemImage: "play.fill", style: .solid,
                                  action: { store.playAll(shuffle: false); openPlayer() })
-                    TVPillButton(title: "随机播放", systemImage: "shuffle",
+                    TVPillButton(title: TVL("随机播放", "Shuffle"), systemImage: "shuffle",
                                  action: { store.playAll(shuffle: true); openPlayer() })
-                    TVPillButton(title: "喜欢", systemImage: "heart")
+                    TVPillButton(title: TVL("喜欢", "Love"), systemImage: "heart")
                 }
                 .padding(.top, 32)
             }

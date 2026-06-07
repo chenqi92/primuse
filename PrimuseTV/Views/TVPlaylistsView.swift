@@ -18,8 +18,8 @@ struct TVPlaylistsView: View {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 30) {
                         VStack(alignment: .leading, spacing: 6) {
-                            TVEyebrow(text: "歌单")
-                            Text("你的歌单 · \(store.playlists.count)")
+                            TVEyebrow(text: TVL("歌单", "Playlists"))
+                            Text(TVL("你的歌单 · \(store.playlists.count)", "Your Playlists · \(store.playlists.count)"))
                                 .font(TVFont.pageTitle).foregroundStyle(.white)
                         }
                         LazyVGrid(columns: Array(repeating: GridItem(.fixed(cell), spacing: gap, alignment: .top), count: cols),
@@ -60,7 +60,7 @@ struct TVPlaylistCard: View {
                                 Spacer()
                                 HStack(spacing: 5) {
                                     Image(systemName: "sparkles").font(.system(size: 13))
-                                    Text("智能").font(.system(size: 14, weight: .medium))
+                                    Text(TVL("智能", "Smart")).font(.system(size: 14, weight: .medium))
                                 }
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 10).padding(.vertical, 4)
@@ -81,7 +81,7 @@ struct TVPlaylistCard: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(playlist.name).font(.system(size: 22, weight: .semibold))
                         .foregroundStyle(.white).lineLimit(1)
-                    Text("\(playlist.count) 首").font(.system(size: 16))
+                    Text(TVL("\(playlist.count) 首", "\(playlist.count) songs")).font(.system(size: 16))
                         .foregroundStyle(TVColor.textFaint)
                 }
                 .padding(.top, 12).padding(.horizontal, 2)

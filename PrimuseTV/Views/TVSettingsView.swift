@@ -18,12 +18,12 @@ struct TVSettingsView: View {
         return "\(v.majorVersion).\(v.minorVersion)"
     }
     private var libraryStat: String {
-        store.albums.isEmpty ? "尚未同步" :
-            "\(TVFmt.count(store.songs.count)) 首 · \(store.albums.count) 张专辑 · \(store.artists.count) 位艺术家"
+        store.albums.isEmpty ? TVL("尚未同步", "Not synced yet") :
+            TVL("\(TVFmt.count(store.songs.count)) 首 · \(store.albums.count) 张专辑 · \(store.artists.count) 位艺术家", "\(TVFmt.count(store.songs.count)) songs · \(store.albums.count) albums · \(store.artists.count) artists")
     }
     private var syncValue: String {
-        if isSyncing { return "正在从 iCloud 同步…" }
-        return syncMsg ?? "点按拉取最新曲库"
+        if isSyncing { return TVL("正在从 iCloud 同步…", "Syncing from iCloud…") }
+        return syncMsg ?? TVL("点按拉取最新曲库", "Tap to pull latest library")
     }
 
     var body: some View {
@@ -31,27 +31,27 @@ struct TVSettingsView: View {
             TVColor.bg.ignoresSafeArea()
             HStack(alignment: .top, spacing: 80) {
                 VStack(alignment: .leading, spacing: 0) {
-                    TVEyebrow(text: "设置").padding(.bottom, 6)
-                    Text("常用").font(TVFont.pageTitle).foregroundStyle(.white).padding(.bottom, 24)
+                    TVEyebrow(text: TVL("设置", "Settings")).padding(.bottom, 6)
+                    Text(TVL("常用", "General")).font(TVFont.pageTitle).foregroundStyle(.white).padding(.bottom, 24)
                     VStack(spacing: 12) {
-                        navRow("icloud.fill", "iCloud 同步", syncValue, trailing: "arrow.clockwise", action: sync)
-                        toggleRow("arrow.triangle.2.circlepath", "启动时自动同步", isOn: $autoSync)
-                        navRow("music.note", "曲库", libraryStat) { go(.library) }
-                        navRow("music.note.list", "歌单", "\(store.playlists.count) 个") { go(.playlists) }
-                        navRow("server.rack", "音乐源", "\(store.sources.count) 个") { go(.sources) }
-                        infoRow("info.circle", "关于 Primuse", "\(version) (\(build)) · tvOS \(osVersion)")
+                        navRow("icloud.fill", TVL("iCloud 同步", "iCloud Sync"), syncValue, trailing: "arrow.clockwise", action: sync)
+                        toggleRow("arrow.triangle.2.circlepath", TVL("启动时自动同步", "Auto sync on launch"), isOn: $autoSync)
+                        navRow("music.note", TVL("曲库", "Library"), libraryStat) { go(.library) }
+                        navRow("music.note.list", TVL("歌单", "Playlists"), TVL("\(store.playlists.count) 个", "\(store.playlists.count)")) { go(.playlists) }
+                        navRow("server.rack", TVL("音乐源", "Sources"), TVL("\(store.sources.count) 个", "\(store.sources.count)")) { go(.sources) }
+                        infoRow("info.circle", TVL("关于 Primuse", "About Primuse"), "\(version) (\(build)) · tvOS \(osVersion)")
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 0) {
-                    TVEyebrow(text: "遥控提示").padding(.bottom, 24)
+                    TVEyebrow(text: TVL("遥控提示", "Remote Tips")).padding(.bottom, 24)
                     HStack { Spacer(); TVSiriRemote(); Spacer() }
                     VStack(alignment: .leading, spacing: 14) {
-                        TVRemoteHint("圆形触控板", "上 / 下 / 左 / 右移动焦点 · 按下选择")
-                        TVRemoteHint("Menu / 返回", "返回上一层")
-                        TVRemoteHint("TV 按钮", "回 Apple TV 主屏")
-                        TVRemoteHint("搜索框", "唤出系统键盘 · 支持语音听写")
+                        TVRemoteHint(TVL("圆形触控板", "Touch surface"), TVL("上 / 下 / 左 / 右移动焦点 · 按下选择", "Swipe up / down / left / right · press to select"))
+                        TVRemoteHint(TVL("Menu / 返回", "Menu / Back"), TVL("返回上一层", "Go back one level"))
+                        TVRemoteHint(TVL("TV 按钮", "TV button"), TVL("回 Apple TV 主屏", "Return to Apple TV Home"))
+                        TVRemoteHint(TVL("搜索框", "Search field"), TVL("唤出系统键盘 · 支持语音听写", "Brings up the keyboard · voice dictation supported"))
                     }
                     .padding(.top, 32)
                 }
@@ -69,7 +69,7 @@ struct TVSettingsView: View {
         Task {
             await store.bootstrap()
             isSyncing = false
-            syncMsg = store.albums.isEmpty ? "未找到曲库快照" : "已同步 · \(TVFmt.count(store.songs.count)) 首"
+            syncMsg = store.albums.isEmpty ? TVL("未找到曲库快照", "No library snapshot found") : TVL("已同步 · \(TVFmt.count(store.songs.count)) 首", "Synced · \(TVFmt.count(store.songs.count)) songs")
         }
     }
 
