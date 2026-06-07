@@ -577,24 +577,14 @@ final class TVStore {
             format: song.format, bitrate: song.bitrate, sampleRate: song.sampleRate, sourcePath: "")
         hasNowPlaying = true
         lyrics = []
-        loadLyrics(forSongID: song.id)
         queueUpNextIDs = queueIndex + 1 < queue.count ? Array(queue[(queueIndex + 1)...]) : []
         Task { await coordinator.play(songID: song.id) }
     }
 
-    /// 从经快照同步下来的 MetadataAssetStore 读这首歌的歌词(手机端抓取后随快照传过来)。
-    private func loadLyrics(forSongID songID: String) {
-        Task { [weak self] in
-            guard let lines = await MetadataAssetStore.shared.cachedLyrics(forSongID: songID),
-                  !lines.isEmpty else { return }
-            let tv = lines.map { line in
-                TVLyricLine(time: line.timestamp, text: line.text,
-                            syllables: (line.syllables ?? []).map { TVSyllable(w: $0.text, d: $0.start) },
-                            translation: "")
-            }
-            guard let self, self.currentSongID == songID else { return }
-            self.lyrics = tv
-        }
+    /// 协调器加载完歌词后回填(本地缓存 / 从源读 .lrc)。仅当仍是这首歌时生效。
+    func applyLyrics(_ lines: [TVLyricLine], forSongID songID: String) {
+        guard currentSongID == songID else { return }
+        lyrics = lines
     }
 }
 

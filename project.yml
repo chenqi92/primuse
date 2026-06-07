@@ -495,6 +495,7 @@ targets:
       - path: Primuse/Services/Sources/SourcesStore.swift
       - path: Primuse/Services/Metadata/MetadataAssetStore.swift
       - path: Primuse/Services/Metadata/FileMetadataReader.swift
+      - path: Primuse/Services/Metadata/LyricsParser.swift
       - path: Primuse/Services/Cloud/LibrarySnapshotSync.swift
       - path: Primuse/Utilities/FileLogger.swift
       - path: Primuse/Utilities/Extensions/TimeInterval+Format.swift

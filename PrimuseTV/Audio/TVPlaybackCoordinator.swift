@@ -55,6 +55,7 @@ final class TVPlaybackCoordinator {
                         album: song.albumTitle ?? "",
                         duration: song.duration)
             engine.play()
+            loadLyrics(song: song, source: source, credential: credential)
         } catch let error as StreamResolveError {
             plog("🎬 TV play: resolve FAILED — \(error)")
             store.playbackIssue = issue(for: error, source: source)
@@ -74,6 +75,56 @@ final class TVPlaybackCoordinator {
             return try await resolveStream(song: song, source: source, credential: credential, retried: true)
         }
     }
+
+    // MARK: 歌词
+
+    /// 加载歌词:先本地缓存(随快照同步下来的 / 之前抓过的),再直接从音乐源读同目录的
+    /// `.lrc` sidecar —— 不再依赖手机端是否抓过(TV 本就连着源、有凭证)。`lyricsFileName`
+    /// 指向源里的歌词文件(NAS 是 `.lrc` 真实路径,云盘是 item ID),复用 stream resolver
+    /// 解出下载地址即可。
+    private func loadLyrics(song: Song, source: MusicSource, credential: SourceCredential?) {
+        Task { [weak store, song, source, credential] in
+            let songID = song.id
+            if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: songID), !cached.isEmpty {
+                store?.applyLyrics(Self.toTVLyrics(cached), forSongID: songID)
+                return
+            }
+            // .json = 本机缓存名(上面已查过);其余非空值视为源里的歌词文件路径。
+            guard let lf = song.lyricsFileName, !lf.isEmpty, !lf.hasSuffix(".json") else { return }
+            var lrcSong = song
+            lrcSong.filePath = lf
+            do {
+                let resolved = try await StreamResolverRegistry.shared.resolve(
+                    for: lrcSong, source: source, credential: credential)
+                var req = URLRequest(url: resolved.url)
+                for (k, v) in resolved.headers { req.setValue(v, forHTTPHeaderField: k) }
+                let (data, _) = try await Self.lyricsSession.data(for: req)
+                guard let text = String(data: data, encoding: .utf8), !text.isEmpty else { return }
+                let lines = LyricsParser.parse(text)
+                guard !lines.isEmpty else { return }
+                _ = await MetadataAssetStore.shared.cacheLyrics(lines, forSongID: songID, force: false)
+                store?.applyLyrics(Self.toTVLyrics(lines), forSongID: songID)
+                plog("🎬 TV source-lyrics loaded \(lines.count) lines for '\(song.title)'")
+            } catch {
+                plog("🎬 TV source-lyrics fetch failed '\(song.title)': \(error)")
+            }
+        }
+    }
+
+    private nonisolated static func toTVLyrics(_ lines: [LyricLine]) -> [TVLyricLine] {
+        lines.map { line in
+            TVLyricLine(time: line.timestamp, text: line.text,
+                        syllables: (line.syllables ?? []).map { TVSyllable(w: $0.text, d: $0.start) },
+                        translation: "")
+        }
+    }
+
+    /// 取 .lrc 用的 session:接受自签证书(个人 NAS),与播放用的 resource loader 同策略。
+    private static let lyricsSession: URLSession = {
+        let cfg = URLSessionConfiguration.default
+        cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return URLSession(configuration: cfg, delegate: TVInsecureTLSDelegate(), delegateQueue: nil)
+    }()
 
     private func issue(for error: StreamResolveError, source: MusicSource) -> TVPlaybackIssue {
         switch error {
