@@ -495,6 +495,7 @@ final class TVStore {
 
     /// 一曲自然播完后的推进:单曲循环重播本曲,否则等同手动下一首。
     private func advanceAfterEnd() {
+        plog("🎬 TV advanceAfterEnd: queueIndex=\(queueIndex)/\(queue.count) repeat=\(repeatMode)")
         if repeatMode == .one, queue.indices.contains(queueIndex), let s = song(queue[queueIndex]) {
             startPlaying(s)
         } else {
@@ -555,6 +556,10 @@ final class TVStore {
         let albumSongs = songs(forAlbum: song.albumID)
         if albumSongs.count > 1, let idx = albumSongs.firstIndex(where: { $0.id == song.id }) {
             queue = albumSongs.map(\.id)
+            queueIndex = idx
+        } else if let idx = library.visibleSongs.firstIndex(where: { $0.id == song.id }) {
+            // 无专辑 / 单曲专辑:用整个可见曲库续播,从这首开始,播完会自动播下一首。
+            queue = library.visibleSongs.map(\.id)
             queueIndex = idx
         } else {
             queue = [song.id]

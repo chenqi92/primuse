@@ -164,6 +164,7 @@ final class TVAudioEngine {
     }
 
     private func handleEnded() {
+        plog("📺 TV engine: didPlayToEnd → advance")
         isPlaying = false
         currentTime = duration
         status = .paused
