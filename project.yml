@@ -427,6 +427,9 @@ targets:
         NSHumanReadableCopyright: "© Welape"
         ITSAppUsesNonExemptEncryption: false
         NSAppleMusicUsageDescription: "Primuse needs access to your Apple Music / iTunes library to import its local tracks as a playback source."
+        # AudioEngine.swift 用 CMHeadphoneMotionManager 做空间音频头部追踪(随 Primuse/ 源
+        # 编进 macOS 二进制),即使 mac 上少用,Apple 校验也要求声明,否则上传报 90683。
+        NSMotionUsageDescription: "Primuse uses headphone motion to keep Spatial Audio anchored while you move your head."
         CFBundleURLTypes:
           - CFBundleURLSchemes:
               - primuse
@@ -510,6 +513,8 @@ targets:
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         CFBundleDisplayName: "Primuse"
         CFBundleName: "Primuse"
+        # 只用 HTTPS / 标准 OS 加密(豁免类),声明免出口合规,免去每次上传都要填。
+        ITSAppUsesNonExemptEncryption: false
         # 允许播放局域网明文 HTTP(iPhone 中继 / http NAS 直链);AVPlayer 默认被 ATS 拦截
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true

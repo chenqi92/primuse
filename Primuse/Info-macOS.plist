@@ -79,6 +79,8 @@
 	<string>© Welape</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Primuse needs local network access to discover and connect to your NAS devices, media servers, and other music sources.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Primuse uses headphone motion to keep Spatial Audio anchored while you move your head.</string>
 	<key>PrimuseBaiduClientID</key>
 	<string>$(BAIDU_CLIENT_ID)</string>
 	<key>PrimuseBaiduClientSecret</key>
