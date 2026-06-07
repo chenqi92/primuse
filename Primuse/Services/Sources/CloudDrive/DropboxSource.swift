@@ -224,6 +224,6 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource {
     }
 
     static func oauthConfig(clientId: String, clientSecret: String?) -> CloudOAuthConfig {
-        CloudOAuthConfig(authURL: "https://www.dropbox.com/oauth2/authorize", tokenURL: "https://api.dropboxapi.com/oauth2/token", clientId: clientId, clientSecret: clientSecret, scopes: ["files.content.read", "files.metadata.read"], redirectURI: "\(CloudOAuthConfig.callbackScheme)://dropbox/callback")
+        CloudOAuthConfig(authURL: "https://www.dropbox.com/oauth2/authorize", tokenURL: "https://api.dropboxapi.com/oauth2/token", clientId: clientId, clientSecret: clientSecret, scopes: ["files.content.read", "files.content.write", "files.metadata.read", "files.metadata.write"], redirectURI: "\(CloudOAuthConfig.callbackScheme)://dropbox/callback")
     }
 }

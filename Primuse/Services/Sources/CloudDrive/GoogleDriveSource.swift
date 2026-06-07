@@ -198,7 +198,7 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource {
             tokenURL: tokenURL,
             clientId: clientId,
             clientSecret: nil,
-            scopes: ["https://www.googleapis.com/auth/drive.readonly"],
+            scopes: ["https://www.googleapis.com/auth/drive"],
             redirectURI: redirectURI()
         )
     }
