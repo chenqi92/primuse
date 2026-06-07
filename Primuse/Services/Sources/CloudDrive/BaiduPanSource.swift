@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import PrimuseKit
 
@@ -7,7 +8,69 @@ import PrimuseKit
 /// 必须显式检查 errno，否则错误会被静默吞掉（list 字段缺失 → 返回空数组 → 扫描 0 首）。
 actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
     let sourceID: String
+    nonisolated let supportsSidecarWriting = true   // 刮削歌词/封面写回百度网盘同目录
     private let helper: CloudDriveHelper
+
+    /// 写 sidecar 到百度网盘:precreate → superfile2(单分片) → create(rtype=3 覆盖)。
+    /// filePath 是真实路径,SidecarWriteService 拼好同目录同名 `to`,直接用。
+    func writeFile(data: Data, to path: String) async throws {
+        let token = try await getToken()
+        let size = data.count
+        let md5 = Insecure.MD5.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        let blockList = "[\"\(md5)\"]"
+
+        // 1. precreate
+        var pre = URLComponents(string: "\(Self.apiBase)/rest/2.0/xpan/file")!
+        pre.queryItems = [.init(name: "method", value: "precreate"), .init(name: "access_token", value: token)]
+        var preReq = URLRequest(url: pre.url!)
+        preReq.httpMethod = "POST"
+        preReq.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        preReq.httpBody = CloudDriveHelper.formURLEncodedBody([
+            .init(name: "path", value: path), .init(name: "size", value: String(size)),
+            .init(name: "isdir", value: "0"), .init(name: "autoinit", value: "1"),
+            .init(name: "rtype", value: "3"), .init(name: "block_list", value: blockList),
+        ])
+        let (preData, _) = try await URLSession.shared.data(for: preReq)
+        let preJSON = (try? JSONSerialization.jsonObject(with: preData)) as? [String: Any] ?? [:]
+        guard (preJSON["errno"] as? Int ?? -1) == 0, let uploadid = preJSON["uploadid"] as? String else {
+            throw CloudDriveError.apiError(0, "Baidu precreate failed: \(preJSON)")
+        }
+
+        // 2. superfile2 上传(单分片 partseq=0),multipart 字段名 file
+        var up = URLComponents(string: "https://d.pcs.baidu.com/rest/2.0/pcs/superfile2")!
+        up.queryItems = [
+            .init(name: "method", value: "upload"), .init(name: "access_token", value: token),
+            .init(name: "type", value: "tmpfile"), .init(name: "path", value: path),
+            .init(name: "uploadid", value: uploadid), .init(name: "partseq", value: "0"),
+        ]
+        let boundary = "primuse\(UUID().uuidString)"
+        var body = Data()
+        body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"file\"\r\nContent-Type: application/octet-stream\r\n\r\n".data(using: .utf8)!)
+        body.append(data)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        var upReq = URLRequest(url: up.url!)
+        upReq.httpMethod = "POST"
+        upReq.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        _ = try await URLSession.shared.upload(for: upReq, from: body)
+
+        // 3. create
+        var cr = URLComponents(string: "\(Self.apiBase)/rest/2.0/xpan/file")!
+        cr.queryItems = [.init(name: "method", value: "create"), .init(name: "access_token", value: token)]
+        var crReq = URLRequest(url: cr.url!)
+        crReq.httpMethod = "POST"
+        crReq.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        crReq.httpBody = CloudDriveHelper.formURLEncodedBody([
+            .init(name: "path", value: path), .init(name: "size", value: String(size)),
+            .init(name: "isdir", value: "0"), .init(name: "uploadid", value: uploadid),
+            .init(name: "rtype", value: "3"), .init(name: "block_list", value: blockList),
+        ])
+        let (crData, _) = try await URLSession.shared.data(for: crReq)
+        let crJSON = (try? JSONSerialization.jsonObject(with: crData)) as? [String: Any] ?? [:]
+        guard (crJSON["errno"] as? Int ?? -1) == 0 else {
+            throw CloudDriveError.apiError(0, "Baidu create failed: \(crJSON)")
+        }
+        plog("📁 Baidu sidecar uploaded: \((path as NSString).lastPathComponent)")
+    }
     private static let apiBase = "https://pan.baidu.com"
     private static let oauthBase = "https://openapi.baidu.com/oauth/2.0"
 

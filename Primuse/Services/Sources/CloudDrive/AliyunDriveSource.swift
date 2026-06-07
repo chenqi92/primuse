@@ -1,11 +1,95 @@
+import CryptoKit
 import Foundation
 import PrimuseKit
 
 /// 阿里云盘 Source — PDS API
 actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource {
     let sourceID: String
+    nonisolated let supportsSidecarWriting = true   // 刮削歌词/封面写回阿里云盘同目录
     private let helper: CloudDriveHelper
     private var driveId: String?
+
+    /// 写 sidecar 到阿里云盘:openFile/get 查父目录 → create(sha1 content_hash + proof_code v1
+    /// 尝试秒传) →(未秒传则 PUT 内容) → complete。filePath 是 file_id,`to` 形如
+    /// "{fileID}-cover.jpg" / "{fileID}.lrc"。同名已存在则视为已完成(check_name_mode=refuse)。
+    func writeFile(data: Data, to path: String) async throws {
+        let suffix: String
+        if path.hasSuffix("-cover.jpg") { suffix = "-cover.jpg" }
+        else if path.hasSuffix(".lrc") { suffix = ".lrc" }
+        else { throw CloudDriveError.invalidResponse }
+        let fileID = String(path.dropLast(suffix.count))
+        guard !fileID.isEmpty else { throw CloudDriveError.invalidResponse }
+
+        let token = try await getToken()
+        if driveId == nil {
+            if let tokens = await helper.tokenManager.getTokens(), let id = tokens.extra?["drive_id"] { driveId = id }
+        }
+        guard let driveId else { throw CloudDriveError.notAuthenticated }
+
+        // 1. 查源文件的父目录 + 真实文件名
+        let getBody = try JSONSerialization.data(withJSONObject: ["drive_id": driveId, "file_id": fileID])
+        let (dData, dHTTP) = try await helper.makeAuthorizedRequest(
+            url: URL(string: "\(Self.apiBase)/adrive/v1.0/openFile/get")!,
+            method: "POST", body: getBody, contentType: "application/json", accessToken: token)
+        guard dHTTP.statusCode == 200 else { throw CloudDriveError.apiError(dHTTP.statusCode, "aliyun file get") }
+        let dJSON = (try? JSONSerialization.jsonObject(with: dData)) as? [String: Any] ?? [:]
+        guard let name = dJSON["name"] as? String,
+              let parentFileId = dJSON["parent_file_id"] as? String else { throw CloudDriveError.invalidResponse }
+        let sidecarName = (name as NSString).deletingPathExtension + suffix
+
+        let sha1 = Insecure.SHA1.hash(data: data).map { String(format: "%02X", $0) }.joined()
+        // 2. create(带 proof_code 尝试秒传)
+        let createBody = try JSONSerialization.data(withJSONObject: [
+            "drive_id": driveId, "parent_file_id": parentFileId, "name": sidecarName,
+            "type": "file", "check_name_mode": "refuse", "size": data.count,
+            "content_hash_name": "sha1", "content_hash": sha1,
+            "proof_version": "v1", "proof_code": Self.proofCode(token: token, data: data),
+            "part_info_list": [["part_number": 1]],
+        ])
+        let (cData, cHTTP) = try await helper.makeAuthorizedRequest(
+            url: URL(string: "\(Self.apiBase)/adrive/v1.0/openFile/create")!,
+            method: "POST", body: createBody, contentType: "application/json", accessToken: token)
+        guard (200...201).contains(cHTTP.statusCode) else { throw CloudDriveError.apiError(cHTTP.statusCode, "aliyun create") }
+        let cJSON = (try? JSONSerialization.jsonObject(with: cData)) as? [String: Any] ?? [:]
+        if cJSON["exist"] as? Bool == true { return }   // 同名 sidecar 已在,视为完成
+        let rapid = cJSON["rapid_upload"] as? Bool ?? false
+        guard let newFileId = cJSON["file_id"] as? String,
+              let uploadId = cJSON["upload_id"] as? String else {
+            // 秒传命中且无 upload_id 也算成功
+            if rapid { plog("📁 Aliyun sidecar rapid-uploaded: \(sidecarName)"); return }
+            throw CloudDriveError.apiError(0, "aliyun create no upload_id: \(cJSON)")
+        }
+
+        // 3. 未秒传则 PUT 内容到分片上传地址
+        if !rapid, let uploadURL = (cJSON["part_info_list"] as? [[String: Any]])?.first?["upload_url"] as? String,
+           let put = URL(string: uploadURL) {
+            var putReq = URLRequest(url: put)
+            putReq.httpMethod = "PUT"
+            let (_, pResp) = try await URLSession.shared.upload(for: putReq, from: data)
+            guard let ph = pResp as? HTTPURLResponse, (200...299).contains(ph.statusCode) else {
+                throw CloudDriveError.apiError((pResp as? HTTPURLResponse)?.statusCode ?? 0, "aliyun part PUT")
+            }
+        }
+
+        // 4. complete
+        let completeBody = try JSONSerialization.data(withJSONObject: [
+            "drive_id": driveId, "file_id": newFileId, "upload_id": uploadId,
+        ])
+        _ = try await helper.makeAuthorizedRequest(
+            url: URL(string: "\(Self.apiBase)/adrive/v1.0/openFile/complete")!,
+            method: "POST", body: completeBody, contentType: "application/json", accessToken: token)
+        plog("📁 Aliyun sidecar uploaded: \(sidecarName)")
+    }
+
+    /// 阿里云盘秒传 proof_code v1:取 md5(access_token) 前 16 个 hex 当 UInt64,对文件大小取模
+    /// 得起点,取该处 8 字节做 base64。
+    private static func proofCode(token: String, data: Data) -> String {
+        let md5hex = Insecure.MD5.hash(data: Data(token.utf8)).map { String(format: "%02x", $0) }.joined()
+        guard data.count > 0, let num = UInt64(md5hex.prefix(16), radix: 16) else { return "" }
+        let start = Int(num % UInt64(data.count))
+        let end = min(start + 8, data.count)
+        return data.subdata(in: start..<end).base64EncodedString()
+    }
     /// path → (downloadURL, expiry). Aliyun signed URLs are good for ~4
     /// hours; we cache for 30min to skip the getDownloadUrl round-trip on
     /// every range fetch within a single play session.
