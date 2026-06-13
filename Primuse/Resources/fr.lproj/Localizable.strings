@@ -1769,3 +1769,10 @@
 "yearly_month_12" = "Décembre";
 "yearly_month_n_format" = "Mois %d";
 "app_name" = "Primuse";
+
+// 蜂窝网络回填/缓存提示
+"cellular_backfill_title" = "Données cellulaires";
+"cellular_backfill_message" = "Vous êtes en cellulaire (5G/4G). La lecture des détails et la mise en cache consommeront des données mobiles. Continuer ?";
+"cellular_backfill_allow_once" = "Autoriser une fois";
+"cellular_backfill_allow_always" = "Toujours autoriser en cellulaire";
+"cellular_backfill_wifi_only" = "Wi-Fi uniquement";

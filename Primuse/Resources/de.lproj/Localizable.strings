@@ -1769,3 +1769,10 @@
 "yearly_month_12" = "Dezember";
 "yearly_month_n_format" = "Monat %d";
 "app_name" = "Primuse";
+
+// 蜂窝网络回填/缓存提示
+"cellular_backfill_title" = "Mobilfunk";
+"cellular_backfill_message" = "Du bist im Mobilfunknetz (5G/4G). Songdetails laden und Caching verbrauchen mobile Daten. Fortfahren?";
+"cellular_backfill_allow_once" = "Einmal erlauben";
+"cellular_backfill_allow_always" = "Immer im Mobilfunk erlauben";
+"cellular_backfill_wifi_only" = "Nur WLAN";

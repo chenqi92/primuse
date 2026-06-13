@@ -1621,3 +1621,10 @@
 "yearly_month_12" = "December";
 "yearly_month_n_format" = "Month %d";
 "app_name" = "Primuse";
+
+// 蜂窝网络回填/缓存提示
+"cellular_backfill_title" = "Cellular Data";
+"cellular_backfill_message" = "You're on cellular (5G/4G). Reading song details and caching will use mobile data. Continue?";
+"cellular_backfill_allow_once" = "Allow Once";
+"cellular_backfill_allow_always" = "Always Allow on Cellular";
+"cellular_backfill_wifi_only" = "Wi-Fi Only";

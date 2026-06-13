@@ -70,6 +70,7 @@ struct ContentView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(AppleMusicService.self) private var appleMusic
+    @Environment(MetadataBackfillService.self) private var backfill
 
     /// Mini player 是否应该显示 — 猿音自家在播 或 Apple Music 在系统侧播。
     /// 这两路是独立 player, 任一非空都显示 accessory。
@@ -326,6 +327,26 @@ struct ContentView: View {
             if let domain = SSLTrustStore.shared.pendingTrustRequest?.domain {
                 Text("ssl_trust_message \(domain)")
             }
+        }
+        // 蜂窝网络下「仅 WiFi」拦住了回填/缓存且确有待办 → 提示用户是否在 5G/4G 继续
+        .alert(
+            String(localized: "cellular_backfill_title"),
+            isPresented: Binding(
+                get: { backfill.pausedForCellular },
+                set: { if !$0 { backfill.dismissCellularPrompt() } }
+            )
+        ) {
+            Button(String(localized: "cellular_backfill_allow_once")) {
+                backfill.allowCellular(persist: false)
+            }
+            Button(String(localized: "cellular_backfill_allow_always")) {
+                backfill.allowCellular(persist: true)
+            }
+            Button(String(localized: "cellular_backfill_wifi_only"), role: .cancel) {
+                backfill.dismissCellularPrompt()
+            }
+        } message: {
+            Text("cellular_backfill_message")
         }
     }
 

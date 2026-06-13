@@ -46,6 +46,17 @@ final class MetadataBackfillService {
     /// User-facing toggle lives in CloudSyncSettingsView.
     static let wifiOnlyDefaultsKey = "primuse.cloudScanWifiOnly"
 
+    /// True when backfill is currently deferred because we're on cellular
+    /// with "Wi-Fi only" on AND there's actually pending work. Drives the
+    /// UI prompt that asks the user whether to proceed on 5G/4G. Cleared
+    /// once the user chooses (allowCellular / dismissCellularPrompt).
+    private(set) var pausedForCellular: Bool = false
+    /// User opted into cellular backfill for this session only (not persisted).
+    private var cellularAllowedThisSession = false
+    /// User dismissed the cellular prompt this session — don't re-prompt
+    /// automatically until next launch.
+    private var cellularPromptDismissedThisSession = false
+
     private let library: MusicLibrary
     private let sourceManager: SourceManager
     private let backfillableSourceIDs: () -> Set<String>
@@ -96,9 +107,11 @@ final class MetadataBackfillService {
         // per library. Wipe the persisted set so those songs get a
         // fresh attempt under the corrected logic. Versioned key
         // prevents repeating on every launch.
-        let migrationKey = "primuse.backfillFailedReset.v2026_05_partialMerge"
+        // v2026_06: 回填失败判定改为「区分瞬时/永久」后,清一次旧的 failedSongIDs,
+        // 让此前被瞬时错误(源未就绪等)误钉成永久失败的歌按新逻辑重试。
+        let migrationKey = "primuse.backfillFailedReset.v2026_06_transientRetry"
         if !UserDefaults.standard.bool(forKey: migrationKey), !failedSongIDs.isEmpty {
-            plog("📥 Backfill: wiping \(failedSongIDs.count) failedSongIDs (one-time migration after tail-fetch fix)")
+            plog("📥 Backfill: wiping \(failedSongIDs.count) failedSongIDs (one-time migration: transient/permanent split)")
             failedSongIDs.removeAll()
             saveFailed()
         }
@@ -279,12 +292,15 @@ final class MetadataBackfillService {
         }
 
         // Cellular gate. Backfill on a 2200-song cloud library is ~550MB —
-        // enough to be a problem on metered connections.
-        let wifiOnly = UserDefaults.standard.object(forKey: Self.wifiOnlyDefaultsKey) as? Bool ?? true
-        if wifiOnly && !NetworkMonitor.shared.isOnUnmeteredNetwork {
-            plog("📥 Backfill: deferred (cellular + Wi-Fi-only setting on)")
+        // enough to be a problem on metered connections. Instead of silently
+        // deferring, surface a prompt (pausedForCellular) when there's actually
+        // work to do, so the user can opt into 5G/4G if they need it.
+        if shouldBlockForCellular() {
+            pausedForCellular = hasPendingWork && !cellularPromptDismissedThisSession
+            plog("📥 Backfill: deferred (cellular + Wi-Fi-only); pendingWork=\(hasPendingWork) prompt=\(pausedForCellular)")
             return
         }
+        pausedForCellular = false
 
         let needsBackfill = pickNextBatch()
         guard !needsBackfill.isEmpty else {
@@ -612,7 +628,49 @@ final class MetadataBackfillService {
 
     private func shouldBlockForCellular() -> Bool {
         let wifiOnly = UserDefaults.standard.object(forKey: Self.wifiOnlyDefaultsKey) as? Bool ?? true
-        return wifiOnly && !NetworkMonitor.shared.isOnUnmeteredNetwork
+        // 用户本次会话已明确同意蜂窝 → 不再拦。
+        return wifiOnly && !cellularAllowedThisSession && !NetworkMonitor.shared.isOnUnmeteredNetwork
+    }
+
+    /// 用户在蜂窝提示里选择「继续」。persist=true 时永久关闭「仅 WiFi」开关,
+    /// 否则只放行本次会话。随后立即恢复回填。
+    func allowCellular(persist: Bool) {
+        cellularAllowedThisSession = true
+        if persist {
+            UserDefaults.standard.set(false, forKey: Self.wifiOnlyDefaultsKey)
+        }
+        pausedForCellular = false
+        start()
+    }
+
+    /// 用户选择「仅 WiFi / 暂不」。本会话不再自动弹蜂窝提示。
+    func dismissCellularPrompt() {
+        cellularPromptDismissedThisSession = true
+        pausedForCellular = false
+    }
+
+    /// 回填读取失败是否属于「瞬时、可重试」错误(连接/鉴权/超时/限流/网络/取消),
+    /// 而非「永久」错误(文件已不存在、4xx 客户端错误)。瞬时错误不标 failed,
+    /// 下一轮自动重试,避免重装/启动初期源未就绪时把歌永久钉成「无法读取」。
+    static func isTransientBackfillError(_ error: Error) -> Bool {
+        if error is URLError { return true }
+        if error is CancellationError { return true }
+        switch error {
+        case SourceError.connectionFailed, SourceError.authenticationFailed, SourceError.timeout:
+            return true
+        case SourceError.pathNotFound, SourceError.fileNotFound:
+            return false // 文件确实不在了 —— 永久
+        case CloudDriveError.notAuthenticated, CloudDriveError.tokenExpired,
+             CloudDriveError.tokenRefreshFailed, CloudDriveError.rateLimited,
+             CloudDriveError.invalidResponse:
+            return true
+        case CloudDriveError.fileNotFound:
+            return false
+        case CloudDriveError.apiError(let code, _):
+            return !(400..<500).contains(code) // 4xx 永久, 5xx/其它瞬时
+        default:
+            return true // 未知的读取错误 → 当瞬时, 倾向重试而非永久卡死
+        }
     }
 
     /// Outcome of one backfill attempt. `song` is the merged result to
@@ -749,8 +807,15 @@ final class MetadataBackfillService {
             if !isStillEligible(song) {
                 return BackfillOutcome(song: nil, markFailed: false)
             }
-            plog(String(format: "⚠️ Backfill failed for '%@' after %.2fs: %@", song.title, elapsed, error.localizedDescription))
-            return BackfillOutcome(song: nil, markFailed: true)
+            // 只有「确定性永久」的错误(文件已不存在 / 4xx)才标记 failed —— 那种
+            // 重试也没用,标记后不再浪费配额。连接/鉴权/超时/限流/网络这类是瞬时的
+            // (常见于刚启动、源还没连上 / token 还没就绪),绝不能钉成永久失败,否则
+            // 会一直卡在「无法读取歌曲详情」;不标记 → 下一轮回填自动重试。
+            let transient = Self.isTransientBackfillError(error)
+            plog(String(format: "⚠️ Backfill failed for '%@' after %.2fs: %@ (%@)",
+                        song.title, elapsed, error.localizedDescription,
+                        transient ? "transient — will retry" : "permanent — marking failed"))
+            return BackfillOutcome(song: nil, markFailed: !transient)
         }
     }
 

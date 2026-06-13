@@ -1770,3 +1770,10 @@
 "yearly_month_12" = "12 月";
 "yearly_month_n_format" = "%d 月";
 "app_name" = "Primuse";
+
+// 蜂窝网络回填/缓存提示
+"cellular_backfill_title" = "モバイル通信";
+"cellular_backfill_message" = "モバイル通信(5G/4G)です。曲情報の取得とキャッシュはモバイルデータを消費します。続けますか?";
+"cellular_backfill_allow_once" = "今回のみ許可";
+"cellular_backfill_allow_always" = "モバイル通信で常に許可";
+"cellular_backfill_wifi_only" = "Wi-Fi のみ";

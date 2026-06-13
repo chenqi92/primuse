@@ -1872,3 +1872,10 @@
 "yearly_month_12" = "十二月";
 "yearly_month_n_format" = "%d 月";
 "app_name" = "猿音";
+
+// 蜂窝网络回填/缓存提示
+"cellular_backfill_title" = "蜂窝网络";
+"cellular_backfill_message" = "当前为蜂窝网络(5G/4G),读取歌曲信息与缓存会消耗流量。是否继续?";
+"cellular_backfill_allow_once" = "本次允许";
+"cellular_backfill_allow_always" = "始终在蜂窝下允许";
+"cellular_backfill_wifi_only" = "仅 WiFi";
