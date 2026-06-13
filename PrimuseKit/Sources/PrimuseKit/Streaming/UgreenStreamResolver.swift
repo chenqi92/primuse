@@ -86,8 +86,10 @@ public actor UgreenStreamResolver: StreamResolver {
     }
 
     static func downloadURL(base: URL, path: String, token: String) -> URL? {
-        let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? path
-        return URL(string: "\(base.absoluteString)/ugreen/v1/file/download?path=\(encoded)&token=\(token)")
+        guard var comp = URLComponents(url: base.appendingPathComponent("ugreen/v1/file/download"),
+                                       resolvingAgainstBaseURL: false) else { return nil }
+        comp.queryItems = [URLQueryItem(name: "path", value: path), URLQueryItem(name: "token", value: token)]
+        return comp.url
     }
 
     static func parseToken(_ data: Data) -> String? {

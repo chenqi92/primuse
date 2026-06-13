@@ -130,6 +130,16 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
     private static let dlinkUserAgent = "pan.baidu.com"
     private static let dlinkReferer = "https://pan.baidu.com/"
 
+    /// 整文件下载专用共享 session。每次 `downloadFile` 都 `URLSession(configuration:)`
+    /// 新建会从不 invalidate,内部连接池/工作队列/代理持有会一直存活;批量回填整库
+    /// 时每首歌泄漏一个 session。复用单例避免泄漏(对比 `CloudDriveHelper.rangeSession`)。
+    /// 长超时给冷大文件首字节服务端 hydration 留余量。
+    private static let downloadSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 300
+        return URLSession(configuration: config)
+    }()
+
     /// dir → (full paginated listing, expiry).
     /// Lets backfill skip the file/list call entirely for songs that share
     /// a directory with a previously-resolved song. For a typical album
@@ -149,6 +159,13 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
     /// Debounced save task。命中频繁的播放会触发多次 cache 写入,
     /// 用 2s 节流避免每次都写盘。
     private var dlinkPersistTask: Task<Void, Never>?
+
+    /// In-flight token-refresh 去重。getToken() 横跨多个 await 挂起点,
+    /// actor 重入允许并发任务(起播时 prefetchAhead 会并发发 5+ 路 fetchRange)
+    /// 同时看到 isExpired,各自发 refresh。百度 refresh_token 轮换单次有效:
+    /// 第一路刷新成功后旧 refresh_token 失效,其余各路 → invalid_grant。
+    /// 让并发调用共享同一个 in-flight 刷新任务,完成后 double-check 最新 token。
+    private var refreshTask: Task<CloudTokenManager.Tokens, Error>?
 
     init(sourceID: String) {
         self.sourceID = sourceID
@@ -455,8 +472,6 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
     private func downloadFile(at path: String) async throws -> Data {
         let token = try await getToken()
         let dlink = try await getDlink(for: path)
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 300
         guard let url = URL(string: "\(dlink)&access_token=\(token)") else {
             throw CloudDriveError.invalidResponse
         }
@@ -464,7 +479,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
         // Same UA pinning as range path — Baidu throttles / 403s without it.
         request.setValue(Self.dlinkUserAgent, forHTTPHeaderField: "User-Agent")
         request.setValue(Self.dlinkReferer, forHTTPHeaderField: "Referer")
-        let (fileData, _) = try await URLSession(configuration: config).data(for: request)
+        let (fileData, _) = try await Self.downloadSession.data(for: request)
         return fileData
     }
 
@@ -699,15 +714,37 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
     }
 
     private func getToken() async throws -> String {
-        guard var tokens = await helper.tokenManager.getTokens() else {
+        guard let tokens = await helper.tokenManager.getTokens() else {
             plog("⚠️ Baidu getToken: missing stored token sourceID=\(sourceID.prefix(8))…")
             throw CloudDriveError.notAuthenticated
         }
-        if tokens.isExpired {
-            tokens = try await refreshToken(tokens)
-            await helper.tokenManager.saveTokens(tokens)
+        if !tokens.isExpired {
+            return tokens.accessToken
         }
-        return tokens.accessToken
+        return try await refreshSharedToken(currentToken: tokens).accessToken
+    }
+
+    /// 并发去重的 token 刷新。多路并发调用共享同一个 in-flight `refreshTask`,
+    /// 只发一次 refresh 请求。完成后清掉 task 引用,下次过期再重建。
+    private func refreshSharedToken(currentToken: CloudTokenManager.Tokens) async throws -> CloudTokenManager.Tokens {
+        if let inFlight = refreshTask {
+            return try await inFlight.value
+        }
+        // 在第一个 await 之前同步占住 refreshTask 槽位:check-then-set 之间不能
+        // 有挂起点,否则两路并发可能都过了 nil 检查再各建一个 task。task body 内部
+        // 先 double-check 最新 token(可能已被上一次刷新写盘),仍过期才真正刷新。
+        let task = Task<CloudTokenManager.Tokens, Error> { [weak self] in
+            guard let self else { throw CloudDriveError.notAuthenticated }
+            if let latest = await self.helper.tokenManager.getTokens(), !latest.isExpired {
+                return latest
+            }
+            let refreshed = try await self.refreshToken(currentToken)
+            await self.helper.tokenManager.saveTokens(refreshed)
+            return refreshed
+        }
+        refreshTask = task
+        defer { refreshTask = nil }
+        return try await task.value
     }
 
     private func refreshToken(_ tokens: CloudTokenManager.Tokens) async throws -> CloudTokenManager.Tokens {

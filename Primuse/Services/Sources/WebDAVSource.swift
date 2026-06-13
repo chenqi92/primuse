@@ -41,7 +41,11 @@ actor WebDAVSource: MusicSourceConnector {
         self.username = username
         self.password = password
 
-        let cacheDir = FileManager.default.temporaryDirectory.appendingPathComponent("primuse_webdav_cache")
+        // Per-source cache dir avoids file-name collisions when two WebDAV sources
+        // happen to expose files with the same relative path.
+        let cacheDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("primuse_webdav_cache")
+            .appendingPathComponent(sourceID)
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
         self.cacheDirectory = cacheDir
     }

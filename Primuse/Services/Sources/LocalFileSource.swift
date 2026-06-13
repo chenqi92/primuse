@@ -118,9 +118,13 @@ actor LocalFileSource: MusicSourceConnector {
                     let ext = url.pathExtension.lowercased()
                     guard PrimuseConstants.supportedAudioExtensions.contains(ext) else { continue }
 
-                    let resourceValues = try url.resourceValues(
+                    // 扫描期间单个文件可能被删除/移动,或为 iCloud dataless
+                    // 文件而无法读取属性 ── 跳过该文件继续枚举,不要让 resourceValues
+                    // 抛错使 Task 提前结束 (那样 continuation 既不 finish 也不
+                    // finish(throwing:),消费端 for-try-await 会永久挂起)。
+                    guard let resourceValues = try? url.resourceValues(
                         forKeys: [.fileSizeKey, .contentModificationDateKey]
-                    )
+                    ) else { continue }
 
                     let item = RemoteFileItem(
                         name: url.lastPathComponent,

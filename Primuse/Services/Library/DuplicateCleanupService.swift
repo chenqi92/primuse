@@ -17,8 +17,13 @@ final class DuplicateCleanupService {
 
     /// 当前进度。nil 表示空闲。
     private(set) var progress: Progress?
-    /// 最近一次完成的总数, view 用于「已清理 N 首」尾巴提示。
+    /// 最近一次完成的总数 (= 真正从库里移除的歌曲数), view 用于「已清理 N 首」
+    /// 尾巴提示。源端删除失败、仍残留在 NAS/云盘上的歌不计入。
     private(set) var lastCompletedCount: Int = 0
+    /// 最近一次清理里源端删除失败、因而保留在库中的歌曲标题。空表示全部成功。
+    /// 让 view 能向用户反馈「N 首删除失败」, 同时这些歌不会被 tombstone,
+    /// 下次重扫仍可见。
+    private(set) var lastFailedTitles: [String] = []
 
     private let library: MusicLibrary
     private let sourceManager: SourceManager
@@ -55,6 +60,11 @@ final class DuplicateCleanupService {
             let deletingIDs = Set(songs.map(\.id))
             let retainedSongs = self.library.songs.filter { !deletingIDs.contains($0.id) }
             var result = SongFileDeletionResult()
+            // 只有源端文件确实被删 (或本就不存在) 的歌才能从库里移除并写
+            // tombstone; 删除失败、文件仍在 NAS/云盘上的歌必须保留, 否则它们
+            // 会被 tombstone 永久挡掉重扫, 而用户没有恢复入口。
+            var removableSongs: [Song] = []
+            var failedSongs: [Song] = []
 
             for (idx, song) in songs.enumerated() {
                 if Task.isCancelled { break }
@@ -65,19 +75,25 @@ final class DuplicateCleanupService {
                     for: song, deleteSidecars: deleteSidecars
                 )
                 result.merge(songResult)
+                if songResult.hasFailures {
+                    failedSongs.append(song)
+                } else {
+                    removableSongs.append(song)
+                }
                 self.progress = Progress(done: idx + 1, total: songs.count)
             }
 
             if result.hasFailures {
-                plog("⚠️ Duplicate cleanup source deletion failures: \(result.failedPaths.count)")
+                plog("⚠️ Duplicate cleanup source deletion failures: \(result.failedPaths.count) (\(failedSongs.count) songs retained in library)")
             }
 
-            self.library.deleteSongs(songs)
-            for sourceID in Set(songs.map(\.sourceID)) {
+            self.library.deleteSongs(removableSongs)
+            for sourceID in Set(removableSongs.map(\.sourceID)) {
                 let remaining = self.library.songs.filter { $0.sourceID == sourceID }.count
                 self.sourcesStore.updateLocal(sourceID) { $0.songCount = remaining }
             }
-            self.lastCompletedCount = songs.count
+            self.lastCompletedCount = removableSongs.count
+            self.lastFailedTitles = failedSongs.map(\.title)
         }
         activeTask = task
         return task

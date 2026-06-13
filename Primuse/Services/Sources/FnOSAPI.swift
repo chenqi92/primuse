@@ -69,6 +69,12 @@ actor FnOSAPI {
         token = nil
     }
 
+    /// 清除会话, 让下一次 connect() 真正重新登录。会话过期 / 权限错误后
+    /// 必须调用它, 否则 isLoggedIn 仍为 true, connect() 短路, 重连永不发生。
+    func invalidateSession() {
+        self.token = nil
+    }
+
     struct FileItem: Sendable {
         let name: String; let path: String; let isDirectory: Bool; let size: Int64
     }
@@ -76,8 +82,46 @@ actor FnOSAPI {
     func listDirectory(path: String) async throws -> [FileItem] {
         guard let token else { throw SourceError.connectionFailed("Not logged in") }
 
-        // Try POST first, then GET
-        let body: [String: Any] = ["path": path, "page": 1, "limit": 1000]
+        // 平铺式音乐目录单层超过 1000 个文件很常见, 必须翻页到尾,
+        // 否则超出 limit 的歌永远扫不进库且无任何提示。
+        let limit = 1000
+        var page = 1
+        var allItems: [FileItem] = []
+
+        while true {
+            let body: [String: Any] = ["path": path, "page": page, "limit": limit]
+            let json = try await listPage(path: path, body: body)
+            let dataDict = json["data"] as? [String: Any]
+            let list = (dataDict?["list"] as? [[String: Any]]) ?? []
+            let pageItems = list.map { f in
+                FileItem(
+                    name: f["name"] as? String ?? "",
+                    path: f["path"] as? String ?? "",
+                    isDirectory: f["is_dir"] as? Bool ?? false,
+                    size: Int64(f["size"] as? Int ?? 0)
+                )
+            }
+            allItems.append(contentsOf: pageItems)
+
+            // total (若服务端提供) 优先, 否则按"满页继续 / 不满页停"判断。
+            let total = intValue(dataDict?["total"])
+            if pageItems.count < limit || (total > 0 && allItems.count >= total) {
+                break
+            }
+            page += 1
+        }
+
+        return allItems
+    }
+
+    /// 请求单页目录列表并校验错误。绝不能把"无 list"当成"空目录"返回 ——
+    /// token 过期 / 权限不足 时响应里根本没有 `data.list` 字段, 若静默返回
+    /// 空数组会让 scanner 误判该目录被清空, 把整源曲库删掉。所以: 只有响应
+    /// 明确成功 (code==200/0 且带 data.list) 才解析; 任何 HTTP 错误 / 非成功
+    /// code / 不可信响应都抛错并清 token, 让 ConnectorScanner 走
+    /// hadDirectoryFailure 分支保护既有曲库。
+    private func listPage(path: String, body: [String: Any]) async throws -> [String: Any] {
+        guard let token else { throw SourceError.connectionFailed("Not logged in") }
         let data: Data
         do {
             data = try await postJSON(path: "/api/v1/file/list", body: body, auth: token)
@@ -88,20 +132,39 @@ actor FnOSAPI {
             var req = URLRequest(url: comps.url!)
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             req.timeoutInterval = 15
-            let (d, _) = try await session().data(for: req)
+            let (d, response) = try await session().data(for: req)
+            try checkHTTPStatus(response)
             data = d
         }
 
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-        let list = ((json["data"] as? [String: Any])?["list"] as? [[String: Any]]) ?? []
-        return list.map { f in
-            FileItem(
-                name: f["name"] as? String ?? "",
-                path: f["path"] as? String ?? "",
-                isDirectory: f["is_dir"] as? Bool ?? false,
-                size: Int64(f["size"] as? Int ?? 0)
-            )
+        let hasCode = json["code"] != nil
+        let code = intValue(json["code"])
+        let hasList = (json["data"] as? [String: Any])?["list"] != nil
+        // 成功判据: 明确成功 code (200/0), 或带 data.list 字段。带 list 即使
+        // 为空也是合法的空目录。缺 code 又缺 list 的响应不可信, 绝不当空目录。
+        if (hasCode && (code == 200 || code == 0)) || hasList {
+            return json
         }
+        // 非成功 code: 认证类 (401/403/1001) 清 token 抛 authenticationFailed,
+        // 其余抛 connectionFailed。缺 list 字段的不可信响应一律不返回空数组。
+        invalidateSession()
+        if isAuthFailureCode(code) {
+            throw SourceError.authenticationFailed
+        }
+        let msg = json["message"] as? String ?? json["msg"] as? String ?? "code \(code)"
+        throw SourceError.connectionFailed("fnOS list failed: \(msg)")
+    }
+
+    private func isAuthFailureCode(_ code: Int) -> Bool {
+        code == 401 || code == 403 || code == 1001
+    }
+
+    private func intValue(_ value: Any?) -> Int {
+        if let int = value as? Int { return int }
+        if let number = value as? NSNumber { return number.intValue }
+        if let string = value as? String, let int = Int(string) { return int }
+        return 0
     }
 
     func listSharedFolders() async throws -> [FileItem] {
@@ -110,8 +173,15 @@ actor FnOSAPI {
 
     func downloadURL(path: String) -> URL? {
         guard let token else { return nil }
-        let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? path
-        return URL(string: "\(baseURLString)/api/v1/file/download?path=\(encoded)&token=\(token)")
+        // 用 URLComponents 让系统正确编码查询值: .urlQueryAllowed 不会转义
+        // & / + / = / ?, 路径含这些字符 (R&B、AC+DC 类专辑名) 时手工拼接会
+        // 截断 path 参数导致下载/播放必败。
+        var comps = URLComponents(string: "\(baseURLString)/api/v1/file/download")
+        comps?.queryItems = [
+            .init(name: "path", value: path),
+            .init(name: "token", value: token),
+        ]
+        return comps?.url
     }
 
     // MARK: - HTTP
@@ -131,13 +201,33 @@ actor FnOSAPI {
         else if let token { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
         req.timeoutInterval = 15
-        let (data, _) = try await session().data(for: req)
+        let (data, response) = try await session().data(for: req)
+        try checkHTTPStatus(response)
         return data
     }
 
-    private func session() -> URLSession {
+    /// HTTP 状态码校验: 401/403 视为会话失效 (清 token 抛 authenticationFailed),
+    /// 其余非 2xx 抛 connectionFailed。会话过期时 fnOS 可能返回 401 而非业务
+    /// code, 不看 HTTP 码就会把错误体当数据。
+    private func checkHTTPStatus(_ response: URLResponse) throws {
+        guard let http = response as? HTTPURLResponse else { return }
+        if http.statusCode == 401 || http.statusCode == 403 {
+            invalidateSession()
+            throw SourceError.authenticationFailed
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw SourceError.connectionFailed("fnOS HTTP \(http.statusCode)")
+        }
+    }
+
+    /// 长生命周期 session 复用: 带 delegate 的 session 在被 invalidate 前
+    /// 强持有 delegate 与连接池, 每次新建且从不 invalidate 会随扫描线性泄漏
+    /// 内存与文件描述符, 同时丢失 keep-alive 复用 (每请求重新 TLS 握手)。
+    private lazy var sharedSession: URLSession = {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 15
         return URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
-    }
+    }()
+
+    private func session() -> URLSession { sharedSession }
 }

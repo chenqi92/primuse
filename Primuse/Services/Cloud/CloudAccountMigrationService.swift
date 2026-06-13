@@ -102,8 +102,20 @@ enum CloudAccountMigrationService {
                 plog("☁️ Migration: source=\(source.id) (\(source.type.rawValue)) → uid=\(uid)")
             } catch {
                 stats.failed += 1
-                unresolvedByProvider[source.type, default: []].append(source)
-                plog("⚠️ Migration: phase 1 skip source=\(source.id) (\(source.type.rawValue)) — \(error.localizedDescription)")
+                // Only credentials that are *definitively* dead make a
+                // source a phase-2 attribution candidate. A pure network
+                // blip at launch (URLError, 5xx/timeout) must NOT count —
+                // otherwise a second same-provider account that merely
+                // failed to identify this once would be misread as a stale
+                // duplicate, its songs repointed to the other account and
+                // its mount soft-deleted. Transient failures just retry on
+                // the next launch.
+                if isDeadCredentialError(error) {
+                    unresolvedByProvider[source.type, default: []].append(source)
+                    plog("⚠️ Migration: phase 1 skip source=\(source.id) (\(source.type.rawValue)) — dead credentials, phase-2 candidate — \(error.localizedDescription)")
+                } else {
+                    plog("⚠️ Migration: phase 1 skip source=\(source.id) (\(source.type.rawValue)) — transient, retry next launch — \(error.localizedDescription)")
+                }
             }
         }
 
@@ -208,5 +220,26 @@ enum CloudAccountMigrationService {
         }
 
         return stats
+    }
+
+    /// True only when the error means the source's credentials are
+    /// *definitively* unusable (token revoked / refresh permanently
+    /// failed / nothing stored), as opposed to a transient network or
+    /// server hiccup. Phase 2's destructive orphan attribution gates on
+    /// this so a launch-time network blip never gets a live source
+    /// soft-deleted and its songs repointed to another account.
+    ///
+    /// Network / transient errors (URLError, `apiError` for 5xx/timeout,
+    /// `rateLimited`, `invalidResponse`) deliberately return false — the
+    /// source stays untouched and re-identifies on the next launch.
+    private static func isDeadCredentialError(_ error: Error) -> Bool {
+        switch error {
+        case CloudDriveError.notAuthenticated,
+             CloudDriveError.tokenExpired,
+             CloudDriveError.tokenRefreshFailed:
+            return true
+        default:
+            return false
+        }
     }
 }

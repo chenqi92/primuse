@@ -506,6 +506,7 @@ final class CloudKitSyncService {
             self.accountChangeObserver = nil
         }
         engine = nil
+        sharedEngine = nil
         isStarted = false
         if updateStatus { status = .disabled }
     }
@@ -1862,8 +1863,11 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
             // sync from Settings when they're ready, and the next start() will
             // re-seed CloudKit because we've cleared `didCompleteInitialUpload`.
             try? FileManager.default.removeItem(at: stateURL)
+            try? FileManager.default.removeItem(at: sharedStateURL)
             clearSystemFieldsCache()
             didCompleteInitialUpload = false
+            isParticipantOfShare = false
+            Self.familySharingEnabled = false
             UserDefaults.standard.set(false, forKey: "primuse.iCloudSyncEnabled")
             stop(updateStatus: true)
             status = .accountUnavailable(.unknown)

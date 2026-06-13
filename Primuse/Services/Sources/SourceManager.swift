@@ -457,12 +457,13 @@ final class SourceManager {
         case .pan123:
             connector = Pan123Source(sourceID: source.id)
         case .s3:
-            // S3 uses host=endpoint, basePath=bucket, extraConfig=JSON{region}
-            let extraJson = (try? JSONSerialization.jsonObject(with: Data((source.extraConfig ?? "{}").utf8))) as? [String: String] ?? [:]
+            // S3 uses host=endpoint, basePath=bucket, and extraConfig holds
+            // {"region":..., "dirs":[...]} — read region S3-aware so the dir
+            // list sharing the slot doesn't break the lookup.
             connector = S3Source(
                 sourceID: source.id,
                 endpoint: source.host ?? "s3.amazonaws.com",
-                region: extraJson["region"] ?? "us-east-1",
+                region: source.s3Region ?? "us-east-1",
                 bucket: source.basePath ?? "",
                 accessKey: source.username ?? "",
                 secretKey: KeychainService.getPassword(for: source.id) ?? "",
@@ -633,7 +634,7 @@ final class SourceManager {
 
         checks.append(contentsOf: credentialChecks(for: source))
 
-        let selectedDirectories = explicitDirectories ?? decodeSelectedDirectories(source.extraConfig)
+        let selectedDirectories = explicitDirectories ?? source.scannedDirectories
         if source.type.isServerLibrary == false, selectedDirectories.isEmpty {
             checks.append(SourceDiagnosticCheck(
                 status: .warning,
@@ -706,7 +707,7 @@ final class SourceManager {
     }
 
     private func diagnosticProbeRoots(for source: MusicSource, explicitDirectories: [String]?) -> [String] {
-        let selectedDirectories = explicitDirectories ?? decodeSelectedDirectories(source.extraConfig)
+        let selectedDirectories = explicitDirectories ?? source.scannedDirectories
         if selectedDirectories.isEmpty == false {
             return selectedDirectories
         }
@@ -901,15 +902,6 @@ final class SourceManager {
         )
     }
 
-    private func decodeSelectedDirectories(_ config: String?) -> [String] {
-        guard let config,
-              let data = config.data(using: .utf8),
-              let directories = try? JSONDecoder().decode([String].self, from: data) else {
-            return []
-        }
-        return directories
-    }
-
     private func trimmed(_ value: String?) -> String {
         value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
@@ -959,13 +951,17 @@ final class SourceManager {
             throw SourceError.fileNotFound("Source not found for song: \(song.title)")
         }
 
-        let conn = connector(for: source)
-        try await conn.connect()
-
-        // Priority 1: Cached local file (instant playback)
+        // Priority 1: Cached local file (instant playback). 必须在 connect() 之前判断:
+        // 源不可达(断网 / NAS 关机 / 登录态失效)时 connect() 会抛错, 若先 connect
+        // 就永远走不到缓存命中分支, 离线已下载的歌曲将无法播放。缓存命中是纯本地
+        // 文件检查, 不依赖连接。
         if let cached = cachedURL(for: song) {
             return cached
         }
+
+        let conn = connector(for: source)
+        try await conn.connect()
+
         // Priority 2: connector-backed Range streaming via CloudPlaybackSource —
         // 边下边播, ~500ms 出首个 PCM buffer。AudioPlayerService 看到
         // cloud-stream:// scheme 后会调 makeStreamingInputSource 走 sparse cache。
@@ -1391,6 +1387,7 @@ final class SourceManager {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 300
         let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }
         let (tempURL, response) = try await session.download(from: url)
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
             throw SourceError.connectionFailed("HTTP \(http.statusCode)")
@@ -1492,12 +1489,31 @@ final class SourceManager {
     }
 
     func audioCacheSize() -> Int64 {
-        var total: Int64 = 0
-        let dirs = [
+        Self.audioCacheSize(dirs: Self.audioCacheSizeDirs)
+    }
+
+    /// 后台线程版 ── 整个 audio cache 目录可达 20GB, 同步枚举会冻结主线程,
+    /// 所以「存储管理」页走这个: 用 Task.detached 在后台 walk, 主 actor 只
+    /// 拿到最终的 Int64。枚举范围与同步版一致 (含 smbCache)。
+    func audioCacheSizeAsync() async -> Int64 {
+        let dirs = Self.audioCacheSizeDirs
+        return await Task.detached(priority: .utility) {
+            Self.audioCacheSize(dirs: dirs)
+        }.value
+    }
+
+    /// 主 actor 上算好目录列表 (纯 FileManager 查询, Sendable), 实际枚举可
+    /// 在任意线程跑。
+    private static var audioCacheSizeDirs: [URL] {
+        [
             FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-                .appendingPathComponent(Self.audioCacheDirName),
-            Self.smbCacheDir,
+                .appendingPathComponent(audioCacheDirName),
+            smbCacheDir,
         ]
+    }
+
+    nonisolated private static func audioCacheSize(dirs: [URL]) -> Int64 {
+        var total: Int64 = 0
         for basePath in dirs {
             guard let enumerator = FileManager.default.enumerator(
                 at: basePath, includingPropertiesForKeys: [.totalFileAllocatedSizeKey], options: [.skipsHiddenFiles]
@@ -1538,7 +1554,6 @@ final class SourceManager {
     }
 
     func audioCacheBreakdown() async -> AudioCacheBreakdown {
-        var result = AudioCacheBreakdown()
         let basePath = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
             .appendingPathComponent(Self.audioCacheDirName)
         let aliveSourceIDs: Set<String>
@@ -1551,6 +1566,26 @@ final class SourceManager {
         // 「正在播放」而不是「中断」。
         let activeSessionPaths = CloudPlaybackSource.activeSessionPaths()
         let pinnedRelativePaths = await AudioCacheManager.shared.pinnedRelativePaths()
+
+        // 主 actor 上只采集需要隔离的输入 (sources / pinned / active session),
+        // 把真正会 walk 整个 cache 目录的部分丢到后台线程, 避免冻结 UI。
+        return await Task.detached(priority: .utility) {
+            Self.audioCacheBreakdown(
+                basePath: basePath,
+                aliveSourceIDs: aliveSourceIDs,
+                activeSessionPaths: activeSessionPaths,
+                pinnedRelativePaths: pinnedRelativePaths
+            )
+        }.value
+    }
+
+    nonisolated private static func audioCacheBreakdown(
+        basePath: URL,
+        aliveSourceIDs: Set<String>,
+        activeSessionPaths: Set<String>,
+        pinnedRelativePaths: Set<String>
+    ) -> AudioCacheBreakdown {
+        var result = AudioCacheBreakdown()
 
         guard let subdirs = try? FileManager.default.contentsOfDirectory(
             at: basePath, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
@@ -1881,6 +1916,7 @@ final class SourceManager {
                 let config = URLSessionConfiguration.default
                 config.timeoutIntervalForRequest = 300
                 let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+                defer { session.finishTasksAndInvalidate() }
                 let (tempURL, response) = try await session.download(from: streamURL)
                 guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
                     plog("⚠️ Cache: HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0) for '\(song.title)'")

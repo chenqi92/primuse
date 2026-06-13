@@ -201,6 +201,60 @@ struct CloudDriveHelper: Sendable {
 
     // MARK: - Authorized HTTP request
 
+    /// Force-refresh the stored token regardless of the locally-tracked
+    /// `expiresAt`, persist it, and return the fresh access token.
+    ///
+    /// `getToken()` in each source only refreshes when the *local* `expiresAt`
+    /// says the token is expired (with a 5-min margin). If the server revokes a
+    /// token early (password change, security policy) or the clock drifts, every
+    /// call inside that "locally-valid" window keeps failing 401/111 with no
+    /// self-healing. This lets a source recover by refreshing on demand and
+    /// retrying. `refresh` does the provider-specific token exchange; on failure
+    /// it should throw (typically `CloudDriveError.tokenRefreshFailed`) so the
+    /// caller can surface a re-authorization prompt.
+    func forceRefreshToken(
+        refresh: (CloudTokenManager.Tokens) async throws -> CloudTokenManager.Tokens
+    ) async throws -> String {
+        guard let tokens = await tokenManager.getTokens() else {
+            throw CloudDriveError.notAuthenticated
+        }
+        let refreshed = try await refresh(tokens)
+        await tokenManager.saveTokens(refreshed)
+        return refreshed.accessToken
+    }
+
+    /// Run `operation`; if it fails because the server rejected the token
+    /// (HTTP 401 → `CloudDriveError.tokenExpired`, or any error for which
+    /// `isTokenRejection` returns true, e.g. Baidu errno 111/-6), force-refresh
+    /// the token (ignoring local `expiresAt`) and retry the operation exactly
+    /// once. If the refresh itself fails, the refresh error is thrown so the
+    /// user can be guided to re-authorize.
+    ///
+    /// `operation` receives the access token to use for that attempt: the
+    /// originally-obtained token on the first try, the freshly-refreshed token
+    /// on the retry.
+    func withTokenRetry<T>(
+        initialToken: String,
+        refresh: (CloudTokenManager.Tokens) async throws -> CloudTokenManager.Tokens,
+        isTokenRejection: (Error) -> Bool = { _ in false },
+        operation: (String) async throws -> T
+    ) async throws -> T {
+        do {
+            return try await operation(initialToken)
+        } catch {
+            let rejected: Bool
+            if case CloudDriveError.tokenExpired = error {
+                rejected = true
+            } else {
+                rejected = isTokenRejection(error)
+            }
+            guard rejected else { throw error }
+            plog("☁️ token rejected by server (\(error)); forcing refresh + retry sourceID=\(sourceID.prefix(8))…")
+            let fresh = try await forceRefreshToken(refresh: refresh)
+            return try await operation(fresh)
+        }
+    }
+
     func makeAuthorizedRequest(
         url: URL, method: String = "GET", body: Data? = nil,
         contentType: String? = nil, accessToken: String

@@ -180,7 +180,7 @@ actor UPnPSource: SongScanningConnector {
     func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
         let stream = try await scanSongs(from: path)
         return AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 do {
                     for try await scannedSong in stream {
                         continuation.yield(
@@ -198,6 +198,7 @@ actor UPnPSource: SongScanningConnector {
                     continuation.finish(throwing: error)
                 }
             }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
@@ -205,7 +206,7 @@ actor UPnPSource: SongScanningConnector {
         let selection = try parseSelectionPath(path)
 
         return AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 do {
                     try await scanContainer(
                         serverID: selection.serverID,
@@ -217,6 +218,7 @@ actor UPnPSource: SongScanningConnector {
                     continuation.finish(throwing: error)
                 }
             }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
@@ -229,6 +231,7 @@ actor UPnPSource: SongScanningConnector {
         let pageSize = 200
 
         while true {
+            try Task.checkCancellation()
             let page = try await browseChildren(
                 serverID: serverID,
                 objectID: objectID,
@@ -239,6 +242,7 @@ actor UPnPSource: SongScanningConnector {
             for node in page.nodes {
                 switch node.kind {
                 case .container:
+                    try Task.checkCancellation()
                     try await scanContainer(
                         serverID: serverID,
                         objectID: node.objectID,
@@ -381,7 +385,7 @@ actor UPnPSource: SongScanningConnector {
             return discoveredServers.values.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
         }
 
-        let responses = try discoverSSDPResponses()
+        let responses = try await discoverSSDPResponses()
         var servers: [String: UPnPMediaServer] = [:]
 
         for response in responses {
@@ -605,7 +609,24 @@ actor UPnPSource: SongScanningConnector {
             .replacingOccurrences(of: "'", with: "&apos;")
     }
 
-    private nonisolated func discoverSSDPResponses() throws -> [SSDPDiscoveryResponse] {
+    private nonisolated func discoverSSDPResponses() async throws -> [SSDPDiscoveryResponse] {
+        // The SSDP discovery uses a blocking recv loop (SO_RCVTIMEO=2s, reset on each
+        // packet) that must not run on a Swift Concurrency cooperative thread: it would
+        // pin that thread and freeze the actor for the whole discovery window. Hop onto a
+        // dedicated background queue and suspend the caller until it finishes.
+        try await withCheckedThrowingContinuation { continuation in
+            ssdpDiscoveryQueue.async {
+                do {
+                    let responses = try Self.performSSDPDiscovery()
+                    continuation.resume(returning: responses)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private nonisolated static func performSSDPDiscovery() throws -> [SSDPDiscoveryResponse] {
         let socketFD = socket(AF_INET, Int32(SOCK_DGRAM), IPPROTO_UDP)
         guard socketFD >= 0 else {
             throw SourceError.connectionFailed("Unable to open SSDP socket")
@@ -713,6 +734,11 @@ private let upnpSSDPSearchTargets = [
     "upnp:rootdevice",
     "ssdp:all",
 ]
+
+private let ssdpDiscoveryQueue = DispatchQueue(
+    label: "com.primuse.upnp.ssdp-discovery",
+    qos: .utility
+)
 
 private func audioFormat(for url: URL, protocolInfo: String?) -> AudioFormat? {
     let ext = url.pathExtension.lowercased()

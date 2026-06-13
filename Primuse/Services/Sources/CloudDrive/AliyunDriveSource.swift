@@ -26,59 +26,63 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
         }
         guard let driveId else { throw CloudDriveError.notAuthenticated }
 
-        // 1. 查源文件的父目录 + 真实文件名
-        let getBody = try JSONSerialization.data(withJSONObject: ["drive_id": driveId, "file_id": fileID])
-        let (dData, dHTTP) = try await helper.makeAuthorizedRequest(
-            url: URL(string: "\(Self.apiBase)/adrive/v1.0/openFile/get")!,
-            method: "POST", body: getBody, contentType: "application/json", accessToken: token)
-        guard dHTTP.statusCode == 200 else { throw CloudDriveError.apiError(dHTTP.statusCode, "aliyun file get") }
-        let dJSON = (try? JSONSerialization.jsonObject(with: dData)) as? [String: Any] ?? [:]
-        guard let name = dJSON["name"] as? String,
-              let parentFileId = dJSON["parent_file_id"] as? String else { throw CloudDriveError.invalidResponse }
-        let sidecarName = (name as NSString).deletingPathExtension + suffix
+        // 整段写流程套 withTokenRetry:服务端提前失效 token(401)时一次性强制刷新 +
+        // 重跑(get → create → 可选 PUT → complete),而不是等本地 expiresAt 过期。
+        try await helper.withTokenRetry(initialToken: token, refresh: refreshToken) { @Sendable tok in
+            // 1. 查源文件的父目录 + 真实文件名
+            let getBody = try JSONSerialization.data(withJSONObject: ["drive_id": driveId, "file_id": fileID])
+            let (dData, dHTTP) = try await self.helper.makeAuthorizedRequest(
+                url: URL(string: "\(Self.apiBase)/adrive/v1.0/openFile/get")!,
+                method: "POST", body: getBody, contentType: "application/json", accessToken: tok)
+            guard dHTTP.statusCode == 200 else { throw CloudDriveError.apiError(dHTTP.statusCode, "aliyun file get") }
+            let dJSON = (try? JSONSerialization.jsonObject(with: dData)) as? [String: Any] ?? [:]
+            guard let name = dJSON["name"] as? String,
+                  let parentFileId = dJSON["parent_file_id"] as? String else { throw CloudDriveError.invalidResponse }
+            let sidecarName = (name as NSString).deletingPathExtension + suffix
 
-        let sha1 = Insecure.SHA1.hash(data: data).map { String(format: "%02X", $0) }.joined()
-        // 2. create(带 proof_code 尝试秒传)
-        let createBody = try JSONSerialization.data(withJSONObject: [
-            "drive_id": driveId, "parent_file_id": parentFileId, "name": sidecarName,
-            "type": "file", "check_name_mode": "refuse", "size": data.count,
-            "content_hash_name": "sha1", "content_hash": sha1,
-            "proof_version": "v1", "proof_code": Self.proofCode(token: token, data: data),
-            "part_info_list": [["part_number": 1]],
-        ])
-        let (cData, cHTTP) = try await helper.makeAuthorizedRequest(
-            url: URL(string: "\(Self.apiBase)/adrive/v1.0/openFile/create")!,
-            method: "POST", body: createBody, contentType: "application/json", accessToken: token)
-        guard (200...201).contains(cHTTP.statusCode) else { throw CloudDriveError.apiError(cHTTP.statusCode, "aliyun create") }
-        let cJSON = (try? JSONSerialization.jsonObject(with: cData)) as? [String: Any] ?? [:]
-        if cJSON["exist"] as? Bool == true { return }   // 同名 sidecar 已在,视为完成
-        let rapid = cJSON["rapid_upload"] as? Bool ?? false
-        guard let newFileId = cJSON["file_id"] as? String,
-              let uploadId = cJSON["upload_id"] as? String else {
-            // 秒传命中且无 upload_id 也算成功
-            if rapid { plog("📁 Aliyun sidecar rapid-uploaded: \(sidecarName)"); return }
-            throw CloudDriveError.apiError(0, "aliyun create no upload_id: \(cJSON)")
-        }
-
-        // 3. 未秒传则 PUT 内容到分片上传地址
-        if !rapid, let uploadURL = (cJSON["part_info_list"] as? [[String: Any]])?.first?["upload_url"] as? String,
-           let put = URL(string: uploadURL) {
-            var putReq = URLRequest(url: put)
-            putReq.httpMethod = "PUT"
-            let (_, pResp) = try await URLSession.shared.upload(for: putReq, from: data)
-            guard let ph = pResp as? HTTPURLResponse, (200...299).contains(ph.statusCode) else {
-                throw CloudDriveError.apiError((pResp as? HTTPURLResponse)?.statusCode ?? 0, "aliyun part PUT")
+            let sha1 = Insecure.SHA1.hash(data: data).map { String(format: "%02X", $0) }.joined()
+            // 2. create(带 proof_code 尝试秒传)
+            let createBody = try JSONSerialization.data(withJSONObject: [
+                "drive_id": driveId, "parent_file_id": parentFileId, "name": sidecarName,
+                "type": "file", "check_name_mode": "refuse", "size": data.count,
+                "content_hash_name": "sha1", "content_hash": sha1,
+                "proof_version": "v1", "proof_code": Self.proofCode(token: tok, data: data),
+                "part_info_list": [["part_number": 1]],
+            ])
+            let (cData, cHTTP) = try await self.helper.makeAuthorizedRequest(
+                url: URL(string: "\(Self.apiBase)/adrive/v1.0/openFile/create")!,
+                method: "POST", body: createBody, contentType: "application/json", accessToken: tok)
+            guard (200...201).contains(cHTTP.statusCode) else { throw CloudDriveError.apiError(cHTTP.statusCode, "aliyun create") }
+            let cJSON = (try? JSONSerialization.jsonObject(with: cData)) as? [String: Any] ?? [:]
+            if cJSON["exist"] as? Bool == true { return }   // 同名 sidecar 已在,视为完成
+            let rapid = cJSON["rapid_upload"] as? Bool ?? false
+            guard let newFileId = cJSON["file_id"] as? String,
+                  let uploadId = cJSON["upload_id"] as? String else {
+                // 秒传命中且无 upload_id 也算成功
+                if rapid { plog("📁 Aliyun sidecar rapid-uploaded: \(sidecarName)"); return }
+                throw CloudDriveError.apiError(0, "aliyun create no upload_id: \(cJSON)")
             }
-        }
 
-        // 4. complete
-        let completeBody = try JSONSerialization.data(withJSONObject: [
-            "drive_id": driveId, "file_id": newFileId, "upload_id": uploadId,
-        ])
-        _ = try await helper.makeAuthorizedRequest(
-            url: URL(string: "\(Self.apiBase)/adrive/v1.0/openFile/complete")!,
-            method: "POST", body: completeBody, contentType: "application/json", accessToken: token)
-        plog("📁 Aliyun sidecar uploaded: \(sidecarName)")
+            // 3. 未秒传则 PUT 内容到分片上传地址
+            if !rapid, let uploadURL = (cJSON["part_info_list"] as? [[String: Any]])?.first?["upload_url"] as? String,
+               let put = URL(string: uploadURL) {
+                var putReq = URLRequest(url: put)
+                putReq.httpMethod = "PUT"
+                let (_, pResp) = try await URLSession.shared.upload(for: putReq, from: data)
+                guard let ph = pResp as? HTTPURLResponse, (200...299).contains(ph.statusCode) else {
+                    throw CloudDriveError.apiError((pResp as? HTTPURLResponse)?.statusCode ?? 0, "aliyun part PUT")
+                }
+            }
+
+            // 4. complete
+            let completeBody = try JSONSerialization.data(withJSONObject: [
+                "drive_id": driveId, "file_id": newFileId, "upload_id": uploadId,
+            ])
+            _ = try await self.helper.makeAuthorizedRequest(
+                url: URL(string: "\(Self.apiBase)/adrive/v1.0/openFile/complete")!,
+                method: "POST", body: completeBody, contentType: "application/json", accessToken: tok)
+            plog("📁 Aliyun sidecar uploaded: \(sidecarName)")
+        }
     }
 
     /// 阿里云盘秒传 proof_code v1:取 md5(access_token) 前 16 个 hex 当 UInt64,对文件大小取模
@@ -118,10 +122,12 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
     /// across token refresh and across devices.
     func accountIdentifier() async throws -> String {
         let token = try await getToken()
-        let (data, http) = try await helper.makeAuthorizedRequest(
-            url: URL(string: "\(Self.oauthBase)/users/info")!,
-            accessToken: token
-        )
+        let (data, http) = try await helper.withTokenRetry(initialToken: token, refresh: refreshToken) { @Sendable tok in
+            try await self.helper.makeAuthorizedRequest(
+                url: URL(string: "\(Self.oauthBase)/users/info")!,
+                accessToken: tok
+            )
+        }
         guard http.statusCode == 200 else {
             throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "")
         }
@@ -144,7 +150,9 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
             if let m = marker, !m.isEmpty { body["marker"] = m }
             let bodyData = try JSONSerialization.data(withJSONObject: body)
             let token = try await getToken()
-            let (data, http) = try await helper.makeAuthorizedRequest(url: URL(string: "\(Self.apiBase)/adrive/v1.0/openFile/list")!, method: "POST", body: bodyData, contentType: "application/json", accessToken: token)
+            let (data, http) = try await helper.withTokenRetry(initialToken: token, refresh: refreshToken) { @Sendable tok in
+                try await self.helper.makeAuthorizedRequest(url: URL(string: "\(Self.apiBase)/adrive/v1.0/openFile/list")!, method: "POST", body: bodyData, contentType: "application/json", accessToken: tok)
+            }
             guard http.statusCode == 200 else { throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "") }
             let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
             let items = json["items"] as? [[String: Any]] ?? []
@@ -185,13 +193,15 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
         }
         guard let driveId else { throw CloudDriveError.notAuthenticated }
         let body = try JSONSerialization.data(withJSONObject: ["drive_id": driveId, "file_id": path])
-        let (data, http) = try await helper.makeAuthorizedRequest(
-            url: URL(string: "\(Self.apiBase)/adrive/v1.0/openFile/get")!,
-            method: "POST",
-            body: body,
-            contentType: "application/json",
-            accessToken: token
-        )
+        let (data, http) = try await helper.withTokenRetry(initialToken: token, refresh: refreshToken) { @Sendable tok in
+            try await self.helper.makeAuthorizedRequest(
+                url: URL(string: "\(Self.apiBase)/adrive/v1.0/openFile/get")!,
+                method: "POST",
+                body: body,
+                contentType: "application/json",
+                accessToken: tok
+            )
+        }
         guard http.statusCode == 200 else {
             throw CloudDriveError.apiError(http.statusCode, "Aliyun file name lookup")
         }
@@ -224,7 +234,9 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
         let token = try await getToken()
         let body: [String: Any] = ["drive_id": driveId, "file_id": path]
         let bodyData = try JSONSerialization.data(withJSONObject: body)
-        let (data, http) = try await helper.makeAuthorizedRequest(url: URL(string: "\(Self.apiBase)/adrive/v1.0/openFile/getDownloadUrl")!, method: "POST", body: bodyData, contentType: "application/json", accessToken: token)
+        let (data, http) = try await helper.withTokenRetry(initialToken: token, refresh: refreshToken) { @Sendable tok in
+            try await self.helper.makeAuthorizedRequest(url: URL(string: "\(Self.apiBase)/adrive/v1.0/openFile/getDownloadUrl")!, method: "POST", body: bodyData, contentType: "application/json", accessToken: tok)
+        }
         guard http.statusCode == 200 else { throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "") }
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
         guard let downloadUrl = json["url"] as? String, let fileURL = URL(string: downloadUrl) else {
@@ -236,7 +248,9 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
 
     private func fetchDriveId() async throws -> String {
         let token = try await getToken()
-        let (data, http) = try await helper.makeAuthorizedRequest(url: URL(string: "\(Self.apiBase)/adrive/v1.0/user/getDriveInfo")!, method: "POST", body: Data("{}".utf8), contentType: "application/json", accessToken: token)
+        let (data, http) = try await helper.withTokenRetry(initialToken: token, refresh: refreshToken) { @Sendable tok in
+            try await self.helper.makeAuthorizedRequest(url: URL(string: "\(Self.apiBase)/adrive/v1.0/user/getDriveInfo")!, method: "POST", body: Data("{}".utf8), contentType: "application/json", accessToken: tok)
+        }
         guard http.statusCode == 200 else { throw CloudDriveError.apiError(http.statusCode, "Failed to get drive info") }
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
         if let id = json["resource_drive_id"] as? String, !id.isEmpty { return id }

@@ -51,7 +51,21 @@ actor SynologySource: MusicSourceConnector {
     }
 
     func connect() async throws {
-        if await api.isLoggedIn { return }
+        try await connect(forceReconnect: false)
+    }
+
+    /// 强制重建会话: 先清掉过期 sid 再重新登录。
+    /// 普通 connect() 在 isLoggedIn 时短路返回, DSM 会话过期 / NAS 重启后
+    /// sid 仍非 nil, 重连永远不会发生 —— fetchRange 拿到 401 抛 notLoggedIn,
+    /// 任何重试再进 connect() 又被短路。这里跳过短路, 调 logout() 清 sid
+    /// (best-effort, 同时设 sid=nil), 再走正常登录, 让会话真正续上。
+    func reconnect() async throws {
+        await api.logout()
+        try await connect(forceReconnect: true)
+    }
+
+    private func connect(forceReconnect: Bool) async throws {
+        if !forceReconnect, await api.isLoggedIn { return }
 
         // 空密码 guard ── 关键保护机制。
         //
@@ -186,6 +200,18 @@ actor SynologySource: MusicSourceConnector {
     /// 让 CloudPlaybackSource 能按需拉 chunk 而不是整下整首歌 ——
     /// 实测 40MB flac 从"等 6.1s 整下"变成"~500ms 出第一个 buffer"。
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+        do {
+            return try await fetchRangeOnce(path: path, offset: offset, length: length)
+        } catch SynologyError.notLoggedIn {
+            // 会话过期 (401)。之前这里直接把 notLoggedIn 抛给上层, 但 sid 没被
+            // 清除, 重试再进 connect() 又被 isLoggedIn 短路, 重连永远不发生。
+            // 现在: 强制重建会话后原地重试一次。仍失败才向上抛。
+            try await reconnect()
+            return try await fetchRangeOnce(path: path, offset: offset, length: length)
+        }
+    }
+
+    private func fetchRangeOnce(path: String, offset: Int64, length: Int64) async throws -> Data {
         guard let url = try await streamingURL(for: path) else {
             throw SynologyError.invalidURL
         }
@@ -206,6 +232,18 @@ actor SynologySource: MusicSourceConnector {
         case 206:
             return data
         case 200:
+            // ⚠️ FileStation Download 的失败响应 (sid 过期 error 119、路径不存在
+            // error 408 等) 正是 HTTP 200 + JSON 错误体。若不校验就把这段 JSON
+            // 字节切片当音频 chunk 返回, 会写进 .partial 缓存把它永久损坏。
+            // 先识别"这是错误包还是真音频": Content-Type=JSON 或首字节是 '{'
+            // 都视为错误体, 解析错误码 —— 会话类错误清 sid 抛 notLoggedIn 触发
+            // reconnect-and-retry, 其余抛 apiError。
+            if let error = synologyErrorPacket(data: data, response: http) {
+                if isSessionError(code: error) {
+                    throw SynologyError.notLoggedIn
+                }
+                throw SynologyError.apiError(synologyErrorMessage(code: error))
+            }
             // Server ignored Range — slice the returned full body to the
             // requested window so callers can trust offsets. Without this,
             // a seek-to-middle would write the start of the file into the
@@ -216,8 +254,9 @@ actor SynologySource: MusicSourceConnector {
             let upper = min(actualOffset + length, total)
             return data.subdata(in: Int(actualOffset)..<Int(upper))
         case 401:
-            // Session expired —— let caller retry after reconnect; for now
-            // surface as httpError so CloudPlaybackSource bails out cleanly.
+            // Session expired —— surface as notLoggedIn so fetchRange can
+            // reconnect-and-retry (and so it stays distinct from other HTTP
+            // errors that should not trigger a re-login).
             throw SynologyError.notLoggedIn
         default:
             throw SynologyError.httpError(http.statusCode)
@@ -329,5 +368,43 @@ actor SynologySource: MusicSourceConnector {
     func deleteFile(at path: String) async throws {
         try await connect()
         try await api.deleteFile(path: path)
+    }
+
+    /// 在 HTTP 200 的 Range 响应里识别 Synology JSON 错误包。仅当确信是
+    /// FileStation 的 `{"success":false,"error":{"code":N}}` 错误体时返回错误码;
+    /// 真音频 (含恰好以 '{' 开头的二进制) 一律返回 nil 走正常切片。
+    private func synologyErrorPacket(data: Data, response: HTTPURLResponse) -> Int? {
+        // 只在响应明确声明 JSON, 或 body 以 '{' 开头时才尝试解析, 避免把以
+        // 0x7B 开头的音频帧误判成错误包。
+        let contentType = (response.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased()
+        let looksJSON = contentType.contains("application/json") || data.first == UInt8(ascii: "{")
+        guard looksJSON else { return nil }
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        // 只有 success==false 才是错误包; success==true 的下载元信息极罕见,
+        // 也不应被当作音频写缓存, 这里仍按错误处理 (无 code 则给个通用码)。
+        if json["success"] as? Bool == false {
+            let err = json["error"] as? [String: Any]
+            if let code = err?["code"] as? Int { return code }
+            if let number = (err?["code"] as? NSNumber)?.intValue { return number }
+            return -1
+        }
+        return nil
+    }
+
+    /// 会话过期类错误码: 119 (sid 过期 / 无效)、105/106/107 (会话相关)。
+    /// 这些清 sid 并 reconnect-and-retry; 其余 (如 408 路径不存在) 直接抛。
+    private func isSessionError(code: Int) -> Bool {
+        code == 119 || code == 105 || code == 106 || code == 107 || code == 100
+    }
+
+    private func synologyErrorMessage(code: Int) -> String {
+        switch code {
+        case 119: return "会话已过期，请重新登录"
+        case 408: return "文件不存在"
+        case 407, 410: return "无访问权限"
+        default: return "Synology 下载失败 (错误码: \(code))"
+        }
     }
 }

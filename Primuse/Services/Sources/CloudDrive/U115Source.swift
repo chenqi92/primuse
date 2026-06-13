@@ -41,10 +41,12 @@ actor U115Source: MusicSourceConnector, OAuthCloudSource {
     /// 用户 UID(跨 token 刷新稳定),用于把多个挂载关联到同一 115 账户。
     func accountIdentifier() async throws -> String {
         let token = try await getToken()
-        let (data, http) = try await helper.makeAuthorizedRequest(
-            url: URL(string: "\(Self.apiBase)/user/info")!,
-            accessToken: token
-        )
+        let (data, http) = try await helper.withTokenRetry(initialToken: token, refresh: refreshToken) { @Sendable tok in
+            try await self.helper.makeAuthorizedRequest(
+                url: URL(string: "\(Self.apiBase)/user/info")!,
+                accessToken: tok
+            )
+        }
         guard http.statusCode == 200 else {
             throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "")
         }
@@ -70,7 +72,10 @@ actor U115Source: MusicSourceConnector, OAuthCloudSource {
                 URLQueryItem(name: "offset", value: String(offset)),
                 URLQueryItem(name: "show_dir", value: "1"),
             ]
-            let (data, http) = try await helper.makeAuthorizedRequest(url: comps.url!, accessToken: token)
+            let listURL = comps.url!
+            let (data, http) = try await helper.withTokenRetry(initialToken: token, refresh: refreshToken) { @Sendable tok in
+                try await self.helper.makeAuthorizedRequest(url: listURL, accessToken: tok)
+            }
             guard http.statusCode == 200 else {
                 throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "")
             }
@@ -136,11 +141,13 @@ actor U115Source: MusicSourceConnector, OAuthCloudSource {
         }
         let token = try await getToken()
         let body = CloudDriveHelper.formURLEncodedBody([URLQueryItem(name: "pick_code", value: pickCode)])
-        let (data, http) = try await helper.makeAuthorizedRequest(
-            url: URL(string: "\(Self.apiBase)/ufile/downurl")!,
-            method: "POST", body: body,
-            contentType: "application/x-www-form-urlencoded", accessToken: token
-        )
+        let (data, http) = try await helper.withTokenRetry(initialToken: token, refresh: refreshToken) { @Sendable tok in
+            try await self.helper.makeAuthorizedRequest(
+                url: URL(string: "\(Self.apiBase)/ufile/downurl")!,
+                method: "POST", body: body,
+                contentType: "application/x-www-form-urlencoded", accessToken: tok
+            )
+        }
         guard http.statusCode == 200 else {
             throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "")
         }

@@ -119,15 +119,30 @@ actor FTPSource: MusicSourceConnector {
             return localURL
         }
 
-        return try await withCheckedThrowingContinuation { continuation in
-            provider.copyItem(path: path, toLocalURL: localURL) { error in
-                if let error {
-                    continuation.resume(throwing: SourceError.connectionFailed(error.localizedDescription))
-                } else {
-                    continuation.resume(returning: localURL)
+        // Download to a sibling temp path then atomically rename. FilesProvider's
+        // `copyItem` moves the in-progress temp file to its destination *before*
+        // reporting an error, so downloading straight to `localURL` would leave a
+        // truncated file there that future calls treat as a complete cache.
+        let tempURL = cacheDirectory.appendingPathComponent(
+            "\(localURL.lastPathComponent).part-\(UUID().uuidString)"
+        )
+
+        do {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                provider.copyItem(path: path, toLocalURL: tempURL) { error in
+                    if let error {
+                        continuation.resume(throwing: SourceError.connectionFailed(error.localizedDescription))
+                    } else {
+                        continuation.resume(returning: ())
+                    }
                 }
             }
+            try FileManager.default.moveItem(at: tempURL, to: localURL)
+        } catch {
+            try? FileManager.default.removeItem(at: tempURL)
+            throw error
         }
+        return localURL
     }
 
     func deleteFile(at path: String) async throws {

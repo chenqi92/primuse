@@ -23,10 +23,12 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
     /// `$select=id` keeps the response tiny.
     func accountIdentifier() async throws -> String {
         let token = try await getToken()
-        let (data, http) = try await helper.makeAuthorizedRequest(
-            url: URL(string: "\(Self.graphBase)/me?$select=id")!,
-            accessToken: token
-        )
+        let (data, http) = try await helper.withTokenRetry(initialToken: token, refresh: refreshToken) { @Sendable tok in
+            try await self.helper.makeAuthorizedRequest(
+                url: URL(string: "\(Self.graphBase)/me?$select=id")!,
+                accessToken: tok
+            )
+        }
         guard http.statusCode == 200 else {
             throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "")
         }
@@ -53,7 +55,9 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
         }()
         while let url = nextURL {
             let token = try await getToken()
-            let (data, http) = try await helper.makeAuthorizedRequest(url: url, accessToken: token)
+            let (data, http) = try await helper.withTokenRetry(initialToken: token, refresh: refreshToken) { @Sendable tok in
+                try await self.helper.makeAuthorizedRequest(url: url, accessToken: tok)
+            }
             guard http.statusCode == 200 else { throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "") }
             let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
             let items = json["value"] as? [[String: Any]] ?? []
@@ -86,7 +90,9 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
     func localURL(for path: String) async throws -> URL {
         if helper.hasCached(path: path) { return helper.cachedURL(for: path) }
         let token = try await getToken()
-        let (data, http) = try await helper.makeAuthorizedRequest(url: URL(string: "\(Self.graphBase)/me/drive/items/\(path)")!, accessToken: token)
+        let (data, http) = try await helper.withTokenRetry(initialToken: token, refresh: refreshToken) { @Sendable tok in
+            try await self.helper.makeAuthorizedRequest(url: URL(string: "\(Self.graphBase)/me/drive/items/\(path)")!, accessToken: tok)
+        }
         guard http.statusCode == 200 else { throw CloudDriveError.apiError(http.statusCode, "Item not found") }
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
         guard let downloadUrl = json["@microsoft.graph.downloadUrl"] as? String, let fileURL = URL(string: downloadUrl) else { throw CloudDriveError.fileNotFound(path) }
@@ -143,10 +149,12 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
 
     func displayName(for path: String) async throws -> String? {
         let token = try await getToken()
-        let (data, http) = try await helper.makeAuthorizedRequest(
-            url: URL(string: "\(Self.graphBase)/me/drive/items/\(path)?$select=name")!,
-            accessToken: token
-        )
+        let (data, http) = try await helper.withTokenRetry(initialToken: token, refresh: refreshToken) { @Sendable tok in
+            try await self.helper.makeAuthorizedRequest(
+                url: URL(string: "\(Self.graphBase)/me/drive/items/\(path)?$select=name")!,
+                accessToken: tok
+            )
+        }
         guard http.statusCode == 200 else {
             throw CloudDriveError.apiError(http.statusCode, "OneDrive item name lookup")
         }
@@ -167,25 +175,38 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
         guard !itemID.isEmpty else { throw CloudDriveError.invalidResponse }
 
         let token = try await getToken()
-        let (metaData, metaHTTP) = try await helper.makeAuthorizedRequest(
-            url: URL(string: "\(Self.graphBase)/me/drive/items/\(itemID)?$select=name,parentReference")!,
-            accessToken: token)
-        guard metaHTTP.statusCode == 200 else { throw CloudDriveError.apiError(metaHTTP.statusCode, "item lookup") }
-        let json = (try? JSONSerialization.jsonObject(with: metaData)) as? [String: Any] ?? [:]
-        guard let name = json["name"] as? String,
-              let parentID = (json["parentReference"] as? [String: Any])?["id"] as? String else {
-            throw CloudDriveError.invalidResponse
-        }
-        let sidecarName = (name as NSString).deletingPathExtension + suffix
-        let encoded = sidecarName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? sidecarName
-        let uploadURL = URL(string: "\(Self.graphBase)/me/drive/items/\(parentID):/\(encoded):/content")!
-        var req = URLRequest(url: uploadURL)
-        req.httpMethod = "PUT"
-        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        req.setValue(suffix == ".lrc" ? "text/plain; charset=utf-8" : "image/jpeg", forHTTPHeaderField: "Content-Type")
-        let (_, resp) = try await URLSession.shared.upload(for: req, from: data)
-        guard let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            throw CloudDriveError.apiError((resp as? HTTPURLResponse)?.statusCode ?? 0, "sidecar upload failed")
+        // Wrap the metadata lookup + content PUT so a server-side early token
+        // revocation (401) triggers one force-refresh + retry of the whole
+        // sidecar write rather than failing until local expiry.
+        let sidecarName: String = try await helper.withTokenRetry(
+            initialToken: token,
+            refresh: refreshToken
+        ) { @Sendable tok in
+            let (metaData, metaHTTP) = try await self.helper.makeAuthorizedRequest(
+                url: URL(string: "\(Self.graphBase)/me/drive/items/\(itemID)?$select=name,parentReference")!,
+                accessToken: tok)
+            guard metaHTTP.statusCode == 200 else { throw CloudDriveError.apiError(metaHTTP.statusCode, "item lookup") }
+            let json = (try? JSONSerialization.jsonObject(with: metaData)) as? [String: Any] ?? [:]
+            guard let name = json["name"] as? String,
+                  let parentID = (json["parentReference"] as? [String: Any])?["id"] as? String else {
+                throw CloudDriveError.invalidResponse
+            }
+            let sidecarName = (name as NSString).deletingPathExtension + suffix
+            let encoded = sidecarName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? sidecarName
+            let uploadURL = URL(string: "\(Self.graphBase)/me/drive/items/\(parentID):/\(encoded):/content")!
+            var req = URLRequest(url: uploadURL)
+            req.httpMethod = "PUT"
+            req.setValue("Bearer \(tok)", forHTTPHeaderField: "Authorization")
+            req.setValue(suffix == ".lrc" ? "text/plain; charset=utf-8" : "image/jpeg", forHTTPHeaderField: "Content-Type")
+            let (_, resp) = try await URLSession.shared.upload(for: req, from: data)
+            guard let http = resp as? HTTPURLResponse else {
+                throw CloudDriveError.invalidResponse
+            }
+            if http.statusCode == 401 { throw CloudDriveError.tokenExpired }
+            guard (200...299).contains(http.statusCode) else {
+                throw CloudDriveError.apiError(http.statusCode, "sidecar upload failed")
+            }
+            return sidecarName
         }
         invalidateDownloadURL(for: itemID)
         plog("📁 OneDrive sidecar uploaded: \(sidecarName)")
@@ -201,7 +222,9 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
             return cached.url
         }
         let token = try await getToken()
-        let (data, http) = try await helper.makeAuthorizedRequest(url: URL(string: "\(Self.graphBase)/me/drive/items/\(path)")!, accessToken: token)
+        let (data, http) = try await helper.withTokenRetry(initialToken: token, refresh: refreshToken) { @Sendable tok in
+            try await self.helper.makeAuthorizedRequest(url: URL(string: "\(Self.graphBase)/me/drive/items/\(path)")!, accessToken: tok)
+        }
         guard http.statusCode == 200 else { throw CloudDriveError.apiError(http.statusCode, "Item not found") }
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
         guard let downloadUrl = json["@microsoft.graph.downloadUrl"] as? String,

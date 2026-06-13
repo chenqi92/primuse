@@ -299,8 +299,13 @@ private final class PooledConnection: @unchecked Sendable {
         url: URL, host: String,
         offset: Int64, length: Int64, userAgent: String?
     ) async throws -> Data {
-        var path = url.path.isEmpty ? "/" : url.path
-        if let q = url.query, !q.isEmpty { path += "?" + q }
+        // 用 percent-encoded 的 path/query 原样拼请求行：`URL.path`/`URL.query` 返回的是
+        // 解码后的字符串，含 %20、中文等需编码字符的直链会发出非法报文或与服务端按编码后
+        // URL 计算的签名不符而 403。
+        let comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        let encodedPath = comps?.percentEncodedPath ?? url.path
+        var path = encodedPath.isEmpty ? "/" : encodedPath
+        if let q = comps?.percentEncodedQuery ?? url.query, !q.isEmpty { path += "?" + q }
         let rangeHeader = offset < 0 ? "bytes=\(offset)" : "bytes=\(offset)-\(offset + length - 1)"
         var head = "GET \(path) HTTP/1.1\r\n"
         head += "Host: \(host)\r\n"

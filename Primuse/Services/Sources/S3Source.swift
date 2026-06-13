@@ -14,15 +14,20 @@ actor S3Source: MusicSourceConnector {
     private let useSsl: Bool
     private let cacheDirectory: URL
 
-    /// 长生命周期 session, fetchRange 复用 HTTP keep-alive。
+    /// 长生命周期 session, fetchRange / localURL 复用 HTTP keep-alive。
     /// S3 协议天然支持 Range header (GetObject with Range), 不需要签名。
-    private lazy var rangeSession: URLSession = {
+    /// disconnect() 中 finishTasksAndInvalidate(), 避免 session/线程/fd 泄漏。
+    private var _rangeSession: URLSession?
+    private var rangeSession: URLSession {
+        if let session = _rangeSession { return session }
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 60
         config.timeoutIntervalForResource = 600
         config.httpMaximumConnectionsPerHost = 8
-        return URLSession(configuration: config)
-    }()
+        let session = URLSession(configuration: config)
+        _rangeSession = session
+        return session
+    }
 
     init(
         sourceID: String, endpoint: String, region: String,
@@ -47,28 +52,50 @@ actor S3Source: MusicSourceConnector {
         _ = try await listFiles(at: "")
     }
 
-    func disconnect() async {}
+    func disconnect() async {
+        // 自建 session 必须显式 invalidate, 否则其内部工作队列/连接缓存
+        // 在进程退出前不会释放 (connector 反复重建时累积线程/fd)。
+        _rangeSession?.finishTasksAndInvalidate()
+        _rangeSession = nil
+    }
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
         let prefix = path.isEmpty ? "" : (path.hasSuffix("/") ? path : "\(path)/")
-        guard var components = URLComponents(url: try bucketURL(), resolvingAgainstBaseURL: false) else {
-            throw SourceError.connectionFailed("Invalid S3 URL")
-        }
-        components.queryItems = [
-            URLQueryItem(name: "list-type", value: "2"),
-            URLQueryItem(name: "prefix", value: prefix),
-            URLQueryItem(name: "delimiter", value: "/"),
-            URLQueryItem(name: "max-keys", value: "1000"),
-        ]
-        guard let url = components.url else { throw SourceError.connectionFailed("Invalid URL") }
+        var items: [RemoteFileItem] = []
+        // ListObjectsV2 caps a single response at max-keys (≤1000) and signals
+        // more pages via IsTruncated / NextContinuationToken. A flat directory
+        // with >1000 entries would otherwise return only the first page, and
+        // ConnectorScanner treats the missing songs as deleted. Follow the
+        // continuation token until the listing is complete.
+        var continuationToken: String? = nil
+        repeat {
+            guard var components = URLComponents(url: try bucketURL(), resolvingAgainstBaseURL: false) else {
+                throw SourceError.connectionFailed("Invalid S3 URL")
+            }
+            var queryItems = [
+                URLQueryItem(name: "list-type", value: "2"),
+                URLQueryItem(name: "prefix", value: prefix),
+                URLQueryItem(name: "delimiter", value: "/"),
+                URLQueryItem(name: "max-keys", value: "1000"),
+            ]
+            if let token = continuationToken {
+                queryItems.append(URLQueryItem(name: "continuation-token", value: token))
+            }
+            components.queryItems = queryItems
+            guard let url = components.url else { throw SourceError.connectionFailed("Invalid URL") }
 
-        let request = try signedRequest(url: url, method: "GET")
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw SourceError.connectionFailed("S3 list failed: \((response as? HTTPURLResponse)?.statusCode ?? 0)")
-        }
+            let request = try signedRequest(url: url, method: "GET")
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                throw SourceError.connectionFailed("S3 list failed: \((response as? HTTPURLResponse)?.statusCode ?? 0)")
+            }
 
-        return parseListResponse(data: data, prefix: prefix)
+            let page = parseListResponse(data: data, prefix: prefix)
+            items.append(contentsOf: page.items)
+            continuationToken = page.isTruncated ? page.nextContinuationToken : nil
+        } while continuationToken != nil
+
+        return items
     }
 
     func localURL(for path: String) async throws -> URL {
@@ -79,11 +106,12 @@ actor S3Source: MusicSourceConnector {
         }
 
         let url = try objectURL(for: path)
-        let request = try signedRequest(url: url, method: "GET")
+        var request = try signedRequest(url: url, method: "GET")
+        // 整文件下载放宽超时 (大文件), 复用长生命周期 rangeSession 避免
+        // 每首歌新建 session 泄漏。per-request timeout 覆盖 session 默认值。
+        request.timeoutInterval = 300
 
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 300
-        let (tempURL, response) = try await URLSession(configuration: config).download(for: request)
+        let (tempURL, response) = try await rangeSession.download(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             throw SourceError.fileNotFound(path)
         }
@@ -195,9 +223,10 @@ actor S3Source: MusicSourceConnector {
         let payloadHash = SHA256.hash(data: Data()).compactMap { String(format: "%02x", $0) }.joined()
         request.setValue(payloadHash, forHTTPHeaderField: "x-amz-content-sha256")
 
-        // Canonical request
-        let path = url.path.isEmpty ? "/" : url.path
-        let query = url.query ?? ""
+        // Canonical request — must follow SigV4 byte-for-byte, otherwise the
+        // server recomputes a different signature → SignatureDoesNotMatch (403).
+        let path = canonicalURI(for: url)
+        let query = canonicalQueryString(for: url)
         let signedHeaders = "host;x-amz-content-sha256;x-amz-date"
         let canonicalHeaders = "host:\(url.host ?? endpoint)\nx-amz-content-sha256:\(payloadHash)\nx-amz-date:\(amzDate)\n"
         let canonicalRequest = "\(method)\n\(path)\n\(query)\n\(canonicalHeaders)\n\(signedHeaders)\n\(payloadHash)"
@@ -221,6 +250,44 @@ actor S3Source: MusicSourceConnector {
         return request
     }
 
+    /// SigV4 canonical URI: percent-encode each path segment with the AWS
+    /// unreserved set (A-Za-z0-9-._~), keeping `/` as the separator. Uses the
+    /// raw (already percent-encoded) path so non-ASCII / space keys match the
+    /// bytes actually sent on the wire; `url.path` would decode them and break
+    /// the signature.
+    private func canonicalURI(for url: URL) -> String {
+        let rawPath = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? url.path
+        guard rawPath.isEmpty == false else { return "/" }
+        let segments = rawPath.split(separator: "/", omittingEmptySubsequences: false).map { segment -> String in
+            // Decode then re-encode each segment so the result is exactly one
+            // layer of AWS-style encoding regardless of how the URL was built.
+            let decoded = segment.removingPercentEncoding ?? String(segment)
+            return Self.awsURIEncode(decoded)
+        }
+        let joined = segments.joined(separator: "/")
+        return joined.isEmpty ? "/" : joined
+    }
+
+    /// SigV4 canonical query string: sort params by name (byte order),
+    /// AWS-encode both name and value (so `/` → %2F), join `name=value` with `&`.
+    private func canonicalQueryString(for url: URL) -> String {
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let encoded = items.map { item -> (String, String) in
+            (Self.awsURIEncode(item.name), Self.awsURIEncode(item.value ?? ""))
+        }
+        return encoded
+            .sorted { $0.0 == $1.0 ? $0.1 < $1.1 : $0.0 < $1.0 }
+            .map { "\($0.0)=\($0.1)" }
+            .joined(separator: "&")
+    }
+
+    /// AWS SigV4 percent-encoding: everything except the unreserved set
+    /// (A-Za-z0-9, `-`, `.`, `_`, `~`) is %XX-encoded with uppercase hex.
+    private static func awsURIEncode(_ string: String) -> String {
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+        return string.addingPercentEncoding(withAllowedCharacters: allowed) ?? string
+    }
+
     private func hmacSHA256(key: Data, data: Data) -> Data {
         let symmetricKey = SymmetricKey(data: key)
         let mac = HMAC<SHA256>.authenticationCode(for: data, using: symmetricKey)
@@ -229,12 +296,22 @@ actor S3Source: MusicSourceConnector {
 
     // MARK: - XML Parsing
 
-    private func parseListResponse(data: Data, prefix: String) -> [RemoteFileItem] {
+    private struct S3ListPage {
+        let items: [RemoteFileItem]
+        let isTruncated: Bool
+        let nextContinuationToken: String?
+    }
+
+    private func parseListResponse(data: Data, prefix: String) -> S3ListPage {
         let parser = S3ListParser(prefix: prefix)
         let xmlParser = XMLParser(data: data)
         xmlParser.delegate = parser
         xmlParser.parse()
-        return parser.items
+        return S3ListPage(
+            items: parser.items,
+            isTruncated: parser.isTruncated,
+            nextContinuationToken: parser.nextContinuationToken
+        )
     }
 
     // MARK: - Private scan
@@ -262,6 +339,8 @@ actor S3Source: MusicSourceConnector {
 private class S3ListParser: NSObject, XMLParserDelegate {
     let prefix: String
     var items: [RemoteFileItem] = []
+    var isTruncated = false
+    var nextContinuationToken: String?
 
     private var currentElement = ""
     private var currentKey = ""
@@ -289,6 +368,12 @@ private class S3ListParser: NSObject, XMLParserDelegate {
         }
         if inCommonPrefix && currentElement == "Prefix" {
             currentPrefix += trimmed
+        }
+        // Top-level pagination markers (children of ListBucketResult, not inside
+        // Contents/CommonPrefixes) — drive continuation-token paging.
+        if !inContents && !inCommonPrefix {
+            if currentElement == "IsTruncated" { isTruncated = (trimmed.lowercased() == "true") }
+            if currentElement == "NextContinuationToken" { nextContinuationToken = (nextContinuationToken ?? "") + trimmed }
         }
     }
 

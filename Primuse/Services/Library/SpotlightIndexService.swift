@@ -31,11 +31,18 @@ final class SpotlightIndexService {
     /// 同时 inflight 的 reindex 任务 —— 库变更 token 高频触发时只跑最新一次。
     private var pendingTask: Task<Void, Never>?
 
+    /// reindex 触发到真正动手前的去抖窗口。backfill 每 10 首 / 3 秒就 bump
+    /// 一次 songReplacementToken,若立刻 delete+rebuild,Spotlight 索引在
+    /// backfill 数小时期间会长时间处于被清空 / 半建状态。等 token 静默这段
+    /// 时间后再重建,期间的高频 bump 会被新任务 cancel 在 delete 之前。
+    private static let reindexDebounce: Duration = .seconds(8)
+
     /// 批量重建。先 deleteAll(本 app 的) 再 indexSearchableItems(所有当前可见
     /// 项)。整库万级数据 reindex 在背景 Task.detached 跑,主线程只负责快照
-    /// 当前 library 状态。
+    /// 当前 library 状态。去抖窗口内的连续触发只会保留最后一次。
     func reindex(library: MusicLibrary) {
-        // 取消上一次未完成的 reindex
+        // 取消上一次未完成的 reindex —— 若它还停在去抖 sleep 里,delete 尚未
+        // 发生,旧索引就不会被清空。
         pendingTask?.cancel()
 
         // 快照在主线程做(MusicLibrary 是 @MainActor),后续序列化 + 喂 Spotlight
@@ -50,6 +57,13 @@ final class SpotlightIndexService {
         }
 
         pendingTask = Task.detached(priority: .background) { [songs, albums, artists, playlistSummaries] in
+            // 去抖:静默期内被再次触发会在这里被 cancel,delete 还没跑到。
+            do {
+                try await Task.sleep(for: Self.reindexDebounce)
+            } catch {
+                return
+            }
+            if Task.isCancelled { return }
             await Self.performReindex(
                 songs: songs,
                 albums: albums,
@@ -186,15 +200,13 @@ final class SpotlightIndexService {
         }
     }
 
-    /// 读封面 Data,压成 128x128 JPEG 缩略图喂给 Spotlight。MetadataAssetStore
-    /// 是 @MainActor,读操作通过 MainActor.run hop 过去做。
+    /// 读封面 Data,压成 128x128 JPEG 缩略图喂给 Spotlight。
+    /// `readCoverData(named:)` 是 nonisolated 的纯磁盘读,直接在当前(background)
+    /// 线程调用,不要 hop 到 MainActor —— 万级歌曲的封面 IO 压主线程会卡 UI。
     /// 没封面 / 失败时返回 nil — Spotlight 会显示通用 SF icon。
     private nonisolated static func thumbnailData(for coverArtFileName: String?) async -> Data? {
         guard let coverArtFileName, !coverArtFileName.isEmpty else { return nil }
-        let raw: Data? = await MainActor.run {
-            MetadataAssetStore.shared.readCoverData(named: coverArtFileName)
-        }
-        guard let raw else { return nil }
+        guard let raw = MetadataAssetStore.shared.readCoverData(named: coverArtFileName) else { return nil }
         #if os(iOS)
         guard let image = UIImage(data: raw) else { return nil }
         let target = CGSize(width: 128, height: 128)

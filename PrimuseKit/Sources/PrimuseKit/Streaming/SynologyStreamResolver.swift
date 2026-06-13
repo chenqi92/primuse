@@ -47,26 +47,25 @@ public actor SynologyStreamResolver: StreamResolver {
     }
 
     private func login(base: URL, username: String, password: String, deviceID: String?) async throws -> String {
-        guard var comp = URLComponents(url: base.appendingPathComponent("webapi/auth.cgi"),
-                                       resolvingAgainstBaseURL: false) else {
-            throw StreamResolveError.cannotBuildURL
-        }
-        var items = [
-            URLQueryItem(name: "api", value: "SYNO.API.Auth"),
-            URLQueryItem(name: "version", value: "7"),
-            URLQueryItem(name: "method", value: "login"),
-            URLQueryItem(name: "account", value: username),
-            URLQueryItem(name: "passwd", value: password),
-            URLQueryItem(name: "session", value: "FileStation"),
-            URLQueryItem(name: "format", value: "sid"),
+        // 凭据放进 POST 表单体,URL 上不携带账号/密码,避免进入 DSM/反向代理的访问日志。
+        var fields = [
+            ("api", "SYNO.API.Auth"),
+            ("version", "7"),
+            ("method", "login"),
+            ("account", username),
+            ("passwd", password),
+            ("session", "FileStation"),
+            ("format", "sid"),
         ]
         if let deviceID, !deviceID.isEmpty {
-            items.append(URLQueryItem(name: "device_id", value: deviceID))
+            fields.append(("device_id", deviceID))
         }
-        comp.queryItems = items
-        guard let url = comp.url else { throw StreamResolveError.cannotBuildURL }
+        var req = URLRequest(url: base.appendingPathComponent("webapi/auth.cgi"))
+        req.httpMethod = "POST"
+        req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        req.httpBody = fields.map { "\($0.0)=\(Self.formEncode($0.1))" }.joined(separator: "&").data(using: .utf8)
 
-        let (data, response) = try await session.data(from: url)
+        let (data, response) = try await session.data(for: req)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             throw StreamResolveError.badServerResponse((response as? HTTPURLResponse)?.statusCode ?? 0)
         }
@@ -81,6 +80,11 @@ public actor SynologyStreamResolver: StreamResolver {
     }
 
     // MARK: - 纯函数(可单测)
+
+    static func formEncode(_ s: String) -> String {
+        s.addingPercentEncoding(withAllowedCharacters: CharacterSet(charactersIn:
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")) ?? s
+    }
 
     static func baseURL(host: String, port: Int?, useSsl: Bool) -> URL? {
         var h = host.trimmingCharacters(in: .whitespaces)

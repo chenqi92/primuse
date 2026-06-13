@@ -434,39 +434,176 @@ enum MusicDiscoveryEngine {
     ) -> [MusicDiscoveryResult] {
         guard seed.isPlayable else { return [] }
 
+        // Precompute everything that doesn't change across the up-to-`limit`
+        // greedy iterations: the candidate pool, a normalized feature index
+        // (so each song's artist/album/genre/folder strings are folded once
+        // instead of O(limit×N) times), the recent-month set, and the
+        // fallback list. The original re-ran `similarSongs` (full O(N) scan +
+        // per-candidate String.folding + a fresh `history.entries` Set) and
+        // `dailyRecommendations` (a 3×limit full-library scoring pass) on every
+        // iteration — multiple seconds on a 10k-song library, all on the main
+        // actor. Now the per-iteration work is a single O(N) pass over cached
+        // numbers/strings.
+        let candidates = library.visibleSongs.filteredPlayable()
+        let recentMonthIDs = Set(history.entries(in: .month, now: now).map(\.songID))
+        let features = candidates.map { NormalizedSong(song: $0) }
+        let seedFeature = NormalizedSong(song: seed)
+
         var output = [
             MusicDiscoveryResult(song: seed, score: .greatestFiniteMagnitude, reasons: [.libraryPick])
         ]
         var usedIDs: Set<String> = [seed.id]
-        var cursor = seed
+        var cursor = seedFeature
+
+        // Fallback recommendations don't depend on the moving cursor, so build
+        // them once and just skip already-used songs as the queue grows.
+        let fallbacks = dailyRecommendations(in: library, history: history, limit: 24, now: now)
 
         while output.count < limit {
-            let similar = similarSongs(to: cursor, in: library, history: history, limit: 40)
-                .filter { !usedIDs.contains($0.song.id) }
-                .sorted { lhs, rhs in
-                    let left = lhs.score + stableDailyNoise(lhs.song.id, now: now) * 3
-                    let right = rhs.score + stableDailyNoise(rhs.song.id, now: now) * 3
-                    if left != right { return left > right }
-                    return lhs.song.title.localizedCompare(rhs.song.title) == .orderedAscending
+            var best: (result: MusicDiscoveryResult, sortScore: Double, title: String)?
+            for candidate in features {
+                guard !usedIDs.contains(candidate.song.id), candidate.song.id != cursor.song.id else { continue }
+                var match = similarity(between: cursor, and: candidate)
+                guard match.score > 0 else { continue }
+                if !recentMonthIDs.contains(candidate.song.id) {
+                    match.score += 4
+                    append(.notRecentlyPlayed, to: &match.reasons)
                 }
+                let sortScore = match.score + stableDailyNoise(candidate.song.id, now: now) * 3
+                let isBetter: Bool
+                if let current = best {
+                    if sortScore != current.sortScore {
+                        isBetter = sortScore > current.sortScore
+                    } else {
+                        isBetter = candidate.song.title.localizedCompare(current.title) == .orderedAscending
+                    }
+                } else {
+                    isBetter = true
+                }
+                if isBetter {
+                    best = (
+                        MusicDiscoveryResult(song: candidate.song, score: match.score, reasons: match.reasons),
+                        sortScore,
+                        candidate.song.title
+                    )
+                }
+            }
 
-            if let next = similar.first {
-                output.append(next)
-                usedIDs.insert(next.song.id)
-                cursor = next.song
+            if let next = best {
+                output.append(next.result)
+                usedIDs.insert(next.result.song.id)
+                cursor = NormalizedSong(song: next.result.song)
                 continue
             }
 
-            guard let fallback = dailyRecommendations(in: library, history: history, limit: 24, now: now)
-                .first(where: { !usedIDs.contains($0.song.id) }) else {
+            guard let fallback = fallbacks.first(where: { !usedIDs.contains($0.song.id) }) else {
                 break
             }
             output.append(fallback)
             usedIDs.insert(fallback.song.id)
-            cursor = fallback.song
+            cursor = NormalizedSong(song: fallback.song)
         }
 
         return output
+    }
+
+    /// Per-song feature cache for `songRadio`'s inner loop: all the normalized
+    /// (case/diacritic-folded) strings `similarity` needs, computed once so the
+    /// greedy radio walk never re-folds the same song. Mirrors exactly the
+    /// fields and normalization used by `similarity(between:and:)`.
+    private struct NormalizedSong {
+        let song: Song
+        let albumID: String?
+        let albumTitle: String?
+        let artistID: String?
+        let artistName: String?
+        let genre: String?
+        let year: Int?
+        let duration: TimeInterval
+        let sourceID: String
+        let folder: String
+
+        init(song: Song) {
+            self.song = song
+            albumID = Self.normEmptyable(song.albumID)
+            albumTitle = Self.normEmptyable(song.albumTitle)
+            artistID = Self.normEmptyable(song.artistID)
+            artistName = Self.normEmptyable(song.artistName)
+            genre = Self.normEmptyable(song.genre)
+            year = song.year
+            duration = song.duration
+            sourceID = song.sourceID
+            folder = MusicDiscoveryEngine.parentFolder(song.filePath)
+        }
+
+        /// Pre-normalize for `nonEmptyEqual`, which treats empty results as
+        /// non-matching. nil here means "won't ever match" — keeps the equality
+        /// checks branch-free in the hot loop.
+        private static func normEmptyable(_ text: String?) -> String? {
+            guard let text else { return nil }
+            let value = MusicDiscoveryEngine.normalized(text)
+            return value.isEmpty ? nil : value
+        }
+    }
+
+    /// Same scoring as `similarity(between:and:)` but over pre-normalized
+    /// features so no `String.folding` runs in `songRadio`'s inner loop.
+    private static func similarity(between seed: NormalizedSong, and candidate: NormalizedSong) -> Match {
+        var score: Double = 0
+        var reasons: [MusicDiscoveryReason] = []
+
+        if normEqual(seed.albumID, candidate.albumID) || normEqual(seed.albumTitle, candidate.albumTitle) {
+            score += 46
+            append(.sameAlbum, to: &reasons)
+        }
+
+        if normEqual(seed.artistID, candidate.artistID) || normEqual(seed.artistName, candidate.artistName) {
+            score += 40
+            append(.sameArtist, to: &reasons)
+        }
+
+        if normEqual(seed.genre, candidate.genre) {
+            score += 30
+            append(.sameGenre, to: &reasons)
+        }
+
+        if let seedYear = seed.year, let candidateYear = candidate.year {
+            let delta = abs(seedYear - candidateYear)
+            if delta <= 2 {
+                score += 10
+                append(.sameEra, to: &reasons)
+            } else if delta <= 6 {
+                score += 5
+                append(.sameEra, to: &reasons)
+            }
+        }
+
+        if seed.duration > 30, candidate.duration > 30 {
+            let delta = abs(seed.duration - candidate.duration)
+            let ratio = delta / max(seed.duration, candidate.duration)
+            if ratio <= 0.12 {
+                score += 7
+                append(.similarDuration, to: &reasons)
+            } else if ratio <= 0.22 {
+                score += 3
+            }
+        }
+
+        if seed.sourceID == candidate.sourceID,
+           !seed.folder.isEmpty,
+           seed.folder == candidate.folder {
+            score += 12
+            append(.sameFolder, to: &reasons)
+        }
+
+        return Match(score: score, reasons: reasons)
+    }
+
+    /// Pre-normalized variant of `nonEmptyEqual` — both sides are already
+    /// folded (and nil when empty), so this is a plain comparison.
+    private static func normEqual(_ lhs: String?, _ rhs: String?) -> Bool {
+        guard let lhs, let rhs else { return false }
+        return lhs == rhs
     }
 
     private struct Match {
@@ -571,13 +708,16 @@ enum MusicDiscoveryEngine {
         return !left.isEmpty && left == normalized(rhs)
     }
 
-    private static func parentFolder(_ path: String) -> String {
+    // `nonisolated` — pure string helpers with no actor state. Lets the
+    // `NormalizedSong` feature cache pre-fold strings without hopping the
+    // main actor (and keeps the door open for a future detached radio build).
+    private nonisolated static func parentFolder(_ path: String) -> String {
         let folder = (path as NSString).deletingLastPathComponent
         guard folder != "." else { return "" }
         return normalized(folder)
     }
 
-    private static func normalized(_ text: String) -> String {
+    private nonisolated static func normalized(_ text: String) -> String {
         text
             .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -797,6 +937,12 @@ final class MusicLibrary {
     func updateLyricsText(_ lyricsTextBySongID: [String: String]) {
         guard !lyricsTextBySongID.isEmpty else { return }
 
+        var songIndexByID: [String: Int] = [:]
+        songIndexByID.reserveCapacity(songs.count)
+        for (index, song) in songs.enumerated() {
+            songIndexByID[song.id] = index
+        }
+
         var visibleIndexByID: [String: Int] = [:]
         visibleIndexByID.reserveCapacity(visibleSongs.count)
         for (index, song) in visibleSongs.enumerated() {
@@ -806,7 +952,7 @@ final class MusicLibrary {
         var appliedIDs: [String] = []
         appliedIDs.reserveCapacity(lyricsTextBySongID.count)
         for (songID, text) in lyricsTextBySongID {
-            guard let index = songs.firstIndex(where: { $0.id == songID }) else { continue }
+            guard let index = songIndexByID[songID] else { continue }
             guard songs[index].lyricsText != text else { continue }
             songs[index].lyricsText = text
             if let visibleIndex = visibleIndexByID[songID] {
@@ -1926,6 +2072,10 @@ final class MusicLibrary {
     }
 
     private var persistTask: Task<Void, Never>?
+    /// Serializes off-main-actor snapshot writes. Each `persistNow` chains
+    /// onto the previous write so the JSON encode + atomic write happen in
+    /// order off the main thread, and the latest snapshot always wins.
+    private var persistWriteTask: Task<Void, Never>?
 
     private func persistSnapshot() {
         persistTask?.cancel()
@@ -1936,7 +2086,12 @@ final class MusicLibrary {
         }
     }
 
-    /// Write library snapshot to disk immediately (e.g. on app backgrounding).
+    /// Persist the library snapshot. Only the value-type snapshot is built on
+    /// the main actor (cheap struct copies); the expensive JSON encode + atomic
+    /// disk write run off the main thread so a large library (every Song carries
+    /// its full `lyricsText`) doesn't block the UI — backfill flushes used to
+    /// stall the main actor for hundreds of ms every few seconds while encoding
+    /// the whole library inline.
     func persistNow() {
         let snapshot = Snapshot(
             songs: songs,
@@ -1948,8 +2103,24 @@ final class MusicLibrary {
             pendingPlaylistIdentities: pendingPlaylistIdentities.isEmpty ? nil : pendingPlaylistIdentities,
             pendingHistoryIdentities: pendingHistoryIdentities.isEmpty ? nil : pendingHistoryIdentities
         )
+        let url = snapshotURL
+        let previous = persistWriteTask
+        persistWriteTask = Task.detached(priority: .utility) {
+            // Chain after any in-flight write so the atomic file is updated in
+            // call order and we never run two encodes against the same path.
+            await previous?.value
+            Self.writeSnapshot(snapshot, to: url)
+        }
+    }
+
+    /// Encode + atomically write a snapshot. `nonisolated` so it runs off the
+    /// main actor; uses a fresh encoder rather than sharing the main-actor one.
+    private nonisolated static func writeSnapshot(_ snapshot: Snapshot, to url: URL) {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(snapshot) else { return }
-        try? data.write(to: snapshotURL, options: .atomic)
+        try? data.write(to: url, options: .atomic)
     }
 
     private func sortPlaylists() {
@@ -2041,7 +2212,7 @@ final class MusicLibrary {
         return (albums, artists)
     }
 
-    private struct Snapshot: Codable {
+    private struct Snapshot: Codable, Sendable {
         var songs: [Song]
         var playlists: [Playlist]
         /// 智能歌单。Optional 让旧 snapshot decode 不报错。

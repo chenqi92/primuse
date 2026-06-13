@@ -45,6 +45,16 @@ final class ScanService {
     private(set) var scanStates: [String: ScanState] = [:]
     var synologyAPIs: [String: SynologyAPI] = [:]
     private var activeTasks: [String: Task<Void, Never>] = [:]
+    /// Monotonic token bumped on every `scanSource` launch and every
+    /// `cancelScan`. A scan task captures its generation at registration
+    /// and checks it before any terminal write (defer cleanup, final
+    /// `scanStates`/background-task release). Without this, a cancelled-
+    /// but-still-suspended old task would, on resume, run its `defer` and
+    /// wipe `activeTasks`/the UIBackgroundTask assertion belonging to a
+    /// *new* scan the user launched in between — letting two scans of the
+    /// same source run concurrently and clobber each other's state.
+    /// Mirrors `MetadataBackfillService.workerGeneration`.
+    private var scanGenerations: [String: Int] = [:]
     private var checkpoints: [String: ScanCheckpoint] = [:]
     #if os(iOS)
     private var backgroundTaskIDs: [String: UIBackgroundTaskIdentifier] = [:]
@@ -87,7 +97,7 @@ final class ScanService {
         if source.type.isServerLibrary || source.type == .appleMusicLibrary {
             dirs = ["/"]
         } else {
-            dirs = decodeDirs(source.extraConfig)
+            dirs = source.scannedDirectories
             guard !dirs.isEmpty else { return }
         }
 
@@ -100,7 +110,20 @@ final class ScanService {
         if !resumeSongs.isEmpty {
             // resume 阶段恢复 checkpoint 内容, 是部分扫描结果, 不应触发"已删除"
             // 通知 (otherwise listener 会把还没扫到的歌的本地缓存全清)。
-            library.addSongs(resumeSongs, affectedSourceIDs: Set([source.id]), notifyRemovals: false)
+            // 同样要带上 library 中该源的全部已知歌曲再 addSongs: 否则
+            // checkpoint 只含部分歌, addSongs 会把其余已知歌从 songs 移除,
+            // 进而 cleanPlaylist/cleanPlaybackHistory 把它们从歌单(含「我喜欢」)
+            // 与最近播放里永久剔除。checkpoint 条目(可能带更新后的元数据)优先,
+            // 已知歌仅用于补齐缺失项, 完整扫描结束后再做真正的删除对账。
+            let resumeIDs = Set(resumeSongs.map(\.id))
+            let knownExisting = library.songs.filter {
+                $0.sourceID == source.id && !resumeIDs.contains($0.id)
+            }
+            library.addSongs(
+                resumeSongs + knownExisting,
+                affectedSourceIDs: Set([source.id]),
+                notifyRemovals: false
+            )
             let acceptedCount = library.songs.filter { $0.sourceID == source.id }.count
             sourceStore.updateLocal(source.id) { $0.songCount = acceptedCount }
         }
@@ -114,20 +137,34 @@ final class ScanService {
 
         beginBackgroundTask(for: source.id)
 
+        scanGenerations[source.id, default: 0] += 1
+        let generation = scanGenerations[source.id] ?? 0
+
         let task = Task {
             defer {
-                activeTasks[source.id] = nil
-                endBackgroundTask(for: source.id)
+                // Only release shared state if we're still the current scan.
+                // A cancelled-but-resuming old task must not wipe the
+                // activeTasks entry / background-task assertion of a newer
+                // scan the user launched after cancelling this one.
+                if isCurrentScan(source.id, generation: generation) {
+                    activeTasks[source.id] = nil
+                    endBackgroundTask(for: source.id)
+                }
             }
 
             guard sourceCanContinue(source.id, sourceStore: sourceStore) else {
-                scanStates[source.id] = nil
+                if isCurrentScan(source.id, generation: generation) {
+                    scanStates[source.id] = nil
+                }
                 return
             }
 
             let preflight = await sourceManager.diagnose(source: source, directories: normalizedDirs)
-            guard sourceCanContinue(source.id, sourceStore: sourceStore) else {
-                scanStates[source.id] = nil
+            guard isCurrentScan(source.id, generation: generation),
+                  sourceCanContinue(source.id, sourceStore: sourceStore) else {
+                if isCurrentScan(source.id, generation: generation) {
+                    scanStates[source.id] = nil
+                }
                 return
             }
             if preflight.blockingFailure != nil {
@@ -146,6 +183,7 @@ final class ScanService {
             case .synology:
                 await scanSynology(
                     source: source,
+                    generation: generation,
                     directories: normalizedDirs,
                     resumeSongs: resumeSongs,
                     sourceManager: sourceManager,
@@ -161,6 +199,7 @@ final class ScanService {
                  .local, .appleMusicLibrary:
                 await scanConnectorSource(
                     source: source,
+                    generation: generation,
                     directories: normalizedDirs,
                     resumeSongs: resumeSongs,
                     sourceManager: sourceManager,
@@ -247,9 +286,18 @@ final class ScanService {
         // macOS has no BGTaskScheduler — scans run while the app is open.
     }
 
+    /// True while `generation` is still the latest scan launched for this
+    /// source. Used to fence terminal writes of a stale (cancelled) task.
+    private func isCurrentScan(_ sourceID: String, generation: Int) -> Bool {
+        scanGenerations[sourceID] == generation
+    }
+
     func cancelScan(for sourceID: String) {
         activeTasks[sourceID]?.cancel()
         activeTasks[sourceID] = nil
+        // Invalidate the cancelled task's generation so its still-suspended
+        // body can't run terminal cleanup/state writes once it resumes.
+        scanGenerations[sourceID, default: 0] += 1
         scanStates[sourceID]?.isScanning = false
         endBackgroundTask(for: sourceID)
     }
@@ -286,6 +334,7 @@ final class ScanService {
 
     private func scanSynology(
         source: MusicSource,
+        generation: Int,
         directories: [String],
         resumeSongs: [Song],
         sourceManager: SourceManager,
@@ -315,6 +364,8 @@ final class ScanService {
                 deviceId: source.deviceId
             )
 
+            guard isCurrentScan(source.id, generation: generation) else { return }
+
             if loginResult.needs2FA {
                 scanStates[source.id] = ScanState(
                     isScanning: false,
@@ -328,9 +379,11 @@ final class ScanService {
                 if let error = loginResult.underlyingError {
                     let trusted = await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
                     if trusted {
+                        guard isCurrentScan(source.id, generation: generation) else { return }
                         scanStates[source.id] = ScanState(isScanning: true)
                         await scanSynology(
                             source: source,
+                            generation: generation,
                             directories: directories,
                             resumeSongs: resumeSongs,
                             sourceManager: sourceManager,
@@ -357,10 +410,21 @@ final class ScanService {
         }
 
         let scanner = SynologyScanner(api: api, sourceID: source.id)
+        // Seed the scanner with the live library songs for this source (not
+        // just resumeSongs, which is empty on a fresh rescan) — same reason
+        // as scanConnectorSource. Without it, each intermediate flush below
+        // only carries the partially-scanned subset, so addSongs would strip
+        // every not-yet-rescanned song from this source and cleanPlaylist/
+        // cleanPlaybackHistory would permanently remove them from playlists
+        // (incl. Liked) and recents. Carrying the known set through keeps the
+        // flush sets complete; genuine deletions are still reconciled at the
+        // scanner's terminal yield after a full walk.
+        let knownExisting = library.songs.filter { $0.sourceID == source.id }
+        let existingForScan = resumeSongs.isEmpty ? knownExisting : resumeSongs
         let stream = await scanner.scan(
             directories: directories,
-            existingSongs: resumeSongs,
-            startingCount: resumeSongs.count
+            existingSongs: existingForScan,
+            startingCount: existingForScan.count
         )
 
         do {
@@ -408,15 +472,22 @@ final class ScanService {
                 scraperService: scraperService
             )
         } catch is CancellationError {
-            // Scan was cancelled (e.g. source deleted) — clean up silently
-            scanStates[source.id] = ScanState(isScanning: false)
+            // Scan was cancelled (e.g. source deleted) — clean up silently.
+            // Skip the write if a newer scan already took over this source,
+            // otherwise we'd stomp its in-progress state back to idle.
+            if isCurrentScan(source.id, generation: generation) {
+                scanStates[source.id] = ScanState(isScanning: false)
+            }
         } catch {
+            guard isCurrentScan(source.id, generation: generation) else { return }
             let trusted = await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
             if trusted {
+                guard isCurrentScan(source.id, generation: generation) else { return }
                 // Retry scan after user trusted the domain
                 scanStates[source.id] = ScanState(isScanning: true)
                 await scanSynology(
                     source: source,
+                    generation: generation,
                     directories: directories,
                     resumeSongs: resumeSongs,
                     sourceManager: sourceManager,
@@ -438,6 +509,7 @@ final class ScanService {
 
     private func scanConnectorSource(
         source: MusicSource,
+        generation: Int,
         directories: [String],
         resumeSongs: [Song],
         sourceManager: SourceManager,
@@ -513,15 +585,22 @@ final class ScanService {
                 sourceManager: sourceManager
             )
         } catch is CancellationError {
-            // Scan was cancelled (e.g. source deleted) — clean up silently
-            scanStates[source.id] = ScanState(isScanning: false)
+            // Scan was cancelled (e.g. source deleted) — clean up silently.
+            // Skip the write if a newer scan already took over this source,
+            // otherwise we'd stomp its in-progress state back to idle.
+            if isCurrentScan(source.id, generation: generation) {
+                scanStates[source.id] = ScanState(isScanning: false)
+            }
         } catch {
+            guard isCurrentScan(source.id, generation: generation) else { return }
             let trusted = await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
             if trusted {
+                guard isCurrentScan(source.id, generation: generation) else { return }
                 // Retry scan after user trusted the domain
                 scanStates[source.id] = ScanState(isScanning: true)
                 await scanConnectorSource(
                     source: source,
+                    generation: generation,
                     directories: directories,
                     resumeSongs: resumeSongs,
                     sourceManager: sourceManager,
@@ -674,9 +753,4 @@ final class ScanService {
         }
     }
 
-    private func decodeDirs(_ config: String?) -> [String] {
-        guard let config, let data = config.data(using: .utf8),
-              let dirs = try? JSONDecoder().decode([String].self, from: data) else { return [] }
-        return dirs
-    }
 }

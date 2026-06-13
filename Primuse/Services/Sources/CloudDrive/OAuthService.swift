@@ -27,8 +27,13 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
     func authorize(config: CloudOAuthConfig) async throws -> CloudTokenManager.Tokens {
         let pkce = config.usesPKCE ? PKCEChallenge() : nil
 
+        // CSRF / authorization-code-injection 防护:每次授权生成一次性随机 state,
+        // 写进授权 URL,回调时校验它原样返回。对没有 PKCE 的 provider(如百度)
+        // 这是唯一能阻止外来 primuse://?code=… 被错误接受的手段。
+        let state = Self.makeRandomState()
+
         // 1. Build authorize URL
-        let authURL = try buildAuthorizeURL(config: config, pkce: pkce)
+        let authURL = try buildAuthorizeURL(config: config, pkce: pkce, state: state)
         plog("☁️ OAuth authorize URL: \(authURL.absoluteString)")
 
         // 2. Present system browser
@@ -37,8 +42,8 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
             callbackScheme: config.callbackURLScheme
         )
 
-        // 3. Extract authorization code from callback
-        let code = try extractCode(from: callbackURL)
+        // 3. Extract authorization code from callback (校验 state 一致后才接受)
+        let code = try extractCode(from: callbackURL, expectedState: state)
 
         // 4. Exchange code for tokens
         let tokens = try await exchangeCodeForTokens(
@@ -52,7 +57,7 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
 
     // MARK: - Step 1: Build Authorize URL
 
-    private func buildAuthorizeURL(config: CloudOAuthConfig, pkce: PKCEChallenge?) throws -> URL {
+    private func buildAuthorizeURL(config: CloudOAuthConfig, pkce: PKCEChallenge?, state: String) throws -> URL {
         guard var components = URLComponents(string: config.authURL) else {
             throw OAuthError.invalidConfiguration("Invalid auth URL: \(config.authURL)")
         }
@@ -61,6 +66,7 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
             .init(name: "client_id", value: config.clientId),
             .init(name: "redirect_uri", value: config.redirectURI),
             .init(name: "response_type", value: "code"),
+            .init(name: "state", value: state),
         ]
 
         if let pkce {
@@ -157,7 +163,7 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
 
     // MARK: - Step 3: Extract Code
 
-    private func extractCode(from url: URL) throws -> String {
+    private func extractCode(from url: URL, expectedState: String) throws -> String {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             throw OAuthError.invalidCallback("Cannot parse callback URL")
         }
@@ -166,6 +172,14 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
         if let error = components.queryItems?.first(where: { $0.name == "error" })?.value {
             let desc = components.queryItems?.first(where: { $0.name == "error_description" })?.value
             throw OAuthError.authorizationDenied(error, desc)
+        }
+
+        // 校验 state 与本次会话生成的随机数一致:授权服务器会原样回传 state,
+        // 任意第三方构造的 primuse://?code=… 因拿不到本次 state 而被拒,
+        // 阻断授权码注入 / 登录 CSRF(对无 PKCE 的百度尤为关键)。
+        let returnedState = components.queryItems?.first(where: { $0.name == "state" })?.value
+        guard let returnedState, constantTimeEquals(returnedState, expectedState) else {
+            throw OAuthError.invalidCallback("State mismatch in callback URL")
         }
 
         guard let code = components.queryItems?.first(where: { $0.name == "code" })?.value else {
@@ -296,6 +310,30 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
     }
 
     // MARK: - Helpers
+
+    /// 生成加密随机的一次性 OAuth `state`(URL-safe base64,与 PKCE verifier 同样的
+    /// CSPRNG 来源)。用于把回调绑定到本次授权会话,防授权码注入 / 登录 CSRF。
+    private static func makeRandomState() -> String {
+        var buffer = [UInt8](repeating: 0, count: 32)
+        _ = SecRandomCopyBytes(kSecRandomDefault, buffer.count, &buffer)
+        return Data(buffer)
+            .base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    /// 定长时间比较,避免 state 校验泄漏时序信息。
+    private func constantTimeEquals(_ a: String, _ b: String) -> Bool {
+        let lhs = Array(a.utf8)
+        let rhs = Array(b.utf8)
+        guard lhs.count == rhs.count else { return false }
+        var diff: UInt8 = 0
+        for i in 0..<lhs.count {
+            diff |= lhs[i] ^ rhs[i]
+        }
+        return diff == 0
+    }
 
     private func percentEncode(_ string: String) -> String {
         var allowed = CharacterSet.urlQueryAllowed

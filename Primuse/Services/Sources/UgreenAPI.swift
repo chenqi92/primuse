@@ -70,27 +70,90 @@ actor UgreenAPI {
         uid = nil
     }
 
+    /// 清除会话, 让下一次 connect() 真正重新登录。会话过期 / 权限错误后
+    /// 必须调用它, 否则 isLoggedIn 仍为 true, connect() 短路, 重连永不发生。
+    func invalidateSession() {
+        token = nil
+        staticToken = nil
+        uid = nil
+    }
+
     struct FileItem: Sendable {
         let name: String; let path: String; let isDirectory: Bool; let size: Int64
     }
 
     func listDirectory(path: String) async throws -> [FileItem] {
         guard let token else { throw SourceError.connectionFailed("Not logged in") }
+
+        // 平铺式音乐目录单层超过 1000 个文件很常见, 必须翻页到尾,
+        // 否则超出 page_size 的歌永远扫不进库且无任何提示。
+        let pageSize = 1000
+        var page = 1
+        var allItems: [FileItem] = []
+
+        while true {
+            let dataDict = try await listPage(path: path, page: page, pageSize: pageSize)
+            let list = (dataDict["list"] as? [[String: Any]]) ?? []
+            let pageItems = list.map { f in
+                FileItem(
+                    name: f["name"] as? String ?? "",
+                    path: f["path"] as? String ?? "",
+                    isDirectory: f["is_dir"] as? Bool ?? false,
+                    size: Int64(f["size"] as? Int ?? 0)
+                )
+            }
+            allItems.append(contentsOf: pageItems)
+
+            let total = intValue(dataDict["total"])
+            if pageItems.count < pageSize || (total > 0 && allItems.count >= total) {
+                break
+            }
+            page += 1
+        }
+
+        return allItems
+    }
+
+    /// 请求单页目录列表并校验响应体 code。绝不能把"无 list"当成"空目录"
+    /// 返回 —— token 过期 / 权限不足 时响应里根本没有 `data.list` 字段, 静默
+    /// 返回空数组会让 scanner 误判目录被清空, 把整源曲库删掉。只有 code==200
+    /// 才解析; 认证失败清 token 抛 authenticationFailed, 其余抛 connectionFailed。
+    private func listPage(path: String, page: Int, pageSize: Int) async throws -> [String: Any] {
+        guard let token else { throw SourceError.connectionFailed("Not logged in") }
         var comps = URLComponents(string: "\(baseURLString)/ugreen/v1/filemgr/list")!
         comps.queryItems = [.init(name: "token", value: token)]
-        let body: [String: Any] = ["path": path, "page": 1, "page_size": 1000]
+        let body: [String: Any] = ["path": path, "page": page, "page_size": pageSize]
 
         let data = try await postJSON(url: comps.url!, body: body)
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-        let list = ((json["data"] as? [String: Any])?["list"] as? [[String: Any]]) ?? []
-        return list.map { f in
-            FileItem(
-                name: f["name"] as? String ?? "",
-                path: f["path"] as? String ?? "",
-                isDirectory: f["is_dir"] as? Bool ?? false,
-                size: Int64(f["size"] as? Int ?? 0)
-            )
+        let code = intValue(json["code"])
+        let dataDict = json["data"] as? [String: Any]
+        if code == 200 {
+            // 成功 —— 即使 list 为空也是合法空目录。
+            return dataDict ?? [:]
         }
+        // 非成功 code: 认证类清 token 抛 authenticationFailed, 其余抛
+        // connectionFailed。缺 list 字段的不可信响应一律不返回空数组。
+        let hasList = dataDict?["list"] != nil
+        if isAuthFailureCode(code) || !hasList {
+            invalidateSession()
+            if isAuthFailureCode(code) {
+                throw SourceError.authenticationFailed
+            }
+        }
+        let msg = json["message"] as? String ?? json["msg"] as? String ?? "code \(code)"
+        throw SourceError.connectionFailed("Ugreen list failed: \(msg)")
+    }
+
+    private func isAuthFailureCode(_ code: Int) -> Bool {
+        code == 401 || code == 403 || code == 1001 || code == 1002
+    }
+
+    private func intValue(_ value: Any?) -> Int {
+        if let int = value as? Int { return int }
+        if let number = value as? NSNumber { return number.intValue }
+        if let string = value as? String, let int = Int(string) { return int }
+        return 0
     }
 
     func listSharedFolders() async throws -> [FileItem] {
@@ -99,8 +162,15 @@ actor UgreenAPI {
 
     func downloadURL(path: String) -> URL? {
         guard let token else { return nil }
-        let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? path
-        return URL(string: "\(baseURLString)/ugreen/v1/file/download?path=\(encoded)&token=\(token)")
+        // 用 URLComponents 让系统正确编码查询值: .urlQueryAllowed 不会转义
+        // & / + / = / ?, 路径含这些字符 (R&B、AC+DC 类专辑名) 时手工拼接会
+        // 截断 path 参数导致下载/播放必败。
+        var comps = URLComponents(string: "\(baseURLString)/ugreen/v1/file/download")
+        comps?.queryItems = [
+            .init(name: "path", value: path),
+            .init(name: "token", value: token),
+        ]
+        return comps?.url
     }
 
     // MARK: - HTTP
@@ -191,11 +261,16 @@ actor UgreenAPI {
         return (data, http)
     }
 
-    private func session() -> URLSession {
+    /// 长生命周期 session 复用: 带 delegate 的 session 在被 invalidate 前
+    /// 强持有 delegate 与连接池, 每次新建且从不 invalidate 会随扫描线性泄漏
+    /// 内存与文件描述符, 同时丢失 keep-alive 复用 (每请求重新 TLS 握手)。
+    private lazy var sharedSession: URLSession = {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 15
         return URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
-    }
+    }()
+
+    private func session() -> URLSession { sharedSession }
 
     private nonisolated static func encrypt(password: String, withPublicKeyData keyData: Data) throws -> String {
         let derData = try derData(from: keyData)

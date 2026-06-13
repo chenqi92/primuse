@@ -498,6 +498,78 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
+// MARK: - extraConfig accessors
+
+/// `extraConfig` is overloaded. Every source persists its user-selected scan
+/// directory list there as a bare `[String]` JSON array — *except* S3, which
+/// also has to stash its region. For S3 the slot holds a JSON object
+/// `{"region":..., "dirs":[...]}` so region and the dir list coexist; every
+/// other type keeps a bare array, and these helpers preserve that so old
+/// snapshots stay readable. All scan-dir / S3-region access must go through
+/// here so the two layouts never collide again.
+public extension MusicSource {
+    /// User-selected scan directories persisted in `extraConfig`.
+    var scannedDirectories: [String] {
+        MusicSource.decodeScannedDirectories(extraConfig, type: type)
+    }
+
+    /// S3 region persisted in `extraConfig`; nil for non-S3 sources.
+    var s3Region: String? {
+        guard type == .s3 else { return nil }
+        return MusicSource.decodeS3Config(extraConfig).region
+    }
+
+    static func decodeScannedDirectories(_ config: String?, type: MusicSourceType) -> [String] {
+        if type == .s3 {
+            return decodeS3Config(config).dirs ?? []
+        }
+        guard let config, let data = config.data(using: .utf8),
+              let dirs = try? JSONDecoder().decode([String].self, from: data) else { return [] }
+        return dirs
+    }
+
+    /// Write `dirs` back into `extraConfig`, preserving S3's region key.
+    static func encodeScannedDirectories(_ dirs: [String], into config: String?, type: MusicSourceType) -> String? {
+        if type == .s3 {
+            var cfg = decodeS3Config(config)
+            cfg.dirs = dirs
+            return cfg.encoded()
+        }
+        return (try? JSONEncoder().encode(dirs)).flatMap { String(data: $0, encoding: .utf8) }
+    }
+
+    /// Write the S3 `region` into `extraConfig`, preserving the dir list.
+    static func encodeS3Region(_ region: String, into config: String?) -> String? {
+        var cfg = decodeS3Config(config)
+        cfg.region = region
+        return cfg.encoded()
+    }
+}
+
+/// S3's `extraConfig` payload — region plus the scanned-directory list. Both
+/// fields are optional so an old `{"region":...}` snapshot (no dirs yet) still
+/// decodes cleanly and a partially-filled config never drops the other half.
+private struct S3ExtraConfig: Codable {
+    var region: String?
+    var dirs: [String]?
+
+    func encoded() -> String? {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return (try? encoder.encode(self)).flatMap { String(data: $0, encoding: .utf8) }
+    }
+}
+
+private extension MusicSource {
+    static func decodeS3Config(_ config: String?) -> S3ExtraConfig {
+        guard let config, let data = config.data(using: .utf8),
+              let cfg = try? JSONDecoder().decode(S3ExtraConfig.self, from: data) else {
+            return S3ExtraConfig()
+        }
+        return cfg
+    }
+}
+
 extension MusicSource: FetchableRecord, PersistableRecord {
     public static var databaseTableName: String { "sources" }
 }

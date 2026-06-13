@@ -71,10 +71,8 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
     func connect() async throws {
         if isConnected { return }
         guard username.isEmpty == false else { throw SourceError.authenticationFailed }
+        // requestJSON 已统一校验 envelope status, status != "ok"(含认证 error 40/41)直接抛错。
         let ping: PingContainer = try await requestJSON("ping")
-        guard ping.status == "ok" else {
-            throw Self.error(from: ping.error)
-        }
         serverType = ping.type
         isOpenSubsonic = ping.openSubsonic ?? false
         isConnected = true
@@ -300,10 +298,11 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
 
     /// OpenSubsonic getLyricsBySongId —— 结构化(可带时间轴)歌词。
     private func modernLyrics(songID: String) async -> String? {
+        // requestJSON 在 status != "ok" 时抛错, try? 吞掉后返回 nil。
         guard let container: LyricsContainer = try? await requestJSON(
             "getLyricsBySongId",
             query: [URLQueryItem(name: "id", value: songID)]
-        ), container.status == "ok",
+        ),
         let structured = container.lyricsList?.structuredLyrics?.first,
         let lines = structured.line, !lines.isEmpty else {
             return nil
@@ -326,7 +325,7 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
         guard let songContainer: GetSongContainer = try? await requestJSON(
             "getSong",
             query: [URLQueryItem(name: "id", value: songID)]
-        ), songContainer.status == "ok",
+        ),
         let child = songContainer.song, let title = child.title else {
             return nil
         }
@@ -336,7 +335,6 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
             query.append(URLQueryItem(name: "artist", value: artist))
         }
         guard let container: LegacyLyricsContainer = try? await requestJSON("getLyrics", query: query),
-              container.status == "ok",
               let text = container.lyrics?.value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !text.isEmpty else {
             return nil
@@ -385,26 +383,58 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
         )
     }
 
+    /// 封面引用只存稳定标识(`subsonic-cover/<coverArtID>`), 不把鉴权凭据
+    /// (token=md5(password+salt) 与 salt)写进曲库快照 —— 凭据持久化落盘对
+    /// Subsonic 服务端等价于完整账号, 且密码更换后旧 token 失效会让封面永久
+    /// 加载失败。实时 URL 由 `imageURL(for:)` 在取图时用当前凭据现拼。
+    ///
+    /// 标识里带 `/`(避开 CachedArtworkView 把无 `/` 引用当作本地旧哈希文件名),
+    /// 又不含 `://`(避开把它当成可直接下载的完整 URL), 因此走 connector 的
+    /// `imageURL(for:)` 重新签发。
     private func coverArtURLString(for coverArtID: String) -> String? {
-        buildRESTURL(
-            method: "getCoverArt",
-            query: [
-                URLQueryItem(name: "id", value: coverArtID),
-                URLQueryItem(name: "size", value: "480")
-            ]
-        )?.absoluteString
+        Self.coverRefPrefix + coverArtID
+    }
+
+    private static let coverRefPrefix = "subsonic-cover/"
+
+    /// 取图层经 SourceManager.imageURL 回调 —— 把封面引用还原成带当前凭据的
+    /// 实时 getCoverArt URL。同样兜底处理历史上落盘的完整 URL(老快照里直接
+    /// 存了 https://.../getCoverArt 的情况), 直接放行。
+    func imageURL(for path: String) async throws -> URL? {
+        if path.hasPrefix(Self.coverRefPrefix) {
+            try await connect()
+            let coverArtID = String(path.dropFirst(Self.coverRefPrefix.count))
+            guard !coverArtID.isEmpty else { return nil }
+            return buildRESTURL(
+                method: "getCoverArt",
+                query: [
+                    URLQueryItem(name: "id", value: coverArtID),
+                    URLQueryItem(name: "size", value: "480")
+                ]
+            )
+        }
+        // 老快照里持久化的完整封面 URL: 仍是合法 http(s), 直接用。
+        if path.contains("://") { return URL(string: path) }
+        return nil
     }
 
     // MARK: - HTTP / JSON plumbing
 
-    private func requestJSON<C: Decodable>(_ method: String, query: [URLQueryItem] = []) async throws -> C {
+    private func requestJSON<C: SubsonicResponseContainer>(_ method: String, query: [URLQueryItem] = []) async throws -> C {
         guard let url = buildRESTURL(method: method, query: query) else {
             throw SourceError.connectionFailed("Invalid URL for \(method)")
         }
         let (data, response) = try await session.data(from: url)
         try validate(response)
         let envelope = try JSONDecoder().decode(Envelope<C>.self, from: data)
-        return envelope.subsonicResponse
+        let container = envelope.subsonicResponse
+        // Subsonic 应用层错误常以 HTTP 200 + status:"failed" 返回。统一在此校验
+        // envelope, status != "ok" 时抛错 —— 否则扫描会把 failed 当作"空结果"
+        // 静默结束, 触发 ConnectorScanner 的 prune 把整源曲库清空。
+        guard container.status == "ok" else {
+            throw Self.error(from: container.error)
+        }
+        return container
     }
 
     private func validate(_ response: URLResponse) throws {
@@ -515,6 +545,13 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
 
 // MARK: - Subsonic JSON models
 
+/// 所有 `subsonic-response` 容器共有的应用层状态。`requestJSON` 据此统一校验:
+/// status != "ok" 即应用层失败(含认证 error 40/41), 抛错而非当作空结果。
+private protocol SubsonicResponseContainer: Decodable {
+    var status: String { get }
+    var error: SubsonicError? { get }
+}
+
 private struct Envelope<C: Decodable>: Decodable {
     let subsonicResponse: C
     enum CodingKeys: String, CodingKey { case subsonicResponse = "subsonic-response" }
@@ -525,20 +562,20 @@ private struct SubsonicError: Decodable {
     let message: String?
 }
 
-private struct PingContainer: Decodable {
+private struct PingContainer: SubsonicResponseContainer {
     let status: String
     let error: SubsonicError?
     let type: String?            // "navidrome" / "airsonic" / "gonic" / ...
     let openSubsonic: Bool?
 }
 
-private struct GetSongContainer: Decodable {
+private struct GetSongContainer: SubsonicResponseContainer {
     let status: String
     let error: SubsonicError?
     let song: SubsonicChild?
 }
 
-private struct LegacyLyricsContainer: Decodable {
+private struct LegacyLyricsContainer: SubsonicResponseContainer {
     let status: String
     let error: SubsonicError?
     let lyrics: LegacyLyrics?
@@ -548,7 +585,7 @@ private struct LegacyLyrics: Decodable {
     let value: String?           // 歌词纯文本(Subsonic 把元素文本放在 "value")
 }
 
-private struct MusicFoldersContainer: Decodable {
+private struct MusicFoldersContainer: SubsonicResponseContainer {
     let status: String
     let error: SubsonicError?
     let musicFolders: MusicFolders?
@@ -563,7 +600,7 @@ private struct MusicFolder: Decodable {
     let name: String?
 }
 
-private struct AlbumListContainer: Decodable {
+private struct AlbumListContainer: SubsonicResponseContainer {
     let status: String
     let error: SubsonicError?
     let albumList2: AlbumList2?
@@ -580,7 +617,7 @@ private struct AlbumSummary: Decodable {
     let coverArt: String?
 }
 
-private struct AlbumContainer: Decodable {
+private struct AlbumContainer: SubsonicResponseContainer {
     let status: String
     let error: SubsonicError?
     let album: AlbumWithSongs?
@@ -616,7 +653,7 @@ private struct SubsonicChild: Decodable {
     let bitDepth: Int?
 }
 
-private struct LyricsContainer: Decodable {
+private struct LyricsContainer: SubsonicResponseContainer {
     let status: String
     let error: SubsonicError?
     let lyricsList: LyricsList?

@@ -11,8 +11,10 @@ import PrimuseKit
 /// 设计权衡:
 /// - 不读远端 NAS / 云盘 .lrc, 只读 MetadataAssetStore 本地 JSON 缓存,
 ///   避免 backfill 触发大量网络 IO。
-/// - 单线程 MainActor, 每 50 首 yield 一次让 UI 喘气; 写入走
-///   MusicLibrary.updateLyricsText, 避免为搜索文本重建专辑/歌手索引。
+/// - 磁盘读取 / 解码全部在后台线程 (Task.detached) 上跑, 只在攒够一批
+///   后跳回 MainActor 调 MusicLibrary.updateLyricsText, 避免大库启动时
+///   主线程被未命中扫描独占而卡 UI; 写入走 updateLyricsText, 避免为搜索
+///   文本重建专辑/歌手索引。
 /// - 失败的歌 (没缓存 / 解码失败) 不留任何痕迹, 下次启动如果 migration
 ///   key 被升版可以重跑。
 @MainActor
@@ -57,41 +59,64 @@ final class LyricsTextBackfillService {
             isRunning = false
             worker = nil
         }
-        let store = MetadataAssetStore.shared
-        let candidates = library.songs.filter {
-            $0.lyricsText == nil && ($0.lyricsFileName?.isEmpty == false)
+        // 在 MainActor 上只做廉价的候选快照 (id + 文件名); 真正的磁盘读取 /
+        // 解码在下面分 chunk 丢到后台, 避免几千首未命中缓存的歌在启动时独占
+        // 主线程。
+        let candidates: [Candidate] = library.songs.compactMap { song in
+            guard song.lyricsText == nil, song.lyricsFileName?.isEmpty == false else { return nil }
+            return Candidate(id: song.id, lyricsFileName: song.lyricsFileName)
         }
         guard !candidates.isEmpty else {
             UserDefaults.standard.set(true, forKey: Self.migrationKey)
             return
         }
 
-        var batch: [String: String] = [:]
-        batch.reserveCapacity(Self.batchSize)
-        for song in candidates {
+        // 循环本身留在可取消的 worker (MainActor) 上推进, 但把每个 chunk
+        // 的磁盘读取 / 解码整批丢到后台线程, 每 chunk 只跨 actor 一次:
+        // 既不在主线程上做 IO, 又能让 stop() 取消 worker 时立刻停下。
+        for start in stride(from: 0, to: candidates.count, by: Self.batchSize) {
             if Task.isCancelled { return }
-            processedCount += 1
-            guard let lines = store.cachedLyricsForSearch(
-                songID: song.id,
-                lyricsFileName: song.lyricsFileName
-            ) else { continue }
-            let text = lines
-                .map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-                .joined(separator: "\n")
-            guard !text.isEmpty else { continue }
-            batch[song.id] = text
-            indexedCount += 1
+            let end = min(start + Self.batchSize, candidates.count)
+            let chunk = Array(candidates[start..<end])
 
-            if batch.count >= Self.batchSize {
+            let batch = await Self.decodeChunk(chunk)
+
+            processedCount += chunk.count
+            indexedCount += batch.count
+            if !batch.isEmpty {
                 library.updateLyricsText(batch)
-                batch.removeAll(keepingCapacity: true)
-                await Task.yield()
             }
         }
-        if !batch.isEmpty {
-            library.updateLyricsText(batch)
-        }
+
+        if Task.isCancelled { return }
         UserDefaults.standard.set(true, forKey: Self.migrationKey)
+    }
+
+    /// 后台读取 / 解码一组候选歌词缓存, 返回 songID → 纯文本 (跳过未命中 /
+    /// 空文本)。nonisolated + detached, 不碰主线程。
+    private static func decodeChunk(_ chunk: [Candidate]) async -> [String: String] {
+        await Task.detached(priority: .utility) { () -> [String: String] in
+            let store = MetadataAssetStore.shared
+            var batch: [String: String] = [:]
+            batch.reserveCapacity(chunk.count)
+            for candidate in chunk {
+                guard let lines = store.cachedLyricsForSearch(
+                    songID: candidate.id,
+                    lyricsFileName: candidate.lyricsFileName
+                ) else { continue }
+                let text = lines
+                    .map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                    .joined(separator: "\n")
+                guard !text.isEmpty else { continue }
+                batch[candidate.id] = text
+            }
+            return batch
+        }.value
+    }
+
+    private struct Candidate: Sendable {
+        let id: String
+        let lyricsFileName: String?
     }
 }

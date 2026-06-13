@@ -8,6 +8,11 @@ actor UgreenSource: MusicSourceConnector {
     private let password: String
     private let cacheDirectory: URL
 
+    /// In-flight login dedupe. 多个 connect() 被 8 路并发 chunk 预取/解码路径
+    /// 同时调起时, actor 重入会让 N 路各自打一发 login, 触发 NAS 端封禁。
+    /// 让首个发起的登录跑, 后面的全部 await 同一个 Task。
+    private var loginTask: Task<Void, Error>?
+
     /// 长生命周期 session, fetchRange 复用 HTTP keep-alive。
     private lazy var rangeSession: URLSession = {
         let config = URLSessionConfiguration.default
@@ -30,11 +35,41 @@ actor UgreenSource: MusicSourceConnector {
 
     func connect() async throws {
         guard await !api.isLoggedIn else { return }
-        let r = await api.login(account: username, password: password)
-        guard r.success else {
-            throw r.needs2FA ? SourceError.authenticationFailed
-                             : SourceError.connectionFailed(r.errorMessage ?? "Ugreen login failed")
+
+        // 空密码 guard: keychain 暂不可读 (冷启动 + 锁屏) 时上层 fallback 成
+        // 空字符串, 拿空密码反复撞 NAS 会触发账号/IP 锁定。直接抛错让 UI 弹
+        // "重新输入密码", 比浪费失败 login 触发 lockout 强。
+        if password.isEmpty {
+            plog("⛔ UgreenSource '\(sourceID)' connect aborted: password unavailable")
+            await MainActor.run {
+                SourceAuthAlert.report(sourceID: sourceID, message: "缺少登录密码 ── 请重新输入")
+            }
+            throw SourceError.connectionFailed("missing password")
         }
+
+        // In-flight login dedupe: 并发 connect() 全部 await 同一个 login Task,
+        // 避免 N 路并发各打一发 login 触发 NAS 封禁。
+        if let existing = loginTask {
+            try await existing.value
+            return
+        }
+        let task = Task { [api, username, password, sourceID] in
+            let r = await api.login(account: username, password: password)
+            guard r.success else {
+                let msg = r.errorMessage ?? "Ugreen login failed"
+                await MainActor.run {
+                    SourceAuthAlert.report(sourceID: sourceID, message: msg)
+                }
+                throw r.needs2FA ? SourceError.authenticationFailed
+                                 : SourceError.connectionFailed(msg)
+            }
+            await MainActor.run {
+                SourceAuthAlert.clear(sourceID: sourceID)
+            }
+        }
+        loginTask = task
+        defer { loginTask = nil }
+        try await task.value
     }
 
     func disconnect() async { await api.logout() }
@@ -91,6 +126,14 @@ actor UgreenSource: MusicSourceConnector {
         case 206:
             return data
         case 200:
+            // ⚠️ token 过期 / 路径错误 时绿联可能回 HTTP 200 + JSON / HTML 登录
+            // 页, 而非二进制音频。把这段错误体切片当 chunk 返回会写进 .partial
+            // 缓存并永久损坏它。先按 Content-Type 识别: 非音频体一律抛错并清
+            // token 而不是切片。
+            if nasResponseLooksLikeErrorBody(http, data: data) {
+                await api.invalidateSession()
+                throw SourceError.connectionFailed("Ugreen range returned non-audio body (session expired?)")
+            }
             let total = Int64(data.count)
             let actualOffset = offset < 0 ? max(0, total + offset) : offset
             guard actualOffset < total else { return Data() }
@@ -104,23 +147,38 @@ actor UgreenSource: MusicSourceConnector {
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
         let local = try await localURL(for: path)
         return AsyncThrowingStream { c in
-            Task {
-                let h = try FileHandle(forReadingFrom: local); defer { h.closeFile() }
-                while true { let d = h.readData(ofLength: 65536); if d.isEmpty { break }; c.yield(d) }
-                c.finish()
+            let task = Task {
+                do {
+                    let h = try FileHandle(forReadingFrom: local); defer { h.closeFile() }
+                    while true { let d = h.readData(ofLength: 65536); if d.isEmpty { break }; c.yield(d) }
+                    c.finish()
+                } catch {
+                    c.finish(throwing: error)
+                }
             }
+            c.onTermination = { _ in task.cancel() }
         }
     }
 
     func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
         AsyncThrowingStream { c in
-            Task { try await scan(path: path, c: c); c.finish() }
+            let task = Task {
+                do {
+                    try await scan(path: path, c: c)
+                    c.finish()
+                } catch {
+                    c.finish(throwing: error)
+                }
+            }
+            c.onTermination = { _ in task.cancel() }
         }
     }
 
     private func scan(path: String, c: AsyncThrowingStream<RemoteFileItem, Error>.Continuation) async throws {
+        try Task.checkCancellation()
         let items = try await listFiles(at: path)
         for item in items {
+            try Task.checkCancellation()
             if item.isDirectory { try await scan(path: item.path, c: c) }
             else if PrimuseConstants.supportedAudioExtensions.contains(
                 (item.name as NSString).pathExtension.lowercased()) { c.yield(item) }

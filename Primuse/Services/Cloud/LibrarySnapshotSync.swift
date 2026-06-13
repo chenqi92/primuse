@@ -6,8 +6,9 @@ import PrimuseKit
 /// 在设备间传输。songs/albums/artists/playlists 本身不走 CloudKit 逐条同步,所以
 /// 像 tvOS 这种不扫描音乐源的端,靠下载这份快照就能浏览完整曲库。
 ///
-/// · iOS / macOS:扫描/变更后 `uploadNow()` 覆盖上传最新快照。
-/// · tvOS:启动时 `download()` 拉取并写入本地容器,再让 MusicLibrary 重新加载。
+/// · iOS / macOS:扫描/变更后 `uploadNow()` 覆盖上传最新快照(整库 + sources)。
+/// · tvOS:启动时 `download()` 拉取并写入本地容器,再让 MusicLibrary 重新加载;
+///   本机改源后用 `uploadSourcesOnly()` 只回传 sources 字段(不回传启动时下载的旧整库)。
 ///
 /// 复用与 CloudKitSyncService 相同的容器 `iCloud.com.welape.yuanyin`(私有库默认 zone)。
 final class LibrarySnapshotSync: Sendable {
@@ -92,6 +93,51 @@ final class LibrarySnapshotSync: Sendable {
         #if !os(tvOS)
         await gatherAndUploadCredentials()
         #endif
+        return ok
+    }
+
+    /// 只覆盖服务器记录里的 `sources` 字段,**不动 library/歌词**。
+    ///
+    /// tvOS 改源(启用/停用/删除)后用这条:tvOS 本机的 `library-cache.json` 是启动时
+    /// 下载的旧整库副本,若走 `uploadNow()` 会把它盲回传、回退手机端新扫描的曲库。
+    /// 这里先拉取服务器现有记录(保留其 libraryGz/library/lyricsGz 等字段原样),
+    /// 仅把本地 `sources.json` 重新内联进 sources 字段后存回。无本地 sources 则跳过。
+    @discardableResult
+    func uploadSourcesOnly() async -> Bool {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: sourcesURL.path) else {
+            plog("LibrarySnapshotSync: no local sources.json, skip sources-only upload")
+            return false
+        }
+        // 取服务器现有记录(带 change-tag),在其之上只改 sources —— library 字段维持服务器原值,
+        // 不会被本机旧副本覆盖。记录不存在时新建一条(此时只有 sources,等手机下次整库上传补全)。
+        let record: CKRecord
+        do {
+            record = try await database.record(for: recordID)
+        } catch {
+            plog("LibrarySnapshotSync: no existing snapshot for sources-only — creating sources-only record (\(error))")
+            record = CKRecord(recordType: recordType, recordID: recordID)
+        }
+        // 先清掉两种旧的 sources 表示,再按当前文件大小择一写入,避免内联/资产并存。
+        record["sourcesGz"] = nil
+        record["sources"] = nil
+        let srcInfo = attachSnapshot(record, fileURL: sourcesURL, gzKey: "sourcesGz", assetKey: "sources")
+        record["modifiedAt"] = Date() as CKRecordValue
+        var ok = false
+        do {
+            let (saveResults, _) = try await database.modifyRecords(saving: [record], deleting: [], savePolicy: .changedKeys)
+            switch saveResults[recordID] {
+            case .success:
+                plog("LibrarySnapshotSync: uploaded sources-only [\(srcInfo)]")
+                ok = true
+            case .failure(let err):
+                plog("LibrarySnapshotSync: sources-only upload per-record FAILED — \(err)")
+            case .none:
+                plog("LibrarySnapshotSync: sources-only upload returned no result for record")
+            }
+        } catch {
+            plog("LibrarySnapshotSync: sources-only upload failed — \(error)")
+        }
         return ok
     }
 
@@ -238,6 +284,9 @@ final class LibrarySnapshotSync: Sendable {
     /// iOS / macOS:从本地 sources.json 读源,采集各源凭据(密码 / OAuth token /
     /// client 密钥)→ 加密上传,供 Apple TV 流式播放时解析。
     private func gatherAndUploadCredentials() async {
+        // 用户在设置里关闭「凭据」同步通道(或主开关)后,绝不把各源密码 / OAuth
+        // token / client 密钥上云,即便走 encryptedValues 端到端加密也要尊重选择。
+        guard CloudSyncChannel.isEnabled(.credentials) else { return }
         guard let data = try? Data(contentsOf: sourcesURL) else { return }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601

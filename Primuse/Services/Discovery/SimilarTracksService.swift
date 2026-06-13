@@ -44,17 +44,31 @@ actor SimilarTracksService {
             raws = cached.candidates
             promote(key)
         } else {
-            // 先 track.getSimilar, 没结果或失败再 fallback 到 artist.getSimilar
+            // 先 track.getSimilar, 没结果或失败再 fallback 到 artist.getSimilar。
+            // 区分"API 成功返回空"与"请求失败": 只要有一次 API 成功返回 (即使为空)
+            // 就把结果写入正常缓存; 两个端点都抛错时不写缓存并把最后一次错误抛给调用方,
+            // 避免一次临时断网/超时把空结果当成功缓存 6 小时。
             var fetched: [LastFmSimilarAPI.SimilarTrack] = []
+            var succeeded = false
+            var lastError: Error?
             do {
                 fetched = try await LastFmSimilarAPI.similarTracks(artist: artist, track: title, limit: limit)
+                succeeded = true
             } catch {
                 // track 失败也尝试 artist
+                lastError = error
             }
             if fetched.isEmpty {
-                if let backup = try? await LastFmSimilarAPI.similarArtistTracks(artist: artist, limit: limit) {
-                    fetched = backup
+                do {
+                    fetched = try await LastFmSimilarAPI.similarArtistTracks(artist: artist, limit: limit)
+                    succeeded = true
+                } catch {
+                    lastError = error
                 }
+            }
+            // 两个端点都失败 (missingAPIKey / 断网 / HTTP 错误等): 不污染缓存, 直接抛出。
+            if !succeeded, let lastError {
+                throw lastError
             }
             raws = fetched
             cache[key] = CacheEntry(candidates: raws, fetchedAt: Date())

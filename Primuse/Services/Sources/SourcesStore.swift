@@ -136,11 +136,43 @@ final class SourcesStore {
     func permanentlyDelete(id: String) {
         allSources.removeAll { $0.id == id }
         persist()
+        // Irreversible credential / token cleanup belongs here, not on a view
+        // observer: both the manual "delete forever" action and the launch-time
+        // 30-day prune funnel through permanentlyDelete, whereas the
+        // .primuseSourceDidDelete listener only fires while a Sources view is
+        // mounted — pruning at launch (or deleting from another window) would
+        // otherwise orphan Keychain passwords, OAuth tokens and cached
+        // directory names. These removals key off the source id alone, are
+        // no-ops for non-cloud sources, and are idempotent, so the remaining
+        // view-layer listener (which still wipes song records / source caches
+        // it owns the instances for) can re-run them harmlessly.
+        purgeCredentials(forSourceID: id)
         NotificationCenter.default.post(
             name: .primuseSourceDidDelete,
             object: nil,
             userInfo: ["id": id]
         )
+    }
+
+    /// Tear down the persisted secrets and per-source storage owned outside the
+    /// source row itself: Keychain passwords, cloud OAuth tokens + app
+    /// credentials, security-scoped bookmarks (macOS only) and cloud directory
+    /// display names. Idempotent and safe to call for any source type.
+    private func purgeCredentials(forSourceID id: String) {
+        // KeychainService / CloudTokenManager / CloudDirectoryNameStore 仅存在于
+        // iOS/macOS app target;tvOS 共享本文件但用 TVCredentialStore,无这些凭据存储。
+        #if os(iOS) || os(macOS)
+        KeychainService.deletePassword(for: id)
+        Task {
+            let tm = CloudTokenManager(sourceID: id)
+            await tm.deleteTokens()
+            await tm.deleteAppCredentials()
+        }
+        #if os(macOS)
+        LocalBookmarkStore.remove(sourceID: id)
+        #endif
+        CloudDirectoryNameStore.deleteAll(for: id)
+        #endif
     }
 
     /// Sweep soft-deleted sources older than `threshold` and remove them for
@@ -228,13 +260,27 @@ final class SourcesStore {
     }
 
     private func load() {
-        guard let data = try? Data(contentsOf: storeURL),
-              let decoded = try? decoder.decode([MusicSource].self, from: data) else {
+        // File-not-present is the normal first-launch case — start empty and
+        // let the first add/upsert write a fresh sources.json.
+        guard let data = try? Data(contentsOf: storeURL) else {
             allSources = []
             return
         }
-
-        allSources = decoded.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+        do {
+            let decoded = try decoder.decode([MusicSource].self, from: data)
+            allSources = decoded.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+        } catch {
+            // The file exists but is undecodable as a whole (corruption, an
+            // incompatible future schema after a downgrade, a single malformed
+            // row, …). Don't blindly empty the list — the very next persist()
+            // would atomically overwrite the user's entire source config and
+            // make the loss permanent. Try a per-element tolerant decode first
+            // so one bad row only drops that row, and back up the original
+            // bytes before anything else can clobber them.
+            backupCorruptStore(at: storeURL, data: data, error: error)
+            allSources = recoverPartial(MusicSource.self, from: data)
+                .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+        }
     }
 
     private func persist() {
@@ -337,16 +383,55 @@ final class SourcesStore {
     }
 
     private func loadAccounts() {
-        guard let data = try? Data(contentsOf: accountsURL),
-              let decoded = try? decoder.decode([CloudAccount].self, from: data) else {
+        guard let data = try? Data(contentsOf: accountsURL) else {
             allAccounts = []
             return
         }
-        allAccounts = decoded
+        do {
+            allAccounts = try decoder.decode([CloudAccount].self, from: data)
+        } catch {
+            // Same hazard as load(): a decode failure here followed by any
+            // upsert/remove would persistAccounts() over the original file.
+            backupCorruptStore(at: accountsURL, data: data, error: error)
+            allAccounts = recoverPartial(CloudAccount.self, from: data)
+        }
     }
 
     private func persistAccounts() {
         guard let data = try? encoder.encode(allAccounts) else { return }
         try? data.write(to: accountsURL, options: .atomic)
+    }
+
+    // MARK: - Corruption recovery
+
+    /// Snapshot the undecodable bytes next to the store (`*.corrupt`) before
+    /// the next persist() can overwrite them, so the user's config is
+    /// recoverable rather than silently lost. Logs the underlying error.
+    private func backupCorruptStore(at url: URL, data: Data, error: Error) {
+        let backupURL = url.appendingPathExtension("corrupt")
+        try? data.write(to: backupURL, options: .atomic)
+        print("SourcesStore: failed to decode \(url.lastPathComponent) (\(error)); backed up to \(backupURL.lastPathComponent)")
+    }
+
+    /// Best-effort per-element decode: parse the JSON array and decode each
+    /// element independently so a single malformed row drops only that row
+    /// instead of nuking the whole list. Returns whatever decoded cleanly
+    /// (possibly empty if the bytes aren't even a JSON array).
+    private func recoverPartial<T: Decodable>(_ type: T.Type, from data: Data) -> [T] {
+        guard let wrapped = try? decoder.decode([FailableDecodable<T>].self, from: data) else {
+            return []
+        }
+        return wrapped.compactMap(\.value)
+    }
+}
+
+/// Decodes `T` but never throws: a per-element decode failure leaves `value`
+/// nil instead of aborting the surrounding array decode.
+private struct FailableDecodable<T: Decodable>: Decodable {
+    let value: T?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        value = try? container.decode(T.self)
     }
 }

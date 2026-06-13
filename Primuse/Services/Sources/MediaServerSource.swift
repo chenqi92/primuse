@@ -233,7 +233,7 @@ actor MediaServerSource: SongScanningConnector {
         }
 
         return AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 do {
                     var startIndex = 0
                     let pageSize = 200
@@ -241,6 +241,7 @@ actor MediaServerSource: SongScanningConnector {
                     switch kind {
                     case .plex:
                         while true {
+                            try Task.checkCancellation()
                             let result = try await fetchPlexTracks(
                                 sectionID: libraryID,
                                 startIndex: startIndex,
@@ -270,6 +271,7 @@ actor MediaServerSource: SongScanningConnector {
                         }
                     case .jellyfin, .emby:
                         while true {
+                            try Task.checkCancellation()
                             let result = try await fetchAudioItems(
                                 parentID: libraryID,
                                 startIndex: startIndex,
@@ -303,6 +305,7 @@ actor MediaServerSource: SongScanningConnector {
                     continuation.finish(throwing: error)
                 }
             }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 

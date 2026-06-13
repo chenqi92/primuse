@@ -22,6 +22,18 @@ actor SynologyAPI {
         self.useSsl = useSsl
     }
 
+    /// 长生命周期 session 复用所有 API 请求 (list / download / upload / head)。
+    /// 带 delegate 的 session 在被 invalidate 前强持有 delegate 与连接池, 每个
+    /// 请求新建且从不 invalidate 会随大规模扫描线性泄漏内存与文件描述符, 同时
+    /// 丢失 keep-alive 复用 (每请求重新 TLS 握手)。逐请求的 timeout 由各
+    /// URLRequest.timeoutInterval 覆盖, 故共用一个 session 的全局 timeout 即可。
+    private lazy var sharedSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 600
+        return URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+    }()
+
     // MARK: - Login
 
     struct LoginResult: Sendable {
@@ -35,7 +47,6 @@ actor SynologyAPI {
 
     func login(account: String, password: String, otpCode: String? = nil,
                deviceName: String? = nil, deviceId: String? = nil) async -> LoginResult {
-        plog("🔐 Synology login start account=\(account) pwLen=\(password.count) otp=\(otpCode != nil) host=\(host):\(port) ssl=\(useSsl)")
         var params: [String: String] = [
             "api": "SYNO.API.Auth",
             "version": "7",
@@ -216,9 +227,7 @@ actor SynologyAPI {
         ]
         guard let url = components.url else { throw SynologyError.invalidURL }
 
-        let config = URLSessionConfiguration.default
-        let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
-        let (data, _) = try await session.data(from: url)
+        let (data, _) = try await sharedSession.data(from: url)
         return data
     }
 
@@ -240,9 +249,7 @@ actor SynologyAPI {
         request.setValue("bytes=0-\(maxBytes - 1)", forHTTPHeaderField: "Range")
         request.timeoutInterval = 30
 
-        let config = URLSessionConfiguration.default
-        let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
-        let (data, _) = try await session.data(for: request)
+        let (data, _) = try await sharedSession.data(for: request)
         return data
     }
 
@@ -302,9 +309,7 @@ actor SynologyAPI {
 
         request.httpBody = body
 
-        let config = URLSessionConfiguration.default
-        let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
-        let (responseData, response) = try await session.data(for: request)
+        let (responseData, response) = try await sharedSession.data(for: request)
 
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw SynologyError.httpError((response as? HTTPURLResponse)?.statusCode ?? 0)
@@ -346,6 +351,7 @@ actor SynologyAPI {
             guard let url = URL(string: "\(baseURL)\(path)") else { throw SynologyError.invalidURL }
             var req = URLRequest(url: url)
             req.httpMethod = "POST"
+            req.timeoutInterval = 15
             req.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
             // Form-encode params: same percent-encoding rules as URL query
             // but '+' is reserved for space in form bodies — encode it as %2B
@@ -363,13 +369,12 @@ actor SynologyAPI {
             var components = URLComponents(string: "\(baseURL)\(path)")!
             components.queryItems = params.map { URLQueryItem(name: $0.key, value: $0.value) }
             guard let url = components.url else { throw SynologyError.invalidURL }
-            urlRequest = URLRequest(url: url)
+            var req = URLRequest(url: url)
+            req.timeoutInterval = 15
+            urlRequest = req
         }
 
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 15
-        let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
-        let (data, response) = try await session.data(for: urlRequest)
+        let (data, response) = try await sharedSession.data(for: urlRequest)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw SynologyError.httpError((response as? HTTPURLResponse)?.statusCode ?? 0)
         }

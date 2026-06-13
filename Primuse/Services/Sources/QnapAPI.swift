@@ -27,21 +27,30 @@ actor QnapAPI {
     }
 
     func login(account: String, password: String, otpCode: String? = nil) async -> LoginResult {
-        var formItems = [
-            URLQueryItem(name: "user", value: account),
-            URLQueryItem(name: "pwd", value: password),
-            URLQueryItem(name: "remme", value: "1"),
+        var formFields: [(String, String)] = [
+            ("user", account),
+            ("pwd", password),
+            ("remme", "1"),
         ]
         if let otpCode {
-            formItems.append(URLQueryItem(name: "otp_code", value: otpCode))
+            formFields.append(("otp_code", otpCode))
         }
-        var form = URLComponents()
-        form.queryItems = formItems
 
         do {
             var req = URLRequest(url: URL(string: "\(baseURLString)/cgi-bin/authLogin.cgi")!)
             req.httpMethod = "POST"
-            req.httpBody = form.percentEncodedQuery?.data(using: .utf8)
+            // 手工 form-encode: URL query 规则不转义 '+', 但表单解码把 '+' 当
+            // 空格 —— 密码含 '+' 时 percentEncodedQuery 会让服务端把它解码成
+            // 空格, 正确密码也永远报"用户名或密码错误"。移除 "+&=" 后逐字段
+            // percent-encode 再拼接。
+            var allowed = CharacterSet.urlQueryAllowed
+            allowed.remove(charactersIn: "+&=")
+            let body = formFields.map { (k, v) -> String in
+                let ek = k.addingPercentEncoding(withAllowedCharacters: allowed) ?? k
+                let ev = v.addingPercentEncoding(withAllowedCharacters: allowed) ?? v
+                return "\(ek)=\(ev)"
+            }.joined(separator: "&")
+            req.httpBody = body.data(using: .utf8)
             req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
             req.timeoutInterval = 15
 
@@ -87,6 +96,12 @@ actor QnapAPI {
         self.sid = nil
     }
 
+    /// 清除会话, 让下一次 connect() 真正重新登录。会话过期 / 权限错误后
+    /// 必须调用它, 否则 isLoggedIn 仍为 true, connect() 短路, 重连永不发生。
+    func invalidateSession() {
+        self.sid = nil
+    }
+
     // MARK: - Files
 
     struct FileItem: Sendable {
@@ -94,6 +109,27 @@ actor QnapAPI {
     }
 
     func listDirectory(path: String, offset: Int = 0, limit: Int = 500) async throws -> [FileItem] {
+        // 平铺式音乐目录单层超过 limit 个文件很常见, 必须从 offset 起翻页到
+        // 尾, 否则超出部分的歌永远扫不进库且无任何提示。对照 SynologyAPI 的
+        // while 翻页循环。
+        var start = offset
+        var allItems: [FileItem] = []
+
+        while true {
+            let (pageItems, total) = try await listPage(path: path, offset: start, limit: limit)
+            allItems.append(contentsOf: pageItems)
+
+            if pageItems.count < limit || (total > 0 && allItems.count >= total) {
+                break
+            }
+            start += pageItems.count
+        }
+
+        return allItems
+    }
+
+    /// 请求单页目录列表并校验错误。返回 (本页条目, total 总数)。
+    private func listPage(path: String, offset: Int, limit: Int) async throws -> ([FileItem], Int) {
         guard let sid else { throw SourceError.connectionFailed("Not logged in") }
         var comps = URLComponents(string: "\(baseURLString)/cgi-bin/filemanager/utilRequest.cgi")!
         comps.queryItems = [
@@ -103,17 +139,41 @@ actor QnapAPI {
             .init(name: "sort", value: "filename"), .init(name: "dir", value: "ASC"),
             .init(name: "is_iso", value: "0"),
         ]
-        let (data, _) = try await session().data(from: comps.url!)
+        let (data, response) = try await session().data(from: comps.url!)
+        if let http = response as? HTTPURLResponse, http.statusCode == 401 || http.statusCode == 403 {
+            invalidateSession()
+            throw SourceError.authenticationFailed
+        }
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        // QNAP utilRequest.cgi 用响应体里的 `status` 码报错误, 而不是 HTTP 码;
+        // sid 过期 / 权限不足 时响应里根本没有 `datas` 字段。
+        // 绝不能把"无 datas"当成"空目录"返回 —— 那会让 scanner 误判该目录
+        // 被清空, 把整源曲库删掉。所以: 只有响应明确成功 (status==1 或带 datas)
+        // 才解析; 任何错误状态 / 不可信响应都抛错并清 sid, 让 ConnectorScanner
+        // 走 hadDirectoryFailure 分支保护既有曲库。
+        let status = qnapStatus(json)
+        let hasDatas = (json["datas"] as? [[String: Any]]) != nil
+        if status == 1 || (status == nil && hasDatas) {
+            // 成功 —— 继续解析 datas。
+        } else {
+            // status==2 (Permission denied) / 未登录 等都视为会话失效;
+            // 其余非成功状态及缺字段的不可信响应一律抛错, 不返回空数组。
+            invalidateSession()
+            if let status, status != 2 {
+                throw SourceError.connectionFailed("QNAP list_dir failed: status \(status)")
+            }
+            throw SourceError.authenticationFailed
+        }
         let items = json["datas"] as? [[String: Any]] ?? []
-        return items.map { d in
+        let total = qnapInt(json["total"]) ?? 0
+        return (items.map { d in
             FileItem(
                 name: d["filename"] as? String ?? "",
                 path: d["path"] as? String ?? "",
                 isDirectory: (d["isfolder"] as? Int) == 1,
                 size: Int64(d["filesize"] as? Int ?? 0)
             )
-        }
+        }, total)
     }
 
     func listSharedFolders() async throws -> [FileItem] {
@@ -133,10 +193,29 @@ actor QnapAPI {
 
     // MARK: - Helpers
 
-    private func session() -> URLSession {
+    /// 长生命周期 session 复用: 带 delegate 的 session 在被 invalidate 前
+    /// 强持有 delegate 与连接池, 每次新建且从不 invalidate 会随扫描线性泄漏
+    /// 内存与文件描述符, 同时丢失 keep-alive 复用 (每请求重新 TLS 握手)。
+    private lazy var sharedSession: URLSession = {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         return URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+    }()
+
+    private func session() -> URLSession { sharedSession }
+
+    /// 从 utilRequest.cgi 响应里取 `status` 码 (QNAP 用它而非 HTTP 码报错误)。
+    /// 数值可能以 Int / NSNumber / String 出现, 全部归一成 Int。
+    private func qnapStatus(_ json: [String: Any]) -> Int? {
+        qnapInt(json["status"])
+    }
+
+    /// 把可能以 Int / NSNumber / String 出现的数值归一成 Int。
+    private func qnapInt(_ value: Any?) -> Int? {
+        if let int = value as? Int { return int }
+        if let number = value as? NSNumber { return number.intValue }
+        if let string = value as? String, let int = Int(string) { return int }
+        return nil
     }
 
     private func qnapError(_ code: Int) -> String {

@@ -23,14 +23,20 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource {
         let token = try await getToken()
         // Dropbox-API-Arg 必须是 ASCII,中文等需转 \uXXXX。
         let arg = "{\"path\":\"\(Self.apiArgEscaped(path))\",\"mode\":\"overwrite\",\"mute\":true}"
-        var req = URLRequest(url: URL(string: "\(Self.contentBase)/files/upload")!)
-        req.httpMethod = "POST"
-        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        req.setValue(arg, forHTTPHeaderField: "Dropbox-API-Arg")
-        req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
-        let (_, resp) = try await URLSession.shared.upload(for: req, from: data)
-        guard let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            throw CloudDriveError.apiError((resp as? HTTPURLResponse)?.statusCode ?? 0, "Dropbox sidecar upload failed")
+        try await helper.withTokenRetry(initialToken: token, refresh: refreshToken) { @Sendable tok in
+            var req = URLRequest(url: URL(string: "\(Self.contentBase)/files/upload")!)
+            req.httpMethod = "POST"
+            req.setValue("Bearer \(tok)", forHTTPHeaderField: "Authorization")
+            req.setValue(arg, forHTTPHeaderField: "Dropbox-API-Arg")
+            req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+            let (_, resp) = try await URLSession.shared.upload(for: req, from: data)
+            guard let http = resp as? HTTPURLResponse else {
+                throw CloudDriveError.invalidResponse
+            }
+            if http.statusCode == 401 { throw CloudDriveError.tokenExpired }
+            guard (200...299).contains(http.statusCode) else {
+                throw CloudDriveError.apiError(http.statusCode, "Dropbox sidecar upload failed")
+            }
         }
         plog("📁 Dropbox sidecar uploaded: \((path as NSString).lastPathComponent)")
     }
@@ -56,13 +62,15 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource {
     func accountIdentifier() async throws -> String {
         let token = try await getToken()
         let nullBody = Data("null".utf8)
-        let (data, http) = try await helper.makeAuthorizedRequest(
-            url: URL(string: "\(Self.apiBase)/users/get_current_account")!,
-            method: "POST",
-            body: nullBody,
-            contentType: "application/json",
-            accessToken: token
-        )
+        let (data, http) = try await helper.withTokenRetry(initialToken: token, refresh: refreshToken) { @Sendable tok in
+            try await self.helper.makeAuthorizedRequest(
+                url: URL(string: "\(Self.apiBase)/users/get_current_account")!,
+                method: "POST",
+                body: nullBody,
+                contentType: "application/json",
+                accessToken: tok
+            )
+        }
         guard http.statusCode == 200 else {
             throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "")
         }
@@ -99,7 +107,9 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource {
     private func postJSON(url: String, body: [String: Any]) async throws -> [String: Any] {
         let token = try await getToken()
         let bodyData = try JSONSerialization.data(withJSONObject: body)
-        let (data, http) = try await helper.makeAuthorizedRequest(url: URL(string: url)!, method: "POST", body: bodyData, contentType: "application/json", accessToken: token)
+        let (data, http) = try await helper.withTokenRetry(initialToken: token, refresh: refreshToken) { @Sendable tok in
+            try await self.helper.makeAuthorizedRequest(url: URL(string: url)!, method: "POST", body: bodyData, contentType: "application/json", accessToken: tok)
+        }
         guard http.statusCode == 200 else { throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "") }
         return try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
     }
@@ -119,15 +129,22 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource {
     func localURL(for path: String) async throws -> URL {
         if helper.hasCached(path: path) { return helper.cachedURL(for: path) }
         let token = try await getToken()
-        var request = URLRequest(url: URL(string: "\(Self.contentBase)/files/download")!)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         let argData = try JSONSerialization.data(withJSONObject: ["path": path])
-        request.setValue(String(data: argData, encoding: .utf8), forHTTPHeaderField: "Dropbox-API-Arg")
-        request.timeoutInterval = 300
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            throw CloudDriveError.apiError((response as? HTTPURLResponse)?.statusCode ?? 0, "Download failed")
+        let data: Data = try await helper.withTokenRetry(initialToken: token, refresh: refreshToken) { @Sendable tok in
+            var request = URLRequest(url: URL(string: "\(Self.contentBase)/files/download")!)
+            request.httpMethod = "POST"
+            request.setValue("Bearer \(tok)", forHTTPHeaderField: "Authorization")
+            request.setValue(String(data: argData, encoding: .utf8), forHTTPHeaderField: "Dropbox-API-Arg")
+            request.timeoutInterval = 300
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw CloudDriveError.invalidResponse
+            }
+            if http.statusCode == 401 { throw CloudDriveError.tokenExpired }
+            guard (200...299).contains(http.statusCode) else {
+                throw CloudDriveError.apiError(http.statusCode, "Download failed")
+            }
+            return data
         }
         try helper.cacheData(data, for: path)
         return helper.cachedURL(for: path)
@@ -170,13 +187,15 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource {
         }
         let token = try await getToken()
         let body = try JSONSerialization.data(withJSONObject: ["path": path])
-        let (data, http) = try await helper.makeAuthorizedRequest(
-            url: URL(string: "\(Self.apiBase)/files/get_temporary_link")!,
-            method: "POST",
-            body: body,
-            contentType: "application/json",
-            accessToken: token
-        )
+        let (data, http) = try await helper.withTokenRetry(initialToken: token, refresh: refreshToken) { @Sendable tok in
+            try await self.helper.makeAuthorizedRequest(
+                url: URL(string: "\(Self.apiBase)/files/get_temporary_link")!,
+                method: "POST",
+                body: body,
+                contentType: "application/json",
+                accessToken: tok
+            )
+        }
         guard http.statusCode == 200 else {
             throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "")
         }
