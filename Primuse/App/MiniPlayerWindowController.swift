@@ -23,9 +23,10 @@ import PrimuseKit
 final class MiniPlayerWindowController: NSWindowController, NSWindowDelegate {
     @AppStorage("miniPlayerVisible") private var visible: Bool = false
 
-    /// 折叠态(无歌词/队列面板)高度 —— 设计稿 NP-Mini 是 300×220;
-    /// 底部 footer 常驻, 展开态再加歌词/队列面板与完整传输键。
-    static let collapsedHeight: CGFloat = 220
+    /// 折叠态(无歌词/队列面板)高度 —— 设计稿 NP-Mini 标 300×220, 但实际内容
+    /// (顶栏 32 + 封面 76 + 标题 + 进度条 + 常驻 footer)约 237pt, 钉死 220 会让
+    /// 整组内容居中溢出、顶部折叠/关闭按钮被窗口圆角裁掉。给到 240 让内容完整放下。
+    static let collapsedHeight: CGFloat = 240
     static let expandedHeight: CGFloat = 540
     static let fixedWidth: CGFloat = 300
 
