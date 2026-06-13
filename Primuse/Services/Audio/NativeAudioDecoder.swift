@@ -139,10 +139,9 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
                     return
                 }
                 try decoder.decode(into: buffer, length: framesToRead)
-                if buffer.frameLength > 0 {
-                    nonisolated(unsafe) let sendBuf = buffer
-                    continuation.yield(sendBuf)
-                }
+                guard buffer.frameLength > 0 else { break }
+                nonisolated(unsafe) let sendBuf = buffer
+                continuation.yield(sendBuf)
             }
         } else {
             guard let converter = AVAudioConverter(from: sourceFormat, to: outputFormat) else {

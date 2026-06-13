@@ -39,6 +39,65 @@ private final class BufferIteratorBox: @unchecked Sendable {
     }
 }
 
+/// Async backpressure gate bounding the number of decoded PCM buffers that are
+/// scheduled-but-not-yet-consumed on an `AVAudioPlayerNode`.
+///
+/// Without this, `NativeAudioDecoder` yields buffers far faster than realtime
+/// playback and the whole track (plus the gapless next track) ends up resident
+/// in the node's unbounded queue — hundreds of MB for hi-res long tracks, which
+/// trips iOS jetsam during background playback.
+///
+/// `acquire()` suspends the decoder when `limit` buffers are in flight;
+/// `release()` (called from the node's `.dataConsumed` completion handler, which
+/// also fires on `reset()`/`stop()`) wakes the next waiter so decoding paces to
+/// playback.
+private actor AsyncBufferGate {
+    private let limit: Int
+    private var inFlight = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    init(limit: Int) {
+        self.limit = max(1, limit)
+    }
+
+    func acquire() async {
+        if inFlight < limit {
+            inFlight += 1
+            return
+        }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    /// Non-suspending counterpart to `acquire()`, callable from `@Sendable`
+    /// completion handlers without awaiting.
+    nonisolated func release() {
+        Task { await self.signal() }
+    }
+
+    private func signal() {
+        if !waiters.isEmpty {
+            // Hand the in-flight slot directly to the next waiter.
+            let continuation = waiters.removeFirst()
+            continuation.resume()
+        } else if inFlight > 0 {
+            inFlight -= 1
+        }
+    }
+
+    /// Wakes every waiter so a cancelled decoder loop never deadlocks on the
+    /// gate even if some `.dataConsumed` callbacks were dropped.
+    func drain() {
+        let pending = waiters
+        waiters.removeAll()
+        inFlight = 0
+        for continuation in pending {
+            continuation.resume()
+        }
+    }
+}
+
 /// Sendable carrier for AVAudioPCMBuffer across task boundaries.
 /// AVAudioPCMBuffer is a reference type marked non-Sendable by AVFoundation,
 /// but we only ever read it after the producing task completes, so the box is
@@ -245,6 +304,13 @@ final class AudioPlayerService {
     private var gaplessPreparationTask: Task<Void, Never>?
     private var gaplessFollowupTask: Task<Void, Never>?
     private var crossfadeDecodingTask: Task<Void, Never>?
+    /// swapPlayerNodes() 之后, crossfade 解码任务正在喂的那个物理节点已经
+    /// 从 crossfade 节点变成 primary 节点。该任务必须改用 scheduleBuffer
+    /// (primary) 继续投递, 否则 buffer 会落到换出后被 stop/reset/静音的旧
+    /// 节点上, 导致 swap 后剩余音频丢失(歌中途静音)。completeCrossfade 置
+    /// true, startCrossfade 每次重置为 false。两者都在 MainActor, 不会
+    /// 与解码循环的单条 schedule 语句交错。
+    private var crossfadeSwapDone = false
     private var crossfadeTimer: Timer?
     private var crossfadeTriggered = false
     /// crossfade 进行中 —— 用来让 startTimeUpdater 跳过 currentTime 更新。
@@ -274,6 +340,12 @@ final class AudioPlayerService {
     /// back to). 3s is enough that the user hears "this song stuttered"
     /// rather than a sudden cut, but short enough to feel responsive.
     private static let midStreamErrorGrace: TimeInterval = 3
+    /// Max decoded PCM buffers scheduled-but-not-yet-consumed on the player
+    /// node before the decoder is throttled. NativeAudioDecoder emits ~0.2s
+    /// buffers, so 16 ≈ 3s of lookahead — enough to never starve playback,
+    /// while keeping resident PCM bounded (vs. the whole track + gapless next
+    /// track resident at once, which trips background jetsam on hi-res files).
+    private static let maxInFlightDecodedBuffers = 16
     private static let firstBufferTimeoutSeconds = 35
     private static let remoteFallbackFirstBufferTimeoutSeconds = 60
     private static let dlnaSourceID = "dlna"
@@ -695,7 +767,7 @@ final class AudioPlayerService {
 
     private func playFromURL(song: Song, url: URL, playID id: UUID) async {
         plog("▶️ playFromURL(song: \(song.title)) playID=\(id.uuidString.prefix(8))")
-        plog("▶️   URL: \(url.absoluteString.prefix(120))")
+        plog("▶️   URL: \(redactedURL(url))")
         plog("▶️   scheme=\(url.scheme ?? "nil") isFileURL=\(url.isFileURL) ext=\(url.pathExtension) format=\(song.fileFormat) duration=\(song.duration)")
         currentSong = song
         duration = song.duration.sanitizedDuration
@@ -910,17 +982,28 @@ final class AudioPlayerService {
             prefetchNextSong()
 
             // Decode remaining buffers in background task (hold-last for completion callback)
-            decodingTask = Task { [id, iteratorBox] in
+            let gate = AsyncBufferGate(limit: Self.maxInFlightDecodedBuffers)
+            decodingTask = Task { [id, iteratorBox, gate] in
                 var lastBuffer: AVAudioPCMBuffer?
                 var scheduledCount = 0
                 var midStreamError = false
+                defer { Task { await gate.drain() } }
 
                 do {
                     while let buffer = try await iteratorBox.next() {
                         guard !Task.isCancelled, self.playID == id else { return }
 
                         if let prev = lastBuffer {
-                            self.audioEngine.scheduleBuffer(prev)
+                            // Backpressure: block the decoder once `limit`
+                            // buffers are scheduled-but-not-yet-consumed so the
+                            // resident PCM tracks playback instead of the whole
+                            // track piling into the node's unbounded queue.
+                            await gate.acquire()
+                            guard !Task.isCancelled, self.playID == id else { return }
+                            self.audioEngine.scheduleBuffer(
+                                prev,
+                                completionCallbackType: .dataConsumed
+                            ) { _ in gate.release() }
                             scheduledCount += 1
                         }
                         lastBuffer = buffer
@@ -2141,6 +2224,68 @@ final class AudioPlayerService {
         }
     }
 
+    /// Play the queue entry at a raw `queueEntries` index, keeping the player's
+    /// shuffle bookkeeping in sync. The QueueView taps map to raw queue indices;
+    /// in shuffle mode `currentIndex` alone isn't enough — `shufflePosition` /
+    /// `shuffledIndices` also have to point at the tapped track or the next
+    /// `next()` advances from a stale shuffle position. Unlike toggling
+    /// `shuffleEnabled` (which reshuffles the whole round), this only swaps the
+    /// tapped index into the current shuffle position, leaving the *rest* of the
+    /// round's order untouched so Up Next stays stable.
+    func playFromQueue(at index: Int) async {
+        guard queueEntries.indices.contains(index) else { return }
+
+        // Apple Music mode owns its own queue/order via the system player —
+        // route through `play(song:)` and let the mirror keep state in sync,
+        // mirroring how `shuffleEnabled.didSet` short-circuits there.
+        if shuffleEnabled, !isAppleMusicMode, !isMirroringFromAppleMusic {
+            if let targetPos = shuffledIndices.firstIndex(of: index) {
+                // Pull the tapped track into the current shuffle position. The
+                // displaced index moves to where the tapped one was, so every
+                // other position keeps its relative order (no reshuffle).
+                let anchorPos = min(max(shufflePosition, 0), shuffledIndices.count - 1)
+                shuffledIndices.swapAt(anchorPos, targetPos)
+                shufflePosition = anchorPos
+            }
+        }
+
+        currentIndex = index
+        let song = queueEntries[index].song
+        await play(song: song)
+    }
+
+    /// Up Next entries in the order they'll actually play, honoring shuffle.
+    /// Non-shuffle: the tail of `queueEntries` after `currentIndex`. Shuffle:
+    /// the songs at `shuffledIndices` past the current position (wrapping into
+    /// the pre-built next round when repeat-all is on). QueueView renders this
+    /// so the visible Up Next list matches what `next()` will pick.
+    var upcomingQueueEntries: [QueueEntry] {
+        guard !queueEntries.isEmpty else { return [] }
+
+        guard shuffleEnabled, !isAppleMusicMode else {
+            let start = currentIndex + 1
+            guard start < queueEntries.count else { return [] }
+            return Array(queueEntries[start..<queueEntries.count])
+        }
+
+        var result: [QueueEntry] = []
+        var pos = shufflePosition + 1
+        while pos < shuffledIndices.count {
+            let qIndex = shuffledIndices[pos]
+            if queueEntries.indices.contains(qIndex) {
+                result.append(queueEntries[qIndex])
+            }
+            pos += 1
+        }
+        if repeatMode == .all {
+            let pending = pendingNextShuffleIndices ?? buildPendingNextRound()
+            for qIndex in pending where queueEntries.indices.contains(qIndex) {
+                result.append(queueEntries[qIndex])
+            }
+        }
+        return result
+    }
+
     func syncSongMetadata(_ updatedSong: Song) {
         if currentSong?.id == updatedSong.id {
             currentSong = updatedSong
@@ -2360,6 +2505,11 @@ final class AudioPlayerService {
         let followingTransition = GaplessTransitionState(queueGeneration: queueGeneration)
         var lastBuffer: AVAudioPCMBuffer?
         var didMarkPrepared = false
+        // Pace the next track's buffers to consumption of the *current* track's
+        // buffers (same player node) so a fully prepared gapless track doesn't
+        // double the resident PCM alongside the song that's still playing.
+        let gate = AsyncBufferGate(limit: Self.maxInFlightDecodedBuffers)
+        defer { Task { await gate.drain() } }
 
         func markPreparedIfNeeded() {
             guard !didMarkPrepared else { return }
@@ -2381,7 +2531,15 @@ final class AudioPlayerService {
                       !transition.shouldCancelPreparation else { return }
 
                 if let prev = lastBuffer {
-                    audioEngine.scheduleBuffer(prev)
+                    await gate.acquire()
+                    guard !Task.isCancelled,
+                          playID == id,
+                          queueGeneration == transition.queueGeneration,
+                          !transition.shouldCancelPreparation else { return }
+                    audioEngine.scheduleBuffer(
+                        prev,
+                        completionCallbackType: .dataConsumed
+                    ) { _ in gate.release() }
                     markPreparedIfNeeded()
                 }
                 lastBuffer = buffer
@@ -2488,6 +2646,8 @@ final class AudioPlayerService {
             }
             let iteratorBox = BufferIteratorBox(stream.makeAsyncIterator())
 
+            // swap 还没发生 —— 新曲的 buffer 先进 crossfade 节点。
+            crossfadeSwapDone = false
             guard let firstBuffer = try await iteratorBox.next() else { return }
             audioEngine.scheduleCrossfadeBuffer(firstBuffer)
             audioEngine.playCrossfadeNode()
@@ -2496,7 +2656,16 @@ final class AudioPlayerService {
                 do {
                     while let buffer = try await iteratorBox.next() {
                         guard !Task.isCancelled else { return }
-                        self.audioEngine.scheduleCrossfadeBuffer(buffer)
+                        // swap 之后, 这个解码任务投递的物理节点已经变成
+                        // primary。继续用 scheduleCrossfadeBuffer 会把 buffer
+                        // 喂到换出后被静音/reset 的旧节点上(歌中途静音)。
+                        // 两边都在 MainActor, 此判断与 completeCrossfade 的
+                        // 置位不会交错。
+                        if self.crossfadeSwapDone {
+                            self.audioEngine.scheduleBuffer(buffer)
+                        } else {
+                            self.audioEngine.scheduleCrossfadeBuffer(buffer)
+                        }
                     }
                 } catch {
                     if !Task.isCancelled { plog("Crossfade decode error: \(error)") }
@@ -2559,6 +2728,10 @@ final class AudioPlayerService {
         // Stop old decoding
         decodingTask?.cancel()
         decodingTask = nil
+
+        // swap 把 crossfade 节点变成 primary。先置位, 让仍在运行的 crossfade
+        // 解码任务从下一个 buffer 起改投 primary 节点, 不再喂换出的旧节点。
+        crossfadeSwapDone = true
 
         // Swap nodes
         audioEngine.swapPlayerNodes()
@@ -2861,11 +3034,30 @@ final class AudioPlayerService {
 
     // MARK: - URL Resolution
 
+    /// 用于日志的脱敏 URL —— 只保留 scheme+host(:port)+path, 剥掉 query 和
+    /// user-info。多个源把可重放凭据放在 query 里 (Subsonic t=md5(pwd+salt)&s=salt,
+    /// Synology _sid=会话令牌, 各类 api_sig/token), 而日志会被写进 caches 明文
+    /// 文件并通过设置页分享出去, 原样记录等于把账号泄露给收到日志的人。query
+    /// 非空时用 "?…" 占位, 既不丢失"带参数"这条诊断信息也不暴露内容。
+    nonisolated private func redactedURL(_ url: URL) -> String {
+        guard !url.isFileURL,
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url.isFileURL ? url.path : url.absoluteString
+        }
+        let hadQuery = !(components.query?.isEmpty ?? true)
+        components.query = nil
+        components.user = nil
+        components.password = nil
+        components.fragment = nil
+        let base = components.string ?? url.absoluteString
+        return hadQuery ? base + "?…" : base
+    }
+
     private func resolvedURL(for song: Song) async throws -> URL {
         if let sourceManager {
             do {
                 let url = try await sourceManager.resolveURL(for: song)
-                plog("🔗 resolvedURL for '\(song.title)': \(url.isFileURL ? "LOCAL" : url.scheme?.uppercased() ?? "?") → \(url.absoluteString.prefix(120))")
+                plog("🔗 resolvedURL for '\(song.title)': \(url.isFileURL ? "LOCAL" : url.scheme?.uppercased() ?? "?") → \(redactedURL(url))")
                 return url
             } catch {
                 plog("🔗 resolveURL failed for '\(song.title)': \(error), filePath=\(song.filePath.prefix(80))")
@@ -2876,7 +3068,7 @@ final class AudioPlayerService {
             }
         }
         if let remoteURL = URL(string: song.filePath), remoteURL.scheme != nil {
-            plog("🔗 resolvedURL for '\(song.title)': direct remote → \(remoteURL.absoluteString.prefix(80))")
+            plog("🔗 resolvedURL for '\(song.title)': direct remote → \(redactedURL(remoteURL))")
             return remoteURL
         }
         plog("🔗 resolvedURL for '\(song.title)': file path → \(song.filePath.prefix(80))")
@@ -3124,11 +3316,31 @@ final class AudioPlayerService {
             return
         }
 
+        // Privacy scope: the user can narrow what's published into the App
+        // Group container. `includesCover` gates the cover files; `includesProgress`
+        // gates currentTime/duration. (`includesLyrics` is enforced by the
+        // lyrics publisher, not here.)
+        let scope = WidgetSettings.sharedDataScope()
+
         var coverName: String?
         var recentAlbumsChanged = false
-        let recentAlbumsEnabled = WidgetSettings.widgetEnabled(PrimuseConstants.widgetRecentAlbumsEnabledKey)
+        let recentAlbumsEnabled = scope.includesCover
+            && WidgetSettings.widgetEnabled(PrimuseConstants.widgetRecentAlbumsEnabledKey)
 
-        if let song = currentSong {
+        if !scope.includesCover {
+            // Scope narrowed below `cover`: never write cover art, and purge any
+            // files left from a wider scope so the WidgetKit extension can't keep
+            // disclosing album art the user opted out of.
+            clearSharedWidgetCovers()
+            lastWidgetCoverSongID = nil
+            if WidgetSettings.widgetEnabled(PrimuseConstants.widgetRecentAlbumsEnabledKey),
+               !RecentAlbumsStore.load().isEmpty {
+                // Recent-albums widget renders covers; with covers disclosed off
+                // there's nothing meaningful to show, so clear its store too.
+                RecentAlbumsStore.clear()
+                recentAlbumsChanged = true
+            }
+        } else if let song = currentSong {
             let sharedCoverName = "widget_cover.png"
             let needsSharedCoverRefresh = song.id != lastWidgetCoverSongID || !sharedWidgetCoverExists(named: sharedCoverName)
 
@@ -3136,10 +3348,14 @@ final class AudioPlayerService {
                 if let writtenCoverName = writeWidgetCover(song: song, fileName: sharedCoverName) {
                     coverName = writtenCoverName
                     lastWidgetCoverSongID = song.id
-                } else if sharedWidgetCoverExists(named: sharedCoverName) {
-                    coverName = sharedCoverName
-                    lastWidgetCoverSongID = song.id
                 } else {
+                    // Current song has no usable cover. Any existing
+                    // widget_cover.png belongs to the *previous* song, so
+                    // reusing it would show the wrong album art for this whole
+                    // track. Delete it and leave coverName nil so the widget
+                    // falls back to its placeholder gradient; keep
+                    // lastWidgetCoverSongID nil so the next event retries.
+                    removeSharedWidgetCover(named: sharedCoverName)
                     lastWidgetCoverSongID = nil
                 }
 
@@ -3170,8 +3386,10 @@ final class AudioPlayerService {
             fileFormat: currentSong.map { $0.fileFormat.displayName },
             coverImageName: coverName,
             isPlaying: isPlaying,
-            currentTime: currentTime,
-            duration: duration,
+            // Progress gated by scope: omit currentTime/duration when the user
+            // hasn't granted progress disclosure (defaults to 0 via the init).
+            currentTime: scope.includesProgress ? currentTime : 0,
+            duration: scope.includesProgress ? duration : 0,
             queueSongIDs: queue.map(\.id)
         )
         state.save()
@@ -3186,11 +3404,12 @@ final class AudioPlayerService {
     /// Writes a cover image to the App Group shared container for Widget rendering.
     /// Returns the filename if successful.
     ///
-    /// 仅 iOS 实现 ── macOS 上 WidgetKit 的桌面 widget 通过另外的 MacWidgetSync
-    /// 通道渲染, 不走 App Group cover.png 这条路。
+    /// iOS 与 macOS 共用同一 App Group 路径与文件名约定; widget 扩展的
+    /// WidgetCoverImageView / RecentAlbumCoverView 只按 coverImageName 从
+    /// App Group 容器读 JPEG, 两端别无他路, 故 macOS 也必须落盘真实封面,
+    /// 否则桌面 widget 永远只显示占位渐变。
     @discardableResult
     private func writeWidgetCover(song: Song, fileName: String, size: CGFloat = 300) -> String? {
-        #if os(iOS)
         guard let containerURL = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier
         ) else { return nil }
@@ -3208,11 +3427,28 @@ final class AudioPlayerService {
             coverData = store.readCoverData(named: ref)
         }
 
-        guard let data = coverData, let originalImage = UIImage(data: data) else {
-            return nil
-        }
+        guard let data = coverData else { return nil }
 
         let targetSize = CGSize(width: size, height: size)
+        let destinationURL = containerURL.appendingPathComponent(fileName)
+
+        /// Aspect-fill (centered crop) rect for `sourceSize` into `targetSize`.
+        func aspectFillRect(sourceSize: CGSize) -> CGRect {
+            let sourceAspect = sourceSize.width / sourceSize.height
+            if sourceAspect > 1 {
+                let scaledWidth = targetSize.height * sourceAspect
+                return CGRect(x: (targetSize.width - scaledWidth) / 2, y: 0,
+                              width: scaledWidth, height: targetSize.height)
+            } else {
+                let scaledHeight = targetSize.width / sourceAspect
+                return CGRect(x: 0, y: (targetSize.height - scaledHeight) / 2,
+                              width: targetSize.width, height: scaledHeight)
+            }
+        }
+
+        #if os(iOS)
+        guard let originalImage = UIImage(data: data) else { return nil }
+
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1.0
         format.opaque = true
@@ -3221,23 +3457,54 @@ final class AudioPlayerService {
         let resizedImage = renderer.image { context in
             UIColor.black.setFill()
             context.fill(CGRect(origin: .zero, size: targetSize))
-            let sourceAspect = originalImage.size.width / originalImage.size.height
-            let drawRect: CGRect
-            if sourceAspect > 1 {
-                let scaledWidth = targetSize.height * sourceAspect
-                let xOffset = (targetSize.width - scaledWidth) / 2
-                drawRect = CGRect(x: xOffset, y: 0, width: scaledWidth, height: targetSize.height)
-            } else {
-                let scaledHeight = targetSize.width / sourceAspect
-                let yOffset = (targetSize.height - scaledHeight) / 2
-                drawRect = CGRect(x: 0, y: yOffset, width: targetSize.width, height: scaledHeight)
-            }
-            originalImage.draw(in: drawRect)
+            originalImage.draw(in: aspectFillRect(sourceSize: originalImage.size))
         }
 
         guard let jpegData = resizedImage.jpegData(compressionQuality: 0.8) else { return nil }
 
-        let destinationURL = containerURL.appendingPathComponent(fileName)
+        do {
+            try jpegData.write(to: destinationURL, options: .atomic)
+            return fileName
+        } catch {
+            return nil
+        }
+        #elseif os(macOS)
+        guard let originalImage = NSImage(data: data) else { return nil }
+
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int(targetSize.width),
+            pixelsHigh: Int(targetSize.height),
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else { return nil }
+        rep.size = targetSize
+
+        guard let context = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
+        let previousContext = NSGraphicsContext.current
+        NSGraphicsContext.current = context
+        NSColor.black.setFill()
+        NSRect(origin: .zero, size: targetSize).fill()
+        // Centered aspect-fill crop is symmetric in both axes, so AppKit's
+        // y-up coordinate space yields the same framing as iOS's renderer.
+        originalImage.draw(
+            in: aspectFillRect(sourceSize: originalImage.size),
+            from: .zero,
+            operation: .sourceOver,
+            fraction: 1.0
+        )
+        context.flushGraphics()
+        NSGraphicsContext.current = previousContext
+
+        guard let jpegData = rep.representation(
+            using: .jpeg,
+            properties: [.compressionFactor: 0.8]
+        ) else { return nil }
 
         do {
             try jpegData.write(to: destinationURL, options: .atomic)
@@ -3257,6 +3524,36 @@ final class AudioPlayerService {
             return false
         }
         return FileManager.default.fileExists(atPath: containerURL.appendingPathComponent(fileName).path)
+    }
+
+    /// Removes a stale shared widget cover so it isn't mistaken for the current
+    /// song's art when the current song has no usable cover.
+    private func removeSharedWidgetCover(named fileName: String) {
+        guard let containerURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier
+        ) else { return }
+        try? FileManager.default.removeItem(at: containerURL.appendingPathComponent(fileName))
+    }
+
+    /// Purges every widget cover file in the App Group container
+    /// (`widget_cover.png` + `widget_album_*`). Used when the user narrows the
+    /// shared-data scope below `cover`, so the WidgetKit extension stops
+    /// rendering album art that's no longer disclosed. Mirrors
+    /// `WidgetSharedStore.clearSharedCoverFiles()`, which is internal to
+    /// PrimuseKit and not reachable from this target.
+    private func clearSharedWidgetCovers() {
+        guard let containerURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier
+        ) else { return }
+        let fm = FileManager.default
+        try? fm.removeItem(at: containerURL.appendingPathComponent("widget_cover.png"))
+        guard let entries = try? fm.contentsOfDirectory(
+            at: containerURL,
+            includingPropertiesForKeys: nil
+        ) else { return }
+        for url in entries where url.lastPathComponent.hasPrefix("widget_album_") {
+            try? fm.removeItem(at: url)
+        }
     }
 
     private func makeRecentAlbumEntry(for song: Song) -> RecentAlbumEntry? {

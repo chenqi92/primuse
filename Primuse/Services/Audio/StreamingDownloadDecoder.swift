@@ -122,10 +122,9 @@ final class StreamingDownloadDecoder: Sendable {
                                 let toRead = min(bufferFrameCount, remaining)
                                 guard let buf = AVAudioPCMBuffer(pcmFormat: srcFmt, frameCapacity: toRead) else { break }
                                 try decoder.decode(into: buf, length: toRead)
-                                if buf.frameLength > 0 {
-                                    nonisolated(unsafe) let sendBuf = buf
-                                    continuation.yield(sendBuf)
-                                }
+                                guard buf.frameLength > 0 else { break }
+                                nonisolated(unsafe) let sendBuf = buf
+                                continuation.yield(sendBuf)
                             }
                         } catch {
                             // Direct read failed — fallback to converter path

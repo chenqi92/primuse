@@ -173,12 +173,37 @@ enum CloudPlaybackSource {
         let partialURL = URL(fileURLWithPath: cacheURL.path + ".partial")
         let markerURL = URL(fileURLWithPath: partialURL.path + prewarmMarkerSuffix)
 
+        // Same-session seek: AudioPlayerService.seek (.cloudStream / .httpStream
+        // 分支) rebuilds the InputSource while an earlier State for the same
+        // .partial is still registered (seek 不走 finalizeSession)。Adopt that
+        // State's in-memory cachedRanges so the bytes already fetched this
+        // session survive the rebuild — otherwise the else-branch below would
+        // wipe the .partial and force a re-download from byte 0. Close the old
+        // State first so two States never write the same file concurrently.
+        var initialRanges: [Range<Int64>] = []
+        var handledByActiveState = false
+        if let priorState = lookupActiveState(key: partialURL.path) {
+            unregisterActiveState(key: partialURL.path)
+            let inheritedRanges = priorState.closeForRebuild()
+            // Validate against the current file: the prior State only ever
+            // wrote into `partialURL` (its rename to finalURL would have
+            // unregistered + switched activeURL, so a renamed session is never
+            // found here). Clamp to totalLength to stay defensive.
+            let trusted = inheritedRanges.filter { $0.lowerBound >= 0 && $0.upperBound <= totalLength }
+            if FileManager.default.fileExists(atPath: partialURL.path), !trusted.isEmpty {
+                initialRanges = trusted
+                try? FileManager.default.removeItem(at: markerURL)
+                handledByActiveState = true
+            }
+        }
+
         // Only trust .partial bytes when the prewarm marker JSON is valid
         // and the partial file size is large enough to contain all listed
         // ranges. Consume the marker so a future session can't pick up
         // bytes another session may have appended past the prewarm windows.
-        var initialRanges: [Range<Int64>] = []
-        if let marker = PrewarmMarker.read(from: markerURL),
+        if handledByActiveState {
+            // Reusing live bytes from the prior session — partial already exists.
+        } else if let marker = PrewarmMarker.read(from: markerURL),
            FileManager.default.fileExists(atPath: partialURL.path),
            let attrs = try? FileManager.default.attributesOfItem(atPath: partialURL.path),
            let size = attrs[.size] as? Int64,
@@ -864,7 +889,7 @@ private final class State: @unchecked Sendable {
         defer { try? handle.close() }
         do {
             try handle.seek(toOffset: UInt64(offset))
-            return handle.readData(ofLength: Int(upper - offset))
+            return try handle.read(upToCount: Int(upper - offset))
         } catch {
             return nil
         }
@@ -878,7 +903,7 @@ private final class State: @unchecked Sendable {
         guard let handle = try? FileHandle(forWritingTo: url) else { return }
         do {
             try handle.seek(toOffset: UInt64(offset))
-            handle.write(data)
+            try handle.write(contentsOf: data)
             try? handle.close()
         } catch {
             try? handle.close()
@@ -896,7 +921,14 @@ private final class State: @unchecked Sendable {
         // iOS purges it on its own schedule.
         var renamedRelativePath: String?
         var fillRequest: (offset: Int64, length: Int64)?
-        if persistOnComplete,
+        // A State retired by closeForRebuild() / finalizeSession() (`closed`)
+        // no longer owns the .partial — a newer same-session seek State may
+        // already be writing it. Never rename or schedule trailing fill from a
+        // retired State, or its stale cachedRanges could promote a half-empty
+        // file to the canonical cache path.
+        if closed {
+            // retired — leave the partial to the active owner
+        } else if persistOnComplete,
            activeURL == partialURL,
            cachedRanges.count == 1,
            cachedRanges[0].lowerBound == 0,
@@ -1023,6 +1055,21 @@ private final class State: @unchecked Sendable {
                 plog("⚠️ Cloud stream '\(label)' finalize fill failed: \(error.localizedDescription)")
             }
         }
+    }
+
+    /// 同 session seek 时, makeInputSource 重建一个新 State 来替换本 State。
+    /// 这里在被替换前: 关闭本 State (停止 foreground/prefetch + 标记 closed,
+    /// 杜绝两个 State 并发写同一 .partial), 并把已 fetch 的 cachedRanges 交回
+    /// 给新 State 当 initialRanges, 让本 session 已经拉下来的字节不被丢弃。
+    /// finalizeSession 不会被 seek 路径触发, 所以这里不走 trailing fill ——
+    /// 新 State 会接管补齐 / rename 的职责。
+    fileprivate func closeForRebuild() -> [Range<Int64>] {
+        emitSessionSummary()
+        closeAndCancelForegroundFetches().forEach { $0.cancel() }
+        lock.lock()
+        let ranges = cachedRanges
+        lock.unlock()
+        return ranges
     }
 
     private func mergeRange(_ newRange: Range<Int64>) {

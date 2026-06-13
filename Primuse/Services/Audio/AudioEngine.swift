@@ -126,6 +126,9 @@ final class AudioEngine {
         self.isSetUp = true
         applySpatialAudioConfiguration()
         restoreVolume()
+        #if os(macOS)
+        restoreOutputRouting()
+        #endif
     }
 
     // MARK: - Engine Control
@@ -172,6 +175,49 @@ final class AudioEngine {
                 NSLocalizedDescriptionKey: "Failed to set output device (status=\(status))"
             ])
         }
+        // 显式钉到了某设备, 退出跟随系统状态并持久化。
+        UserDefaults.standard.set(false, forKey: Self.followsSystemKey)
+    }
+
+    /// 让 Primuse 回到「跟随系统默认输出」。把 AUHAL output unit 的
+    /// kAudioOutputUnitProperty_CurrentDevice 重置为 kAudioObjectUnknown(0),
+    /// 之后 AUHAL 会自动跟随系统默认输出设备的变化(插耳机、连 HomePod 等),
+    /// 不会再停在之前被钉死的那台设备上。
+    func followSystemOutput() throws {
+        try setUp()
+        guard let engine else { return }
+        let outputUnit = engine.outputNode.audioUnit
+        guard let outputUnit else { return }
+
+        var id = AudioDeviceID(kAudioObjectUnknown)
+        let status = AudioUnitSetProperty(
+            outputUnit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &id,
+            UInt32(MemoryLayout<AudioDeviceID>.size)
+        )
+        if status != noErr {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status), userInfo: [
+                NSLocalizedDescriptionKey: "Failed to follow system output (status=\(status))"
+            ])
+        }
+        UserDefaults.standard.set(true, forKey: Self.followsSystemKey)
+    }
+
+    /// 用户上次是否选了「跟随系统」。默认 true(从未显式钉过设备就是跟随)。
+    var followsSystemOutput: Bool {
+        UserDefaults.standard.object(forKey: Self.followsSystemKey) as? Bool ?? true
+    }
+
+    private static let followsSystemKey = "primuse_output_follows_system"
+
+    /// 启动恢复: 上次若处于跟随系统状态, 把 output unit 重置回跟随默认。
+    /// 上次钉死了具体设备就不动 —— AUHAL 会在该设备拔出后自然回退默认。
+    private func restoreOutputRouting() {
+        guard followsSystemOutput else { return }
+        try? followSystemOutput()
     }
 
     /// 取当前 audio unit 在用的设备 ID,用于在 picker 里高亮当前选中项。

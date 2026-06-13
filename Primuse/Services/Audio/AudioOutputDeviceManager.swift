@@ -51,9 +51,26 @@ final class AudioOutputDeviceManager {
     /// 系统默认输出设备 ID，作为「跟随系统」选项的回退目标。
     private(set) var systemDefaultID: AudioDeviceID?
 
+    /// 已注册的监听 (block + address)，deinit 时逐个注销，避免随视图反复创建而泄漏。
+    /// nonisolated(unsafe): 仅在 @MainActor 的 init/installListener 写入、deinit 读取一次，
+    /// 无并发访问，故安全地让 nonisolated 的 deinit 能注销监听。
+    nonisolated(unsafe) private var registeredListeners: [(block: AudioObjectPropertyListenerBlock, address: AudioObjectPropertyAddress)] = []
+
     init() {
         refresh()
         installListener()
+    }
+
+    deinit {
+        for listener in registeredListeners {
+            var address = listener.address
+            AudioObjectRemovePropertyListenerBlock(
+                AudioObjectID(kAudioObjectSystemObject),
+                &address,
+                DispatchQueue.main,
+                listener.block
+            )
+        }
     }
 
     /// 重新枚举一遍(用户接入/拔出蓝牙耳机时由 listener 触发)。
@@ -171,30 +188,26 @@ final class AudioOutputDeviceManager {
 
     /// 设备列表 / 系统默认设备变化时自动 refresh,不用调用方主动轮询。
     private func installListener() {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDevices,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        AudioObjectAddPropertyListenerBlock(
-            AudioObjectID(kAudioObjectSystemObject),
-            &address,
-            DispatchQueue.main
-        ) { [weak self] _, _ in
+        let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
             Task { @MainActor [weak self] in self?.refresh() }
         }
 
-        var defaultAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        AudioObjectAddPropertyListenerBlock(
-            AudioObjectID(kAudioObjectSystemObject),
-            &defaultAddress,
-            DispatchQueue.main
-        ) { [weak self] _, _ in
-            Task { @MainActor [weak self] in self?.refresh() }
+        for selector in [kAudioHardwarePropertyDevices,
+                         kAudioHardwarePropertyDefaultOutputDevice] {
+            var address = AudioObjectPropertyAddress(
+                mSelector: selector,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            let status = AudioObjectAddPropertyListenerBlock(
+                AudioObjectID(kAudioObjectSystemObject),
+                &address,
+                DispatchQueue.main,
+                block
+            )
+            if status == noErr {
+                registeredListeners.append((block: block, address: address))
+            }
         }
     }
 }
