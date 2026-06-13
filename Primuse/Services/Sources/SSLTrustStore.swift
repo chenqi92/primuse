@@ -30,10 +30,15 @@ final class SSLTrustStore {
         let id = UUID()
         let domain: String
         let certificateInfo: TrustedCertificateInfo?
-        let continuation: CheckedContinuation<Bool, Never>
+        // 同一 domain 的并发请求合并到一次用户决策,共享同一个结果。
+        var continuations: [CheckedContinuation<Bool, Never>]
     }
 
-    var pendingTrustRequest: TrustRequest?
+    /// 当前正在向用户征询的请求 (UI 的 `.sslTrustAlert` 绑定它)。
+    private(set) var pendingTrustRequest: TrustRequest?
+
+    /// 等待中的请求队列,逐个弹出向用户征询。每个不同 domain 一条。
+    private var waitingTrustRequests: [TrustRequest] = []
 
     private static let defaultDomains: [String] = []
 
@@ -113,6 +118,16 @@ final class SSLTrustStore {
         return domains.contains(domain)
     }
 
+    /// Thread-safe synchronous read of the pinned leaf-certificate SHA256 for a trusted domain.
+    /// Returns nil when the domain has no recorded fingerprint yet (TOFU first contact).
+    nonisolated static func pinnedFingerprintSync(domain: String) -> String? {
+        guard let data = UserDefaults.standard.data(forKey: certificateDefaultsKey),
+              let decoded = try? JSONDecoder().decode([TrustedCertificateInfo].self, from: data) else {
+            return nil
+        }
+        return decoded.first { $0.domain == domain }?.fingerprintSHA256
+    }
+
     /// Show a trust prompt to the user. Returns `true` if user chose to trust the domain.
     /// The UI layer (ContentView) observes `pendingTrustRequest` and shows an alert.
     func requestTrust(domain: String, certificateInfo: TrustedCertificateInfo? = nil) async -> Bool {
@@ -120,22 +135,82 @@ final class SSLTrustStore {
         if isTrusted(domain: domain) { return true }
 
         return await withCheckedContinuation { continuation in
-            pendingTrustRequest = TrustRequest(
+            // 同一 domain 已在征询 (无论是当前请求还是排队中的),合并到那次决策,
+            // 共享同一个用户选择,避免重复弹窗,也避免覆盖丢失旧 continuation。
+            if pendingTrustRequest?.domain == domain {
+                pendingTrustRequest?.continuations.append(continuation)
+                return
+            }
+            if let index = waitingTrustRequests.firstIndex(where: { $0.domain == domain }) {
+                waitingTrustRequests[index].continuations.append(continuation)
+                return
+            }
+            let request = TrustRequest(
                 domain: domain,
                 certificateInfo: certificateInfo,
-                continuation: continuation
+                continuations: [continuation]
             )
+            if pendingTrustRequest == nil {
+                // 没有正在征询的请求,直接展示。
+                pendingTrustRequest = request
+            } else {
+                // 已有不同 domain 在征询,排队等待,不覆盖。
+                waitingTrustRequests.append(request)
+            }
         }
     }
 
-    /// Resume the pending trust request with the user's choice.
+    /// Record the leaf-certificate fingerprint for an already-trusted domain on first contact (TOFU).
+    /// Only fills in a missing pin — never overwrites an existing fingerprint (that path needs user
+    /// confirmation via `requestTrustForChangedCertificate`).
+    func pinCertificateIfNeeded(domain: String, certificateInfo: TrustedCertificateInfo?) {
+        let normalized = domain.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return }
+        guard certificateInfo?.fingerprintSHA256 != nil else { return }
+        if let existing = self.certificateInfo(for: normalized)?.fingerprintSHA256, !existing.isEmpty {
+            return
+        }
+        trust(domain: normalized, certificateInfo: certificateInfo)
+    }
+
+    /// Ask the user to re-confirm a trusted domain whose leaf certificate no longer matches the
+    /// pinned fingerprint (rotation or interception). Unlike `requestTrust` this does not short-circuit
+    /// on the domain already being trusted; on approval it updates the stored fingerprint.
+    func requestTrustForChangedCertificate(domain: String, certificateInfo: TrustedCertificateInfo?) async -> Bool {
+        return await withCheckedContinuation { continuation in
+            // 同一 domain 已在征询 (无论当前还是排队中),合并到那次决策,共享同一个用户选择。
+            if pendingTrustRequest?.domain == domain {
+                pendingTrustRequest?.continuations.append(continuation)
+                return
+            }
+            if let index = waitingTrustRequests.firstIndex(where: { $0.domain == domain }) {
+                waitingTrustRequests[index].continuations.append(continuation)
+                return
+            }
+            let request = TrustRequest(
+                domain: domain,
+                certificateInfo: certificateInfo,
+                continuations: [continuation]
+            )
+            if pendingTrustRequest == nil {
+                pendingTrustRequest = request
+            } else {
+                waitingTrustRequests.append(request)
+            }
+        }
+    }
+
+    /// Resume the pending trust request with the user's choice, then present the next queued request.
     func resolveTrustRequest(approved: Bool) {
         guard let request = pendingTrustRequest else { return }
         if approved {
             trust(domain: request.domain, certificateInfo: request.certificateInfo)
         }
-        pendingTrustRequest = nil
-        request.continuation.resume(returning: approved)
+        // 先弹出下一个排队请求作为当前请求 (可能为 nil),再 resume 旧的所有 continuation。
+        pendingTrustRequest = waitingTrustRequests.isEmpty ? nil : waitingTrustRequests.removeFirst()
+        for continuation in request.continuations {
+            continuation.resume(returning: approved)
+        }
     }
 
     // MARK: - SSL Error Detection
@@ -247,7 +322,25 @@ final class SmartSSLDelegate: NSObject, URLSessionDelegate, Sendable {
            let trust = challenge.protectionSpace.serverTrust {
             let domain = challenge.protectionSpace.host
             if SSLTrustStore.isTrustedSync(domain: domain) {
-                return (.useCredential, URLCredential(trust: trust))
+                // TOFU 证书钉扎:比对当前 leaf 证书指纹与记录的指纹。
+                let info = SSLTrustStore.certificateInfo(domain: domain, trust: trust)
+                let currentFingerprint = info?.fingerprintSHA256
+                let pinnedFingerprint = SSLTrustStore.pinnedFingerprintSync(domain: domain)
+                if pinnedFingerprint == nil {
+                    // 首次接触:记录指纹并放行 (TOFU)。
+                    await SSLTrustStore.shared.pinCertificateIfNeeded(domain: domain, certificateInfo: info)
+                    return (.useCredential, URLCredential(trust: trust))
+                }
+                if let current = currentFingerprint, current == pinnedFingerprint {
+                    // 指纹一致,放行。
+                    return (.useCredential, URLCredential(trust: trust))
+                }
+                // 指纹不一致 (证书轮换/被替换):重新征询用户确认,通过则更新指纹。
+                let approved = await SSLTrustStore.shared.requestTrustForChangedCertificate(domain: domain, certificateInfo: info)
+                if approved {
+                    return (.useCredential, URLCredential(trust: trust))
+                }
+                return (.cancelAuthenticationChallenge, nil)
             }
             var trustError: CFError?
             if SecTrustEvaluateWithError(trust, &trustError) {
