@@ -12,6 +12,16 @@
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>zh-Hans</string>
+		<string>zh-Hant</string>
+		<string>ja</string>
+		<string>ko</string>
+		<string>fr</string>
+		<string>de</string>
+	</array>
 	<key>CFBundleName</key>
 	<string>Primuse</string>
 	<key>CFBundlePackageType</key>
@@ -40,5 +50,20 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_smb._tcp.</string>
+		<string>_webdav._tcp.</string>
+		<string>_webdavs._tcp.</string>
+		<string>_ftp._tcp.</string>
+		<string>_sftp-ssh._tcp.</string>
+		<string>_nfs._tcp.</string>
+		<string>_diskstation._tcp.</string>
+		<string>_synology-dsm._tcp.</string>
+		<string>_http._tcp.</string>
+		<string>_https._tcp.</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>猿音需要访问本地网络,以便从 iPhone 扫码直接接收音乐源配置、并自动发现局域网内的 NAS。</string>
 </dict>
 </plist>

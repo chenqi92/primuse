@@ -1,6 +1,13 @@
 import CloudKit
 import SwiftUI
 import PrimuseKit
+
+/// `primuse://pair` 扫码端点的 Identifiable 包装,供 `.sheet(item:)` 驱动「直传到 Apple TV」。
+struct PairTarget: Identifiable {
+    let id = UUID()
+    let link: LANPairLink
+}
+
 #if os(iOS)
 import BackgroundTasks
 import Intents
@@ -390,6 +397,8 @@ struct PrimuseApp: App {
     @State private var reauthSource: MusicSource?
     /// Apple TV 上的二维码扫码后(primuse://add-source)触发的"添加音乐源" sheet。
     @State private var deepLinkAddSource = false
+    /// Apple TV 局域网扫码(primuse://pair)解析出的端点,触发「直传到 Apple TV」sheet。
+    @State private var pairTarget: PairTarget?
 
     init() {
         let services = AppServices.shared
@@ -618,6 +627,12 @@ struct PrimuseApp: App {
                         deepLinkAddSource = true
                         return
                     }
+                    // Apple TV 局域网扫码:primuse://pair?host=&port=&k= → 弹「直传到 Apple TV」
+                    // (整库 / 源 / 凭据 AES-GCM 加密直接 POST 过去,不经 iCloud)。
+                    if let link = LANPairLink(url: url) {
+                        pairTarget = PairTarget(link: link)
+                        return
+                    }
                     #if os(macOS)
                     // macOS OAuth 走系统浏览器,callback 通过 primuse:// 回到 app。
                     if MacOAuthBridge.shared.handle(url) {
@@ -712,6 +727,11 @@ struct PrimuseApp: App {
                 }
                 .sheet(isPresented: $deepLinkAddSource) {
                     SendToTVSheet()
+                        .environment(musicLibrary)
+                        .environment(sourcesStore)
+                }
+                .sheet(item: $pairTarget) { target in
+                    SendToTVSheet(lanTarget: target.link)
                         .environment(musicLibrary)
                         .environment(sourcesStore)
                 }

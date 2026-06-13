@@ -504,6 +504,8 @@ targets:
       - path: Primuse/Services/Metadata/FileMetadataReader.swift
       - path: Primuse/Services/Metadata/LyricsParser.swift
       - path: Primuse/Services/Cloud/LibrarySnapshotSync.swift
+      # 内网自动发现(Bonjour/NWBrowser 找 NAS),与 iOS/macOS 同一份实现
+      - path: Primuse/Services/Sources/NetworkDiscoveryService.swift
       - path: Primuse/Utilities/FileLogger.swift
       - path: Primuse/Utilities/Extensions/TimeInterval+Format.swift
     resources:
@@ -512,6 +514,17 @@ targets:
       - target: PrimuseKit
       - target: PrimuseTopShelf
       - package: GRDB
+      # 协议直连(去 iPhone 中继):SMB / NFS / WebDAV·FTP 的 tvOS 原生客户端,
+      # 经 connector.fetchRange + AVAssetResourceLoaderDelegate 喂 AVPlayer。
+      - package: AMSMB2
+        embed: true
+      - package: FilesProvider
+        product: FilesProvider
+      - package: NFSKit
+        product: NFSKit
+      # 非 AVFoundation 原生格式(APE/WavPack/OGG/DSD 等)在 TV 本机解码。
+      - package: SFBAudioEngine
+        product: SFBAudioEngine
     info:
       path: PrimuseTV/Info.plist
       properties:
@@ -519,12 +532,37 @@ targets:
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         CFBundleDisplayName: "Primuse"
         CFBundleName: "Primuse"
+        # 声明支持的本地化语言。tvOS app 文案走 PrimuseKit.framework 里的 .lproj,主 app 包内
+        # 没有 .lproj;若不在此显式声明,系统会认为本 app 只支持开发区域(en),即便 Apple TV
+        # 设成中文也回落英文。声明后跟随设备语言:中文设备显示中文、英文显示英文。
+        CFBundleLocalizations:
+          - en
+          - zh-Hans
+          - zh-Hant
+          - ja
+          - ko
+          - fr
+          - de
         # 只用 HTTPS / 标准 OS 加密(豁免类),声明免出口合规,免去每次上传都要填。
         ITSAppUsesNonExemptEncryption: false
         # 允许播放局域网明文 HTTP(iPhone 中继 / http NAS 直链);AVPlayer 默认被 ATS 拦截
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
           NSAllowsLocalNetworking: true
+        # TV 起局域网监听接收 iPhone 扫码直传的源配置(TVConfigServer)+ Bonjour 发现 NAS,需声明本地网络用途
+        NSLocalNetworkUsageDescription: "猿音需要访问本地网络,以便从 iPhone 扫码直接接收音乐源配置、并自动发现局域网内的 NAS。"
+        # 内网自动发现要浏览的 Bonjour 服务类型(与 NetworkDiscoveryService.serviceTypes 一致)
+        NSBonjourServices:
+          - "_smb._tcp."
+          - "_webdav._tcp."
+          - "_webdavs._tcp."
+          - "_ftp._tcp."
+          - "_sftp-ssh._tcp."
+          - "_nfs._tcp."
+          - "_diskstation._tcp."
+          - "_synology-dsm._tcp."
+          - "_http._tcp."
+          - "_https._tcp."
         # Top Shelf 卡片点击经 primuse:// deep link 唤起 app(App.swift onOpenURL),
         # tvOS 必须在此注册该 scheme 才会把 URL 路由回来
         CFBundleURLTypes:

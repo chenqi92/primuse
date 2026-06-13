@@ -218,7 +218,7 @@ struct TVBottomBar: View {
             Button(action: openPlayer) {
                 HStack(spacing: 24) {
                     TVArtworkView(coverKey: np.albumID, artist: np.artist, album: np.album,
-                                  tint: np.tint, tint2: np.tint2, glyph: np.glyph, size: 62, radius: 8)
+                                  tint: np.tint, tint2: np.tint2, glyph: np.glyph, size: 48, radius: 8)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(np.title).font(.system(size: 22, weight: .semibold))
                             .foregroundStyle(.white).lineLimit(1)
@@ -248,11 +248,8 @@ struct TVBottomBar: View {
                 .padding(.leading, TVSpace.pageH)
                 .padding(.trailing, 8)
                 .frame(maxWidth: .infinity)
-                .frame(height: 96)
+                .frame(height: 72)
                 .background(focused ? Color.white.opacity(0.06) : .clear)
-                .overlay(alignment: .top) {
-                    Rectangle().fill(.white.opacity(focused ? 0.9 : 0)).frame(height: 3)
-                }
             }
             .buttonStyle(TVBareButtonStyle())
             .focused($focused)
@@ -265,7 +262,7 @@ struct TVBottomBar: View {
             TVRoundBtn(icon: "forward.fill", size: 48) { store.next() }
                 .padding(.trailing, TVSpace.pageH)
         }
-        .frame(height: 96)
+        .frame(height: 72)
         .frame(maxWidth: .infinity)
         .background(
             LinearGradient(colors: [.clear, .black.opacity(0.6), .black.opacity(0.85)],

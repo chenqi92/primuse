@@ -42,6 +42,8 @@ public enum StreamResolveError: Error, Sendable, Equatable {
     case missingCredential
     /// 服务端鉴权失败(会话过期 / 密码错误),协调器据此触发刷新+重试。
     case authFailed
+    /// 服务端要求两步验证(2FA / OTP),需用户在 TV 上输入一次性验证码。
+    case needs2FA
     case badServerResponse(Int)
     case cannotBuildURL
     /// 该源需经 iPhone 中继播放,但中继端点未同步到(iPhone 未开启 / 不在同一局域网)。
@@ -73,6 +75,12 @@ public protocol StreamResolver: Sendable {
 
     /// 会话失效时清掉缓存的会话(如 Synology `_sid`)。无状态源(Subsonic)空实现即可。
     func invalidateSession(sourceID: String) async
+
+    /// 2FA:用一次性验证码登录,并申请「受信设备」令牌(deviceId)返回供持久化 ——
+    /// 之后该设备登录即可跳过 OTP。不支持 2FA 设备令牌的源用默认实现(抛 authFailed)。
+    func loginForDeviceToken(source: MusicSource,
+                             credential: SourceCredential?,
+                             otp: String) async throws -> String?
 }
 
 public extension StreamResolver {
@@ -83,4 +91,10 @@ public extension StreamResolver {
     }
 
     func invalidateSession(sourceID: String) async {}
+
+    func loginForDeviceToken(source: MusicSource,
+                             credential: SourceCredential?,
+                             otp: String) async throws -> String? {
+        throw StreamResolveError.authFailed
+    }
 }

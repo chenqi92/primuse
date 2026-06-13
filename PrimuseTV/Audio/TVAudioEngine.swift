@@ -26,6 +26,18 @@ final class TVAudioEngine {
     private var itemStatusObs: NSKeyValueObservation?
     private var sessionConfigured = false
     private var resourceLoader: TVStreamResourceLoader?   // 自定义播放头时强引用(delegate 弱持有)
+    private var protocolLoader: TVProtocolResourceLoader?  // 协议直连(SMB/NFS/FTP/SFTP)时强引用
+
+    // 非原生格式(APE/WavPack/DSD 等 AVPlayer 解不了的)走 SFBAudioEngine。两引擎并列,
+    // usingSFB 决定 play/pause/seek/时间读取走哪一个。
+    @ObservationIgnored private lazy var sfb: TVSFBEngine = {
+        let e = TVSFBEngine()
+        e.onEnded = { [weak self] in self?.handleEnded() }
+        e.onStateChange = { [weak self] in self?.syncFromSFB() }
+        return e
+    }()
+    private var usingSFB = false
+    @ObservationIgnored private var sfbTimer: Timer?
 
     private var npTitle = ""
     private var npArtist = ""
@@ -64,6 +76,7 @@ final class TVAudioEngine {
     func load(url: URL, headers: [String: String] = [:], fileExtension: String? = nil,
               title: String, artist: String, album: String, duration: Double) {
         configureAudioSession()
+        resetSFBIfNeeded()
         npTitle = title; npArtist = artist; npAlbum = album
         self.duration = duration
         currentTime = 0
@@ -78,12 +91,41 @@ final class TVAudioEngine {
             let asset = AVURLAsset(url: masked)
             asset.resourceLoader.setDelegate(loader, queue: DispatchQueue(label: "tv.resourceloader"))
             resourceLoader = loader
+            protocolLoader = nil
             item = AVPlayerItem(asset: asset)
         } else {
             resourceLoader = nil
+            protocolLoader = nil
             item = AVPlayerItem(url: url)
         }
         plog("📺 TV engine.load host=\(url.host ?? "?") scheme=\(url.scheme ?? "?") headers=\(headers.count) dur=\(duration)")
+        finishLoad(item: item)
+    }
+
+    /// 协议直连(SMB / NFS / FTP / SFTP):用 ByteRangeReader 经 AVAssetResourceLoaderDelegate
+    /// 把原生协议字节流喂给 AVPlayer,不经 iPhone 中继。
+    func load(reader: ByteRangeReader, fileExtension: String?,
+              title: String, artist: String, album: String, duration: Double) {
+        configureAudioSession()
+        resetSFBIfNeeded()
+        npTitle = title; npArtist = artist; npAlbum = album
+        self.duration = duration
+        currentTime = 0
+        status = .loading
+        guard let url = TVProtocolResourceLoader.makeURL() else {
+            status = .failed(PMString("ext.tv.playback.cannotBuildURL")); return
+        }
+        let loader = TVProtocolResourceLoader(reader: reader, fileExtension: fileExtension)
+        let asset = AVURLAsset(url: url)
+        asset.resourceLoader.setDelegate(loader, queue: DispatchQueue(label: "tv.protoloader"))
+        protocolLoader = loader
+        resourceLoader = nil
+        plog("📺 TV engine.load(reader) ext=\(fileExtension ?? "?") dur=\(duration)")
+        finishLoad(item: AVPlayerItem(asset: asset))
+    }
+
+    /// 挂 KVO 状态观察 + 上播放器 + 刷新 Now Playing。两条 load 路径共用。
+    private func finishLoad(item: AVPlayerItem) {
         itemStatusObs = item.observe(\.status, options: [.new]) { [weak self] item, _ in
             // KVO 回调在属性变更线程上同步执行,AVFoundation 不保证主线程投递(.failed 尤其常落后台队列),
             // 故显式跳主线程,不能用 assumeIsolated 假设隔离。
@@ -107,16 +149,43 @@ final class TVAudioEngine {
         updateNowPlayingInfo()
     }
 
+    /// 非原生格式:用 SFBAudioEngine 解码播放已下载到本地的文件(AVPlayer 解不了的格式)。
+    func loadDecoded(fileURL: URL, title: String, artist: String, album: String, duration: Double) {
+        configureAudioSession()
+        // 让 AVPlayer 静音让位。
+        player.replaceCurrentItem(with: nil)
+        resourceLoader = nil
+        protocolLoader = nil
+        npTitle = title; npArtist = artist; npAlbum = album
+        self.duration = duration
+        currentTime = 0
+        status = .loading
+        usingSFB = true
+        startSFBPolling()
+        do {
+            try sfb.play(url: fileURL)
+            isPlaying = true
+            status = .playing
+            plog("📺 TV engine.loadDecoded(SFB) \(fileURL.lastPathComponent) dur=\(duration)")
+        } catch {
+            usingSFB = false
+            stopSFBPolling()
+            status = .failed(error.localizedDescription)
+            plog("📺 TV engine: SFB decode FAILED — \(error.localizedDescription)")
+        }
+        updateNowPlayingInfo()
+    }
+
     func play() {
         configureAudioSession()
-        player.play()
+        if usingSFB { sfb.resume() } else { player.play() }
         isPlaying = true
         status = .playing
         updateNowPlayingInfo()
     }
 
     func pause() {
-        player.pause()
+        if usingSFB { sfb.pause() } else { player.pause() }
         isPlaying = false
         status = .paused
         updateNowPlayingInfo()
@@ -125,6 +194,7 @@ final class TVAudioEngine {
     func togglePlayPause() { isPlaying ? pause() : play() }
 
     func stop() {
+        if usingSFB { sfb.stop(); usingSFB = false; stopSFBPolling() }
         player.pause()
         player.replaceCurrentItem(with: nil)
         isPlaying = false
@@ -136,10 +206,47 @@ final class TVAudioEngine {
     func seek(to seconds: Double) {
         let target = max(0, seconds)
         currentTime = target
+        if usingSFB {
+            sfb.seek(target)
+            updateNowPlayingInfo()
+            return
+        }
         player.seek(to: CMTime(seconds: target, preferredTimescale: 600)) { [weak self] _ in
             // seek completion 回调走 AVPlayer 内部串行队列,不保证主线程,显式跳主线程而非 assumeIsolated。
             Task { @MainActor in self?.updateNowPlayingInfo() }
         }
+    }
+
+    // MARK: SFB(非原生格式)引擎切换 / 状态镜像
+
+    /// 切回 AVPlayer 路径前,确保 SFB 引擎停掉、轮询取消。
+    private func resetSFBIfNeeded() {
+        if usingSFB { sfb.stop(); usingSFB = false; stopSFBPolling() }
+    }
+
+    /// SFB 无 AVPlayer 的 periodicTimeObserver,用定时器把 currentTime/duration/isPlaying 镜像进
+    /// @Observable 属性,供正在播放页进度与传输键读取。
+    private func startSFBPolling() {
+        stopSFBPolling()
+        let t = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.syncFromSFB() }
+        }
+        RunLoop.main.add(t, forMode: .common)
+        sfbTimer = t
+    }
+
+    private func stopSFBPolling() {
+        sfbTimer?.invalidate()
+        sfbTimer = nil
+    }
+
+    private func syncFromSFB() {
+        guard usingSFB else { return }
+        let t = sfb.currentTime
+        if t.isFinite { currentTime = t }
+        if duration <= 0, sfb.duration > 0 { duration = sfb.duration }
+        isPlaying = sfb.isPlaying
+        updateNowPlayingInfo()
     }
 
     func seekToFraction(_ f: Double) {

@@ -46,6 +46,25 @@ final class TVPlaybackCoordinator {
         }
         let credential = TVCredentialStore.credential(for: source, bundle: store.credentialBundle)
         plog("🎬 TV play: '\(song.title)' src=\(source.type.rawValue)/\(source.name) cred=\(credential != nil) path=\(song.filePath.suffix(40))")
+        // 非原生格式(APE/WavPack/DSD/OGG/WMA 等 AVPlayer 解不了的):下载到本地后用
+        // SFBAudioEngine 本机解码。适用所有源类型(协议 + HTTP)。
+        let ext = song.fileFormat.rawValue.lowercased()
+        if !(ext.isEmpty || Self.nativeFormats.contains(ext)) {
+            plog("🎬 TV play: non-native '\(ext)' → SFBAudioEngine decode")
+            await playNonNative(song: song, source: source, credential: credential, ext: ext)
+            return
+        }
+        // 协议直连(SMB/NFS/FTP/SFTP):用原生协议库按 range 读字节直接喂 AVPlayer,不经 iPhone
+        // 中继。建得出 reader 即走直连;建不出(配置缺失)回落到 resolveStream(中继 / 其它)。
+        if let reader = Self.makeDirectReader(source: source, song: song, credential: credential) {
+            plog("🎬 TV play: direct protocol \(source.type.rawValue)")
+            engine.load(reader: reader, fileExtension: song.fileFormat.rawValue,
+                        title: song.title, artist: song.artistName ?? "",
+                        album: song.albumTitle ?? "", duration: song.duration)
+            engine.play()
+            loadLyrics(song: song, source: source, credential: credential)
+            return
+        }
         do {
             let resolved = try await resolveStream(song: song, source: source, credential: credential, retried: false)
             plog("🎬 TV play: resolved → host=\(resolved.url.host ?? "?") headers=\(resolved.headers.count)")
@@ -64,6 +83,77 @@ final class TVPlaybackCoordinator {
         } catch {
             plog("🎬 TV play: resolve error — \(error)")
             store.playbackIssue = .failed(error.localizedDescription)
+        }
+    }
+
+    /// AVPlayer / AVFoundation 在 tvOS 原生可解码的格式;其余走 SFBAudioEngine。
+    static let nativeFormats: Set<String> = [
+        "mp3", "aac", "m4a", "alac", "wav", "aiff", "aif", "flac", "opus", "caf", "mp4",
+    ]
+
+    /// 非原生格式:下载整文件到临时路径,交给 SFBAudioEngine 本机解码播放。
+    private func playNonNative(song: Song, source: MusicSource,
+                              credential: SourceCredential?, ext: String) async {
+        do {
+            let tempURL = try await downloadToTemp(song: song, source: source, credential: credential, ext: ext)
+            engine.loadDecoded(fileURL: tempURL, title: song.title, artist: song.artistName ?? "",
+                               album: song.albumTitle ?? "", duration: song.duration)
+            loadLyrics(song: song, source: source, credential: credential)
+        } catch let e as StreamResolveError {
+            plog("🎬 TV play: non-native resolve FAILED — \(e)")
+            store.playbackIssue = issue(for: e, source: source)
+        } catch {
+            plog("🎬 TV play: non-native download error — \(error)")
+            store.playbackIssue = .failed(error.localizedDescription)
+        }
+    }
+
+    /// 把整文件下载到 tmp:协议源走 reader 分块落盘,HTTP 源走 resolve + URLSession。
+    private func downloadToTemp(song: Song, source: MusicSource,
+                              credential: SourceCredential?, ext: String) async throws -> URL {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tvsfb-\(UUID().uuidString).\(ext.isEmpty ? "bin" : ext)")
+        if let reader = Self.makeDirectReader(source: source, song: song, credential: credential) {
+            let total = try await reader.contentLength()
+            FileManager.default.createFile(atPath: tmp.path, contents: nil)
+            let handle = try FileHandle(forWritingTo: tmp)
+            defer { try? handle.close() }
+            var offset: Int64 = 0
+            let chunk: Int64 = 1 << 20
+            while offset < total {
+                let len = min(chunk, total - offset)
+                let data = try await reader.read(offset: offset, length: len)
+                if data.isEmpty { break }
+                try handle.write(contentsOf: data)
+                offset += Int64(data.count)
+            }
+            return tmp
+        }
+        // HTTP 源:解析成 URL + 头,整文件下载。
+        let resolved = try await registry.resolve(for: song, source: source, credential: credential)
+        var req = URLRequest(url: resolved.url)
+        for (k, v) in resolved.headers { req.setValue(v, forHTTPHeaderField: k) }
+        let (data, response) = try await Self.lyricsSession.data(for: req)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw StreamResolveError.badServerResponse(http.statusCode)
+        }
+        try data.write(to: tmp)
+        return tmp
+    }
+
+    /// 按源类型构造直连协议读取器(非 HTTP)。返回 nil 表示该类型不直连(走 resolveStream)。
+    /// 随各协议读取器接通逐步扩充。
+    static func makeDirectReader(source: MusicSource, song: Song,
+                                 credential: SourceCredential?) -> ByteRangeReader? {
+        switch source.type {
+        case .smb:
+            return SMBByteReader(source: source, filePath: song.filePath, credential: credential)
+        case .nfs:
+            return NFSByteReader(source: source, filePath: song.filePath)
+        case .ftp:
+            return FTPByteReader(source: source, filePath: song.filePath, credential: credential)
+        default:
+            return nil
         }
     }
 
@@ -91,17 +181,23 @@ final class TVPlaybackCoordinator {
                 store?.applyLyrics(Self.toTVLyrics(cached), forSongID: songID)
                 return
             }
-            // .json = 本机缓存名(上面已查过);其余非空值视为源里的歌词文件路径。
-            guard let lf = song.lyricsFileName, !lf.isEmpty, !lf.hasSuffix(".json") else { return }
+            // 歌词文件路径:① song.lyricsFileName 指向的源内 .lrc(.json 是本机缓存名,已查过);
+            // ② 协议直连源(SMB/NFS/FTP)按音频路径推同名 .lrc —— 即便扫描时没记录歌词,播放时
+            //    也能就地从 NAS 同目录读到。
+            let isDirect = Self.makeDirectReader(source: source, song: song, credential: credential) != nil
+            var lrcPath: String?
+            if let lf = song.lyricsFileName, !lf.isEmpty, !lf.hasSuffix(".json") {
+                lrcPath = lf
+            } else if isDirect {
+                let ns = song.filePath as NSString
+                if !ns.pathExtension.isEmpty { lrcPath = ns.deletingPathExtension + ".lrc" }
+            }
+            guard let lrcPath else { return }
             var lrcSong = song
-            lrcSong.filePath = lf
+            lrcSong.filePath = lrcPath
             do {
-                let resolved = try await StreamResolverRegistry.shared.resolve(
-                    for: lrcSong, source: source, credential: credential)
-                var req = URLRequest(url: resolved.url)
-                for (k, v) in resolved.headers { req.setValue(v, forHTTPHeaderField: k) }
-                let (data, _) = try await Self.lyricsSession.data(for: req)
-                guard let text = String(data: data, encoding: .utf8), !text.isEmpty else { return }
+                guard let text = try await Self.fetchLyricText(song: lrcSong, source: source, credential: credential),
+                      !text.isEmpty else { return }
                 let lines = LyricsParser.parse(text)
                 guard !lines.isEmpty else { return }
                 _ = await MetadataAssetStore.shared.cacheLyrics(lines, forSongID: songID, force: false)
@@ -111,6 +207,22 @@ final class TVPlaybackCoordinator {
                 plog("🎬 TV source-lyrics fetch failed '\(song.title)': \(error)")
             }
         }
+    }
+
+    /// 取歌词文本:协议直连源用 reader 直读小文件;HTTP/云盘走 StreamResolver 解 URL 下载。
+    private static func fetchLyricText(song: Song, source: MusicSource,
+                                       credential: SourceCredential?) async throws -> String? {
+        if let reader = makeDirectReader(source: source, song: song, credential: credential) {
+            let size = try await reader.contentLength()
+            guard size > 0, size < 512 * 1024 else { return nil }
+            let data = try await reader.read(offset: 0, length: size)
+            return String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1)
+        }
+        let resolved = try await StreamResolverRegistry.shared.resolve(for: song, source: source, credential: credential)
+        var req = URLRequest(url: resolved.url)
+        for (k, v) in resolved.headers { req.setValue(v, forHTTPHeaderField: k) }
+        let (data, _) = try await lyricsSession.data(for: req)
+        return String(data: data, encoding: .utf8)
     }
 
     private nonisolated static func toTVLyrics(_ lines: [LyricLine]) -> [TVLyricLine] {
@@ -133,6 +245,7 @@ final class TVPlaybackCoordinator {
         switch error {
         case .unsupportedSourceType(let type): return .unsupported(type.displayName)
         case .missingCredential: return .missingCredential(source.name)
+        case .needs2FA: return .failed("需要两步验证 —— 请到「音乐源」页长按该源选「两步验证登录」")
         case .authFailed: return .failed(PMString("ext.tv.playback.authFailed"))
         case .badServerResponse(let code): return .failed(PMString("ext.tv.playback.httpError", code))
         case .cannotBuildURL: return .failed(PMString("ext.tv.playback.cannotBuildURL"))

@@ -98,6 +98,16 @@ struct TVArtworkView: View {
             // key 变了:先清掉上一张专辑的封面,回到程序化占位再取新图
             image = nil
             let key = coverKey
+            // ① 扫描时从文件读出的内嵌专辑封面(本机缓存,无需联网)优先
+            if !key.isEmpty,
+               let data = await MetadataAssetStore.shared.cachedAlbumCover(forAlbumID: key),
+               let ui = UIImage(data: data) {
+                guard key == coverKey else { return }
+                image = ui
+                loadedKey = key
+                return
+            }
+            // ② 否则按 (艺术家, 专辑) 在线取真实封面
             if let data = await TVArtworkLoader.shared.cover(key: key, artist: artist, album: album),
                let ui = UIImage(data: data) {
                 // 回填前校验 key 仍是当前值,防止慢加载串图

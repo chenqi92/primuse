@@ -192,9 +192,14 @@ final class LibrarySnapshotSync: Sendable {
     /// tvOS:把快照里的歌词文件还原到本机 MetadataAssetStore(文件名不变,
     /// cachedLyrics(forSongID:) 即可按同名读回)。
     private static func restoreLyrics(from record: CKRecord, fm: FileManager) {
-        guard let gzField = record["lyricsGz"] as? Data,
-              let raw = try? (Data(gzField) as NSData).decompressed(using: .zlib) as Data,
-              let blob = (try? JSONSerialization.jsonObject(with: raw)) as? [String: String] else { return }
+        guard let gzField = record["lyricsGz"] as? Data, let raw = gunzip(gzField) else { return }
+        writeLyrics(blob: raw, fm: fm)
+    }
+
+    /// 把歌词 blob(解压后的 JSON `{文件名: base64}`)还原到本机 MetadataAssetStore。
+    /// CloudKit 与 LAN 直传两条路共用(各自先把 gzip 字段解压再调这里)。
+    static func writeLyrics(blob raw: Data, fm: FileManager) {
+        guard let blob = (try? JSONSerialization.jsonObject(with: raw)) as? [String: String] else { return }
         let dir = MetadataAssetStore.shared.lyricsDirectoryURL
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
         var n = 0
@@ -206,6 +211,10 @@ final class LibrarySnapshotSync: Sendable {
         }
         plog("LibrarySnapshotSync: restored \(n) lyrics files")
     }
+
+    /// gzip(zlib) 压缩 / 解压。CloudKit 的 `*Gz` 字段与 LAN 直传载荷共用同一份字节。
+    static func gzip(_ raw: Data) -> Data? { try? (raw as NSData).compressed(using: .zlib) as Data }
+    static func gunzip(_ gz: Data) -> Data? { try? (Data(gz) as NSData).decompressed(using: .zlib) as Data }
 
     /// 把 `fileURL` 的内容压缩后内联进 record;过大则回退 CKAsset。返回简要说明供日志。
     @discardableResult
@@ -282,15 +291,15 @@ final class LibrarySnapshotSync: Sendable {
 
     #if !os(tvOS)
     /// iOS / macOS:从本地 sources.json 读源,采集各源凭据(密码 / OAuth token /
-    /// client 密钥)→ 加密上传,供 Apple TV 流式播放时解析。
-    private func gatherAndUploadCredentials() async {
-        // 用户在设置里关闭「凭据」同步通道(或主开关)后,绝不把各源密码 / OAuth
-        // token / client 密钥上云,即便走 encryptedValues 端到端加密也要尊重选择。
-        guard CloudSyncChannel.isEnabled(.credentials) else { return }
-        guard let data = try? Data(contentsOf: sourcesURL) else { return }
+    /// client 密钥)成凭据包。`respectingChannel`:走 iCloud 时为 true,会尊重用户的
+    /// 「凭据同步」开关;LAN 直传是用户显式扫码发起 + 端到端加密 + 仅本地一跳,故传
+    /// false 不受该开关限制(用户既然扫码就是要把源连过去)。
+    func gatherCredentialBundle(respectingChannel: Bool) async -> CredentialBundle {
+        if respectingChannel, !CloudSyncChannel.isEnabled(.credentials) { return CredentialBundle() }
+        guard let data = try? Data(contentsOf: sourcesURL) else { return CredentialBundle() }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        guard let sources = try? decoder.decode([MusicSource].self, from: data) else { return }
+        guard let sources = try? decoder.decode([MusicSource].self, from: data) else { return CredentialBundle() }
 
         var entries: [String: CredentialEntry] = [:]
         // 含手机上「停用」的源:Apple TV 可能本地启用某个手机上停用的源来播放,
@@ -312,7 +321,72 @@ final class LibrarySnapshotSync: Sendable {
         }
         var bundle = CredentialBundle(entries: entries)
         bundle.relay = PhoneRelayServer.shared.endpoint()   // iPhone 中继端点(开启时)
-        await uploadCredentials(bundle)
+        return bundle
+    }
+
+    /// CloudKit:采集凭据并加密上传(尊重「凭据同步」开关)。
+    private func gatherAndUploadCredentials() async {
+        guard CloudSyncChannel.isEnabled(.credentials) else { return }
+        await uploadCredentials(await gatherCredentialBundle(respectingChannel: true))
+    }
+
+    // MARK: LAN 直传(扫码,绕开 iCloud)
+
+    /// 构建与 CloudKit 快照同构的整库 + 源 + 歌词 + 凭据载荷(各 `*Gz` 是同一份压缩字节)。
+    func buildLANPayload() async -> LANSyncPayload {
+        var payload = LANSyncPayload()
+        if let raw = try? Data(contentsOf: libraryCacheURL) { payload.libraryGz = Self.gzip(raw) }
+        if let raw = try? Data(contentsOf: sourcesURL) { payload.sourcesGz = Self.gzip(raw) }
+        if let blob = Self.gatherLyricsBlob() { payload.lyricsGz = Self.gzip(blob) }
+        payload.credentials = await gatherCredentialBundle(respectingChannel: false)
+        return payload
+    }
+
+    /// 把整库 + 源 + 凭据 AES-GCM 加密后直接 POST 给 Apple TV(`primuse://pair` 扫码端点)。
+    /// 调用前应先 `MusicLibrary.persistNow()`,否则 library-cache.json 可能不是最新。
+    func sendToTVOverLAN(_ link: LANPairLink) async -> Bool {
+        let payload = await buildLANPayload()
+        guard let json = try? payload.jsonData(),
+              let box = LANSyncCrypto.seal(json, key: link.key),
+              let url = link.configURL else { return false }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        req.timeoutInterval = 30
+        do {
+            let (_, resp) = try await URLSession.shared.upload(for: req, from: box)
+            let ok = (resp as? HTTPURLResponse)?.statusCode == 200
+            plog("LibrarySnapshotSync: LAN send → \(ok ? "OK" : "fail") (\(box.count)B) \(link.host):\(link.port)")
+            return ok
+        } catch {
+            plog("LibrarySnapshotSync: LAN send failed — \(error)")
+            return false
+        }
+    }
+    #endif
+
+    #if os(tvOS)
+    /// tvOS:把 iPhone 经局域网直传来的载荷落盘(整库 + 源 + 歌词),与 CloudKit
+    /// `download()` 写盘同路。返回整库是否变化(供调用方决定是否重载)。凭据由调用方
+    /// (TVStore)单独经 TVCredentialStore 持久化。
+    @discardableResult
+    func applyLANPayload(_ payload: LANSyncPayload) -> Bool {
+        let fm = FileManager.default
+        try? fm.createDirectory(at: directory, withIntermediateDirectories: true)
+        var libraryChanged = false
+        if let gz = payload.libraryGz, let raw = Self.gunzip(gz) {
+            try? fm.removeItem(at: libraryCacheURL)
+            if (try? raw.write(to: libraryCacheURL)) != nil { libraryChanged = true }
+        }
+        if let gz = payload.sourcesGz, let raw = Self.gunzip(gz) {
+            try? fm.removeItem(at: sourcesURL)
+            try? raw.write(to: sourcesURL)
+        }
+        if let gz = payload.lyricsGz, let raw = Self.gunzip(gz) {
+            Self.writeLyrics(blob: raw, fm: fm)
+        }
+        plog("LibrarySnapshotSync: applied LAN payload (library=\(libraryChanged))")
+        return libraryChanged
     }
     #endif
 }

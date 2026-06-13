@@ -76,6 +76,8 @@ struct TVSource: Identifiable, Hashable {
     let color: Color
     let playability: TVPlayability   // 能否在 TV 播放(徽标用)
     let canEnterCredential: Bool     // 是否适合在 TV 上手动输入账号密码(服务端登录类源)
+    let supports2FA: Bool            // NAS 类:支持两步验证(可在 TV 上输 OTP 申请受信设备)
+    let canScan: Bool                // 能否在 TV 上浏览目录 + 扫描(目前 SMB)
     static func == (l: TVSource, r: TVSource) -> Bool { l.id == r.id }
     func hash(into h: inout Hasher) { h.combine(id) }
 }
@@ -128,8 +130,40 @@ final class TVStore {
     var lyrics: [TVLyricLine] = []        // tvOS 暂未同步歌词
     var queueUpNextIDs: [String] = []
     var playbackIssue: TVPlaybackIssue?   // 解析/播放受阻原因(展示用)
-    var credentialBundle: CredentialBundle?   // 经 iCloud(CloudKit 加密)同步下来的源凭据
+    var credentialBundle: CredentialBundle?   // 经 iCloud(CloudKit 加密)同步下来 / 局域网直传来的源凭据
     var sourcesRevision = 0   // 源启用/删除后 bump,强制 sources 视图重渲染(嵌套 store 观察传导不稳)
+
+    // 局域网「扫码直传」接收端(绕开 iCloud)。二维码内容随端点就绪更新。
+    @ObservationIgnored let configServer = TVConfigServer()
+    @ObservationIgnored private var pairingStarted = false
+    var pairingQRContent: String = "primuse://add-source"   // 服务未起时退回旧的 iCloud 扫码引导串
+
+    // TV 本机扫描(路径快扫;目前 SMB)。视图观察 scanner.phase/indexed/currentFile。
+    @ObservationIgnored let scanner = TVSourceScanner()
+
+    // 内网自动发现(Bonjour),与 iOS/macOS 同一实现。
+    @ObservationIgnored let discovery = NetworkDiscoveryService()
+    /// 过滤掉打印机 / 路由器等噪声(_http/_https 猜成 webdav 的),但保留所有正常文件/NAS 源。
+    var discoveredDevices: [DiscoveredDevice] { discovery.devices.filter(Self.isLikelyMusicSource) }
+    func startDeviceDiscovery() { discovery.startDiscovery() }
+    func stopDeviceDiscovery() { discovery.stopDiscovery() }
+
+    /// 明确的文件/NAS 协议服务一律保留(SMB/WebDAV/FTP/SFTP/NFS/群晖广播);只有 `_http/_https`
+    /// 猜出来的(端口 80/443→webdav,常是打印机/路由器/网页)才需要名字或端口佐证才保留。
+    nonisolated static func isLikelyMusicSource(_ d: DiscoveredDevice) -> Bool {
+        let explicit: Set<String> = [
+            "_smb._tcp.", "_webdav._tcp.", "_webdavs._tcp.", "_ftp._tcp.",
+            "_sftp-ssh._tcp.", "_nfs._tcp.", "_diskstation._tcp.", "_synology-dsm._tcp.",
+        ]
+        if explicit.contains(d.serviceType) { return true }
+        // _http/_https:名字含 NAS/媒体关键词,或端口是已知媒体/NAS 端口,才认为是源。
+        let n = d.name.lowercased()
+        let keywords = ["synology", "diskstation", "qnap", "ugreen", "fnos", "飞牛", "nas",
+                        "jellyfin", "emby", "plex", "navidrome", "subsonic", "airsonic", "truenas"]
+        if keywords.contains(where: { n.contains($0) }) { return true }
+        let mediaPorts: Set<Int> = [5000, 5001, 8080, 9999, 5666, 8096, 32400, 4040, 4533, 4747]
+        return mediaPorts.contains(d.port)
+    }
     private var queue: [String] = []      // 当前队列(真实 Song id)
     private var queueIndex = 0
     private var localLiked = Set<String>()
@@ -181,6 +215,41 @@ final class TVStore {
 
     func album(_ id: String) -> TVAlbum? { albumByID[id] }
     func song(_ id: String) -> TVSong? { songByID[id] }
+
+    // MARK: 搜索(含歌词级,与 iOS/macOS 共用 LibrarySearchWorker)
+
+    struct TVSearchHit: Identifiable {
+        let song: TVSong
+        let isLyric: Bool          // 命中的是歌词内容(展示片段)
+        let lyricSnippet: String?
+        var id: String { song.id }
+    }
+
+    @ObservationIgnored private var searchCache = LibrarySearchCache()
+
+    /// metadata + 拼音 + 模糊 + 歌词内容四类匹配(歌词数据来自同步过来的缓存)。
+    func searchHits(_ query: String) -> (top: TVArtist?, songs: [TVSearchHit]) {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return (nil, []) }
+        let out = LibrarySearchWorker.compute(query: q, songs: library.visibleSongs,
+                                              albums: library.visibleAlbums, cache: searchCache)
+        searchCache = out.cache
+        var hits: [TVSearchHit] = []
+        for r in out.songResults.prefix(24) {
+            guard let tv = song(r.song.id) else { continue }
+            hits.append(TVSearchHit(song: tv, isLyric: r.matchKind == .lyrics, lyricSnippet: r.lyricSnippet))
+        }
+        let top = artists.first { $0.name.localizedCaseInsensitiveContains(q) }
+        return (top, hits)
+    }
+
+    /// 空查询时的建议(艺术家名),与旧逻辑一致。
+    func searchSuggestions(_ query: String) -> [String] {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        let names = artists.map(\.name)
+        let hits = q.isEmpty ? names : names.filter { $0.localizedCaseInsensitiveContains(q) }
+        return Array((hits.isEmpty ? names : hits).prefix(5))
+    }
     func albumOf(_ song: TVSong) -> TVAlbum? { album(song.albumID) }
     func songs(forAlbum id: String) -> [TVSong] {
         library.songs(forAlbum: id).map { self.map($0) }
@@ -240,7 +309,36 @@ final class TVStore {
                         host: s.host ?? s.basePath ?? s.type.displayName,
                         status: s.isEnabled ? .connected : .disabled, songs: cnt, color: c,
                         playability: playability(for: s),
-                        canEnterCredential: Self.manualCredentialTypes.contains(s.type))
+                        canEnterCredential: Self.manualCredentialTypes.contains(s.type),
+                        supports2FA: s.type.supports2FA,
+                        canScan: s.type == .smb)
+    }
+
+    /// NAS 两步验证:用一次性验证码登录,成功则把申请到的「受信设备」令牌(deviceId)存进源,
+    /// 之后该设备登录即可跳过 OTP。返回 nil 表示成功,否则返回错误文案。
+    func login2FA(sourceID: String, otp: String) async -> String? {
+        guard let source = sourcesStore.source(id: sourceID) else { return "源不存在" }
+        let cred = TVCredentialStore.credential(for: source, bundle: credentialBundle)
+        do {
+            let did = try await StreamResolverRegistry.shared.loginForDeviceToken(
+                source: source, credential: cred, otp: otp)
+            if let did, !did.isEmpty {
+                sourcesStore.updateLocal(sourceID) { $0.deviceId = did }
+            }
+            await StreamResolverRegistry.shared.invalidateSession(for: source)
+            sourcesRevision += 1
+            enqueueSnapshotUpload()
+            return nil
+        } catch let e as StreamResolveError {
+            switch e {
+            case .needs2FA: return "验证码无效,请重试"
+            case .missingCredential: return "缺少账号密码,请先在该源上输入登录凭据"
+            case .authFailed: return "登录失败(账号或密码错误)"
+            default: return "登录失败"
+            }
+        } catch {
+            return error.localizedDescription
+        }
     }
 
     // MARK: - TV 可播放性判断 + 手动凭据
@@ -254,9 +352,16 @@ final class TVStore {
     ]
 
     /// 判断一个源能否在 Apple TV 上播放(注册表支持类型 + 凭据/中继可用性)。
+    /// 在 TV 上本机直连播放(不经 iPhone 中继)的协议类型。与 TVPlaybackCoordinator.makeDirectReader 对应。
+    static let directProtocolTypes: Set<MusicSourceType> = [.smb, .nfs, .ftp]
+
     private func playability(for s: MusicSource) -> TVPlayability {
         let type = s.type
-        // relay 类:能否播放取决于 iPhone 中继端点是否已同步过来。
+        // 协议直连(SMB/NFS/FTP):TV 本机直读,无需中继 → 可直接播放。
+        if Self.directProtocolTypes.contains(type) {
+            return .ok
+        }
+        // 其余 relay 类(SFTP/local/appleMusic):能否播放取决于 iPhone 中继端点是否已同步过来。
         if RelayStreamResolver.relayTypes.contains(type) {
             return credentialBundle?.relay != nil ? .ok : .needsRelay
         }
@@ -308,6 +413,15 @@ final class TVStore {
             return PMString("ext.tv.test.noSongs")
         }
         let cred = TVCredentialStore.credential(for: source, bundle: credentialBundle)
+        // 协议直连(SMB/NFS/FTP):测真实字节读取器(与播放同路径),不走中继。
+        if let reader = TVPlaybackCoordinator.makeDirectReader(source: source, song: song, credential: cred) {
+            do {
+                let len = try await reader.contentLength()
+                return "已连接 · \(source.host ?? "")(直连,可在 TV 直接播放)· 文件 \(TVFmt.count(Int(len / 1024))) KB"
+            } catch {
+                return "连接失败:\(error.localizedDescription)"
+            }
+        }
         do {
             let resolved = try await StreamResolverRegistry.shared.resolve(for: song, source: source, credential: cred)
             return PMString("ext.tv.test.connectedPrefix") + (resolved.url.host ?? PMString("ext.tv.test.resolved"))
@@ -317,6 +431,8 @@ final class TVStore {
                 return PMString("ext.tv.test.unsupported", t.displayName)
             case .missingCredential:
                 return PMString("ext.tv.test.missingCredential")
+            case .needs2FA:
+                return "需要两步验证 —— 请长按该源选「两步验证登录」输入验证码"
             case .authFailed:
                 return PMString("ext.tv.test.authFailed")
             case .badServerResponse(let code):
@@ -350,12 +466,69 @@ final class TVStore {
         #if DEBUG
         injectDebugCredential()   // 先注入,避免与自动播放钩子竞态(CloudKit await 期间)
         #endif
+        // 先载入持久化(含上次会话在 TV 上扫的歌),捕获后再下载手机快照覆盖文件,
+        // 之后用 reloadMerging 把 TV-only 源的歌合并回来(同步不冲掉 TV 扫的)。
+        library.reloadFromDisk()
+        let before = library.songs
         await LibrarySnapshotSync.shared.download()
-        reload()
-        // 真实凭据(CloudKit)拉到才覆盖;模拟器无 iCloud 返回 nil 时保留上面注入的。
-        if let creds = await LibrarySnapshotSync.shared.downloadCredentials() {
-            credentialBundle = creds
+        reloadMerging(before: before)
+        // 凭据优先级:① 局域网直传存下来的配对包(reload 已载入)为基线;② CloudKit
+        // 拉到(同账号兜底)的逐条覆盖上去。不同 Apple ID 的 TV,CloudKit 返回 nil,
+        // 仅靠 LAN 配对包即可;同账号则两者合并。模拟器无 iCloud 也保留注入的 DEBUG 凭据。
+        if let cloud = await LibrarySnapshotSync.shared.downloadCredentials() {
+            var merged = credentialBundle ?? CredentialBundle()
+            for (k, v) in cloud.entries { merged.entries[k] = v }
+            if let r = cloud.relay { merged.relay = r }
+            credentialBundle = merged
         }
+    }
+
+    /// 启动局域网「扫码直传」接收端(幂等)。源页出现时调用;收到载荷即落盘 + reload,
+    /// 端点就绪后刷新二维码内容。
+    func startPairingServer() {
+        guard !pairingStarted else { return }
+        pairingStarted = true
+        configServer.onReceive = { [weak self] payload in
+            Task { @MainActor in self?.applyLANPayload(payload) }
+        }
+        configServer.onEndpointReady = { [weak self] link in
+            Task { @MainActor in self?.pairingQRContent = link?.qrContent ?? "primuse://add-source" }
+        }
+        configServer.start()
+    }
+
+    /// 收到 iPhone 经局域网直传来的整库 + 源 + 凭据:落盘、持久化凭据、合并重载曲库。
+    func applyLANPayload(_ payload: LANSyncPayload) {
+        let before = library.songs
+        LibrarySnapshotSync.shared.applyLANPayload(payload)
+        if let creds = payload.credentials, !creds.entries.isEmpty || creds.relay != nil {
+            var merged = TVCredentialStore.loadPairedBundle() ?? CredentialBundle()
+            for (k, v) in creds.entries { merged.entries[k] = v }
+            if let r = creds.relay { merged.relay = r }
+            TVCredentialStore.savePairedBundle(merged)
+            credentialBundle = merged
+        }
+        reloadMerging(before: before)
+        sourcesRevision += 1
+        plog("TVStore: applied LAN payload → sources=\(sourcesStore.sources.count) songs=\(library.songs.count)")
+    }
+
+    /// 应用手机快照后重载,并把「TV 本机扫的、手机快照里没有的源」的歌合并回来,
+    /// 避免整库覆盖冲掉 TV 扫描结果(song id 确定性派生,addSongs 自动去重)。
+    private func reloadMerging(before: [Song]) {
+        library.reloadFromDisk()
+        let incomingSources = Set(library.songs.map(\.sourceID))
+        let tvOnly = before.filter { !incomingSources.contains($0.sourceID) }
+        if !tvOnly.isEmpty {
+            library.addSongs(tvOnly, affectedSourceIDs: nil, notifyRemovals: false)
+            library.persistNow()
+            plog("TVStore: merged \(tvOnly.count) TV-scanned songs back after sync")
+        }
+        sourcesStore.reloadFromDisk()
+        refreshVisibility()
+        publishTopShelf()
+        flushPendingDeepLink()
+        if credentialBundle == nil { credentialBundle = TVCredentialStore.loadPairedBundle() }
     }
 
     #if DEBUG
@@ -411,6 +584,8 @@ final class TVStore {
         refreshVisibility()
         publishTopShelf()
         flushPendingDeepLink()
+        // 凭据未就绪时,载入局域网直传持久化下来的配对包(CloudKit 兜底会在 bootstrap 再覆盖)。
+        if credentialBundle == nil { credentialBundle = TVCredentialStore.loadPairedBundle() }
     }
 
     /// 生成 Top Shelf 展示数据(最近播放 + 资料库专辑),后台预取封面并写入 App Group,
@@ -499,6 +674,88 @@ final class TVStore {
         let fromThis = library.songs.filter { $0.sourceID == id }.count
         let visibleFromThis = library.visibleSongs.filter { $0.sourceID == id }.count
         plog("🔀 TV setSourceEnabled \(id)→\(enabled); 该源歌曲 全量=\(fromThis) 可见=\(visibleFromThis); 总可见=\(library.visibleSongs.count)")
+        enqueueSnapshotUpload()
+    }
+
+    // MARK: 源 CRUD(TV 本机新增 / 编辑 / 回收站;改后回传快照)
+
+    /// 取底层 MusicSource(供编辑表单预填)。
+    func source(id: String) -> MusicSource? { sourcesStore.source(id: id) }
+
+    /// 「最近删除」的源(回收站),供恢复。
+    var deletedSources: [TVSource] {
+        _ = sourcesRevision
+        return sourcesStore.recentlyDeletedSources.map { self.map($0) }
+    }
+
+    /// 可在 TV 上直接新增的源类型:服务端登录类 + 协议类。云盘(OAuth,TV 无浏览器)、
+    /// 本地 / Apple Music 不在内。
+    static let addableTypes: [MusicSourceType] = [
+        .subsonic, .navidrome, .airsonic, .gonic,
+        .jellyfin, .emby, .plex,
+        .synology, .qnap, .fnos, .ugreen,
+        .webdav, .smb, .ftp, .sftp, .nfs,
+    ]
+
+    /// TV 上新增源:写入 sources + 存本地凭据 + 回传快照。
+    func addSource(_ source: MusicSource, password: String?) {
+        sourcesStore.add(source)
+        saveLocalCred(source, password)
+        afterSourceMutation()
+    }
+
+    /// TV 上编辑源连接参数:更新 + 失效旧会话 + 回传快照。
+    func updateSource(_ source: MusicSource, password: String?) {
+        sourcesStore.update(source.id) { $0 = source }
+        saveLocalCred(source, password)
+        if let s = sourcesStore.source(id: source.id) {
+            Task { await StreamResolverRegistry.shared.invalidateSession(for: s) }
+        }
+        afterSourceMutation()
+    }
+
+    /// 从回收站恢复软删除的源。
+    func restoreSource(_ id: String) {
+        sourcesStore.restore(id: id)
+        afterSourceMutation()
+    }
+
+    private func saveLocalCred(_ source: MusicSource, _ password: String?) {
+        guard let password, !password.isEmpty else { return }
+        TVCredentialStore.saveLocalCredential(sourceID: source.id,
+                                              username: source.username ?? "", password: password)
+    }
+
+    private func afterSourceMutation() {
+        refreshVisibility()
+        sourcesRevision += 1
+        enqueueSnapshotUpload()
+    }
+
+    // MARK: TV 本机扫描(选目录 → 路径快扫)
+
+    /// 该源能否在 TV 上浏览目录 + 扫描(目前仅 SMB)。
+    func canScanOnTV(_ source: MusicSource) -> Bool { source.type == .smb }
+
+    /// 构造目录列举器(供选目录页浏览)。
+    func makeLister(for source: MusicSource) -> TVDirectoryLister? {
+        let cred = TVCredentialStore.credential(for: source, bundle: credentialBundle)
+        return TVSourceScanner.makeLister(source: source, credential: cred)
+    }
+
+    /// 走查选中目录扫描,落库(addSongs 按确定性 id 去重合并)+ 持久化 + 记录已扫目录 + 回传源。
+    func runScan(source: MusicSource, lister: TVDirectoryLister, dirs: [String]) async {
+        let cred = TVCredentialStore.credential(for: source, bundle: credentialBundle)
+        guard let songs = await scanner.scan(source: source, lister: lister, dirs: dirs, credential: cred) else { return }
+        library.addSongs(songs, affectedSourceIDs: [source.id])
+        library.persistNow()
+        sourcesStore.updateLocal(source.id) {
+            $0.songCount = songs.count
+            $0.lastScannedAt = Date()
+            $0.extraConfig = MusicSource.encodeScannedDirectories(dirs, into: $0.extraConfig, type: $0.type)
+        }
+        refreshVisibility()
+        sourcesRevision += 1
         enqueueSnapshotUpload()
     }
 
@@ -654,17 +911,20 @@ final class TVStore {
         startPlaying(s)
     }
 
+    /// 点单曲播放:队列永远「不会只剩这一首」—— 后面自动随机续整库,放完不停。
+    /// 多曲专辑按顺序放整张,放完接着随机续;散曲 / 单曲专辑直接本曲 + 整库其余随机。
     private func setQueueAround(_ song: TVSong) {
+        func shuffledRest(excluding ids: [String]) -> [String] {
+            let ex = Set(ids)
+            return library.visibleSongs.filter { !ex.contains($0.id) }.shuffled().map(\.id)
+        }
         let albumSongs = songs(forAlbum: song.albumID)
         if albumSongs.count > 1, let idx = albumSongs.firstIndex(where: { $0.id == song.id }) {
-            queue = albumSongs.map(\.id)
-            queueIndex = idx
-        } else if let idx = library.visibleSongs.firstIndex(where: { $0.id == song.id }) {
-            // 无专辑 / 单曲专辑:用整个可见曲库续播,从这首开始,播完会自动播下一首。
-            queue = library.visibleSongs.map(\.id)
+            let albumIDs = albumSongs.map(\.id)
+            queue = albumIDs + shuffledRest(excluding: albumIDs)
             queueIndex = idx
         } else {
-            queue = [song.id]
+            queue = [song.id] + shuffledRest(excluding: [song.id])
             queueIndex = 0
         }
     }

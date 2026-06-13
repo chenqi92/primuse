@@ -99,6 +99,44 @@ enum TVCredentialStore {
         keychainPassword(account: sourceID) != nil
     }
 
+    // MARK: - 局域网直传凭据包(本地钥匙串,跨重启保留)
+    //
+    // LAN 扫码直传(`primuse://pair`)绕开 iCloud,收到的整包凭据存这里,使「不同
+    // Apple ID」的 TV 在重启后(CloudKit 兜底取不到时)仍有凭据可播。整包 JSON 存
+    // 一条非同步钥匙串项,与同步读取彻底隔离。
+
+    private static let pairedBundleAccount = "tv-paired-bundle"
+
+    static func savePairedBundle(_ bundle: CredentialBundle) {
+        guard let data = try? bundle.jsonData() else { return }
+        let base: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: PrimuseConstants.keychainServiceName,
+            kSecAttrAccount as String: pairedBundleAccount,
+            kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
+        ]
+        SecItemDelete(base as CFDictionary)
+        var add = base
+        add[kSecValueData as String] = data
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        SecItemAdd(add as CFDictionary, nil)
+    }
+
+    static func loadPairedBundle() -> CredentialBundle? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: PrimuseConstants.keychainServiceName,
+            kSecAttrAccount as String: pairedBundleAccount,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
+        ]
+        var result: AnyObject?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data else { return nil }
+        return CredentialBundle.decode(data)
+    }
+
     /// service = `PrimuseConstants.keychainServiceName`,account = sourceID。
     /// `kSecAttrSynchronizableAny` 同时匹配本地项与 iCloud 钥匙串项。
     private static func keychainPassword(account: String) -> String? {

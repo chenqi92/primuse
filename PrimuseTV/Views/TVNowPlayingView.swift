@@ -130,47 +130,62 @@ struct TVNowPlayingView: View {
 
     private var lyricsList: some View {
         let cur = store.currentLyricIndex
-        let lo = max(0, cur - 2)
-        let hi = min(store.lyrics.count, cur + 5)
-        return VStack(alignment: .leading, spacing: 30) {
-            ForEach(lo..<hi, id: \.self) { i in
-                lyricLine(index: i, current: cur)
+        // 跟手机端一致:整列歌词放进可滚动容器,随播放进度平滑把当前行滚到视觉中心
+        //(`scrollTo(anchor:.center)` + `.smooth`),不再按 index 重算固定窗口硬跳。
+        return ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVStack(alignment: .leading, spacing: 30) {
+                    Color.clear.frame(height: 260)   // 顶部留白:首行也能滚到中心
+                    ForEach(Array(store.lyrics.enumerated()), id: \.offset) { i, _ in
+                        lyricLine(index: i, current: cur).id(i)
+                    }
+                    Color.clear.frame(height: 360)   // 底部留白:末行也能滚到中心
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .scrollDisabled(true)   // tvOS:只随播放自动滚,不接受遥控滚动
+            .mask(
+                LinearGradient(stops: [
+                    .init(color: .clear, location: 0), .init(color: .black, location: 0.16),
+                    .init(color: .black, location: 0.84), .init(color: .clear, location: 1),
+                ], startPoint: .top, endPoint: .bottom)
+            )
+            .onChange(of: cur) { _, new in
+                withAnimation(.smooth(duration: 0.55, extraBounce: 0)) { proxy.scrollTo(new, anchor: .center) }
+            }
+            .onChange(of: store.lyrics.count) { _, _ in proxy.scrollTo(cur, anchor: .center) }
+            .onAppear { proxy.scrollTo(cur, anchor: .center) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-        .mask(
-            LinearGradient(stops: [
-                .init(color: .clear, location: 0), .init(color: .black, location: 0.18),
-                .init(color: .black, location: 0.82), .init(color: .clear, location: 1),
-            ], startPoint: .top, endPoint: .bottom)
-        )
     }
 
     @ViewBuilder
     private func lyricLine(index i: Int, current cur: Int) -> some View {
         let ln = store.lyrics[i]
         let isCur = i == cur
-        let offset = abs(i - cur)
-        let opacity = isCur ? 1 : max(0.2, 0.55 - Double(offset) * 0.12)
-        let size: CGFloat = isCur ? 52 : 36
+        let dist = abs(i - cur)
+        let opacity = isCur ? 1 : max(0.18, 0.5 - Double(dist) * 0.1)
+        // 字号固定、靠 scaleEffect 缩放——缩放能平滑动画,直接换 font size 会硬跳。
+        let scale: CGFloat = isCur ? 1.0 : 0.78
+        let size: CGFloat = 48
         VStack(alignment: .leading, spacing: 6) {
-            if isCur {
-                if ln.syllables.isEmpty {
-                    // 普通 .lrc 无逐字时间——直接高亮整行,否则卡拉OK行无音节可画会整行不可见。
-                    Text(ln.text).font(.system(size: size, weight: .bold)).foregroundStyle(.white)
-                        .shadow(color: store.nowPlaying.tint.opacity(0.5), radius: 16, y: 2)
-                } else {
-                    TVKaraokeLine(syllables: ln.syllables, progress: store.currentLyricProgress,
-                                  size: size, tint: store.nowPlaying.tint)
-                }
+            if isCur, !ln.syllables.isEmpty {
+                TVKaraokeLine(syllables: ln.syllables, progress: store.currentLyricProgress,
+                              size: size, tint: store.nowPlaying.tint)
             } else {
-                Text(ln.text).font(.system(size: size, weight: .semibold)).foregroundStyle(.white)
+                // 普通 .lrc 无逐字时间——整行高亮;非当前行半透明。
+                Text(ln.text).font(.system(size: size, weight: isCur ? .bold : .semibold))
+                    .foregroundStyle(.white)
+                    .shadow(color: isCur ? store.nowPlaying.tint.opacity(0.5) : .clear, radius: 16, y: 2)
             }
-            Text(ln.translation).font(.system(size: isCur ? 22 : 18)).italic()
-                .foregroundStyle(.white.opacity(0.55))
+            if !ln.translation.isEmpty {
+                Text(ln.translation).font(.system(size: 22)).italic()
+                    .foregroundStyle(.white.opacity(0.55))
+            }
         }
+        .scaleEffect(scale, anchor: .leading)
         .opacity(opacity)
-        .animation(.easeOut(duration: 0.4), value: isCur)
+        .animation(.smooth(duration: 0.5, extraBounce: 0), value: cur)
     }
 }
 

@@ -5,9 +5,10 @@ import Foundation
 /// 中继端点(host / port / token)由 iOS 中继服务写入凭据包同步过来,经 TVCredentialStore
 /// 放进 `credential.extra`。中继服务支持 Range、token query 鉴权 → AVPlayer 直连。
 public struct RelayStreamResolver: StreamResolver {
-    /// 需要经中继的源类型。
+    /// 需要经 iPhone 中继的源类型。WebDAV / UPnP 已改 tvOS 直连(纯 HTTP),移出此表;
+    /// SMB / NFS / FTP / SFTP 待协议直连读取器接上后陆续移出,中继作未接通时的兜底。
     public static let relayTypes: Set<MusicSourceType> = [
-        .smb, .sftp, .nfs, .webdav, .ftp, .upnp, .local, .appleMusic,
+        .smb, .sftp, .nfs, .ftp, .local, .appleMusic,
     ]
 
     public init() {}

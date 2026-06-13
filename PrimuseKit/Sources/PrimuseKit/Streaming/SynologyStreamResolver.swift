@@ -41,12 +41,34 @@ public actor SynologyStreamResolver: StreamResolver {
     private func currentSID(for source: MusicSource, base: URL,
                             username: String, password: String) async throws -> String {
         if let cached = sessions[source.id] { return cached }
-        let sid = try await login(base: base, username: username, password: password, deviceID: source.deviceId)
+        let (sid, _) = try await performLogin(base: base, username: username, password: password,
+                                              deviceID: source.deviceId, otp: nil)
         sessions[source.id] = sid
         return sid
     }
 
-    private func login(base: URL, username: String, password: String, deviceID: String?) async throws -> String {
+    /// 2FA:用一次性验证码登录 + 申请受信设备令牌(`enable_device_token`),返回 `did`
+    /// 供 TV 持久化到 `source.deviceId`,之后即可跳过 OTP。
+    public func loginForDeviceToken(source: MusicSource,
+                                    credential: SourceCredential?,
+                                    otp: String) async throws -> String? {
+        let username = credential?.username ?? source.username ?? ""
+        guard let password = credential?.password, !password.isEmpty, !username.isEmpty else {
+            throw StreamResolveError.missingCredential
+        }
+        guard let base = Self.baseURL(host: source.host ?? "", port: source.port, useSsl: source.useSsl) else {
+            throw StreamResolveError.cannotBuildURL
+        }
+        let (sid, did) = try await performLogin(base: base, username: username, password: password,
+                                                deviceID: source.deviceId, otp: otp)
+        sessions[source.id] = sid
+        return did
+    }
+
+    /// 执行登录。`otp` 非空时附带 `otp_code` + `enable_device_token` 申请受信设备。
+    /// 返回(sid, did?);DSM 返回 2FA 错误码(403/404)时抛 `.needs2FA`。
+    private func performLogin(base: URL, username: String, password: String,
+                             deviceID: String?, otp: String?) async throws -> (sid: String, did: String?) {
         // 凭据放进 POST 表单体,URL 上不携带账号/密码,避免进入 DSM/反向代理的访问日志。
         var fields = [
             ("api", "SYNO.API.Auth"),
@@ -59,6 +81,11 @@ public actor SynologyStreamResolver: StreamResolver {
         ]
         if let deviceID, !deviceID.isEmpty {
             fields.append(("device_id", deviceID))
+        }
+        if let otp, !otp.isEmpty {
+            fields.append(("otp_code", otp))
+            fields.append(("enable_device_token", "yes"))
+            fields.append(("device_name", "Apple TV"))
         }
         var req = URLRequest(url: base.appendingPathComponent("webapi/auth.cgi"))
         req.httpMethod = "POST"
@@ -74,9 +101,14 @@ public actor SynologyStreamResolver: StreamResolver {
         }
         if (json["success"] as? Bool) == true,
            let d = json["data"] as? [String: Any], let sid = d["sid"] as? String {
-            return sid
+            return (sid, d["did"] as? String)
         }
-        throw StreamResolveError.authFailed   // 密码错 / 需要 OTP / 锁定
+        // DSM 错误码 403 = 需要 OTP,404 = OTP 校验失败 → 让 TV 弹验证码输入。
+        if let err = json["error"] as? [String: Any], let code = err["code"] as? Int,
+           code == 403 || code == 404 {
+            throw StreamResolveError.needs2FA
+        }
+        throw StreamResolveError.authFailed   // 密码错 / 锁定
     }
 
     // MARK: - 纯函数(可单测)

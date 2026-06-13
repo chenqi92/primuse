@@ -34,7 +34,7 @@ struct TVLibraryView: View {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 30) {
                         filterStrip
-                        grid(cell: cell)
+                        grid(cell: cell).focusSection()
                     }
                     .tvPage()
                 }
@@ -73,6 +73,8 @@ struct TVLibraryView: View {
                     }
                 }
             }
+            // 筛选条独立成焦点区:从右上角某个筛选项往下能跳到下方网格(否则横纵混在一起跳不下去)。
+            .focusSection()
         }
     }
 

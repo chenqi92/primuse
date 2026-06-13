@@ -32,7 +32,10 @@ public actor StreamResolverRegistry {
             map[type] = nas
         }
         map[.ugreen] = ugreen
-        // Phase 3:不可直连的源经 iPhone 局域网中继。
+        // WebDAV / UPnP:tvOS 纯 HTTP 直连(Basic Auth / 直链),不再经中继。
+        map[.webdav] = WebDavStreamResolver()
+        map[.upnp] = UPnPStreamResolver()
+        // 其余不可直连的源(SMB/NFS/FTP/SFTP/local/appleMusic)经 iPhone 局域网中继。
         let relay = RelayStreamResolver()
         for type in RelayStreamResolver.relayTypes { map[type] = relay }
         // 云盘:阿里/OneDrive/Dropbox/123 直链直连;Google/115 经 resource loader 带播放头。
@@ -78,5 +81,15 @@ public actor StreamResolverRegistry {
 
     public func invalidateSession(for source: MusicSource) async {
         await resolvers[source.type]?.invalidateSession(sourceID: source.id)
+    }
+
+    /// 2FA:用一次性验证码登录并申请受信设备令牌(deviceId)。返回 nil 表示该源不返回令牌。
+    public func loginForDeviceToken(source: MusicSource,
+                                    credential: SourceCredential?,
+                                    otp: String) async throws -> String? {
+        guard let resolver = resolvers[source.type] else {
+            throw StreamResolveError.unsupportedSourceType(source.type)
+        }
+        return try await resolver.loginForDeviceToken(source: source, credential: credential, otp: otp)
     }
 }

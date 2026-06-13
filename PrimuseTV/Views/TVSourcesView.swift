@@ -10,6 +10,11 @@ struct TVSourcesView: View {
     @State private var credentialEditor: TVSource?
     @State private var testing: String?            // 正在测试的 sourceID
     @State private var testResult: TVTestResult?
+    @State private var typePicker = false           // 新增源:先选类型
+    @State private var sourceForm: TVSourceForm?    // 新增 / 编辑源表单
+    @State private var recycleBin = false           // 回收站
+    @State private var otpSource: TVSource?         // 两步验证(OTP)输入
+    @State private var scanSource: MusicSource?     // 选目录 + 扫描流程
 
     var body: some View {
         ZStack {
@@ -39,19 +44,48 @@ struct TVSourcesView: View {
                                                 onSelect: { store.setSourceEnabled(s.id, s.status == .disabled) },
                                                 onDelete: { pendingDelete = s },
                                                 onEnterCredential: { credentialEditor = s },
-                                                onTestConnection: { runTest(s) })
+                                                onTestConnection: { runTest(s) },
+                                                onEdit: {
+                                                    if let src = store.source(id: s.id) {
+                                                        sourceForm = TVSourceForm(editing: src, type: src.type)
+                                                    }
+                                                },
+                                                onLogin2FA: { otpSource = s },
+                                                onScan: { if let src = store.source(id: s.id) { scanSource = src } })
                                 }
                             }
                         }
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .focusSection()
 
-                VStack(alignment: .leading, spacing: 0) {
-                    TVEyebrow(text: PMString("ext.tv.sources.addSource")).padding(.bottom, 16)
+                // 右侧操作栏撑满高度,从左列任意一行往右都能到达(焦点区 frame 满高)。
+                VStack(alignment: .leading, spacing: 18) {
+                    TVEyebrow(text: PMString("ext.tv.sources.addSource"))
                     TVSourcesInfoCard()
+                    TVFocusButton(radius: 16, accent: TVColor.brand, scale: 1.02, lift: 0,
+                                  action: { typePicker = true }) { focused in
+                        Label("在 Apple TV 上手动添加", systemImage: "plus.circle.fill")
+                            .font(.system(size: 20, weight: .semibold)).foregroundStyle(.white)
+                            .padding(.horizontal, 24).padding(.vertical, 16)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(focused ? TVColor.brand : Color.white.opacity(0.08),
+                                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    }
+                    TVFocusButton(radius: 16, scale: 1.02, lift: 0,
+                                  action: { recycleBin = true }) { focused in
+                        Label("回收站", systemImage: "trash.circle")
+                            .font(.system(size: 20, weight: .semibold)).foregroundStyle(.white)
+                            .padding(.horizontal, 24).padding(.vertical, 16)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.white.opacity(focused ? 0.16 : 0.06),
+                                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    }
                 }
                 .frame(width: 520)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .focusSection()
             }
             .tvPage()
         }
@@ -75,6 +109,29 @@ struct TVSourcesView: View {
         .sheet(item: $credentialEditor) { src in
             TVCredentialEditorView(source: src).environment(store)
         }
+        .fullScreenCover(isPresented: $typePicker) {
+            TVSourceTypePicker { type, prefill in
+                typePicker = false
+                sourceForm = TVSourceForm(editing: nil, type: type,
+                                          prefillHost: prefill?.host, prefillPort: prefill?.port,
+                                          prefillName: prefill?.name)
+            }
+            .environment(store)
+        }
+        .fullScreenCover(item: $sourceForm) { form in
+            TVSourceFormView(editing: form.editing, type: form.type,
+                             prefillHost: form.prefillHost, prefillPort: form.prefillPort,
+                             prefillName: form.prefillName).environment(store)
+        }
+        .fullScreenCover(isPresented: $recycleBin) {
+            TVRecycleBinView().environment(store)
+        }
+        .fullScreenCover(item: $otpSource) { src in
+            TVOTPEntryView(source: src).environment(store)
+        }
+        .fullScreenCover(item: $scanSource) { src in
+            TVScanFlowView(source: src).environment(store)
+        }
     }
 
     private func runTest(_ s: TVSource) {
@@ -93,8 +150,10 @@ private struct TVTestResult: Identifiable {
     let message: String
 }
 
-/// 扫码添加:Apple TV 展示二维码,iPhone 相机扫码打开 app 的「添加音乐源」,经 iCloud 同步回来。
+/// 扫码添加:Apple TV 起一个局域网接收服务并展示二维码(内含 host:port + 一次性密钥),
+/// iPhone 相机扫码后把已有曲库 / 源 / 凭据 AES-GCM 加密直传过来(同一 Wi-Fi 即可,绕开 iCloud)。
 private struct TVSourcesInfoCard: View {
+    @Environment(TVStore.self) private var store
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 10) {
@@ -102,7 +161,7 @@ private struct TVSourcesInfoCard: View {
                 Text(PMString("ext.tv.sources.scanTitle")).font(.system(size: 26, weight: .bold)).foregroundStyle(.white)
             }
             HStack(alignment: .top, spacing: 22) {
-                TVQRCode(content: "primuse://add-source", size: 190)
+                TVQRCode(content: store.pairingQRContent, size: 190)
                 VStack(alignment: .leading, spacing: 12) {
                     Text(PMString("ext.tv.sources.scanBody1"))
                         .font(.system(size: 18)).foregroundStyle(.white.opacity(0.72)).lineSpacing(5)
@@ -113,6 +172,7 @@ private struct TVSourcesInfoCard: View {
         }
         .padding(28).frame(maxWidth: .infinity, alignment: .leading)
         .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .onAppear { store.startPairingServer() }
     }
 }
 
@@ -123,6 +183,9 @@ private struct TVSourceRow: View {
     var onDelete: () -> Void = {}            // 长按菜单:从 Apple TV 移除
     var onEnterCredential: () -> Void = {}   // 长按菜单:输入登录凭据
     var onTestConnection: () -> Void = {}    // 长按菜单:测试连接
+    var onEdit: () -> Void = {}              // 长按菜单:编辑连接参数
+    var onLogin2FA: () -> Void = {}          // 长按菜单:两步验证登录(NAS)
+    var onScan: () -> Void = {}              // 长按菜单:选目录 + 扫描(SMB)
 
     var body: some View {
         // 不缩放:全宽行缩放会溢出 ScrollView 横向裁切,导致描边左右被裁(只剩上下)。
@@ -172,6 +235,19 @@ private struct TVSourceRow: View {
             if source.canEnterCredential {
                 Button { onEnterCredential() } label: {
                     Label(PMString("ext.tv.sources.enterCredentials"), systemImage: "key")
+                }
+            }
+            Button { onEdit() } label: {
+                Label("编辑连接", systemImage: "slider.horizontal.3")
+            }
+            if source.canScan {
+                Button { onScan() } label: {
+                    Label("选目录扫描", systemImage: "folder.badge.gearshape")
+                }
+            }
+            if source.supports2FA {
+                Button { onLogin2FA() } label: {
+                    Label("两步验证登录", systemImage: "lock.shield")
                 }
             }
             Button { onTestConnection() } label: {
