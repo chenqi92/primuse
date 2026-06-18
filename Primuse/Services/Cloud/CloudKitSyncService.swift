@@ -826,7 +826,9 @@ final class CloudKitSyncService {
 
     func sourcesChanged(ids: [String]) {
         guard CloudSyncChannel.isEnabled(.sources) else { return }
-        enqueueSaves(recordType: RecordType.musicSource, ids: ids)
+        let resolved = resolveSourceIDsForSync(ids)
+        enqueueSaves(recordType: RecordType.musicSource, ids: resolved.active)
+        enqueueDeletes(recordType: RecordType.musicSource, ids: resolved.deleted)
     }
 
     func sourceDeleted(id: String) {
@@ -839,7 +841,9 @@ final class CloudKitSyncService {
         // they're the same lifecycle (user-managed cloud entities) and
         // don't deserve a separate user-facing toggle.
         guard CloudSyncChannel.isEnabled(.sources) else { return }
-        enqueueSaves(recordType: RecordType.cloudAccount, ids: ids)
+        let resolved = resolveCloudAccountIDsForSync(ids)
+        enqueueSaves(recordType: RecordType.cloudAccount, ids: resolved.active)
+        enqueueDeletes(recordType: RecordType.cloudAccount, ids: resolved.deleted)
     }
 
     func cloudAccountDeleted(id: String) {
@@ -888,6 +892,38 @@ final class CloudKitSyncService {
                 ids: [Self.listeningStatsRecordName]
             )
         }
+    }
+
+    private typealias SyncIDResolution = (active: [String], deleted: [String])
+
+    private func resolveSourceIDsForSync(_ ids: [String]) -> SyncIDResolution {
+        var seen = Set<String>()
+        var active: [String] = []
+        var deleted: [String] = []
+        for id in ids where seen.insert(id).inserted {
+            guard let source = sourcesStore.allSources.first(where: { $0.id == id }) else { continue }
+            if source.isDeleted {
+                deleted.append(id)
+            } else {
+                active.append(id)
+            }
+        }
+        return (active, deleted)
+    }
+
+    private func resolveCloudAccountIDsForSync(_ ids: [String]) -> SyncIDResolution {
+        var seen = Set<String>()
+        var active: [String] = []
+        var deleted: [String] = []
+        for id in ids where seen.insert(id).inserted {
+            guard let account = sourcesStore.allAccounts.first(where: { $0.id == id }) else { continue }
+            if account.isDeleted {
+                deleted.append(id)
+            } else {
+                active.append(id)
+            }
+        }
+        return (active, deleted)
     }
 
     /// Maps a CloudKit record type to the channel that controls it. Used to
@@ -1065,9 +1101,9 @@ final class CloudKitSyncService {
         return kept
     }
 
-    /// On first start, push everything we have locally — including soft-deleted
-    /// tombstones — so the engine can de-dupe against existing server records
-    /// via change tags. Each call respects the per-channel toggles.
+    /// On first start, push everything we have locally. Soft-deleted sources /
+    /// cloud accounts are enqueued as CloudKit deletes, not payload saves, so
+    /// stale server rows cannot resurrect them after a reinstall.
     private func scheduleInitialUpload() {
         playlistsChanged(ids: library.allPlaylists.map(\.id))
         smartPlaylistsChanged(ids: library.allSmartPlaylists.map(\.id))
@@ -1415,7 +1451,8 @@ final class CloudKitSyncService {
     // MARK: - Music source mapping
 
     private func populateSourceRecord(_ record: CKRecord, sourceID: String) -> Bool {
-        guard let source = sourcesStore.source(id: sourceID) else { return false }
+        guard let source = sourcesStore.allSources.first(where: { $0.id == sourceID }),
+              !source.isDeleted else { return false }
         do {
             let data = try JSONEncoder().encode(SyncableSource(source: source))
             record["payload"] = data
@@ -1436,7 +1473,8 @@ final class CloudKitSyncService {
     // MARK: - Cloud account mapping
 
     private func populateCloudAccountRecord(_ record: CKRecord, accountID: String) -> Bool {
-        guard let account = sourcesStore.account(id: accountID) else { return false }
+        guard let account = sourcesStore.allAccounts.first(where: { $0.id == accountID }),
+              !account.isDeleted else { return false }
         do {
             let data = try JSONEncoder().encode(account)
             record["payload"] = data

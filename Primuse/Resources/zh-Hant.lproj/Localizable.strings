@@ -1785,3 +1785,38 @@
 "scraper_warn_tls_trust_domains" = "此配置宣告了 TLS 信任網域。略過憑證驗證仍需使用者明確確認信任。";
 "scraper_warn_non_get_requests" = "此刮削源可傳送非 GET 請求。";
 "scraper_warn_script_too_large" = "一個或多個指令碼超出執行階段大小限制，可能無法執行。";
+
+/* Source delete undo */
+"source_deleted_toast" = "已刪除「%@」";
+"undo" = "復原";
+
+/* Local import — two entries */
+"local_import_folder_title" = "匯入資料夾";
+"local_import_folder_subtitle" = "本機或 iCloud 雲碟，整包匯入（含子目錄）";
+"local_import_files_title" = "匯入檔案";
+"local_import_files_subtitle" = "可從百度網盤、阿里雲盤等選取音訊";
+"local_import_progress_title" = "正在匯入音樂";
+"local_import_progress_discovering" = "正在尋找可匯入的音訊…";
+"local_import_progress_preparing" = "正在準備匯入…";
+"local_import_progress_copying_format" = "已處理 %1$d/%2$d · 已匯入 %3$d · 略過 %4$d";
+"local_import_progress_finishing" = "正在完成匯入…";
+"local_import_cancelled" = "匯入已取消";
+"local_import_done_title" = "匯入完成";
+"local_import_partial_title" = "部分匯入完成";
+"local_import_provider_title" = "無法讀取原始音訊";
+"local_import_done_message_format" = "已匯入 %1$d 首，略過 %2$d 個。正在掃描匯入檔案。";
+"local_import_none_added_message_format" = "本次處理 %1$d 個項目，未匯入任何音訊。失敗 %2$d 個。";
+"local_import_provider_failure_message_format" = "本次選擇 %1$d 個項目，失敗 %2$d 個。「檔案」App 或雲端硬碟交給猿音的是佔位或錯誤內容，不是音訊原始檔。\n\n失敗範例：%3$@\n\n可以這樣處理：\n1. 如果「檔案」App 裡已經顯示已下載，請先在「檔案」App 或雲端硬碟 App 中把歌曲「儲存到檔案」的「我的 iPhone」本機資料夾。\n2. 回到猿音，從這個本機資料夾重新匯入。\n3. 如果仍失敗，可以改用猿音內的對應雲端硬碟音樂源。";
+"local_import_failure_reason_format" = "主要原因：%@";
+"local_import_provider_hint" = "如果檔案來自雲端硬碟，請先保存到「檔案」App 的「我的 iPhone」本機資料夾後再匯入；也可以改用 App 內的雲端硬碟音樂源。";
+"local_import_failure_item_format" = "%1$@：%2$@";
+"local_import_reason_unsupported" = "格式不支援";
+"local_import_reason_not_found" = "檔案不存在";
+"local_import_reason_permission" = "沒有讀取權限";
+"local_import_reason_space" = "裝置可用空間不足";
+"local_import_reason_provider" = "檔案提供器沒有交出可讀取的音訊";
+"local_import_reason_invalid_audio" = "拷貝到的是佔位或錯誤內容，不是音訊原始檔";
+"local_import_reason_provider_error" = "雲端硬碟回傳的是錯誤回應，不是音訊檔案";
+"local_import_provider_error_title" = "雲端硬碟未回傳音訊";
+"local_import_provider_error_message_format" = "本次選擇 %1$d 個項目，失敗 %2$d 個。雲端硬碟交給猿音的是一段錯誤回應，不是音訊原始檔——通常是該檔案需要會員、被防盜連結限制，或沒有下載權限。\n\n失敗範例：%3$@\n\n建議：\n1. 優先改用猿音內建的對應雲端硬碟音樂源（走雲端硬碟本身的介面下載），這類檔案透過系統「檔案」匯入無法繞過。\n2. 或在雲端硬碟 App 裡把歌曲「儲存到檔案」的「我的 iPhone」本機資料夾後再匯入（若雲端硬碟允許匯出原始檔）。";
+"local_import_reason_copy" = "拷貝失敗";

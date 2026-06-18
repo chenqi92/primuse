@@ -1809,3 +1809,38 @@
 "scraper_warn_tls_trust_domains" = "Diese Konfiguration deklariert TLS-Vertrauensdomains. Das Umgehen der Zertifikatsprüfung erfordert dennoch eine ausdrückliche Vertrauensbestätigung des Nutzers.";
 "scraper_warn_non_get_requests" = "Dieser Scraper kann Nicht-GET-Anfragen senden.";
 "scraper_warn_script_too_large" = "Ein oder mehrere Skripte überschreiten das Laufzeit-Größenlimit und können möglicherweise nicht ausgeführt werden.";
+
+/* Source delete undo */
+"source_deleted_toast" = "„%@“ gelöscht";
+"undo" = "Widerrufen";
+
+/* Local import — two entries */
+"local_import_folder_title" = "Ordner importieren";
+"local_import_folder_subtitle" = "Auf dem Gerät oder iCloud Drive, ganzer Ordner";
+"local_import_files_title" = "Dateien importieren";
+"local_import_files_subtitle" = "Audio aus Dateien oder Cloud-Diensten wählen";
+"local_import_progress_title" = "Musik wird importiert";
+"local_import_progress_discovering" = "Importierbare Audiodateien werden gesucht…";
+"local_import_progress_preparing" = "Import wird vorbereitet…";
+"local_import_progress_copying_format" = "Verarbeitet %1$d/%2$d · Importiert %3$d · Übersprungen %4$d";
+"local_import_progress_finishing" = "Import wird abgeschlossen…";
+"local_import_cancelled" = "Import abgebrochen";
+"local_import_done_title" = "Import abgeschlossen";
+"local_import_partial_title" = "Teilweise importiert";
+"local_import_provider_title" = "Originalaudio kann nicht gelesen werden";
+"local_import_done_message_format" = "%1$d Titel importiert, %2$d Elemente übersprungen. Importierte Dateien werden gescannt.";
+"local_import_none_added_message_format" = "%1$d Element(e) verarbeitet, aber keine Audiodatei importiert. Fehlgeschlagen: %2$d.";
+"local_import_provider_failure_message_format" = "%1$d Element(e) ausgewählt, %2$d fehlgeschlagen. Dateien oder der Cloud-Speicher hat Primuse Platzhalter-/Fehlerinhalte statt der Originalaudiodateien übergeben.\n\nBeispiel: %3$@\n\nSo gehst du vor:\n1. Wenn Dateien das Element bereits als geladen anzeigt, speichere die Songs aus Dateien oder der Cloud-App in einem lokalen „Auf meinem iPhone“-Ordner.\n2. Kehre zu Primuse zurück und importiere erneut aus diesem lokalen Ordner.\n3. Wenn es weiter fehlschlägt, füge diesen Cloud-Speicher stattdessen als Musikquelle in der App hinzu.";
+"local_import_failure_reason_format" = "Hauptgrund: %@";
+"local_import_provider_hint" = "Wenn die Datei aus einem Cloud-Speicher stammt, speichere sie vor dem erneuten Import in einem lokalen „Auf meinem iPhone“-Ordner in Dateien. Alternativ kannst du den Cloud-Speicher als Musikquelle in der App hinzufügen.";
+"local_import_failure_item_format" = "%1$@: %2$@";
+"local_import_reason_unsupported" = "Nicht unterstütztes Format";
+"local_import_reason_not_found" = "Datei nicht gefunden";
+"local_import_reason_permission" = "Keine Leseberechtigung";
+"local_import_reason_space" = "Nicht genug Speicherplatz auf dem Gerät";
+"local_import_reason_provider" = "Der Dateianbieter hat keine lesbare Audiodatei bereitgestellt";
+"local_import_reason_invalid_audio" = "Der kopierte Inhalt ist ein Platzhalter oder eine Fehlerantwort, nicht die Originalaudiodatei";
+"local_import_reason_provider_error" = "Der Cloud-Speicher hat eine Fehlerantwort statt einer Audiodatei zurückgegeben";
+"local_import_provider_error_title" = "Cloud-Speicher hat kein Audio geliefert";
+"local_import_provider_error_message_format" = "%1$d Element(e) ausgewählt, %2$d fehlgeschlagen. Der Cloud-Speicher hat Primuse eine Fehlerantwort statt der Originalaudiodatei übergeben – meist erfordert die Datei eine kostenpflichtige Mitgliedschaft, ist durch Hotlink-Schutz gesperrt oder dir fehlt die Download-Berechtigung.\n\nBeispiel: %3$@\n\nSo gehst du vor:\n1. Füge den passenden Cloud-Speicher bevorzugt als Musikquelle in der App hinzu (er lädt über die eigene API des Dienstes). Solche Dateien lassen sich nicht über den System-Import aus Dateien beziehen.\n2. Oder speichere den Song in der Cloud-App über „In Dateien sichern“ in einem lokalen „Auf meinem iPhone“-Ordner und importiere von dort (sofern der Dienst den Export der Originaldatei erlaubt).";
+"local_import_reason_copy" = "Kopieren fehlgeschlagen";

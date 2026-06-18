@@ -1661,3 +1661,38 @@
 "scraper_warn_tls_trust_domains" = "This config declares TLS trust domains. Certificate bypass still requires an explicit user trust prompt.";
 "scraper_warn_non_get_requests" = "This scraper can send non-GET requests.";
 "scraper_warn_script_too_large" = "One or more scripts exceed the runtime size limit and may fail to run.";
+
+/* Source delete undo */
+"source_deleted_toast" = "Deleted “%@”";
+"undo" = "Undo";
+
+/* Local import — two entries */
+"local_import_folder_title" = "Import a Folder";
+"local_import_folder_subtitle" = "On-device or iCloud Drive, imports the whole folder";
+"local_import_files_title" = "Import Files";
+"local_import_files_subtitle" = "Pick audio from Files or cloud drives";
+"local_import_progress_title" = "Importing Music";
+"local_import_progress_discovering" = "Finding importable audio…";
+"local_import_progress_preparing" = "Preparing import…";
+"local_import_progress_copying_format" = "Processed %1$d/%2$d · Imported %3$d · Skipped %4$d";
+"local_import_progress_finishing" = "Finishing import…";
+"local_import_cancelled" = "Import cancelled";
+"local_import_done_title" = "Import Complete";
+"local_import_partial_title" = "Partially Imported";
+"local_import_provider_title" = "Cannot Read the Original Audio";
+"local_import_done_message_format" = "Imported %1$d song(s), skipped %2$d item(s). Scanning imported files now.";
+"local_import_none_added_message_format" = "Processed %1$d item(s), but no audio was imported. Failed: %2$d.";
+"local_import_provider_failure_message_format" = "You selected %1$d item(s), and %2$d failed. Files or the cloud drive gave Primuse placeholder/error content instead of the original audio.\n\nExample failure: %3$@\n\nWhat to do:\n1. If Files already shows the item as downloaded, save the songs from Files or the cloud drive app into a local “On My iPhone” folder.\n2. Return to Primuse and import again from that local folder.\n3. If it still fails, add that cloud drive as an in-app music source instead.";
+"local_import_failure_reason_format" = "Main reason: %@";
+"local_import_provider_hint" = "If the file is from a cloud drive, save it to a local “On My iPhone” folder in Files before importing again. You can also add the cloud drive as an in-app music source.";
+"local_import_failure_item_format" = "%1$@: %2$@";
+"local_import_reason_unsupported" = "Unsupported format";
+"local_import_reason_not_found" = "File not found";
+"local_import_reason_permission" = "No read permission";
+"local_import_reason_space" = "Not enough device storage";
+"local_import_reason_provider" = "The file provider did not provide readable audio";
+"local_import_reason_invalid_audio" = "The copied content is a placeholder or error response, not the original audio";
+"local_import_reason_provider_error" = "The cloud drive returned an error response, not an audio file";
+"local_import_provider_error_title" = "Cloud Drive Returned No Audio";
+"local_import_provider_error_message_format" = "You selected %1$d item(s), and %2$d failed. The cloud drive handed Primuse an error response instead of the original audio — usually the file requires a paid membership, is blocked by hotlink protection, or you lack download permission.\n\nExample failure: %3$@\n\nWhat to do:\n1. Prefer adding the matching cloud drive as an in-app music source (it downloads via the drive’s own API); files like this can’t be obtained through the system Files import.\n2. Or, in the cloud drive app, “Save to Files” into a local “On My iPhone” folder and import from there (if the drive allows exporting the original file).";
+"local_import_reason_copy" = "Copy failed";

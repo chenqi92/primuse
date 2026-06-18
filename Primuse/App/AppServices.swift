@@ -153,9 +153,28 @@ final class AppServices {
 
         wireIntentBridge()
         observeSpotlightReindex()
+        rescanLocalImportIfNeeded()
         // 注意: 不在这里接线 Live Activity。PrimuseActivityExtension 的灵动岛 /
         // 锁屏布局仍是半成品(切歌不更新、杀进程后不消失),激活它比留作未启用
         // 更糟。Live Activity 作为完整功能另行实现后再接线。
+    }
+
+    private func rescanLocalImportIfNeeded() {
+        #if os(iOS)
+        guard let sourceID = LocalImportService.existingSourceID,
+              musicLibrary.songs.contains(where: { $0.sourceID == sourceID && !$0.isPlayable }),
+              let source = sourcesStore.source(id: sourceID),
+              source.isEnabled,
+              !source.isDeleted else { return }
+        plog("📥 LocalImport: detected unplayable local rows, scheduling local rescan")
+        scanService.scanSource(
+            source,
+            sourceManager: sourceManager,
+            library: musicLibrary,
+            sourceStore: sourcesStore,
+            scraperService: scraperService
+        )
+        #endif
     }
 
     private func observeSourceLifecycle() {
@@ -170,6 +189,7 @@ final class AppServices {
                     // 而用户删源的核心诉求就是立即回收空间。Toggling isEnabled
                     // never posts this notification.
                     self.removeSourceLibraryData(id: id, purgePersistentCaches: true, removeImportedFiles: true)
+                    self.uploadSourcesSnapshotAfterSoftDeleteIfNeeded()
                 }
             }
         )
@@ -184,6 +204,13 @@ final class AppServices {
                 }
             }
         )
+    }
+
+    private func uploadSourcesSnapshotAfterSoftDeleteIfNeeded() {
+        guard CloudSyncChannel.isEnabled(.sources) else { return }
+        Task.detached(priority: .background) {
+            await LibrarySnapshotSync.shared.uploadSourcesOnly()
+        }
     }
 
     private func removeSourceLibraryData(id: String, purgePersistentCaches: Bool, removeImportedFiles: Bool = false) {

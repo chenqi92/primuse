@@ -13,6 +13,14 @@ private enum SourceCacheAlert: Identifiable {
     }
 }
 
+#if os(iOS)
+private struct SourceLocalImportAlert: Identifiable {
+    let id = UUID()
+    let title: String
+    let message: String
+}
+#endif
+
 private struct SourceCacheRequest: Identifiable {
     let id = UUID()
     let source: MusicSource
@@ -75,7 +83,9 @@ struct SourcesView: View {
     @State private var showAddSource = false
     @State private var editingSource: MusicSource?
     @State private var connectingSource: MusicSource?
-    @State private var pendingDeleteSource: MusicSource?
+    @State private var optimisticallyHiddenIDs: Set<String> = []
+    @State private var undoToast: UndoDeleteToast?
+    @State private var pendingDeleteTasks: [String: Task<Void, Never>] = [:]
     @State private var diagnosingSource: MusicSource?
     @State private var cacheAlert: SourceCacheAlert?
     @State private var activeCacheRun: SourceCacheRun?
@@ -86,6 +96,13 @@ struct SourcesView: View {
     @State private var openAppleMusicSettings = false
     /// 各源磁盘占用(字节), 后台 .task 填充, 卡片读取。键为 source.id。
     @State private var sourceSizes: [String: Int64] = [:]
+    #if os(iOS)
+    @State private var showExistingLocalFileImporter = false
+    @State private var localImportTargetSource: MusicSource?
+    @State private var localImportTask: Task<Void, Never>?
+    @State private var localImportProgress: LocalImportService.CopyProgress?
+    @State private var localImportAlert: SourceLocalImportAlert?
+    #endif
 
     var body: some View {
         NavigationStack {
@@ -95,6 +112,12 @@ struct SourcesView: View {
             }
             .navigationTitle("sources_title")
             .toolbarTitleDisplayMode(.inlineLarge)
+            .overlay(alignment: .bottom) {
+                if let toast = undoToast {
+                    undoToastView(toast)
+                }
+            }
+            .onDisappear { flushPendingDeletes() }
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button { showAddSource = true } label: { Image(systemName: "plus") }
@@ -129,6 +152,13 @@ struct SourcesView: View {
             .sheet(item: $diagnosingSource) { source in
                 SourceDiagnosticsView(source: source)
             }
+            #if os(iOS)
+            .sheet(isPresented: $showExistingLocalFileImporter) {
+                IOSLocalDocumentPicker(mode: .files) { result in
+                    handleExistingLocalImport(result)
+                }
+            }
+            #endif
             .alert(item: $cacheAlert) { alert in
                 switch alert {
                 case .confirm(let request):
@@ -148,29 +178,15 @@ struct SourcesView: View {
                     )
                 }
             }
-            // 用 .alert(居中模态)而非 .confirmationDialog: 后者在 regular 尺寸
-            // 类下会渲染成 popover, 锚到本修饰符所在的顶层视图, 导致无论从哪一行
-            // 触发删除, 确认气泡都固定弹在列表顶部、不跟随被点的源。alert 不依赖
-            // 锚点, 各设备/尺寸类表现一致。
-            .alert(
-                "delete",
-                isPresented: deleteConfirmationBinding,
-                presenting: pendingDeleteSource
-            ) { source in
-                Button(role: .destructive) {
-                    deleteSource(source)
-                    pendingDeleteSource = nil
-                } label: {
-                    Text("delete")
-                }
-                Button(role: .cancel) {
-                    pendingDeleteSource = nil
-                } label: {
-                    Text("cancel")
-                }
-            } message: { source in
-                Text(verbatim: source.name)
+            #if os(iOS)
+            .alert(item: $localImportAlert) { alert in
+                Alert(
+                    title: Text(alert.title),
+                    message: Text(alert.message),
+                    dismissButton: .default(Text("ok"))
+                )
             }
+            #endif
             .navigationDestination(isPresented: $openAppleMusicSettings) {
                 AppleMusicSettingsView()
             }
@@ -354,6 +370,14 @@ struct SourcesView: View {
                 sourceCacheProgressView(progress)
             }
 
+            #if os(iOS)
+            if isLocalImportSource(source),
+               localImportTargetSource?.id == source.id,
+               let localImportProgress {
+                localImportProgressView(localImportProgress)
+            }
+            #endif
+
             HStack(spacing: 10) {
                 if source.type == .appleMusic {
                     // Apple Music 走 ApplicationMusicPlayer, 没有目录/扫描/体检概念,
@@ -364,6 +388,42 @@ struct SourcesView: View {
                         prominence: .accent
                     ) {
                         openAppleMusicSettings = true
+                    }
+                } else if isLocalImportSource(source) {
+                    #if os(iOS)
+                    let isImportingHere = localImportTargetSource?.id == source.id && localImportProgress != nil
+                    sourceActionButton(
+                        "local_import_title",
+                        systemImage: "doc.badge.plus",
+                        prominence: .accent,
+                        isLoading: isImportingHere,
+                        isDisabled: localImportProgress != nil
+                    ) {
+                        presentExistingLocalImport(for: source)
+                    }
+                    #else
+                    sourceActionButton(
+                        "local_import_title",
+                        systemImage: "doc.badge.plus",
+                        prominence: .accent
+                    ) {
+                        showAddSource = true
+                    }
+                    #endif
+
+                    sourceActionButton(
+                        scanning?.canResume == true ? "resume_scan" : "scan",
+                        systemImage: scanning?.canResume == true ? "arrow.clockwise.circle" : "waveform.badge.magnifyingglass",
+                        prominence: .success,
+                        isDisabled: scanning?.isScanning == true
+                    ) {
+                        scanService.scanSource(
+                            source,
+                            sourceManager: sourceManager,
+                            library: library,
+                            sourceStore: sourceStore,
+                            scraperService: scraperService
+                        )
                     }
                 } else if source.type.isServerLibrary {
                     // 服务端整库源(媒体服务器 / Subsonic)直接全库扫描 — 无需选目录
@@ -447,12 +507,12 @@ struct SourcesView: View {
                 Button { editingSource = source } label: { Label("edit", systemImage: "pencil") }
                 Button { diagnosingSource = source } label: { Label("source_diagnostics", systemImage: "stethoscope") }
                 Divider()
-                Button(role: .destructive) { pendingDeleteSource = source } label: { Label("delete", systemImage: "trash") }
+                Button(role: .destructive) { requestDelete(source) } label: { Label("delete", systemImage: "trash") }
             }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             if source.id != AppleMusicLibraryService.systemSourceID {
-                Button(role: .destructive) { pendingDeleteSource = source } label: { Label("delete", systemImage: "trash") }
+                Button(role: .destructive) { requestDelete(source) } label: { Label("delete", systemImage: "trash") }
                 Button { editingSource = source } label: { Label("edit", systemImage: "pencil") }.tint(.orange)
                 Button { diagnosingSource = source } label: { Label("source_diagnostics_short", systemImage: "stethoscope") }.tint(.blue)
             }
@@ -521,6 +581,257 @@ struct SourcesView: View {
         .opacity(isDisabled && !isLoading ? 0.55 : 1)
     }
 
+    #if os(iOS)
+    private func presentExistingLocalImport(for source: MusicSource) {
+        guard localImportProgress == nil else { return }
+        localImportTargetSource = currentSource(for: source)
+        localImportAlert = nil
+        showExistingLocalFileImporter = true
+    }
+
+    private func handleExistingLocalImport(_ result: Result<[URL], Error>) {
+        showExistingLocalFileImporter = false
+        switch result {
+        case .success(let urls):
+            guard !urls.isEmpty, let source = localImportTargetSource else { return }
+            startExistingLocalImport(urls, for: currentSource(for: source))
+        case .failure(let error):
+            localImportAlert = SourceLocalImportAlert(
+                title: String(localized: "local_import_err_title"),
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    private func startExistingLocalImport(_ urls: [URL], for source: MusicSource) {
+        localImportTask?.cancel()
+        localImportAlert = nil
+        localImportTargetSource = currentSource(for: source)
+        localImportProgress = LocalImportService.CopyProgress(
+            phase: .discovering,
+            currentFileName: "",
+            processed: 0,
+            total: 0,
+            copied: 0,
+            skipped: 0
+        )
+
+        localImportTask = Task {
+            var finalResult: LocalImportService.CopyResult?
+            for await event in LocalImportService.copyEvents(urls, cleanupPickedCopies: true) {
+                guard !Task.isCancelled else { return }
+                switch event {
+                case .progress(let progress):
+                    localImportProgress = progress
+                case .finished(let result):
+                    finalResult = result
+                }
+            }
+
+            guard !Task.isCancelled, let outcome = finalResult else { return }
+            localImportTask = nil
+            localImportProgress = nil
+            if outcome.cancelled { return }
+
+            guard outcome.copied > 0 else {
+                localImportAlert = SourceLocalImportAlert(
+                    title: localImportFailureTitle(outcome),
+                    message: localImportFailureMessage(outcome)
+                )
+                return
+            }
+
+            let scanSource = currentSource(for: source)
+            scanService.scanSource(
+                scanSource,
+                sourceManager: sourceManager,
+                library: library,
+                sourceStore: sourceStore,
+                scraperService: scraperService
+            )
+
+            if outcome.skipped > 0 {
+                localImportAlert = SourceLocalImportAlert(
+                    title: String(localized: "local_import_partial_title"),
+                    message: localImportCompletionMessage(outcome)
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func localImportProgressView(_ progress: LocalImportService.CopyProgress) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let fraction = progress.fraction {
+                ProgressView(value: fraction)
+                    .tint(.accentColor)
+            } else {
+                ProgressView()
+                    .tint(.accentColor)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            HStack(spacing: 8) {
+                Text(localImportProgressMessage(progress))
+                    .lineLimit(1)
+                Spacer()
+                if progress.total > 0 {
+                    Text("\(progress.processed)/\(progress.total)")
+                        .monospacedDigit()
+                }
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+
+            if !progress.currentFileName.isEmpty {
+                Text(progress.currentFileName)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+        }
+    }
+
+    private func localImportProgressMessage(_ progress: LocalImportService.CopyProgress) -> String {
+        switch progress.phase {
+        case .discovering:
+            return String(localized: "local_import_progress_discovering")
+        case .copying:
+            if progress.total > 0 {
+                return String(
+                    format: String(localized: "local_import_progress_copying_format"),
+                    progress.processed,
+                    progress.total,
+                    progress.copied,
+                    progress.skipped
+                )
+            }
+            return String(localized: "local_import_progress_preparing")
+        case .finished:
+            return String(localized: "local_import_progress_finishing")
+        case .cancelled:
+            return String(localized: "local_import_cancelled")
+        }
+    }
+
+    private func localImportCompletionMessage(_ result: LocalImportService.CopyResult) -> String {
+        var message = String(
+            format: String(localized: "local_import_done_message_format"),
+            result.copied,
+            result.skipped
+        )
+        if let firstFailure = result.failures.first {
+            message += "\n" + String(
+                format: String(localized: "local_import_failure_reason_format"),
+                localImportFailureDescription(firstFailure)
+            )
+            if localImportNeedsProviderHint(firstFailure.reason) {
+                message += "\n" + String(localized: "local_import_provider_hint")
+            }
+        }
+        return message
+    }
+
+    private func localImportFailureMessage(_ result: LocalImportService.CopyResult) -> String {
+        let attempted = max(result.discovered, result.skipped)
+        // 网盘把后端错误响应当文件内容交出来(而非占位): 用更精准的文案直接引导内置云盘源。
+        if result.copied == 0,
+           let errFailure = result.failures.first(where: { $0.reason == .providerReturnedError }) {
+            return String(
+                format: String(localized: "local_import_provider_error_message_format"),
+                attempted,
+                result.skipped,
+                localImportFailureDescription(errFailure)
+            )
+        }
+        if let firstFailure = result.failures.first,
+           localImportIsProviderOnlyFailure(result) {
+            return String(
+                format: String(localized: "local_import_provider_failure_message_format"),
+                attempted,
+                result.skipped,
+                localImportFailureDescription(firstFailure)
+            )
+        }
+
+        var message = String(
+            format: String(localized: "local_import_none_added_message_format"),
+            attempted,
+            result.skipped
+        )
+        guard let firstFailure = result.failures.first else {
+            return message
+        }
+        message += "\n" + String(
+            format: String(localized: "local_import_failure_reason_format"),
+            localImportFailureDescription(firstFailure)
+        )
+        if localImportNeedsProviderHint(firstFailure.reason) {
+            message += "\n" + String(localized: "local_import_provider_hint")
+        }
+        return message
+    }
+
+    private func localImportFailureTitle(_ result: LocalImportService.CopyResult) -> String {
+        if result.copied == 0,
+           result.failures.contains(where: { $0.reason == .providerReturnedError }) {
+            return String(localized: "local_import_provider_error_title")
+        }
+        if localImportIsProviderOnlyFailure(result) {
+            return String(localized: "local_import_provider_title")
+        }
+        return String(localized: "local_import_err_title")
+    }
+
+    private func localImportIsProviderOnlyFailure(_ result: LocalImportService.CopyResult) -> Bool {
+        result.copied == 0 && result.failures.contains { localImportNeedsProviderHint($0.reason) }
+    }
+
+    private func localImportFailureDescription(_ failure: LocalImportService.CopyFailure) -> String {
+        var reason = localImportReasonText(failure.reason)
+        if failure.reason == .invalidAudioFile || failure.reason == .providerReturnedError,
+           let detail = failure.detail,
+           !detail.isEmpty {
+            reason += " (\(detail))"
+        }
+        return String(
+            format: String(localized: "local_import_failure_item_format"),
+            failure.fileName,
+            reason
+        )
+    }
+
+    private func localImportReasonText(_ reason: LocalImportService.FailureReason) -> String {
+        switch reason {
+        case .unsupportedFormat:
+            return String(localized: "local_import_reason_unsupported")
+        case .notFound:
+            return String(localized: "local_import_reason_not_found")
+        case .permissionDenied:
+            return String(localized: "local_import_reason_permission")
+        case .notEnoughSpace:
+            return String(localized: "local_import_reason_space")
+        case .coordinatedReadFailed:
+            return String(localized: "local_import_reason_provider")
+        case .invalidAudioFile:
+            return String(localized: "local_import_reason_invalid_audio")
+        case .providerReturnedError:
+            return String(localized: "local_import_reason_provider_error")
+        case .copyFailed:
+            return String(localized: "local_import_reason_copy")
+        }
+    }
+
+    private func localImportNeedsProviderHint(_ reason: LocalImportService.FailureReason) -> Bool {
+        switch reason {
+        case .coordinatedReadFailed, .invalidAudioFile, .providerReturnedError:
+            return true
+        case .unsupportedFormat, .notFound, .permissionDenied, .notEnoughSpace, .copyFailed:
+            return false
+        }
+    }
+    #endif
+
     private func sourceActionForeground(for prominence: SourceActionProminence) -> Color {
         switch prominence {
         case .neutral: .secondary
@@ -546,7 +857,8 @@ struct SourcesView: View {
     }
 
     private var sources: [MusicSource] {
-        sourceStore.sources
+        // 排除正处于"撤销倒计时"被乐观隐藏的源(尚未真正删除)。
+        sourceStore.sources.filter { !optimisticallyHiddenIDs.contains($0.id) }
     }
 
     private func playableSongs(for source: MusicSource) -> [Song] {
@@ -809,6 +1121,12 @@ struct SourcesView: View {
         )
 
         switch source.type {
+        case .local:
+            ContentUnavailableView(
+                "local_import_title",
+                systemImage: "folder.badge.plus",
+                description: Text("local_import_section_footer")
+            )
         case .synology:
             ConnectionFlowView(
                 source: source,
@@ -883,13 +1201,85 @@ struct SourcesView: View {
         Set(sourceStore.sources.filter { !$0.isEnabled }.map(\.id))
     }
 
-    /// Drives the delete confirmation dialog: presented while a source is
-    /// pending; dismissal (tap outside / cancel) clears the pending source.
-    private var deleteConfirmationBinding: Binding<Bool> {
-        Binding(
-            get: { pendingDeleteSource != nil },
-            set: { if !$0 { pendingDeleteSource = nil } }
-        )
+    /// 撤销提示条数据(被删源的 id + 名字)。
+    struct UndoDeleteToast: Equatable {
+        let id: String
+        let name: String
+    }
+
+    /// 删除源(带撤销): 先把卡片乐观隐藏并弹底部撤销条, 延迟数秒后才真正落地
+    /// 删除。窗口内点撤销 = 取消尚未执行的删除、卡片滑回, 数据完好(不靠软删
+    /// 恢复, 因为 deleteSource 会移歌/移 connector 且 restore 不重扫)。
+    private func requestDelete(_ source: MusicSource) {
+        // 同源若已有未落地删除, 先落地旧的再开新窗口。
+        if pendingDeleteTasks[source.id] != nil { commitPendingDelete(source.id) }
+        withAnimation {
+            optimisticallyHiddenIDs.insert(source.id)
+            undoToast = UndoDeleteToast(id: source.id, name: source.name)
+        }
+        let id = source.id
+        let task = Task {
+            try? await Task.sleep(for: .seconds(4))
+            if Task.isCancelled { return }
+            await MainActor.run { commitPendingDelete(id) }
+        }
+        pendingDeleteTasks[id] = task
+    }
+
+    /// 撤销倒计时到期 → 真正删除。
+    private func commitPendingDelete(_ id: String) {
+        pendingDeleteTasks[id]?.cancel()
+        pendingDeleteTasks[id] = nil
+        if let source = sourceStore.source(id: id) { deleteSource(source) }
+        withAnimation {
+            optimisticallyHiddenIDs.remove(id)
+            if undoToast?.id == id { undoToast = nil }
+        }
+    }
+
+    /// 用户点撤销 → 取消尚未执行的删除, 卡片恢复显示。
+    private func undoDelete(_ id: String) {
+        pendingDeleteTasks[id]?.cancel()
+        pendingDeleteTasks[id] = nil
+        withAnimation {
+            optimisticallyHiddenIDs.remove(id)
+            undoToast = nil
+        }
+    }
+
+    /// 离开页面时把所有未落地的删除立即落地(不再有机会撤销)。
+    private func flushPendingDeletes() {
+        for id in Array(pendingDeleteTasks.keys) {
+            pendingDeleteTasks[id]?.cancel()
+            pendingDeleteTasks[id] = nil
+            if let source = sourceStore.source(id: id) { deleteSource(source) }
+        }
+        optimisticallyHiddenIDs.removeAll()
+        undoToast = nil
+    }
+
+    @ViewBuilder
+    private func undoToastView(_ toast: UndoDeleteToast) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "trash")
+                .foregroundStyle(.secondary)
+            Text(String(format: String(localized: "source_deleted_toast"), toast.name))
+                .font(.subheadline)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            Button(String(localized: "undo")) { undoDelete(toast.id) }
+                .font(.subheadline.weight(.semibold))
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.accentColor)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().stroke(.white.opacity(0.08), lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.25), radius: 12, y: 4)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 12)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
     private func deleteSource(_ source: MusicSource) {
@@ -917,6 +1307,14 @@ struct SourcesView: View {
         scanService.cancelScan(for: sourceID)
     }
 
+    private func isLocalImportSource(_ source: MusicSource) -> Bool {
+        #if os(iOS)
+        return source.type == .local
+        #else
+        return false
+        #endif
+    }
+
     private func currentSource(for source: MusicSource) -> MusicSource {
         sourceStore.source(id: source.id) ?? source
     }
@@ -933,6 +1331,9 @@ struct SourcesView: View {
         }
 
         if path == "/" {
+            if source.type == .local {
+                return String(localized: "local_import_source_name")
+            }
             return String(localized: "shared_folders")
         }
 

@@ -1809,3 +1809,38 @@
 "scraper_warn_tls_trust_domains" = "이 구성은 TLS 신뢰 도메인을 선언합니다. 인증서 우회에는 여전히 사용자의 명시적 신뢰 확인이 필요합니다.";
 "scraper_warn_non_get_requests" = "이 스크레이퍼는 GET이 아닌 요청을 보낼 수 있습니다.";
 "scraper_warn_script_too_large" = "하나 이상의 스크립트가 런타임 크기 제한을 초과하여 실행되지 않을 수 있습니다.";
+
+/* Source delete undo */
+"source_deleted_toast" = "「%@」 삭제됨";
+"undo" = "실행 취소";
+
+/* Local import — two entries */
+"local_import_folder_title" = "폴더 가져오기";
+"local_import_folder_subtitle" = "기기 또는 iCloud Drive, 폴더 전체";
+"local_import_files_title" = "파일 가져오기";
+"local_import_files_subtitle" = "파일 또는 클라우드에서 오디오 선택";
+"local_import_progress_title" = "음악 가져오는 중";
+"local_import_progress_discovering" = "가져올 수 있는 오디오를 찾는 중…";
+"local_import_progress_preparing" = "가져오기를 준비 중…";
+"local_import_progress_copying_format" = "%1$d/%2$d 처리됨 · %3$d개 가져옴 · %4$d개 건너뜀";
+"local_import_progress_finishing" = "가져오기를 마무리하는 중…";
+"local_import_cancelled" = "가져오기가 취소됨";
+"local_import_done_title" = "가져오기 완료";
+"local_import_partial_title" = "일부 가져오기 완료";
+"local_import_provider_title" = "원본 오디오를 읽을 수 없습니다";
+"local_import_done_message_format" = "%1$d곡을 가져오고 %2$d개 항목을 건너뛰었습니다. 가져온 파일을 스캔하는 중입니다.";
+"local_import_none_added_message_format" = "%1$d개 항목을 처리했지만 오디오를 가져오지 못했습니다. 실패: %2$d개.";
+"local_import_provider_failure_message_format" = "%1$d개 항목을 선택했고 %2$d개가 실패했습니다. 파일 앱 또는 클라우드 드라이브가 원본 오디오가 아니라 자리표시자/오류 내용을 Primuse에 제공했습니다.\n\n실패 예: %3$@\n\n방법:\n1. 파일 앱에서 이미 다운로드됨으로 보인다면, 파일 앱 또는 클라우드 앱에서 노래를 “나의 iPhone” 로컬 폴더에 저장하세요.\n2. Primuse로 돌아와 그 로컬 폴더에서 다시 가져오세요.\n3. 그래도 실패하면 해당 클라우드 드라이브를 앱 안의 음악 소스로 추가하세요.";
+"local_import_failure_reason_format" = "주요 원인: %@";
+"local_import_provider_hint" = "클라우드 드라이브의 파일이라면 파일 앱의 “나의 iPhone” 로컬 폴더에 저장한 뒤 다시 가져오세요. 앱 안에서 클라우드 드라이브를 음악 소스로 추가할 수도 있습니다.";
+"local_import_failure_item_format" = "%1$@: %2$@";
+"local_import_reason_unsupported" = "지원하지 않는 형식";
+"local_import_reason_not_found" = "파일을 찾을 수 없음";
+"local_import_reason_permission" = "읽기 권한 없음";
+"local_import_reason_space" = "기기 저장 공간 부족";
+"local_import_reason_provider" = "파일 제공자가 읽을 수 있는 오디오를 제공하지 않았습니다";
+"local_import_reason_invalid_audio" = "복사된 내용은 원본 오디오가 아니라 자리표시자 또는 오류 응답입니다";
+"local_import_reason_provider_error" = "클라우드 드라이브가 오디오가 아니라 오류 응답을 반환했습니다";
+"local_import_provider_error_title" = "클라우드 드라이브가 오디오를 반환하지 않음";
+"local_import_provider_error_message_format" = "%1$d개 항목을 선택했고 %2$d개가 실패했습니다. 클라우드 드라이브가 원본 오디오가 아니라 오류 응답을 Primuse에 제공했습니다. 보통 해당 파일이 멤버십이 필요하거나, 핫링크 보호로 제한되었거나, 다운로드 권한이 없기 때문입니다.\n\n실패 예: %3$@\n\n방법:\n1. 먼저 해당 클라우드 드라이브를 앱 안의 음악 소스로 추가하세요(드라이브 자체 API로 다운로드합니다). 이런 파일은 시스템 파일 가져오기로는 받을 수 없습니다.\n2. 또는 클라우드 앱에서 곡을 “파일에 저장”하여 “나의 iPhone” 로컬 폴더에 넣은 뒤 가져오세요(드라이브가 원본 파일 내보내기를 허용하는 경우).";
+"local_import_reason_copy" = "복사 실패";

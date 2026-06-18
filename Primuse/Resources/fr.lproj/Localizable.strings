@@ -1809,3 +1809,38 @@
 "scraper_warn_tls_trust_domains" = "Cette configuration déclare des domaines de confiance TLS. Le contournement du certificat nécessite toujours une confirmation de confiance explicite de l'utilisateur.";
 "scraper_warn_non_get_requests" = "Ce scraper peut envoyer des requêtes autres que GET.";
 "scraper_warn_script_too_large" = "Un ou plusieurs scripts dépassent la limite de taille d'exécution et risquent de ne pas fonctionner.";
+
+/* Source delete undo */
+"source_deleted_toast" = "« %@ » supprimé";
+"undo" = "Annuler";
+
+/* Local import — two entries */
+"local_import_folder_title" = "Importer un dossier";
+"local_import_folder_subtitle" = "Sur l'appareil ou iCloud Drive, tout le dossier";
+"local_import_files_title" = "Importer des fichiers";
+"local_import_files_subtitle" = "Choisir l'audio depuis Fichiers ou le cloud";
+"local_import_progress_title" = "Importation de la musique";
+"local_import_progress_discovering" = "Recherche des fichiers audio importables…";
+"local_import_progress_preparing" = "Préparation de l'import…";
+"local_import_progress_copying_format" = "Traités %1$d/%2$d · Importés %3$d · Ignorés %4$d";
+"local_import_progress_finishing" = "Finalisation de l'import…";
+"local_import_cancelled" = "Import annulé";
+"local_import_done_title" = "Import terminé";
+"local_import_partial_title" = "Import partiel";
+"local_import_provider_title" = "Impossible de lire l’audio original";
+"local_import_done_message_format" = "%1$d morceau(x) importé(s), %2$d élément(s) ignoré(s). Analyse des fichiers importés en cours.";
+"local_import_none_added_message_format" = "%1$d élément(s) traité(s), mais aucun audio n’a été importé. Échecs : %2$d.";
+"local_import_provider_failure_message_format" = "%1$d élément(s) sélectionné(s), %2$d échec(s). Fichiers ou le service cloud a fourni à Primuse du contenu de substitution ou d’erreur au lieu de l’audio original.\n\nExemple d’échec : %3$@\n\nQue faire :\n1. Si Fichiers indique déjà que l’élément est téléchargé, enregistre les morceaux depuis Fichiers ou l’app cloud dans un dossier local « Sur mon iPhone ».\n2. Reviens dans Primuse et importe à nouveau depuis ce dossier local.\n3. Si cela échoue encore, ajoute plutôt ce service cloud comme source musicale dans l’app.";
+"local_import_failure_reason_format" = "Raison principale : %@";
+"local_import_provider_hint" = "Si le fichier vient d’un service cloud, enregistre-le d’abord dans un dossier local « Sur mon iPhone » dans Fichiers, puis réessaie. Tu peux aussi ajouter ce service cloud comme source musicale dans l’app.";
+"local_import_failure_item_format" = "%1$@ : %2$@";
+"local_import_reason_unsupported" = "Format non pris en charge";
+"local_import_reason_not_found" = "Fichier introuvable";
+"local_import_reason_permission" = "Autorisation de lecture manquante";
+"local_import_reason_space" = "Stockage insuffisant sur l'appareil";
+"local_import_reason_provider" = "Le fournisseur de fichiers n’a pas fourni d’audio lisible";
+"local_import_reason_invalid_audio" = "Le contenu copié est une réponse de substitution ou d’erreur, pas l’audio original";
+"local_import_reason_provider_error" = "Le service cloud a renvoyé une réponse d’erreur, pas un fichier audio";
+"local_import_provider_error_title" = "Le service cloud n’a renvoyé aucun audio";
+"local_import_provider_error_message_format" = "%1$d élément(s) sélectionné(s), %2$d échec(s). Le service cloud a fourni à Primuse une réponse d’erreur au lieu de l’audio original — généralement le fichier nécessite un abonnement payant, est bloqué par une protection anti-hotlink, ou tu n’as pas l’autorisation de téléchargement.\n\nExemple d’échec : %3$@\n\nQue faire :\n1. Ajoute de préférence le service cloud correspondant comme source musicale dans l’app (il télécharge via l’API du service). Ce type de fichier ne peut pas être obtenu via l’import système depuis Fichiers.\n2. Ou, dans l’app cloud, utilise « Enregistrer dans Fichiers » vers un dossier local « Sur mon iPhone » puis importe depuis là (si le service autorise l’export du fichier original).";
+"local_import_reason_copy" = "Échec de la copie";

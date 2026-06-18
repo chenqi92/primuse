@@ -1,9 +1,12 @@
+import CryptoKit
 import Foundation
 import PrimuseKit
 
-actor LocalFileSource: MusicSourceConnector {
+actor LocalFileSource: SongScanningConnector {
     let sourceID: String
     private let basePath: URL
+    private let metadataService = MetadataService()
+    private static let minimumReadableAudioBytes: Int64 = 1024
     /// macOS sandbox requires holding the security scope across the lifetime
     /// of the connector — the URL we resolved from the stored bookmark
     /// stops being readable the moment we release it.
@@ -132,6 +135,78 @@ actor LocalFileSource: MusicSourceConnector {
         }
     }
 
+    func scanSongs(from path: String) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error> {
+        let files = try await scanAudioFiles(from: path)
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    for try await item in files {
+                        try Task.checkCancellation()
+                        if let scanned = try await self.buildScannedSong(from: item) {
+                            continuation.yield(scanned)
+                        }
+                    }
+                    continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { @Sendable _ in task.cancel() }
+        }
+    }
+
+    private func buildScannedSong(from item: RemoteFileItem) async throws -> ConnectorScannedSong? {
+        guard item.size >= Self.minimumReadableAudioBytes else {
+            plog("📥 LocalFileSource: skipping tiny local audio '\(item.name)' size=\(item.size)B")
+            return nil
+        }
+
+        let fileURL = try await localURL(for: item.path)
+        let songID = Self.generateID(sourceID: sourceID, path: item.path)
+        let originalBaseName = ((item.name as NSString).lastPathComponent as NSString).deletingPathExtension
+        let metadata = await metadataService.loadMetadata(
+            for: fileURL,
+            cacheKey: songID,
+            allowOnlineFetch: false,
+            fallbackTitle: originalBaseName
+        )
+
+        guard metadata.duration > 0 else {
+            plog("📥 LocalFileSource: skipping unreadable local audio '\(item.name)' size=\(item.size)B")
+            return nil
+        }
+
+        let format = AudioFormat.from(fileExtension: (item.name as NSString).pathExtension) ?? .mp3
+        let song = Song(
+            id: songID,
+            title: metadata.title,
+            albumTitle: metadata.albumTitle,
+            artistName: metadata.artist,
+            trackNumber: metadata.trackNumber,
+            discNumber: metadata.discNumber,
+            duration: metadata.duration,
+            fileFormat: format,
+            filePath: item.path,
+            sourceID: sourceID,
+            fileSize: item.size,
+            bitRate: metadata.bitRate,
+            sampleRate: metadata.sampleRate,
+            bitDepth: metadata.bitDepth,
+            genre: metadata.genre,
+            year: metadata.year,
+            lastModified: item.modifiedDate,
+            coverArtFileName: metadata.coverArtFileName,
+            lyricsFileName: metadata.lyricsFileName,
+            replayGainTrackGain: metadata.replayGainTrackGain,
+            replayGainTrackPeak: metadata.replayGainTrackPeak,
+            replayGainAlbumGain: metadata.replayGainAlbumGain,
+            replayGainAlbumPeak: metadata.replayGainAlbumPeak
+        )
+        return ConnectorScannedSong(song: song, displayName: item.name)
+    }
+
     private func resolvedURL(for path: String, allowRoot: Bool) throws -> URL {
         let relativePath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let fileURL = (relativePath.isEmpty ? basePath : basePath.appendingPathComponent(relativePath)).standardizedFileURL
@@ -152,6 +227,12 @@ actor LocalFileSource: MusicSourceConnector {
         guard path.hasPrefix(base) else { return "/" + url.lastPathComponent }
         let suffix = path.dropFirst(base.count)
         return suffix.hasPrefix("/") ? String(suffix) : "/" + suffix
+    }
+
+    private nonisolated static func generateID(sourceID: String, path: String) -> String {
+        let input = "\(sourceID):\(path)"
+        let hash = SHA256.hash(data: Data(input.utf8))
+        return hash.map { String(format: "%02x", $0) }.joined()
     }
 }
 

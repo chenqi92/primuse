@@ -1912,3 +1912,38 @@
 "scraper_warn_tls_trust_domains" = "此配置声明了 TLS 信任域名。绕过证书校验仍需用户明确确认信任。";
 "scraper_warn_non_get_requests" = "此刮削源可发送非 GET 请求。";
 "scraper_warn_script_too_large" = "一个或多个脚本超出运行时大小限制，可能无法运行。";
+
+/* Source delete undo */
+"source_deleted_toast" = "已删除「%@」";
+"undo" = "撤销";
+
+/* Local import — two entries */
+"local_import_folder_title" = "导入文件夹";
+"local_import_folder_subtitle" = "本机或 iCloud 云盘，整包导入（含子目录）";
+"local_import_files_title" = "导入文件";
+"local_import_files_subtitle" = "可从百度网盘、阿里云盘等选取音频";
+"local_import_progress_title" = "正在导入音乐";
+"local_import_progress_discovering" = "正在查找可导入的音频…";
+"local_import_progress_preparing" = "正在准备导入…";
+"local_import_progress_copying_format" = "已处理 %1$d/%2$d · 已导入 %3$d · 跳过 %4$d";
+"local_import_progress_finishing" = "正在完成导入…";
+"local_import_cancelled" = "导入已取消";
+"local_import_done_title" = "导入完成";
+"local_import_partial_title" = "部分导入完成";
+"local_import_provider_title" = "无法读取原音频";
+"local_import_done_message_format" = "已导入 %1$d 首，跳过 %2$d 个。正在扫描导入文件。";
+"local_import_none_added_message_format" = "本次处理 %1$d 个项目，未导入任何音频。失败 %2$d 个。";
+"local_import_provider_failure_message_format" = "本次选择 %1$d 个项目，失败 %2$d 个。文件 App/网盘交给猿音的是占位或错误内容，不是音频原文件。\n\n失败示例：%3$@\n\n可以这样处理：\n1. 如果文件 App 里已经显示已下载，请先在文件 App 或网盘 App 中把歌曲“存储到文件”的“我的 iPhone”本地文件夹。\n2. 回到猿音，从这个本地文件夹重新导入。\n3. 如果仍失败，可以改用猿音内的对应云盘音乐源。";
+"local_import_failure_reason_format" = "主要原因：%@";
+"local_import_provider_hint" = "如果文件来自网盘，请先保存到“文件”App 的“我的 iPhone”本地文件夹后再导入；也可以改用应用内的云盘音乐源。";
+"local_import_failure_item_format" = "%1$@：%2$@";
+"local_import_reason_unsupported" = "格式不支持";
+"local_import_reason_not_found" = "文件不存在";
+"local_import_reason_permission" = "没有读取权限";
+"local_import_reason_space" = "设备可用空间不足";
+"local_import_reason_provider" = "文件提供器没有交出可读取的音频";
+"local_import_reason_invalid_audio" = "拷贝到的是占位或错误内容，不是音频原文件";
+"local_import_reason_provider_error" = "网盘返回的是错误响应，不是音频文件";
+"local_import_provider_error_title" = "网盘未返回音频";
+"local_import_provider_error_message_format" = "本次选择 %1$d 个项目，失败 %2$d 个。网盘交给猿音的是一段错误响应，不是音频原文件——通常是该文件需要会员、被防盗链限制，或没有下载权限。\n\n失败示例：%3$@\n\n建议：\n1. 优先改用猿音内置的对应云盘音乐源（走网盘自身接口下载），这类文件经系统“文件”导入无法绕过。\n2. 或在网盘 App 里把歌曲“存储到文件”的“我的 iPhone”本地文件夹后再导入（若网盘允许导出原文件）。";
+"local_import_reason_copy" = "拷贝失败";

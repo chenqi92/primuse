@@ -769,11 +769,12 @@ extension SongRowView {
         backfill: MetadataBackfillService
     ) -> RowContext {
         let showBadge = sourcesStore.sources.count > 1
-        let source = showBadge ? sourcesStore.source(id: song.sourceID) : nil
+        let source = sourcesStore.source(id: song.sourceID)
+        let localBareSong = !song.isPlayable && source?.type == .local
         return RowContext(
-            sourceName: source?.name,
-            sourceIconName: source?.type.iconName,
-            backfillFailed: !song.isPlayable && backfill.didFail(songID: song.id)
+            sourceName: showBadge ? source?.name : nil,
+            sourceIconName: showBadge ? source?.type.iconName : nil,
+            backfillFailed: !song.isPlayable && (backfill.didFail(songID: song.id) || localBareSong)
         )
     }
 
