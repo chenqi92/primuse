@@ -262,6 +262,13 @@ enum LocalImportService {
             )
             return
         }
+        // 重复导入同一文件夹/文件时, 同名+同体积(+同修改时间)视为已导入过, 直接跳过 ——
+        // 否则 uniqueDestination 会追加 " 2" 拷成新物理文件, 扫描后变成两首一样的歌。
+        if let existing = existingImportedDuplicate(of: url, in: dir, fm: fm) {
+            plog("📥 LocalImport: 跳过重复 '\(url.lastPathComponent)' (已存在 \(existing.lastPathComponent))")
+            result.skipped += 1
+            return
+        }
         let dest = uniqueDestination(for: url.lastPathComponent, in: dir, fm: fm)
         plog("📥 LocalImport: importing '\(url.lastPathComponent)' \(resourceDebugDescription(for: url, fm: fm))")
         waitForProviderMaterializationIfNeeded(url, fm: fm)
@@ -604,6 +611,40 @@ enum LocalImportService {
             out.append(fileURL)
         }
         return out
+    }
+
+    /// 重复导入判定: 目标目录里是否已有「同名(或同名追加过序号)且体积一致、修改时间
+    /// 接近」的文件。拷贝时会保留源文件的修改时间, 故同一文件再次导入能命中而跳过;
+    /// 仅靠体积已是音频很强的同一性信号, 修改时间再加一道防误判(不同歌极难同名又同字节)。
+    private static func existingImportedDuplicate(of source: URL, in dir: URL, fm: FileManager) -> URL? {
+        let sourceSize = copiedFileSize(source, fm: fm)
+        guard sourceSize > 0 else { return nil }
+        let sourceMTime = try? source.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+
+        let name = source.lastPathComponent
+        let base = (name as NSString).deletingPathExtension
+        let ext = (name as NSString).pathExtension
+
+        var candidates = [dir.appendingPathComponent(name)]
+        var i = 2
+        while true {
+            let n = ext.isEmpty ? "\(base) \(i)" : "\(base) \(i).\(ext)"
+            let candidate = dir.appendingPathComponent(n)
+            guard fm.fileExists(atPath: candidate.path) else { break }
+            candidates.append(candidate)
+            i += 1
+        }
+
+        for candidate in candidates where fm.fileExists(atPath: candidate.path) {
+            guard copiedFileSize(candidate, fm: fm) == sourceSize else { continue }
+            if let sourceMTime,
+               let candidateMTime = try? candidate.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
+               abs(candidateMTime.timeIntervalSince(sourceMTime)) > 2 {
+                continue
+            }
+            return candidate
+        }
+        return nil
     }
 
     /// 目标目录已存在同名文件时追加 " 2"/" 3"…, 不覆盖。
