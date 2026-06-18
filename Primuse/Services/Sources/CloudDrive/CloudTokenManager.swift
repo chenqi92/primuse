@@ -30,23 +30,23 @@ actor CloudTokenManager {
     func getTokens() -> Tokens? {
         guard let data = keychainRead(key: "cloud_tokens_\(sourceID)"),
               let tokens = try? JSONDecoder().decode(Tokens.self, from: data) else {
-            plog("☁️ Keychain getTokens MISS sourceID=\(sourceID)")
+            plog("☁️ Keychain getTokens MISS sourceID=\(sourceID.prefix(8))…")
             return nil
         }
-        plog("☁️ Keychain getTokens HIT sourceID=\(sourceID) accessTokenLen=\(tokens.accessToken.count) hasRefresh=\(tokens.refreshToken != nil)")
+        plog("☁️ Keychain getTokens HIT sourceID=\(sourceID.prefix(8))… hasRefresh=\(tokens.refreshToken != nil)")
         return tokens
     }
 
     func saveTokens(_ tokens: Tokens) {
         guard let data = try? JSONEncoder().encode(tokens) else { return }
         let ok = keychainWrite(key: "cloud_tokens_\(sourceID)", data: data)
-        plog("☁️ Keychain saveTokens sourceID=\(sourceID) bytes=\(data.count) ok=\(ok)")
+        plog("☁️ Keychain saveTokens sourceID=\(sourceID.prefix(8))… ok=\(ok)")
         if !ok {
             // Fallback: try writing as a local-only (non-synchronizable) item.
             // Sandboxed macOS apps without an explicit keychain-access-group
             // can fail on synchronizable adds with errSecMissingEntitlement.
             let okLocal = keychainWriteLocal(key: "cloud_tokens_\(sourceID)", data: data)
-            plog("☁️ Keychain saveTokens FALLBACK local-only sourceID=\(sourceID) ok=\(okLocal)")
+            plog("☁️ Keychain saveTokens FALLBACK local-only sourceID=\(sourceID.prefix(8))… ok=\(okLocal)")
         }
     }
 

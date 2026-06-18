@@ -84,6 +84,8 @@ struct SourcesView: View {
     /// "打开 Apple Music 设置" 的跳转 ── 走 NavigationStack 的 destination 而不是 sheet,
     /// 让推入栈跟其他 Settings 子页体验一致 (左上角"返回"而不是"完成")。
     @State private var openAppleMusicSettings = false
+    /// 各源磁盘占用(字节), 后台 .task 填充, 卡片读取。键为 source.id。
+    @State private var sourceSizes: [String: Int64] = [:]
 
     var body: some View {
         NavigationStack {
@@ -99,7 +101,20 @@ struct SourcesView: View {
                 }
             }
             .sheet(isPresented: $showAddSource) {
-                SourceTypeSelectionView { source in sourceStore.add(source) }
+                SourceTypeSelectionView { source in
+                    sourceStore.add(source)
+                    // 本地导入: 文件已拷进沙箱, add 后立即扫描入库, 让导入的歌
+                    // 即时出现(其余源类型仍由用户手动连接/选目录后再扫)。
+                    if source.type == .local {
+                        scanService.scanSource(
+                            source,
+                            sourceManager: sourceManager,
+                            library: library,
+                            sourceStore: sourceStore,
+                            scraperService: scraperService
+                        )
+                    }
+                }
             }
             .sheet(item: $editingSource) { source in
                 AddSourceView(sourceType: source.type, editingSource: source) { updated in
@@ -186,6 +201,18 @@ struct SourcesView: View {
                 }
             }
         }
+        .task(id: sources.map { "\($0.id):\($0.songCount)" }.joined(separator: ",")) {
+            // 后台逐源算磁盘占用, 一次性重建字典(顺带清掉已删源的残留键)。
+            // diskUsage 内部走后台枚举, 不卡主线程。id 纳入 songCount, 让导入 /
+            // 扫描改变歌曲数后重算(下载缓存增长不改 songCount, 属已知最小实现)。
+            var sizes: [String: Int64] = [:]
+            for source in sources {
+                let size = await sourceManager.diskUsage(for: source)
+                if Task.isCancelled { return }
+                sizes[source.id] = size
+            }
+            sourceSizes = sizes
+        }
     }
 
     private func sourceCard(_ source: MusicSource) -> some View {
@@ -239,11 +266,17 @@ struct SourcesView: View {
                     .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                if displayedSongCount > 0 {
-                    Text("\(displayedSongCount)")
-                        .font(.caption).fontWeight(.semibold).monospacedDigit()
-                        .padding(.horizontal, 8).padding(.vertical, 3)
-                        .background(.quaternary).clipShape(Capsule())
+                VStack(alignment: .trailing, spacing: 2) {
+                    if displayedSongCount > 0 {
+                        Text("\(displayedSongCount)")
+                            .font(.caption).fontWeight(.semibold).monospacedDigit()
+                            .padding(.horizontal, 8).padding(.vertical, 3)
+                            .background(.quaternary).clipShape(Capsule())
+                    }
+                    if let size = sourceSizes[source.id], size > 0 {
+                        Text(cacheSizeDescription(knownBytes: size, unknownCount: 0))
+                            .font(.caption2).foregroundStyle(.secondary).monospacedDigit()
+                    }
                 }
             }
 

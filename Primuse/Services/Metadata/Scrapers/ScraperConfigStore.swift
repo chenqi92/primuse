@@ -1,9 +1,32 @@
 import Foundation
 
+/// Non-persistent review payload shown before a custom scraper is imported.
+struct ScraperImportSummary: Sendable {
+    let configs: [ScraperConfig]
+    let sourceHost: String?
+    let domains: [String]
+    let sslTrustDomains: [String]
+    let capabilities: [String]
+    let methods: [String]
+    let endpointCount: Int
+    let scriptCharacterCount: Int
+    let includesHeaders: Bool
+    let includesCookie: Bool
+    let includesSecrets: Bool
+    let warnings: [String]
+
+    var sourceDescription: String {
+        if let sourceHost { return sourceHost }
+        return "Pasted JSON"
+    }
+}
+
 /// Manages storage and retrieval of user-imported ScraperConfig JSON files.
 /// Configs are stored as individual .json files in Application Support/Primuse/ScraperConfigs/.
 final class ScraperConfigStore: @unchecked Sendable {
     static let shared = ScraperConfigStore()
+
+    private static let maxRemoteImportBytes = 2 * 1024 * 1024
 
     private let configDir: URL
     private var cache: [String: ScraperConfig] = [:]
@@ -61,6 +84,21 @@ final class ScraperConfigStore: @unchecked Sendable {
     /// - Bundle manifest: `{ "schema": N, "sources": [{...}, ...] }`
     @discardableResult
     func importFromJSON(_ jsonString: String) throws -> [ScraperConfig] {
+        try importConfigs(parseConfigs(from: jsonString))
+    }
+
+    /// Parse and validate one or more configs without writing them to disk.
+    func previewImportFromJSON(_ jsonString: String) throws -> ScraperImportSummary {
+        try makeImportSummary(configs: parseConfigs(from: jsonString), sourceURL: nil)
+    }
+
+    /// Persist configs that have already been parsed/reviewed.
+    @discardableResult
+    func importConfigs(_ configs: [ScraperConfig]) throws -> [ScraperConfig] {
+        try persistAll(configs)
+    }
+
+    private func parseConfigs(from jsonString: String) throws -> [ScraperConfig] {
         let trimmed = jsonString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             throw ScraperConfigError.invalidJSON("Empty input")
@@ -89,7 +127,8 @@ final class ScraperConfigStore: @unchecked Sendable {
             throw ScraperConfigError.invalidJSON("Expected '{' or '[' at start")
         }
 
-        return try persistAll(configs)
+        for config in configs { try validate(config) }
+        return configs
     }
 
     private struct BundleManifest: Decodable {
@@ -98,14 +137,151 @@ final class ScraperConfigStore: @unchecked Sendable {
 
     /// Import one or more configs from a URL — downloads the JSON and imports it.
     func importFromURL(_ url: URL) async throws -> [ScraperConfig] {
-        let (data, response) = try await URLSession.shared.data(from: url)
+        try importConfigs((try await previewImportFromURL(url)).configs)
+    }
+
+    /// Download, parse and validate a remote config without writing it to disk.
+    func previewImportFromURL(_ url: URL) async throws -> ScraperImportSummary {
+        let jsonString = try await downloadConfigJSON(from: url)
+        return try makeImportSummary(configs: parseConfigs(from: jsonString), sourceURL: url)
+    }
+
+    private func downloadConfigJSON(from url: URL) async throws -> String {
+        guard url.scheme?.lowercased() == "https" else {
+            throw ScraperConfigError.downloadFailed("Only HTTPS URLs are supported")
+        }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 15
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 15
+        configuration.timeoutIntervalForResource = 30
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        let session = URLSession(configuration: configuration)
+        defer { session.finishTasksAndInvalidate() }
+
+        let (bytes, response) = try await session.bytes(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw ScraperConfigError.downloadFailed("HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)")
+        }
+        if let length = http.value(forHTTPHeaderField: "Content-Length").flatMap(Int.init),
+           length > Self.maxRemoteImportBytes {
+            throw ScraperConfigError.downloadFailed("Response too large")
+        }
+
+        var data = Data()
+        data.reserveCapacity(min(http.value(forHTTPHeaderField: "Content-Length").flatMap(Int.init) ?? 0, Self.maxRemoteImportBytes))
+        for try await byte in bytes {
+            if data.count >= Self.maxRemoteImportBytes {
+                throw ScraperConfigError.downloadFailed("Response too large")
+            }
+            data.append(byte)
         }
         guard let jsonString = String(data: data, encoding: .utf8) else {
             throw ScraperConfigError.invalidJSON("Response is not valid UTF-8")
         }
-        return try importFromJSON(jsonString)
+        return jsonString
+    }
+
+    private func makeImportSummary(configs: [ScraperConfig], sourceURL: URL?) throws -> ScraperImportSummary {
+        guard !configs.isEmpty else {
+            throw ScraperConfigError.invalidJSON("No config object found")
+        }
+        for config in configs { try validate(config) }
+
+        let endpoints = configs.flatMap { Self.endpoints(in: $0) }
+        let endpointDomains = endpoints.flatMap { endpoint in
+            Self.hosts(in: endpoint.url)
+                + Self.hosts(in: endpoint.bodyTemplate ?? "")
+                + Self.hosts(in: endpoint.script)
+        }
+        let sslTrustDomains = configs
+            .flatMap { $0.sslTrustDomains ?? [] }
+            .compactMap(Self.normalizedHost)
+        let capabilities = configs
+            .flatMap(\.capabilities)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let methods = endpoints
+            .map { $0.method.uppercased() }
+            .filter { !$0.isEmpty }
+        let includesHeaders = configs.contains { $0.headers?.isEmpty == false }
+            || endpoints.contains { $0.headers?.isEmpty == false }
+        let includesCookie = configs.contains { config in
+            config.cookie?.isEmpty == false
+                || config.headers?.keys.contains(where: { $0.caseInsensitiveCompare("cookie") == .orderedSame }) == true
+                || Self.endpoints(in: config).contains {
+                    $0.headers?.keys.contains(where: { $0.caseInsensitiveCompare("cookie") == .orderedSame }) == true
+                }
+        }
+        let includesSecrets = configs.contains { $0.secrets?.isEmpty == false }
+        let scriptCharacterCount = endpoints.reduce(0) { $0 + $1.script.count }
+
+        var warnings: [String] = []
+        if Set(endpointDomains).isEmpty {
+            warnings.append("No fixed network domain was detected. The scraper may build URLs dynamically in JavaScript.")
+        }
+        if includesCookie {
+            warnings.append("This config includes Cookie data. Import only configs from people you trust.")
+        } else if includesHeaders {
+            warnings.append("This config adds custom request headers.")
+        }
+        if includesSecrets {
+            warnings.append("This config includes local secrets. They will be stored separately and not synced as public config JSON.")
+        }
+        if !sslTrustDomains.isEmpty {
+            warnings.append("This config declares TLS trust domains. Certificate bypass still requires an explicit user trust prompt.")
+        }
+        if endpoints.contains(where: { $0.method.uppercased() != "GET" }) {
+            warnings.append("This scraper can send non-GET requests.")
+        }
+        if endpoints.contains(where: { $0.script.count > 200_000 }) {
+            warnings.append("One or more scripts exceed the runtime size limit and may fail to run.")
+        }
+
+        return ScraperImportSummary(
+            configs: configs,
+            sourceHost: sourceURL?.host?.lowercased(),
+            domains: Array(Set(endpointDomains)).sorted(),
+            sslTrustDomains: Array(Set(sslTrustDomains)).sorted(),
+            capabilities: Array(Set(capabilities)).sorted(),
+            methods: Array(Set(methods)).sorted(),
+            endpointCount: endpoints.count,
+            scriptCharacterCount: scriptCharacterCount,
+            includesHeaders: includesHeaders,
+            includesCookie: includesCookie,
+            includesSecrets: includesSecrets,
+            warnings: warnings
+        )
+    }
+
+    private static func endpoints(in config: ScraperConfig) -> [EndpointConfig] {
+        [config.search, config.detail, config.cover, config.lyrics].compactMap { $0 }
+    }
+
+    private static func hosts(in text: String) -> [String] {
+        guard !text.isEmpty,
+              let regex = try? NSRegularExpression(pattern: #"(?i)\bhttps?://[^\s"'<>)}\]]+"#) else {
+            return []
+        }
+        let nsText = text as NSString
+        let range = NSRange(location: 0, length: nsText.length)
+        return regex.matches(in: text, range: range).compactMap { match in
+            let candidate = nsText.substring(with: match.range)
+            return URL(string: candidate).flatMap { normalizedHost($0.host) }
+        }
+    }
+
+    private static func normalizedHost(_ host: String?) -> String? {
+        guard let host else { return nil }
+        let trimmed = host.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+            .lowercased()
+        guard !trimmed.isEmpty, !trimmed.contains("{"), !trimmed.contains("}") else { return nil }
+        return trimmed
     }
 
     /// Soft-delete a config — flag and persist, propagated to other devices as
@@ -150,10 +326,12 @@ final class ScraperConfigStore: @unchecked Sendable {
         lock.lock()
         cache.removeValue(forKey: id)
         lock.unlock()
-        let fileURL = configDir.appendingPathComponent("\(id).json")
-        try? FileManager.default.removeItem(at: fileURL)
-        let secretsURL = configDir.appendingPathComponent("\(id).secrets.json")
-        try? FileManager.default.removeItem(at: secretsURL)
+        if let fileURL = try? configFileURL(for: id) {
+            try? FileManager.default.removeItem(at: fileURL)
+        }
+        if let secretsURL = try? secretsFileURL(for: id) {
+            try? FileManager.default.removeItem(at: secretsURL)
+        }
         NotificationCenter.default.post(
             name: .primuseScraperConfigDidDelete,
             object: nil,
@@ -179,8 +357,8 @@ final class ScraperConfigStore: @unchecked Sendable {
     private func writeToDisk(_ config: ScraperConfig) {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? encoder.encode(config) else { return }
-        let fileURL = configDir.appendingPathComponent("\(config.id).json")
+        guard let data = try? encoder.encode(config),
+              let fileURL = try? configFileURL(for: config.id) else { return }
         try? data.write(to: fileURL, options: .atomic)
     }
 
@@ -188,6 +366,13 @@ final class ScraperConfigStore: @unchecked Sendable {
     /// remote-apply path. Compares `modifiedAt` last-writer-wins so a slow
     /// remote arrival doesn't clobber a fresher local edit.
     func applyRemoteConfig(_ config: ScraperConfig) {
+        do {
+            try validate(config)
+        } catch {
+            plog("📦 ScraperConfigStore applyRemoteConfig skipped invalid id=\(config.id): \(error.localizedDescription)")
+            return
+        }
+
         lock.lock()
         if let existing = cache[config.id],
            let localTS = existing.modifiedAt,
@@ -200,8 +385,8 @@ final class ScraperConfigStore: @unchecked Sendable {
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? encoder.encode(config) else { return }
-        let fileURL = configDir.appendingPathComponent("\(config.id).json")
+        guard let data = try? encoder.encode(config),
+              let fileURL = try? configFileURL(for: config.id) else { return }
         try? data.write(to: fileURL, options: .atomic)
 
         // CloudKit 拉回的 config 因 encode 剥离必然 secrets == nil，写入 cache 前
@@ -220,8 +405,9 @@ final class ScraperConfigStore: @unchecked Sendable {
         lock.lock()
         cache.removeValue(forKey: id)
         lock.unlock()
-        let fileURL = configDir.appendingPathComponent("\(id).json")
-        try? FileManager.default.removeItem(at: fileURL)
+        if let fileURL = try? configFileURL(for: id) {
+            try? FileManager.default.removeItem(at: fileURL)
+        }
     }
 
     /// Check if a config exists
@@ -243,12 +429,18 @@ final class ScraperConfigStore: @unchecked Sendable {
         for file in files where file.pathExtension == "json" && !file.lastPathComponent.contains(".secrets.") {
             guard let data = try? Data(contentsOf: file),
                   var config = try? JSONDecoder().decode(ScraperConfig.self, from: data) else { continue }
+            do {
+                try validate(config)
+            } catch {
+                plog("📦 ScraperConfigStore loadAll skipped invalid file=\(file.lastPathComponent): \(error.localizedDescription)")
+                continue
+            }
 
             // 主 JSON 里如果不小心带了 secrets（一次性导入流程），自动剥离到旁路文件 +
             // 重写主 JSON。保证主 JSON 始终干净，不会因后续编辑误传 secrets。
             if let inlineSecrets = config.secrets, !inlineSecrets.isEmpty {
-                let secretsURL = configDir.appendingPathComponent("\(config.id).secrets.json")
-                if let secretsData = try? encoder.encode(inlineSecrets) {
+                if let secretsURL = try? secretsFileURL(for: config.id),
+                   let secretsData = try? encoder.encode(inlineSecrets) {
                     try? secretsData.write(to: secretsURL, options: .atomic)
                 }
                 if let cleanedData = try? encoder.encode(config) {
@@ -269,7 +461,7 @@ final class ScraperConfigStore: @unchecked Sendable {
     /// secrets，CloudKit 拉回的 config 必然 `secrets == nil`，必须在写入 cache
     /// 前补回，否则加密歌词源在本会话内会因 secrets 缺失而静默失效。
     private func injectSecrets(into config: inout ScraperConfig, context: String) {
-        let secretsURL = configDir.appendingPathComponent("\(config.id).secrets.json")
+        guard let secretsURL = try? secretsFileURL(for: config.id) else { return }
         let secretsExists = FileManager.default.fileExists(atPath: secretsURL.path)
         if let secretsData = try? Data(contentsOf: secretsURL),
            let secrets = try? JSONDecoder().decode([String: String].self, from: secretsData) {
@@ -286,13 +478,13 @@ final class ScraperConfigStore: @unchecked Sendable {
     }
 
     private func save(_ config: ScraperConfig, data: Data) throws {
-        let fileURL = configDir.appendingPathComponent("\(config.id).json")
+        let fileURL = try configFileURL(for: config.id)
         try data.write(to: fileURL, options: .atomic)
     }
 
     private func validate(_ config: ScraperConfig) throws {
-        guard !config.id.isEmpty else {
-            throw ScraperConfigError.validationFailed("Config ID is empty")
+        guard Self.isSafeConfigID(config.id) else {
+            throw ScraperConfigError.validationFailed("Config ID must be 1-64 chars: letters, numbers, '.', '_' or '-'")
         }
         guard !config.name.isEmpty else {
             throw ScraperConfigError.validationFailed("Config name is empty")
@@ -326,7 +518,7 @@ final class ScraperConfigStore: @unchecked Sendable {
             // secrets 单独写 <id>.secrets.json — 不进 CloudKit、不参与 encode 导出
             if let secrets = config.secrets, !secrets.isEmpty {
                 if let secretsData = try? encoder.encode(secrets) {
-                    let secretsURL = configDir.appendingPathComponent("\(config.id).secrets.json")
+                    let secretsURL = try secretsFileURL(for: config.id)
                     try? secretsData.write(to: secretsURL, options: .atomic)
                 }
             }
@@ -341,6 +533,31 @@ final class ScraperConfigStore: @unchecked Sendable {
             userInfo: ["ids": stamped.map(\.id)]
         )
         return stamped
+    }
+
+    private static func isSafeConfigID(_ id: String) -> Bool {
+        guard !id.isEmpty, id.count <= 64, id.range(of: ".secrets.", options: [.caseInsensitive]) == nil else {
+            return false
+        }
+        return id.range(of: #"^[A-Za-z0-9][A-Za-z0-9._-]*$"#, options: .regularExpression) != nil
+    }
+
+    private func configFileURL(for id: String) throws -> URL {
+        try safeChildURL(fileName: "\(id).json")
+    }
+
+    private func secretsFileURL(for id: String) throws -> URL {
+        try safeChildURL(fileName: "\(id).secrets.json")
+    }
+
+    private func safeChildURL(fileName: String) throws -> URL {
+        let base = configDir.standardizedFileURL
+        let url = configDir.appendingPathComponent(fileName, isDirectory: false).standardizedFileURL
+        let basePrefix = base.path.hasSuffix("/") ? base.path : base.path + "/"
+        guard url.path.hasPrefix(basePrefix), url.deletingLastPathComponent().standardizedFileURL.path == base.path else {
+            throw ScraperConfigError.validationFailed("Unsafe config file path")
+        }
+        return url
     }
 
     /// Split a buffer of one-or-more concatenated top-level `{...}` JSON objects.

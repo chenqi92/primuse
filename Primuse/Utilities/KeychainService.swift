@@ -58,7 +58,7 @@ enum KeychainService {
     static func getPassword(for account: String) -> String? {
         // 1) Memory cache — populated by setPassword in this session.
         if let cached = cacheRead(account) {
-            plog("🔑 Keychain getPassword HIT (memory) account=\(account) len=\(cached.count)")
+            plog("🔑 Keychain getPassword HIT (memory) account=\(account.prefix(8))…")
             return cached
         }
 
@@ -82,7 +82,7 @@ enum KeychainService {
         let status = SecItemCopyMatching(query as CFDictionary, &result)
 
         guard status == errSecSuccess, let items = result as? [[String: Any]] else {
-            plog("🔑 Keychain getPassword MISS status=\(status) account=\(account)")
+            plog("🔑 Keychain getPassword MISS status=\(status) account=\(account.prefix(8))…")
             return nil
         }
 
@@ -90,7 +90,7 @@ enum KeychainService {
         let chosen = items.first(where: { ($0[kSecAttrSynchronizable as String] as? Bool) == false })
             ?? items.first
         guard let data = chosen?[kSecValueData as String] as? Data else {
-            plog("🔑 Keychain getPassword MISS status=\(status) account=\(account)")
+            plog("🔑 Keychain getPassword MISS status=\(status) account=\(account.prefix(8))…")
             return nil
         }
 
@@ -99,7 +99,7 @@ enum KeychainService {
             // Promote to memory cache so subsequent reads skip the keychain.
             cacheWrite(pw, for: account)
         }
-        plog("🔑 Keychain getPassword HIT (keychain) account=\(account) len=\(pw?.count ?? 0)")
+        plog("🔑 Keychain getPassword HIT (keychain) account=\(account.prefix(8))…")
         return pw
     }
 

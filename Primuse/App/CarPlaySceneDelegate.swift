@@ -1,11 +1,18 @@
 #if os(iOS)
-import CarPlay
+@preconcurrency import CarPlay
 import MediaPlayer
 import OSLog
 import PrimuseKit
 import UIKit
 
 private let carplayLog = Logger(subsystem: "com.welape.yuanyin", category: "CarPlay")
+
+/// 把 CarKit 的非 Sendable completionHandler 安全送进 @MainActor hop。@preconcurrency
+/// import 豁免 CarPlay 具名类型, 但不豁免方法参数里函数类型的 region-based "sending"
+/// 检查。CarKit 约定完成回调在主线程调用, 我们只在 hop(主线程)内调它, 故 @unchecked 安全。
+private struct CarPlaySendableBox<T>: @unchecked Sendable {
+    let value: T
+}
 
 @MainActor
 final class CarPlaySceneDelegate: UIResponder {
@@ -50,47 +57,65 @@ final class CarPlaySceneDelegate: UIResponder {
     /// runs, so CarPlay keeps showing the previous results until the
     /// 180ms quiet period elapses on the latest query.
     private var pendingSearchTask: Task<Void, Never>?
+
+    /// In-flight artwork-load tasks, keyed so each removes itself on completion.
+    /// Search / drill-down / queue paths append here but don't go through
+    /// `refreshRootTemplates` (the only wholesale purge), so without per-task
+    /// self-removal finished tasks would accumulate unbounded between rebuilds.
+    /// `cancelArtworkTasks()` still cancels the whole batch before a rebuild so
+    /// a scan burst can't stack hundreds of live setImage tasks on the main
+    /// actor (the CarPlay stutter root cause).
+    private var artworkTasks: [UUID: Task<Void, Never>] = [:]
 }
 
 // MARK: - Scene lifecycle
 
 extension CarPlaySceneDelegate: CPTemplateApplicationSceneDelegate {
-    func templateApplicationScene(
+    nonisolated func templateApplicationScene(
         _ templateApplicationScene: CPTemplateApplicationScene,
         didConnect interfaceController: CPInterfaceController
     ) {
-        carplayLog.notice("📱 CarPlay scene didConnect — beginning template setup")
-        self.interfaceController = interfaceController
-        let root = makeRootTabBar()
-        carplayLog.notice("📱 root tab bar built, setting as root template")
-        interfaceController.setRootTemplate(root, animated: false, completion: nil)
-        configureNowPlayingTemplate()
-        observeLibraryChanges()
-        observePlayerState()
-        carplayLog.notice("📱 CarPlay scene fully initialized ✅")
+        // CarKit 可能在非主线程回调; hop 到主线程再访问 @MainActor 状态,
+        // 否则 iOS 26 的 swift_task_isCurrentExecutor 断言会 trap。
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            carplayLog.notice("📱 CarPlay scene didConnect — beginning template setup")
+            self.interfaceController = interfaceController
+            let root = self.makeRootTabBar()
+            carplayLog.notice("📱 root tab bar built, setting as root template")
+            interfaceController.setRootTemplate(root, animated: false, completion: nil)
+            self.configureNowPlayingTemplate()
+            self.observeLibraryChanges()
+            self.observePlayerState()
+            carplayLog.notice("📱 CarPlay scene fully initialized ✅")
+        }
     }
 
-    func templateApplicationScene(
+    nonisolated func templateApplicationScene(
         _ templateApplicationScene: CPTemplateApplicationScene,
         didDisconnectInterfaceController interfaceController: CPInterfaceController
     ) {
-        carplayLog.notice("📱 CarPlay scene didDisconnect")
-        CPNowPlayingTemplate.shared.remove(self)
-        self.interfaceController = nil
-        recentTemplate = nil
-        playlistsTemplate = nil
-        albumsTemplate = nil
-        artistsTemplate = nil
-        songsTemplate = nil
-        searchTemplate = nil
-        tabBarTemplate = nil
-        staleRootTemplates.removeAll()
-        libraryRefreshTask?.cancel()
-        libraryRefreshTask = nil
-        openQueueTemplate = nil
-        searchResults.removeAll()
-        pendingSearchTask?.cancel()
-        pendingSearchTask = nil
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            carplayLog.notice("📱 CarPlay scene didDisconnect")
+            CPNowPlayingTemplate.shared.remove(self)
+            self.interfaceController = nil
+            self.recentTemplate = nil
+            self.playlistsTemplate = nil
+            self.albumsTemplate = nil
+            self.artistsTemplate = nil
+            self.songsTemplate = nil
+            self.searchTemplate = nil
+            self.tabBarTemplate = nil
+            self.staleRootTemplates.removeAll()
+            self.libraryRefreshTask?.cancel()
+            self.libraryRefreshTask = nil
+            self.openQueueTemplate = nil
+            self.searchResults.removeAll()
+            self.pendingSearchTask?.cancel()
+            self.pendingSearchTask = nil
+            self.cancelArtworkTasks()
+        }
     }
 }
 
@@ -102,20 +127,25 @@ extension CarPlaySceneDelegate: CPTemplateApplicationSceneDelegate {
 // error. `@preconcurrency` lets us declare the conformance under the old
 // rules; remove once Apple updates the SDK annotations.
 extension CarPlaySceneDelegate: @preconcurrency CPNowPlayingTemplateObserver {
-    func nowPlayingTemplateUpNextButtonTapped(_ nowPlayingTemplate: CPNowPlayingTemplate) {
-        pushQueueTemplate()
+    nonisolated func nowPlayingTemplateUpNextButtonTapped(_ nowPlayingTemplate: CPNowPlayingTemplate) {
+        Task { @MainActor [weak self] in
+            self?.pushQueueTemplate()
+        }
     }
 
-    func nowPlayingTemplateAlbumArtistButtonTapped(_ nowPlayingTemplate: CPNowPlayingTemplate) {
-        guard let song = AppServices.shared.playerService.currentSong else { return }
-        let library = AppServices.shared.musicLibrary
-        // Prefer the album view; fall back to artist if the song has no album.
-        if let albumID = song.albumID,
-           let album = library.visibleAlbums.first(where: { $0.id == albumID }) {
-            pushAlbumDetail(album)
-        } else if let artistID = song.artistID,
-                  let artist = library.visibleArtists.first(where: { $0.id == artistID }) {
-            pushArtistDetail(artist)
+    nonisolated func nowPlayingTemplateAlbumArtistButtonTapped(_ nowPlayingTemplate: CPNowPlayingTemplate) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let song = AppServices.shared.playerService.currentSong else { return }
+            let library = AppServices.shared.musicLibrary
+            // Prefer the album view; fall back to artist if the song has no album.
+            if let albumID = song.albumID,
+               let album = library.visibleAlbums.first(where: { $0.id == albumID }) {
+                self.pushAlbumDetail(album)
+            } else if let artistID = song.artistID,
+                      let artist = library.visibleArtists.first(where: { $0.id == artistID }) {
+                self.pushArtistDetail(artist)
+            }
         }
     }
 }
@@ -123,15 +153,18 @@ extension CarPlaySceneDelegate: @preconcurrency CPNowPlayingTemplateObserver {
 // MARK: - Tab selection (lazy refresh of stale tabs)
 
 extension CarPlaySceneDelegate: CPTabBarTemplateDelegate {
-    func tabBarTemplate(_ tabBarTemplate: CPTabBarTemplate, didSelect selectedTemplate: CPTemplate) {
-        // A library change while a different tab was on screen only rebuilds
-        // the then-visible tab and marks the rest stale. When the user lands
-        // on a stale tab, rebuild it now (and only it).
-        guard let list = selectedTemplate as? CPListTemplate else { return }
-        let key = ObjectIdentifier(list)
-        guard staleRootTemplates.contains(key) else { return }
-        rebuildRootTemplate(list)
-        staleRootTemplates.remove(key)
+    nonisolated func tabBarTemplate(_ tabBarTemplate: CPTabBarTemplate, didSelect selectedTemplate: CPTemplate) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            // A library change while a different tab was on screen only rebuilds
+            // the then-visible tab and marks the rest stale. When the user lands
+            // on a stale tab, rebuild it now (and only it).
+            guard let list = selectedTemplate as? CPListTemplate else { return }
+            let key = ObjectIdentifier(list)
+            guard self.staleRootTemplates.contains(key) else { return }
+            self.rebuildRootTemplate(list)
+            self.staleRootTemplates.remove(key)
+        }
     }
 }
 
@@ -162,7 +195,9 @@ extension CarPlaySceneDelegate {
 
     private func makeSearchBarButton() -> CPBarButton {
         CPBarButton(image: Self.symbolImage("magnifyingglass")) { [weak self] _ in
-            self?.pushSearchTemplate()
+            Task { @MainActor in
+                self?.pushSearchTemplate()
+            }
         }
     }
 
@@ -247,70 +282,81 @@ extension CarPlaySceneDelegate {
 // MARK: - Search
 
 extension CarPlaySceneDelegate: CPSearchTemplateDelegate {
-    func searchTemplate(
+    nonisolated func searchTemplate(
         _ searchTemplate: CPSearchTemplate,
         updatedSearchText searchText: String,
         completionHandler: @escaping ([CPListItem]) -> Void
     ) {
-        // Cancel any earlier pending query so only the most recent
-        // keystroke completes. Empty query clears immediately (no debounce
-        // needed — feels snappier).
-        pendingSearchTask?.cancel()
-        let q = searchText.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !q.isEmpty else {
-            searchResults = []
-            completionHandler([])
-            return
-        }
-        pendingSearchTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(180))
-            guard !Task.isCancelled, let self else { return }
-            let library = AppServices.shared.musicLibrary
-            // Match against title / artist / album. Cap at 50 — CarPlay
-            // search is meant to surface a handful of best hits, not a
-            // full results page.
-            let matches = library.visibleSongs.filter { song in
-                song.title.lowercased().contains(q) ||
-                (song.artistName?.lowercased().contains(q) ?? false) ||
-                (song.albumTitle?.lowercased().contains(q) ?? false)
+        // CarKit 可能在非主线程回调; 整个体 hop 到主线程再访问 @MainActor 状态
+        // (pendingSearchTask / searchResults), 否则 iOS 26 的 executor 断言会 trap。
+        // 外层 hop 处理同步段 + 取消上次, 内层仍是可取消的 debounce task。
+        let box = CarPlaySendableBox(value: completionHandler)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            // Cancel any earlier pending query so only the most recent
+            // keystroke completes. Empty query clears immediately (no debounce
+            // needed — feels snappier).
+            self.pendingSearchTask?.cancel()
+            let q = searchText.trimmingCharacters(in: .whitespaces).lowercased()
+            guard !q.isEmpty else {
+                self.searchResults = []
+                box.value([])
+                return
             }
-            self.searchResults = Array(matches.prefix(50))
-            let items = self.searchResults.map { song -> CPListItem in
-                let item = CPListItem(
-                    text: song.title,
-                    detailText: song.artistName ?? song.albumTitle,
-                    image: nil
-                )
-                self.loadArtwork(forSongID: song.id, into: item)
-                // Stash the song itself, not its index. If the user types
-                // more before tapping, `searchResults` may have been
-                // swapped out — a stable Song value keeps tap-to-play
-                // pointing at the right track.
-                item.userInfo = song
-                return item
+            self.pendingSearchTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(180))
+                guard !Task.isCancelled, let self else { return }
+                let library = AppServices.shared.musicLibrary
+                // Match against title / artist / album. Cap at 50 — CarPlay
+                // search is meant to surface a handful of best hits, not a
+                // full results page.
+                let matches = library.visibleSongs.filter { song in
+                    song.title.lowercased().contains(q) ||
+                    (song.artistName?.lowercased().contains(q) ?? false) ||
+                    (song.albumTitle?.lowercased().contains(q) ?? false)
+                }
+                self.searchResults = Array(matches.prefix(50))
+                let items = self.searchResults.map { song -> CPListItem in
+                    let item = CPListItem(
+                        text: song.title,
+                        detailText: song.artistName ?? song.albumTitle,
+                        image: nil
+                    )
+                    self.loadArtwork(forSongID: song.id, into: item)
+                    // Stash the song itself, not its index. If the user types
+                    // more before tapping, `searchResults` may have been
+                    // swapped out — a stable Song value keeps tap-to-play
+                    // pointing at the right track.
+                    item.userInfo = song
+                    return item
+                }
+                box.value(items)
             }
-            completionHandler(items)
         }
     }
 
-    func searchTemplate(
+    nonisolated func searchTemplate(
         _ searchTemplate: CPSearchTemplate,
         selectedResult item: CPListItem,
         completionHandler: @escaping () -> Void
     ) {
-        guard let song = item.userInfo as? Song else {
-            completionHandler()
-            return
+        let box = CarPlaySendableBox(value: completionHandler)
+        Task { @MainActor [weak self] in
+            guard let self else { box.value(); return }
+            guard let song = item.userInfo as? Song else {
+                box.value()
+                return
+            }
+            // Prefer the current results as the queue context (so "next" walks
+            // through the search hits). If the song was filtered out by a
+            // newer search, fall back to playing it as a single-item queue.
+            if let idx = self.searchResults.firstIndex(where: { $0.id == song.id }) {
+                self.play(queue: self.searchResults, startAt: idx)
+            } else {
+                self.play(queue: [song], startAt: 0)
+            }
+            box.value()
         }
-        // Prefer the current results as the queue context (so "next" walks
-        // through the search hits). If the song was filtered out by a
-        // newer search, fall back to playing it as a single-item queue.
-        if let idx = searchResults.firstIndex(where: { $0.id == song.id }) {
-            play(queue: searchResults, startAt: idx)
-        } else {
-            play(queue: [song], startAt: 0)
-        }
-        completionHandler()
     }
 }
 
@@ -337,8 +383,10 @@ extension CarPlaySceneDelegate {
             let item = CPListItem(text: album.title, detailText: album.artistName, image: nil)
             self.loadArtwork(forAlbumID: album.id, into: item)
             item.handler = { [weak self] _, completion in
-                self?.pushAlbumDetail(album)
-                completion()
+                Task { @MainActor in
+                    self?.pushAlbumDetail(album)
+                    completion()
+                }
             }
             return item
         }
@@ -352,8 +400,10 @@ extension CarPlaySceneDelegate {
         return Self.sectionedByIndexLetter(artists, titleKey: \.name) { artist in
             let item = CPListItem(text: artist.name, detailText: nil)
             item.handler = { [weak self] _, completion in
-                self?.pushArtistDetail(artist)
-                completion()
+                Task { @MainActor in
+                    self?.pushArtistDetail(artist)
+                    completion()
+                }
             }
             return item
         }
@@ -391,8 +441,10 @@ extension CarPlaySceneDelegate {
                 image: UIImage(systemName: "music.note.list")
             )
             item.handler = { [weak self] _, completion in
-                self?.pushPlaylistDetail(playlist)
-                completion()
+                Task { @MainActor in
+                    self?.pushPlaylistDetail(playlist)
+                    completion()
+                }
             }
             return item
         }
@@ -551,9 +603,13 @@ extension CarPlaySceneDelegate {
         )
         loadArtwork(forSongID: song.id, into: item)
         item.handler = { [weak self] _, completion in
+            // queueProvider 不访问 @MainActor(只读捕获的 Sendable 值), 在外层调用;
+            // 只把 Sendable 结果带进 hop, 避免把非 @Sendable 的 queueProvider 捕获进 Task。
             let (queue, index) = queueProvider()
-            self?.play(queue: queue, startAt: index)
-            completion()
+            Task { @MainActor in
+                self?.play(queue: queue, startAt: index)
+                completion()
+            }
         }
         return item
     }
@@ -629,7 +685,9 @@ extension CarPlaySceneDelegate {
                     title: String(localized: "carplay_ok"),
                     style: .default
                 ) { [weak self] _ in
-                    self?.interfaceController?.dismissTemplate(animated: true, completion: nil)
+                    Task { @MainActor in
+                        self?.interfaceController?.dismissTemplate(animated: true, completion: nil)
+                    }
                 }
             ]
         )
@@ -654,11 +712,23 @@ extension CarPlaySceneDelegate {
         // every row — even on cache hits — so a big list pegged the main
         // actor. `UIImage` is Sendable, so handing the decoded image back is
         // safe; `item` never leaves the main actor.
-        Task { [weak item] in
+        let id = UUID()
+        let task = Task { [weak self, weak item] in
+            defer { self?.artworkTasks[id] = nil }
             let image = await Self.decodeCover(forSongID: songID)
-            guard let image, let item else { return }
+            guard !Task.isCancelled, let image, let item else { return }
             item.setImage(image)
         }
+        artworkTasks[id] = task
+    }
+
+    /// Cancels the previous batch of cover-load tasks before a rebuild. A scan /
+    /// backfill rebuilds the visible tab repeatedly; without this, each rebuild
+    /// spawned a fresh set of per-row setImage tasks while the old ones were
+    /// still queued on the main actor, snowballing into the CarPlay stutter.
+    private func cancelArtworkTasks() {
+        for task in artworkTasks.values { task.cancel() }
+        artworkTasks.removeAll()
     }
 
     /// Off-main cover fetch + decode. Runs detached so neither the actor hop
@@ -706,12 +776,16 @@ extension CarPlaySceneDelegate {
         let shuffleButton = CPNowPlayingImageButton(
             image: Self.symbolImage(shuffleIcon)
         ) { [weak self] _ in
-            self?.toggleShuffle()
+            Task { @MainActor in
+                self?.toggleShuffle()
+            }
         }
         let repeatButton = CPNowPlayingImageButton(
             image: Self.symbolImage(repeatIcon)
         ) { [weak self] _ in
-            self?.cycleRepeat()
+            Task { @MainActor in
+                self?.cycleRepeat()
+            }
         }
         CPNowPlayingTemplate.shared.updateNowPlayingButtons([shuffleButton, repeatButton])
     }
@@ -776,23 +850,25 @@ extension CarPlaySceneDelegate {
                 item.playingIndicatorLocation = .leading
             }
             item.handler = { [weak self] _, completion in
-                // The page was built from a queue snapshot, but observePlayerState()
-                // intentionally doesn't track player.queue — so phone-side
-                // insertNextInQueue/appendToQueue/removeFromQueue changes that
-                // don't move currentIndex won't have refreshed this open page.
-                // Read the live queue at tap time and re-locate the tapped song
-                // by id, so playing a row never replays a stale snapshot (which
-                // would silently drop tracks added on the phone since the page
-                // opened).
-                let live = AppServices.shared.playerService.queue
-                if let liveIndex = live.firstIndex(where: { $0.id == song.id }) {
-                    self?.play(queue: live, startAt: liveIndex)
-                } else {
-                    // Song no longer in the live queue (removed on the phone) —
-                    // play it as a single-item queue rather than doing nothing.
-                    self?.play(queue: [song], startAt: 0)
+                Task { @MainActor in
+                    // The page was built from a queue snapshot, but observePlayerState()
+                    // intentionally doesn't track player.queue — so phone-side
+                    // insertNextInQueue/appendToQueue/removeFromQueue changes that
+                    // don't move currentIndex won't have refreshed this open page.
+                    // Read the live queue at tap time and re-locate the tapped song
+                    // by id, so playing a row never replays a stale snapshot (which
+                    // would silently drop tracks added on the phone since the page
+                    // opened).
+                    let live = AppServices.shared.playerService.queue
+                    if let liveIndex = live.firstIndex(where: { $0.id == song.id }) {
+                        self?.play(queue: live, startAt: liveIndex)
+                    } else {
+                        // Song no longer in the live queue (removed on the phone) —
+                        // play it as a single-item queue rather than doing nothing.
+                        self?.play(queue: [song], startAt: 0)
+                    }
+                    completion()
                 }
-                completion()
             }
             return item
         }
@@ -824,13 +900,14 @@ extension CarPlaySceneDelegate {
 
     /// Debounces library changes. `replaceSongs` runs in batches during a
     /// scan/backfill and triggers `rebuildVisibleCache` repeatedly; without
-    /// coalescing, each batch would re-sort + re-pinyin every tab on the main
-    /// actor (the same one driving the phone UI). 350ms collapses a burst
-    /// into a single rebuild once the cache settles.
+    /// coalescing, each batch would re-sort + re-pinyin the tab and respawn
+    /// hundreds of cover tasks on the main actor (the same one driving the
+    /// phone UI + CarPlay) — the stutter. A 1s window collapses a scan's burst
+    /// into one rebuild; CarPlay list freshness isn't time-critical.
     private func scheduleRootTemplateRefresh() {
         libraryRefreshTask?.cancel()
         libraryRefreshTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(350))
+            try? await Task.sleep(for: .milliseconds(1000))
             guard !Task.isCancelled, let self else { return }
             self.refreshRootTemplates()
         }
@@ -865,6 +942,10 @@ extension CarPlaySceneDelegate {
     /// large library — each tab does a full sort + per-row pinyin transform and
     /// allocates hundreds of CPListItems.
     private func refreshRootTemplates() {
+        // Cancel the prior cover-load batch before rebuilding — otherwise a
+        // scan firing a refresh every cycle leaves hundreds of orphaned
+        // setImage tasks stacked on the main actor (the stutter root cause).
+        cancelArtworkTasks()
         let roots = [recentTemplate, playlistsTemplate, albumsTemplate, artistsTemplate, songsTemplate]
         // Identify which tab is on screen. If we can't tell (no tab bar yet),
         // treat "recent" as visible — it's the default first tab — so we

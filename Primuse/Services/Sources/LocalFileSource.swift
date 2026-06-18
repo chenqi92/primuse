@@ -40,7 +40,7 @@ actor LocalFileSource: MusicSourceConnector {
     func disconnect() async {}
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
-        let directoryURL = basePath.appendingPathComponent(path)
+        let directoryURL = try resolvedURL(for: path, allowRoot: true)
         let contents = try FileManager.default.contentsOfDirectory(
             at: directoryURL,
             includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey]
@@ -50,7 +50,7 @@ actor LocalFileSource: MusicSourceConnector {
             let resourceValues = try url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey])
             return RemoteFileItem(
                 name: url.lastPathComponent,
-                path: url.path.replacingOccurrences(of: basePath.path, with: ""),
+                path: relativePath(for: url),
                 isDirectory: resourceValues.isDirectory ?? false,
                 size: Int64(resourceValues.fileSize ?? 0),
                 modifiedDate: resourceValues.contentModificationDate
@@ -59,7 +59,7 @@ actor LocalFileSource: MusicSourceConnector {
     }
 
     func localURL(for path: String) async throws -> URL {
-        let fileURL = resolvedURL(for: path)
+        let fileURL = try resolvedURL(for: path, allowRoot: true)
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
             throw SourceError.fileNotFound(path)
         }
@@ -67,15 +67,7 @@ actor LocalFileSource: MusicSourceConnector {
     }
 
     func deleteFile(at path: String) async throws {
-        let fileURL = resolvedURL(for: path).standardizedFileURL
-        let baseStandardized = basePath.standardizedFileURL
-        // 防御 path traversal ── 万一 path 含 "..", appendingPathComponent
-        // 会跳出 source 根。要求标准化后严格落在 basePath/ 子树内,
-        // 也不能等于 basePath 自身 (避免 deleteFile("/") 误删整个根)。
-        let basePrefix = baseStandardized.path.hasSuffix("/") ? baseStandardized.path : baseStandardized.path + "/"
-        guard fileURL.path.hasPrefix(basePrefix) else {
-            throw SourceError.connectionFailed("Refusing to delete outside source root: \(path)")
-        }
+        let fileURL = try resolvedURL(for: path, allowRoot: false)
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
             throw SourceError.fileNotFound(path)
         }
@@ -105,7 +97,7 @@ actor LocalFileSource: MusicSourceConnector {
     }
 
     func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
-        let startURL = basePath.appendingPathComponent(path)
+        let startURL = try resolvedURL(for: path, allowRoot: true)
         return AsyncThrowingStream { continuation in
             Task {
                 let enumerator = FileManager.default.enumerator(
@@ -128,7 +120,7 @@ actor LocalFileSource: MusicSourceConnector {
 
                     let item = RemoteFileItem(
                         name: url.lastPathComponent,
-                        path: url.path.replacingOccurrences(of: basePath.path, with: ""),
+                        path: self.relativePath(for: url),
                         isDirectory: false,
                         size: Int64(resourceValues.fileSize ?? 0),
                         modifiedDate: resourceValues.contentModificationDate
@@ -140,10 +132,26 @@ actor LocalFileSource: MusicSourceConnector {
         }
     }
 
-    private func resolvedURL(for path: String) -> URL {
+    private func resolvedURL(for path: String, allowRoot: Bool) throws -> URL {
         let relativePath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        guard relativePath.isEmpty == false else { return basePath }
-        return basePath.appendingPathComponent(relativePath)
+        let fileURL = (relativePath.isEmpty ? basePath : basePath.appendingPathComponent(relativePath)).standardizedFileURL
+        let baseStandardized = basePath.standardizedFileURL
+        if allowRoot, fileURL.path == baseStandardized.path {
+            return fileURL
+        }
+        let basePrefix = baseStandardized.path.hasSuffix("/") ? baseStandardized.path : baseStandardized.path + "/"
+        guard fileURL.path.hasPrefix(basePrefix) else {
+            throw SourceError.connectionFailed("Refusing to access outside source root: \(path)")
+        }
+        return fileURL
+    }
+
+    private func relativePath(for url: URL) -> String {
+        let base = basePath.standardizedFileURL.path
+        let path = url.standardizedFileURL.path
+        guard path.hasPrefix(base) else { return "/" + url.lastPathComponent }
+        let suffix = path.dropFirst(base.count)
+        return suffix.hasPrefix("/") ? String(suffix) : "/" + suffix
     }
 }
 

@@ -84,6 +84,12 @@
 "scan_in_progress" = "正在掃描音樂檔案...";
 "add_source" = "新增音樂來源";
 "select_source_type" = "選擇音樂來源類型";
+"local_import_title" = "從檔案匯入";
+"local_import_subtitle" = "選擇本機或 iCloud 雲碟裡的音訊";
+"local_import_section_footer" = "匯入的歌曲會複製到 App 內，離線也能播放。";
+"local_import_source_name" = "本機音樂";
+"local_import_none_added" = "沒有可匯入的音訊檔案。";
+"local_import_err_title" = "匯入失敗";
 "source_info" = "來源資訊";
 "source_type" = "來源類型";
 "connection_info" = "連線資訊";

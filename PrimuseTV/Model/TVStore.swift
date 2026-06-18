@@ -137,6 +137,7 @@ final class TVStore {
     @ObservationIgnored let configServer = TVConfigServer()
     @ObservationIgnored private var pairingStarted = false
     var pairingQRContent: String = "primuse://add-source"   // 服务未起时退回旧的 iCloud 扫码引导串
+    var pairingCode: String = ""
 
     // TV 本机扫描(路径快扫;目前 SMB)。视图观察 scanner.phase/indexed/currentFile。
     @ObservationIgnored let scanner = TVSourceScanner()
@@ -492,7 +493,10 @@ final class TVStore {
             Task { @MainActor in self?.applyLANPayload(payload) }
         }
         configServer.onEndpointReady = { [weak self] link in
-            Task { @MainActor in self?.pairingQRContent = link?.qrContent ?? "primuse://add-source" }
+            Task { @MainActor in
+                self?.pairingQRContent = link?.qrContent ?? "primuse://add-source"
+                self?.pairingCode = link?.displayPairCode ?? ""
+            }
         }
         configServer.start()
     }

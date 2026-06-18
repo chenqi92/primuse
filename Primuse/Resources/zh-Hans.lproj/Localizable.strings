@@ -97,6 +97,12 @@
 "scan_in_progress" = "正在扫描音乐文件...";
 "add_source" = "添加音乐源";
 "select_source_type" = "选择音乐源类型";
+"local_import_title" = "从文件导入";
+"local_import_subtitle" = "选择本机或 iCloud 云盘里的音频";
+"local_import_section_footer" = "导入的歌曲会拷贝到 App 内，离线也能播放。";
+"local_import_source_name" = "本地音乐";
+"local_import_none_added" = "没有可导入的音频文件。";
+"local_import_err_title" = "导入失败";
 "source_info" = "源信息";
 "source_type" = "源类型";
 "connection_info" = "连接信息";

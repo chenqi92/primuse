@@ -83,29 +83,34 @@ final class AudioSessionManager {
 
     // MARK: - Interruption Handling
 
-    @objc private func handleInterruption(_ notification: Notification) {
+    @objc private nonisolated func handleInterruption(_ notification: Notification) {
         guard let userInfo = notification.userInfo,
               let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
               let type = AVAudioSession.InterruptionType(rawValue: typeValue) else {
             return
         }
-
-        Task { @MainActor in
+        // 中断通知同样可能在非主线程 selector 回调(同 handleConfigurationChange),
+        // 标 nonisolated 避免入口 executor 断言。在 hop 外把 Sendable 值提取好,
+        // 避免把非 Sendable 的 userInfo 捕获进 Task。
+        let shouldResume: Bool = {
+            guard type == .ended else { return false }
+            let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+            return AVAudioSession.InterruptionOptions(rawValue: optionsValue).contains(.shouldResume)
+        }()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             switch type {
             case .began:
                 // Another app took audio focus. Sync UI to paused state.
                 print("🔇 Audio interruption began")
-                onInterruptionBegan?()
+                self.onInterruptionBegan?()
 
             case .ended:
                 // Interruption ended. Check if we should auto-resume.
-                let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
-                let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
-
-                if options.contains(.shouldResume) {
+                if shouldResume {
                     print("🔊 Audio interruption ended — shouldResume")
                     _ = self.activatePlaybackSession()
-                    onInterruptionEndedShouldResume?()
+                    self.onInterruptionEndedShouldResume?()
                 } else {
                     print("🔊 Audio interruption ended — should NOT resume")
                 }
@@ -116,10 +121,13 @@ final class AudioSessionManager {
         }
     }
 
-    @objc private func handleConfigurationChange(_ notification: Notification) {
-        Task { @MainActor in
+    @objc private nonisolated func handleConfigurationChange(_ notification: Notification) {
+        // NSNotificationCenter 用 selector 在 AVAudioEngine 的 engine 队列(非主线程)
+        // 调本方法; @MainActor 方法入口的 executor 断言会 trap(iOS 26 默认 fatal)。
+        // 标 nonisolated 让入口任意线程, 内部 Task 再 hop 回主线程访问 @MainActor 状态。
+        Task { @MainActor [weak self] in
             print("🔧 Audio engine configuration changed")
-            onConfigurationChange?()
+            self?.onConfigurationChange?()
         }
     }
 

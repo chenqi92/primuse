@@ -620,7 +620,7 @@ struct PrimuseApp: App {
                     )
                 }
                 .onOpenURL { url in
-                    plog("🔗 onOpenURL: \(url.absoluteString)")
+                    plog("🔗 onOpenURL: scheme=\(url.scheme ?? "?") host=\(url.host ?? "?")")
                     // Apple TV 二维码:primuse://add-source → 手机扫码后弹「发送到 Apple TV」
                     // (把已有曲库/源/凭据发过去;也可在其中新建源)。
                     if url.scheme == "primuse", url.host == "add-source" {

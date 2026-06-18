@@ -39,6 +39,31 @@ struct SendToTVSheet: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 8)
 
+                if let lanTarget {
+                    VStack(spacing: 8) {
+                        Label {
+                            Text(verbatim: "\(lanTarget.host):\(lanTarget.port)")
+                                .font(.footnote.monospaced())
+                        } icon: {
+                            Image(systemName: "network")
+                        }
+                        .foregroundStyle(.secondary)
+
+                        VStack(spacing: 3) {
+                            Text(verbatim: "Pairing Code")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(verbatim: lanTarget.displayPairCode)
+                                .font(.system(.title2, design: .monospaced).weight(.bold))
+                                .textSelection(.enabled)
+                            Text(verbatim: "Confirm this matches the code shown on Apple TV.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                    }
+                }
+
                 if blocked {
                     Label("send_to_tv_need_icloud", systemImage: "exclamationmark.icloud")
                         .font(.footnote)
@@ -55,7 +80,7 @@ struct SendToTVSheet: View {
                                 if let result {
                                     Image(systemName: result ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                                 }
-                                Text(result == true ? "send_to_tv_sent" : "send_to_tv_action")
+                                Text(result == true ? "send_to_tv_sent" : (lanTarget == nil ? "send_to_tv_action" : "Confirm and Send"))
                             }
                         }
                     }

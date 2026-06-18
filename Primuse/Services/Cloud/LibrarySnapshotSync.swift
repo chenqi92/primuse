@@ -1,4 +1,5 @@
 import CloudKit
+import Compression
 import Foundation
 import PrimuseKit
 
@@ -173,6 +174,9 @@ final class LibrarySnapshotSync: Sendable {
 
     /// 内联阈值:压缩后小于此值就内联进 CKRecord(单字段/整记录上限 1MB,留余量)。
     private static let inlineGzLimit = 800_000
+    private static let maxLibraryRawBytes = 64 * 1024 * 1024
+    private static let maxSourcesRawBytes = 8 * 1024 * 1024
+    private static let maxLyricsBlobRawBytes = 16 * 1024 * 1024
 
     /// 收集本机 MetadataAssetStore 的全部歌词文件 → {文件名: base64} 的 JSON。
     private static func gatherLyricsBlob() -> Data? {
@@ -181,6 +185,7 @@ final class LibrarySnapshotSync: Sendable {
             at: dir, includingPropertiesForKeys: nil) else { return nil }
         var blob: [String: String] = [:]
         for f in files where !f.hasDirectoryPath {
+            guard isSafeLyricsFileName(f.lastPathComponent) else { continue }
             if let data = try? Data(contentsOf: f), !data.isEmpty {
                 blob[f.lastPathComponent] = data.base64EncodedString()
             }
@@ -192,7 +197,8 @@ final class LibrarySnapshotSync: Sendable {
     /// tvOS:把快照里的歌词文件还原到本机 MetadataAssetStore(文件名不变,
     /// cachedLyrics(forSongID:) 即可按同名读回)。
     private static func restoreLyrics(from record: CKRecord, fm: FileManager) {
-        guard let gzField = record["lyricsGz"] as? Data, let raw = gunzip(gzField) else { return }
+        guard let gzField = record["lyricsGz"] as? Data,
+              let raw = gunzip(gzField, maxOutputBytes: maxLyricsBlobRawBytes) else { return }
         writeLyrics(blob: raw, fm: fm)
     }
 
@@ -204,17 +210,163 @@ final class LibrarySnapshotSync: Sendable {
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
         var n = 0
         for (name, b64) in blob {
-            if let data = Data(base64Encoded: b64) {
-                try? data.write(to: dir.appendingPathComponent(name))
-                n += 1
-            }
+            guard isSafeLyricsFileName(name),
+                  let fileURL = safeChildURL(in: dir, fileName: name),
+                  let data = Data(base64Encoded: b64),
+                  data.count <= 1_000_000 else { continue }
+            try? data.write(to: fileURL)
+            n += 1
         }
         plog("LibrarySnapshotSync: restored \(n) lyrics files")
     }
 
     /// gzip(zlib) 压缩 / 解压。CloudKit 的 `*Gz` 字段与 LAN 直传载荷共用同一份字节。
     static func gzip(_ raw: Data) -> Data? { try? (raw as NSData).compressed(using: .zlib) as Data }
-    static func gunzip(_ gz: Data) -> Data? { try? (Data(gz) as NSData).decompressed(using: .zlib) as Data }
+    static func gunzip(_ gz: Data, maxOutputBytes: Int = maxLibraryRawBytes) -> Data? {
+        var raw = Data()
+        raw.reserveCapacity(min(maxOutputBytes, max(64 * 1024, gz.count * 2)))
+        do {
+            _ = try inflateZlib(gz, maxOutputBytes: maxOutputBytes) { chunk in
+                raw.append(contentsOf: chunk)
+            }
+            return raw
+        } catch {
+            plog("LibrarySnapshotSync: streaming decompress failed — \(error)")
+            return nil
+        }
+    }
+
+    @discardableResult
+    static func gunzipToFile(_ gz: Data, maxOutputBytes: Int, destination: URL, fm: FileManager) -> Int? {
+        let dir = destination.deletingLastPathComponent()
+        let tmp = dir.appendingPathComponent(".\(destination.lastPathComponent).tmp-\(UUID().uuidString)")
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        try? fm.removeItem(at: tmp)
+        guard fm.createFile(atPath: tmp.path, contents: nil),
+              let handle = try? FileHandle(forWritingTo: tmp) else {
+            return nil
+        }
+        do {
+            let written = try inflateZlib(gz, maxOutputBytes: maxOutputBytes) { chunk in
+                if let base = chunk.baseAddress, chunk.count > 0 {
+                    try handle.write(contentsOf: Data(bytes: base, count: chunk.count))
+                }
+            }
+            try? handle.close()
+            try? fm.removeItem(at: destination)
+            try fm.moveItem(at: tmp, to: destination)
+            return written
+        } catch {
+            try? handle.close()
+            try? fm.removeItem(at: tmp)
+            plog("LibrarySnapshotSync: streaming file decompress failed — \(error)")
+            return nil
+        }
+    }
+
+    private static func inflateZlib(
+        _ gz: Data,
+        maxOutputBytes: Int,
+        emit: (UnsafeBufferPointer<UInt8>) throws -> Void
+    ) throws -> Int {
+        guard maxOutputBytes > 0 else {
+            throw SnapshotDecompressionError.invalidLimit
+        }
+        guard !gz.isEmpty, gz.count <= maxOutputBytes else {
+            throw SnapshotDecompressionError.compressedTooLarge
+        }
+
+        let scratch = UnsafeMutablePointer<UInt8>.allocate(capacity: 1)
+        defer { scratch.deallocate() }
+        var stream = compression_stream(
+            dst_ptr: scratch,
+            dst_size: 0,
+            src_ptr: UnsafePointer(scratch),
+            src_size: 0,
+            state: nil
+        )
+        let initStatus = compression_stream_init(&stream, COMPRESSION_STREAM_DECODE, COMPRESSION_ZLIB)
+        guard initStatus != COMPRESSION_STATUS_ERROR else {
+            throw SnapshotDecompressionError.initFailed
+        }
+        defer { compression_stream_destroy(&stream) }
+
+        let dstSize = 64 * 1024
+        let dst = UnsafeMutablePointer<UInt8>.allocate(capacity: dstSize)
+        defer { dst.deallocate() }
+
+        return try gz.withUnsafeBytes { rawBuffer -> Int in
+            let src = rawBuffer.bindMemory(to: UInt8.self)
+            guard let srcBase = src.baseAddress else {
+                throw SnapshotDecompressionError.emptyInput
+            }
+            stream.src_ptr = srcBase
+            stream.src_size = src.count
+
+            var total = 0
+            while true {
+                stream.dst_ptr = dst
+                stream.dst_size = dstSize
+                let status = compression_stream_process(&stream, 0)
+                switch status {
+                case COMPRESSION_STATUS_OK, COMPRESSION_STATUS_END:
+                    let produced = dstSize - stream.dst_size
+                    if produced > 0 {
+                        total += produced
+                        guard total <= maxOutputBytes else {
+                            throw SnapshotDecompressionError.outputTooLarge
+                        }
+                        try emit(UnsafeBufferPointer(start: dst, count: produced))
+                    }
+                    if status == COMPRESSION_STATUS_END {
+                        return total
+                    }
+                    if stream.src_size == 0, produced == 0 {
+                        throw SnapshotDecompressionError.incompleteStream
+                    }
+                default:
+                    throw SnapshotDecompressionError.invalidStream
+                }
+            }
+        }
+    }
+
+    private enum SnapshotDecompressionError: Error, CustomStringConvertible {
+        case invalidLimit
+        case compressedTooLarge
+        case initFailed
+        case emptyInput
+        case outputTooLarge
+        case incompleteStream
+        case invalidStream
+
+        var description: String {
+            switch self {
+            case .invalidLimit: "invalid decompression limit"
+            case .compressedTooLarge: "compressed field too large"
+            case .initFailed: "cannot initialize zlib stream"
+            case .emptyInput: "empty compressed input"
+            case .outputTooLarge: "decompressed field too large"
+            case .incompleteStream: "incomplete zlib stream"
+            case .invalidStream: "invalid zlib stream"
+            }
+        }
+    }
+
+    private static func isSafeLyricsFileName(_ name: String) -> Bool {
+        name.range(of: #"^[A-Fa-f0-9]{32}\.json$"#, options: .regularExpression) != nil
+    }
+
+    private static func safeChildURL(in directory: URL, fileName: String) -> URL? {
+        let base = directory.standardizedFileURL
+        let url = directory.appendingPathComponent(fileName, isDirectory: false).standardizedFileURL
+        let basePrefix = base.path.hasSuffix("/") ? base.path : base.path + "/"
+        guard url.path.hasPrefix(basePrefix),
+              url.deletingLastPathComponent().standardizedFileURL.path == base.path else {
+            return nil
+        }
+        return url
+    }
 
     /// 把 `fileURL` 的内容压缩后内联进 record;过大则回退 CKAsset。返回简要说明供日志。
     @discardableResult
@@ -234,22 +386,13 @@ final class LibrarySnapshotSync: Sendable {
         if let gzField = record[gzKey] as? Data {
             // CloudKit 返回的 Data 可能是非连续/特殊 backing,先强制连续拷贝再解压。
             let gz = Data(gzField)
-            let raw: Data
-            do {
-                raw = try (gz as NSData).decompressed(using: .zlib) as Data
-            } catch {
-                plog("LibrarySnapshotSync: extract \(gzKey) DECOMPRESS failed (\(gz.count)B) — \(error)")
+            let maxOutput = gzKey == "sourcesGz" ? Self.maxSourcesRawBytes : Self.maxLibraryRawBytes
+            guard let bytes = Self.gunzipToFile(gz, maxOutputBytes: maxOutput, destination: dest, fm: fm) else {
+                plog("LibrarySnapshotSync: extract \(gzKey) DECOMPRESS failed (\(gz.count)B)")
                 return false
             }
-            try? fm.removeItem(at: dest)
-            do {
-                try raw.write(to: dest)
-                plog("LibrarySnapshotSync: extract \(gzKey) OK → \(raw.count)B at \(dest.path)")
-                return true
-            } catch {
-                plog("LibrarySnapshotSync: extract \(gzKey) WRITE failed → \(dest.path) — \(error)")
-                return false
-            }
+            plog("LibrarySnapshotSync: extract \(gzKey) OK → \(bytes)B at \(dest.path)")
+            return true
         }
         if let asset = record[assetKey] as? CKAsset, let url = asset.fileURL,
            fm.fileExists(atPath: url.path) {
@@ -352,6 +495,7 @@ final class LibrarySnapshotSync: Sendable {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        req.setValue(link.pairCode, forHTTPHeaderField: "X-Primuse-Pair-Code")
         req.timeoutInterval = 30
         do {
             let (_, resp) = try await URLSession.shared.upload(for: req, from: box)
@@ -374,15 +518,14 @@ final class LibrarySnapshotSync: Sendable {
         let fm = FileManager.default
         try? fm.createDirectory(at: directory, withIntermediateDirectories: true)
         var libraryChanged = false
-        if let gz = payload.libraryGz, let raw = Self.gunzip(gz) {
-            try? fm.removeItem(at: libraryCacheURL)
-            if (try? raw.write(to: libraryCacheURL)) != nil { libraryChanged = true }
+        if let gz = payload.libraryGz,
+           Self.gunzipToFile(gz, maxOutputBytes: Self.maxLibraryRawBytes, destination: libraryCacheURL, fm: fm) != nil {
+            libraryChanged = true
         }
-        if let gz = payload.sourcesGz, let raw = Self.gunzip(gz) {
-            try? fm.removeItem(at: sourcesURL)
-            try? raw.write(to: sourcesURL)
+        if let gz = payload.sourcesGz {
+            _ = Self.gunzipToFile(gz, maxOutputBytes: Self.maxSourcesRawBytes, destination: sourcesURL, fm: fm)
         }
-        if let gz = payload.lyricsGz, let raw = Self.gunzip(gz) {
+        if let gz = payload.lyricsGz, let raw = Self.gunzip(gz, maxOutputBytes: Self.maxLyricsBlobRawBytes) {
             Self.writeLyrics(blob: raw, fm: fm)
         }
         plog("LibrarySnapshotSync: applied LAN payload (library=\(libraryChanged))")

@@ -167,6 +167,20 @@ private struct TVSourcesInfoCard: View {
                         .font(.system(size: 18)).foregroundStyle(.white.opacity(0.72)).lineSpacing(5)
                     Text(PMString("ext.tv.sources.scanBody2"))
                         .font(.system(size: 15)).foregroundStyle(TVColor.textGhost).lineSpacing(4)
+                    if !store.pairingCode.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("确认码")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(TVColor.textGhost)
+                            Text(verbatim: store.pairingCode)
+                                .font(.system(size: 34, weight: .bold, design: .monospaced))
+                                .foregroundStyle(.white)
+                            Text("请确认手机上显示相同短码后再发送。")
+                                .font(.system(size: 14))
+                                .foregroundStyle(.white.opacity(0.62))
+                        }
+                        .padding(.top, 8)
+                    }
                 }
             }
         }

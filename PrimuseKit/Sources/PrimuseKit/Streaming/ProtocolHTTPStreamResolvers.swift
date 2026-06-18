@@ -46,7 +46,9 @@ public struct UPnPStreamResolver: StreamResolver {
     public init() {}
 
     public func streamURL(for song: Song, source: MusicSource, credential: SourceCredential?) async throws -> URL {
-        guard let url = URL(string: song.filePath), url.scheme?.hasPrefix("http") == true else {
+        guard let url = URL(string: song.filePath),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
             throw StreamResolveError.cannotBuildURL
         }
         return url

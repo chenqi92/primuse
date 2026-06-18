@@ -305,12 +305,13 @@ struct MetadataScrapingView: View {
         let url: URL
     }
     @State private var importError: String?
+    @State private var importPreview: ScraperImportSummary?
     @State private var importMode: ImportMode = .paste
     @State private var editingConfigSource: ScraperSourceConfig?
     @State private var editingConfigJSON = ""
     @State private var isReordering = false
 
-    enum ImportMode { case paste, url }
+    enum ImportMode: Equatable { case paste, url }
 
     var body: some View {
         @Bindable var settings = scraperSettings
@@ -412,6 +413,7 @@ struct MetadataScrapingView: View {
                 Button {
                     importText = ""
                     importError = nil
+                    importPreview = nil
                     showImportSheet = true
                 } label: {
                     Label("import_scraper_source", systemImage: "plus.circle")
@@ -568,6 +570,10 @@ struct MetadataScrapingView: View {
                         Text(error).foregroundStyle(.red).font(.caption)
                     }
                 }
+
+                if let importPreview {
+                    ScraperImportSummaryView(summary: importPreview)
+                }
             }
             .navigationTitle("import_scraper_source")
             #if os(iOS)
@@ -575,10 +581,13 @@ struct MetadataScrapingView: View {
         #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("cancel") { showImportSheet = false }
+                    Button("cancel") {
+                        importPreview = nil
+                        showImportSheet = false
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("import_action") {
+                    Button(importPreview == nil ? "Review" : "Confirm Import") {
                         performImport()
                     }
                     .disabled(importText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -586,6 +595,14 @@ struct MetadataScrapingView: View {
             }
         }
         .presentationDetents([.medium, .large])
+        .onChange(of: importText) { _, _ in
+            importPreview = nil
+            importError = nil
+        }
+        .onChange(of: importMode) { _, _ in
+            importPreview = nil
+            importError = nil
+        }
     }
 
     private func editConfigSheet(source: ScraperSourceConfig) -> some View {
@@ -630,32 +647,150 @@ struct MetadataScrapingView: View {
         let text = importText.trimmingCharacters(in: .whitespacesAndNewlines)
         plog("📥 Import: mode=\(importMode == .url ? "url" : "paste") textLen=\(text.count)")
 
+        if let preview = importPreview {
+            do {
+                let configs = try ScraperConfigStore.shared.importConfigs(preview.configs)
+                plog("📥 Import confirmed: count=\(configs.count) ids=\(configs.map(\.id))")
+                for config in configs { scraperSettings.addCustomSource(config) }
+                importPreview = nil
+                showImportSheet = false
+            } catch {
+                importError = error.localizedDescription
+            }
+            return
+        }
+
         if importMode == .url {
             guard let url = URL(string: text) else {
                 importError = String(localized: "invalid_url")
                 return
             }
+            let requestedText = text
             Task {
                 do {
-                    let configs = try await ScraperConfigStore.shared.importFromURL(url)
-                    plog("📥 Import success (url): count=\(configs.count) ids=\(configs.map(\.id))")
-                    for config in configs { scraperSettings.addCustomSource(config) }
-                    showImportSheet = false
+                    let preview = try await ScraperConfigStore.shared.previewImportFromURL(url)
+                    await MainActor.run {
+                        guard importMode == .url,
+                              importText.trimmingCharacters(in: .whitespacesAndNewlines) == requestedText else { return }
+                        importPreview = preview
+                    }
                 } catch {
-                    importError = error.localizedDescription
+                    await MainActor.run {
+                        guard importMode == .url,
+                              importText.trimmingCharacters(in: .whitespacesAndNewlines) == requestedText else { return }
+                        importError = error.localizedDescription
+                    }
                 }
             }
         } else {
             do {
-                let configs = try ScraperConfigStore.shared.importFromJSON(text)
-                plog("📥 Import success: count=\(configs.count) ids=\(configs.map(\.id))")
-                for config in configs { scraperSettings.addCustomSource(config) }
-                showImportSheet = false
+                importPreview = try ScraperConfigStore.shared.previewImportFromJSON(text)
             } catch {
                 plog("📥 Import failed: \(error.localizedDescription)")
                 importError = error.localizedDescription
             }
         }
+    }
+}
+
+struct ScraperImportSummaryView: View {
+    let summary: ScraperImportSummary
+
+    var body: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 12) {
+                row("Source", summary.sourceDescription)
+                row("Configs", summary.configs.map { "\($0.name) (\($0.id))" }.joined(separator: ", "))
+                row("Capabilities", summary.capabilities.isEmpty ? "Unknown" : summary.capabilities.joined(separator: ", "))
+                row("Requests", "\(summary.endpointCount) endpoints, \(summary.methods.joined(separator: ", "))")
+
+                if !summary.domains.isEmpty {
+                    tagGroup(title: "Network Domains", values: summary.domains)
+                }
+                if !summary.sslTrustDomains.isEmpty {
+                    tagGroup(title: "TLS Trust Domains", values: summary.sslTrustDomains)
+                }
+
+                HStack(spacing: 8) {
+                    permissionBadge("Headers", enabled: summary.includesHeaders)
+                    permissionBadge("Cookie", enabled: summary.includesCookie)
+                    permissionBadge("Secrets", enabled: summary.includesSecrets)
+                    permissionBadge("JavaScript", enabled: summary.scriptCharacterCount > 0)
+                }
+                .font(.caption)
+
+                ForEach(summary.warnings, id: \.self) { warning in
+                    Label {
+                        Text(verbatim: warning)
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                }
+            }
+            .padding(.vertical, 4)
+        } header: {
+            Text("Review Before Import")
+        } footer: {
+            Text("Importing enables this scraper to run its JavaScript and contact the domains above during metadata lookup.")
+        }
+    }
+
+    private func row(_ title: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(verbatim: title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(verbatim: value)
+                .font(.subheadline)
+                .textSelection(.enabled)
+        }
+    }
+
+    private func tagGroup(title: String, values: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(verbatim: title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(values.chunked(maxItems: 3), id: \.self) { row in
+                    HStack(spacing: 6) {
+                        ForEach(row, id: \.self) { value in
+                            Text(verbatim: value)
+                                .font(.caption.monospaced())
+                                .lineLimit(1)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 4)
+                                .background(.quaternary, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func permissionBadge(_ label: String, enabled: Bool) -> some View {
+        Label {
+            Text(verbatim: label)
+        } icon: {
+            Image(systemName: enabled ? "checkmark.circle.fill" : "circle")
+        }
+        .foregroundStyle(enabled ? .primary : .secondary)
+    }
+}
+
+private extension Array {
+    func chunked(maxItems: Int) -> [[Element]] {
+        guard maxItems > 0 else { return [self] }
+        var result: [[Element]] = []
+        var index = startIndex
+        while index < endIndex {
+            let next = self.index(index, offsetBy: maxItems, limitedBy: endIndex) ?? endIndex
+            result.append(Array(self[index..<next]))
+            index = next
+        }
+        return result
     }
 }
 

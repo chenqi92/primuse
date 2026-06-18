@@ -231,6 +231,12 @@
 "scan_in_progress" = "Analyse des fichiers musicaux…";
 "add_source" = "Ajouter une source";
 "select_source_type" = "Sélectionner le type de source";
+"local_import_title" = "Importer depuis Fichiers";
+"local_import_subtitle" = "Choisir un audio sur cet appareil ou iCloud Drive";
+"local_import_section_footer" = "Les morceaux importés sont copiés dans l'app et lisibles hors ligne.";
+"local_import_source_name" = "Musique locale";
+"local_import_none_added" = "Aucun fichier audio n'a été importé.";
+"local_import_err_title" = "Échec de l'importation";
 "source_info" = "Infos de la source";
 "source_type" = "Type de source";
 "connection_info" = "Connexion";

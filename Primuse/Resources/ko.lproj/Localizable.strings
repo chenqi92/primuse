@@ -231,6 +231,12 @@
 "scan_in_progress" = "음악 파일 스캔 중...";
 "add_source" = "소스 추가";
 "select_source_type" = "소스 유형 선택";
+"local_import_title" = "파일에서 가져오기";
+"local_import_subtitle" = "기기 또는 iCloud Drive의 오디오 선택";
+"local_import_section_footer" = "가져온 곡은 앱에 복사되어 오프라인에서도 재생됩니다.";
+"local_import_source_name" = "로컬 음악";
+"local_import_none_added" = "가져올 오디오 파일이 없습니다.";
+"local_import_err_title" = "가져오기 실패";
 "source_info" = "소스 정보";
 "source_type" = "소스 유형";
 "connection_info" = "연결";

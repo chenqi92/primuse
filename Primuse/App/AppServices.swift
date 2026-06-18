@@ -165,9 +165,11 @@ final class AppServices {
             nc.addObserver(forName: .primuseSourceDidSoftDelete, object: nil, queue: .main) { [weak self] note in
                 guard let self, let id = note.userInfo?["id"] as? String else { return }
                 Task { @MainActor in
-                    // This notification is emitted only when a source is deleted
-                    // into Recently Deleted. Toggling isEnabled never posts it.
-                    self.removeSourceLibraryData(id: id, purgePersistentCaches: true)
+                    // 软删(进回收站)即回收空间:删本地导入源在沙箱的原始拷贝。
+                    // 产品取舍 —— restore 不会自动重扫找回歌, 保留拷贝意义不大,
+                    // 而用户删源的核心诉求就是立即回收空间。Toggling isEnabled
+                    // never posts this notification.
+                    self.removeSourceLibraryData(id: id, purgePersistentCaches: true, removeImportedFiles: true)
                 }
             }
         )
@@ -176,13 +178,15 @@ final class AppServices {
             nc.addObserver(forName: .primuseSourceDidDelete, object: nil, queue: .main) { [weak self] note in
                 guard let self, let id = note.userInfo?["id"] as? String else { return }
                 Task { @MainActor in
-                    self.removeSourceLibraryData(id: id, purgePersistentCaches: true)
+                    // 永久删除(回收站清空 / 30 天清理 / CloudKit 远端永久删 echo)。
+                    // 软删时通常已回收, 这里幂等兜底(目录已删则 removeItem no-op)。
+                    self.removeSourceLibraryData(id: id, purgePersistentCaches: true, removeImportedFiles: true)
                 }
             }
         )
     }
 
-    private func removeSourceLibraryData(id: String, purgePersistentCaches: Bool) {
+    private func removeSourceLibraryData(id: String, purgePersistentCaches: Bool, removeImportedFiles: Bool = false) {
         scanService.cancelScan(for: id)
         scanService.removeCheckpoint(for: id)
         scanService.removeSynologyAPI(for: id)
@@ -197,8 +201,41 @@ final class AppServices {
             sourceManager.deleteSourceCaches(sourceID: id)
         }
 
+        if removeImportedFiles {
+            removeImportedLocalFilesIfNeeded(sourceID: id)
+        }
+
         Task { @MainActor in
             await sourceManager.removeConnector(for: id)
+        }
+    }
+
+    /// 回收 iOS「本地音乐」源在沙箱 Documents/LocalMusic 的原始拷贝。三道闸:
+    /// ① id 必须等于本设备的 `LocalImportService.sourceID` —— macOS 用户文件夹源
+    ///    的 id 是随机 UUID, 永不命中, 故对其 basePath(沙箱外用户目录)恒 no-op;
+    ///    CloudKit 把他设备本地源记录 echo 过来时其 id 也 ≠ 本机 sourceID(每设备
+    ///    独立), 同样不命中 —— 安全严格依赖「sourceID 每设备独立」这一前提。
+    /// ② 当前不存在活跃(未软删)的同 id 记录 —— 防「软删 → 再次导入复用同 id →
+    ///    对回收站旧记录彻底删除」时误删刚导入的活跃音频。
+    /// ③ 目标用运行时常量 musicDirectory(不用可被 CloudKit 改写的 source.basePath),
+    ///    且必须落在沙箱 Documents 子树内、目录名恰为 LocalMusic。
+    /// 删大目录放后台, 避免卡主线程。
+    private func removeImportedLocalFilesIfNeeded(sourceID: String) {
+        guard sourceID == LocalImportService.existingSourceID else { return }
+        guard !sourcesStore.allSources.contains(where: { $0.id == sourceID && !$0.isDeleted }) else { return }
+        let fm = FileManager.default
+        let importDir = LocalImportService.musicDirectory.standardizedFileURL
+        let documents = fm.urls(for: .documentDirectory, in: .userDomainMask)[0].standardizedFileURL
+        guard importDir.path.hasPrefix(documents.path + "/"),
+              importDir.lastPathComponent == "LocalMusic",
+              fm.fileExists(atPath: importDir.path) else { return }
+        // 原子 rename 到临时名后再后台删:删除可能耗时(几 GB), 而紧接着的「再次
+        // 导入」复用同一个 LocalMusic 目录。先把旧目录搬走, 再导入就会
+        // ensureMusicDirectory 新建干净目录, 不与后台删除竞争 / 被误删。
+        let trash = documents.appendingPathComponent(".LocalMusic-deleting-\(UUID().uuidString)")
+        guard (try? fm.moveItem(at: importDir, to: trash)) != nil else { return }
+        Task.detached(priority: .utility) {
+            try? FileManager.default.removeItem(at: trash)
         }
     }
 

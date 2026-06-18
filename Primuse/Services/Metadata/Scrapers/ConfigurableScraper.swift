@@ -12,6 +12,13 @@ actor ConfigurableScraper: MusicScraper {
     private let sessionManager: ScraperSessionManager
     private var lastRequestTime: ContinuousClock.Instant?
     private let minInterval: Duration
+    nonisolated static let maxEndpointResponseBytes = 5 * 1024 * 1024
+    nonisolated static let maxResourceResponseBytes = 20 * 1024 * 1024
+    nonisolated static let maxScriptCharacters = 200_000
+    /// 单次脚本执行的墙钟上限。JSContext 无公开看门狗 API
+    /// (JSContextGroupSetExecutionTimeLimit 是私有符号, 上架会被静态扫描拒),
+    /// 因此把执行放到独立线程并在此时限后放弃, 避免 while(true) 挂死 actor。
+    nonisolated static let maxScriptExecutionSeconds: TimeInterval = 4
 
     init(config: ScraperConfig, cookie: String? = nil) {
         self.config = config
@@ -44,6 +51,10 @@ actor ConfigurableScraper: MusicScraper {
         guard let http = response as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode) else {
             return nil
         }
+        guard data.count <= maxResourceResponseBytes else {
+            plog("⚠️ Scraper resource too large: \(data.count)B")
+            return nil
+        }
         return data
     }
 
@@ -65,7 +76,7 @@ actor ConfigurableScraper: MusicScraper {
 
         let data = try await executeRequest(endpoint: endpoint, vars: vars)
         plog("🔧 \(config.id) search: got \(data.count) bytes, responseText preview: \(String(data: data.prefix(200), encoding: .utf8) ?? "?")")
-        let parsed = try runScript(endpoint.script, data: data)
+        let parsed = try await runScript(endpoint.script, data: data)
         plog("🔧 \(config.id) search: JS returned items=\((parsed as? [Any])?.count ?? -1)")
 
         guard let items = parsed as? [[String: Any]] else {
@@ -98,7 +109,7 @@ actor ConfigurableScraper: MusicScraper {
 
         let vars = ["id": externalId]
         let data = try await executeRequest(endpoint: endpoint, vars: vars)
-        let parsed = try runScript(endpoint.script, data: data, externalId: externalId)
+        let parsed = try await runScript(endpoint.script, data: data, externalId: externalId)
 
         guard let dict = parsed as? [String: Any] else { return nil }
 
@@ -123,7 +134,7 @@ actor ConfigurableScraper: MusicScraper {
 
         let vars = ["id": externalId]
         let data = try await executeRequest(endpoint: endpoint, vars: vars)
-        let parsed = try runScript(endpoint.script, data: data, externalId: externalId)
+        let parsed = try await runScript(endpoint.script, data: data, externalId: externalId)
 
         guard let items = parsed as? [[String: Any]] else { return [] }
 
@@ -142,7 +153,7 @@ actor ConfigurableScraper: MusicScraper {
 
         let vars = ["id": externalId]
         let data = try await executeRequest(endpoint: endpoint, vars: vars)
-        let parsed = try runScript(endpoint.script, data: data, externalId: externalId)
+        let parsed = try await runScript(endpoint.script, data: data, externalId: externalId)
 
         guard let dict = parsed as? [String: Any] else { return nil }
 
@@ -230,6 +241,10 @@ actor ConfigurableScraper: MusicScraper {
 
         do {
             let (data, _) = try await sessionManager.data(for: request)
+            guard data.count <= Self.maxEndpointResponseBytes else {
+                plog("⚠️ Encrypted lyrics: response too large (\(data.count)B)")
+                return nil
+            }
             plog("🔐 Encrypted lyrics: fetched \(data.count) bytes from \(safe.prefix(80))")
             guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 plog("⚠️ Encrypted lyrics: response not JSON, head=\(String(data: data.prefix(200), encoding: .utf8) ?? "?")")
@@ -349,6 +364,9 @@ actor ConfigurableScraper: MusicScraper {
             return data
         }
         if (200 ..< 300).contains(http.statusCode) {
+            guard data.count <= Self.maxEndpointResponseBytes else {
+                throw ScraperError.networkError("Response too large: \(data.count)B")
+            }
             return data
         }
         if http.statusCode == 429 || http.statusCode == 503 {
@@ -397,12 +415,100 @@ actor ConfigurableScraper: MusicScraper {
 
     // MARK: - JavaScript Execution
 
-    private func runScript(_ script: String, data: Data, externalId: String? = nil) throws -> Any? {
-        let context = JSContext()!
+    private func runScript(_ script: String, data: Data, externalId: String? = nil) async throws -> Any? {
+        guard script.count <= Self.maxScriptCharacters else {
+            throw ScraperError.parseError("Script too large")
+        }
+        guard data.count <= Self.maxEndpointResponseBytes else {
+            throw ScraperError.parseError("Response too large")
+        }
+        // 在独立线程上执行 JS, 与墙钟超时竞速。evaluateScript 同步阻塞,
+        // 放在 actor 上会被 while(true) 永久挂死整个源; 移出 actor 后即便
+        // 脚本死循环, 也只是泄漏一个线程 + 该 JSContext, actor 仍可继续服务。
+        let box = try await Self.evaluateScriptOffActor(
+            configID: config.id,
+            secrets: config.secrets,
+            script: script,
+            data: data,
+            externalId: externalId,
+            timeout: Self.maxScriptExecutionSeconds
+        )
+        return box.value
+    }
+
+    /// JS 求值结果跨越 actor / 线程边界。JSValue.toObject() 返回的是
+    /// NSString/NSNumber/NSArray/NSDictionary 等 Foundation 值, 求值完成后
+    /// 即被丢弃, 不再共享; 用 @unchecked Sendable 盒子安全地穿过隔离边界。
+    private struct ResultBox: @unchecked Sendable {
+        let value: Any?
+    }
+
+    /// 在专用线程执行嵌入式脚本, 超过 `timeout` 秒则放弃等待并抛出 parseError。
+    /// 入参全部为 Sendable 值类型, 不捕获 actor, 满足 Swift 6 严格并发。
+    nonisolated private static func evaluateScriptOffActor(
+        configID: String,
+        secrets: [String: String]?,
+        script: String,
+        data: Data,
+        externalId: String?,
+        timeout: TimeInterval
+    ) async throws -> ResultBox {
+        final class Guard: @unchecked Sendable {
+            private let lock = NSLock()
+            private var resumed = false
+            func claim() -> Bool {
+                lock.lock(); defer { lock.unlock() }
+                if resumed { return false }
+                resumed = true
+                return true
+            }
+        }
+        let guardBox = Guard()
+        let watchdog = DispatchQueue(label: "Primuse.ScraperJS.watchdog")
+
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<ResultBox, Error>) in
+            // 超时兜底: 时限到则放弃(死循环线程会继续跑直到进程退出, 但无法
+            // 用公开 API 安全中断 JSContext; 这是不引私有符号下的合理代价)。
+            watchdog.asyncAfter(deadline: .now() + timeout) {
+                if guardBox.claim() {
+                    plog("⏱️ JS[\(configID)] execution timed out after \(Int(timeout))s, abandoning")
+                    continuation.resume(throwing: ScraperError.parseError("Script execution timed out"))
+                }
+            }
+
+            let thread = Thread {
+                let result = Self.runScriptBody(
+                    configID: configID,
+                    secrets: secrets,
+                    script: script,
+                    data: data,
+                    externalId: externalId
+                )
+                if guardBox.claim() {
+                    continuation.resume(with: result)
+                }
+            }
+            thread.stackSize = 4 * 1024 * 1024
+            thread.name = "Primuse.ScraperJS.\(configID)"
+            thread.start()
+        }
+    }
+
+    /// 同步执行脚本体——只在 `evaluateScriptOffActor` 的专用线程上调用。
+    nonisolated private static func runScriptBody(
+        configID: String,
+        secrets: [String: String]?,
+        script: String,
+        data: Data,
+        externalId: String?
+    ) -> Result<ResultBox, Error> {
+        guard let context = JSContext() else {
+            return .failure(ScraperError.parseError("Failed to create JSContext"))
+        }
 
         // Provide console.log for debugging
         let logBlock: @convention(block) (String) -> Void = { msg in
-            plog("📜 JS[\(self.config.id)]: \(msg)")
+            plog("📜 JS[\(configID)]: \(msg)")
         }
         context.setObject(logBlock, forKeyedSubscript: "log" as NSString)
 
@@ -412,7 +518,7 @@ actor ConfigurableScraper: MusicScraper {
         // 本地敏感配置（URL 模板 / hash seed 等），而 app 二进制不携带任何
         // 平台特征。secrets 不存在时 JS 端读到 undefined，需要做 null 检查
         // 走 fallback。
-        if let secrets = config.secrets, !secrets.isEmpty {
+        if let secrets, !secrets.isEmpty {
             context.setObject(secrets, forKeyedSubscript: "secrets" as NSString)
         }
 
@@ -452,7 +558,7 @@ actor ConfigurableScraper: MusicScraper {
             if let fixedData = text.data(using: .utf8) {
                 parsed = try? JSONSerialization.jsonObject(with: fixedData)
                 if parsed == nil {
-                    plog("🔧 JSON fallback parse failed for \(config.id), first 200: \(text.prefix(200))")
+                    plog("🔧 JSON fallback parse failed for \(configID), first 200: \(text.prefix(200))")
                 }
             }
         }
@@ -476,7 +582,7 @@ actor ConfigurableScraper: MusicScraper {
 
         // Handle exceptions
         context.exceptionHandler = { _, exception in
-            plog("📜 JS error[\(self.config.id)]: \(exception?.toString() ?? "unknown")")
+            plog("📜 JS error[\(configID)]: \(exception?.toString() ?? "unknown")")
         }
 
         // Execute script — wrap in IIFE if not already
@@ -488,14 +594,14 @@ actor ConfigurableScraper: MusicScraper {
         }
 
         guard let result = context.evaluateScript(wrappedScript) else {
-            throw ScraperError.parseError("Script returned nil")
+            return .failure(ScraperError.parseError("Script returned nil"))
         }
 
         if result.isUndefined || result.isNull {
-            return nil
+            return .success(ResultBox(value: nil))
         }
 
-        return result.toObject()
+        return .success(ResultBox(value: result.toObject()))
     }
 
     // MARK: - HTTP Policy
@@ -556,7 +662,10 @@ actor ConfigurableScraper: MusicScraper {
     /// `host == domain` 或 `host` 以 `.domain` 结尾才算匹配，避免
     /// "evil-kugou.com".hasSuffix("kugou.com") 这类后缀混淆绕过信任校验。
     nonisolated static func host(_ host: String, matchesTrustDomain domain: String) -> Bool {
-        host == domain || host.hasSuffix("." + domain)
+        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalizedDomain = domain.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalizedHost.isEmpty, !normalizedDomain.isEmpty else { return false }
+        return normalizedHost == normalizedDomain || normalizedHost.hasSuffix("." + normalizedDomain)
     }
 
     /// Whether `host` matches any of `trustDomains` at a DNS label boundary.
@@ -569,23 +678,33 @@ actor ConfigurableScraper: MusicScraper {
     nonisolated static func enforceHTTPPolicy(_ urlString: String, trustDomains: [String]) -> String {
         guard urlString.hasPrefix("http://") else { return urlString }
         guard let url = URL(string: urlString), let host = url.host else { return urlString }
+        let normalizedHost = normalizedHost(host)
 
         // Allow HTTP for local network addresses
-        if isLocalNetwork(host) { return urlString }
+        if isLocalNetwork(normalizedHost) { return urlString }
 
         // Allow HTTP for trusted domains
-        if isTrustedHost(host, trustDomains: trustDomains) { return urlString }
+        if isTrustedHost(normalizedHost, trustDomains: trustDomains) { return urlString }
 
         // Upgrade to HTTPS
         return "https://" + urlString.dropFirst(7)
     }
 
     /// Check if host is a local network address (IP, .local, private ranges)
-    nonisolated private static func isLocalNetwork(_ host: String) -> Bool {
+    nonisolated static func isLocalNetwork(_ host: String) -> Bool {
+        let host = normalizedHost(host)
         if host == "localhost" || host.hasSuffix(".local") { return true }
 
-        // IPv6 link-local or private
-        if host.hasPrefix("[") || host.contains(":") { return true }
+        if let ipv6 = IPv6Address(host) {
+            let bytes = Array(ipv6.rawValue)
+            if bytes.count == 16 {
+                // ::1, fc00::/7 unique-local, fe80::/10 link-local.
+                if bytes.dropLast().allSatisfy({ $0 == 0 }) && bytes.last == 1 { return true }
+                if (bytes[0] & 0xfe) == 0xfc { return true }
+                if bytes[0] == 0xfe && (bytes[1] & 0xc0) == 0x80 { return true }
+            }
+            return false
+        }
 
         // IPv4 private ranges
         let parts = host.split(separator: ".").compactMap { UInt8($0) }
@@ -597,6 +716,18 @@ actor ConfigurableScraper: MusicScraper {
         }
 
         return false
+    }
+
+    nonisolated private static func normalizedHost(_ host: String) -> String {
+        var normalized = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalized.hasPrefix("["), normalized.hasSuffix("]") {
+            normalized.removeFirst()
+            normalized.removeLast()
+        }
+        if let zoneIndex = normalized.firstIndex(of: "%") {
+            normalized = String(normalized[..<zoneIndex])
+        }
+        return normalized
     }
 
     nonisolated static func describeNetworkError(_ error: Error) -> String {
@@ -620,16 +751,25 @@ actor ConfigurableScraper: MusicScraper {
 
 }
 
-private enum PlainHTTPClient {
+/// 裸 socket (NWConnection) 明文 HTTP 客户端，绕过 ATS 对公网明文 http 的
+/// -1022 拦截。仅供 ATSHTTP 在「公网 + 明文 http」时调用；局域网明文 http
+/// 与所有 https 仍走 URLSession 以保留 keep-alive / 证书信任。
+enum PlainHTTPClient {
+    /// 内存缓冲版 data(for:) 的默认上限（沿用 scraper resource 上限）。
+    /// 整文件下载请改用 download(for:) 落盘，避免大文件全量驻留内存。
+    static let defaultMaxBytes = ConfigurableScraper.maxResourceResponseBytes
+
     private final class StateBox: @unchecked Sendable {
         private let lock = NSLock()
         private var didResume = false
         private var received = Data()
 
-        func append(_ data: Data) {
+        func append(_ data: Data, maxBytes: Int) -> Bool {
             lock.lock()
+            defer { lock.unlock() }
+            guard received.count + data.count <= maxBytes else { return false }
             received.append(data)
-            lock.unlock()
+            return true
         }
 
         func snapshot() -> Data {
@@ -647,7 +787,7 @@ private enum PlainHTTPClient {
         }
     }
 
-    static func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+    static func data(for request: URLRequest, maxBytes: Int = defaultMaxBytes) async throws -> (Data, URLResponse) {
         guard let url = request.url,
               url.scheme == "http",
               let host = url.host,
@@ -686,7 +826,10 @@ private enum PlainHTTPClient {
                     }
 
                     if let data, !data.isEmpty {
-                        stateBox.append(data)
+                        guard stateBox.append(data, maxBytes: maxBytes) else {
+                            finish(.failure(ScraperError.networkError("HTTP response too large")))
+                            return
+                        }
                     }
 
                     if isComplete || data?.isEmpty == true {
@@ -728,6 +871,17 @@ private enum PlainHTTPClient {
 
             connection.start(queue: queue)
         }
+    }
+
+    /// 落盘版下载：边收边写临时文件，避免整文件全量驻留内存（整曲可达数十~
+    /// 上百 MB）。返回 (tempURL, URLResponse)，与 URLSession.download(for:)
+    /// 的语义一致——调用方负责把 tempURL move 到目标位置并清理。
+    static func download(for request: URLRequest) async throws -> (URL, URLResponse) {
+        let (data, response) = try await data(for: request, maxBytes: .max)
+        let tempURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("primuse_plainhttp_\(UUID().uuidString)")
+        try data.write(to: tempURL, options: .atomic)
+        return (tempURL, response)
     }
 
     private static func buildRequestData(for request: URLRequest) throws -> Data {
@@ -852,13 +1006,12 @@ private enum PlainHTTPClient {
 
 // MARK: - Scraper Session Manager
 
-/// URLSession manager with SSL bypass for trusted domains.
 /// URLSession manager that supports SSL bypass for user-configured trusted domains.
-/// - NSObject subclass as URLSessionTaskDelegate
-/// - Stored session property keeps delegate alive
-/// - data(for:delegate:self) ensures task-level delegate is called
-final class ScraperSessionManager: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+/// SSL 校验完全委托给共享的 `SmartSSLDelegate`(TOFU 钉扎 + 轮换征询),scraper 这里
+/// 只保留 enforceHTTPPolicy / isTrustedHost 的 host 策略,不再自己实现证书钉扎逻辑。
+final class ScraperSessionManager: NSObject, @unchecked Sendable {
     private var _session: URLSession!
+    private let sslDelegate = SmartSSLDelegate()
     private let defaultHeaders: [String: String]
     private let trustDomains: [String]
 
@@ -876,7 +1029,7 @@ final class ScraperSessionManager: NSObject, URLSessionTaskDelegate, @unchecked 
         if !headers.isEmpty {
             config.httpAdditionalHeaders = headers
         }
-        _session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
+        _session = URLSession(configuration: config, delegate: sslDelegate, delegateQueue: nil)
     }
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
@@ -896,76 +1049,13 @@ final class ScraperSessionManager: NSObject, URLSessionTaskDelegate, @unchecked 
         }
 
         do {
-            return try await _session.data(for: mergedRequest, delegate: self)
+            // SSL 校验由 session-level 的 SmartSSLDelegate 统一处理(TOFU 钉扎/轮换征询),
+            // 不再传 per-task delegate。
+            return try await _session.data(for: mergedRequest)
         } catch {
-            if let fallbackRequest = fallbackRequestForTrustedHTTPRetry(from: mergedRequest, error: error) {
-                plog("⚠️ HTTPS failed for trusted host \(host); retrying over HTTP: \(fallbackRequest.url?.absoluteString ?? "?")")
-                do {
-                    return try await PlainHTTPClient.data(for: fallbackRequest)
-                } catch {
-                    plog("⚠️ HTTP retry failed: \(fallbackRequest.httpMethod ?? "GET") \(fallbackRequest.url?.absoluteString ?? "?") \(ConfigurableScraper.describeNetworkError(error))")
-                    throw error
-                }
-            }
             plog("⚠️ Request failed: \(mergedRequest.httpMethod ?? "GET") \(mergedRequest.url?.absoluteString ?? "?") \(ConfigurableScraper.describeNetworkError(error))")
             throw error
         }
-    }
-
-    private func fallbackRequestForTrustedHTTPRetry(from request: URLRequest, error: Error) -> URLRequest? {
-        guard let url = request.url,
-              url.scheme == "https",
-              let host = url.host,
-              SSLTrustStore.sslErrorDomain(from: error) != nil else {
-            return nil
-        }
-
-        let trustedByConfig = ConfigurableScraper.isTrustedHost(host, trustDomains: trustDomains)
-        let trustedByUser = SSLTrustStore.isTrustedSync(domain: host)
-        guard trustedByConfig || trustedByUser else { return nil }
-
-        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        components?.scheme = "http"
-        guard let fallbackURL = components?.url else { return nil }
-
-        var fallbackRequest = request
-        fallbackRequest.url = fallbackURL
-        fallbackRequest.cachePolicy = .reloadIgnoringLocalCacheData
-        return fallbackRequest
-    }
-
-    // Task-level delegate — called by async data(for:delegate:) API
-    func urlSession(_ session: URLSession, task: URLSessionTask,
-                    didReceive challenge: URLAuthenticationChallenge,
-                    completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        let host = challenge.protectionSpace.host
-        let method = challenge.protectionSpace.authenticationMethod
-        plog("🔒 SSL challenge: host=\(host) method=\(method) trustDomains=\(trustDomains)")
-
-        if method == NSURLAuthenticationMethodServerTrust,
-           let trust = challenge.protectionSpace.serverTrust {
-            let trustedByConfig = ConfigurableScraper.isTrustedHost(host, trustDomains: trustDomains)
-            let trustedByUser = SSLTrustStore.isTrustedSync(domain: host)
-            if trustedByConfig || trustedByUser {
-                plog("🔒 SSL: TRUSTING \(host) (trustedByConfig=\(trustedByConfig) trustedByUser=\(trustedByUser))")
-                // Override the SSL policy to skip hostname validation
-                // This is needed for CDNs where cert CN doesn't match the requested domain
-                SecTrustSetPolicies(trust, SecPolicyCreateBasicX509())
-                var error: CFError?
-                if SecTrustEvaluateWithError(trust, &error) {
-                    completionHandler(.useCredential, URLCredential(trust: trust))
-                } else {
-                    // Skipping hostname validation is intentional for trusted CDNs, but
-                    // a chain that still fails basic X.509 evaluation should not be blindly
-                    // accepted — fall back to the system default handling instead.
-                    plog("🔒 SSL: trust evaluation failed for \(host): \(error?.localizedDescription ?? "?") → default handling")
-                    completionHandler(.performDefaultHandling, nil)
-                }
-                return
-            }
-        }
-        plog("🔒 SSL: DEFAULT handling for \(host)")
-        completionHandler(.performDefaultHandling, nil)
     }
 }
 

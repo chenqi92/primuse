@@ -1512,6 +1512,36 @@ final class SourceManager {
         ]
     }
 
+    /// 一个源占用的全部 per-source 缓存目录。下载缓存按协议散落在多个目录,
+    /// `deleteSourceCaches` 删除与 `diskUsage` 统计都走这里, 保证口径一致
+    /// (否则统计会系统性低估 SMB/SFTP/NFS/云 等源的真实占用)。
+    static func perSourceCacheDirs(sourceID: String) -> [URL] {
+        let fm = FileManager.default
+        let caches = fm.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let temp = fm.temporaryDirectory
+        return [
+            caches.appendingPathComponent(audioCacheDirName).appendingPathComponent(sourceID),
+            caches.appendingPathComponent("primuse_cloud_cache").appendingPathComponent(sourceID),
+            temp.appendingPathComponent("primuse_smb_cache").appendingPathComponent(sourceID),
+            temp.appendingPathComponent("primuse_sftp_cache").appendingPathComponent(sourceID),
+            temp.appendingPathComponent("primuse_ftp_cache").appendingPathComponent(sourceID),
+            temp.appendingPathComponent("primuse_nfs_cache").appendingPathComponent(sourceID),
+            temp.appendingPathComponent("primuse_upnp_cache").appendingPathComponent(sourceID),
+            temp.appendingPathComponent("primuse_scan_\(sourceID)"),
+        ]
+    }
+
+    /// 单个源占用的磁盘大小(后台枚举, 不卡主线程)。本地导入源算沙箱
+    /// Documents/LocalMusic 的原始拷贝; 其它源算全部 per-source 下载缓存目录。
+    func diskUsage(for source: MusicSource) async -> Int64 {
+        let dirs: [URL] = source.id == LocalImportService.existingSourceID
+            ? [LocalImportService.musicDirectory]
+            : Self.perSourceCacheDirs(sourceID: source.id)
+        return await Task.detached(priority: .utility) {
+            Self.audioCacheSize(dirs: dirs)
+        }.value
+    }
+
     nonisolated private static func audioCacheSize(dirs: [URL]) -> Int64 {
         var total: Int64 = 0
         for basePath in dirs {
@@ -1748,19 +1778,7 @@ final class SourceManager {
 
     func deleteSourceCaches(sourceID: String) {
         let fileManager = FileManager.default
-        let caches = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first!
-        let temp = fileManager.temporaryDirectory
-        let paths = [
-            caches.appendingPathComponent(Self.audioCacheDirName).appendingPathComponent(sourceID),
-            caches.appendingPathComponent("primuse_cloud_cache").appendingPathComponent(sourceID),
-            temp.appendingPathComponent("primuse_smb_cache").appendingPathComponent(sourceID),
-            temp.appendingPathComponent("primuse_sftp_cache").appendingPathComponent(sourceID),
-            temp.appendingPathComponent("primuse_ftp_cache").appendingPathComponent(sourceID),
-            temp.appendingPathComponent("primuse_nfs_cache").appendingPathComponent(sourceID),
-            temp.appendingPathComponent("primuse_upnp_cache").appendingPathComponent(sourceID),
-            temp.appendingPathComponent("primuse_scan_\(sourceID)"),
-        ]
-        for path in paths {
+        for path in Self.perSourceCacheDirs(sourceID: sourceID) {
             try? fileManager.removeItem(at: path)
         }
         Task { await AudioCacheManager.shared.removeAllEntries(forSourcePrefix: "\(sourceID)/") }

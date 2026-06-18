@@ -31,18 +31,20 @@ public struct LANSyncPayload: Codable, Sendable {
 }
 
 /// 扫码配对的端点 + 一次性密钥。二维码内容形如
-/// `primuse://pair?host=192.168.1.50&port=54321&k=<base64url 32B>`。
+/// `primuse://pair?host=192.168.1.50&port=54321&k=<base64url 32B>&code=123456`。
 /// `key` 是 TV 每次展示二维码时新生成的 256-bit 随机密钥,既作 AES-GCM 对称密钥,
 /// 也是「只有扫到这张码的人才有」的鉴权凭证 —— 解不开即拒。
 public struct LANPairLink: Sendable, Equatable {
     public var host: String
     public var port: Int
     public var key: Data        // 32 bytes
+    public var pairCode: String // 6 digits shown on both devices
 
-    public init(host: String, port: Int, key: Data) {
+    public init(host: String, port: Int, key: Data, pairCode: String = LANPairLink.randomPairCode()) {
         self.host = host
         self.port = port
         self.key = key
+        self.pairCode = LANPairLink.normalizedPairCode(pairCode) ?? LANPairLink.randomPairCode()
     }
 
     /// 从扫码得到的 `primuse://pair?...` 解析。
@@ -56,6 +58,7 @@ public struct LANPairLink: Sendable, Equatable {
         self.host = host
         self.port = port
         self.key = key
+        self.pairCode = LANPairLink.normalizedPairCode(q("code")) ?? LANPairLink.shortCode(from: key)
     }
 
     /// 编码进二维码的字符串。
@@ -67,12 +70,36 @@ public struct LANPairLink: Sendable, Equatable {
             URLQueryItem(name: "host", value: host),
             URLQueryItem(name: "port", value: String(port)),
             URLQueryItem(name: "k", value: key.base64URLEncodedString()),
+            URLQueryItem(name: "code", value: pairCode),
         ]
         return c.url?.absoluteString ?? "primuse://pair"
     }
 
     /// iPhone POST 配置的目标 URL(局域网明文 HTTP,载荷已 AES-GCM 加密)。
     public var configURL: URL? { URL(string: "http://\(host):\(port)/config") }
+
+    public var displayPairCode: String {
+        pairCode.count == 6
+            ? "\(pairCode.prefix(3)) \(pairCode.suffix(3))"
+            : pairCode
+    }
+
+    public static func randomPairCode() -> String {
+        String(format: "%06d", Int.random(in: 0...999_999))
+    }
+
+    private static func normalizedPairCode(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let digits = raw.filter(\.isNumber)
+        guard digits.count == 6 else { return nil }
+        return String(digits)
+    }
+
+    private static func shortCode(from key: Data) -> String {
+        let digest = SHA256.hash(data: key)
+        let value = digest.prefix(4).reduce(UInt32(0)) { ($0 << 8) | UInt32($1) } % 1_000_000
+        return String(format: "%06d", value)
+    }
 }
 
 /// AES-GCM 封装。密钥 = 32B 均匀随机,直接作 `SymmetricKey`(无需再 HKDF 派生)。

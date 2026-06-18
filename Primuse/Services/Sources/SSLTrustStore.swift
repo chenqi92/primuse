@@ -63,7 +63,7 @@ final class SSLTrustStore {
     // MARK: - Public API
 
     func isTrusted(domain: String) -> Bool {
-        trustedDomains.contains(domain)
+        trustedDomains.contains(Self.normalizeDomain(domain))
     }
 
     func trust(domain: String) {
@@ -71,7 +71,7 @@ final class SSLTrustStore {
     }
 
     func trust(domain: String, certificateInfo: TrustedCertificateInfo?) {
-        let normalized = domain.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalized = Self.normalizeDomain(domain)
         guard !normalized.isEmpty else { return }
         if !trustedDomains.contains(normalized) {
             trustedDomains.append(normalized)
@@ -102,51 +102,57 @@ final class SSLTrustStore {
     }
 
     func untrust(domain: String) {
-        trustedDomains.removeAll { $0 == domain }
-        trustedCertificates.removeAll { $0.domain == domain }
+        let normalized = Self.normalizeDomain(domain)
+        trustedDomains.removeAll { $0 == normalized }
+        trustedCertificates.removeAll { $0.domain == normalized }
         saveToDefaults()
     }
 
     func certificateInfo(for domain: String) -> TrustedCertificateInfo? {
-        trustedCertificates.first { $0.domain == domain }
+        let normalized = Self.normalizeDomain(domain)
+        return trustedCertificates.first { $0.domain == normalized }
     }
 
     /// Thread-safe synchronous check for use from URLSession delegate callbacks (non-MainActor).
     /// UserDefaults reads are thread-safe.
     nonisolated static func isTrustedSync(domain: String) -> Bool {
+        let normalized = normalizeDomain(domain)
         let domains = UserDefaults.standard.stringArray(forKey: defaultsKey) ?? []
-        return domains.contains(domain)
+        return domains.contains(normalized)
     }
 
     /// Thread-safe synchronous read of the pinned leaf-certificate SHA256 for a trusted domain.
     /// Returns nil when the domain has no recorded fingerprint yet (TOFU first contact).
     nonisolated static func pinnedFingerprintSync(domain: String) -> String? {
+        let normalized = normalizeDomain(domain)
         guard let data = UserDefaults.standard.data(forKey: certificateDefaultsKey),
               let decoded = try? JSONDecoder().decode([TrustedCertificateInfo].self, from: data) else {
             return nil
         }
-        return decoded.first { $0.domain == domain }?.fingerprintSHA256
+        return decoded.first { $0.domain == normalized }?.fingerprintSHA256
     }
 
     /// Show a trust prompt to the user. Returns `true` if user chose to trust the domain.
     /// The UI layer (ContentView) observes `pendingTrustRequest` and shows an alert.
     func requestTrust(domain: String, certificateInfo: TrustedCertificateInfo? = nil) async -> Bool {
+        let normalized = Self.normalizeDomain(domain)
+        guard !normalized.isEmpty else { return false }
         // Already trusted — no need to ask
-        if isTrusted(domain: domain) { return true }
+        if isTrusted(domain: normalized) { return true }
 
         return await withCheckedContinuation { continuation in
             // 同一 domain 已在征询 (无论是当前请求还是排队中的),合并到那次决策,
             // 共享同一个用户选择,避免重复弹窗,也避免覆盖丢失旧 continuation。
-            if pendingTrustRequest?.domain == domain {
+            if pendingTrustRequest?.domain == normalized {
                 pendingTrustRequest?.continuations.append(continuation)
                 return
             }
-            if let index = waitingTrustRequests.firstIndex(where: { $0.domain == domain }) {
+            if let index = waitingTrustRequests.firstIndex(where: { $0.domain == normalized }) {
                 waitingTrustRequests[index].continuations.append(continuation)
                 return
             }
             let request = TrustRequest(
-                domain: domain,
+                domain: normalized,
                 certificateInfo: certificateInfo,
                 continuations: [continuation]
             )
@@ -164,7 +170,7 @@ final class SSLTrustStore {
     /// Only fills in a missing pin — never overwrites an existing fingerprint (that path needs user
     /// confirmation via `requestTrustForChangedCertificate`).
     func pinCertificateIfNeeded(domain: String, certificateInfo: TrustedCertificateInfo?) {
-        let normalized = domain.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalized = Self.normalizeDomain(domain)
         guard !normalized.isEmpty else { return }
         guard certificateInfo?.fingerprintSHA256 != nil else { return }
         if let existing = self.certificateInfo(for: normalized)?.fingerprintSHA256, !existing.isEmpty {
@@ -177,18 +183,20 @@ final class SSLTrustStore {
     /// pinned fingerprint (rotation or interception). Unlike `requestTrust` this does not short-circuit
     /// on the domain already being trusted; on approval it updates the stored fingerprint.
     func requestTrustForChangedCertificate(domain: String, certificateInfo: TrustedCertificateInfo?) async -> Bool {
+        let normalized = Self.normalizeDomain(domain)
+        guard !normalized.isEmpty else { return false }
         return await withCheckedContinuation { continuation in
             // 同一 domain 已在征询 (无论当前还是排队中),合并到那次决策,共享同一个用户选择。
-            if pendingTrustRequest?.domain == domain {
+            if pendingTrustRequest?.domain == normalized {
                 pendingTrustRequest?.continuations.append(continuation)
                 return
             }
-            if let index = waitingTrustRequests.firstIndex(where: { $0.domain == domain }) {
+            if let index = waitingTrustRequests.firstIndex(where: { $0.domain == normalized }) {
                 waitingTrustRequests[index].continuations.append(continuation)
                 return
             }
             let request = TrustRequest(
-                domain: domain,
+                domain: normalized,
                 certificateInfo: certificateInfo,
                 continuations: [continuation]
             )
@@ -247,10 +255,36 @@ final class SSLTrustStore {
     // MARK: - Persistence
 
     private func loadFromDefaults() {
-        trustedDomains = UserDefaults.standard.stringArray(forKey: Self.defaultsKey) ?? []
+        let rawDomains = (UserDefaults.standard.stringArray(forKey: Self.defaultsKey) ?? [])
+            .map(Self.normalizeDomain)
+            .filter { !$0.isEmpty }
+        // 归一化后去重 (大小写不同的旧条目折叠成同一域名),保留首次出现顺序。
+        var seenDomains = Set<String>()
+        trustedDomains = rawDomains.filter { seenDomains.insert($0).inserted }
+
         if let data = UserDefaults.standard.data(forKey: Self.certificateDefaultsKey),
            let decoded = try? JSONDecoder().decode([TrustedCertificateInfo].self, from: data) {
-            trustedCertificates = decoded
+            // 归一化后去重:同一域名只保留一条,优先带指纹/信息更全的那条,避免 ForEach id 冲突。
+            var byDomain: [String: TrustedCertificateInfo] = [:]
+            var order: [String] = []
+            for entry in decoded {
+                let normalized = Self.normalizeDomain(entry.domain)
+                guard !normalized.isEmpty else { continue }
+                let info = TrustedCertificateInfo(
+                    domain: normalized,
+                    fingerprintSHA256: entry.fingerprintSHA256,
+                    expiresAt: entry.expiresAt,
+                    subjectSummary: entry.subjectSummary,
+                    trustedAt: entry.trustedAt
+                )
+                if let existing = byDomain[normalized] {
+                    byDomain[normalized] = Self.preferredCertificate(existing, info)
+                } else {
+                    byDomain[normalized] = info
+                    order.append(normalized)
+                }
+            }
+            trustedCertificates = order.compactMap { byDomain[$0] }
         }
         let domainsWithInfo = Set(trustedCertificates.map(\.domain))
         for domain in trustedDomains where !domainsWithInfo.contains(domain) {
@@ -264,6 +298,26 @@ final class SSLTrustStore {
         }
         trustedDomains.sort()
         trustedCertificates.sort { $0.domain < $1.domain }
+        // 把归一化/去重后的结果写回 UserDefaults,使静态同步路径
+        // (isTrustedSync / pinnedFingerprintSync) 读到与内存一致的干净数据。
+        saveToDefaults()
+    }
+
+    /// 两条同域名证书条目折叠时择优:优先保留带指纹的;都带或都不带时保留较新的。
+    nonisolated private static func preferredCertificate(
+        _ lhs: TrustedCertificateInfo,
+        _ rhs: TrustedCertificateInfo
+    ) -> TrustedCertificateInfo {
+        let lhsHasPin = !(lhs.fingerprintSHA256?.isEmpty ?? true)
+        let rhsHasPin = !(rhs.fingerprintSHA256?.isEmpty ?? true)
+        if lhsHasPin != rhsHasPin {
+            return lhsHasPin ? lhs : rhs
+        }
+        return lhs.trustedAt >= rhs.trustedAt ? lhs : rhs
+    }
+
+    nonisolated private static func normalizeDomain(_ domain: String) -> String {
+        domain.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
     private func saveToDefaults() {
@@ -280,7 +334,7 @@ final class SSLTrustStore {
             .map { String(format: "%02X", $0) }
             .joined()
         return TrustedCertificateInfo(
-            domain: domain.lowercased(),
+            domain: normalizeDomain(domain),
             fingerprintSHA256: fingerprint,
             expiresAt: certificateExpiry(certificate),
             subjectSummary: SecCertificateCopySubjectSummary(certificate) as String?,

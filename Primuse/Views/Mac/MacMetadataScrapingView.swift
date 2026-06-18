@@ -15,11 +15,12 @@ struct MacMetadataScrapingView: View {
     @State private var showImportSheet = false
     @State private var importText = ""
     @State private var importError: String?
+    @State private var importPreview: ScraperImportSummary?
     @State private var importMode: ImportMode = .paste
     @State private var editingConfigSource: ScraperSourceConfig?
     @State private var editingConfigJSON = ""
 
-    private enum ImportMode { case paste, url }
+    private enum ImportMode: Equatable { case paste, url }
 
     var body: some View {
         @Bindable var settings = scraperSettings
@@ -43,6 +44,7 @@ struct MacMetadataScrapingView: View {
                 Button {
                     importText = ""
                     importError = nil
+                    importPreview = nil
                     importMode = .paste
                     showImportSheet = true
                 } label: {
@@ -201,20 +203,35 @@ struct MacMetadataScrapingView: View {
                             .font(.caption)
                     }
                 }
+
+                if let importPreview {
+                    ScraperImportSummaryView(summary: importPreview)
+                }
             }
             .formStyle(.grouped)
             .navigationTitle("import_scraper_source")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("cancel") { showImportSheet = false }
+                    Button("cancel") {
+                        importPreview = nil
+                        showImportSheet = false
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("import_action") { performImport() }
+                    Button(importPreview == nil ? "Review" : "Confirm Import") { performImport() }
                         .disabled(importText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
         }
         .frame(minWidth: 560, minHeight: 500)
+        .onChange(of: importText) { _, _ in
+            importPreview = nil
+            importError = nil
+        }
+        .onChange(of: importMode) { _, _ in
+            importPreview = nil
+            importError = nil
+        }
     }
 
     private func editConfigSheet(source: ScraperSourceConfig) -> some View {
@@ -252,25 +269,44 @@ struct MacMetadataScrapingView: View {
     private func performImport() {
         importError = nil
         let text = importText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let preview = importPreview {
+            do {
+                let configs = try ScraperConfigStore.shared.importConfigs(preview.configs)
+                for config in configs { scraperSettings.addCustomSource(config) }
+                importPreview = nil
+                showImportSheet = false
+            } catch {
+                importError = error.localizedDescription
+            }
+            return
+        }
+
         if importMode == .url {
             guard let url = URL(string: text) else {
                 importError = String(localized: "invalid_url")
                 return
             }
+            let requestedText = text
             Task {
                 do {
-                    let configs = try await ScraperConfigStore.shared.importFromURL(url)
-                    for config in configs { scraperSettings.addCustomSource(config) }
-                    showImportSheet = false
+                    let preview = try await ScraperConfigStore.shared.previewImportFromURL(url)
+                    await MainActor.run {
+                        guard importMode == .url,
+                              importText.trimmingCharacters(in: .whitespacesAndNewlines) == requestedText else { return }
+                        importPreview = preview
+                    }
                 } catch {
-                    importError = error.localizedDescription
+                    await MainActor.run {
+                        guard importMode == .url,
+                              importText.trimmingCharacters(in: .whitespacesAndNewlines) == requestedText else { return }
+                        importError = error.localizedDescription
+                    }
                 }
             }
         } else {
             do {
-                let configs = try ScraperConfigStore.shared.importFromJSON(text)
-                for config in configs { scraperSettings.addCustomSource(config) }
-                showImportSheet = false
+                importPreview = try ScraperConfigStore.shared.previewImportFromJSON(text)
             } catch {
                 importError = error.localizedDescription
             }

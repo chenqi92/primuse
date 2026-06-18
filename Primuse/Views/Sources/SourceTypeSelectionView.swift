@@ -1,5 +1,6 @@
 import SwiftUI
 import PrimuseKit
+import UniformTypeIdentifiers
 
 struct SourceTypeSelectionView: View {
     @Environment(\.dismiss) private var dismiss
@@ -10,6 +11,10 @@ struct SourceTypeSelectionView: View {
     @State private var selectedDevice: DiscoveredDevice?
     #if os(macOS)
     @State private var pendingType: MusicSourceType?
+    #endif
+    #if os(iOS)
+    @State private var showLocalImporter = false
+    @State private var localImportError: String?
     #endif
 
     var body: some View {
@@ -421,6 +426,8 @@ struct SourceTypeSelectionView: View {
     #if os(iOS)
     private var iosList: some View {
         List {
+            iosLocalImportSection
+
             iosDiscoverySection
 
             ForEach(MusicSourceType.groupedByCategory, id: \.0) { category, types in
@@ -442,6 +449,89 @@ struct SourceTypeSelectionView: View {
         .navigationTitle("select_source_type")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarTitleDisplayMode(.inline)
+        .fileImporter(
+            isPresented: $showLocalImporter,
+            allowedContentTypes: Self.audioContentTypes + [.folder],
+            allowsMultipleSelection: true
+        ) { result in
+            handleLocalImport(result)
+        }
+        .alert(
+            String(localized: "local_import_err_title"),
+            isPresented: Binding(get: { localImportError != nil },
+                                 set: { if !$0 { localImportError = nil } })
+        ) {
+            Button("ok", role: .cancel) {}
+        } message: {
+            Text(localImportError ?? "")
+        }
+    }
+
+    /// 「从文件导入」入口 —— 置于源列表最顶, 直接回应"找不到本地导入"的反馈。
+    /// 点击走系统「文件」选择器(可多选), 选中的音频拷进 app 沙箱后由父级
+    /// 创建/复用本地源并扫描入库。
+    private var iosLocalImportSection: some View {
+        Section {
+            Button {
+                showLocalImporter = true
+            } label: {
+                iosLocalImportRow
+            }
+            .buttonStyle(.plain)
+        } footer: {
+            Text("local_import_section_footer")
+        }
+    }
+
+    private var iosLocalImportRow: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "square.and.arrow.down")
+                .font(.title3)
+                .foregroundStyle(.white)
+                .frame(width: 36, height: 36)
+                .background(Color.accentColor)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("local_import_title").font(.body)
+                Text("local_import_subtitle")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private func handleLocalImport(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            // 拷贝(尤其选了大文件夹时)放后台, 避免在 fileImporter 的 MainActor
+            // completion 里同步拷大量文件冻结 UI / 触发 watchdog 终止。
+            Task {
+                let outcome = await Task.detached { LocalImportService.copy(urls) }.value
+                guard outcome.copied > 0 else {
+                    localImportError = String(localized: "local_import_none_added")
+                    return
+                }
+                // 文件已拷进沙箱; 交给父级 upsert 本地源并触发扫描入库(读 tag /
+                // 时长 / 封面 / 歌词), 然后关闭选择器。
+                onAdd(LocalImportService.makeSource(name: String(localized: "local_import_source_name")))
+                dismiss()
+            }
+        case .failure(let error):
+            localImportError = error.localizedDescription
+        }
+    }
+
+    /// 文件选择器允许的类型: `.audio` 父类型 + 常见具体类型, 再用扩展名兜底
+    /// flac/ape/wv/dsf 等系统不一定声明为 audio 的格式, 让它们在选择器里可选。
+    private static var audioContentTypes: [UTType] {
+        var set: Set<UTType> = [.audio, .mp3, .wav, .aiff, .mpeg4Audio]
+        for ext in PrimuseConstants.supportedAudioExtensions {
+            if let type = UTType(filenameExtension: ext) { set.insert(type) }
+        }
+        return Array(set)
     }
 
     @ViewBuilder

@@ -232,6 +232,12 @@
 "scan_in_progress" = "音楽ファイルをスキャン中...";
 "add_source" = "ソースを追加";
 "select_source_type" = "ソースの種類を選択";
+"local_import_title" = "ファイルから読み込む";
+"local_import_subtitle" = "本体または iCloud Drive の音源を選択";
+"local_import_section_footer" = "読み込んだ曲はアプリ内にコピーされ、オフラインでも再生できます。";
+"local_import_source_name" = "ローカル音楽";
+"local_import_none_added" = "読み込める音源ファイルがありませんでした。";
+"local_import_err_title" = "読み込みに失敗しました";
 "source_info" = "ソース情報";
 "source_type" = "ソースの種類";
 "connection_info" = "接続";

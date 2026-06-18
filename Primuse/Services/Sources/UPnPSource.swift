@@ -171,7 +171,9 @@ actor UPnPSource: SongScanningConnector {
     }
 
     private func playbackURL(for path: String) throws -> URL {
-        guard let remoteURL = URL(string: path), remoteURL.scheme?.hasPrefix("http") == true else {
+        guard let remoteURL = URL(string: path),
+              let scheme = remoteURL.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
             throw SourceError.fileNotFound(path)
         }
         return remoteURL

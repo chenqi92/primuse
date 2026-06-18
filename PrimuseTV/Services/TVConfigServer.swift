@@ -19,11 +19,13 @@ final class TVConfigServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.welape.primuse.tvconfig")
     private var listener: NWListener?
     private var key = LANSyncCrypto.randomKey()
+    private var pairCode = LANPairLink.randomPairCode()
     private var boundPort: UInt16?
 
-    /// body 上限 128MB(整库快照通常几百 KB~数 MB,留足余量),超出直接拒。
-    private static let maxBodyBytes = 128 * 1024 * 1024
+    /// body 上限 32MB(整库快照通常几百 KB~数 MB,留足余量),超出直接拒。
+    private static let maxBodyBytes = 32 * 1024 * 1024
     private static let headerTimeout: TimeInterval = 15
+    private static let bodyTimeout: TimeInterval = 30
     private static let maxConnections = 8
     private var activeConnections = 0
 
@@ -42,7 +44,7 @@ final class TVConfigServer: @unchecked Sendable {
     /// 当前配对端点(host+port+key)。未运行 / 无可用网络时 nil。
     func endpoint() -> LANPairLink? {
         guard let port = boundPort, let ip = Self.localIPv4() else { return nil }
-        return LANPairLink(host: ip, port: Int(port), key: key)
+        return LANPairLink(host: ip, port: Int(port), key: key, pairCode: pairCode)
     }
 
     // MARK: - Listener
@@ -53,7 +55,7 @@ final class TVConfigServer: @unchecked Sendable {
             return
         }
         // 每次启动换一把新密钥(一次性配对)。
-        key = LANSyncCrypto.randomKey()
+        rotatePairingSecret()
         do {
             let l = try NWListener(using: .tcp)
             l.stateUpdateHandler = { [weak self, weak l] state in
@@ -80,40 +82,43 @@ final class TVConfigServer: @unchecked Sendable {
     private func acceptConnection(_ conn: NWConnection) {
         guard activeConnections < Self.maxConnections else { conn.cancel(); return }
         activeConnections += 1
-        let headerTimer = DispatchSource.makeTimerSource(queue: queue)
-        headerTimer.schedule(deadline: .now() + Self.headerTimeout)
-        headerTimer.setEventHandler { [weak conn] in conn?.cancel() }
-        headerTimer.resume()
+        let requestTimer = DispatchSource.makeTimerSource(queue: queue)
+        requestTimer.schedule(deadline: .now() + Self.headerTimeout)
+        requestTimer.setEventHandler { [weak conn] in conn?.cancel() }
+        requestTimer.resume()
         conn.stateUpdateHandler = { [weak self] state in
             switch state {
             case .cancelled, .failed:
-                headerTimer.cancel()
+                requestTimer.cancel()
                 if let self, self.activeConnections > 0 { self.activeConnections -= 1 }
             default:
                 break
             }
         }
         conn.start(queue: queue)
-        readRequest(conn, buffer: Data(), headerTimer: headerTimer)
+        readRequest(conn, buffer: Data(), requestTimer: requestTimer)
     }
 
     /// 读到 `\r\n\r\n` 为止凑齐请求头,解析出 Content-Length 后续读 body。
-    private func readRequest(_ conn: NWConnection, buffer: Data, headerTimer: DispatchSourceTimer) {
+    private func readRequest(_ conn: NWConnection, buffer: Data, requestTimer: DispatchSourceTimer) {
         conn.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, complete, error in
             guard let self else { conn.cancel(); return }
             var buf = buffer
             if let data { buf.append(data) }
             if let end = buf.range(of: Data("\r\n\r\n".utf8)) {
-                headerTimer.cancel()
+                requestTimer.schedule(deadline: .now() + Self.bodyTimeout)
                 let head = String(decoding: buf[buf.startIndex..<end.lowerBound], as: UTF8.self)
                 let already = Data(buf[end.upperBound...])
                 guard let req = Self.parseRequest(head), req.method == "POST", req.path == "/config",
                       let len = req.contentLength, len > 0, len <= Self.maxBodyBytes else {
                     Self.respond(conn, status: 400); return
                 }
+                guard req.headers["x-primuse-pair-code"] == self.pairCode else {
+                    Self.respond(conn, status: 403); return
+                }
                 self.readBody(conn, body: already, need: len)
             } else if error == nil, !complete, buf.count < 64 * 1024 {
-                self.readRequest(conn, buffer: buf, headerTimer: headerTimer)
+                self.readRequest(conn, buffer: buf, requestTimer: requestTimer)
             } else {
                 conn.cancel()
             }
@@ -148,21 +153,33 @@ final class TVConfigServer: @unchecked Sendable {
             return
         }
         plog("TVConfigServer: received payload (lib=\(payload.libraryGz?.count ?? 0)B src=\(payload.sourcesGz?.count ?? 0)B creds=\(payload.credentials?.entries.count ?? 0))")
+        // 成功接收后立即换 key + 短码,让二维码里的旧密钥不可复用。
+        rotatePairingSecret()
+        emitEndpoint()
         onReceive?(payload)
         Self.respond(conn, status: 200)
     }
 
     // MARK: - 纯函数 / 工具
 
-    static func parseRequest(_ head: String) -> (method: String, path: String, contentLength: Int?)? {
+    private func rotatePairingSecret() {
+        key = LANSyncCrypto.randomKey()
+        pairCode = LANPairLink.randomPairCode()
+    }
+
+    static func parseRequest(_ head: String) -> (method: String, path: String, contentLength: Int?, headers: [String: String])? {
         let lines = head.components(separatedBy: "\r\n")
         guard let requestLine = lines.first else { return nil }
         let parts = requestLine.split(separator: " ")
         guard parts.count >= 2, let comp = URLComponents(string: String(parts[1])) else { return nil }
-        let len = lines.dropFirst()
-            .first { $0.lowercased().hasPrefix("content-length:") }
-            .flatMap { Int($0.split(separator: ":", maxSplits: 1)[1].trimmingCharacters(in: .whitespaces)) }
-        return (String(parts[0]), comp.path, len)
+        var headers: [String: String] = [:]
+        for line in lines.dropFirst() {
+            let parts = line.split(separator: ":", maxSplits: 1)
+            guard parts.count == 2 else { continue }
+            headers[String(parts[0]).lowercased()] = parts[1].trimmingCharacters(in: .whitespaces)
+        }
+        let len = headers["content-length"].flatMap(Int.init)
+        return (String(parts[0]), comp.path, len, headers)
     }
 
     private static func respond(_ conn: NWConnection, status: Int) {

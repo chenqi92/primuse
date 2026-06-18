@@ -34,7 +34,7 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
 
         // 1. Build authorize URL
         let authURL = try buildAuthorizeURL(config: config, pkce: pkce, state: state)
-        plog("☁️ OAuth authorize URL: \(authURL.absoluteString)")
+        plog("☁️ OAuth authorize host=\(authURL.host ?? "?") path=\(authURL.path)")
 
         // 2. Present system browser
         let callbackURL = try await presentAuthSession(
@@ -237,12 +237,7 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
         // Mask the secret in logs but show everything else — invaluable when an
         // OAuth provider rejects the request and you need to compare what we
         // sent against what they registered.
-        let loggedParams = bodyParams.mapValues { _ in "" }.merging(
-            bodyParams.mapValues { v -> String in
-                v.count > 8 ? "\(v.prefix(4))…\(v.suffix(4))" : "***"
-            }
-        ) { _, b in b }
-        plog("☁️ OAuth token POST \(tokenURL.absoluteString) params=\(loggedParams.sorted(by: { $0.key < $1.key }))")
+        plog("☁️ OAuth token POST host=\(tokenURL.host ?? "?") path=\(tokenURL.path) paramKeys=\(bodyParams.keys.sorted())")
 
         let (data, response) = try await URLSession.shared.data(for: request)
 
@@ -252,8 +247,9 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
 
         if !(200...299).contains(http.statusCode) {
             let body = String(data: data, encoding: .utf8) ?? ""
-            plog("☁️ OAuth token HTTP \(http.statusCode) body=\(body)")
-            throw OAuthError.tokenExchangeFailed("HTTP \(http.statusCode): \(body)")
+            let safeBody = FileLogger.redactSensitiveData(String(body.prefix(500)))
+            plog("☁️ OAuth token HTTP \(http.statusCode) body=\(safeBody)")
+            throw OAuthError.tokenExchangeFailed("HTTP \(http.statusCode): \(safeBody)")
         }
 
         let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
