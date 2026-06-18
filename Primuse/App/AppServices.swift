@@ -162,7 +162,7 @@ final class AppServices {
     private func rescanLocalImportIfNeeded() {
         #if os(iOS)
         guard let sourceID = LocalImportService.existingSourceID,
-              musicLibrary.songs.contains(where: { $0.sourceID == sourceID && !$0.isPlayable }),
+              musicLibrary.songs.contains(where: { $0.sourceID == sourceID && $0.duration <= 0 }),
               let source = sourcesStore.source(id: sourceID),
               source.isEnabled,
               !source.isDeleted else { return }

@@ -119,18 +119,21 @@ extension Song: FetchableRecord, PersistableRecord {
 }
 
 public extension Song {
-    /// True when the song has enough metadata to drive normal playback UI
-    /// (progress bar, seek). Cloud-source songs added by the Phase A scan
-    /// stay non-playable until `MetadataBackfillService` fills duration.
-    /// Distinct from `MetadataBackfillService.isBareSong`: backfill stops
-    /// retrying once any field is filled, but the player needs `duration`
-    /// specifically.
-    var isPlayable: Bool { duration > 0 }
+    /// True when the song can be handed to the player. A non-empty `filePath`
+    /// means there is a location to stream/decode — the player resolves the
+    /// real `duration` on play and rewrites it into the library, so cloud
+    /// Phase-A songs whose `duration` hasn't been backfilled yet are still
+    /// playable (previously they were stuck "unplayable" until backfill, which
+    /// is slow/unreliable on large cloud libraries). The `duration > 0` clause
+    /// keeps provider songs that have no file path (e.g. Apple Music) playable.
+    /// To detect "metadata still pending" for the bare-row UI, test
+    /// `duration <= 0` directly, not `!isPlayable`.
+    var isPlayable: Bool { duration > 0 || !filePath.isEmpty }
 }
 
 public extension Sequence where Element == Song {
-    /// Drop songs that aren't ready for the player queue. Use at every
-    /// `setQueue` call site so auto-advance never lands on a Phase A bare
-    /// song without progress/seek.
+    /// Drop only songs with nothing to play (no file path and no duration).
+    /// Cloud Phase-A songs without a backfilled duration are kept — the player
+    /// resolves their duration on play — so the queue no longer skips them.
     func filteredPlayable() -> [Song] { filter(\.isPlayable) }
 }

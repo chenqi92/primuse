@@ -37,14 +37,11 @@ struct SongRowView: View {
     @State private var showTagEditor = false
     @State private var showSimilarSongs = false
 
-    /// Cloud songs added by Phase A scan stay non-playable until the
-    /// backfill fills `duration` (needed for the progress bar / seek).
-    /// The row dims and intercepts taps with a hint alert. We key on
-    /// `isPlayable` (duration > 0) rather than the broader bare-song
-    /// predicate — a song with artist/album parsed but duration still
-    /// unknown would otherwise look "ready" but auto-advance to it would
-    /// hand the player a track it can't render properly.
-    private var isBare: Bool { !song.isPlayable }
+    /// "Metadata still pending" — cloud Phase-A songs whose `duration` (and
+    /// usually cover/artist) hasn't been backfilled yet. Drives a soft dim +
+    /// "loading / details unavailable" subtitle. These songs ARE playable now
+    /// (the player resolves duration on play), so this no longer blocks taps.
+    private var isBare: Bool { song.duration <= 0 }
     private var offlineSnapshot: OfflineAudioCacheSnapshot {
         guard supportsOfflineAudioCache else { return .notCached }
         return sourceManager.offlineAudioSnapshot(for: song)
@@ -204,13 +201,11 @@ struct SongRowView: View {
                 .compactMap { $0 }
                 .joined(separator: " — ")
         ))
-        // Bare songs (still being filled by MetadataBackfillService) are
-        // tap-disabled with a clear hint rather than just visually dimmed.
-        // The overlay is layered above the row's content so its tap
-        // handler intercepts before the parent List/NavigationLink
-        // forwards the tap to play().
+        // Only songs with nothing to play (no path and no duration) intercept
+        // taps with a hint; metadata-pending cloud songs stay tappable and
+        // play — the player resolves their duration on the fly.
         .overlay {
-            if isBare {
+            if !song.isPlayable {
                 Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture { showBareAlert = true }
@@ -770,11 +765,11 @@ extension SongRowView {
     ) -> RowContext {
         let showBadge = sourcesStore.sources.count > 1
         let source = sourcesStore.source(id: song.sourceID)
-        let localBareSong = !song.isPlayable && source?.type == .local
+        let localBareSong = song.duration <= 0 && source?.type == .local
         return RowContext(
             sourceName: showBadge ? source?.name : nil,
             sourceIconName: showBadge ? source?.type.iconName : nil,
-            backfillFailed: !song.isPlayable && (backfill.didFail(songID: song.id) || localBareSong)
+            backfillFailed: song.duration <= 0 && (backfill.didFail(songID: song.id) || localBareSong)
         )
     }
 
