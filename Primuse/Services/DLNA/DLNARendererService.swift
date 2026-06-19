@@ -343,6 +343,7 @@ final class DLNARendererService {
         ssdpReadSource = nil
         ssdpSocket = -1
         httpListener?.cancel(); httpListener = nil
+        activeHTTPConnections = 0
         isRunning = false
         statusText = ""
         // 关 DLNA 等于不再需要后台接推送, 顺手把静音保活也停掉省电。
@@ -785,6 +786,10 @@ final class DLNARendererService {
     private func restartHTTPAfterFailure(error: NWError) {
         guard isRunning else { return }
         httpListener?.cancel(); httpListener = nil
+        // 旧 listener 已接受但未收尾的连接, 其递减 Task 可能永不触发(NWConnection 在
+        // 网络抖动下可能静默失效、不进 .cancelled/.failed)。重建前归零, 否则计数只增
+        // 不减、累积到上限后永久拒绝新连接, 控制点再也连不上且无自愈。
+        activeHTTPConnections = 0
         do {
             try startHTTP()
             logEvent(.event, "HTTP control server restarted after failure")
@@ -2567,6 +2572,7 @@ final class DLNAMediaServer {
     func stop() {
         listener?.cancel(); listener = nil
         boundPort = 0
+        activeConnections = 0
         entries.removeAll()
     }
 
@@ -2575,6 +2581,9 @@ final class DLNAMediaServer {
     private func invalidateListener() {
         listener?.cancel(); listener = nil
         boundPort = 0
+        // 同 DLNARendererService: 未收尾连接的递减 Task 可能永不触发, 重建前归零
+        // 避免计数累积到上限后永久拒绝新连接。
+        activeConnections = 0
     }
 
     /// 注册一个本地文件给远端 renderer 拉。返回的 URL 仅 10 分钟内有效,

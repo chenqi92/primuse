@@ -552,8 +552,11 @@ struct HomeView: View {
         // 优先最近播放, 不够再补最近添加, 都过滤出有 cover 的歌, 最后随机
         // 抽 4 首。结果跟随首页快照刷新,避免每次 tab 回首页都重排。
         let added = library.visibleSongs.sorted { $0.dateAdded > $1.dateAdded }.prefix(60)
-        var pool: [Song] = recentSongs
-        for song in added where !pool.contains(where: { $0.id == song.id }) {
+        // 用 seen-set 按 id 去重: recentSongs 自身可能含重复 id (脏快照/跨源未彻底
+        // 去重), 否则下方 ForEach(id: \.element.id) 会因重复 id 触发 SwiftUI 告警/崩溃。
+        var pool: [Song] = []
+        var seenIDs = Set<String>()
+        for song in recentSongs + added where seenIDs.insert(song.id).inserted {
             pool.append(song)
         }
         let withCover = pool.filter { $0.coverArtFileName?.isEmpty == false }
