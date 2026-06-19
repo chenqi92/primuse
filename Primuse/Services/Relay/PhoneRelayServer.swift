@@ -149,9 +149,11 @@ final class PhoneRelayServer: @unchecked Sendable {
             }
             let hasRange = req.range != nil
             let (start, parsedEnd) = Self.parseRange(req.range, total: total)
-            // 开放式 range(bytes=N- / 无上界)只回一个有限窗口,客户端续传。避免
-            // 把整首 100MB+ 的 FLAC/WAV 一次性载入内存(jetsam)、并让 TV 尽早起播。
-            let end = Self.isOpenEndedRange(req.range)
+            // 窗口只对【带 Range 的开放式请求】(bytes=N-)生效 —— 客户端会用后续
+            // Range 续传。无 Range 头是 200 整资源语义, 必须给完整文件长度, 否则
+            // 客户端会以为整首歌只有 openRangeWindow 大小、播到窗口末尾就结束。
+            // chunked 流式本身已逐块取数据限制内存, 不需要靠窗口防 OOM。
+            let end = (hasRange && Self.isOpenEndedRange(req.range))
                 ? min(parsedEnd, start + Self.openRangeWindow - 1)
                 : parsedEnd
             do {

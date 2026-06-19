@@ -46,7 +46,9 @@ actor SynologyScanner {
 
                     // Phase 2: Scan and extract metadata
                     var allSongs = existingSongs
-                    let existingPaths = Set(existingSongs.map(\.filePath))
+                    let existingByPath = Dictionary(
+                        existingSongs.map { ($0.filePath, $0) }, uniquingKeysWith: { first, _ in first }
+                    )
                     let initialCount = max(existingSongs.count, startingCount)
                     var count = totalCount > 0 ? min(initialCount, totalCount) : initialCount
                     var encounteredPaths: Set<String> = []
@@ -64,7 +66,7 @@ actor SynologyScanner {
                             try await scanDirectory(
                                 path: dir, allSongs: &allSongs,
                                 count: &count, totalCount: totalCount,
-                                existingPaths: existingPaths,
+                                existingByPath: existingByPath,
                                 encounteredPaths: &encounteredPaths,
                                 continuation: continuation
                             )
@@ -117,7 +119,7 @@ actor SynologyScanner {
     private func scanDirectory(
         path: String, allSongs: inout [Song], count: inout Int,
         totalCount: Int,
-        existingPaths: Set<String>,
+        existingByPath: [String: Song],
         encounteredPaths: inout Set<String>,
         continuation: AsyncThrowingStream<ScanUpdate, Error>.Continuation
     ) async throws {
@@ -151,7 +153,7 @@ actor SynologyScanner {
                 try await scanDirectory(
                     path: item.path, allSongs: &allSongs,
                     count: &count, totalCount: totalCount,
-                    existingPaths: existingPaths,
+                    existingByPath: existingByPath,
                     encounteredPaths: &encounteredPaths,
                     continuation: continuation
                 )
@@ -159,7 +161,19 @@ actor SynologyScanner {
                 let ext = (item.name as NSString).pathExtension.lowercased()
                 guard PrimuseConstants.supportedAudioExtensions.contains(ext) else { continue }
                 encounteredPaths.insert(item.path)
-                guard existingPaths.contains(item.path) == false else { continue }
+                // 已知文件: size + mtime 都没变才跳过。变了(远端同名覆盖)就往下重新
+                // 解析并替换旧条目, 否则覆盖文件的新标签/封面/时长/大小永远刷不出来。
+                if let existing = existingByPath[item.path] {
+                    let sizeSame = existing.fileSize == item.size
+                    let mtimeSame: Bool
+                    if let a = existing.lastModified, let b = item.modifiedTime {
+                        mtimeSame = abs(a.timeIntervalSince1970 - b.timeIntervalSince1970) < 1
+                    } else {
+                        // 任一侧缺 mtime 时退化为只比 size。
+                        mtimeSame = true
+                    }
+                    if sizeSame && mtimeSame { continue }
+                }
 
                 // Detect sidecar files by name (no download needed)
                 let baseName = (item.name as NSString).deletingPathExtension
@@ -201,8 +215,19 @@ actor SynologyScanner {
                 // 重扫后检测不到变化(mtime/revision 两侧都 nil)而保留旧元数据。
                 if let coverRef { song.coverArtFileName = coverRef }
                 if let lyricsRef { song.lyricsFileName = lyricsRef }
-
-                allSongs.append(song)
+                // 记录 mtime 供下次重扫指纹比对; 保留原 dateAdded 不因重扫刷新排序。
+                song.lastModified = item.modifiedTime
+                if let existing = existingByPath[item.path] {
+                    song.dateAdded = existing.dateAdded
+                    // 覆盖文件 id 基于路径不变, 替换旧条目避免重复。
+                    if let idx = allSongs.firstIndex(where: { $0.id == song.id }) {
+                        allSongs[idx] = song
+                    } else {
+                        allSongs.append(song)
+                    }
+                } else {
+                    allSongs.append(song)
+                }
 
                 // Yield with updated songs every 3 files
                 if count % 3 == 0 {

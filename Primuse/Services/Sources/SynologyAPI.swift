@@ -129,6 +129,9 @@ actor SynologyAPI {
         let isDirectory: Bool
         let size: Int64
         let children: Int?
+        /// 远端修改时间(来自 List API 的 additional.time.mtime), 用于重扫时按
+        /// size+mtime 做指纹比对, 检测同名覆盖文件。
+        var modifiedTime: Date? = nil
     }
 
     func listDirectory(path: String) async throws -> [FileItem] {
@@ -161,14 +164,17 @@ actor SynologyAPI {
             let files = pageData["files"] as? [[String: Any]] ?? []
             let total = max(intValue(pageData["total"]), files.count)
 
-            let pageItems = files.map { f in
+            let pageItems = files.map { f -> FileItem in
                 let additional = f["additional"] as? [String: Any]
+                // Synology additional.time.mtime 是 Unix 秒。
+                let mtime = int64Value((additional?["time"] as? [String: Any])?["mtime"])
                 return FileItem(
                     name: f["name"] as? String ?? "",
                     path: f["path"] as? String ?? "",
                     isDirectory: f["isdir"] as? Bool ?? false,
                     size: int64Value(additional?["size"]),
-                    children: nil
+                    children: nil,
+                    modifiedTime: mtime > 0 ? Date(timeIntervalSince1970: TimeInterval(mtime)) : nil
                 )
             }
 
