@@ -211,13 +211,35 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource {
         temporaryLinkCache.removeValue(forKey: path)
     }
 
+    /// In-flight token-refresh 去重 —— 见 BaiduPanSource。getToken 横跨 await,
+    /// actor 重入会让起播时并发的多路 fetchRange 各自发一次 refresh; Dropbox 用
+    /// 短期 access_token + 长期 refresh_token, 并发刷新会互相作废。共享同一刷新任务。
+    private var refreshTask: Task<CloudTokenManager.Tokens, Error>?
+
     private func getToken() async throws -> String {
-        guard var tokens = await helper.tokenManager.getTokens() else { throw CloudDriveError.notAuthenticated }
-        if tokens.isExpired {
-            tokens = try await refreshToken(tokens)
-            await helper.tokenManager.saveTokens(tokens)
+        guard let tokens = await helper.tokenManager.getTokens() else { throw CloudDriveError.notAuthenticated }
+        if !tokens.isExpired {
+            return tokens.accessToken
         }
-        return tokens.accessToken
+        return try await refreshSharedToken(currentToken: tokens).accessToken
+    }
+
+    private func refreshSharedToken(currentToken: CloudTokenManager.Tokens) async throws -> CloudTokenManager.Tokens {
+        if let inFlight = refreshTask {
+            return try await inFlight.value
+        }
+        let task = Task<CloudTokenManager.Tokens, Error> { [weak self] in
+            guard let self else { throw CloudDriveError.notAuthenticated }
+            if let latest = await self.helper.tokenManager.getTokens(), !latest.isExpired {
+                return latest
+            }
+            let refreshed = try await self.refreshToken(currentToken)
+            await self.helper.tokenManager.saveTokens(refreshed)
+            return refreshed
+        }
+        refreshTask = task
+        defer { refreshTask = nil }
+        return try await task.value
     }
 
     private func refreshToken(_ tokens: CloudTokenManager.Tokens) async throws -> CloudTokenManager.Tokens {

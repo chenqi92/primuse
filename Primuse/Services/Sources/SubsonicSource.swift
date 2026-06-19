@@ -149,10 +149,19 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
                         if albums.isEmpty { break }
 
                         for album in albums {
-                            let albumContainer: AlbumContainer = try await requestJSON(
-                                "getAlbum",
-                                query: [URLQueryItem(name: "id", value: album.id)]
-                            )
+                            try Task.checkCancellation()
+                            let albumContainer: AlbumContainer
+                            do {
+                                albumContainer = try await requestJSON(
+                                    "getAlbum",
+                                    query: [URLQueryItem(name: "id", value: album.id)]
+                                )
+                            } catch {
+                                // 取消要中断整库扫描; 单专辑(被删/服务端瞬时错误)失败则跳过,
+                                // 不应让一个坏专辑 finish 掉整个 stream、丢掉后面所有专辑。
+                                if Task.isCancelled { throw error }
+                                continue
+                            }
                             let songs = albumContainer.album?.song ?? []
                             for child in songs where child.isVideo != true {
                                 let song = buildSong(from: child, album: album)

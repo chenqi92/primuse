@@ -1037,7 +1037,9 @@ private struct PlexPart: Decodable {
 }
 
 private struct PlexStream: Decodable {
-    let streamType: Int
+    // 可选: 个别 Stream(歌词/封面流)或老版 Plex 可能缺该字段, 非可选会让
+    // 整页 PlexTrackResponse 解码失败 → 该源永远扫不出歌。streamType == 2 是音频。
+    let streamType: Int?
     let samplingRate: Int?
 
     enum CodingKeys: String, CodingKey {

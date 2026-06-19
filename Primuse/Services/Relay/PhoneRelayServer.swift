@@ -244,9 +244,25 @@ final class PhoneRelayServer: @unchecked Sendable {
         total: Int64,
         fetch: (_ offset: Int64, _ length: Int64) async throws -> Data
     ) async throws {
+        // 网盘/SFTP 等流式源单块取数据偶发抖动(瞬时网络错误), 而头部一旦带着
+        // Content-Length=total 发出, 中途取数据失败就只能截断 —— 客户端按声明长度
+        // 苦等剩余字节直到超时。对每块加有界重试吸收瞬时抖动, 大幅降低截断概率;
+        // 持续失败才中断, 让客户端按 Range 续传(原有恢复路径)。
+        func fetchWithRetry(_ offset: Int64, _ length: Int64) async throws -> Data {
+            var lastError: Error?
+            for attempt in 0..<3 {
+                do { return try await fetch(offset, length) }
+                catch {
+                    lastError = error
+                    if attempt < 2 { try? await Task.sleep(nanoseconds: 200_000_000) }
+                }
+            }
+            throw lastError ?? URLError(.cannotLoadFromNetwork)
+        }
+
         // 先取首块 —— 失败时还能改回 502(头部尚未发出)。
         let firstLen = min(streamChunkSize, max(0, total))
-        let firstChunk = total > 0 ? try await fetch(0, firstLen) : Data()
+        let firstChunk = total > 0 ? try await fetchWithRetry(0, firstLen) : Data()
 
         let reason = [200: "OK", 206: "Partial Content", 403: "Forbidden",
                       404: "Not Found", 502: "Bad Gateway"][status] ?? "OK"
@@ -266,9 +282,9 @@ final class PhoneRelayServer: @unchecked Sendable {
             let len = min(streamChunkSize, total - sent)
             let chunk: Data
             do {
-                chunk = try await fetch(sent, len)
+                chunk = try await fetchWithRetry(sent, len)
             } catch {
-                // 头已发出,无法再改状态码;中断让客户端按 Range 续传。
+                // 重试仍失败, 头已发出无法再改状态码;中断让客户端按 Range 续传。
                 break
             }
             if chunk.isEmpty { break }

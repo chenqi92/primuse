@@ -258,13 +258,39 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
         return id
     }
 
+    /// In-flight token-refresh 去重。getToken() 横跨 await 挂起点, actor 重入允许
+    /// 并发任务(起播时 prefetchAhead 并发多路 fetchRange)同时看到 isExpired 各自刷新。
+    /// 阿里云 refresh_token 是轮换型: 第一路刷新成功后旧 refresh_token 失效, 其余各路
+    /// → invalid_grant 被踢下线需重新授权。让并发调用共享同一个 in-flight 刷新任务。
+    private var refreshTask: Task<CloudTokenManager.Tokens, Error>?
+
     private func getToken() async throws -> String {
-        guard var tokens = await helper.tokenManager.getTokens() else { throw CloudDriveError.notAuthenticated }
-        if tokens.isExpired {
-            tokens = try await refreshToken(tokens)
-            await helper.tokenManager.saveTokens(tokens)
+        guard let tokens = await helper.tokenManager.getTokens() else { throw CloudDriveError.notAuthenticated }
+        if !tokens.isExpired {
+            return tokens.accessToken
         }
-        return tokens.accessToken
+        return try await refreshSharedToken(currentToken: tokens).accessToken
+    }
+
+    private func refreshSharedToken(currentToken: CloudTokenManager.Tokens) async throws -> CloudTokenManager.Tokens {
+        if let inFlight = refreshTask {
+            return try await inFlight.value
+        }
+        // 在第一个 await 之前同步占住 refreshTask 槽位: check-then-set 之间无挂起点,
+        // 否则两路并发可能都过了 nil 检查再各建一个 task。task body 内先 double-check
+        // 最新 token(可能已被上一次刷新写盘), 仍过期才真正刷新。
+        let task = Task<CloudTokenManager.Tokens, Error> { [weak self] in
+            guard let self else { throw CloudDriveError.notAuthenticated }
+            if let latest = await self.helper.tokenManager.getTokens(), !latest.isExpired {
+                return latest
+            }
+            let refreshed = try await self.refreshToken(currentToken)
+            await self.helper.tokenManager.saveTokens(refreshed)
+            return refreshed
+        }
+        refreshTask = task
+        defer { refreshTask = nil }
+        return try await task.value
     }
 
     private func refreshToken(_ tokens: CloudTokenManager.Tokens) async throws -> CloudTokenManager.Tokens {

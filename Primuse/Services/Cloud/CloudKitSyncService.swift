@@ -1534,15 +1534,37 @@ final class CloudKitSyncService {
 
     // MARK: - Listening stats mapping
 
+    /// CloudKit 单字段 ~1MB 上限, 留余量。听歌历史最多 5000 条, 原始 JSON 接近上限,
+    /// gzip 后约 100-200KB —— 内联压缩既稳过限又向后兼容。
+    private static let statsInlineLimit = 900_000
+
     private func populateListeningStatsRecord(_ record: CKRecord) -> Bool {
-        let entries = PlayHistoryStore.shared.entriesForSync
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .secondsSince1970
-        guard let data = try? encoder.encode(entries) else { return false }
-        record["payload"] = data
+        var entries = PlayHistoryStore.shared.entriesForSync
+        guard var payload = Self.encodeStatsPayload(entries, encoder: encoder) else { return false }
+        if payload.count > Self.statsInlineLimit {
+            // 几乎不可能(gzip 后远小于上限), 但仍兜底: 只保留最近条目再压。
+            // entries 为最新在前, prefix 即保留最近的。
+            entries = Array(entries.prefix(2000))
+            guard let trimmed = Self.encodeStatsPayload(entries, encoder: encoder),
+                  trimmed.count <= Self.statsInlineLimit else {
+                plog("⚠️ Listening stats payload still over limit after trim — skipping sync")
+                return false
+            }
+            payload = trimmed
+        }
+        record["payloadGz"] = payload as CKRecordValue
+        // 清掉旧的未压缩字段, 避免更新既有记录时残留的超大 payload 把记录顶过 1MB。
+        record["payload"] = nil
         record["entryCount"] = entries.count
         record["updatedAt"] = Date()
         return true
+    }
+
+    private static func encodeStatsPayload(_ entries: [PlayHistoryStore.Entry], encoder: JSONEncoder) -> Data? {
+        guard let data = try? encoder.encode(entries) else { return nil }
+        return try? (data as NSData).compressed(using: .zlib) as Data
     }
 
     private func applyListeningStatsRecord(_ record: CKRecord) {
@@ -1551,9 +1573,16 @@ final class CloudKitSyncService {
     }
 
     private func decodeListeningStatsEntries(_ record: CKRecord) -> [PlayHistoryStore.Entry]? {
-        guard let data = record["payload"] as? Data else { return nil }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .secondsSince1970
+        if let gzField = record["payloadGz"] as? Data {
+            // CloudKit 返回的 Data 可能是非连续 backing, 先强制连续拷贝再解压。
+            let gz = Data(gzField)
+            guard let raw = try? (gz as NSData).decompressed(using: .zlib) as Data else { return nil }
+            return try? decoder.decode([PlayHistoryStore.Entry].self, from: raw)
+        }
+        // 向后兼容旧记录的未压缩 payload。
+        guard let data = record["payload"] as? Data else { return nil }
         return try? decoder.decode([PlayHistoryStore.Entry].self, from: data)
     }
 

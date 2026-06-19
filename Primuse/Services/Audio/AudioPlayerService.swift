@@ -2633,7 +2633,32 @@ final class AudioPlayerService {
             // 出现「下一首歌的声音出来了但播放器还显示上一首」的不一致。
             // 期间 currentTime 暂停更新 (isCrossfading=true), 直到 swap
             // 完成跟随新 primary node。
+            // 冻结进度 (isCrossfading=true) 贯穿整个尝试, 同时抑制 startTimeUpdater
+            // 的 duration 安全网。但在拿到下一首首个 buffer *之前* 不推进队列索引/
+            // currentSong/scrobble —— 否则 decode 失败 (返回 nil / 抛错) 时会出现
+            // 「UI 已切到下一首、声音还停在上一首、isCrossfading 卡 true 进度永久冻结」。
+            // 任何失败路径都复位 isCrossfading/crossfadeTriggered, 让旧曲继续正常播放。
             isCrossfading = true
+
+            // Note: ReplayGain for crossfade node would need per-node volume tracking
+            // For now, apply after swap
+
+            // Decode into crossfade node — 先确保能解码并拿到首个 buffer。
+            guard let stream = await decodeStream(for: nextSong, url: nextURL, outputFormat: outputFormat) else {
+                crossfadeTriggered = false; isCrossfading = false
+                return
+            }
+            let iteratorBox = BufferIteratorBox(stream.makeAsyncIterator())
+
+            // swap 还没发生 —— 新曲的 buffer 先进 crossfade 节点。
+            crossfadeSwapDone = false
+            guard let firstBuffer = try await iteratorBox.next() else {
+                crossfadeTriggered = false; isCrossfading = false
+                return
+            }
+
+            // 解码就绪, 现在才把 UI/索引/scrobble 切到下一首 —— 用户听到 next
+            // 淡入接管, 看到的也跟着切。
             advanceToNextIndex()
             currentSong = nextSong
             currentTime = 0
@@ -2645,19 +2670,6 @@ final class AudioPlayerService {
             updateNowPlayingArtworkIfNeeded()
             updatePlaybackState()
 
-            // Note: ReplayGain for crossfade node would need per-node volume tracking
-            // For now, apply after swap
-
-            // Decode into crossfade node — schedule first buffer before play
-            guard let stream = await decodeStream(for: nextSong, url: nextURL, outputFormat: outputFormat) else {
-                crossfadeTriggered = false; isCrossfading = false
-                return
-            }
-            let iteratorBox = BufferIteratorBox(stream.makeAsyncIterator())
-
-            // swap 还没发生 —— 新曲的 buffer 先进 crossfade 节点。
-            crossfadeSwapDone = false
-            guard let firstBuffer = try await iteratorBox.next() else { return }
             audioEngine.scheduleCrossfadeBuffer(firstBuffer)
             audioEngine.playCrossfadeNode()
 

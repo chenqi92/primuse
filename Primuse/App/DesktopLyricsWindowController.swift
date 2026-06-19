@@ -12,6 +12,13 @@ final class DesktopLyricsWindowController {
     private var panel: NSPanel?
     @AppStorage("desktopLyricsVisible") private var visible: Bool = false
     @AppStorage("desktopLyricsLocked") private var locked: Bool = false
+    /// didChangeNotification observer token —— 必须持有并在 deinit 注销, 否则
+    /// block-based observer 永远不会移除 (内存泄漏)。nonisolated(unsafe): 仅 init
+    /// (MainActor) 写、deinit 读, 无并发竞争, 让 Swift 6 的 nonisolated deinit 可访问。
+    nonisolated(unsafe) private var lockObserver: NSObjectProtocol?
+    /// 上次已应用的 lock 值 —— 全局 didChange 会因 app 内任何 UserDefaults 写入
+    /// (音量/主题等高频) 触发, 只在 lock 真正变化时才动 panel, 避免主线程噪声。
+    private var lastKnownLocked: Bool = false
 
     /// 横向布局 (single/dual) 默认尺寸 —— 参考主流桌面歌词软件的宽度
     /// 习惯 (网易云 / QQ 音乐 / LyricsX 都是屏幕宽度 60-75%):跟随主屏
@@ -38,13 +45,24 @@ final class DesktopLyricsWindowController {
 
     init() {
         if visible { show() }
+        lastKnownLocked = locked
         // 监听 lock 变化（来自菜单栏 popover 或桌面歌词的悬浮 toolbar）
         // 同步给 NSPanel,因为 ignoresMouseEvents 是 NSWindow 级别状态。
-        NotificationCenter.default.addObserver(
+        lockObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: nil, queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.applyLockedState() }
+            Task { @MainActor in
+                guard let self, self.locked != self.lastKnownLocked else { return }
+                self.lastKnownLocked = self.locked
+                self.applyLockedState()
+            }
+        }
+    }
+
+    deinit {
+        if let lockObserver {
+            NotificationCenter.default.removeObserver(lockObserver)
         }
     }
 
