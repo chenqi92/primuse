@@ -65,9 +65,14 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
         var queryItems: [URLQueryItem] = [
             .init(name: "client_id", value: config.clientId),
             .init(name: "redirect_uri", value: config.redirectURI),
-            .init(name: "response_type", value: "code"),
             .init(name: "state", value: state),
         ]
+
+        // 123 云盘授权页(www.123pan.com/auth)只接受 client_id/redirect_uri/scope/state
+        // (官方示例不带 response_type);其余 provider 走标准 OAuth 加 response_type=code。
+        if !config.authURL.contains("123pan.com") {
+            queryItems.append(.init(name: "response_type", value: "code"))
+        }
 
         if let pkce {
             queryItems.append(.init(name: "code_challenge", value: pkce.challenge))
@@ -224,6 +229,12 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
             // Aliyun Drive prefers JSON
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONSerialization.data(withJSONObject: bodyParams)
+        } else if config.tokenURL.contains("123pan.com") {
+            // 123 云盘 oauth2/access_token 用 QueryString 传参(POST, body 空)+ Platform 头。
+            var comps = URLComponents(string: config.tokenURL)!
+            comps.queryItems = bodyParams.keys.sorted().map { URLQueryItem(name: $0, value: bodyParams[$0]) }
+            if let u = comps.url { request.url = u }
+            request.setValue("open_platform", forHTTPHeaderField: "Platform")
         } else {
             request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
             // Sort keys for stable, debuggable bodies, and use strict
@@ -252,7 +263,14 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
             throw OAuthError.tokenExchangeFailed("HTTP \(http.statusCode): \(safeBody)")
         }
 
-        let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        var json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        // 123 云盘把 token 包在 {code, message, data:{…}} 里;code != 0 即失败。
+        if config.tokenURL.contains("123pan.com") {
+            if let code = json["code"] as? Int, code != 0 {
+                throw OAuthError.tokenExchangeFailed("123 错误码 \(code): \(json["message"] as? String ?? "")")
+            }
+            if let inner = json["data"] as? [String: Any] { json = inner }
+        }
 
         guard let accessToken = json["access_token"] as? String else {
             throw OAuthError.tokenExchangeFailed("No access_token in response")
