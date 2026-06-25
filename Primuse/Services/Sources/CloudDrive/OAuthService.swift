@@ -264,16 +264,16 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
         }
 
         var json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
-        // 123 云盘把 token 包在 {code, message, data:{…}} 里;code != 0 即失败。
-        if config.tokenURL.contains("123pan.com") {
-            if let code = json["code"] as? Int, code != 0 {
-                throw OAuthError.tokenExchangeFailed("123 错误码 \(code): \(json["message"] as? String ?? "")")
-            }
-            if let inner = json["data"] as? [String: Any] { json = inner }
+        // 部分网盘(123 / 115 等)把 token 包在 {state/code/message, data:{…}} 里;
+        // 顶层没有 access_token 但 data 里有,就解包。其余 provider 顶层直出,不受影响。
+        if json["access_token"] == nil,
+           let inner = json["data"] as? [String: Any], inner["access_token"] != nil {
+            json = inner
         }
 
         guard let accessToken = json["access_token"] as? String else {
-            throw OAuthError.tokenExchangeFailed("No access_token in response")
+            let snippet = String(data: data, encoding: .utf8)?.prefix(300) ?? ""
+            throw OAuthError.tokenExchangeFailed("No access_token in response: \(snippet)")
         }
 
         let refreshToken = json["refresh_token"] as? String

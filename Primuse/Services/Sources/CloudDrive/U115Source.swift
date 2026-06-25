@@ -193,17 +193,21 @@ actor U115Source: MusicSourceConnector, OAuthCloudSource {
                      extra: tokens.extra)
     }
 
-    /// ⚠️ 占位:115 实际用设备码/二维码 PKCE 授权,这里先给重定向式配置让 UI 编译通过。
-    /// 正式接入(拿到 client_id)时,改为设备码流程或让用户粘贴 refresh_token。
+    /// 授权码模式(浏览器重定向):用于 iOS,以及 macOS 不走扫码时的路径。
+    /// 115 的 redirect_uri 必须是注册过的 https 域名(不收自定义 scheme),故用 welape
+    /// https 中转页,页面再深链回 `primuse://pan115/callback`(靠 explicitCallbackScheme
+    /// 让 ASWebAuthenticationSession 监听 primuse scheme)。
+    /// 注意:tokenURL 是 authCodeToToken(非扫码用的 deviceCodeToToken),且不用 PKCE。
     static func oauthConfig(clientId: String, clientSecret: String?) -> CloudOAuthConfig {
         CloudOAuthConfig(
             authURL: "\(passportBase)/authorize",
-            tokenURL: "\(passportBase)/deviceCodeToToken",
+            tokenURL: "\(passportBase)/authCodeToToken",
             clientId: clientId,
             clientSecret: clientSecret,
             scopes: [],
-            redirectURI: "\(CloudOAuthConfig.callbackScheme)://pan115/callback",
-            usesPKCE: true
+            redirectURI: "https://115pan.callback.welape.com/",
+            usesPKCE: false,
+            explicitCallbackScheme: CloudOAuthConfig.callbackScheme
         )
     }
 }
