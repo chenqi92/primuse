@@ -1261,6 +1261,7 @@ struct ScrapeOptionsView: View {
                     dateAdded: song.dateAdded,
                     coverArtFileName: song.coverArtFileName,
                     lyricsFileName: song.lyricsFileName,
+                    mvPath: song.mvPath,
                     revision: song.revision
                 )
             }
@@ -1379,6 +1380,7 @@ struct ScrapeOptionsView: View {
             dateAdded: song.dateAdded,
             coverArtFileName: coverFileName,
             lyricsFileName: lyricsFileName,
+            mvPath: song.mvPath,
             replayGainTrackGain: song.replayGainTrackGain,
             replayGainTrackPeak: song.replayGainTrackPeak,
             replayGainAlbumGain: song.replayGainAlbumGain,

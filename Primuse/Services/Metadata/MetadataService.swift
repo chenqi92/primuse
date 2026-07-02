@@ -20,6 +20,7 @@ actor MetadataService {
         var coverArtData: Data? = nil
         var coverArtFileName: String? = nil
         var lyricsFileName: String? = nil
+        var mvPath: String? = nil
         var lyrics: [LyricLine]? = nil
         var replayGainTrackGain: Double? = nil
         var replayGainTrackPeak: Double? = nil
@@ -95,6 +96,11 @@ actor MetadataService {
         if let lyricsURL = SidecarMetadataLoader.findLyrics(for: url) {
             result.lyricsFileName = lyricsURL.lastPathComponent
             result.lyrics = try? LyricsParser.parse(from: lyricsURL)
+        }
+
+        if let mvURL = SidecarMetadataLoader.findMusicVideo(for: url),
+           VideoFormat.from(fileExtension: mvURL.pathExtension)?.isNativelyPlayable == true {
+            result.mvPath = mvURL.lastPathComponent
         }
 
         // 2.5 Check embedded lyrics (lower priority than sidecar)

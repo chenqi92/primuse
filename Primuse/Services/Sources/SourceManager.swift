@@ -2368,12 +2368,18 @@ private extension SourceManager {
         var paths: [String] = []
         paths.append((songDir as NSString).appendingPathComponent("\(songBase).lrc"))
         paths.append((songDir as NSString).appendingPathComponent("\(songBase)-cover.jpg"))
+        for ext in PrimuseConstants.supportedMusicVideoExtensions {
+            paths.append((songDir as NSString).appendingPathComponent("\(songBase).\(ext)"))
+        }
 
         if let lyricsRef = song.lyricsFileName, isSafeLyricsSidecar(lyricsRef, for: song) {
             paths.append(lyricsRef)
         }
         if let coverRef = song.coverArtFileName, isSafeCoverSidecar(coverRef, for: song) {
             paths.append(coverRef)
+        }
+        if let mvRef = song.mvPath, isSafeMusicVideoSidecar(mvRef, for: song) {
+            paths.append(mvRef)
         }
 
         var seen: Set<String> = [song.filePath]
@@ -2399,6 +2405,15 @@ private extension SourceManager {
             for: song,
             allowedExtensions: Set(PrimuseConstants.supportedCoverExtensions),
             allowedBaseSuffixes: ["", "-cover"]
+        )
+    }
+
+    nonisolated static func isSafeMusicVideoSidecar(_ path: String, for song: Song) -> Bool {
+        isSafeSameDirectorySidecar(
+            path,
+            for: song,
+            allowedExtensions: Set(PrimuseConstants.supportedMusicVideoExtensions),
+            allowedBaseSuffixes: [""]
         )
     }
 

@@ -54,6 +54,22 @@ enum SidecarMetadataLoader {
         return nil
     }
 
+    /// Finds a same-name music video sidecar.
+    /// e.g., song.flac -> song.mp4 / song.m4v / song.mov
+    static func findMusicVideo(for audioURL: URL) -> URL? {
+        let directory = audioURL.deletingLastPathComponent()
+        let baseName = audioURL.deletingPathExtension().lastPathComponent
+
+        for ext in PrimuseConstants.supportedMusicVideoExtensions {
+            let videoURL = directory.appendingPathComponent("\(baseName).\(ext)")
+            if FileManager.default.fileExists(atPath: videoURL.path) {
+                return videoURL
+            }
+        }
+
+        return nil
+    }
+
     /// Loads cover art data for a given audio file
     static func loadCoverArt(for audioURL: URL) -> Data? {
         guard let coverURL = findCoverArt(for: audioURL) else { return nil }

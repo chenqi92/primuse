@@ -77,3 +77,45 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
         }
     }
 }
+
+public enum VideoFormat: String, Codable, Sendable, CaseIterable {
+    case mp4
+    case m4v
+    case mov
+    case m3u8
+    case mkv
+    case webm
+    case avi
+    case flv
+    case wmv
+    case ts
+
+    public var displayName: String {
+        switch self {
+        case .mp4: return "MP4"
+        case .m4v: return "M4V"
+        case .mov: return "MOV"
+        case .m3u8: return "HLS"
+        case .mkv: return "MKV"
+        case .webm: return "WebM"
+        case .avi: return "AVI"
+        case .flv: return "FLV"
+        case .wmv: return "WMV"
+        case .ts: return "MPEG-TS"
+        }
+    }
+
+    /// Formats AVPlayer can consume directly in the first MV implementation.
+    public var isNativelyPlayable: Bool {
+        switch self {
+        case .mp4, .m4v, .mov, .m3u8:
+            return true
+        case .mkv, .webm, .avi, .flv, .wmv, .ts:
+            return false
+        }
+    }
+
+    public static func from(fileExtension ext: String) -> VideoFormat? {
+        VideoFormat(rawValue: ext.lowercased())
+    }
+}

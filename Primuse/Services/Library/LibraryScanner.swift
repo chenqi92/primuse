@@ -104,6 +104,7 @@ actor LibraryScanner {
                             lastModified: file.modifiedDate,
                             coverArtFileName: metadata.coverArtFileName,
                             lyricsFileName: metadata.lyricsFileName,
+                            mvPath: sidecarPath(nextTo: file.path, named: metadata.mvPath),
                             replayGainTrackGain: metadata.replayGainTrackGain,
                             replayGainTrackPeak: metadata.replayGainTrackPeak,
                             replayGainAlbumGain: metadata.replayGainAlbumGain,
@@ -174,5 +175,11 @@ actor LibraryScanner {
         let input = "\(artist.lowercased()):\(album.lowercased())"
         let hash = SHA256.hash(data: Data(input.utf8))
         return hash.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func sidecarPath(nextTo filePath: String, named sidecarName: String?) -> String? {
+        guard let sidecarName, sidecarName.contains("/") == false else { return sidecarName }
+        let parentDir = (filePath as NSString).deletingLastPathComponent
+        return (parentDir as NSString).appendingPathComponent(sidecarName)
     }
 }

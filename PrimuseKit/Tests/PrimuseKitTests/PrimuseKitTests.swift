@@ -16,6 +16,14 @@ import Testing
     #expect(AudioFormat.from(fileExtension: "xyz") == nil)
 }
 
+@Test func testVideoFormatRouting() {
+    #expect(VideoFormat.from(fileExtension: "MP4") == .mp4)
+    #expect(VideoFormat.mov.isNativelyPlayable == true)
+    #expect(VideoFormat.m4v.isNativelyPlayable == true)
+    #expect(VideoFormat.mkv.isNativelyPlayable == false)
+    #expect(PrimuseConstants.supportedMusicVideoExtensions == ["mp4", "m4v", "mov"])
+}
+
 @Test func testEQPresets() {
     let flat = EQPreset.flat
     #expect(flat.bands.count == 10)

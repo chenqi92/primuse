@@ -1147,6 +1147,7 @@ final class MetadataBackfillService {
         // higher quality (full-size cover) and remote-resolvable.
         let coverRef = bare.coverArtFileName ?? metadata.coverArtFileName
         let lyricsRef = bare.lyricsFileName ?? metadata.lyricsFileName
+        let mvRef = bare.mvPath ?? metadata.mvPath
 
         return Song(
             id: bare.id,
@@ -1171,6 +1172,7 @@ final class MetadataBackfillService {
             dateAdded: bare.dateAdded,
             coverArtFileName: coverRef,
             lyricsFileName: lyricsRef,
+            mvPath: mvRef,
             replayGainTrackGain: metadata.replayGainTrackGain,
             replayGainTrackPeak: metadata.replayGainTrackPeak,
             replayGainAlbumGain: metadata.replayGainAlbumGain,

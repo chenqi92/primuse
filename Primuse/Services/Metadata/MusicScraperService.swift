@@ -68,6 +68,7 @@ final class MusicScraperService {
                 dateAdded: updatedSong.dateAdded,
                 coverArtFileName: song.coverArtFileName,
                 lyricsFileName: updatedSong.lyricsFileName ?? song.lyricsFileName,
+                mvPath: updatedSong.mvPath ?? song.mvPath,
                 revision: updatedSong.revision ?? song.revision
             )
         }
@@ -85,6 +86,7 @@ final class MusicScraperService {
                 dateAdded: updatedSong.dateAdded,
                 coverArtFileName: updatedSong.coverArtFileName,
                 lyricsFileName: song.lyricsFileName,
+                mvPath: updatedSong.mvPath ?? song.mvPath,
                 revision: updatedSong.revision ?? song.revision
             )
         }
@@ -857,6 +859,7 @@ final class MusicScraperService {
             dateAdded: song.dateAdded,
             coverArtFileName: coverNeedsUpdate ? (metadata.coverArtFileName ?? song.coverArtFileName) : song.coverArtFileName,
             lyricsFileName: lyricsNeedsUpdate ? (metadata.lyricsFileName ?? song.lyricsFileName) : song.lyricsFileName,
+            mvPath: metadata.mvPath ?? song.mvPath,
             revision: song.revision
         )
     }

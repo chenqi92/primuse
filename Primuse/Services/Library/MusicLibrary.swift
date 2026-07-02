@@ -1110,6 +1110,7 @@ final class MusicLibrary {
                     // find any, keep what backfill stored.
                     if let cover = newSong.coverArtFileName { merged.coverArtFileName = cover }
                     if let lyrics = newSong.lyricsFileName { merged.lyricsFileName = lyrics }
+                    if let mvPath = newSong.mvPath { merged.mvPath = mvPath }
                     songs[idx] = merged
                 } else {
                     songs[idx] = newSong

@@ -219,6 +219,15 @@ actor LibraryDatabase {
             }
         }
 
+        // Same-name MV sidecar path discovered during source scans. The value
+        // follows coverArtFileName / lyricsFileName semantics: it may be a
+        // same-directory filename, a source-relative path, or a connector path.
+        migrator.registerMigration("v6_song_mv_path") { db in
+            try db.alter(table: "songs") { t in
+                t.add(column: "mvPath", .text)
+            }
+        }
+
         // Run every registered migration, not just v1 — pinning to
         // `upTo: "v1_initial"` would silently skip later versions on
         // upgrade and reintroduce schema drift.

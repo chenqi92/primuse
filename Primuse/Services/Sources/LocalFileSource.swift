@@ -210,12 +210,19 @@ actor LocalFileSource: SongScanningConnector {
             lastModified: item.modifiedDate,
             coverArtFileName: metadata.coverArtFileName,
             lyricsFileName: metadata.lyricsFileName,
+            mvPath: sidecarPath(nextTo: item.path, named: metadata.mvPath),
             replayGainTrackGain: metadata.replayGainTrackGain,
             replayGainTrackPeak: metadata.replayGainTrackPeak,
             replayGainAlbumGain: metadata.replayGainAlbumGain,
             replayGainAlbumPeak: metadata.replayGainAlbumPeak
         )
         return ConnectorScannedSong(song: song, displayName: item.name)
+    }
+
+    private func sidecarPath(nextTo filePath: String, named sidecarName: String?) -> String? {
+        guard let sidecarName, sidecarName.contains("/") == false else { return sidecarName }
+        let parentDir = (filePath as NSString).deletingLastPathComponent
+        return (parentDir as NSString).appendingPathComponent(sidecarName)
     }
 
     private func resolvedURL(for path: String, allowRoot: Bool) throws -> URL {

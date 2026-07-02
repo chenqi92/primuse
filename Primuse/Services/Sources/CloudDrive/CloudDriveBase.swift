@@ -325,7 +325,7 @@ struct CloudDriveHelper: Sendable {
     ) async throws {
         let items = try await listFiles(path)
 
-        // 找当前目录里的封面/歌词文件，作为 sidecar 候选
+        // 找当前目录里的封面/歌词/MV 文件，作为 sidecar 候选
         let nonAudio = items.filter { !$0.isDirectory && !PrimuseConstants.supportedAudioExtensions.contains(($0.name as NSString).pathExtension.lowercased()) }
         let folderCover = isGenericMusicDirectory(path) ? nil : findFolderCover(in: nonAudio)
 
@@ -336,14 +336,15 @@ struct CloudDriveHelper: Sendable {
                 let basename = (item.name as NSString).deletingPathExtension
                 let cover = findSameNameCover(basename: basename, in: nonAudio) ?? folderCover
                 let lyrics = findSameNameLyrics(basename: basename, in: nonAudio)
+                let mvPath = findSameNameMusicVideo(basename: basename, in: nonAudio)
                 let withHints = RemoteFileItem(
                     name: item.name,
                     path: item.path,
                     isDirectory: false,
                     size: item.size,
                     modifiedDate: item.modifiedDate,
-                    sidecarHints: (cover != nil || lyrics != nil)
-                        ? SidecarHints(coverPath: cover, lyricsPath: lyrics)
+                    sidecarHints: (cover != nil || lyrics != nil || mvPath != nil)
+                        ? SidecarHints(coverPath: cover, lyricsPath: lyrics, mvPath: mvPath)
                         : nil,
                     // Preserve provider revision (md5/etag/content_hash)
                     // through the sidecar-decoration step. Without this,
@@ -416,6 +417,17 @@ struct CloudDriveHelper: Sendable {
     private func findSameNameLyrics(basename: String, in candidates: [RemoteFileItem]) -> String? {
         let baseLower = basename.lowercased()
         for ext in PrimuseConstants.supportedLyricsExtensions {
+            if let m = candidates.first(where: {
+                ($0.name as NSString).lowercased == "\(baseLower).\(ext)"
+            }) { return m.path }
+        }
+        return nil
+    }
+
+    /// Find `{basename}.{mp4,m4v,mov}` in the same dir.
+    private func findSameNameMusicVideo(basename: String, in candidates: [RemoteFileItem]) -> String? {
+        let baseLower = basename.lowercased()
+        for ext in PrimuseConstants.supportedMusicVideoExtensions {
             if let m = candidates.first(where: {
                 ($0.name as NSString).lowercased == "\(baseLower).\(ext)"
             }) { return m.path }

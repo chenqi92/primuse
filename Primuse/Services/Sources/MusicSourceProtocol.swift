@@ -42,11 +42,106 @@ struct RemoteFileItem: Sendable {
 struct SidecarHints: Sendable {
     let coverPath: String?
     let lyricsPath: String?
+    let mvPath: String?
+
+    init(coverPath: String? = nil, lyricsPath: String? = nil, mvPath: String? = nil) {
+        self.coverPath = coverPath
+        self.lyricsPath = lyricsPath
+        self.mvPath = mvPath
+    }
+
+    var isEmpty: Bool {
+        coverPath == nil && lyricsPath == nil && mvPath == nil
+    }
 }
 
 struct ConnectorScannedSong: Sendable {
     let song: Song
     let displayName: String
+}
+
+enum SidecarHintResolver {
+    static func decoratedAudioItem(_ item: RemoteFileItem, siblings: [RemoteFileItem]) -> RemoteFileItem {
+        guard item.isDirectory == false else { return item }
+
+        let basename = (item.name as NSString).deletingPathExtension
+        let nonAudio = siblings.filter {
+            guard $0.isDirectory == false else { return false }
+            let ext = ($0.name as NSString).pathExtension.lowercased()
+            return PrimuseConstants.supportedAudioExtensions.contains(ext) == false
+        }
+
+        let hints = SidecarHints(
+            coverPath: item.sidecarHints?.coverPath
+                ?? findSameNameCover(basename: basename, in: nonAudio)
+                ?? findFolderCover(in: nonAudio),
+            lyricsPath: item.sidecarHints?.lyricsPath
+                ?? findSameNameLyrics(basename: basename, in: nonAudio),
+            mvPath: item.sidecarHints?.mvPath
+                ?? findSameNameMusicVideo(basename: basename, in: nonAudio)
+        )
+        guard hints.isEmpty == false else { return item }
+
+        return RemoteFileItem(
+            name: item.name,
+            path: item.path,
+            isDirectory: item.isDirectory,
+            size: item.size,
+            modifiedDate: item.modifiedDate,
+            sidecarHints: hints,
+            revision: item.revision
+        )
+    }
+
+    private static func findSameNameCover(basename: String, in candidates: [RemoteFileItem]) -> String? {
+        let baseLower = basename.lowercased()
+        for ext in PrimuseConstants.supportedCoverExtensions {
+            if let match = candidates.first(where: {
+                let name = ($0.name as NSString).lowercased
+                return name == "\(baseLower).\(ext)" || name == "\(baseLower)-cover.\(ext)"
+            }) {
+                return match.path
+            }
+        }
+        return nil
+    }
+
+    private static func findFolderCover(in candidates: [RemoteFileItem]) -> String? {
+        for name in PrimuseConstants.folderCoverNames {
+            for ext in PrimuseConstants.supportedCoverExtensions {
+                if let match = candidates.first(where: {
+                    ($0.name as NSString).lowercased == "\(name).\(ext)"
+                }) {
+                    return match.path
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func findSameNameLyrics(basename: String, in candidates: [RemoteFileItem]) -> String? {
+        let baseLower = basename.lowercased()
+        for ext in PrimuseConstants.supportedLyricsExtensions {
+            if let match = candidates.first(where: {
+                ($0.name as NSString).lowercased == "\(baseLower).\(ext)"
+            }) {
+                return match.path
+            }
+        }
+        return nil
+    }
+
+    private static func findSameNameMusicVideo(basename: String, in candidates: [RemoteFileItem]) -> String? {
+        let baseLower = basename.lowercased()
+        for ext in PrimuseConstants.supportedMusicVideoExtensions {
+            if let match = candidates.first(where: {
+                ($0.name as NSString).lowercased == "\(baseLower).\(ext)"
+            }) {
+                return match.path
+            }
+        }
+        return nil
+    }
 }
 
 protocol MusicSourceConnector: Sendable {

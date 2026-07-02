@@ -320,10 +320,10 @@ enum LocalImportService {
     }
 
     /// 把音频同目录的歌词/封面 sidecar 一并带进沙箱 —— 否则导入后
-    /// SidecarMetadataLoader 在沙箱里按名找不到, 歌词/封面全丢。复用它的查找
-    /// 规则(同名 .lrc; 同名 / `<曲名>-cover` / 目录级 cover.jpg 三档封面)定位
+    /// SidecarMetadataLoader 在沙箱里按名找不到, 歌词/封面/MV 全丢。复用它的查找
+    /// 规则(同名 .lrc; 同名 MV; 同名 / `<曲名>-cover` / 目录级 cover.jpg 三档封面)定位
     /// 源文件, 统一改名成目标音频的 base(歌词→`<base>.lrc`, 封面→
-    /// `<base>-cover.<原扩展>`), 这样即便音频重名被追加了序号 sidecar 仍能命中。
+    /// `<base>-cover.<原扩展>`, MV→`<base>.<原扩展>`), 这样即便音频重名被追加了序号 sidecar 仍能命中。
     private static func copySidecars(forAudio srcURL: URL, audioDest: URL, fm: FileManager) {
         let destDir = audioDest.deletingLastPathComponent()
         let destBase = audioDest.deletingPathExtension().lastPathComponent
@@ -338,6 +338,12 @@ enum LocalImportService {
             let dest = destDir.appendingPathComponent("\(destBase)-cover.\(cover.pathExtension)")
             if !fm.fileExists(atPath: dest.path) {
                 _ = copyCoordinatedFile(from: cover, to: dest, fm: fm, options: [], label: "sidecar", fallbackReason: .copyFailed)
+            }
+        }
+        if let mv = SidecarMetadataLoader.findMusicVideo(for: srcURL) {
+            let dest = destDir.appendingPathComponent("\(destBase).\(mv.pathExtension)")
+            if !fm.fileExists(atPath: dest.path) {
+                _ = copyCoordinatedFile(from: mv, to: dest, fm: fm, options: [], label: "sidecar", fallbackReason: .copyFailed)
             }
         }
     }

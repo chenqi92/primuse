@@ -24,6 +24,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
     public var dateAdded: Date
     public var coverArtFileName: String?
     public var lyricsFileName: String?
+    public var mvPath: String?
     public var replayGainTrackGain: Double?
     public var replayGainTrackPeak: Double?
     public var replayGainAlbumGain: Double?
@@ -70,6 +71,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         dateAdded: Date = Date(),
         coverArtFileName: String? = nil,
         lyricsFileName: String? = nil,
+        mvPath: String? = nil,
         replayGainTrackGain: Double? = nil,
         replayGainTrackPeak: Double? = nil,
         replayGainAlbumGain: Double? = nil,
@@ -102,6 +104,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         self.dateAdded = dateAdded
         self.coverArtFileName = coverArtFileName
         self.lyricsFileName = lyricsFileName
+        self.mvPath = mvPath
         self.replayGainTrackGain = replayGainTrackGain
         self.replayGainTrackPeak = replayGainTrackPeak
         self.replayGainAlbumGain = replayGainAlbumGain

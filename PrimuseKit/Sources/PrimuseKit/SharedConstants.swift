@@ -36,6 +36,7 @@ public enum PrimuseConstants {
 
     public static let supportedCoverExtensions = ["jpg", "jpeg", "png", "webp"]
     public static let supportedLyricsExtensions = ["lrc"]
+    public static let supportedMusicVideoExtensions = ["mp4", "m4v", "mov"]
     public static let folderCoverNames = ["cover", "folder", "album", "front", "artwork"]
 
     /// Note: `.mp4` is intentionally excluded — it's primarily a video

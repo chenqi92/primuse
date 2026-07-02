@@ -185,7 +185,10 @@ actor ConnectorScanner {
                                     // invalidation and no failed-set clear.
                                     let revisionAdded = item.revision != nil && existing.revision == nil
                                     let mtimeAdded = item.modifiedDate != nil && existing.lastModified == nil
-                                    if !(sizeChanged || mtimeChanged || revisionChanged || revisionAdded || mtimeAdded) {
+                                    let sidecarChanged = item.sidecarHints?.coverPath.map { $0 != existing.coverArtFileName } ?? false
+                                        || item.sidecarHints?.lyricsPath.map { $0 != existing.lyricsFileName } ?? false
+                                        || item.sidecarHints?.mvPath.map { $0 != existing.mvPath } ?? false
+                                    if !(sizeChanged || mtimeChanged || revisionChanged || revisionAdded || mtimeAdded || sidecarChanged) {
                                         continue
                                     }
                                     let refreshed = buildBareSong(from: item, songID: songID)
@@ -263,6 +266,9 @@ actor ConnectorScanner {
             guard let a = incoming.revision, let b = existing.revision else { return false }
             return a != b
         }()
+        let sidecarChanged = incoming.coverArtFileName.map { $0 != existing.coverArtFileName } ?? false
+            || incoming.lyricsFileName.map { $0 != existing.lyricsFileName } ?? false
+            || incoming.mvPath.map { $0 != existing.mvPath } ?? false
         // First-time fingerprint/mtime backfill — not a content change,
         // but still needs to flow through addSongs so the merge path
         // refreshes existing.revision / existing.lastModified. Without
@@ -272,15 +278,16 @@ actor ConnectorScanner {
         // blind on existing rows.
         let revisionAdded = incoming.revision != nil && existing.revision == nil
         let mtimeAdded = incoming.lastModified != nil && existing.lastModified == nil
-        return sizeChanged || mtimeChanged || revisionChanged || revisionAdded || mtimeAdded
+        return sizeChanged || mtimeChanged || revisionChanged || revisionAdded || mtimeAdded || sidecarChanged
     }
 
     private struct SidecarRefs {
         var coverPath: String?   // e.g. /Music/Album/cover.jpg
         var lyricsPath: String?  // e.g. /Music/Album/song.lrc
+        var mvPath: String?      // e.g. /Music/Album/song.mp4
     }
 
-    /// Detect sidecar files (cover art, lyrics) by checking the local file's directory.
+    /// Detect sidecar files (cover art, lyrics, MV) by checking the local file's directory.
     private func detectSidecarRefs(for item: RemoteFileItem, localURL: URL) -> SidecarRefs {
         var refs = SidecarRefs()
 
@@ -294,6 +301,12 @@ actor ConnectorScanner {
         if let lyricsURL = SidecarMetadataLoader.findLyrics(for: localURL) {
             let parentDir = (item.path as NSString).deletingLastPathComponent
             refs.lyricsPath = (parentDir as NSString).appendingPathComponent(lyricsURL.lastPathComponent)
+        }
+
+        // Music video sidecar
+        if let mvURL = SidecarMetadataLoader.findMusicVideo(for: localURL) {
+            let parentDir = (item.path as NSString).deletingLastPathComponent
+            refs.mvPath = (parentDir as NSString).appendingPathComponent(mvURL.lastPathComponent)
         }
 
         return refs
@@ -329,6 +342,7 @@ actor ConnectorScanner {
             dateAdded: Date(),
             coverArtFileName: item.sidecarHints?.coverPath,
             lyricsFileName: item.sidecarHints?.lyricsPath,
+            mvPath: item.sidecarHints?.mvPath,
             revision: item.revision
         )
     }
@@ -354,6 +368,7 @@ actor ConnectorScanner {
         // Priority: sidecar path > embedded/cached > nil
         let coverRef = sidecarRefs.coverPath ?? metadata.coverArtFileName
         let lyricsRef = sidecarRefs.lyricsPath ?? metadata.lyricsFileName
+        let mvRef = sidecarRefs.mvPath ?? item.sidecarHints?.mvPath ?? metadata.mvPath
 
         return Song(
             id: songID,
@@ -378,6 +393,7 @@ actor ConnectorScanner {
             dateAdded: Date(),
             coverArtFileName: coverRef,
             lyricsFileName: lyricsRef,
+            mvPath: mvRef,
             replayGainTrackGain: metadata.replayGainTrackGain,
             replayGainTrackPeak: metadata.replayGainTrackPeak,
             replayGainAlbumGain: metadata.replayGainAlbumGain,

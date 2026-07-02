@@ -112,13 +112,21 @@ enum TVMetadataEnricher {
 
     private static func attachSidecarLyrics(song: Song, source: MusicSource, credential: SourceCredential?,
                                             siblings: [TVDirEntry], embedded: String?) async -> Song {
+        var out = song
+        let base = (song.filePath as NSString).lastPathComponent
+        let stem = (base as NSString).deletingPathExtension.lowercased()
+        if out.mvPath == nil,
+           let mv = siblings.first(where: { !$0.isDir
+               && PrimuseConstants.supportedMusicVideoExtensions.contains(($0.name as NSString).pathExtension.lowercased())
+               && ($0.name as NSString).deletingPathExtension.lowercased() == stem }) {
+            out.mvPath = mv.path
+        }
+
         var lines: [LyricLine] = []
         if let embedded, !embedded.isEmpty {
             lines = LyricsParser.parse(embedded)
         }
         if lines.isEmpty {
-            let base = (song.filePath as NSString).lastPathComponent
-            let stem = (base as NSString).deletingPathExtension.lowercased()
             if let lrc = siblings.first(where: { !$0.isDir
                 && ($0.name as NSString).pathExtension.lowercased() == "lrc"
                 && ($0.name as NSString).deletingPathExtension.lowercased() == stem }),
@@ -129,9 +137,8 @@ enum TVMetadataEnricher {
                 lines = LyricsParser.parse(text)
             }
         }
-        guard !lines.isEmpty else { return song }
+        guard !lines.isEmpty else { return out }
         _ = await MetadataAssetStore.shared.cacheLyrics(lines, forSongID: song.id, force: false)
-        var out = song
         out.lyricsFileName = MetadataAssetStore.shared.expectedLyricsFileName(for: song.id)
         out.lyricsText = lines.map(\.text).filter { !$0.isEmpty }.joined(separator: "\n").nilIfEmpty
         return out

@@ -327,7 +327,7 @@ actor S3Source: MusicSourceConnector {
             } else {
                 let ext = (item.name as NSString).pathExtension.lowercased()
                 if PrimuseConstants.supportedAudioExtensions.contains(ext) {
-                    continuation.yield(item)
+                    continuation.yield(SidecarHintResolver.decoratedAudioItem(item, siblings: items))
                 }
             }
         }
