@@ -986,6 +986,37 @@ final class SourceManager {
         return try await conn.localURL(for: song.filePath)
     }
 
+    func resolveVideoURL(for song: Song) async throws -> URL? {
+        guard let mvPath = normalizedMusicVideoPath(for: song) else { return nil }
+        if let url = URL(string: mvPath), let scheme = url.scheme, !scheme.isEmpty {
+            return url
+        }
+
+        let sources = try await sourcesProvider()
+        guard let source = sources.first(where: { $0.id == song.sourceID }) else {
+            throw SourceError.fileNotFound("Source not found for song: \(song.title)")
+        }
+
+        let conn = connector(for: source)
+        try await conn.connect()
+
+        if let streamURL = try await conn.streamingURL(for: mvPath) {
+            return streamURL
+        }
+        return try await conn.localURL(for: mvPath)
+    }
+
+    private func normalizedMusicVideoPath(for song: Song) -> String? {
+        guard let raw = song.mvPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+              raw.isEmpty == false else { return nil }
+        if URL(string: raw)?.scheme != nil { return raw }
+        if raw.hasPrefix("/") || raw.contains("/") { return raw }
+
+        let dir = (song.filePath as NSString).deletingLastPathComponent
+        guard dir.isEmpty == false, dir != "." else { return raw }
+        return (dir as NSString).appendingPathComponent(raw)
+    }
+
     // MARK: - Audio Cache
 
     private static let audioCacheDirName = "primuse_audio_cache"

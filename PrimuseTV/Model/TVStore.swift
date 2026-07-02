@@ -182,6 +182,7 @@ final class TVStore {
     enum RepeatMode { case off, all, one }
     var shuffleEnabled = false
     var repeatMode: RepeatMode = .off
+    var isMusicVideoModeEnabled = false
     var sleepTimerMinutes = 0   // 0 = 关闭
     @ObservationIgnored private var sleepWorkItem: DispatchWorkItem?
 
@@ -192,6 +193,15 @@ final class TVStore {
     var isPlaying: Bool { engine.isPlaying }
     var currentTime: Double { engine.currentTime }
     var duration: Double { engine.duration > 0 ? engine.duration : nowPlaying.duration }
+    var isMusicVideoPlaybackActive: Bool { engine.isVideoMode }
+    var canPlayMusicVideo: Bool {
+        guard let id = currentSongID,
+              let song = library.song(id: id),
+              song.mvPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            return false
+        }
+        return true
+    }
 
     // MARK: 浏览数据(全部来自真实曲库;为空即显示空态)
 
@@ -891,6 +901,20 @@ final class TVStore {
         repeatMode = repeatMode == .off ? .all : (repeatMode == .all ? .one : .off)
     }
 
+    func toggleMusicVideoMode() {
+        guard canPlayMusicVideo else { return }
+        let resumeTime = currentTime
+        let shouldPlay = isPlaying
+        isMusicVideoModeEnabled.toggle()
+        guard let id = currentSongID, let song = song(id) else { return }
+        startPlaying(song)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            if resumeTime > 0 { engine.seek(to: resumeTime) }
+            if !shouldPlay { engine.pause() }
+        }
+    }
+
     /// 睡眠定时:关→15→30→60→关 分钟。到点暂停播放。
     func cycleSleepTimer() {
         let presets = [0, 15, 30, 60]
@@ -953,7 +977,7 @@ final class TVStore {
         hasNowPlaying = true
         lyrics = []
         refreshUpNext()
-        Task { await coordinator.play(songID: song.id) }
+        Task { await coordinator.play(songID: song.id, preferMusicVideo: isMusicVideoModeEnabled) }
     }
 
     /// 协调器加载完歌词后回填(本地缓存 / 从源读 .lrc)。仅当仍是这首歌时生效。

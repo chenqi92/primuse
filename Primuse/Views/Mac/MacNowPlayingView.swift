@@ -195,7 +195,17 @@ struct MacNowPlayingView: View {
                 .frame(width: coverSize + 40, height: coverSize + 40)
                 .blur(radius: 30)
 
-                if let song = player.currentSong {
+                if player.isMusicVideoPlaybackActive, let videoPlayer = player.musicVideoPlayer {
+                    MusicVideoSurface(player: videoPlayer)
+                        .aspectRatio(1, contentMode: .fit)
+                        .frame(width: coverSize, height: coverSize)
+                        .background(Color.black)
+                        .clipShape(RoundedRectangle(cornerRadius: coverRadius, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: coverRadius, style: .continuous)
+                                .strokeBorder(.white.opacity(0.14), lineWidth: 0.5)
+                        }
+                } else if let song = player.currentSong {
                     CachedArtworkView(
                         coverRef: song.coverArtFileName,
                         songID: song.id,
@@ -465,6 +475,19 @@ struct MacNowPlayingView: View {
             .glassEffect(.regular.interactive(), in: .circle)
             .help(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
             .disabled(player.currentSong == nil)
+
+            if player.canPlayMusicVideo {
+                Button { player.toggleMusicVideoMode() } label: {
+                    circleIcon(player.isMusicVideoModeEnabled ? "play.rectangle.fill" : "play.rectangle",
+                               tint: player.isMusicVideoModeEnabled ? .white : Color.white.opacity(0.85),
+                               fill: player.isMusicVideoModeEnabled ? theme.accentColor.opacity(0.9) : nil)
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .help(Text("MV"))
+                .disabled(player.isLoading)
+            }
 
             Button {} label: {
                 circleIcon("text.bubble.fill",

@@ -280,15 +280,7 @@ struct NowPlayingView: View {
 
             Spacer()
 
-            CachedArtworkView(
-                coverRef: player.currentSong?.coverArtFileName,
-                songID: player.currentSong?.id ?? "",
-                size: artSize, cornerRadius: 16,
-                sourceID: player.currentSong?.sourceID,
-                filePath: player.currentSong?.filePath,
-                fileFormat: player.currentSong?.fileFormat,
-                revisionToken: player.coverRevision
-            )
+            artworkOrMusicVideo(size: artSize, cornerRadius: 16)
             .scaleEffect(player.isPlaying ? 1.0 : 0.92)
             .shadow(color: .black.opacity(0.35), radius: 28, y: 12)
             .animation(.spring(response: 0.5, dampingFraction: 0.7), value: player.isPlaying)
@@ -309,6 +301,7 @@ struct NowPlayingView: View {
                         .font(.title3).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
                 }
                 Spacer()
+                musicVideoToggleButton(font: .title2, trailing: 6)
                 if !player.isAppleMusicMode {
                     Button { showScrapeOptions = true } label: {
                         Image(systemName: isScrapingCurrentSong ? "wand.and.stars.inverse" : "wand.and.stars")
@@ -492,6 +485,8 @@ struct NowPlayingView: View {
 
                             Spacer()
 
+                            musicVideoToggleButton(font: .title3, trailing: 4)
+
                             if !player.isAppleMusicMode {
                                 Button { showScrapeOptions = true } label: {
                                     Image(systemName: isScrapingCurrentSong ? "wand.and.stars.inverse" : "wand.and.stars")
@@ -533,15 +528,7 @@ struct NowPlayingView: View {
                         Spacer()
 
                         // Artwork
-                        CachedArtworkView(
-                            coverRef: player.currentSong?.coverArtFileName,
-                            songID: player.currentSong?.id ?? "",
-                            size: artSize, cornerRadius: 12,
-                            sourceID: player.currentSong?.sourceID,
-                            filePath: player.currentSong?.filePath,
-                            fileFormat: player.currentSong?.fileFormat,
-                            revisionToken: player.coverRevision
-                        )
+                        artworkOrMusicVideo(size: artSize, cornerRadius: 12)
                         .scaleEffect(player.isPlaying ? 1.0 : 0.9)
                         .shadow(color: .black.opacity(0.3), radius: 20, y: 8)
                         .animation(.spring(response: 0.5, dampingFraction: 0.7), value: player.isPlaying)
@@ -561,6 +548,8 @@ struct NowPlayingView: View {
                                     .font(.body).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
                             }
                             Spacer()
+
+                            musicVideoToggleButton(font: .title2, trailing: 6)
 
                             // Scrape button (主屏抽出, 不再藏在 ··· 菜单里)
                             if !player.isAppleMusicMode {
@@ -697,6 +686,45 @@ struct NowPlayingView: View {
                         .font(.caption2).foregroundStyle(.white.opacity(0.3)).padding(.top, 4).padding(.bottom, 6)
                     }
                 }
+    }
+
+    @ViewBuilder
+    private func artworkOrMusicVideo(size: CGFloat, cornerRadius: CGFloat) -> some View {
+        if player.isMusicVideoPlaybackActive, let videoPlayer = player.musicVideoPlayer {
+            MusicVideoSurface(player: videoPlayer)
+                .frame(width: size, height: size)
+                .background(Color.black)
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
+                }
+        } else {
+            CachedArtworkView(
+                coverRef: player.currentSong?.coverArtFileName,
+                songID: player.currentSong?.id ?? "",
+                size: size, cornerRadius: cornerRadius,
+                sourceID: player.currentSong?.sourceID,
+                filePath: player.currentSong?.filePath,
+                fileFormat: player.currentSong?.fileFormat,
+                revisionToken: player.coverRevision
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func musicVideoToggleButton(font: Font, trailing: CGFloat) -> some View {
+        if player.canPlayMusicVideo {
+            Button { player.toggleMusicVideoMode() } label: {
+                Image(systemName: player.isMusicVideoModeEnabled ? "play.rectangle.fill" : "play.rectangle")
+                    .font(font)
+                    .foregroundStyle(player.isMusicVideoModeEnabled ? .white : .white.opacity(0.6))
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .disabled(player.currentSong == nil || player.isLoading)
+            .padding(.trailing, trailing)
+            .accessibilityLabel(Text(player.isMusicVideoModeEnabled ? "MV" : "MV"))
+        }
     }
 
     private func deleteCurrentSong() {
@@ -1167,6 +1195,85 @@ struct NowPlayingView: View {
         t.formattedDuration
     }
 }
+
+struct MusicVideoSurface: View {
+    let player: AVPlayer
+
+    var body: some View {
+        PlatformMusicVideoSurface(player: player)
+            .id(ObjectIdentifier(player))
+    }
+}
+
+#if os(iOS)
+private struct PlatformMusicVideoSurface: UIViewRepresentable {
+    let player: AVPlayer
+
+    func makeUIView(context: Context) -> MusicVideoLayerView {
+        let view = MusicVideoLayerView()
+        view.playerLayer.player = player
+        return view
+    }
+
+    func updateUIView(_ uiView: MusicVideoLayerView, context: Context) {
+        uiView.playerLayer.player = player
+    }
+}
+
+private final class MusicVideoLayerView: UIView {
+    override static var layerClass: AnyClass { AVPlayerLayer.self }
+
+    var playerLayer: AVPlayerLayer {
+        layer as! AVPlayerLayer
+    }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        playerLayer.videoGravity = .resizeAspect
+        backgroundColor = .black
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+#elseif os(macOS)
+private struct PlatformMusicVideoSurface: NSViewRepresentable {
+    let player: AVPlayer
+
+    func makeNSView(context: Context) -> MusicVideoLayerView {
+        let view = MusicVideoLayerView()
+        view.playerLayer.player = player
+        return view
+    }
+
+    func updateNSView(_ nsView: MusicVideoLayerView, context: Context) {
+        nsView.playerLayer.player = player
+    }
+}
+
+private final class MusicVideoLayerView: NSView {
+    let playerLayer = AVPlayerLayer()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer = CALayer()
+        playerLayer.videoGravity = .resizeAspect
+        playerLayer.backgroundColor = NSColor.black.cgColor
+        layer?.addSublayer(playerLayer)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layout() {
+        super.layout()
+        playerLayer.frame = bounds
+    }
+}
+#endif
 
 // MARK: - Custom Progress Slider (thin, no thumb)
 

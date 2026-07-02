@@ -16,6 +16,8 @@ final class TVAudioEngine {
     private(set) var isPlaying = false
     private(set) var currentTime: Double = 0
     private(set) var duration: Double = 0
+    private(set) var isVideoMode = false
+    var displayPlayer: AVPlayer { player }
 
     /// 一曲播完回调(队列推进用;Phase 1 可空)。
     var onEnded: (() -> Void)?
@@ -75,8 +77,15 @@ final class TVAudioEngine {
 
     func load(url: URL, headers: [String: String] = [:], fileExtension: String? = nil,
               title: String, artist: String, album: String, duration: Double) {
+        load(url: url, headers: headers, fileExtension: fileExtension,
+             title: title, artist: artist, album: album, duration: duration, isVideo: false)
+    }
+
+    func load(url: URL, headers: [String: String] = [:], fileExtension: String? = nil,
+              title: String, artist: String, album: String, duration: Double, isVideo: Bool) {
         configureAudioSession()
         resetSFBIfNeeded()
+        isVideoMode = isVideo
         npTitle = title; npArtist = artist; npAlbum = album
         self.duration = duration
         currentTime = 0
@@ -106,8 +115,15 @@ final class TVAudioEngine {
     /// 把原生协议字节流喂给 AVPlayer,不经 iPhone 中继。
     func load(reader: ByteRangeReader, fileExtension: String?,
               title: String, artist: String, album: String, duration: Double) {
+        load(reader: reader, fileExtension: fileExtension,
+             title: title, artist: artist, album: album, duration: duration, isVideo: false)
+    }
+
+    func load(reader: ByteRangeReader, fileExtension: String?,
+              title: String, artist: String, album: String, duration: Double, isVideo: Bool) {
         configureAudioSession()
         resetSFBIfNeeded()
+        isVideoMode = isVideo
         npTitle = title; npArtist = artist; npAlbum = album
         self.duration = duration
         currentTime = 0
@@ -152,6 +168,7 @@ final class TVAudioEngine {
     /// 非原生格式:用 SFBAudioEngine 解码播放已下载到本地的文件(AVPlayer 解不了的格式)。
     func loadDecoded(fileURL: URL, title: String, artist: String, album: String, duration: Double) {
         configureAudioSession()
+        isVideoMode = false
         // 让 AVPlayer 静音让位。
         player.replaceCurrentItem(with: nil)
         resourceLoader = nil
@@ -197,6 +214,7 @@ final class TVAudioEngine {
         if usingSFB { sfb.stop(); usingSFB = false; stopSFBPolling() }
         player.pause()
         player.replaceCurrentItem(with: nil)
+        isVideoMode = false
         isPlaying = false
         currentTime = 0
         status = .idle
@@ -296,6 +314,9 @@ final class TVAudioEngine {
             MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0,
         ]
         if duration > 0 { info[MPMediaItemPropertyPlaybackDuration] = duration }
+        info[MPNowPlayingInfoPropertyMediaType] = isVideoMode
+            ? MPNowPlayingInfoMediaType.video.rawValue
+            : MPNowPlayingInfoMediaType.audio.rawValue
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
     }
 

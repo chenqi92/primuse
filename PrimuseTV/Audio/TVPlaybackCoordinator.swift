@@ -32,7 +32,7 @@ final class TVPlaybackCoordinator {
         self.engine = engine
     }
 
-    func play(songID: String) async {
+    func play(songID: String, preferMusicVideo: Bool = false) async {
         store.playbackIssue = nil
         guard let song = store.library.song(id: songID) else {
             plog("🎬 TV play: song not found id=\(songID)")
@@ -45,36 +45,53 @@ final class TVPlaybackCoordinator {
             return
         }
         let credential = TVCredentialStore.credential(for: source, bundle: store.credentialBundle)
-        plog("🎬 TV play: '\(song.title)' src=\(source.type.rawValue)/\(source.name) cred=\(credential != nil) path=\(song.filePath.suffix(40))")
+        let asset = playbackAsset(for: song, preferMusicVideo: preferMusicVideo)
+        let playbackSong = asset.song
+        plog("🎬 TV play: '\(song.title)' src=\(source.type.rawValue)/\(source.name) video=\(asset.isVideo) path=\(playbackSong.filePath.suffix(40))")
         // 非原生格式(APE/WavPack/DSD/OGG/WMA 等 AVPlayer 解不了的):下载到本地后用
         // SFBAudioEngine 本机解码。适用所有源类型(协议 + HTTP)。
-        let ext = song.fileFormat.rawValue.lowercased()
-        if !(ext.isEmpty || Self.nativeFormats.contains(ext)) {
+        let ext = asset.fileExtension
+        if !asset.isVideo, !(ext.isEmpty || Self.nativeFormats.contains(ext)) {
             plog("🎬 TV play: non-native '\(ext)' → SFBAudioEngine decode")
             await playNonNative(song: song, source: source, credential: credential, ext: ext)
             return
         }
+        if let directURL = asset.directURL {
+            engine.load(url: directURL,
+                        headers: [:],
+                        fileExtension: ext,
+                        title: song.title,
+                        artist: song.artistName ?? "",
+                        album: song.albumTitle ?? "",
+                        duration: song.duration,
+                        isVideo: asset.isVideo)
+            engine.play()
+            loadLyrics(song: song, source: source, credential: credential)
+            return
+        }
         // 协议直连(SMB/NFS/FTP/SFTP):用原生协议库按 range 读字节直接喂 AVPlayer,不经 iPhone
         // 中继。建得出 reader 即走直连;建不出(配置缺失)回落到 resolveStream(中继 / 其它)。
-        if let reader = Self.makeDirectReader(source: source, song: song, credential: credential) {
+        if let reader = Self.makeDirectReader(source: source, song: playbackSong, credential: credential) {
             plog("🎬 TV play: direct protocol \(source.type.rawValue)")
-            engine.load(reader: reader, fileExtension: song.fileFormat.rawValue,
+            engine.load(reader: reader, fileExtension: ext,
                         title: song.title, artist: song.artistName ?? "",
-                        album: song.albumTitle ?? "", duration: song.duration)
+                        album: song.albumTitle ?? "", duration: song.duration,
+                        isVideo: asset.isVideo)
             engine.play()
             loadLyrics(song: song, source: source, credential: credential)
             return
         }
         do {
-            let resolved = try await resolveStream(song: song, source: source, credential: credential, retried: false)
+            let resolved = try await resolveStream(song: playbackSong, source: source, credential: credential, retried: false)
             plog("🎬 TV play: resolved → host=\(resolved.url.host ?? "?") headers=\(resolved.headers.count)")
             engine.load(url: resolved.url,
                         headers: resolved.headers,
-                        fileExtension: song.fileFormat.rawValue,
+                        fileExtension: ext,
                         title: song.title,
                         artist: song.artistName ?? "",
                         album: song.albumTitle ?? "",
-                        duration: song.duration)
+                        duration: song.duration,
+                        isVideo: asset.isVideo)
             engine.play()
             loadLyrics(song: song, source: source, credential: credential)
         } catch let error as StreamResolveError {
@@ -90,6 +107,42 @@ final class TVPlaybackCoordinator {
     static let nativeFormats: Set<String> = [
         "mp3", "aac", "m4a", "alac", "wav", "aiff", "aif", "flac", "opus", "caf", "mp4",
     ]
+
+    private struct PlaybackAsset {
+        var song: Song
+        var fileExtension: String
+        var isVideo: Bool
+        var directURL: URL?
+    }
+
+    private func playbackAsset(for song: Song, preferMusicVideo: Bool) -> PlaybackAsset {
+        guard preferMusicVideo,
+              let path = normalizedMusicVideoPath(for: song) else {
+            return PlaybackAsset(song: song, fileExtension: song.fileFormat.rawValue.lowercased(), isVideo: false)
+        }
+        let ext = (path as NSString).pathExtension.lowercased()
+        guard let videoFormat = VideoFormat.from(fileExtension: ext),
+              videoFormat.isNativelyPlayable else {
+            return PlaybackAsset(song: song, fileExtension: song.fileFormat.rawValue.lowercased(), isVideo: false)
+        }
+        var videoSong = song
+        videoSong.filePath = path
+        videoSong.fileFormat = AudioFormat.from(fileExtension: ext) ?? song.fileFormat
+        videoSong.fileSize = 0
+        let directURL = URL(string: path).flatMap { $0.scheme == nil ? nil : $0 }
+        return PlaybackAsset(song: videoSong, fileExtension: ext, isVideo: true, directURL: directURL)
+    }
+
+    private func normalizedMusicVideoPath(for song: Song) -> String? {
+        guard let raw = song.mvPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+              raw.isEmpty == false else { return nil }
+        if URL(string: raw)?.scheme != nil { return raw }
+        if raw.hasPrefix("/") || raw.contains("/") { return raw }
+
+        let dir = (song.filePath as NSString).deletingLastPathComponent
+        guard dir.isEmpty == false, dir != "." else { return raw }
+        return (dir as NSString).appendingPathComponent(raw)
+    }
 
     /// 非原生格式:下载整文件到临时路径,交给 SFBAudioEngine 本机解码播放。
     private func playNonNative(song: Song, source: MusicSource,

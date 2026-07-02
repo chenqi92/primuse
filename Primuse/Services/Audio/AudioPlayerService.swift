@@ -174,6 +174,9 @@ final class AudioPlayerService {
     private(set) var duration: TimeInterval = 0
     private(set) var isLoading = false
     private(set) var lastPlaybackError: String?
+    private(set) var musicVideoPlayer: AVPlayer?
+    private(set) var isMusicVideoModeEnabled = false
+    private(set) var isMusicVideoPlaybackActive = false
 
     private(set) var currentTimeAnchor: Date = Date()
 
@@ -249,6 +252,16 @@ final class AudioPlayerService {
 
     var isCastingMode: Bool { castingRenderer != nil }
     private var appleMusicMirrorTask: Task<Void, Never>?
+    private var musicVideoTimeObserver: Any?
+    private var musicVideoEndObserver: NSObjectProtocol?
+
+    var canPlayMusicVideo: Bool {
+        guard let song = currentSong,
+              song.mvPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            return false
+        }
+        return !isAppleMusicMode && !isCastingMode
+    }
 
     // MARK: - Shuffle Order
     private var shuffledIndices: [Int] = []
@@ -502,6 +515,8 @@ final class AudioPlayerService {
             self.pendingRecoveryTime = self.currentTime
             self.needsPlaybackRecovery = self.needsPlaybackRecovery || shouldAutoResume
 
+            if self.isMusicVideoPlaybackActive { return }
+
             guard shouldAutoResume else { return }
             // Engine was stopped due to config change — restart it if possible, and
             // rebuild the player pipeline on the next resume/play if buffers were lost.
@@ -516,8 +531,155 @@ final class AudioPlayerService {
     }
 
     private func syncPlaybackProgressFromEngine() {
+        if isMusicVideoPlaybackActive {
+            let seconds = musicVideoPlayer?.currentTime().seconds ?? currentTime
+            guard seconds.isFinite else { return }
+            currentTime = max(0, seconds)
+            return
+        }
         guard let engineTime = audioEngine.currentTime, engineTime.isFinite else { return }
         currentTime = max(0, engineTime)
+    }
+
+    func toggleMusicVideoMode() {
+        Task { await setMusicVideoModeEnabled(!isMusicVideoModeEnabled) }
+    }
+
+    func setMusicVideoModeEnabled(_ enabled: Bool) async {
+        guard enabled != isMusicVideoModeEnabled else { return }
+        guard let song = currentSong else {
+            isMusicVideoModeEnabled = enabled
+            return
+        }
+        guard enabled == false || canPlayMusicVideo else {
+            showPlaybackError(String(localized: "playback_error_connection"))
+            return
+        }
+
+        let resumeTime = currentTime
+        let shouldPlay = isPlaying || isLoading
+        isMusicVideoModeEnabled = enabled
+
+        await play(song: song)
+        if resumeTime > 0 {
+            try? await Task.sleep(for: .milliseconds(250))
+            seek(to: resumeTime, startPlaying: shouldPlay)
+        }
+        if !shouldPlay {
+            pause()
+        }
+    }
+
+    private func startMusicVideoPlaybackIfAvailable(for song: Song, playID id: UUID) async -> Bool {
+        guard isMusicVideoModeEnabled,
+              !isAppleMusicMode,
+              !isCastingMode,
+              let sourceManager,
+              song.mvPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            return false
+        }
+
+        do {
+            guard let url = try await sourceManager.resolveVideoURL(for: song) else { return false }
+            guard playID == id else { return true }
+
+            if let format = VideoFormat.from(fileExtension: url.pathExtension),
+               format.isNativelyPlayable == false {
+                plog("🎞️ MV unsupported format \(format.rawValue) for '\(song.title)'")
+                return false
+            }
+
+            _ = AudioSessionManager.shared.activatePlaybackSession()
+            stopMusicVideoPlayback(clearPlayer: true)
+
+            let player = AVPlayer(url: url)
+            player.automaticallyWaitsToMinimizeStalling = true
+            musicVideoPlayer = player
+            isMusicVideoPlaybackActive = true
+            isAtTrackEnd = false
+            currentTime = 0
+            duration = song.duration.sanitizedDuration
+            isLoading = false
+            isPlaying = true
+            activeDecoderKind = .native
+            configureMusicVideoObservers(for: player, playID: id)
+
+            player.play()
+            library?.recordPlayback(of: song.id)
+            ScrobbleService.shared.handlePlaybackStarted(song: song)
+            PlayHistoryStore.shared.beginSession(song: song)
+            updateNowPlayingInfo()
+            updateNowPlayingArtworkIfNeeded()
+            updatePlaybackState()
+            plog("🎞️ MV playback started for '\(song.title)' → \(redactedURL(url))")
+            return true
+        } catch {
+            guard playID == id else { return true }
+            plog("🎞️ MV resolve failed for '\(song.title)': \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private func configureMusicVideoObservers(for player: AVPlayer, playID id: UUID) {
+        removeMusicVideoObservers()
+        let interval = CMTime(seconds: Self.timeUpdateInterval, preferredTimescale: 600)
+        musicVideoTimeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self, weak player] time in
+            Task { @MainActor [weak self, weak player] in
+                guard let self, let player, self.playID == id, self.musicVideoPlayer === player else { return }
+                if time.seconds.isFinite {
+                    self.currentTime = time.seconds.sanitizedDuration
+                    ScrobbleService.shared.handleProgressTick(playedDelta: Self.timeUpdateInterval)
+                    PlayHistoryStore.shared.tick(elapsed: self.currentTime)
+                }
+                if let item = player.currentItem {
+                    let itemDuration = item.duration.seconds
+                    if itemDuration.isFinite, itemDuration > 0 {
+                        self.duration = itemDuration.sanitizedDuration
+                    }
+                    if item.status == .failed {
+                        self.showPlaybackError(String(localized: "playback_error_decode"))
+                        self.isPlaying = false
+                        self.isLoading = false
+                        self.updateNowPlayingInfo()
+                        self.updatePlaybackState()
+                    }
+                }
+            }
+        }
+
+        musicVideoEndObserver = NotificationCenter.default.addObserver(
+            forName: AVPlayerItem.didPlayToEndTimeNotification,
+            object: player.currentItem,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.playID == id else { return }
+                self.currentTime = self.duration
+                await self.handleTrackEnd()
+            }
+        }
+    }
+
+    private func removeMusicVideoObservers() {
+        if let observer = musicVideoTimeObserver, let player = musicVideoPlayer {
+            player.removeTimeObserver(observer)
+        }
+        musicVideoTimeObserver = nil
+        if let observer = musicVideoEndObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        musicVideoEndObserver = nil
+    }
+
+    private func stopMusicVideoPlayback(clearPlayer: Bool) {
+        guard musicVideoPlayer != nil || isMusicVideoPlaybackActive else { return }
+        musicVideoPlayer?.pause()
+        removeMusicVideoObservers()
+        if clearPlayer {
+            musicVideoPlayer?.replaceCurrentItem(with: nil)
+            musicVideoPlayer = nil
+        }
+        isMusicVideoPlaybackActive = false
     }
 
     private func showPlaybackError(_ message: String) {
@@ -579,6 +741,7 @@ final class AudioPlayerService {
         // AVAudioEngine 解), 跨 player 切换 — 先停我们自己的播放器再让
         // AppleMusicService 接手, audio session 系统自动 hand-off。
         if song.sourceID == AppleMusicLibraryService.systemSourceID {
+            stopMusicVideoPlayback(clearPlayer: true)
             await playAppleMusicSong(song)
             return
         }
@@ -586,6 +749,7 @@ final class AudioPlayerService {
         // Cast 模式 ── 走 RemoteRendererController 推到远端 renderer, 不动
         // 本地 audioEngine。next/previous 走到这里时同样路由。
         if castingController != nil {
+            stopMusicVideoPlayback(clearPlayer: true)
             await castSong(song)
             return
         }
@@ -612,6 +776,7 @@ final class AudioPlayerService {
         audioEngine.stopPlayback()
         audioEngine.stopCrossfadeNode()
         stopTimeUpdater()
+        stopMusicVideoPlayback(clearPlayer: true)
 
         // Show new song in UI immediately (before download)
         currentSong = song
@@ -621,6 +786,10 @@ final class AudioPlayerService {
         isPlaying = false
         isAtTrackEnd = false
         plog("▶️ currentSong set to: \(song.title)")
+
+        if await startMusicVideoPlaybackIfAvailable(for: song, playID: id) {
+            return
+        }
 
         do {
             let url = try await resolvedURL(for: song)
@@ -648,6 +817,7 @@ final class AudioPlayerService {
         audioEngine.stopPlayback()
         audioEngine.stopCrossfadeNode()
         stopTimeUpdater()
+        stopMusicVideoPlayback(clearPlayer: true)
         currentSong = song
         currentTime = 0
         duration = song.duration
@@ -773,6 +943,7 @@ final class AudioPlayerService {
         cancelGaplessTasks()
         audioEngine.stopPlayback()
         stopTimeUpdater()
+        stopMusicVideoPlayback(clearPlayer: true)
         await playFromURL(song: song, url: url, playID: id)
     }
 
@@ -1608,6 +1779,15 @@ final class AudioPlayerService {
             AppServices.shared.appleMusic.togglePlayPauseAppleMusic()
             return
         }
+        if isMusicVideoPlaybackActive {
+            shouldResumeAfterInterruption = false
+            syncPlaybackProgressFromEngine()
+            musicVideoPlayer?.pause()
+            isPlaying = false
+            updateNowPlayingInfo()
+            updatePlaybackState()
+            return
+        }
         shouldResumeAfterInterruption = false
         syncPlaybackProgressFromEngine()
         audioEngine.pause()
@@ -1623,6 +1803,15 @@ final class AudioPlayerService {
             return
         }
         guard !isLoading, let song = currentSong else { return }
+        if isMusicVideoPlaybackActive {
+            _ = AudioSessionManager.shared.activatePlaybackSession()
+            musicVideoPlayer?.play()
+            isPlaying = true
+            shouldResumeAfterInterruption = false
+            updateNowPlayingInfo()
+            updatePlaybackState()
+            return
+        }
         // 「已播完待重播」: 引擎已经 stopPlayback, 不能 resume —— 那是 no-op。
         // 直接重新 play 当前曲 (从 0 开始)。这是 Apple Music 锁屏在歌
         // 播完之后再点 play 的行为。
@@ -1666,6 +1855,7 @@ final class AudioPlayerService {
         crossfadeDecodingTask?.cancel(); crossfadeDecodingTask = nil
         audioEngine.stopPlayback()
         audioEngine.stopCrossfadeNode()
+        stopMusicVideoPlayback(clearPlayer: true)
         stopTimeUpdater()
         isPlaying = false
 
@@ -1821,6 +2011,7 @@ final class AudioPlayerService {
         audioEngine.stopPlayback()
         audioEngine.stopCrossfadeNode()
         audioEngine.resetPlayerVolume()
+        stopMusicVideoPlayback(clearPlayer: true)
         isPlaying = false
         isAtTrackEnd = false
         currentSong = nil
@@ -1856,6 +2047,7 @@ final class AudioPlayerService {
         audioEngine.stopPlayback()
         audioEngine.stopCrossfadeNode()
         audioEngine.resetPlayerVolume()
+        stopMusicVideoPlayback(clearPlayer: false)
         isPlaying = false
         isAtTrackEnd = true
         currentTime = 0
@@ -1944,6 +2136,34 @@ final class AudioPlayerService {
         let requestedTime = TimeInterval.sanitized(time)
         let safeDuration = duration.sanitizedDuration
         let targetTime = safeDuration > 0 ? min(requestedTime, safeDuration) : requestedTime
+        if isMusicVideoPlaybackActive {
+            let shouldStartPlaying = startPlaying ?? isPlaying
+            currentTime = targetTime
+            isLoading = true
+            isAtTrackEnd = false
+            musicVideoPlayer?.seek(
+                to: CMTime(seconds: targetTime, preferredTimescale: 600),
+                toleranceBefore: .zero,
+                toleranceAfter: .zero
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.isLoading = false
+                    if shouldStartPlaying {
+                        self.musicVideoPlayer?.play()
+                        self.isPlaying = true
+                    } else {
+                        self.musicVideoPlayer?.pause()
+                        self.isPlaying = false
+                    }
+                    if isRecovery { self.clearPendingPlaybackRecovery() }
+                    self.updateNowPlayingInfo()
+                    self.updatePlaybackState()
+                }
+            }
+            updateNowPlayingInfo()
+            return
+        }
         currentTime = targetTime
         isLoading = true
         // 用户拖进度条 = 重新介入这首歌, 退出 "已播完" 状态
@@ -3143,6 +3363,9 @@ final class AudioPlayerService {
         info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = elapsedTime
         info[MPNowPlayingInfoPropertyDefaultPlaybackRate] = 1.0
         info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
+        info[MPNowPlayingInfoPropertyMediaType] = isMusicVideoPlaybackActive
+            ? MPNowPlayingInfoMediaType.video.rawValue
+            : MPNowPlayingInfoMediaType.audio.rawValue
 
         // Carry over existing artwork (set separately by updateNowPlayingArtworkIfNeeded)
         if let existingArtwork = MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtwork] {
