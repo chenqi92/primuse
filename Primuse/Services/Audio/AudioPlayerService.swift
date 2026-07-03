@@ -737,7 +737,7 @@ final class AudioPlayerService {
                         self.duration = itemDuration.sanitizedDuration
                     }
                     if item.status == .failed {
-                        await self.handleMusicVideoPlaybackFailure(playID: id, error: item.error)
+                        await self.handleMusicVideoPlaybackFailure(playID: id, error: item.error, item: item)
                     }
                 }
             }
@@ -756,10 +756,13 @@ final class AudioPlayerService {
         }
     }
 
-    private func handleMusicVideoPlaybackFailure(playID id: UUID, error: Error?) async {
+    private func handleMusicVideoPlaybackFailure(playID id: UUID, error: Error?, item: AVPlayerItem?) async {
         guard playID == id, isMusicVideoPlaybackActive else { return }
         if let song = currentSong {
             plog("🎞️ MV playback failed for '\(song.title)': \(error?.localizedDescription ?? "-")")
+            if isMissingMusicVideoPlaybackError(error, item: item) {
+                clearStaleMusicVideoReference(for: song)
+            }
         }
         showPlaybackError(String(localized: "playback_error_decode"))
         isMusicVideoModeEnabled = false
@@ -769,6 +772,8 @@ final class AudioPlayerService {
     private func isMissingMusicVideoFileError(_ error: Error) -> Bool {
         if case SourceError.fileNotFound = error { return true }
         if case SourceError.pathNotFound = error { return true }
+        if case CloudDriveError.fileNotFound = error { return true }
+        if case CloudDriveError.apiError(let code, _) = error, code == 404 || code == 410 { return true }
 
         let ns = error as NSError
         if ns.domain == NSPOSIXErrorDomain, ns.code == Int(ENOENT) {
@@ -777,11 +782,18 @@ final class AudioPlayerService {
         if ns.domain == NSCocoaErrorDomain, ns.code == NSFileNoSuchFileError {
             return true
         }
+        if let underlying = ns.userInfo[NSUnderlyingErrorKey] as? Error {
+            return isMissingMusicVideoFileError(underlying)
+        }
 
-        let message = error.localizedDescription.lowercased()
-        return message.contains("not found")
-            || message.contains("no such file")
-            || message.contains("不存在")
+        return false
+    }
+
+    private func isMissingMusicVideoPlaybackError(_ error: Error?, item: AVPlayerItem?) -> Bool {
+        if let error, isMissingMusicVideoFileError(error) { return true }
+        return item?.errorLog()?.events.contains { event in
+            event.errorStatusCode == 404 || event.errorStatusCode == 410
+        } == true
     }
 
     private func clearStaleMusicVideoReference(for song: Song) {
@@ -1867,6 +1879,7 @@ final class AudioPlayerService {
 
     private func shouldBypassContinuousAudioTransition(for song: Song?) -> Bool {
         guard isMusicVideoModeEnabled,
+              !shouldForceAudioOnly,
               let song,
               song.mvPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
             return false
