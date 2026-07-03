@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import PrimuseKit
 
@@ -1003,7 +1004,12 @@ final class SourceManager {
         if let streamURL = try await conn.streamingURL(for: mvPath) {
             return streamURL
         }
-        return try await conn.localURL(for: mvPath)
+
+        if source.type.category == .local {
+            return try await conn.localURL(for: mvPath)
+        }
+
+        return try await cachedMusicVideoURL(for: mvPath, source: source, connector: conn)
     }
 
     private func normalizedMusicVideoPath(for song: Song) -> String? {
@@ -1015,6 +1021,193 @@ final class SourceManager {
         let dir = (song.filePath as NSString).deletingLastPathComponent
         guard dir.isEmpty == false, dir != "." else { return raw }
         return (dir as NSString).appendingPathComponent(raw)
+    }
+
+    // MARK: - Music Video Cache
+
+    private static let videoCacheDirName = "primuse_video_cache"
+    private static let videoCacheLimitBytes: Int64 = 10 * 1024 * 1024 * 1024
+    private static let videoCacheChunkBytes: Int64 = 4 * 1024 * 1024
+
+    private func videoCacheDirectory(for sourceID: String) -> URL {
+        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+            .appendingPathComponent(Self.videoCacheDirName)
+            .appendingPathComponent(sourceID)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    private func videoCacheURL(sourceID: String, path: String) -> URL {
+        videoCacheDirectory(for: sourceID)
+            .appendingPathComponent(Self.videoCacheFileName(sourceID: sourceID, path: path))
+    }
+
+    private static func videoCacheFileName(sourceID: String, path: String) -> String {
+        let digest = SHA256.hash(data: Data("\(sourceID):\(path)".utf8))
+        let hash = digest.prefix(16).map { String(format: "%02x", $0) }.joined()
+        let ext = (path as NSString).pathExtension.lowercased()
+        return ext.isEmpty ? hash : "\(hash).\(ext)"
+    }
+
+    private func cachedMusicVideoURL(for path: String, source: MusicSource, connector: any MusicSourceConnector) async throws -> URL {
+        let target = videoCacheURL(sourceID: source.id, path: path)
+        if FileManager.default.fileExists(atPath: target.path) {
+            recordVideoCacheAccess(target)
+            return target
+        }
+
+        let expectedSize = try? await musicVideoFileSize(path: path, connector: connector)
+        try? FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+        evictVideoCacheIfNeeded(reserveBytes: expectedSize ?? 0, protecting: target)
+
+        if source.supportsRangeStreaming {
+            try await downloadMusicVideoByRanges(path: path, connector: connector, target: target, expectedSize: expectedSize)
+        } else {
+            let localURL = try await connector.localURL(for: path)
+            try copyMusicVideoFile(from: localURL, to: target)
+        }
+
+        recordVideoCacheAccess(target)
+        evictVideoCacheIfNeeded(reserveBytes: 0, protecting: target)
+        return target
+    }
+
+    private func musicVideoFileSize(path: String, connector: any MusicSourceConnector) async throws -> Int64? {
+        let nsPath = path as NSString
+        let parent = nsPath.deletingLastPathComponent
+        let fileName = nsPath.lastPathComponent
+        let listPath = parent.isEmpty || parent == "." ? "/" : parent
+        let siblings = try await connector.listFiles(at: listPath)
+        return siblings.first {
+            $0.isDirectory == false
+                && ($0.path == path || $0.name.caseInsensitiveCompare(fileName) == .orderedSame)
+                && $0.size > 0
+        }?.size
+    }
+
+    private func downloadMusicVideoByRanges(
+        path: String,
+        connector: any MusicSourceConnector,
+        target: URL,
+        expectedSize: Int64?
+    ) async throws {
+        let partial = URL(fileURLWithPath: target.path + ".partial")
+        var offset = byteSize(at: partial)
+        if let expectedSize, expectedSize > 0 {
+            if offset >= expectedSize {
+                try? FileManager.default.removeItem(at: target)
+                try FileManager.default.moveItem(at: partial, to: target)
+                return
+            }
+            if offset > expectedSize {
+                try? FileManager.default.removeItem(at: partial)
+                offset = 0
+            }
+        }
+
+        if !FileManager.default.fileExists(atPath: partial.path) {
+            FileManager.default.createFile(atPath: partial.path, contents: nil)
+        }
+        let handle = try FileHandle(forWritingTo: partial)
+        try handle.seek(toOffset: UInt64(offset))
+
+        do {
+            while expectedSize.map({ offset < $0 }) ?? true {
+                try Task.checkCancellation()
+                let remaining = expectedSize.map { max(0, $0 - offset) } ?? Self.videoCacheChunkBytes
+                let length = min(Self.videoCacheChunkBytes, remaining)
+                guard length > 0 else { break }
+
+                let data: Data
+                do {
+                    data = try await connector.fetchRange(path: path, offset: offset, length: length)
+                } catch {
+                    if expectedSize == nil, offset > 0, Self.isRangeEndError(error) {
+                        break
+                    }
+                    throw error
+                }
+                if data.isEmpty {
+                    guard offset > 0 else {
+                        throw SourceError.fileNotFound("Music video file is empty: \(path)")
+                    }
+                    break
+                }
+
+                try handle.write(contentsOf: data)
+                offset += Int64(data.count)
+                if expectedSize == nil, Int64(data.count) < length {
+                    break
+                }
+            }
+            try handle.close()
+
+            let finalSize = byteSize(at: partial)
+            if let expectedSize, expectedSize > 0, finalSize < expectedSize {
+                throw SourceError.connectionFailed("Music video download incomplete: \(finalSize)/\(expectedSize)")
+            }
+            try? FileManager.default.removeItem(at: target)
+            try FileManager.default.moveItem(at: partial, to: target)
+        } catch {
+            try? handle.close()
+            throw error
+        }
+    }
+
+    private static func isRangeEndError(_ error: Error) -> Bool {
+        if case CloudDriveError.apiError(let code, _) = error {
+            return code == 416
+        }
+        return false
+    }
+
+    private func copyMusicVideoFile(from source: URL, to target: URL) throws {
+        if source.standardizedFileURL == target.standardizedFileURL { return }
+        try? FileManager.default.removeItem(at: target)
+        try FileManager.default.copyItem(at: source, to: target)
+    }
+
+    private func recordVideoCacheAccess(_ url: URL) {
+        try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: url.path)
+    }
+
+    private func evictVideoCacheIfNeeded(reserveBytes: Int64, protecting protectedURL: URL? = nil) {
+        let basePath = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+            .appendingPathComponent(Self.videoCacheDirName)
+        guard let enumerator = FileManager.default.enumerator(
+            at: basePath,
+            includingPropertiesForKeys: [.contentModificationDateKey, .totalFileAllocatedSizeKey, .isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+
+        let protectedPath = protectedURL?.standardizedFileURL.path
+        var total: Int64 = 0
+        var entries: [(url: URL, size: Int64, modified: Date)] = []
+        while let url = enumerator.nextObject() as? URL {
+            guard url.lastPathComponent.hasSuffix(".partial") == false,
+                  let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .totalFileAllocatedSizeKey, .isRegularFileKey]),
+                  values.isRegularFile == true else { continue }
+            let size = Int64(values.totalFileAllocatedSize ?? 0)
+            total += size
+            if url.standardizedFileURL.path != protectedPath {
+                entries.append((url, size, values.contentModificationDate ?? .distantPast))
+            }
+        }
+
+        var bytesToFree = total + reserveBytes - Self.videoCacheLimitBytes
+        guard bytesToFree > 0 else { return }
+        for entry in entries.sorted(by: { $0.modified < $1.modified }) {
+            try? FileManager.default.removeItem(at: entry.url)
+            try? FileManager.default.removeItem(at: URL(fileURLWithPath: entry.url.path + ".partial"))
+            bytesToFree -= entry.size
+            if bytesToFree <= 0 { break }
+        }
+    }
+
+    private func deleteMusicVideoCache(for song: Song) {
+        guard let mvPath = normalizedMusicVideoPath(for: song),
+              URL(string: mvPath)?.scheme == nil else { return }
+        removeCacheFileFamily(at: videoCacheURL(sourceID: song.sourceID, path: mvPath))
     }
 
     // MARK: - Audio Cache
@@ -1552,6 +1745,7 @@ final class SourceManager {
         let temp = fm.temporaryDirectory
         return [
             caches.appendingPathComponent(audioCacheDirName).appendingPathComponent(sourceID),
+            caches.appendingPathComponent(videoCacheDirName).appendingPathComponent(sourceID),
             caches.appendingPathComponent("primuse_cloud_cache").appendingPathComponent(sourceID),
             temp.appendingPathComponent("primuse_smb_cache").appendingPathComponent(sourceID),
             temp.appendingPathComponent("primuse_sftp_cache").appendingPathComponent(sourceID),
@@ -1770,6 +1964,7 @@ final class SourceManager {
 
         for song in songs {
             deleteAudioCache(for: song)
+            deleteMusicVideoCache(for: song)
             CachedArtworkView.invalidateCache(for: song.id)
             if let coverRef = song.coverArtFileName {
                 CachedArtworkView.invalidateCache(for: coverRef)

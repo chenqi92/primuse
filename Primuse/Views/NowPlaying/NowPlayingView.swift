@@ -39,6 +39,7 @@ struct NowPlayingView: View {
     @State private var showDeleteConfirm = false
     @State private var showTagEditor = false
     @State private var showSimilarSongs = false
+    @State private var showMusicVideoFullScreen = false
     @Environment(ThemeService.self) private var theme
 
     // 父持有 @AppStorage 仅为了 onChange 触发 CloudKVS 同步;实际渲染字号由
@@ -151,6 +152,22 @@ struct NowPlayingView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
+        #if os(iOS)
+        .fullScreenCover(isPresented: $showMusicVideoFullScreen) {
+            if let videoPlayer = player.musicVideoPlayer {
+                MusicVideoFullScreenView(player: videoPlayer) {
+                    showMusicVideoFullScreen = false
+                }
+            } else {
+                Color.black
+                    .ignoresSafeArea()
+                    .onAppear { showMusicVideoFullScreen = false }
+            }
+        }
+        .onChange(of: player.isMusicVideoPlaybackActive) { _, active in
+            if !active { showMusicVideoFullScreen = false }
+        }
+        #endif
         .confirmationDialog(String(localized: "sleep_timer"), isPresented: $showSleepTimer) {
             Button("5 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 5) }
             Button("15 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 15) }
@@ -691,14 +708,37 @@ struct NowPlayingView: View {
     @ViewBuilder
     private func artworkOrMusicVideo(size: CGFloat, cornerRadius: CGFloat) -> some View {
         if player.isMusicVideoPlaybackActive, let videoPlayer = player.musicVideoPlayer {
-            MusicVideoSurface(player: videoPlayer)
-                .frame(width: size, height: size)
-                .background(Color.black)
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
+            ZStack(alignment: .topTrailing) {
+                MusicVideoSurface(player: videoPlayer)
+                    .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                    .frame(width: size, height: size * 9 / 16)
+                    .background(Color.black)
+
+                #if os(iOS)
+                Button {
+                    showMusicVideoFullScreen = true
+                } label: {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 34, height: 34)
+                        .background(.black.opacity(0.44), in: Circle())
+                        .overlay {
+                            Circle().strokeBorder(.white.opacity(0.18), lineWidth: 0.5)
+                        }
+                        .contentShape(Circle())
                 }
+                .buttonStyle(.plain)
+                .padding(10)
+                .accessibilityLabel(Text("Enter full screen"))
+                #endif
+            }
+            .frame(width: size, height: size * 9 / 16)
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
+            }
         } else {
             CachedArtworkView(
                 coverRef: player.currentSong?.coverArtFileName,
@@ -1193,6 +1233,40 @@ struct NowPlayingView: View {
 
     private func fmt(_ t: TimeInterval) -> String {
         t.formattedDuration
+    }
+}
+
+struct MusicVideoFullScreenView: View {
+    let player: AVPlayer
+    let onDismiss: () -> Void
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Color.black.ignoresSafeArea()
+            MusicVideoSurface(player: player)
+                .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .ignoresSafeArea()
+
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .background(.black.opacity(0.5), in: Circle())
+                    .overlay {
+                        Circle().strokeBorder(.white.opacity(0.2), lineWidth: 0.5)
+                    }
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 24)
+            .padding(.trailing, 24)
+            .accessibilityLabel(Text("Close"))
+        }
+        #if os(iOS)
+        .statusBarHidden(true)
+        #endif
     }
 }
 

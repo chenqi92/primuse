@@ -179,6 +179,8 @@ struct MacNowPlayingView: View {
     private var artworkPane: some View {
         let coverSize: CGFloat = isWindowFullScreen ? 520 : 380
         let coverRadius: CGFloat = isWindowFullScreen ? 18 : 14
+        let isShowingMusicVideo = player.isMusicVideoPlaybackActive && player.musicVideoPlayer != nil
+        let mediaHeight = isShowingMusicVideo ? coverSize * 9 / 16 : coverSize
         let horizontalAlignment: HorizontalAlignment = isWindowFullScreen ? .center : .leading
         let frameAlignment: Alignment = isWindowFullScreen ? .center : .leading
         let textAlignment: TextAlignment = isWindowFullScreen ? .center : .leading
@@ -192,19 +194,34 @@ struct MacNowPlayingView: View {
                     startRadius: 0,
                     endRadius: coverSize * 0.62
                 )
-                .frame(width: coverSize + 40, height: coverSize + 40)
+                .frame(width: coverSize + 40, height: mediaHeight + 40)
                 .blur(radius: 30)
 
                 if player.isMusicVideoPlaybackActive, let videoPlayer = player.musicVideoPlayer {
-                    MusicVideoSurface(player: videoPlayer)
-                        .aspectRatio(1, contentMode: .fit)
-                        .frame(width: coverSize, height: coverSize)
-                        .background(Color.black)
-                        .clipShape(RoundedRectangle(cornerRadius: coverRadius, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: coverRadius, style: .continuous)
-                                .strokeBorder(.white.opacity(0.14), lineWidth: 0.5)
+                    ZStack(alignment: .topTrailing) {
+                        MusicVideoSurface(player: videoPlayer)
+                            .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                            .frame(width: coverSize, height: mediaHeight)
+                            .background(Color.black)
+
+                        if !isWindowFullScreen {
+                            Button {
+                                fullScreenWindow()?.toggleFullScreen(nil)
+                            } label: {
+                                circleIcon("arrow.up.left.and.arrow.down.right")
+                            }
+                            .buttonStyle(.plain)
+                            .glassEffect(.regular.interactive(), in: .circle)
+                            .padding(12)
+                            .help(Text("full_screen_player"))
                         }
+                    }
+                    .frame(width: coverSize, height: mediaHeight)
+                    .clipShape(RoundedRectangle(cornerRadius: coverRadius, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: coverRadius, style: .continuous)
+                            .strokeBorder(.white.opacity(0.14), lineWidth: 0.5)
+                    }
                 } else if let song = player.currentSong {
                     CachedArtworkView(
                         coverRef: song.coverArtFileName,
@@ -228,7 +245,7 @@ struct MacNowPlayingView: View {
                         }
                 }
             }
-            .frame(width: coverSize, height: coverSize)
+            .frame(width: coverSize, height: mediaHeight)
             .shadow(color: .black.opacity(0.18), radius: 20, y: 8)
 
             VStack(alignment: horizontalAlignment, spacing: 0) {

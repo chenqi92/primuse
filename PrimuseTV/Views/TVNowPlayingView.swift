@@ -38,22 +38,77 @@ struct TVNowPlayingView: View {
         let np = store.nowPlaying
         return ZStack {
             TVAmbientBackdrop(tint: np.tint, tint2: np.tint2, strength: 1)
-            // 暗色蒙层:浅色专辑底色下白字标题不再和背景同色看不清。
-            LinearGradient(colors: [.black.opacity(0.5), .black.opacity(0.28), .black.opacity(0.55)],
-                           startPoint: .top, endPoint: .bottom)
-                .ignoresSafeArea()
+            if store.isMusicVideoPlaybackActive {
+                musicVideoFullScreenPlayer
+            } else {
+                // 暗色蒙层:浅色专辑底色下白字标题不再和背景同色看不清。
+                LinearGradient(colors: [.black.opacity(0.5), .black.opacity(0.28), .black.opacity(0.55)],
+                               startPoint: .top, endPoint: .bottom)
+                    .ignoresSafeArea()
 
-            HStack(alignment: .top, spacing: 80) {
-                leftColumn.frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .focusSection()
-                lyricsColumn.frame(maxWidth: .infinity, maxHeight: .infinity)
+                HStack(alignment: .top, spacing: 80) {
+                    leftColumn.frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .focusSection()
+                    lyricsColumn.frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                .focusScope(playerFocus)
+                .padding(.horizontal, 100).padding(.top, 80).padding(.bottom, 70)
             }
-            .focusScope(playerFocus)
-            .padding(.horizontal, 100).padding(.top, 80).padding(.bottom, 70)
         }
     }
 
     // MARK: 左列
+
+    private var musicVideoFullScreenPlayer: some View {
+        let np = store.nowPlaying
+        return ZStack {
+            VideoPlayer(player: store.engine.displayPlayer)
+                .ignoresSafeArea()
+                .background(.black)
+
+            LinearGradient(
+                colors: [.black.opacity(0.62), .black.opacity(0.08), .black.opacity(0.82)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+
+            VStack(alignment: .leading, spacing: 0) {
+                TVEyebrow(text: PMString("ext.tv.nowPlaying.eyebrow")).padding(.bottom, 18)
+                Text(np.title)
+                    .font(.system(size: 58, weight: .bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                Text(np.artist)
+                    .font(.system(size: 28))
+                    .foregroundStyle(.white.opacity(0.74))
+                    .padding(.top, 8)
+                Text("\(np.album) · \(np.format) \(np.bitrate) kbps · \(np.sampleRate, specifier: "%.1f") kHz")
+                    .font(.system(size: 18))
+                    .foregroundStyle(.white.opacity(0.52))
+                    .padding(.top, 5)
+
+                Spacer(minLength: 0)
+
+                if let issue = store.playbackIssue {
+                    Label(issue.message, systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(TVColor.warn)
+                        .lineLimit(2)
+                        .padding(.bottom, 18)
+                }
+
+                scrubber
+                    .padding(.bottom, 20)
+                transport
+            }
+            .focusScope(playerFocus)
+            .focusSection()
+            .padding(.horizontal, 100)
+            .padding(.top, 78)
+            .padding(.bottom, 70)
+        }
+    }
 
     private var leftColumn: some View {
         let np = store.nowPlaying
