@@ -262,6 +262,10 @@ final class AudioPlayerService {
     private var appleMusicMirrorTask: Task<Void, Never>?
     private var musicVideoTimeObserver: Any?
     private var musicVideoEndObserver: NSObjectProtocol?
+    private var musicVideoStatusObservation: NSKeyValueObservation?
+    private var musicVideoFailedObserver: NSObjectProtocol?
+    /// AVAssetResourceLoader 对 delegate 是弱引用, 流式播放期间必须强持有。
+    private var musicVideoStreamingLoader: MusicVideoStreamingLoader?
     #if os(iOS)
     private var isCarPlaySceneActive = false
     private var carPlayConnectObserver: NSObjectProtocol?
@@ -629,7 +633,9 @@ final class AudioPlayerService {
             return
         }
         guard enabled == false || canPlayMusicVideo else {
-            showPlaybackError(String(localized: "playback_error_connection"))
+            // UI 只在 canPlayMusicVideo 时展示开关, 走到这里说明状态刚变
+            // (歌切走 / 进投屏), 静默忽略即可, 弹连接错误反而误导。
+            plog("🎞️ MV mode enable ignored: current song has no playable MV")
             return
         }
 
@@ -639,7 +645,7 @@ final class AudioPlayerService {
 
         await play(song: song)
         if resumeTime > 0 {
-            try? await Task.sleep(for: .milliseconds(250))
+            await waitForPlaybackPipelineSettled()
             seek(to: resumeTime, startPlaying: shouldPlay)
         }
         if !shouldPlay {
@@ -659,11 +665,21 @@ final class AudioPlayerService {
             isMusicVideoModeEnabled = previousMode
         }
         if resumeTime > 0 {
-            try? await Task.sleep(for: .milliseconds(250))
+            await waitForPlaybackPipelineSettled()
             seek(to: resumeTime, startPlaying: shouldPlay)
         }
         if !shouldPlay {
             pause()
+        }
+    }
+
+    /// 模式切换后恢复进度前, 等播放管线真正就绪(isLoading 清除)再 seek,
+    /// 而不是赌一个固定延时 —— 慢源加载超时前 seek 会打在半初始化的管线上。
+    private func waitForPlaybackPipelineSettled(maxWait: Duration = .seconds(3)) async {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: maxWait)
+        while isLoading, clock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(50))
         }
     }
 
@@ -679,24 +695,41 @@ final class AudioPlayerService {
               !isCastingMode,
               !shouldForceAudioOnly,
               let sourceManager,
-              song.mvPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+              let mvPath = song.mvPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+              mvPath.isEmpty == false else {
             return .skipped
         }
 
-        do {
-            guard let url = try await sourceManager.resolveVideoURL(for: song) else { return .needsAudioFallback }
-            guard playID == id else { return .started }
+        // 格式预检基于 mvPath 扩展名, 在网络 resolve 之前拦截明确不可播的
+        // 容器(mkv/avi 等), 省一次连接开销。
+        if let format = VideoFormat.from(fileExtension: (mvPath as NSString).pathExtension),
+           format.isNativelyPlayable == false {
+            plog("🎞️ MV unsupported format \(format.rawValue) for '\(song.title)'")
+            return .needsAudioFallback
+        }
 
-            if let format = VideoFormat.from(fileExtension: url.pathExtension),
-               format.isNativelyPlayable == false {
-                plog("🎞️ MV unsupported format \(format.rawValue) for '\(song.title)'")
-                return .needsAudioFallback
-            }
+        do {
+            guard let resolved = try await sourceManager.resolveVideoAsset(for: song) else { return .needsAudioFallback }
+            guard playID == id else { return .started }
 
             _ = AudioSessionManager.shared.activatePlaybackSession()
             stopMusicVideoPlayback(clearPlayer: true)
 
-            let player = AVPlayer(url: url)
+            let player: AVPlayer
+            switch resolved {
+            case .url(let url):
+                if let format = VideoFormat.from(fileExtension: url.pathExtension),
+                   format.isNativelyPlayable == false {
+                    plog("🎞️ MV unsupported format \(format.rawValue) for '\(song.title)'")
+                    return .needsAudioFallback
+                }
+                plog("🎞️ MV playback via URL for '\(song.title)' → \(redactedURL(url))")
+                player = AVPlayer(url: url)
+            case .streaming(let asset, let loader):
+                plog("🎞️ MV playback via streaming loader for '\(song.title)'")
+                musicVideoStreamingLoader = loader
+                player = AVPlayer(playerItem: AVPlayerItem(asset: asset))
+            }
             player.automaticallyWaitsToMinimizeStalling = true
             musicVideoPlayer = player
             isMusicVideoPlaybackActive = true
@@ -715,7 +748,6 @@ final class AudioPlayerService {
             updateNowPlayingInfo()
             updateNowPlayingArtworkIfNeeded()
             updatePlaybackState()
-            plog("🎞️ MV playback started for '\(song.title)' → \(redactedURL(url))")
             return .started
         } catch {
             guard playID == id else { return .started }
@@ -755,9 +787,32 @@ final class AudioPlayerService {
                     if itemDuration.isFinite, itemDuration > 0 {
                         self.duration = itemDuration.sanitizedDuration
                     }
-                    if item.status == .failed {
-                        await self.handleMusicVideoPlaybackFailure(playID: id, error: item.error, item: item)
-                    }
+                }
+            }
+        }
+
+        // status KVO —— 失败检测不能靠 time observer: 启动即失败(坏容器 /
+        // 直链失效)时播放时间从不前进, tick 永远不来, UI 会停在假播放态。
+        if let item = player.currentItem {
+            let box = MusicVideoItemBox(item)
+            musicVideoStatusObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] observed, _ in
+                guard observed.status == .failed else { return }
+                let error = observed.error
+                Task { @MainActor [weak self] in
+                    guard let self, self.playID == id else { return }
+                    await self.handleMusicVideoPlaybackFailure(playID: id, error: error, item: box.item)
+                }
+            }
+
+            musicVideoFailedObserver = NotificationCenter.default.addObserver(
+                forName: AVPlayerItem.failedToPlayToEndTimeNotification,
+                object: item,
+                queue: .main
+            ) { [weak self] note in
+                let error = note.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
+                Task { @MainActor [weak self] in
+                    guard let self, self.playID == id else { return }
+                    await self.handleMusicVideoPlaybackFailure(playID: id, error: error, item: box.item)
                 }
             }
         }
@@ -773,6 +828,11 @@ final class AudioPlayerService {
                 await self.handleTrackEnd()
             }
         }
+    }
+
+    private final class MusicVideoItemBox: @unchecked Sendable {
+        let item: AVPlayerItem
+        init(_ item: AVPlayerItem) { self.item = item }
     }
 
     private func handleMusicVideoPlaybackFailure(playID id: UUID, error: Error?, item: AVPlayerItem?) async {
@@ -832,15 +892,23 @@ final class AudioPlayerService {
             NotificationCenter.default.removeObserver(observer)
         }
         musicVideoEndObserver = nil
+        musicVideoStatusObservation?.invalidate()
+        musicVideoStatusObservation = nil
+        if let observer = musicVideoFailedObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        musicVideoFailedObserver = nil
     }
 
     private func stopMusicVideoPlayback(clearPlayer: Bool) {
-        guard musicVideoPlayer != nil || isMusicVideoPlaybackActive else { return }
+        guard musicVideoPlayer != nil || isMusicVideoPlaybackActive || musicVideoStreamingLoader != nil else { return }
         musicVideoPlayer?.pause()
         removeMusicVideoObservers()
         if clearPlayer {
             musicVideoPlayer?.replaceCurrentItem(with: nil)
             musicVideoPlayer = nil
+            musicVideoStreamingLoader?.invalidate()
+            musicVideoStreamingLoader = nil
         }
         isMusicVideoPlaybackActive = false
     }
@@ -899,6 +967,10 @@ final class AudioPlayerService {
         clearPendingPlaybackRecovery()
         let callerFile = (caller as NSString).lastPathComponent
         plog("▶️ play(song: \(song.title)) playID=\(id.uuidString.prefix(8)) FROM=\(callerFile):\(callerLine)")
+
+        // 切歌即取消上一首遗留的 MV 后台下载(保留 .partial 可续传),
+        // 避免连续切歌积累多个全量下载并发抢带宽。
+        sourceManager?.cancelMusicVideoDownloads(keeping: song)
 
         // Apple Music 歌走系统侧 ApplicationMusicPlayer (DRM 流不能经
         // AVAudioEngine 解), 跨 player 切换 — 先停我们自己的播放器再让
@@ -2193,6 +2265,7 @@ final class AudioPlayerService {
         audioEngine.stopCrossfadeNode()
         audioEngine.resetPlayerVolume()
         stopMusicVideoPlayback(clearPlayer: true)
+        sourceManager?.cancelMusicVideoDownloads(keeping: nil)
         isPlaying = false
         isAtTrackEnd = false
         currentSong = nil
@@ -2322,10 +2395,10 @@ final class AudioPlayerService {
             currentTime = targetTime
             isLoading = true
             isAtTrackEnd = false
+            // 默认 tolerance —— 视频精确 seek 要重解整个 GOP, 拖进度条会
+            // 明显顿挫; 落点由 periodic observer 回写, 进度条自然对齐。
             musicVideoPlayer?.seek(
-                to: CMTime(seconds: targetTime, preferredTimescale: 600),
-                toleranceBefore: .zero,
-                toleranceAfter: .zero
+                to: CMTime(seconds: targetTime, preferredTimescale: 600)
             ) { [weak self] _ in
                 Task { @MainActor [weak self] in
                     guard let self else { return }

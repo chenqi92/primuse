@@ -989,10 +989,10 @@ final class SourceManager {
         return try await conn.localURL(for: song.filePath)
     }
 
-    func resolveVideoURL(for song: Song) async throws -> URL? {
+    func resolveVideoAsset(for song: Song) async throws -> MusicVideoPlaybackAsset? {
         guard let mvPath = normalizedMusicVideoPath(for: song) else { return nil }
         if let url = URL(string: mvPath), let scheme = url.scheme, !scheme.isEmpty {
-            return url
+            return .url(url)
         }
 
         let sources = try await sourcesProvider()
@@ -1004,14 +1004,42 @@ final class SourceManager {
         try await conn.connect()
 
         if let streamURL = try await conn.streamingURL(for: mvPath) {
-            return streamURL
+            return .url(streamURL)
         }
 
         if source.type.category == .local {
-            return try await conn.localURL(for: mvPath)
+            return .url(try await conn.localURL(for: mvPath))
         }
 
-        return try await cachedMusicVideoURL(for: mvPath, source: source, connector: conn)
+        // 完整缓存直接本地播, 远端 size 校验放到后台 —— 命中路径不付
+        // listFiles 的网络往返, 远端文件被替换时删缓存让下次播放重下。
+        let target = videoCacheURL(sourceID: source.id, path: mvPath)
+        if FileManager.default.fileExists(atPath: target.path) {
+            recordVideoCacheAccess(target)
+            scheduleVideoCacheRevalidation(path: mvPath, connector: conn, target: target)
+            return .url(target)
+        }
+
+        // 边下边播: 知道远端大小的 range 源用 resource loader 即点即播,
+        // 后台顺序下载并行把完整文件落进缓存(loader 读已覆盖的前缀省流量)。
+        if source.supportsRangeStreaming,
+           let expectedSize = try? await Self.musicVideoFileSize(path: mvPath, connector: conn),
+           expectedSize > 0 {
+            let loader = MusicVideoStreamingLoader(
+                connector: conn,
+                path: mvPath,
+                contentLength: expectedSize,
+                cacheTarget: target,
+                chunkBytes: Self.videoCacheChunkBytes
+            )
+            if let asset = loader.makeAsset() {
+                ensureMusicVideoCacheDownload(for: mvPath, source: source, connector: conn, expectedSize: expectedSize)
+                return .streaming(asset, loader)
+            }
+        }
+
+        // 兜底(拿不到远端大小 / 无 range 能力): 全量下载进缓存后播放。
+        return .url(try await cachedMusicVideoURL(for: mvPath, source: source, connector: conn))
     }
 
     private func normalizedMusicVideoPath(for song: Song) -> String? {
@@ -1027,9 +1055,9 @@ final class SourceManager {
 
     // MARK: - Music Video Cache
 
-    private static let videoCacheDirName = "primuse_video_cache"
-    private static let videoCacheLimitBytes: Int64 = 10 * 1024 * 1024 * 1024
-    private static let videoCacheChunkBytes: Int64 = 4 * 1024 * 1024
+    private nonisolated static let videoCacheDirName = "primuse_video_cache"
+    private nonisolated static let videoCacheLimitBytes: Int64 = 10 * 1024 * 1024 * 1024
+    private nonisolated static let videoCacheChunkBytes: Int64 = 4 * 1024 * 1024
 
     private func videoCacheDirectory(for sourceID: String) -> URL {
         let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
@@ -1051,32 +1079,71 @@ final class SourceManager {
         return ext.isEmpty ? hash : "\(hash).\(ext)"
     }
 
+    /// 取消所有不再需要的 MV 后台下载。切歌/停播时调用: 被取消的任务
+    /// 保留 .partial 支持断点续传, 同时把并发压回最多一个活跃下载,
+    /// 避免连续切歌积累多个全量下载抢带宽、击穿缓存限额。
+    func cancelMusicVideoDownloads(keeping song: Song?) {
+        var keepKey: String?
+        if let song, let mvPath = normalizedMusicVideoPath(for: song) {
+            keepKey = Self.musicVideoCacheKey(sourceID: song.sourceID, path: mvPath)
+        }
+        for (key, task) in musicVideoCacheTasks where key != keepKey {
+            task.cancel()
+        }
+    }
+
+    private static func musicVideoCacheKey(sourceID: String, path: String) -> String {
+        "\(sourceID):\(path)"
+    }
+
     private func cachedMusicVideoURL(for path: String, source: MusicSource, connector: any MusicSourceConnector) async throws -> URL {
-        let cacheKey = "\(source.id):\(path)"
+        try await ensureMusicVideoCacheDownload(for: path, source: source, connector: connector, expectedSize: nil).value
+    }
+
+    /// 启动(或复用)后台顺序缓存下载。写盘在全局执行器上进行, 只有
+    /// task 字典的登记/清理留在 MainActor。
+    @discardableResult
+    private func ensureMusicVideoCacheDownload(
+        for path: String,
+        source: MusicSource,
+        connector: any MusicSourceConnector,
+        expectedSize: Int64?
+    ) -> Task<URL, Error> {
+        let cacheKey = Self.musicVideoCacheKey(sourceID: source.id, path: path)
         if let task = musicVideoCacheTasks[cacheKey] {
-            return try await task.value
+            return task
         }
 
         let target = videoCacheURL(sourceID: source.id, path: path)
-        let task = Task { @MainActor [self] in
+        let task = Task { [self] in
             defer {
                 self.musicVideoCacheTasks[cacheKey] = nil
                 self.musicVideoCacheTargets[cacheKey] = nil
             }
-            return try await self.materializeCachedMusicVideoURL(for: path, source: source, connector: connector, target: target)
+            return try await self.materializeCachedMusicVideoURL(
+                for: path, source: source, connector: connector, target: target, expectedSize: expectedSize
+            )
         }
         musicVideoCacheTasks[cacheKey] = task
         musicVideoCacheTargets[cacheKey] = target
-        return try await task.value
+        return task
     }
 
-    private func materializeCachedMusicVideoURL(
+    /// nonisolated —— 文件 IO(写盘/复制/校验)不占主线程; 需要 MainActor
+    /// 状态(in-flight 保护名单)时单点 hop 回去取快照。
+    private nonisolated func materializeCachedMusicVideoURL(
         for path: String,
         source: MusicSource,
         connector: any MusicSourceConnector,
-        target: URL
+        target: URL,
+        expectedSize knownSize: Int64?
     ) async throws -> URL {
-        let expectedSize = try? await musicVideoFileSize(path: path, connector: connector)
+        let expectedSize: Int64?
+        if let knownSize, knownSize > 0 {
+            expectedSize = knownSize
+        } else {
+            expectedSize = try? await Self.musicVideoFileSize(path: path, connector: connector)
+        }
         if FileManager.default.fileExists(atPath: target.path) {
             if let expectedSize, expectedSize > 0, byteSize(at: target) != expectedSize {
                 plog("🗑 MV cache: stale/incomplete cached video source=\(source.id.prefix(8)) path=\((path as NSString).lastPathComponent) actual=\(byteSize(at: target) / 1024)KB expected=\(expectedSize / 1024)KB")
@@ -1087,21 +1154,8 @@ final class SourceManager {
             }
         }
 
-        if let expectedSize, expectedSize > 0 {
-            let partial = URL(fileURLWithPath: target.path + ".partial")
-            let partialSize = byteSize(at: partial)
-            if partialSize > expectedSize {
-                try? FileManager.default.removeItem(at: partial)
-            } else if partialSize == expectedSize {
-                try? FileManager.default.removeItem(at: target)
-                try FileManager.default.moveItem(at: partial, to: target)
-                recordVideoCacheAccess(target)
-                return target
-            }
-        }
-
         try? FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-        evictVideoCacheIfNeeded(reserveBytes: expectedSize ?? 0, protecting: target)
+        evictVideoCache(reserveBytes: expectedSize ?? 0, protectedPaths: await protectedVideoCachePaths(including: target))
 
         if source.supportsRangeStreaming {
             try await downloadMusicVideoByRanges(path: path, connector: connector, target: target, expectedSize: expectedSize)
@@ -1111,11 +1165,26 @@ final class SourceManager {
         }
 
         recordVideoCacheAccess(target)
-        evictVideoCacheIfNeeded(reserveBytes: 0, protecting: target)
+        evictVideoCache(reserveBytes: 0, protectedPaths: await protectedVideoCachePaths(including: target))
         return target
     }
 
-    private func musicVideoFileSize(path: String, connector: any MusicSourceConnector) async throws -> Int64? {
+    /// 缓存命中后的后台校验: 远端文件被同名替换(大小变化)时删掉本地
+    /// 缓存, 本次播放不受影响(已打开的文件句柄仍可读), 下次播放重下。
+    private nonisolated func scheduleVideoCacheRevalidation(
+        path: String,
+        connector: any MusicSourceConnector,
+        target: URL
+    ) {
+        Task.detached(priority: .utility) { [self] in
+            guard let expected = try? await Self.musicVideoFileSize(path: path, connector: connector),
+                  expected > 0, byteSize(at: target) != expected else { return }
+            plog("🗑 MV cache: remote size changed, invalidating \(target.lastPathComponent)")
+            removeCacheFileFamily(at: target)
+        }
+    }
+
+    private nonisolated static func musicVideoFileSize(path: String, connector: any MusicSourceConnector) async throws -> Int64? {
         let nsPath = path as NSString
         let parent = nsPath.deletingLastPathComponent
         let fileName = nsPath.lastPathComponent
@@ -1128,7 +1197,7 @@ final class SourceManager {
         }?.size
     }
 
-    private func downloadMusicVideoByRanges(
+    private nonisolated func downloadMusicVideoByRanges(
         path: String,
         connector: any MusicSourceConnector,
         target: URL,
@@ -1137,14 +1206,13 @@ final class SourceManager {
         let partial = URL(fileURLWithPath: target.path + ".partial")
         var offset = byteSize(at: partial)
         if let expectedSize, expectedSize > 0 {
-            if offset >= expectedSize {
-                try? FileManager.default.removeItem(at: target)
-                try FileManager.default.moveItem(at: partial, to: target)
-                return
-            }
             if offset > expectedSize {
                 try? FileManager.default.removeItem(at: partial)
                 offset = 0
+            } else if offset == expectedSize {
+                try? FileManager.default.removeItem(at: target)
+                try FileManager.default.moveItem(at: partial, to: target)
+                return
             }
         }
 
@@ -1197,24 +1265,37 @@ final class SourceManager {
         }
     }
 
-    private static func isRangeEndError(_ error: Error) -> Bool {
+    private nonisolated static func isRangeEndError(_ error: Error) -> Bool {
         if case CloudDriveError.apiError(let code, _) = error {
             return code == 416
         }
         return false
     }
 
-    private func copyMusicVideoFile(from source: URL, to target: URL) throws {
+    private nonisolated func copyMusicVideoFile(from source: URL, to target: URL) throws {
         if source.standardizedFileURL == target.standardizedFileURL { return }
         try? FileManager.default.removeItem(at: target)
         try FileManager.default.copyItem(at: source, to: target)
     }
 
-    private func recordVideoCacheAccess(_ url: URL) {
+    private nonisolated func recordVideoCacheAccess(_ url: URL) {
         try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: url.path)
     }
 
-    private func evictVideoCacheIfNeeded(reserveBytes: Int64, protecting protectedURL: URL? = nil) {
+    /// in-flight 下载的 target/.partial 不参与驱逐 —— MainActor 上取快照,
+    /// 枚举删除的重活交给 nonisolated 的 evictVideoCache 在后台执行器做。
+    private func protectedVideoCachePaths(including url: URL?) -> Set<String> {
+        var paths: Set<String> = []
+        func add(_ u: URL) {
+            paths.insert(u.standardizedFileURL.path)
+            paths.insert(URL(fileURLWithPath: u.path + ".partial").standardizedFileURL.path)
+        }
+        if let url { add(url) }
+        for target in musicVideoCacheTargets.values { add(target) }
+        return paths
+    }
+
+    private nonisolated func evictVideoCache(reserveBytes: Int64, protectedPaths: Set<String>) {
         let basePath = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
             .appendingPathComponent(Self.videoCacheDirName)
         guard let enumerator = FileManager.default.enumerator(
@@ -1223,15 +1304,6 @@ final class SourceManager {
             options: [.skipsHiddenFiles]
         ) else { return }
 
-        var protectedPaths: Set<String> = []
-        if let protectedURL {
-            protectedPaths.insert(protectedURL.standardizedFileURL.path)
-            protectedPaths.insert(URL(fileURLWithPath: protectedURL.path + ".partial").standardizedFileURL.path)
-        }
-        for target in musicVideoCacheTargets.values {
-            protectedPaths.insert(target.standardizedFileURL.path)
-            protectedPaths.insert(URL(fileURLWithPath: target.path + ".partial").standardizedFileURL.path)
-        }
         var total: Int64 = 0
         var entries: [(url: URL, modified: Date)] = []
         while let url = enumerator.nextObject() as? URL {
@@ -1267,6 +1339,7 @@ final class SourceManager {
     private func deleteMusicVideoCache(for song: Song) {
         guard let mvPath = normalizedMusicVideoPath(for: song),
               URL(string: mvPath)?.scheme == nil else { return }
+        musicVideoCacheTasks[Self.musicVideoCacheKey(sourceID: song.sourceID, path: mvPath)]?.cancel()
         removeCacheFileFamily(at: videoCacheURL(sourceID: song.sourceID, path: mvPath))
     }
 
@@ -1686,13 +1759,13 @@ final class SourceManager {
         try FileManager.default.copyItem(at: source, to: target)
     }
 
-    private func fileSize(at url: URL) -> Int64? {
+    private nonisolated func fileSize(at url: URL) -> Int64? {
         guard let values = try? url.resourceValues(forKeys: [.totalFileAllocatedSizeKey]),
               let size = values.totalFileAllocatedSize else { return nil }
         return Int64(size)
     }
 
-    private func byteSize(at url: URL) -> Int64 {
+    private nonisolated func byteSize(at url: URL) -> Int64 {
         guard let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? Int64 else {
             return 0
         }
@@ -2054,7 +2127,7 @@ final class SourceManager {
         }
     }
 
-    private func removeCacheFileFamily(at url: URL) {
+    private nonisolated func removeCacheFileFamily(at url: URL) {
         try? FileManager.default.removeItem(at: url)
         let partial = URL(fileURLWithPath: url.path + ".partial")
         try? FileManager.default.removeItem(at: partial)

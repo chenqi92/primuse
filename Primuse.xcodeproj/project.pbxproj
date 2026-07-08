@@ -595,6 +595,7 @@
 		EC444736CDE5CEAF3E97B453 /* CloudPlaybackSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3024D172840BEE722BD53FF /* CloudPlaybackSource.swift */; };
 		EC6116A5D537EA6A483CDBA2 /* UpdateBannerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 428DCE75417C9BAE087880F9 /* UpdateBannerSheet.swift */; };
 		ECDDDC7107FB4CC43091C1C3 /* StoredCoverArtView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9B1688ED9374813585EC4C6 /* StoredCoverArtView.swift */; };
+		ECEDFBC81578D3110BFAC3B9 /* MusicVideoStreamingLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11600D843C3681F87A75F59B /* MusicVideoStreamingLoader.swift */; };
 		ED5197E708CC23A311F0D6B6 /* ITunesScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1254C88A6F33F2A3A73C2CA /* ITunesScraper.swift */; };
 		EDD2AD540C5515AB2532C02E /* AudioQualityBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 057DEC08E8DF0DA7DDE5DFDA /* AudioQualityBadge.swift */; };
 		EE40C14EC379B339FE3A1C41 /* Citadel in Frameworks */ = {isa = PBXBuildFile; productRef = 0606057AA8A4360CCC6E7DCC /* Citadel */; };
@@ -619,6 +620,7 @@
 		F3EA7BACCB01D8BF92192A3E /* AudioEffectsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78324748ACDF339A48E0E8D4 /* AudioEffectsService.swift */; };
 		F42267DB1E4B85832BE4E52D /* ScrapeOptionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11180515D910975A39CBE6C5 /* ScrapeOptionsView.swift */; };
 		F45510F7EDAE425A749A03CF /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F652918A8A39CEF7841384ED /* OnboardingView.swift */; };
+		F541FEEE24E4E7AA015EF638 /* MusicVideoStreamingLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11600D843C3681F87A75F59B /* MusicVideoStreamingLoader.swift */; };
 		F5FAEDD96A758DD69780B968 /* SMBSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEF1C4D090D0F65114B8F0D5 /* SMBSource.swift */; };
 		F601A246B39932913307C8CF /* CloudInputSourceObjC.m in Sources */ = {isa = PBXBuildFile; fileRef = D34E04201479990BA80AEE2A /* CloudInputSourceObjC.m */; };
 		F6252DF57585604301CB0CF7 /* DuplicateSongsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A41D663BB9CFFF6AF3D062D6 /* DuplicateSongsView.swift */; };
@@ -846,6 +848,7 @@
 		10EA195119C963A2DA62FC69 /* WidgetSnapshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSnapshots.swift; sourceTree = "<group>"; };
 		11180515D910975A39CBE6C5 /* ScrapeOptionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrapeOptionsView.swift; sourceTree = "<group>"; };
 		111D15C431BBFAC41E4D37B1 /* FileFormatRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileFormatRouter.swift; sourceTree = "<group>"; };
+		11600D843C3681F87A75F59B /* MusicVideoStreamingLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicVideoStreamingLoader.swift; sourceTree = "<group>"; };
 		128F97B910573229B86FAD8A /* CachedArtworkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CachedArtworkView.swift; sourceTree = "<group>"; };
 		12A2BC6296FF8B06F4EA887E /* YearlyReportCards.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YearlyReportCards.swift; sourceTree = "<group>"; };
 		136A0C5EFAF6D7C7056C69A4 /* SharedConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedConstants.swift; sourceTree = "<group>"; };
@@ -1332,6 +1335,7 @@
 				A3024D172840BEE722BD53FF /* CloudPlaybackSource.swift */,
 				0EA999555F455617E1DF9281 /* EqualizerService.swift */,
 				E083139645350B81D8E8C645 /* FFmpegAudioDecoder.swift */,
+				11600D843C3681F87A75F59B /* MusicVideoStreamingLoader.swift */,
 				3B638BB94F0E6542668978B3 /* NativeAudioDecoder.swift */,
 				80BF155F8BD6EBFBBAA9B83A /* PlaybackSettingsStore.swift */,
 				FF7F66F30F1802BA29DEB696 /* StreamingDownloadDecoder.swift */,
@@ -2838,6 +2842,7 @@
 				384C1E6C267650A993BDAF4F /* MusicScraperProtocol.swift in Sources */,
 				C5C3EDB97E878C3354348252 /* MusicScraperService.swift in Sources */,
 				C3901452DB852A06AC8F4108 /* MusicSourceProtocol.swift in Sources */,
+				F541FEEE24E4E7AA015EF638 /* MusicVideoStreamingLoader.swift in Sources */,
 				CBF80DCFF81D6AD88D25A143 /* NFSBrowserView.swift in Sources */,
 				C6E282334931C63D5C91CB7B /* NFSSource.swift in Sources */,
 				97FDC1287DB3CE7142AD3890 /* NativeAudioDecoder.swift in Sources */,
@@ -3128,6 +3133,7 @@
 				42D3D23AAADAC9B441E04D87 /* MusicScraperProtocol.swift in Sources */,
 				F0C26F653605E21534860B2F /* MusicScraperService.swift in Sources */,
 				2D91073D2E343E7F6407AB79 /* MusicSourceProtocol.swift in Sources */,
+				ECEDFBC81578D3110BFAC3B9 /* MusicVideoStreamingLoader.swift in Sources */,
 				10487AC0C5FAFDAFC022D23A /* NFSBrowserView.swift in Sources */,
 				DDB06ADDF4431E958BF177F7 /* NFSSource.swift in Sources */,
 				36E0CFC3794360116070FDE6 /* NativeAudioDecoder.swift in Sources */,
@@ -3655,7 +3661,7 @@
 				CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 17;
+				CURRENT_PROJECT_VERSION = 18;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = 2U97K3U27A;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -3676,7 +3682,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.6.2;
+				MARKETING_VERSION = 1.6.3;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -3769,7 +3775,7 @@
 				CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 17;
+				CURRENT_PROJECT_VERSION = 18;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = 2U97K3U27A;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -3784,7 +3790,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.6.2;
+				MARKETING_VERSION = 1.6.3;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
