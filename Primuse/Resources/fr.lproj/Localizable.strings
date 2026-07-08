@@ -1180,8 +1180,8 @@
 "smart_playlist_combinator_or" = "N'importe quelle condition";
 "notify_scan_failed_title" = "Échec de l'analyse";
 "notify_scan_failed_body" = "Analyse de « %@ » interrompue : %@";
-"notify_scrape_done_body" = "Complétion des métadonnées de « %@ » terminée (%d morceaux).";
-"notify_scrape_done_body_with_failures" = "Complétion des métadonnées de « %@ » terminée (%d morceaux, %d échec).";
+"notify_scrape_done_body" = "Complétion des métadonnées terminée (%d morceaux).";
+"notify_scrape_done_body_with_failures" = "Complétion des métadonnées terminée (%d morceaux, %d échec).";
 "notify_cloud_sync_failed_title" = "Échec de la synchronisation iCloud";
 "open_keychain_settings" = "Ouvrir les réglages du trousseau";
 "dup_show_all_format" = "Afficher les %d groupes restants";

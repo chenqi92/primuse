@@ -1181,8 +1181,8 @@
 "smart_playlist_combinator_or" = "いずれかの条件";
 "notify_scan_failed_title" = "スキャンに失敗しました";
 "notify_scan_failed_body" = "「%@」のスキャンが中断されました：%@";
-"notify_scrape_done_body" = "「%@」のメタデータ補完が完了しました（%d 曲）。";
-"notify_scrape_done_body_with_failures" = "「%@」のメタデータ補完が完了しました（%d 曲中 %d 曲が失敗）。";
+"notify_scrape_done_body" = "メタデータ補完が完了しました（%d 曲）。";
+"notify_scrape_done_body_with_failures" = "メタデータ補完が完了しました（%d 曲、%d 曲が失敗）。";
 "notify_cloud_sync_failed_title" = "iCloud 同期に失敗しました";
 "open_keychain_settings" = "キーチェーン設定を開く";
 "dup_show_all_format" = "残り %d グループを表示";

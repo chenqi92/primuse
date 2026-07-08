@@ -1180,8 +1180,8 @@
 "smart_playlist_combinator_or" = "Beliebige Bedingung";
 "notify_scan_failed_title" = "Scan fehlgeschlagen";
 "notify_scan_failed_body" = "Scan von „%@“ unterbrochen: %@";
-"notify_scrape_done_body" = "Metadaten-Ergänzung für „%@“ abgeschlossen (%d Titel).";
-"notify_scrape_done_body_with_failures" = "Metadaten-Ergänzung für „%@“ abgeschlossen (%d Titel, %d fehlgeschlagen).";
+"notify_scrape_done_body" = "Metadaten-Ergänzung abgeschlossen (%d Titel).";
+"notify_scrape_done_body_with_failures" = "Metadaten-Ergänzung abgeschlossen (%d Titel, %d fehlgeschlagen).";
 "notify_cloud_sync_failed_title" = "iCloud-Synchronisierung fehlgeschlagen";
 "open_keychain_settings" = "Schlüsselbund-Einstellungen öffnen";
 "dup_show_all_format" = "Verbleibende %d Gruppen anzeigen";

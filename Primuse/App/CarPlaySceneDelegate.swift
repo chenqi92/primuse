@@ -188,8 +188,13 @@ extension CarPlaySceneDelegate {
         // CPInformationTemplate — putting 一个 CPSearchTemplate here throws
         // an NSException at init. Search is exposed via a magnifying-glass
         // bar button on every list template instead (see makeSearchBarButton).
-        // 5 个 tab 是上限, 顺序按车里使用频率: 最近 / 歌单 / 专辑 / 艺术家 / 歌曲
-        let tabBar = CPTabBarTemplate(templates: [recent, playlists, albums, artists, songs])
+        // tab 上限随系统/车机而变 (maximumTabCount 可能是 4 而非 5), 超出会在
+        // init 抛 NSException — 按车里使用频率排序后截断: 最近 / 歌单 / 专辑 /
+        // 艺术家 / 歌曲
+        let orderedTabs = [recent, playlists, albums, artists, songs]
+        let tabBar = CPTabBarTemplate(
+            templates: Array(orderedTabs.prefix(CPTabBarTemplate.maximumTabCount))
+        )
         tabBar.delegate = self
         tabBarTemplate = tabBar
         return tabBar

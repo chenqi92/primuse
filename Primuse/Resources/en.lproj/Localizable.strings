@@ -1228,8 +1228,8 @@
 // MARK: - Notifications
 "notify_scan_failed_title" = "Scan failed";
 "notify_scan_failed_body" = "“%@” scan interrupted: %@";
-"notify_scrape_done_body" = "“%@” metadata fill-in complete (%d songs).";
-"notify_scrape_done_body_with_failures" = "“%@” metadata fill-in complete (%d songs, %d failed).";
+"notify_scrape_done_body" = "Metadata fill-in complete (%d songs).";
+"notify_scrape_done_body_with_failures" = "Metadata fill-in complete (%d songs, %d failed).";
 "notify_cloud_sync_failed_title" = "iCloud sync failed";
 
 // MARK: - macOS Cloud Sync settings

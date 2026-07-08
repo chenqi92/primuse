@@ -1180,8 +1180,8 @@
 "smart_playlist_combinator_or" = "임의의 조건";
 "notify_scan_failed_title" = "스캔 실패";
 "notify_scan_failed_body" = "“%@” 스캔이 중단되었습니다: %@";
-"notify_scrape_done_body" = "“%@” 메타데이터 채우기가 완료되었습니다(%d곡).";
-"notify_scrape_done_body_with_failures" = "“%@” 메타데이터 채우기가 완료되었습니다(%d곡, %d곡 실패).";
+"notify_scrape_done_body" = "메타데이터 채우기가 완료되었습니다(%d곡).";
+"notify_scrape_done_body_with_failures" = "메타데이터 채우기가 완료되었습니다(%d곡, %d곡 실패).";
 "notify_cloud_sync_failed_title" = "iCloud 동기화 실패";
 "open_keychain_settings" = "키체인 설정 열기";
 "dup_show_all_format" = "나머지 %d개 그룹 표시";

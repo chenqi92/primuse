@@ -1229,8 +1229,8 @@
 // MARK: - Notifications
 "notify_scan_failed_title" = "扫描失败";
 "notify_scan_failed_body" = "「%@」扫描中断：%@";
-"notify_scrape_done_body" = "「%@」元数据补全完成，共 %d 首。";
-"notify_scrape_done_body_with_failures" = "「%@」元数据补全完成，共 %d 首，其中 %d 首失败。";
+"notify_scrape_done_body" = "元数据补全完成，共 %d 首。";
+"notify_scrape_done_body_with_failures" = "元数据补全完成，共 %d 首，其中 %d 首失败。";
 "notify_cloud_sync_failed_title" = "iCloud 同步失败";
 
 // MARK: - macOS Cloud Sync settings

@@ -1119,8 +1119,8 @@
 "smart_playlist_combinator_or" = "任一滿足";
 "notify_scan_failed_title" = "掃描失敗";
 "notify_scan_failed_body" = "「%@」掃描中斷：%@";
-"notify_scrape_done_body" = "「%@」中繼資料補齊完成，共 %d 首。";
-"notify_scrape_done_body_with_failures" = "「%@」中繼資料補齊完成，共 %d 首，其中 %d 首失敗。";
+"notify_scrape_done_body" = "中繼資料補齊完成，共 %d 首。";
+"notify_scrape_done_body_with_failures" = "中繼資料補齊完成，共 %d 首，其中 %d 首失敗。";
 "notify_cloud_sync_failed_title" = "iCloud 同步失敗";
 "open_keychain_settings" = "開啟鑰匙圈設定";
 "dup_show_all_format" = "顯示其餘 %d 組";
