@@ -466,6 +466,7 @@ final class SourceManager {
             connector = S3Source(
                 sourceID: source.id,
                 endpoint: source.host ?? "s3.amazonaws.com",
+                port: source.port,
                 region: source.s3Region ?? "us-east-1",
                 bucket: source.basePath ?? "",
                 accessKey: source.username ?? "",

@@ -36,7 +36,8 @@ actor TVSMBLister: TVDirectoryLister {
         serverURL = url
         let user = (cred?.username ?? source.username ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let pass = (cred?.password ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        credential = URLCredential(user: user, password: pass, persistence: .forSession)
+        let isGuest = user.isEmpty && pass.isEmpty
+        credential = URLCredential(user: isGuest ? "guest" : user, password: pass, persistence: .forSession)
         configuredShare = (source.shareName ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
     }
 

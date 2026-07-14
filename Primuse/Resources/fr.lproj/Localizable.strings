@@ -255,6 +255,7 @@
 "password" = "Mot de passe";
 "api_key" = "API Key";
 "auth_method" = "Méthode d'authentification";
+"guest_access" = "Invité";
 "ssh_key" = "Clé SSH";
 "ssh_key_placeholder" = "Collez la clé privée PEM ici…";
 "test_connection" = "Tester la connexion";
@@ -294,7 +295,7 @@
 "delete_song_message" = "Lorsque la source prend en charge la suppression, le fichier du morceau source sera supprimé. Les fichiers de pochette/paroles du même nom ne sont supprimés que si aucun autre morceau ne les utilise, et les caches locaux sont effacés.";
 "scan" = "Analyser";
 "password_edit_hint" = "Laissez vide pour conserver le mot de passe actuel";
-"anonymous_login_hint" = "Laissez le nom d'utilisateur et le mot de passe vides pour vous connecter de façon anonyme";
+"anonymous_login_hint" = "Aucun identifiant n'est utilisé ; les identifiants enregistrés sont supprimés lors de l'enregistrement";
 "select_directories" = "Sélectionner des dossiers";
 "scan_directories" = "Analyser les dossiers";
 "scan_directories_hint" = "Connectez-vous et sélectionnez les dossiers à analyser pour rechercher des fichiers musicaux";

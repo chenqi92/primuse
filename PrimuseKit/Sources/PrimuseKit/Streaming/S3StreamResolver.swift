@@ -27,7 +27,7 @@ public struct S3StreamResolver: StreamResolver {
         guard !bucket.isEmpty, !key.isEmpty else { throw StreamResolveError.cannotBuildURL }
 
         let scheme = source.useSsl ? "https" : "http"
-        let host = Self.host(from: endpoint)
+        let host = Self.host(from: endpoint, port: source.port, scheme: scheme)
         let canonicalURI = "/\(bucket)/\(key)"
         let (amzDate, dateStamp) = Self.timestamps(Date())
 
@@ -98,12 +98,40 @@ public struct S3StreamResolver: StreamResolver {
         return region
     }
 
-    /// 取 host[:port],去掉可能带的 scheme 与路径。
-    static func host(from endpoint: String) -> String {
-        var h = endpoint
-        if let r = h.range(of: "://") { h = String(h[r.upperBound...]) }
-        if let slash = h.firstIndex(of: "/") { h = String(h[..<slash]) }
-        return h
+    /// 取 canonical host[:port]，去掉可能带的 scheme 与路径；若 endpoint
+    /// 本身没有端口，则采用来源表单单独保存的端口。
+    static func host(from endpoint: String, port: Int? = nil, scheme: String = "https") -> String {
+        let trimmed = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasScheme = trimmed.contains("://")
+        let candidateHost: String
+        if !hasScheme,
+           trimmed.filter({ $0 == ":" }).count > 1,
+           !trimmed.hasPrefix("[") {
+            candidateHost = "[\(trimmed)]"
+        } else {
+            candidateHost = trimmed
+        }
+        let candidate = hasScheme ? trimmed : "\(scheme)://\(candidateHost)"
+
+        if let components = URLComponents(string: candidate),
+           let parsedHost = components.host,
+           !parsedHost.isEmpty {
+            let hostPart = parsedHost.contains(":") && !parsedHost.hasPrefix("[")
+                ? "[\(parsedHost)]"
+                : parsedHost
+            if let effectivePort = components.port ?? port {
+                let defaultPort = scheme.lowercased() == "https" ? 443 : 80
+                if effectivePort != defaultPort {
+                    return "\(hostPart):\(effectivePort)"
+                }
+            }
+            return hostPart
+        }
+
+        var fallback = trimmed
+        if let range = fallback.range(of: "://") { fallback = String(fallback[range.upperBound...]) }
+        if let slash = fallback.firstIndex(of: "/") { fallback = String(fallback[..<slash]) }
+        return fallback
     }
 
     static func timestamps(_ date: Date) -> (amzDate: String, dateStamp: String) {

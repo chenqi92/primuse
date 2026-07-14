@@ -256,6 +256,7 @@
 "password" = "パスワード";
 "api_key" = "API キー";
 "auth_method" = "認証方式";
+"guest_access" = "ゲスト";
 "ssh_key" = "SSH キー";
 "ssh_key_placeholder" = "PEM 形式の秘密鍵をここに貼り付け...";
 "test_connection" = "接続をテスト";
@@ -295,7 +296,7 @@
 "delete_song_message" = "削除に対応したソースでは、ソースの曲ファイルが削除されます。同名のカバー／歌詞ファイルは、ほかの曲で使用されていない場合にのみ削除され、ローカルキャッシュも消去されます。";
 "scan" = "スキャン";
 "password_edit_hint" = "空欄のままにすると現在のパスワードを維持します";
-"anonymous_login_hint" = "ユーザ名とパスワードを空欄にすると匿名で接続します";
+"anonymous_login_hint" = "ユーザ名とパスワードを使用せず、保存時に以前の認証情報を削除します";
 "select_directories" = "ディレクトリを選択";
 "scan_directories" = "ディレクトリをスキャン";
 "scan_directories_hint" = "接続して、音楽ファイルをスキャンするディレクトリを選択してください";

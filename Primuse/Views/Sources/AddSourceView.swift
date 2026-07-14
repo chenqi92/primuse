@@ -46,8 +46,17 @@ struct AddSourceView: View {
 
     private var isEditing: Bool { editingSource != nil }
     private var supportsAPIKeyAuth: Bool { [.jellyfin, .emby, .plex].contains(sourceType) }
+    private var validatedPort: Int? {
+        let trimmed = port.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let value = Int(trimmed), (1...65_535).contains(value) else { return nil }
+        return value
+    }
     private var canSave: Bool {
-        if name.isEmpty || (sourceType.requiresHost && host.isEmpty) {
+        if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return false
+        }
+        if sourceType.requiresHost,
+           (host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || validatedPort == nil) {
             return false
         }
 
@@ -66,12 +75,14 @@ struct AddSourceView: View {
         case .sshKey:
             return sshKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false || hasStoredSecret
         case .password:
-            if password.isEmpty == false || hasStoredSecret { return true }
-            return sourceType.supportsAnonymous
+            guard username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+                return false
+            }
+            return password.isEmpty == false || hasStoredSecret
         case .apiKey, .cookie, .oauth:
             return password.isEmpty == false || hasStoredSecret
         case .none:
-            return true
+            return sourceType.supportsAnonymous
         }
     }
 
@@ -187,9 +198,7 @@ struct AddSourceView: View {
         if sourceType.requiresHost {
             macSection("connection_info") {
                 macTextRow("host_address", text: $host, focus: .host)
-                if sourceType != .smb {
-                    macTextRow("port", text: $port, focus: .port, width: 120)
-                }
+                macTextRow("port", text: $port, focus: .port, width: 120)
                 if ![MusicSourceType.smb, .ftp, .sftp, .nfs].contains(sourceType) {
                     macToggleRow("use_ssl", isOn: $useSsl)
                 }
@@ -200,11 +209,13 @@ struct AddSourceView: View {
 
         if sourceType.requiresCredentials {
             macSection("credentials") {
-                if sourceType == .sftp || supportsAPIKeyAuth {
+                if sourceType == .sftp || supportsAPIKeyAuth || sourceType.supportsAnonymous {
                     macCustomRow("auth_method") {
                         Picker("", selection: $authType) {
                             Text("password").tag(SourceAuthType.password)
-                            if supportsAPIKeyAuth {
+                            if sourceType.supportsAnonymous {
+                                Text("guest_access").tag(SourceAuthType.none)
+                            } else if supportsAPIKeyAuth {
                                 Text("api_key").tag(SourceAuthType.apiKey)
                             } else {
                                 Text("ssh_key").tag(SourceAuthType.sshKey)
@@ -216,11 +227,13 @@ struct AddSourceView: View {
                     }
                 }
 
-                if authType != .apiKey {
+                if authType != .apiKey && authType != .none {
                     macTextRow("username", text: $username, focus: .username)
                 }
 
-                if authType == .sshKey && sourceType == .sftp {
+                if authType == .none {
+                    macInfoRow("anonymous_login_hint")
+                } else if authType == .sshKey && sourceType == .sftp {
                     macCustomBlock("ssh_key") {
                         ZStack(alignment: .topLeading) {
                             TextEditor(text: $sshKey)
@@ -248,11 +261,8 @@ struct AddSourceView: View {
                     }
                 }
 
-                if isEditing {
+                if isEditing && authType != .none {
                     macInfoRow("password_edit_hint")
-                }
-                if sourceType.supportsAnonymous && authType == .password {
-                    macInfoRow("anonymous_login_hint")
                 }
             }
         }
@@ -493,12 +503,10 @@ struct AddSourceView: View {
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
                     .submitLabel(.next)
-                    .onSubmit { focusedField = sourceType == .smb ? .shareName : .port }
-                if sourceType != .smb {
-                    TextField("port", text: $port)
-                        .focused($focusedField, equals: .port)
-                        .keyboardType(.numberPad)
-                }
+                    .onSubmit { focusedField = .port }
+                TextField("port", text: $port)
+                    .focused($focusedField, equals: .port)
+                    .keyboardType(.numberPad)
                 if ![MusicSourceType.smb, .ftp, .sftp, .nfs].contains(sourceType) {
                     Toggle("use_ssl", isOn: $useSsl)
                 }
@@ -509,10 +517,12 @@ struct AddSourceView: View {
 
         if sourceType.requiresCredentials {
             Section("credentials") {
-                if sourceType == .sftp || supportsAPIKeyAuth {
+                if sourceType == .sftp || supportsAPIKeyAuth || sourceType.supportsAnonymous {
                     Picker("auth_method", selection: $authType) {
                         Text("password").tag(SourceAuthType.password)
-                        if supportsAPIKeyAuth {
+                        if sourceType.supportsAnonymous {
+                            Text("guest_access").tag(SourceAuthType.none)
+                        } else if supportsAPIKeyAuth {
                             Text("api_key").tag(SourceAuthType.apiKey)
                         } else {
                             Text("ssh_key").tag(SourceAuthType.sshKey)
@@ -520,7 +530,7 @@ struct AddSourceView: View {
                     }
                     .pickerStyle(.segmented)
                 }
-                if authType != .apiKey {
+                if authType != .apiKey && authType != .none {
                     TextField("username", text: $username)
                         .focused($focusedField, equals: .username)
                         .autocorrectionDisabled()
@@ -528,7 +538,9 @@ struct AddSourceView: View {
                         .submitLabel(.next)
                         .onSubmit { focusedField = .password }
                 }
-                if authType == .sshKey && sourceType == .sftp {
+                if authType == .none {
+                    Text("anonymous_login_hint").font(.caption).foregroundStyle(.secondary)
+                } else if authType == .sshKey && sourceType == .sftp {
                     ZStack(alignment: .topLeading) {
                         TextEditor(text: $sshKey)
                             .focused($focusedField, equals: .sshKey)
@@ -548,11 +560,8 @@ struct AddSourceView: View {
                         .submitLabel(.done)
                         .onSubmit { focusedField = nil }
                 }
-                if isEditing {
+                if isEditing && authType != .none {
                     Text("password_edit_hint").font(.caption).foregroundStyle(.secondary)
-                }
-                if sourceType.supportsAnonymous && authType == .password {
-                    Text("anonymous_login_hint").font(.caption).foregroundStyle(.secondary)
                 }
             }
         }
@@ -715,6 +724,13 @@ struct AddSourceView: View {
             useSsl = s.useSsl; username = s.username ?? ""; basePath = s.basePath ?? ""
             shareName = s.shareName ?? ""; exportPath = s.exportPath ?? ""
             authType = s.authType; autoConnect = s.autoConnect; rememberDevice = s.rememberDevice
+            // 兼容旧版“账号密码都留空即匿名”的来源记录。旧记录的 authType
+            // 仍可能是 password；迁移成显式访客模式后才能正确清理/忽略旧凭据。
+            if sourceType.supportsAnonymous,
+               username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               (KeychainService.getPassword(for: s.id) ?? "").isEmpty {
+                authType = .none
+            }
             ftpEncryption = s.ftpEncryption ?? .none; nfsVersion = s.nfsVersion ?? .auto
         } else if let device = prefillDevice {
             name = device.name
@@ -770,13 +786,15 @@ struct AddSourceView: View {
             finalHost = sourceType.requiresHost ? host : nil
             finalBasePath = basePath.isEmpty ? nil : basePath
             finalShareName = shareName.isEmpty ? nil : shareName
-            finalUsername = sourceType.requiresCredentials && authType != .apiKey ? username : nil
+            finalUsername = sourceType.requiresCredentials && authType != .apiKey && authType != .none
+                ? (username.isEmpty ? nil : username)
+                : nil
         }
 
         let source = MusicSource(
             id: editingSource?.id ?? UUID().uuidString,
             name: name, type: sourceType,
-            host: finalHost, port: Int(port), useSsl: useSsl,
+            host: finalHost, port: sourceType.requiresHost ? validatedPort : nil, useSsl: useSsl,
             username: finalUsername,
             basePath: finalBasePath,
             shareName: finalShareName,
@@ -811,6 +829,10 @@ struct AddSourceView: View {
                     await tm.deleteAppCredentials()
                 }
             }
+        } else if authType == .none {
+            // 从账号登录切换到访客模式时必须删除旧 Keychain 项；否则连接器仍会
+            // 读到旧密码，表面显示“访客”却继续以旧账号认证。
+            KeychainService.deletePassword(for: source.id)
         } else if sourceType == .s3 || authType == .password || authType == .apiKey || authType == .cookie || authType == .oauth {
             if !password.isEmpty {
                 KeychainService.setPassword(password, for: source.id)

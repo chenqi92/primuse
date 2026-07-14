@@ -121,6 +121,7 @@
 "password" = "Password";
 "api_key" = "API Key";
 "auth_method" = "Auth Method";
+"guest_access" = "Guest";
 "ssh_key" = "SSH Key";
 "ssh_key_placeholder" = "Paste PEM private key here...";
 "test_connection" = "Test Connection";
@@ -164,7 +165,7 @@
 "delete_song_message" = "When the source supports deletion, the source song file will be removed. Same-name cover/lyrics files are removed only when no other song uses them, and local caches are cleared.";
 "scan" = "Scan";
 "password_edit_hint" = "Leave empty to keep current password";
-"anonymous_login_hint" = "Leave username and password empty to connect anonymously";
+"anonymous_login_hint" = "No username or password is used; saved credentials are deleted when you save";
 "select_directories" = "Select Directories";
 "scan_directories" = "Scan Directories";
 "scan_directories_hint" = "Connect and select directories to scan for music files";

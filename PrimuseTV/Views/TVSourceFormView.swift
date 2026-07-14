@@ -151,14 +151,28 @@ struct TVSourceFormView: View {
     @State private var useSsl = false
     @State private var username = ""
     @State private var password = ""
+    @State private var useGuestAccess = false
     @State private var pathText = ""
     @State private var testResult: String?
     @State private var testing = false
 
     private var showsSSL: Bool { type.category == .mediaServer || type.category == .nas || type == .webdav }
     private var showsAuth: Bool { type != .nfs }
+    private var validatedPort: Int? {
+        let trimmed = portText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let value = Int(trimmed), (1...65_535).contains(value) else { return nil }
+        return value
+    }
     private var canSave: Bool {
-        !name.trimmingCharacters(in: .whitespaces).isEmpty && !host.trimmingCharacters(in: .whitespaces).isEmpty
+        let connectionIsValid = !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && validatedPort != nil
+        guard connectionIsValid else { return false }
+        if type.supportsAnonymous && !useGuestAccess {
+            guard !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+            if editing == nil && password.isEmpty { return false }
+        }
+        return true
     }
     private var pathLabel: String {
         switch type {
@@ -217,8 +231,18 @@ struct TVSourceFormView: View {
                 .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
             if showsAuth {
-                TVFormField(label: "用户名", text: $username, mono: true)
-                TVFormField(label: editing == nil ? "密码" : "密码(留空则不修改)", text: $password, secure: true)
+                if type.supportsAnonymous {
+                    Toggle(isOn: $useGuestAccess) {
+                        Label("访客模式（无需账号密码）", systemImage: "person.crop.circle.badge.checkmark")
+                            .font(.system(size: 21, weight: .medium)).foregroundStyle(.white)
+                    }
+                    .padding(.horizontal, 22).padding(.vertical, 14).frame(maxWidth: 720, alignment: .leading)
+                    .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                if !useGuestAccess {
+                    TVFormField(label: "用户名", text: $username, mono: true)
+                    TVFormField(label: editing == nil ? "密码" : "密码(留空则不修改)", text: $password, secure: true)
+                }
             }
             TVFormField(label: pathLabel, text: $pathText, mono: true)
 
@@ -280,6 +304,7 @@ struct TVSourceFormView: View {
         if let e = editing {
             name = e.name; host = e.host ?? ""; portText = String(e.port ?? type.defaultPort)
             useSsl = e.useSsl; username = e.username ?? ""
+            useGuestAccess = type.supportsAnonymous && e.authType == .none
             switch type {
             case .smb: pathText = e.shareName ?? ""
             case .nfs: pathText = e.exportPath ?? ""
@@ -309,11 +334,11 @@ struct TVSourceFormView: View {
         var src = editing ?? MusicSource(name: trimmedName, type: type)
         src.name = trimmedName
         src.host = trimmedHost
-        src.port = Int(portText.trimmingCharacters(in: .whitespaces)) ?? type.defaultPort
+        src.port = validatedPort
         src.useSsl = showsSSL ? useSsl : type.defaultSSL
         if showsAuth {
-            src.username = trimmedUser.isEmpty ? nil : trimmedUser
-            src.authType = (trimmedUser.isEmpty && password.isEmpty && type.supportsAnonymous) ? .none : .password
+            src.username = useGuestAccess ? nil : (trimmedUser.isEmpty ? nil : trimmedUser)
+            src.authType = useGuestAccess ? .none : .password
         } else {
             src.username = nil; src.authType = .none
         }
@@ -324,8 +349,9 @@ struct TVSourceFormView: View {
         }
         src.modifiedAt = Date()
 
-        if editing == nil { store.addSource(src, password: password.isEmpty ? nil : password) }
-        else { store.updateSource(src, password: password.isEmpty ? nil : password) }
+        let passwordToSave = useGuestAccess || password.isEmpty ? nil : password
+        if editing == nil { store.addSource(src, password: passwordToSave) }
+        else { store.updateSource(src, password: passwordToSave) }
         dismiss()
     }
 }

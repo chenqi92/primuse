@@ -32,6 +32,8 @@ import Testing
     #expect(S3StreamResolver.region(from: nil) == "us-east-1")
     #expect(S3StreamResolver.region(from: "{}") == "us-east-1")
     #expect(S3StreamResolver.host(from: "https://minio.example.com:9000/x") == "minio.example.com:9000")
+    #expect(S3StreamResolver.host(from: "minio.example.com", port: 9000) == "minio.example.com:9000")
+    #expect(S3StreamResolver.host(from: "s3.amazonaws.com", port: 443) == "s3.amazonaws.com")
 }
 
 @Test func s3EndToEnd() async throws {
@@ -47,6 +49,18 @@ import Testing
     #expect(s.contains("X-Amz-Algorithm=AWS4-HMAC-SHA256"))
     #expect(s.contains("X-Amz-Signature="))
     #expect(s.contains("us-west-2%2Fs3%2Faws4_request"))
+}
+
+@Test func s3EndToEndUsesConfiguredPort() async throws {
+    let song = Song(id: "s-port", title: "T", fileFormat: .flac,
+                    filePath: "artists/song.flac", sourceID: "src")
+    let source = MusicSource(name: "MinIO", type: .s3, host: "minio.example.com",
+                             port: 9000, useSsl: false, username: "AKIA", basePath: "music",
+                             extraConfig: #"{"region":"us-east-1"}"#)
+    let url = try await S3StreamResolver().streamURL(for: song, source: source,
+                                                     credential: SourceCredential(password: "secret"))
+    #expect(url.host == "minio.example.com")
+    #expect(url.port == 9000)
 }
 
 // MARK: - Synology FileStation URL 构造
@@ -99,6 +113,26 @@ import Testing
     let q = Dictionary(uniqueKeysWithValues:
         (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []).map { ($0.name, $0.value ?? "") })
     #expect(q["source"] == "smb1" && q["path"] == "/share/m/a b.flac" && q["token"] == "TK")
+}
+
+@Test func webDavGuestModeOmitsAuthorization() async throws {
+    let song = Song(id: "dav", title: "T", fileFormat: .flac,
+                    filePath: "/Music/a.flac", sourceID: "dav-source")
+    let source = MusicSource(id: "dav-source", name: "Public DAV", type: .webdav,
+                             host: "dav.example.com", port: 8443, useSsl: true,
+                             basePath: "/public", authType: .none)
+    let resolved = try await WebDavStreamResolver().resolve(
+        for: song, source: source, credential: SourceCredential())
+
+    #expect(resolved.url.absoluteString == "https://dav.example.com:8443/public/Music/a.flac")
+    #expect(resolved.headers["Authorization"] == nil)
+}
+
+@Test func anonymousSupportMatchesImplementedProtocols() {
+    #expect(MusicSourceType.smb.supportsAnonymous)
+    #expect(MusicSourceType.webdav.supportsAnonymous)
+    #expect(MusicSourceType.ftp.supportsAnonymous)
+    #expect(!MusicSourceType.sftp.supportsAnonymous)
 }
 
 // MARK: - 媒体服务器(Jellyfin/Emby/Plex)

@@ -56,11 +56,13 @@ actor WebDAVSource: MusicSourceConnector {
             return
         }
 
-        let credential = URLCredential(
-            user: username,
-            password: password,
-            persistence: .forSession
-        )
+        // 匿名 WebDAV 必须完全不带凭据；传一个 user/password 都为空的
+        // URLCredential 仍可能让底层生成空的 Authorization challenge 响应。
+        let credential: URLCredential? = if username.isEmpty && password.isEmpty {
+            nil
+        } else {
+            URLCredential(user: username, password: password, persistence: .forSession)
+        }
 
         guard let provider = WebDAVFileProvider(
             baseURL: try serverURL(),

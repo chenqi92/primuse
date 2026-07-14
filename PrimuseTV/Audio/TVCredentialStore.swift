@@ -17,7 +17,11 @@ enum TVCredentialStore {
     /// 中继类型还会附上 iPhone 中继端点(放 extra,供 RelayStreamResolver 拼 URL)。
     static func credential(for source: MusicSource, bundle: CredentialBundle?) -> SourceCredential {
         var cred: SourceCredential
-        if let local = loadLocalCredential(sourceID: source.id), !local.password.isEmpty {
+        if source.authType == .none {
+            // 显式访客模式优先级最高：即便 TV 本地、凭据包或同步钥匙串里还留有
+            // 旧密码，也不能把它重新附加到匿名 SMB/WebDAV/FTP 请求上。
+            cred = SourceCredential()
+        } else if let local = loadLocalCredential(sourceID: source.id), !local.password.isEmpty {
             // 本地输入优先:用户在 TV 上为该源亲手登录过,胜过同步过来的(可能不通用的)凭据。
             cred = SourceCredential(username: local.username.isEmpty ? source.username : local.username,
                                     password: local.password)

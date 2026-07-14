@@ -7,6 +7,7 @@ import CryptoKit
 actor S3Source: MusicSourceConnector {
     let sourceID: String
     private let endpoint: String  // e.g. "s3.amazonaws.com" or "minio.example.com:9000"
+    private let port: Int?
     private let region: String
     private let bucket: String
     private let accessKey: String
@@ -30,11 +31,12 @@ actor S3Source: MusicSourceConnector {
     }
 
     init(
-        sourceID: String, endpoint: String, region: String,
+        sourceID: String, endpoint: String, port: Int?, region: String,
         bucket: String, accessKey: String, secretKey: String, useSsl: Bool
     ) {
         self.sourceID = sourceID
         self.endpoint = endpoint
+        self.port = port
         self.region = region
         self.bucket = bucket
         self.accessKey = accessKey
@@ -153,7 +155,7 @@ actor S3Source: MusicSourceConnector {
 
     private func bucketURL() throws -> URL {
         let scheme = useSsl ? "https" : "http"
-        guard var url = NetworkURLBuilder.baseURL(host: endpoint, scheme: scheme) else {
+        guard var url = NetworkURLBuilder.baseURL(host: endpoint, scheme: scheme, port: port) else {
             throw SourceError.connectionFailed("Invalid S3 endpoint")
         }
         for component in bucket.split(separator: "/") {
@@ -219,7 +221,8 @@ actor S3Source: MusicSourceConnector {
         let dateStamp = dateFormatter.string(from: now)
 
         request.setValue(amzDate, forHTTPHeaderField: "x-amz-date")
-        request.setValue(url.host ?? endpoint, forHTTPHeaderField: "Host")
+        let hostHeader = Self.hostHeader(for: url, fallback: endpoint)
+        request.setValue(hostHeader, forHTTPHeaderField: "Host")
         let payloadHash = SHA256.hash(data: Data()).compactMap { String(format: "%02x", $0) }.joined()
         request.setValue(payloadHash, forHTTPHeaderField: "x-amz-content-sha256")
 
@@ -228,7 +231,7 @@ actor S3Source: MusicSourceConnector {
         let path = canonicalURI(for: url)
         let query = canonicalQueryString(for: url)
         let signedHeaders = "host;x-amz-content-sha256;x-amz-date"
-        let canonicalHeaders = "host:\(url.host ?? endpoint)\nx-amz-content-sha256:\(payloadHash)\nx-amz-date:\(amzDate)\n"
+        let canonicalHeaders = "host:\(hostHeader)\nx-amz-content-sha256:\(payloadHash)\nx-amz-date:\(amzDate)\n"
         let canonicalRequest = "\(method)\n\(path)\n\(query)\n\(canonicalHeaders)\n\(signedHeaders)\n\(payloadHash)"
         let canonicalHash = SHA256.hash(data: Data(canonicalRequest.utf8)).compactMap { String(format: "%02x", $0) }.joined()
 
@@ -248,6 +251,16 @@ actor S3Source: MusicSourceConnector {
         request.setValue(auth, forHTTPHeaderField: "Authorization")
 
         return request
+    }
+
+    /// SigV4 的 canonical host 必须包含非默认端口，否则 MinIO 等自建端点会
+    /// 按实际 Host 头（host:port）重算出不同签名并返回 SignatureDoesNotMatch。
+    private static func hostHeader(for url: URL, fallback: String) -> String {
+        guard let host = url.host, !host.isEmpty else { return fallback }
+        let hostPart = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
+        guard let port = url.port else { return hostPart }
+        let defaultPort = url.scheme?.lowercased() == "https" ? 443 : 80
+        return port == defaultPort ? hostPart : "\(hostPart):\(port)"
     }
 
     /// SigV4 canonical URI: percent-encode each path segment with the AWS

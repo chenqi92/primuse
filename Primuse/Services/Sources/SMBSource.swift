@@ -270,8 +270,11 @@ actor SMBSource: MusicSourceConnector {
             NSLog("⚠️ SMB credential trimmed surrounding whitespace: user \(username.count)→\(cleanUser.count), password \(password.count)→\(cleanPassword.count)")
         }
 
+        // AMSMB2/libsmb2 的访客登录约定是 guest + 空密码。直接传空用户名在部分
+        // Samba / NAS 上会被当成缺失凭据而拒绝，而不是映射到 guest account。
+        let isGuest = cleanUser.isEmpty && cleanPassword.isEmpty
         let credential = URLCredential(
-            user: cleanUser,
+            user: isGuest ? "guest" : cleanUser,
             password: cleanPassword,
             persistence: .forSession
         )

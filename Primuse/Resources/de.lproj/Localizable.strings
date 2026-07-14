@@ -255,6 +255,7 @@
 "password" = "Passwort";
 "api_key" = "API Key";
 "auth_method" = "Authentifizierungsmethode";
+"guest_access" = "Gast";
 "ssh_key" = "SSH Key";
 "ssh_key_placeholder" = "Privaten Schlüssel im PEM-Format hier einfügen ...";
 "test_connection" = "Verbindung testen";
@@ -294,7 +295,7 @@
 "delete_song_message" = "Wenn die Quelle das Löschen unterstützt, wird die Titeldatei in der Quelle entfernt. Gleichnamige Cover-/Liedtextdateien werden nur entfernt, wenn kein anderer Titel sie verwendet, und lokale Caches werden geleert.";
 "scan" = "Scannen";
 "password_edit_hint" = "Leer lassen, um das aktuelle Passwort beizubehalten";
-"anonymous_login_hint" = "Benutzername und Passwort leer lassen, um anonym zu verbinden";
+"anonymous_login_hint" = "Es werden keine Anmeldedaten verwendet; gespeicherte Zugangsdaten werden beim Speichern gelöscht";
 "select_directories" = "Verzeichnisse auswählen";
 "scan_directories" = "Verzeichnisse scannen";
 "scan_directories_hint" = "Verbinde dich und wähle Verzeichnisse aus, die nach Musikdateien durchsucht werden sollen.";

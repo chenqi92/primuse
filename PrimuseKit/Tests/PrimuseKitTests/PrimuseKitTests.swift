@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import PrimuseKit
 
@@ -43,4 +44,23 @@ import Testing
 
     #expect(state.songTitle == "Test Song")
     #expect(state.isPlaying == true)
+}
+
+@Test func musicSourcePreservesCustomSMBPort() throws {
+    let source = MusicSource(
+        name: "Remote NAS",
+        type: .smb,
+        host: "nas.example.com",
+        port: 14_445,
+        username: "listener",
+        shareName: "Music"
+    )
+
+    #expect(source.port == 14_445)
+
+    let restored = try JSONDecoder().decode(
+        MusicSource.self,
+        from: JSONEncoder().encode(source)
+    )
+    #expect(restored.port == 14_445)
 }

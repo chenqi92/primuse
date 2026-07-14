@@ -108,6 +108,7 @@
 "password" = "密碼";
 "api_key" = "API Key";
 "auth_method" = "驗證方式";
+"guest_access" = "訪客";
 "ssh_key" = "SSH 金鑰";
 "ssh_key_placeholder" = "貼上 PEM 格式私鑰...";
 "test_connection" = "測試連線";
@@ -151,7 +152,7 @@
 "delete_song_message" = "支援刪除的音樂來源會同步刪除來源歌曲；同名封面/歌詞沒有其他歌曲使用時才會刪除，並清除本機快取。";
 "scan" = "掃描";
 "password_edit_hint" = "留空則保持目前密碼不變";
-"anonymous_login_hint" = "帳號和密碼留空以匿名方式連線";
+"anonymous_login_hint" = "不使用帳號和密碼；儲存時會刪除先前保存的憑證";
 "select_directories" = "選擇目錄";
 "scan_directories" = "掃描目錄";
 "scan_directories_hint" = "連線後選擇要掃描音樂檔案的目錄";

@@ -27,7 +27,8 @@ actor SMBByteReader: ByteRangeReader {
 
         let user = (cred?.username ?? source.username ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let pass = (cred?.password ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        credential = URLCredential(user: user, password: pass, persistence: .forSession)
+        let isGuest = user.isEmpty && pass.isEmpty
+        credential = URLCredential(user: isGuest ? "guest" : user, password: pass, persistence: .forSession)
 
         let (share, rel) = Self.resolve(share: source.shareName ?? "", path: filePath)
         guard !share.isEmpty else { return nil }

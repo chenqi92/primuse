@@ -735,6 +735,10 @@ final class TVStore {
     }
 
     private func saveLocalCred(_ source: MusicSource, _ password: String?) {
+        if source.authType == .none {
+            TVCredentialStore.clearLocalCredential(sourceID: source.id)
+            return
+        }
         guard let password, !password.isEmpty else { return }
         TVCredentialStore.saveLocalCredential(sourceID: source.id,
                                               username: source.username ?? "", password: password)

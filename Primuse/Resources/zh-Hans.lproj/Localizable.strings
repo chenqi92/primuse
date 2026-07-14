@@ -121,6 +121,7 @@
 "password" = "密码";
 "api_key" = "API Key";
 "auth_method" = "认证方式";
+"guest_access" = "访客";
 "ssh_key" = "SSH 密钥";
 "ssh_key_placeholder" = "粘贴 PEM 格式私钥...";
 "test_connection" = "测试连接";
@@ -164,7 +165,7 @@
 "delete_song_message" = "支持删除的音乐源会同步删除源歌曲；同名封面/歌词没有其他歌曲使用时才会删除，并清除本地缓存。";
 "scan" = "扫描";
 "password_edit_hint" = "留空则保持当前密码不变";
-"anonymous_login_hint" = "账号和密码留空以匿名方式连接";
+"anonymous_login_hint" = "无需账号和密码；保存时会删除此前存储的凭据";
 "select_directories" = "选择目录";
 "scan_directories" = "扫描目录";
 "scan_directories_hint" = "连接后选择要扫描音乐文件的目录";

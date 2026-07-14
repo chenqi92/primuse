@@ -54,10 +54,10 @@ enum NetworkURLBuilder {
             components.host = sanitizedHost(trimmedHost)
         }
 
-        // When the user pasted a full URL that already specifies a port, trust it
-        // over the form's port field — otherwise default port (e.g. 443) silently
-        // overrides whatever was in the URL.
-        if let port, !(hostContainsURL && components.port != nil) {
+        // 用户输入里已带端口时优先使用它（完整 URL 和 `host:port` 都支持），
+        // 否则才使用独立端口字段。旧逻辑只保护带 `://` 的 URL，裸的
+        // `nas.example.com:1445` 会被表单默认端口静默覆盖。
+        if let port, components.port == nil {
             components.port = port
         }
 
