@@ -157,6 +157,73 @@ import Testing
             == "http://h:8096/jf")
 }
 
+@Test func mediaServerConcurrentResolvesShareLogin() async throws {
+    CountingLoginURLProtocol.reset()
+    let config = URLSessionConfiguration.ephemeral
+    config.protocolClasses = [CountingLoginURLProtocol.self]
+    let session = URLSession(configuration: config)
+    defer { session.invalidateAndCancel() }
+
+    let resolver = MediaServerStreamResolver(session: session)
+    let source = MusicSource(id: "jf-concurrent", name: "Jellyfin", type: .jellyfin,
+                             host: "resolver.test", useSsl: true, username: "user")
+    let firstSong = Song(id: "one", title: "One", fileFormat: .flac,
+                         filePath: "/items/one.flac", sourceID: source.id)
+    let secondSong = Song(id: "two", title: "Two", fileFormat: .flac,
+                          filePath: "/items/two.flac", sourceID: source.id)
+    let credential = SourceCredential(username: "user", password: "password")
+
+    async let first = resolver.streamURL(for: firstSong, source: source, credential: credential)
+    async let second = resolver.streamURL(for: secondSong, source: source, credential: credential)
+    let (firstURL, secondURL) = try await (first, second)
+
+    #expect(firstURL.absoluteString.contains("/Videos/one/stream"))
+    #expect(secondURL.absoluteString.contains("/Videos/two/stream"))
+    #expect(CountingLoginURLProtocol.requestCount == 1)
+}
+
+private final class CountingLoginURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var requestCountStorage = 0
+
+    static var requestCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return requestCountStorage
+    }
+
+    static func reset() {
+        lock.lock()
+        requestCountStorage = 0
+        lock.unlock()
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Self.lock.lock()
+        Self.requestCountStorage += 1
+        Self.lock.unlock()
+
+        // Keep the first login in flight long enough for the actor to admit a
+        // second resolve call at its suspension point.
+        Thread.sleep(forTimeInterval: 0.05)
+        guard let url = request.url,
+              let response = HTTPURLResponse(url: url, statusCode: 200,
+                                             httpVersion: "HTTP/1.1",
+                                             headerFields: ["Content-Type": "application/json"]) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(#"{"AccessToken":"shared-token"}"#.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
 // MARK: - 绿联 Ugreen(含 RSA 往返验证)
 
 @Test func ugreenURLAndParse() {

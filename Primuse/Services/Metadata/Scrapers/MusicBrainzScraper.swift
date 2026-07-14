@@ -106,13 +106,13 @@ actor MusicBrainzScraper: MusicScraper {
     // MARK: - Rate Limiting
 
     private func throttledRequest(url: URL) async throws -> Data {
-        if let last = lastRequestTime {
-            let elapsed = ContinuousClock.now - last
-            if elapsed < minInterval {
-                try await Task.sleep(for: minInterval - elapsed)
-            }
+        let now = ContinuousClock.now
+        let nextAllowed = lastRequestTime?.advanced(by: minInterval) ?? now
+        let reservedTime = nextAllowed > now ? nextAllowed : now
+        lastRequestTime = reservedTime
+        if reservedTime > now {
+            try await Task.sleep(for: now.duration(to: reservedTime))
         }
-        lastRequestTime = .now
         let (data, response) = try await session.data(from: url)
         // MusicBrainz 超限返回 503(也可能 429),读取 Retry-After 抛 rateLimited,
         // 让 ScraperManager 退避该源、本轮跳过,不再继续撞限流。

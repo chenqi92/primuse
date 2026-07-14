@@ -93,6 +93,7 @@ actor FnOSSource: MusicSourceConnector {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 300; config.timeoutIntervalForResource = 600
         let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }
         var req = URLRequest(url: url)
         if let token = await api.token { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         let (tempURL, _) = try await session.download(for: req)

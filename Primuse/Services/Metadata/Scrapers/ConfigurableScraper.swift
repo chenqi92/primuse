@@ -277,13 +277,16 @@ actor ConfigurableScraper: MusicScraper {
 
     private func executeRequest(endpoint: EndpointConfig, vars: [String: String]) async throws -> Data {
         // Rate limiting
-        if let last = lastRequestTime {
-            let elapsed = ContinuousClock.now - last
-            if elapsed < minInterval {
-                try await Task.sleep(for: minInterval - elapsed)
-            }
+        let now = ContinuousClock.now
+        let nextAllowed = lastRequestTime?.advanced(by: minInterval) ?? now
+        let reservedTime = nextAllowed > now ? nextAllowed : now
+        // Reserve the slot before suspending. Otherwise actor reentrancy lets
+        // every concurrent caller observe the same old timestamp and wake at
+        // once, defeating the configured request interval.
+        lastRequestTime = reservedTime
+        if reservedTime > now {
+            try await Task.sleep(for: now.duration(to: reservedTime))
         }
-        lastRequestTime = .now
 
         // Build URL with variable substitution
         var urlString = endpoint.url

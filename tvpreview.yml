@@ -54,9 +54,8 @@ targets:
       properties:
         CFBundleDisplayName: Primuse
         CFBundleName: Primuse
-        # 与正式 tvOS target 一致:允许局域网明文 HTTP(iPhone 中继 / http NAS 直链)。
+        # 与正式 tvOS target 一致:允许局域网明文 HTTP,但不对公网全局关闭 ATS。
         NSAppTransportSecurity:
-          NSAllowsArbitraryLoads: true
           NSAllowsLocalNetworking: true
         # 与正式 target 一致:注册 primuse:// 以便 Top Shelf 点击深链回到 app
         CFBundleURLTypes:

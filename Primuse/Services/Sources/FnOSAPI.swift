@@ -194,7 +194,8 @@ actor FnOSAPI {
     }
 
     private func postJSON(path: String, body: [String: Any], auth: String? = nil) async throws -> Data {
-        var req = URLRequest(url: URL(string: "\(baseURLString)\(path)")!)
+        guard let url = URL(string: "\(baseURLString)\(path)") else { throw URLError(.badURL) }
+        var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let auth { req.setValue("Bearer \(auth)", forHTTPHeaderField: "Authorization") }

@@ -12,6 +12,7 @@ public actor BaiduPanStreamResolver: StreamResolver {
     static let pageSize = 1000
 
     private var accessTokens: [String: String] = [:]
+    private var accessTokenTasks: [String: (id: UUID, forceRefresh: Bool, task: Task<String, Error>)] = [:]
     private let session: URLSession
     private let noRedirectSession: URLSession
 
@@ -22,7 +23,10 @@ public actor BaiduPanStreamResolver: StreamResolver {
         self.noRedirectSession = URLSession(configuration: cfg, delegate: NoRedirectDelegate(), delegateQueue: nil)
     }
 
-    public func invalidateSession(sourceID: String) { accessTokens[sourceID] = nil }
+    public func invalidateSession(sourceID: String) {
+        accessTokens[sourceID] = nil
+        accessTokenTasks.removeValue(forKey: sourceID)?.task.cancel()
+    }
 
     public func streamURL(for song: Song, source: MusicSource, credential: SourceCredential?) async throws -> URL {
         // 百度播放需 UA,不能直连;由 resolve 提供带头的结果。
@@ -118,11 +122,16 @@ public actor BaiduPanStreamResolver: StreamResolver {
 
     private func accessToken(for source: MusicSource, cred: SourceCredential, forceRefresh: Bool) async throws -> String {
         if !forceRefresh, let cached = accessTokens[source.id] { return cached }
-        let token: String
-        if !forceRefresh, let t = cred.token, !t.isEmpty {
-            token = t
-        } else {
-            guard let rt = cred.refreshToken, let cid = cred.clientID else { throw StreamResolveError.missingCredential }
+        if forceRefresh { accessTokens[source.id] = nil }
+        if let inFlight = accessTokenTasks[source.id], !forceRefresh || inFlight.forceRefresh {
+            return try await inFlight.task.value
+        }
+        let taskID = UUID()
+        let task = Task<String, Error> { [self] in
+            if !forceRefresh, let token = cred.token, !token.isEmpty { return token }
+            guard let rt = cred.refreshToken, let cid = cred.clientID else {
+                throw StreamResolveError.missingCredential
+            }
             var comp = URLComponents(string: "https://openapi.baidu.com/oauth/2.0/token")!
             comp.queryItems = [
                 URLQueryItem(name: "grant_type", value: "refresh_token"),
@@ -130,12 +139,24 @@ public actor BaiduPanStreamResolver: StreamResolver {
                 URLQueryItem(name: "client_id", value: cid),
                 URLQueryItem(name: "client_secret", value: cred.clientSecret ?? ""),
             ]
-            let (data, _) = try await session.data(from: comp.url!)
+            guard let url = comp.url else { throw StreamResolveError.cannotBuildURL }
+            let (data, _) = try await session.data(from: url)
             guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let t = json["access_token"] as? String else { throw StreamResolveError.authFailed }
-            token = t
+                  let token = json["access_token"] as? String else { throw StreamResolveError.authFailed }
+            return token
         }
-        accessTokens[source.id] = token
+        accessTokenTasks[source.id] = (taskID, forceRefresh, task)
+        let token: String
+        do {
+            token = try await task.value
+        } catch {
+            if accessTokenTasks[source.id]?.id == taskID { accessTokenTasks[source.id] = nil }
+            throw error
+        }
+        if accessTokenTasks[source.id]?.id == taskID {
+            accessTokens[source.id] = token
+            accessTokenTasks[source.id] = nil
+        }
         return token
     }
 

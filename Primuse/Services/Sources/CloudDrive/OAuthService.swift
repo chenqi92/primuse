@@ -272,8 +272,9 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
         }
 
         guard let accessToken = json["access_token"] as? String else {
-            let snippet = String(data: data, encoding: .utf8)?.prefix(300) ?? ""
-            throw OAuthError.tokenExchangeFailed("No access_token in response: \(snippet)")
+            let rawSnippet = String(String(data: data, encoding: .utf8)?.prefix(300) ?? "")
+            let safeSnippet = FileLogger.redactSensitiveData(rawSnippet)
+            throw OAuthError.tokenExchangeFailed("No access_token in response: \(safeSnippet)")
         }
 
         let refreshToken = json["refresh_token"] as? String

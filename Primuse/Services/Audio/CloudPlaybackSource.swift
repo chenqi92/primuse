@@ -326,6 +326,14 @@ private final class HTTPRangeFetcher: @unchecked Sendable {
         self.session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
     }
 
+    deinit {
+        // A URLSession created with a delegate retains that delegate until the
+        // session is explicitly invalidated. One fetcher is created per HTTP
+        // playback source, so leaving it active would accumulate sessions and
+        // their delegate queues as tracks change.
+        session.invalidateAndCancel()
+    }
+
     func fetch(offset: Int64, length: Int64) async throws -> Data {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
@@ -895,7 +903,7 @@ private final class State: @unchecked Sendable {
         }
     }
 
-    private func writeToCache(offset: Int64, data: Data) {
+    private func writeToCache(offset: Int64, data: Data, allowClosedPromotion: Bool = false) {
         lock.lock()
         let url = activeURL
         lock.unlock()
@@ -926,7 +934,7 @@ private final class State: @unchecked Sendable {
         // already be writing it. Never rename or schedule trailing fill from a
         // retired State, or its stale cachedRanges could promote a half-empty
         // file to the canonical cache path.
-        if closed {
+        if closed && !allowClosedPromotion {
             // retired — leave the partial to the active owner
         } else if persistOnComplete,
            activeURL == partialURL,
@@ -1049,7 +1057,11 @@ private final class State: @unchecked Sendable {
             do {
                 let data = try await connectorFetch(req.offset, req.length)
                 if !data.isEmpty {
-                    self.writeToCache(offset: req.offset, data: data)
+                    // finalizeSession deliberately closes decoder reads before
+                    // this background fill finishes. This write is still the
+                    // final owner of the partial file and must be allowed to
+                    // promote a now-complete file to the canonical cache path.
+                    self.writeToCache(offset: req.offset, data: data, allowClosedPromotion: true)
                 }
             } catch {
                 plog("⚠️ Cloud stream '\(label)' finalize fill failed: \(error.localizedDescription)")

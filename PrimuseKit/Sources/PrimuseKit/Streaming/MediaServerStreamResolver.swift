@@ -11,15 +11,26 @@ import Foundation
 /// username+password、Plex 的 token 都来自同步凭据;song.filePath = `/items/{id}.{ext}`。
 public actor MediaServerStreamResolver: StreamResolver {
     private var tokens: [String: String] = [:]   // sourceID → AccessToken(Jellyfin/Emby)
+    private var tokenTasks: [String: (id: UUID, task: Task<String, Error>)] = [:]
     private let session: URLSession
 
     public init() {
         let cfg = URLSessionConfiguration.default
         cfg.timeoutIntervalForRequest = 20
-        self.session = URLSession(configuration: cfg)
+        self.session = StreamResolverSessionFactory.make(configuration: cfg)
     }
 
-    public func invalidateSession(sourceID: String) { tokens[sourceID] = nil }
+    deinit { session.invalidateAndCancel() }
+
+    /// Module-internal injection point for deterministic URLProtocol tests.
+    init(session: URLSession) {
+        self.session = session
+    }
+
+    public func invalidateSession(sourceID: String) {
+        tokens[sourceID] = nil
+        tokenTasks.removeValue(forKey: sourceID)?.task.cancel()
+    }
 
     public func streamURL(for song: Song,
                           source: MusicSource,
@@ -63,9 +74,24 @@ public actor MediaServerStreamResolver: StreamResolver {
     private func currentToken(source: MusicSource, base: URL, username: String,
                               password: String, emby: Bool) async throws -> String {
         if let cached = tokens[source.id] { return cached }
-        let token = try await login(base: base, username: username, password: password,
-                                    deviceID: "primuse-\(source.id)", emby: emby)
-        tokens[source.id] = token
+        if let inFlight = tokenTasks[source.id] { return try await inFlight.task.value }
+        let taskID = UUID()
+        let task = Task<String, Error> { [self] in
+            try await login(base: base, username: username, password: password,
+                            deviceID: "primuse-\(source.id)", emby: emby)
+        }
+        tokenTasks[source.id] = (taskID, task)
+        let token: String
+        do {
+            token = try await task.value
+        } catch {
+            if tokenTasks[source.id]?.id == taskID { tokenTasks[source.id] = nil }
+            throw error
+        }
+        if tokenTasks[source.id]?.id == taskID {
+            tokens[source.id] = token
+            tokenTasks[source.id] = nil
+        }
         return token
     }
 

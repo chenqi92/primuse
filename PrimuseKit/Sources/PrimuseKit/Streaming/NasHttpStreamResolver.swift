@@ -6,15 +6,21 @@ import Foundation
 /// (绿联 Ugreen 登录需 RSA 加密密码,单列;此处只接 QNAP/fnOS。)
 public actor NasHttpStreamResolver: StreamResolver {
     private var sessions: [String: String] = [:]   // sourceID → token/sid
+    private var sessionTasks: [String: (id: UUID, task: Task<String, Error>)] = [:]
     private let session: URLSession
 
     public init() {
         let cfg = URLSessionConfiguration.default
         cfg.timeoutIntervalForRequest = 20
-        self.session = URLSession(configuration: cfg)
+        self.session = StreamResolverSessionFactory.make(configuration: cfg)
     }
 
-    public func invalidateSession(sourceID: String) { sessions[sourceID] = nil }
+    deinit { session.invalidateAndCancel() }
+
+    public func invalidateSession(sourceID: String) {
+        sessions[sourceID] = nil
+        sessionTasks.removeValue(forKey: sourceID)?.task.cancel()
+    }
 
     public func streamURL(for song: Song,
                           source: MusicSource,
@@ -42,13 +48,27 @@ public actor NasHttpStreamResolver: StreamResolver {
     private func currentSession(source: MusicSource, base: URL, username: String,
                                 password: String, type: MusicSourceType) async throws -> String {
         if let cached = sessions[source.id] { return cached }
-        let token: String
-        switch type {
-        case .qnap: token = try await qnapLogin(base: base, username: username, password: password)
-        case .fnos: token = try await fnosLogin(base: base, username: username, password: password)
-        default: throw StreamResolveError.unsupportedSourceType(type)
+        if let inFlight = sessionTasks[source.id] { return try await inFlight.task.value }
+        let taskID = UUID()
+        let task = Task<String, Error> { [self] in
+            switch type {
+            case .qnap: return try await qnapLogin(base: base, username: username, password: password)
+            case .fnos: return try await fnosLogin(base: base, username: username, password: password)
+            default: throw StreamResolveError.unsupportedSourceType(type)
+            }
         }
-        sessions[source.id] = token
+        sessionTasks[source.id] = (taskID, task)
+        let token: String
+        do {
+            token = try await task.value
+        } catch {
+            if sessionTasks[source.id]?.id == taskID { sessionTasks[source.id] = nil }
+            throw error
+        }
+        if sessionTasks[source.id]?.id == taskID {
+            sessions[source.id] = token
+            sessionTasks[source.id] = nil
+        }
         return token
     }
 

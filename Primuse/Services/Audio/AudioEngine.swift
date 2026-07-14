@@ -341,7 +341,7 @@ final class AudioEngine {
     func play() {
         if engine == nil || !isSetUp {
             do { try setUp() } catch {
-                print("Failed to set up engine: \(error)")
+                plog("Failed to set up engine: \(error)")
                 return
             }
         }
@@ -349,7 +349,7 @@ final class AudioEngine {
         applySpatialAudioConfiguration()
         if !engine.isRunning {
             do { try engine.start() } catch {
-                print("Failed to start engine: \(error)")
+                plog("Failed to start engine: \(error)")
                 return
             }
         }
@@ -369,7 +369,7 @@ final class AudioEngine {
         applySpatialAudioConfiguration()
         if let engine, !engine.isRunning {
             do { try engine.start() } catch {
-                print("Failed to restart engine after interruption: \(error)")
+                plog("Failed to restart engine after interruption: \(error)")
                 return
             }
         }
@@ -394,7 +394,7 @@ final class AudioEngine {
             try engine.start()
             playerNode?.play()
         } catch {
-            print("Failed to restart engine: \(error)")
+            plog("Failed to restart engine: \(error)")
         }
     }
 

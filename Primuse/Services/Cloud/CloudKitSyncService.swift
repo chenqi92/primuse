@@ -116,6 +116,10 @@ final class CloudKitSyncService {
     private var container: CKContainer?
     private var database: CKDatabase?
     private(set) var engine: CKSyncEngine?
+    /// Identifies the one start attempt that is allowed to cross the async
+    /// account check. Main-actor isolation alone does not prevent reentrancy at
+    /// that suspension point.
+    private var startAttemptID: UUID?
     private let stateURL: URL
     private let systemFieldsURL: URL
     /// `recordName → encoded CKRecord system fields`。用于在重建 CKRecord
@@ -185,14 +189,21 @@ final class CloudKitSyncService {
     /// Bring the sync engine online. Reads previous engine state from disk if present,
     /// then does an initial fetch + sends any locally pending changes.
     func start() async {
-        guard engine == nil else { return }
+        guard engine == nil, startAttemptID == nil else { return }
         guard let database = configuredDatabase() else { return }
+        let attemptID = UUID()
+        startAttemptID = attemptID
+        defer {
+            if startAttemptID == attemptID {
+                startAttemptID = nil
+            }
+        }
 
         // Verify the user has an iCloud account before standing up the engine —
         // CKSyncEngine will fail every operation with `.notAuthenticated`
         // otherwise, and the UI is much friendlier when we surface that up front.
         let accountAvailable = await checkAccountAndUpdateStatus()
-        guard accountAvailable else { return }
+        guard accountAvailable, startAttemptID == attemptID, engine == nil else { return }
 
         var configuration = CKSyncEngine.Configuration(
             database: database,
@@ -230,10 +241,12 @@ final class CloudKitSyncService {
             plog("CloudKitSync: fetchChanges OK, starting sendChanges()")
             try await sendChangesResolvingRecoverableFailures(using: engine)
             plog("CloudKitSync: sendChanges OK")
+            guard self.engine === engine, startAttemptID == attemptID else { return }
             self.didCompleteInitialUpload = true
             self.status = .upToDate
             self.lastSyncedAt = Date()
         } catch {
+            guard self.engine === engine, startAttemptID == attemptID else { return }
             if let ck = error as? CKError {
                 plog("CloudKitSync: initial sync error \(Self.compactDescription(for: ck))")
             } else {
@@ -245,6 +258,7 @@ final class CloudKitSyncService {
         // 如果之前是 participant (接受过别人家庭包), 启动 shared DB engine
         // 拉 owner 那侧 family zone 的最新 record。
         if Self.familySharingEnabled, isParticipantOfShare {
+            guard self.engine === engine, startAttemptID == attemptID else { return }
             await startSharedDatabaseEngine()
         }
     }
@@ -493,6 +507,7 @@ final class CloudKitSyncService {
 
     /// Tear down the engine. Local data is left intact.
     func stop(updateStatus: Bool = true) {
+        startAttemptID = nil
         pendingHistoryFlush?.cancel()
         pendingHistoryFlush = nil
         pendingListeningStatsFlush?.cancel()

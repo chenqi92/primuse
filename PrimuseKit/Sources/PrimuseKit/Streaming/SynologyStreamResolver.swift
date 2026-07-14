@@ -8,17 +8,21 @@ import Foundation
 /// 会在登录失败时报 `.authFailed`(请在手机上勾选「记住此设备」后再同步)。
 public actor SynologyStreamResolver: StreamResolver {
     private var sessions: [String: String] = [:]   // sourceID → _sid
+    private var sessionTasks: [String: (id: UUID, task: Task<String, Error>)] = [:]
     private let session: URLSession
 
     public init() {
         let cfg = URLSessionConfiguration.default
         cfg.timeoutIntervalForRequest = 20
         cfg.httpAdditionalHeaders = ["User-Agent": "Primuse/1.0"]
-        self.session = URLSession(configuration: cfg)
+        self.session = StreamResolverSessionFactory.make(configuration: cfg)
     }
+
+    deinit { session.invalidateAndCancel() }
 
     public func invalidateSession(sourceID: String) {
         sessions[sourceID] = nil
+        sessionTasks.removeValue(forKey: sourceID)?.task.cancel()
     }
 
     public func streamURL(for song: Song,
@@ -41,9 +45,25 @@ public actor SynologyStreamResolver: StreamResolver {
     private func currentSID(for source: MusicSource, base: URL,
                             username: String, password: String) async throws -> String {
         if let cached = sessions[source.id] { return cached }
-        let (sid, _) = try await performLogin(base: base, username: username, password: password,
-                                              deviceID: source.deviceId, otp: nil)
-        sessions[source.id] = sid
+        if let inFlight = sessionTasks[source.id] { return try await inFlight.task.value }
+        let taskID = UUID()
+        let task = Task<String, Error> { [self] in
+            let (sid, _) = try await performLogin(base: base, username: username, password: password,
+                                                  deviceID: source.deviceId, otp: nil)
+            return sid
+        }
+        sessionTasks[source.id] = (taskID, task)
+        let sid: String
+        do {
+            sid = try await task.value
+        } catch {
+            if sessionTasks[source.id]?.id == taskID { sessionTasks[source.id] = nil }
+            throw error
+        }
+        if sessionTasks[source.id]?.id == taskID {
+            sessions[source.id] = sid
+            sessionTasks[source.id] = nil
+        }
         return sid
     }
 
@@ -59,6 +79,8 @@ public actor SynologyStreamResolver: StreamResolver {
         guard let base = Self.baseURL(host: source.host ?? "", port: source.port, useSsl: source.useSsl) else {
             throw StreamResolveError.cannotBuildURL
         }
+        sessionTasks.removeValue(forKey: source.id)?.task.cancel()
+        sessions[source.id] = nil
         let (sid, did) = try await performLogin(base: base, username: username, password: password,
                                                 deviceID: source.deviceId, otp: otp)
         sessions[source.id] = sid

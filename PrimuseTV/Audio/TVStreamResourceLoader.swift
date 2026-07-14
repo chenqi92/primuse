@@ -26,6 +26,8 @@ enum TVServerTrust {
             return (.performDefaultHandling, nil)
         }
         // 2. 校验失败:仅放行私有 / 局域网主机(自签证书的个人 NAS),公网一律拒绝。
+        // tvOS 当前没有证书变更确认 / 清除 pin 的 UI,所以不在这里持久化硬 pin;
+        // 否则 NAS 自动续期或用户更换证书后会进入无法在 TV 端恢复的状态。
         let host = challenge.protectionSpace.host
         if isPrivateHost(host) {
             return (.useCredential, URLCredential(trust: trust))
@@ -42,14 +44,21 @@ enum TVServerTrust {
             return true
         }
         // IPv6 回环 / 唯一本地地址(fc00::/7)/ 链路本地(fe80::/10)。
-        if h == "::1" || h.hasPrefix("fc") || h.hasPrefix("fd") || h.hasPrefix("fe8")
-            || h.hasPrefix("fe9") || h.hasPrefix("fea") || h.hasPrefix("feb") {
+        // Prefix checks are only valid for IPv6 literals. Without the colon
+        // guard, a public DNS name such as `fcloud.example` would be mistaken
+        // for an fc00::/7 private address after a certificate failure.
+        if h.contains(":"), h == "::1" || h.hasPrefix("fc") || h.hasPrefix("fd")
+            || h.hasPrefix("fe8") || h.hasPrefix("fe9") || h.hasPrefix("fea")
+            || h.hasPrefix("feb") {
             return true
         }
         // IPv4 私有 / 回环 / 链路本地段。
         let parts = h.split(separator: ".")
         guard parts.count == 4, let a = Int(parts[0]), let b = Int(parts[1]),
-              parts.allSatisfy({ Int($0) != nil }) else { return false }
+              parts.allSatisfy({ part in
+                  guard let value = Int(part) else { return false }
+                  return (0...255).contains(value)
+              }) else { return false }
         switch a {
         case 10: return true                       // 10.0.0.0/8
         case 127: return true                       // 127.0.0.0/8 回环

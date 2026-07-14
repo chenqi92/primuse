@@ -110,7 +110,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
     /// Concurrent fetchRange callers that arrive while the CDN URL is being
     /// resolved should share the same in-flight HEAD instead of issuing N
     /// parallel HEADs (which would themselves stampede Baidu).
-    private var cdnURLResolveTasks: [String: Task<URL, Error>] = [:]
+    private var cdnURLResolveTasks: [String: (id: UUID, task: Task<URL, Error>)] = [:]
 
     /// path → cooldown-until-this-time. After a 403/410 from a fresh
     /// dlink, refuse to re-resolve for `dlinkRetryCooldown` seconds —
@@ -390,7 +390,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
 
     private func invalidateCdnURL(for path: String) {
         cdnURLCache.removeValue(forKey: path)
-        cdnURLResolveTasks[path]?.cancel()
+        cdnURLResolveTasks[path]?.task.cancel()
         cdnURLResolveTasks[path] = nil
         scheduleDlinkPersist()
     }
@@ -405,14 +405,21 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
             return cached.url
         }
         if let inFlight = cdnURLResolveTasks[path] {
-            return try await inFlight.value
+            return try await inFlight.task.value
         }
+        let taskID = UUID()
         let task = Task<URL, Error> { [weak self] in
             guard let self else { throw CloudDriveError.invalidResponse }
             return try await self.resolveCdnURL(for: path)
         }
-        cdnURLResolveTasks[path] = task
-        defer { cdnURLResolveTasks[path] = nil }
+        cdnURLResolveTasks[path] = (taskID, task)
+        defer {
+            // Invalidation can install a replacement while this task is
+            // suspended. Only the task that still owns the slot may clear it.
+            if cdnURLResolveTasks[path]?.id == taskID {
+                cdnURLResolveTasks[path] = nil
+            }
+        }
         let resolved = try await task.value
         cdnURLCache[path] = (resolved, Date().addingTimeInterval(Self.dlinkTTL))
         scheduleDlinkPersist()
@@ -705,14 +712,14 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
     }
 
     private func throttle() async throws {
-        if let last = lastRequestAt {
-            let elapsed = Date().timeIntervalSince(last)
-            let wait = Self.minRequestInterval - elapsed
-            if wait > 0 {
-                try await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
-            }
+        let now = Date()
+        let nextAllowed = lastRequestAt?.addingTimeInterval(Self.minRequestInterval) ?? now
+        let reservedTime = max(now, nextAllowed)
+        lastRequestAt = reservedTime
+        let wait = reservedTime.timeIntervalSince(now)
+        if wait > 0 {
+            try await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
         }
-        lastRequestAt = Date()
     }
 
     private func humanReadable(errno: Int) -> String {

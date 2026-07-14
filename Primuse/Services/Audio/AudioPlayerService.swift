@@ -3680,6 +3680,7 @@ final class AudioPlayerService {
                     let config = URLSessionConfiguration.default
                     config.timeoutIntervalForRequest = 10
                     let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+                    defer { session.finishTasksAndInvalidate() }
                     fetchedData = try? await session.data(from: url).0
                 }
                 // Sidecar path on source (contains "/" but no "://")
@@ -3689,6 +3690,7 @@ final class AudioPlayerService {
                         let config = URLSessionConfiguration.default
                         config.timeoutIntervalForRequest = 10
                         let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+                        defer { session.finishTasksAndInvalidate() }
                         fetchedData = try? await session.data(from: imageURL).0
                     }
                 }

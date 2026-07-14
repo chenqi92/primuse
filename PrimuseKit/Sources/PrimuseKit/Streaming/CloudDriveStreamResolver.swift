@@ -11,6 +11,7 @@ import Foundation
 /// refreshToken、clientID/clientSecret、extra["drive_id"](阿里)。
 public actor CloudDriveStreamResolver: StreamResolver {
     private var accessTokens: [String: String] = [:]   // sourceID → 当前 access token
+    private var accessTokenTasks: [String: (id: UUID, forceRefresh: Bool, task: Task<String, Error>)] = [:]
     private let session: URLSession
 
     public init() {
@@ -19,7 +20,10 @@ public actor CloudDriveStreamResolver: StreamResolver {
         self.session = URLSession(configuration: cfg)
     }
 
-    public func invalidateSession(sourceID: String) { accessTokens[sourceID] = nil }
+    public func invalidateSession(sourceID: String) {
+        accessTokens[sourceID] = nil
+        accessTokenTasks.removeValue(forKey: sourceID)?.task.cancel()
+    }
 
     public func streamURL(for song: Song,
                           source: MusicSource,
@@ -85,18 +89,32 @@ public actor CloudDriveStreamResolver: StreamResolver {
 
     private func accessToken(for source: MusicSource, cred: SourceCredential, forceRefresh: Bool) async throws -> String {
         if !forceRefresh, let cached = accessTokens[source.id] { return cached }
-        let token: String
-        switch source.type {
-        case .pan123:
-            token = try await mint123Token(cred: cred)   // 123 是 client-credentials,无 refresh_token
-        default:
-            if !forceRefresh, let t = cred.token, !t.isEmpty {
-                token = t
-            } else {
-                token = try await refreshOAuthToken(type: source.type, cred: cred)
+        if forceRefresh { accessTokens[source.id] = nil }
+        if let inFlight = accessTokenTasks[source.id], !forceRefresh || inFlight.forceRefresh {
+            return try await inFlight.task.value
+        }
+        let taskID = UUID()
+        let task = Task<String, Error> { [self] in
+            switch source.type {
+            case .pan123:
+                return try await mint123Token(cred: cred)   // 123 是 client-credentials,无 refresh_token
+            default:
+                if !forceRefresh, let token = cred.token, !token.isEmpty { return token }
+                return try await refreshOAuthToken(type: source.type, cred: cred)
             }
         }
-        accessTokens[source.id] = token
+        accessTokenTasks[source.id] = (taskID, forceRefresh, task)
+        let token: String
+        do {
+            token = try await task.value
+        } catch {
+            if accessTokenTasks[source.id]?.id == taskID { accessTokenTasks[source.id] = nil }
+            throw error
+        }
+        if accessTokenTasks[source.id]?.id == taskID {
+            accessTokens[source.id] = token
+            accessTokenTasks[source.id] = nil
+        }
         return token
     }
 

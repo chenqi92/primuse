@@ -26,7 +26,7 @@ final class AudioSessionManager {
             try session.setActive(true)
             return true
         } catch {
-            print("Failed to activate audio session: \(error)")
+            plog("Failed to activate audio session: \(error)")
             return false
         }
     }
@@ -67,7 +67,7 @@ final class AudioSessionManager {
         do {
             try session.setPreferredSampleRate(targetHz)
         } catch {
-            print("setPreferredSampleRate(\(targetHz)) failed: \(error)")
+            plog("setPreferredSampleRate(\(targetHz)) failed: \(error)")
         }
         return session.sampleRate
     }
@@ -77,7 +77,7 @@ final class AudioSessionManager {
         do {
             try session.setActive(false, options: .notifyOthersOnDeactivation)
         } catch {
-            print("Failed to deactivate audio session: \(error)")
+            plog("Failed to deactivate audio session: \(error)")
         }
     }
 
@@ -102,17 +102,17 @@ final class AudioSessionManager {
             switch type {
             case .began:
                 // Another app took audio focus. Sync UI to paused state.
-                print("🔇 Audio interruption began")
+                plog("🔇 Audio interruption began")
                 self.onInterruptionBegan?()
 
             case .ended:
                 // Interruption ended. Check if we should auto-resume.
                 if shouldResume {
-                    print("🔊 Audio interruption ended — shouldResume")
+                    plog("🔊 Audio interruption ended — shouldResume")
                     _ = self.activatePlaybackSession()
                     self.onInterruptionEndedShouldResume?()
                 } else {
-                    print("🔊 Audio interruption ended — should NOT resume")
+                    plog("🔊 Audio interruption ended — should NOT resume")
                 }
 
             @unknown default:
@@ -126,7 +126,7 @@ final class AudioSessionManager {
         // 调本方法; @MainActor 方法入口的 executor 断言会 trap(iOS 26 默认 fatal)。
         // 标 nonisolated 让入口任意线程, 内部 Task 再 hop 回主线程访问 @MainActor 状态。
         Task { @MainActor [weak self] in
-            print("🔧 Audio engine configuration changed")
+            plog("🔧 Audio engine configuration changed")
             self?.onConfigurationChange?()
         }
     }

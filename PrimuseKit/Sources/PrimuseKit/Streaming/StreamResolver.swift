@@ -1,4 +1,72 @@
 import Foundation
+#if os(tvOS)
+import Security
+#endif
+
+/// Resolver 登录请求使用的 session 工厂。tvOS 没有 iOS/macOS 的证书确认弹窗,
+/// 但个人 NAS 普遍使用私网自签 HTTPS;仅在私网主机的系统校验失败时接受证书,
+/// 公网主机仍完全交给系统信任链。
+enum StreamResolverSessionFactory {
+    static func make(configuration: URLSessionConfiguration) -> URLSession {
+#if os(tvOS)
+        URLSession(configuration: configuration,
+                   delegate: PrivateNetworkTLSDelegate(), delegateQueue: nil)
+#else
+        URLSession(configuration: configuration)
+#endif
+    }
+}
+
+#if os(tvOS)
+private final class PrivateNetworkTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
+    func urlSession(_ session: URLSession,
+                    didReceive challenge: URLAuthenticationChallenge,
+                    completionHandler: @escaping @Sendable
+                        (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+              let trust = challenge.protectionSpace.serverTrust else {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+        var trustError: CFError?
+        if SecTrustEvaluateWithError(trust, &trustError) {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+        if isPrivateHost(challenge.protectionSpace.host) {
+            completionHandler(.useCredential, URLCredential(trust: trust))
+        } else {
+            completionHandler(.cancelAuthenticationChallenge, nil)
+        }
+    }
+
+    private func isPrivateHost(_ host: String) -> Bool {
+        let h = host.lowercased()
+        if h == "localhost" || h.hasSuffix(".local") || h.hasSuffix(".home")
+            || h.hasSuffix(".lan") || h.hasSuffix(".internal") {
+            return true
+        }
+        if h.contains(":"), h == "::1" || h.hasPrefix("fc") || h.hasPrefix("fd")
+            || h.hasPrefix("fe8") || h.hasPrefix("fe9") || h.hasPrefix("fea")
+            || h.hasPrefix("feb") {
+            return true
+        }
+        let parts = h.split(separator: ".")
+        guard parts.count == 4, let a = Int(parts[0]), let b = Int(parts[1]),
+              parts.allSatisfy({ part in
+                  guard let value = Int(part) else { return false }
+                  return (0...255).contains(value)
+              }) else { return false }
+        switch a {
+        case 10, 127: return true
+        case 172: return (16...31).contains(b)
+        case 192: return b == 168
+        case 169: return b == 254
+        default: return false
+        }
+    }
+}
+#endif
 
 // MARK: - 流式解析(tvOS 播放)
 //

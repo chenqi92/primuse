@@ -91,6 +91,7 @@ actor UgreenSource: MusicSourceConnector {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 300; config.timeoutIntervalForResource = 600
         let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }
         let (tempURL, _) = try await session.download(from: url)
         try? FileManager.default.removeItem(at: fileURL)
         try FileManager.default.moveItem(at: tempURL, to: fileURL)

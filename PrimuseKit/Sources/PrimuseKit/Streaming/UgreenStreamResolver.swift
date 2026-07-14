@@ -5,15 +5,21 @@ import Security
 /// 下载地址把 token 放 query,AVPlayer 直连。RSA 加密逻辑与 iOS UgreenAPI 一致。
 public actor UgreenStreamResolver: StreamResolver {
     private var tokens: [String: String] = [:]   // sourceID → token
+    private var tokenTasks: [String: (id: UUID, task: Task<String, Error>)] = [:]
     private let session: URLSession
 
     public init() {
         let cfg = URLSessionConfiguration.default
         cfg.timeoutIntervalForRequest = 20
-        self.session = URLSession(configuration: cfg)
+        self.session = StreamResolverSessionFactory.make(configuration: cfg)
     }
 
-    public func invalidateSession(sourceID: String) { tokens[sourceID] = nil }
+    deinit { session.invalidateAndCancel() }
+
+    public func invalidateSession(sourceID: String) {
+        tokens[sourceID] = nil
+        tokenTasks.removeValue(forKey: sourceID)?.task.cancel()
+    }
 
     public func streamURL(for song: Song,
                           source: MusicSource,
@@ -35,10 +41,25 @@ public actor UgreenStreamResolver: StreamResolver {
 
     private func currentToken(source: MusicSource, base: URL, username: String, password: String) async throws -> String {
         if let cached = tokens[source.id] { return cached }
-        let keyData = try await fetchPublicKey(base: base, username: username)
-        let encrypted = try Self.encrypt(password: password, withPublicKeyData: keyData)
-        let token = try await login(base: base, username: username, encryptedPassword: encrypted)
-        tokens[source.id] = token
+        if let inFlight = tokenTasks[source.id] { return try await inFlight.task.value }
+        let taskID = UUID()
+        let task = Task<String, Error> { [self] in
+            let keyData = try await fetchPublicKey(base: base, username: username)
+            let encrypted = try Self.encrypt(password: password, withPublicKeyData: keyData)
+            return try await login(base: base, username: username, encryptedPassword: encrypted)
+        }
+        tokenTasks[source.id] = (taskID, task)
+        let token: String
+        do {
+            token = try await task.value
+        } catch {
+            if tokenTasks[source.id]?.id == taskID { tokenTasks[source.id] = nil }
+            throw error
+        }
+        if tokenTasks[source.id]?.id == taskID {
+            tokens[source.id] = token
+            tokenTasks[source.id] = nil
+        }
         return token
     }
 

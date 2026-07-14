@@ -294,7 +294,7 @@ actor UgreenAPI {
     /// 请求单页 v2 目录。任何失败(端点不存在/非 200/结构不符)一律返回 nil 让上层
     /// 退回 v1; 不在此处抛认证错(交由 v1 路径统一识别 1024 并重登)。
     private func listPageV2(path: String, page: Int, limit: Int, headers: [String: String]) async -> [String: Any]? {
-        let url = URL(string: "\(baseURLString)/ugreen/v2/filemgr/getDirFileListV2")!
+        guard let url = URL(string: "\(baseURLString)/ugreen/v2/filemgr/getDirFileListV2") else { return nil }
         // pewee 默认 body + 额外补 path(逆向未证实字段名, 不符则上层退回 v1)。
         let body: [String: Any] = [
             "path": path,
@@ -336,7 +336,7 @@ actor UgreenAPI {
     /// pewee 下载三步实现: detectionPermissions → getDownloadToken → 拼绝对 dl_url。
     private func fetchDownloadURLV2(path: String, headers: [String: String]) async -> URL? {
         // 1) 权限校验
-        let detURL = URL(string: "\(baseURLString)/ugreen/v1/filemgr/detectionPermissions")!
+        guard let detURL = URL(string: "\(baseURLString)/ugreen/v1/filemgr/detectionPermissions") else { return nil }
         guard let (dData, _) = try? await postJSONResponse(
             url: detURL,
             body: ["paths": [path], "type": 4, "intranet_share_id": 0],
@@ -438,7 +438,8 @@ actor UgreenAPI {
     }
 
     private func postJSON(path: String, body: [String: Any]) async throws -> Data {
-        try await postJSON(url: URL(string: "\(baseURLString)\(path)")!, body: body)
+        guard let url = URL(string: "\(baseURLString)\(path)") else { throw URLError(.badURL) }
+        return try await postJSON(url: url, body: body)
     }
 
     private func postJSON(url: URL, body: [String: Any], extraHeaders: [String: String] = [:]) async throws -> Data {

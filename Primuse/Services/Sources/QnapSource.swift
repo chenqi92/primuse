@@ -92,6 +92,7 @@ actor QnapSource: MusicSourceConnector {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 300; config.timeoutIntervalForResource = 600
         let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }
         let (tempURL, response) = try await session.download(from: url)
         guard let http = response as? HTTPURLResponse else {
             try? FileManager.default.removeItem(at: tempURL)

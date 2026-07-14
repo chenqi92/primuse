@@ -37,7 +37,10 @@ actor QnapAPI {
         }
 
         do {
-            var req = URLRequest(url: URL(string: "\(baseURLString)/cgi-bin/authLogin.cgi")!)
+            guard let url = URL(string: "\(baseURLString)/cgi-bin/authLogin.cgi") else {
+                throw URLError(.badURL)
+            }
+            var req = URLRequest(url: url)
             req.httpMethod = "POST"
             // 手工 form-encode: URL query 规则不转义 '+', 但表单解码把 '+' 当
             // 空格 —— 密码含 '+' 时 percentEncodedQuery 会让服务端把它解码成
@@ -92,7 +95,12 @@ actor QnapAPI {
 
     func logout() async {
         guard let sid else { return }
-        _ = try? await session().data(from: URL(string: "\(baseURLString)/cgi-bin/authLogout.cgi?sid=\(sid)")!)
+        guard var components = URLComponents(string: "\(baseURLString)/cgi-bin/authLogout.cgi") else {
+            self.sid = nil
+            return
+        }
+        components.queryItems = [URLQueryItem(name: "sid", value: sid)]
+        if let url = components.url { _ = try? await session().data(from: url) }
         self.sid = nil
     }
 
