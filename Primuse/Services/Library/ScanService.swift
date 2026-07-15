@@ -272,11 +272,14 @@ final class ScanService {
     /// - Parameter backfillPending: pass `true` if `MetadataBackfillService`
     ///   still has bare songs to process — we'll schedule even when no scan
     ///   has a checkpoint, so backfill can keep running in the background.
-    func scheduleBackgroundResumeIfNeeded(backfillPending: Bool = false) {
+    func scheduleBackgroundResumeIfNeeded(
+        backfillPending: Bool = false,
+        scrapePending: Bool = false
+    ) {
         #if os(iOS)
         // Only schedule if there's actually something pending.
         let hasScanWork = scanStates.values.contains(where: { $0.canResume || $0.isScanning })
-        guard hasScanWork || backfillPending else { return }
+        guard hasScanWork || backfillPending || scrapePending else { return }
 
         let request = BGProcessingTaskRequest(identifier: Self.backgroundTaskIdentifier)
         request.requiresNetworkConnectivity = true

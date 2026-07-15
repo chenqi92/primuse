@@ -92,6 +92,7 @@ private enum BackgroundScanResumeTask {
             Task { @MainActor in
                 let services = AppServices.shared
                 services.scanService.cancelAllActiveScans()
+                services.scraperService.cancelPreservingCheckpoint()
                 services.metadataBackfill.stop()
             }
         }
@@ -100,6 +101,7 @@ private enum BackgroundScanResumeTask {
             let services = AppServices.shared
             let scanService = services.scanService
             let backfill = services.metadataBackfill
+            let scraper = services.scraperService
 
             // Resume any interrupted scans, then run backfill until the
             // task expires or work runs out. Both phases use HTTP Range
@@ -112,13 +114,17 @@ private enum BackgroundScanResumeTask {
             )
             await scanService.waitForActiveScansToComplete()
 
+            scraper.resumePendingScrape(in: services.musicLibrary)
+            await scraper.waitUntilScrapeIdle()
+
             backfill.start()
             await backfill.waitUntilIdle()
 
             // If anything still has a checkpoint or pending bare songs,
             // ask iOS to wake us again later.
             scanService.scheduleBackgroundResumeIfNeeded(
-                backfillPending: backfill.hasPendingWork
+                backfillPending: backfill.hasPendingWork,
+                scrapePending: scraper.hasPendingScrape
             )
             completion.complete(success: true)
         }
@@ -658,7 +664,8 @@ struct PrimuseApp: App {
                         // going past the beginBackgroundTask 30s ceiling. (No-op
                         // on macOS — BGTaskScheduler doesn't exist there.)
                         scanService.scheduleBackgroundResumeIfNeeded(
-                            backfillPending: metadataBackfill.hasPendingWork
+                            backfillPending: metadataBackfill.hasPendingWork,
+                            scrapePending: scraperService.hasPendingScrape
                         )
                     case .active:
                         playerService.handleAppDidBecomeActive()
@@ -672,6 +679,7 @@ struct PrimuseApp: App {
                             sourceStore: sourcesStore,
                             scraperService: scraperService
                         )
+                        scraperService.resumePendingScrape(in: musicLibrary)
                         // Pick up any bare songs left behind by an earlier scan.
                         metadataBackfill.start()
                     @unknown default:

@@ -140,7 +140,7 @@ import Testing
 @Test func mediaServerStreamURLs() {
     let base = URL(string: "https://jelly.example.com:8096")!
     let jf = MediaServerStreamResolver.jellyfinStreamURL(base: base, itemID: "abc123", token: "TK")
-    #expect(jf?.absoluteString == "https://jelly.example.com:8096/Videos/abc123/stream?Static=true&api_key=TK")
+    #expect(jf?.absoluteString == "https://jelly.example.com:8096/Audio/abc123/stream?Static=true&api_key=TK")
 
     let plexBase = URL(string: "http://plex.local:32400")!
     let px = MediaServerStreamResolver.plexStreamURL(base: plexBase, partKey: "/library/parts/77/file.mp3", token: "PT")
@@ -177,9 +177,80 @@ import Testing
     async let second = resolver.streamURL(for: secondSong, source: source, credential: credential)
     let (firstURL, secondURL) = try await (first, second)
 
-    #expect(firstURL.absoluteString.contains("/Videos/one/stream"))
-    #expect(secondURL.absoluteString.contains("/Videos/two/stream"))
+    #expect(firstURL.absoluteString.contains("/Audio/one/stream"))
+    #expect(secondURL.absoluteString.contains("/Audio/two/stream"))
     #expect(CountingLoginURLProtocol.requestCount == 1)
+}
+
+@Test func jellyfinPasswordlessUserCanResolve() async throws {
+    PasswordlessLoginURLProtocol.reset()
+    let config = URLSessionConfiguration.ephemeral
+    config.protocolClasses = [PasswordlessLoginURLProtocol.self]
+    let session = URLSession(configuration: config)
+    defer { session.invalidateAndCancel() }
+
+    let resolver = MediaServerStreamResolver(session: session)
+    let source = MusicSource(id: "jf-passwordless", name: "Jellyfin", type: .jellyfin,
+                             host: "resolver.test", useSsl: true, username: "guest")
+    let song = Song(id: "song", title: "Song", fileFormat: .flac,
+                    filePath: "/items/song.flac", sourceID: source.id)
+
+    let url = try await resolver.streamURL(for: song, source: source, credential: nil)
+    #expect(url.absoluteString.contains("/Audio/song/stream"))
+    #expect(PasswordlessLoginURLProtocol.requestCount == 1)
+}
+
+@Test func jellyfinAPIKeySkipsLogin() async throws {
+    let resolver = MediaServerStreamResolver()
+    let source = MusicSource(id: "jf-key", name: "Jellyfin", type: .jellyfin,
+                             host: "jelly.example.com", useSsl: true, authType: .apiKey)
+    let song = Song(id: "song", title: "Song", fileFormat: .flac,
+                    filePath: "/items/song.flac", sourceID: source.id)
+
+    let url = try await resolver.streamURL(
+        for: song,
+        source: source,
+        credential: SourceCredential(password: "API-KEY")
+    )
+    #expect(url.absoluteString == "https://jelly.example.com:8096/Audio/song/stream?Static=true&api_key=API-KEY")
+}
+
+private final class PasswordlessLoginURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var requestCountStorage = 0
+
+    static var requestCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return requestCountStorage
+    }
+
+    static func reset() {
+        lock.lock()
+        requestCountStorage = 0
+        lock.unlock()
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Self.lock.lock()
+        Self.requestCountStorage += 1
+        Self.lock.unlock()
+        guard let url = request.url,
+              let response = HTTPURLResponse(url: url, statusCode: 200,
+                                             httpVersion: "HTTP/1.1",
+                                             headerFields: ["Content-Type": "application/json"]) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(#"{"AccessToken":"passwordless-token"}"#.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }
 
 private final class CountingLoginURLProtocol: URLProtocol, @unchecked Sendable {

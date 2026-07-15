@@ -5,9 +5,9 @@ import PrimuseKit
 /// 123 云盘 Source — 123 开放平台 OpenAPI(open-api.123pan.com),第三方挂载应用 OAuth 模式。
 ///
 /// 用户在 App 内通过标准 OAuth 授权码流程授权自己的 123 账号:
-///   1. 跳 https://www.123pan.com/auth(内置 appId 作 client_id, scope 固定
+///   1. 跳 https://yun.123pan.com/auth(内置 appId 作 client_id, scope 固定
 ///      `user:base,file:all:read,file:all:write`)
-///   2. 用户授权后回调 `primuse://123pan/callback?code=…&state=…`
+///   2. 用户授权后先回调已登记的 HTTPS 中转页,再深链回 `primuse://123pan/callback`
 ///   3. POST /api/v1/oauth2/access_token 用 code 换 access_token + refresh_token(90 天)
 /// 之后所有 API 带头 `Platform: open_platform` + `Authorization: Bearer <token>`,
 /// 响应统一 `{code:0, message, data}`(code==0 成功; 401 token 失效; 429 限流)。
@@ -24,11 +24,11 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource {
     private let helper: CloudDriveHelper
 
     private static let apiBase = "https://open-api.123pan.com"
-    private static let authURL = "https://www.123pan.com/auth"
+    private static let authURL = "https://yun.123pan.com/auth"
     private static let tokenURL = "\(apiBase)/api/v1/oauth2/access_token"
     /// 单步上传的兜底域名 —— 正常应走 /upload/v2/file/domain 动态获取,失败时用这个。
     private static let fallbackUploadDomain = "https://openapi-upload.123pan.com"
-    static let redirectURI = "\(CloudOAuthConfig.callbackScheme)://123pan/callback"
+    static let redirectURI = "https://123pan.callback.welape.com/"
 
     private var downloadURLCache: [String: (url: URL, expiresAt: Date)] = [:]
     private static let downloadURLTTL: TimeInterval = 20 * 60
@@ -275,9 +275,9 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource {
                      expiresAt: Date().addingTimeInterval(expiresIn))
     }
 
-    /// 第三方挂载应用 OAuth(authorization_code)。123 接受自定义 scheme 作回调
-    /// (官方示例 redirect_uri 即 `vidhub://…`),故直接用 `primuse://123pan/callback`,
-    /// 无需 https 中转页。scope 固定且逗号分隔;无 PKCE。
+    /// 第三方挂载应用 OAuth(authorization_code)。本应用在 123 开放平台登记的是
+    /// HTTPS 回调页;中转页收到 code/state 后再跳回 `primuse://123pan/callback`。
+    /// scope 固定且逗号分隔;无 PKCE。
     static func oauthConfig(clientId: String, clientSecret: String?) -> CloudOAuthConfig {
         CloudOAuthConfig(
             authURL: authURL,
@@ -287,7 +287,8 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource {
             scopes: ["user:base", "file:all:read", "file:all:write"],
             redirectURI: redirectURI,
             scopeSeparator: ",",
-            usesPKCE: false
+            usesPKCE: false,
+            explicitCallbackScheme: CloudOAuthConfig.callbackScheme
         )
     }
 

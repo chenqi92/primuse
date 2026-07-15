@@ -78,10 +78,15 @@ actor MediaServerSource: SongScanningConnector {
 
         switch authType {
         case .apiKey:
+            guard secret.isEmpty == false else {
+                throw SourceError.authenticationFailed
+            }
             accessToken = secret
             userID = try await fetchCurrentUserID()
         default:
-            guard username.isEmpty == false, secret.isEmpty == false else {
+            // Jellyfin/Emby allow a named account with no password. The empty
+            // string must still be sent as `Pw` to AuthenticateByName.
+            guard username.isEmpty == false else {
                 throw SourceError.authenticationFailed
             }
 
@@ -190,7 +195,7 @@ actor MediaServerSource: SongScanningConnector {
                 throw SourceError.authenticationFailed
             }
             return buildURL(
-                path: "/Videos/\(itemID)/stream",
+                path: "/Audio/\(itemID)/stream",
                 queryItems: [
                     URLQueryItem(name: "Static", value: "true"),
                     URLQueryItem(name: "api_key", value: accessToken)
@@ -541,7 +546,7 @@ actor MediaServerSource: SongScanningConnector {
     private func buildSong(from item: AudioItem) -> Song {
         let fileExtension = audioFileExtension(for: item)
         let format = AudioFormat.from(fileExtension: fileExtension) ?? .mp3
-        let artist = item.albumArtist ?? item.albumArtists?.first ?? item.artists?.first
+        let artist = item.albumArtist ?? item.albumArtists?.first?.name ?? item.artists?.first
         let year = item.productionYear ?? item.dateCreated.map { Calendar.current.component(.year, from: $0) }
         let audioStream = item.mediaStreams?.first(where: { ($0.type ?? "").caseInsensitiveCompare("Audio") == .orderedSame })
             ?? item.mediaStreams?.first
@@ -551,6 +556,8 @@ actor MediaServerSource: SongScanningConnector {
         return Song(
             id: hash("\(sourceID):\(relativePath)"),
             title: item.name,
+            albumID: item.albumId,
+            artistID: item.albumArtists?.first?.id,
             albumTitle: item.album,
             artistName: artist,
             trackNumber: item.indexNumber,
@@ -840,7 +847,7 @@ private struct AudioItem: Decodable {
     let name: String
     let album: String?
     let albumArtist: String?
-    let albumArtists: [String]?
+    let albumArtists: [NameIDPair]?
     let artists: [String]?
     let albumId: String?
     let albumPrimaryImageTag: String?
@@ -874,6 +881,30 @@ private struct AudioItem: Decodable {
         case mediaSources = "MediaSources"
         case imageTags = "ImageTags"
         case path = "Path"
+    }
+}
+
+/// Jellyfin serializes AlbumArtists as NameGuidPair objects, not strings.
+/// Decoding it as `[String]` caused the entire paged Items response to fail as
+/// soon as a track contained normal album-artist metadata.
+private struct NameIDPair: Decodable {
+    let name: String
+    let id: String?
+
+    enum CodingKeys: String, CodingKey {
+        case name = "Name"
+        case id = "Id"
+    }
+
+    init(from decoder: Decoder) throws {
+        if let value = try? decoder.singleValueContainer().decode(String.self) {
+            name = value
+            id = nil
+            return
+        }
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        id = try container.decodeIfPresent(String.self, forKey: .id)
     }
 }
 

@@ -68,7 +68,7 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
             .init(name: "state", value: state),
         ]
 
-        // 123 云盘授权页(www.123pan.com/auth)只接受 client_id/redirect_uri/scope/state
+        // 123 云盘授权页(yun.123pan.com/auth)只接受 client_id/redirect_uri/scope/state
         // (官方示例不带 response_type);其余 provider 走标准 OAuth 加 response_type=code。
         if !config.authURL.contains("123pan.com") {
             queryItems.append(.init(name: "response_type", value: "code"))

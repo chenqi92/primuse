@@ -10,6 +10,8 @@ import AppKit
 
 struct NowPlayingView: View {
     var onMinimize: (() -> Void)? = nil
+    var onOpenAlbum: ((Album) -> Void)? = nil
+    var onOpenArtist: ((Artist) -> Void)? = nil
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(MusicScraperService.self) private var scraperService
@@ -59,6 +61,42 @@ struct NowPlayingView: View {
     private var isCurrentLiked: Bool {
         guard let songID = player.currentSong?.id else { return false }
         return library.isLiked(songID: songID)
+    }
+
+    /// Resolve the currently playing song back to the library entities used by
+    /// the detail screens. Older scans may not have persisted artistID/albumID,
+    /// so retain a normalized-name fallback instead of silently hiding links.
+    private var currentArtist: Artist? {
+        guard let song = player.currentSong else { return nil }
+        if let artistID = song.artistID,
+           let artist = library.visibleArtists.first(where: { $0.id == artistID }) {
+            return artist
+        }
+        let artistName = song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !artistName.isEmpty else { return nil }
+        return library.visibleArtists.first {
+            $0.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                .localizedCaseInsensitiveCompare(artistName) == .orderedSame
+        }
+    }
+
+    private var currentAlbum: Album? {
+        guard let song = player.currentSong else { return nil }
+        if let albumID = song.albumID,
+           let album = library.visibleAlbums.first(where: { $0.id == albumID }) {
+            return album
+        }
+        let albumTitle = song.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !albumTitle.isEmpty else { return nil }
+        let artistName = song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return library.visibleAlbums.first {
+            let titleMatches = $0.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                .localizedCaseInsensitiveCompare(albumTitle) == .orderedSame
+            let albumArtist = $0.artistName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let artistMatches = artistName.isEmpty || albumArtist.isEmpty
+                || albumArtist.localizedCaseInsensitiveCompare(artistName) == .orderedSame
+            return titleMatches && artistMatches
+        }
     }
 
     private func toggleLikedCurrent() {
@@ -335,8 +373,7 @@ struct NowPlayingView: View {
                             AudioQualityBadge(quality: song.audioQuality)
                         }
                     }
-                    Text(player.currentSong?.artistName ?? "")
-                        .font(.title3).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
+                    nowPlayingMetadataLinks(font: .title3)
                 }
                 Spacer()
                 musicVideoToggleButton(font: .title2, trailing: 6)
@@ -498,28 +535,34 @@ struct NowPlayingView: View {
                     if showLyrics {
                         // LYRICS MODE: compact header at top
                         HStack(spacing: 10) {
-                            // Tappable cover + title → switch back to cover mode
-                            HStack(spacing: 10) {
-                                CachedArtworkView(
-                                    coverRef: player.currentSong?.coverArtFileName,
-                                    songID: player.currentSong?.id ?? "",
-                                    size: 44, cornerRadius: 6,
-                                    sourceID: player.currentSong?.sourceID,
-                                    filePath: player.currentSong?.filePath,
-                                    fileFormat: player.currentSong?.fileFormat,
-                                    revisionToken: player.coverRevision
-                                )
+                            // Explicit button rather than a hidden tap gesture:
+                            // the artwork itself is now a discoverable way back.
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.3)) { showLyrics = false }
+                            } label: {
+                                HStack(spacing: 10) {
+                                    CachedArtworkView(
+                                        coverRef: player.currentSong?.coverArtFileName,
+                                        songID: player.currentSong?.id ?? "",
+                                        size: 44, cornerRadius: 6,
+                                        sourceID: player.currentSong?.sourceID,
+                                        filePath: player.currentSong?.filePath,
+                                        fileFormat: player.currentSong?.fileFormat,
+                                        revisionToken: player.coverRevision
+                                    )
 
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(player.currentSong?.title ?? "")
-                                        .font(.subheadline).fontWeight(.semibold).lineLimit(1)
-                                        .foregroundStyle(.white)
-                                    Text(player.currentSong?.artistName ?? "")
-                                        .font(.caption).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(player.currentSong?.title ?? "")
+                                            .font(.subheadline).fontWeight(.semibold).lineLimit(1)
+                                            .foregroundStyle(.white)
+                                        Text(player.currentSong?.artistName ?? "")
+                                            .font(.caption).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
+                                    }
                                 }
                             }
+                            .buttonStyle(.plain)
                             .contentShape(Rectangle())
-                            .onTapGesture { withAnimation(.easeInOut(duration: 0.3)) { showLyrics = false } }
+                            .accessibilityLabel(Text("a11y_close_lyrics"))
 
                             Spacer()
 
@@ -582,8 +625,7 @@ struct NowPlayingView: View {
                                 Text(player.currentSong?.title ?? "")
                                     .font(.title3).fontWeight(.bold).lineLimit(1)
                                     .foregroundStyle(.white)
-                                Text(player.currentSong?.artistName ?? "")
-                                    .font(.body).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
+                                nowPlayingMetadataLinks(font: .body)
                             }
                             Spacer()
 
@@ -697,9 +739,11 @@ struct NowPlayingView: View {
                     // Bottom bar
                     HStack {
                         Button { withAnimation(.easeInOut(duration: 0.3)) { showLyrics.toggle() } } label: {
-                            Image(systemName: showLyrics ? "text.quote" : "quote.bubble")
+                            Image(systemName: showLyrics ? "photo" : "quote.bubble")
                                 .foregroundStyle(showLyrics ? .white : .white.opacity(0.5))
                         }
+                        .frame(width: 44, height: 44)
+                        .accessibilityLabel(Text(showLyrics ? "a11y_close_lyrics" : "a11y_open_lyrics"))
                         Spacer()
                         AirPlayButton().frame(width: 36, height: 36)
                         Spacer()
@@ -880,6 +924,18 @@ struct NowPlayingView: View {
                 }
                 .disabled(player.currentSong == nil)
 
+                if let album = currentAlbum, onOpenAlbum != nil {
+                    Button { onOpenAlbum?(album) } label: {
+                        Label(String(localized: "go_to_album"), systemImage: "square.stack")
+                    }
+                }
+
+                if let artist = currentArtist, onOpenArtist != nil {
+                    Button { onOpenArtist?(artist) } label: {
+                        Label(String(localized: "go_to_artist"), systemImage: "music.mic")
+                    }
+                }
+
                 if let song = player.currentSong {
                     ShareLink(item: "\(song.title) - \(song.artistName ?? "")") {
                         Label(String(localized: "share"), systemImage: "square.and.arrow.up")
@@ -1017,8 +1073,45 @@ struct NowPlayingView: View {
             player: player,
             songID: player.currentSong?.id,
             isScrapingCurrentSong: isScrapingCurrentSong,
-            onScrape: { Task { await scrapeCurrentSong() } }
+            onScrape: { Task { await scrapeCurrentSong() } },
+            onBackgroundTap: {
+                withAnimation(.easeInOut(duration: 0.3)) { showLyrics = false }
+            }
         )
+    }
+
+    /// Artist and album are independent buttons, matching the interaction users
+    /// expect from Apple Music/Spotify-style now-playing screens.
+    @ViewBuilder
+    private func nowPlayingMetadataLinks(font: Font) -> some View {
+        HStack(spacing: 6) {
+            if let artist = currentArtist, onOpenArtist != nil {
+                Button { onOpenArtist?(artist) } label: {
+                    Text(artist.name).lineLimit(1)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("go_to_artist"))
+            } else if let artistName = player.currentSong?.artistName, !artistName.isEmpty {
+                Text(artistName).lineLimit(1)
+            }
+
+            if player.currentSong?.artistName?.isEmpty == false,
+               player.currentSong?.albumTitle?.isEmpty == false {
+                Text("·")
+            }
+
+            if let album = currentAlbum, onOpenAlbum != nil {
+                Button { onOpenAlbum?(album) } label: {
+                    Text(album.title).lineLimit(1)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("go_to_album"))
+            } else if let albumTitle = player.currentSong?.albumTitle, !albumTitle.isEmpty {
+                Text(albumTitle).lineLimit(1)
+            }
+        }
+        .font(font)
+        .foregroundStyle(.white.opacity(0.7))
     }
 
     // MARK: - Helpers
@@ -2019,6 +2112,7 @@ struct LyricsScrollView: View {
     let songID: String?
     let isScrapingCurrentSong: Bool
     let onScrape: () -> Void
+    let onBackgroundTap: () -> Void
 
     @Environment(\.openURL) private var openURL
     @AppStorage("lyricsFontScale") private var lyricsFontScale: Double = 1.0
@@ -2030,6 +2124,9 @@ struct LyricsScrollView: View {
     /// 之后的帧变化走动画, 避免硬跳。切歌时重置。
     @State private var hasMeasuredWordFrames = false
     @State private var wordLineFrames: [String: CGRect] = [:]
+    /// 每行歌词在屏幕坐标中的点击区域。用它区分“点歌词跳转进度”与
+    /// “点空白返回封面”，避免父级手势吞掉行点击。
+    @State private var lyricRowHitFrames: [String: CGRect] = [:]
 
     // 用户手动拖动歌词时, 暂时冻结自动滚动 ── 否则刚拖到想看的位置, 下一帧
     // auto follow 又把视图拽回当前行, 等于不能浏览。lastUserScrollTime 静止
@@ -2083,6 +2180,7 @@ struct LyricsScrollView: View {
             wordAutoOffset = 0
             hasMeasuredWordFrames = false
             wordLineFrames = [:]
+            lyricRowHitFrames = [:]
             manualWordOffset = nil
             wordAutoFollowResumeTask?.cancel()
         }
@@ -2091,6 +2189,21 @@ struct LyricsScrollView: View {
             lyrics: lyrics,
             settings: translationSettings,
             translatedTextByLineID: $translatedTextByLineID
+        )
+        .onPreferenceChange(LyricRowHitFramePreferenceKey.self) { frames in
+            lyricRowHitFrames = frames
+        }
+        .contentShape(Rectangle())
+        .simultaneousGesture(
+            SpatialTapGesture(coordinateSpace: .global)
+                .onEnded { value in
+                    guard !lyrics.isEmpty, !isPinchingLyrics else { return }
+                    let tappedLyric = lyricRowHitFrames.values.contains {
+                        $0.insetBy(dx: -2, dy: -2).contains(value.location)
+                    }
+                    guard !tappedLyric else { return }
+                    onBackgroundTap()
+                }
         )
     }
 
@@ -2137,7 +2250,6 @@ struct LyricsScrollView: View {
                         ForEach(Array(lyrics.enumerated()), id: \.element.id) { index, line in
                             lyricsRow(line: line, index: index, availableWidth: contentWidth)
                                 .id(line.id)
-                                .onTapGesture { player.seek(to: line.timestamp) }
                                 .padding(.vertical, 2)
                         }
 
@@ -2209,7 +2321,6 @@ struct LyricsScrollView: View {
                         // 不是大小先到位、位置后到位的割裂感。上一句的缩小因此是
                         // 一段短暂渐变, 而非瞬间还原。
                         .animation(.smooth(duration: Self.wordLevelScrollDuration, extraBounce: 0), value: currentLineIndex)
-                        .onTapGesture { player.seek(to: line.timestamp) }
                         .padding(.vertical, 2)
                         .background(rowFrameReader(id: line.id))
                 }
@@ -2339,6 +2450,15 @@ struct LyricsScrollView: View {
         }
     }
 
+    private func lyricRowHitFrameReader(id: String) -> some View {
+        GeometryReader { proxy in
+            Color.clear.preference(
+                key: LyricRowHitFramePreferenceKey.self,
+                value: [id: proxy.frame(in: .global)]
+            )
+        }
+    }
+
     private func targetWordContentOffset(for index: Int, viewportHeight: CGFloat) -> CGFloat {
         guard !lyrics.isEmpty else { return 0 }
         let safeIndex = min(max(index, 0), lyrics.count - 1)
@@ -2385,6 +2505,9 @@ struct LyricsScrollView: View {
 
         VStack(alignment: alignment, spacing: 4) {
             singleLineContent(line: line, isActive: isActive, index: index, fontSize: fontSize, weight: weight, dimmedByAmbient: dimmedByAmbient, timelineTime: timelineTime)
+                .contentShape(Rectangle())
+                .onTapGesture { player.seek(to: line.timestamp) }
+                .background(lyricRowHitFrameReader(id: "\(line.id)-primary"))
                 .frame(width: availableWidth, alignment: frameAlignment)
 
             // 歌词翻译 — 在原文下面以略小的字号显示, 仅当启用且当前行有翻译。
@@ -2402,6 +2525,9 @@ struct LyricsScrollView: View {
                     // 长翻译在窄屏 / 大字号下要 wrap 多行。不加 fixedSize 时 SwiftUI
                     // 会优先单行 + 截断显示省略号。
                     .fixedSize(horizontal: false, vertical: true)
+                    .contentShape(Rectangle())
+                    .onTapGesture { player.seek(to: line.timestamp) }
+                    .background(lyricRowHitFrameReader(id: "\(line.id)-translation"))
                     .frame(width: availableWidth, alignment: frameAlignment)
             }
 
@@ -2409,6 +2535,9 @@ struct LyricsScrollView: View {
                 ForEach(bgs) { bg in
                     singleLineContent(line: bg, isActive: isActive, index: index, fontSize: fontSize * 0.7, weight: .medium, dimmedByAmbient: dimmedByAmbient, timelineTime: timelineTime)
                         .opacity(0.7)
+                        .contentShape(Rectangle())
+                        .onTapGesture { player.seek(to: line.timestamp) }
+                        .background(lyricRowHitFrameReader(id: "\(line.id)-background-\(bg.id)"))
                         .frame(width: availableWidth, alignment: frameAlignment)
                 }
             }
@@ -2547,6 +2676,14 @@ private enum SmoothWordLyricsCoordinateSpace {
 }
 
 private struct LyricRowFramePreferenceKey: PreferenceKey {
+    static let defaultValue: [String: CGRect] = [:]
+
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
+
+private struct LyricRowHitFramePreferenceKey: PreferenceKey {
     static let defaultValue: [String: CGRect] = [:]
 
     static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {

@@ -257,7 +257,17 @@ struct ContentView: View {
             // changes. The slide-in animation is driven by PlayerOverlay's
             // own internal `entered` state on first appear.
             if showNowPlaying {
-                PlayerOverlay(isPresented: $showNowPlaying)
+                PlayerOverlay(
+                    isPresented: $showNowPlaying,
+                    onOpenAlbum: { album in
+                        showNowPlaying = false
+                        openLibraryDeepLink(.album(album))
+                    },
+                    onOpenArtist: { artist in
+                        showNowPlaying = false
+                        openLibraryDeepLink(.artist(artist))
+                    }
+                )
                     .zIndex(2)
             }
         }
@@ -444,6 +454,8 @@ struct ContentView: View {
 
 struct PlayerOverlay: View {
     @Binding var isPresented: Bool
+    let onOpenAlbum: (PrimuseKit.Album) -> Void
+    let onOpenArtist: (PrimuseKit.Artist) -> Void
     /// Drives the entrance animation. Starts `false` on mount so the first
     /// frame renders off-screen (offset = screenHeight + 100); `onAppear`
     /// flips it inside a `withAnimation` so SwiftUI animates the offset to 0.
@@ -476,7 +488,7 @@ struct PlayerOverlay: View {
     }
 
     var body: some View {
-        NowPlayingView()
+        NowPlayingView(onOpenAlbum: onOpenAlbum, onOpenArtist: onOpenArtist)
             .background {
                 GeometryReader { geo in
                     Color.clear.onAppear { screenHeight = geo.size.height }

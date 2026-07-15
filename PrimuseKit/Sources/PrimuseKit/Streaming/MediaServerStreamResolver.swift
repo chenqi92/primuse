@@ -3,7 +3,8 @@ import Foundation
 /// 媒体服务器(Jellyfin / Emby / Plex)流式解析。播放地址鉴权全在 query,AVPlayer 直连。
 ///
 /// - Jellyfin/Emby:用户名+密码登录(/Users/AuthenticateByName)拿 AccessToken,
-///   流地址 `/Videos/{itemId}/stream?Static=true&api_key={token}`。
+///   或直接使用 API key；音频流地址为
+///   `/Audio/{itemId}/stream?Static=true&api_key={token}`。
 /// - Plex:token 即 secret(无需登录),需先取 /library/metadata/{ratingKey} 拿到
 ///   partKey,再拼 `{partKey}?X-Plex-Token={token}`。
 ///
@@ -54,10 +55,24 @@ public actor MediaServerStreamResolver: StreamResolver {
             }
             return url
         case .jellyfin, .emby:
-            let username = cred.username ?? source.username ?? ""
-            guard let password = cred.password, !password.isEmpty, !username.isEmpty else {
+            if source.authType == .apiKey {
+                guard let token = cred.password ?? cred.token, !token.isEmpty else {
+                    throw StreamResolveError.missingCredential
+                }
+                guard let url = Self.jellyfinStreamURL(base: base, itemID: itemID, token: token) else {
+                    throw StreamResolveError.cannotBuildURL
+                }
+                return url
+            }
+
+            let username = (cred.username ?? source.username ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !username.isEmpty else {
                 throw StreamResolveError.missingCredential
             }
+            // Passwordless Jellyfin/Emby users are valid. Preserve an absent
+            // Keychain entry as an empty Pw instead of treating it as missing.
+            let password = cred.password ?? ""
             let token = try await currentToken(source: source, base: base, username: username,
                                                password: password, emby: source.type == .emby)
             guard let url = Self.jellyfinStreamURL(base: base, itemID: itemID, token: token) else {
@@ -148,7 +163,7 @@ public actor MediaServerStreamResolver: StreamResolver {
     }
 
     static func jellyfinStreamURL(base: URL, itemID: String, token: String) -> URL? {
-        guard var comp = URLComponents(url: base.appendingPathComponent("Videos/\(itemID)/stream"),
+        guard var comp = URLComponents(url: base.appendingPathComponent("Audio/\(itemID)/stream"),
                                        resolvingAgainstBaseURL: false) else { return nil }
         comp.queryItems = [URLQueryItem(name: "Static", value: "true"),
                            URLQueryItem(name: "api_key", value: token)]

@@ -78,6 +78,12 @@ struct AddSourceView: View {
             guard username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
                 return false
             }
+            // Jellyfin and Emby both support named users with an empty
+            // password. Requiring a Keychain value here made those perfectly
+            // valid accounts impossible to save.
+            if sourceType == .jellyfin || sourceType == .emby {
+                return true
+            }
             return password.isEmpty == false || hasStoredSecret
         case .apiKey, .cookie, .oauth:
             return password.isEmpty == false || hasStoredSecret

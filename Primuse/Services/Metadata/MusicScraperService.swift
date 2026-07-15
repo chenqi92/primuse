@@ -1,5 +1,8 @@
 import Foundation
 import PrimuseKit
+#if os(iOS)
+import UIKit
+#endif
 
 @MainActor
 @Observable
@@ -11,9 +14,21 @@ final class MusicScraperService {
     private let sourceManager: SourceManager
     private let metadataService = MetadataService()
     private var scrapingTask: Task<Void, Never>?
+    private var scrapingGeneration = 0
     private var backgroundEnrichmentTask: Task<Void, Never>?
     private var pendingEnrichmentSongIDs: [String] = []
     private var pendingEnrichmentSongIDSet: Set<String> = []
+    private let scrapeCheckpointURL: URL
+    private var scrapeCheckpoint: ScrapeCheckpoint?
+    #if os(iOS)
+    private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+    #endif
+
+    private struct ScrapeCheckpoint: Codable {
+        var songIDs: [String]
+        var forceRescrape: Bool
+        var nextSongIndex: Int
+    }
 
     private(set) var isScraping = false
     private(set) var isBackgroundEnriching = false
@@ -26,6 +41,19 @@ final class MusicScraperService {
 
     init(sourceManager: SourceManager) {
         self.sourceManager = sourceManager
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let directory = appSupport.appendingPathComponent("Primuse", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        scrapeCheckpointURL = directory.appendingPathComponent("scrape-checkpoint.json")
+        if let data = try? Data(contentsOf: scrapeCheckpointURL) {
+            scrapeCheckpoint = try? JSONDecoder().decode(ScrapeCheckpoint.self, from: data)
+        }
+    }
+
+    /// True when an interrupted batch scrape can be resumed after foregrounding
+    /// or from the registered BGProcessingTask.
+    var hasPendingScrape: Bool {
+        scrapeCheckpoint?.songIDs.isEmpty == false
     }
 
     var progress: Double {
@@ -251,17 +279,64 @@ final class MusicScraperService {
     }
 
     func cancel() {
+        cancel(preservingCheckpoint: false)
+    }
+
+    /// Used only when iOS expires a background execution window. The current
+    /// task stops at an atomic song boundary, while the persisted request is
+    /// retained so the next system/foreground opportunity can restart it.
+    func cancelPreservingCheckpoint() {
+        cancel(preservingCheckpoint: true)
+    }
+
+    private func cancel(preservingCheckpoint: Bool) {
+        scrapingGeneration += 1
+        if preservingCheckpoint, let scrapeCheckpoint {
+            writeScrapeCheckpoint(scrapeCheckpoint)
+        }
         scrapingTask?.cancel()
         scrapingTask = nil
         isScraping = false
         currentSongTitle = ""
+        endBackgroundTaskIfHeld()
+        if !preservingCheckpoint {
+            clearScrapeCheckpoint()
+        }
+    }
+
+    func resumePendingScrape(in library: MusicLibrary) {
+        guard !isScraping, let checkpoint = scrapeCheckpoint else { return }
+        let songsByID = Dictionary(uniqueKeysWithValues: library.visibleSongs.map { ($0.id, $0) })
+        let startIndex = min(max(checkpoint.nextSongIndex, 0), checkpoint.songIDs.count)
+        let songs = checkpoint.songIDs.dropFirst(startIndex).compactMap { songsByID[$0] }
+        guard !songs.isEmpty else {
+            clearScrapeCheckpoint()
+            return
+        }
+        startScraping(
+            songs: songs,
+            in: library,
+            forceRescrape: checkpoint.forceRescrape,
+            saveCheckpoint: false
+        )
+    }
+
+    func waitUntilScrapeIdle() async {
+        while isScraping {
+            try? await Task.sleep(for: .seconds(2))
+        }
     }
 
     private func startScraping(in library: MusicLibrary, forceRescrape: Bool) {
         startScraping(songs: library.visibleSongs, in: library, forceRescrape: forceRescrape)
     }
 
-    private func startScraping(songs requestedSongs: [Song], in library: MusicLibrary, forceRescrape: Bool) {
+    private func startScraping(
+        songs requestedSongs: [Song],
+        in library: MusicLibrary,
+        forceRescrape: Bool,
+        saveCheckpoint: Bool = true
+    ) {
         guard !isScraping else { return }
 
         let latestByID = Dictionary(library.visibleSongs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -269,6 +344,10 @@ final class MusicScraperService {
             guard result.seen.insert(song.id).inserted else { return }
             result.ordered.append(latestByID[song.id] ?? song)
         }.ordered
+        guard !songs.isEmpty else { return }
+        if saveCheckpoint {
+            persistScrapeCheckpoint(songIDs: songs.map(\.id), forceRescrape: forceRescrape)
+        }
         totalCount = songs.count
         processedCount = 0
         updatedCount = 0
@@ -276,24 +355,31 @@ final class MusicScraperService {
         failedCount = 0
         currentSongTitle = ""
         isScraping = true
+        scrapingGeneration += 1
+        let generation = scrapingGeneration
+        beginBackgroundTaskIfNeeded()
 
         scrapingTask = Task {
             defer {
                 let cancelled = Task.isCancelled
                 let updated = updatedCount
                 let failed = failedCount
-                isScraping = false
-                currentSongTitle = ""
-                scrapingTask = nil
-                // Fire the completion notification only when the run actually
-                // finished — cancellation (user hit "stop") shouldn't pop one.
-                if !cancelled {
-                    Task { @MainActor in
-                        await Self.postScrapeCompletionNotification(
-                            forceRescrape: forceRescrape,
-                            updatedCount: updated,
-                            failedCount: failed
-                        )
+                if scrapingGeneration == generation {
+                    isScraping = false
+                    currentSongTitle = ""
+                    scrapingTask = nil
+                    endBackgroundTaskIfHeld()
+                    // Fire the completion notification only when the run actually
+                    // finished — cancellation (user hit "stop") shouldn't pop one.
+                    if !cancelled {
+                        clearScrapeCheckpoint()
+                        Task { @MainActor in
+                            await Self.postScrapeCompletionNotification(
+                                forceRescrape: forceRescrape,
+                                updatedCount: updated,
+                                failedCount: failed
+                            )
+                        }
                     }
                 }
             }
@@ -304,6 +390,7 @@ final class MusicScraperService {
             // Phase 1: Scrape song metadata + write sidecar files
             for song in songs {
                 guard !Task.isCancelled else { return }
+                defer { advanceScrapeCheckpoint(afterCompleting: song.id) }
 
                 currentSongTitle = song.title
 
@@ -419,6 +506,7 @@ final class MusicScraperService {
                     processedCount += 1
                     failedCount += 1
                 }
+
             }
 
             // Phase 2: Scrape album and artist covers
@@ -450,6 +538,61 @@ final class MusicScraperService {
                 artistsNeedingImage: artistsNeedingImage
             )
         }
+    }
+
+    private func persistScrapeCheckpoint(songIDs: [String], forceRescrape: Bool) {
+        let checkpoint = ScrapeCheckpoint(songIDs: songIDs, forceRescrape: forceRescrape, nextSongIndex: 0)
+        scrapeCheckpoint = checkpoint
+        writeScrapeCheckpoint(checkpoint)
+    }
+
+    private func writeScrapeCheckpoint(_ checkpoint: ScrapeCheckpoint) {
+        guard let data = try? JSONEncoder().encode(checkpoint) else { return }
+        try? data.write(to: scrapeCheckpointURL, options: .atomic)
+    }
+
+    private func advanceScrapeCheckpoint(afterCompleting songID: String) {
+        guard var checkpoint = scrapeCheckpoint,
+              let completedIndex = checkpoint.songIDs.firstIndex(of: songID) else { return }
+
+        // Keep the final song as a lightweight sentinel while album/artist
+        // artwork is still being processed. If iOS kills us in phase 2, the
+        // next run repeats at most that one song and then safely resumes the
+        // derived artwork pass.
+        checkpoint.nextSongIndex = min(completedIndex + 1, max(checkpoint.songIDs.count - 1, 0))
+        scrapeCheckpoint = checkpoint
+
+        // Network scraping is much slower than this write, but avoid rewriting
+        // a potentially large ID list after every track. Expiration handling
+        // flushes the latest in-memory index before cancelling.
+        if completedIndex.isMultiple(of: 10) || completedIndex == checkpoint.songIDs.count - 1 {
+            writeScrapeCheckpoint(checkpoint)
+        }
+    }
+
+    private func clearScrapeCheckpoint() {
+        scrapeCheckpoint = nil
+        try? FileManager.default.removeItem(at: scrapeCheckpointURL)
+    }
+
+    private func beginBackgroundTaskIfNeeded() {
+        #if os(iOS)
+        guard backgroundTaskID == .invalid else { return }
+        backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "primuse.metadata-scrape") { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.cancelPreservingCheckpoint()
+            }
+        }
+        #endif
+    }
+
+    private func endBackgroundTaskIfHeld() {
+        #if os(iOS)
+        guard backgroundTaskID != .invalid else { return }
+        let id = backgroundTaskID
+        backgroundTaskID = .invalid
+        UIApplication.shared.endBackgroundTask(id)
+        #endif
     }
 
     /// Builds the user-visible "scrape finished" notification body and posts it.

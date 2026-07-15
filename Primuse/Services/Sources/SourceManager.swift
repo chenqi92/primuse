@@ -686,7 +686,7 @@ final class SourceManager {
                     suggestion: String(localized: "source_diag_auth_missing_username_suggestion")
                 ))
             }
-            if secret.isEmpty {
+            if secret.isEmpty, source.type != .jellyfin, source.type != .emby {
                 checks.append(SourceDiagnosticCheck(
                     status: .failed,
                     title: String(localized: "source_diag_auth_title"),
