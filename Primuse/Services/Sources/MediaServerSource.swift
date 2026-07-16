@@ -2,7 +2,7 @@ import CryptoKit
 import Foundation
 import PrimuseKit
 
-actor MediaServerSource: SongScanningConnector {
+actor MediaServerSource: RefreshingMetadataSongConnector {
     enum Kind: Sendable {
         case jellyfin
         case emby
@@ -557,7 +557,21 @@ actor MediaServerSource: SongScanningConnector {
     private func buildSong(from item: AudioItem) -> Song {
         let fileExtension = audioFileExtension(for: item)
         let format = AudioFormat.from(fileExtension: fileExtension) ?? .mp3
-        let artist = item.albumArtist ?? item.albumArtists?.first?.name ?? item.artists?.first
+        let repairedServerTitle = MediaMetadataTextRepair.repaired(item.name)
+        let title = repairedServerTitle
+            ?? MediaMetadataTextRepair.fileNameTitle(from: item.path)
+            ?? item.name.replacingOccurrences(of: "\u{FFFD}", with: "")
+        let artistCandidates = [
+            item.albumArtist,
+            item.albumArtists?.first?.name,
+            item.artists?.first
+        ]
+        let artist = artistCandidates.lazy.compactMap(MediaMetadataTextRepair.repaired).first
+            ?? MediaMetadataTextRepair.fileNameArtist(from: item.path)
+        let album = MediaMetadataTextRepair.repaired(item.album)
+        let genres = item.genres?
+            .compactMap(MediaMetadataTextRepair.repaired)
+            .filter { !$0.isEmpty }
         let year = item.productionYear ?? item.dateCreated.map { Calendar.current.component(.year, from: $0) }
         let audioStream = item.mediaStreams?.first(where: { ($0.type ?? "").caseInsensitiveCompare("Audio") == .orderedSame })
             ?? item.mediaStreams?.first
@@ -566,10 +580,10 @@ actor MediaServerSource: SongScanningConnector {
 
         return Song(
             id: hash("\(sourceID):\(relativePath)"),
-            title: item.name,
-            albumID: item.albumId,
-            artistID: item.albumArtists?.first?.id,
-            albumTitle: item.album,
+            title: title.isEmpty ? item.id : title,
+            albumID: album == nil ? nil : item.albumId,
+            artistID: artist == nil ? nil : item.albumArtists?.first?.id,
+            albumTitle: album,
             artistName: artist,
             trackNumber: item.indexNumber,
             discNumber: item.parentIndexNumber,
@@ -581,7 +595,7 @@ actor MediaServerSource: SongScanningConnector {
             bitRate: audioStream?.bitRate.map { Int($0 / 1000) },
             sampleRate: audioStream?.sampleRate,
             bitDepth: audioStream?.bitDepth,
-            genre: item.genres?.joined(separator: ", "),
+            genre: genres?.isEmpty == false ? genres?.joined(separator: ", ") : nil,
             year: year,
             lastModified: item.dateCreated,
             coverArtFileName: coverArtURL(for: item)?.absoluteString

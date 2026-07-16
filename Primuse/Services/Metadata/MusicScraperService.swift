@@ -876,7 +876,9 @@ final class MusicScraperService {
             .pathExtension
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-        let pathLooksOpaque = pathExtension.isEmpty || AudioFormat.from(fileExtension: pathExtension) == nil
+        let pathLooksOpaque = pathExtension.isEmpty
+            || AudioFormat.from(fileExtension: pathExtension) == nil
+            || looksLikeOpaqueSearchText(pathBaseName)
         guard pathLooksOpaque else { return false }
 
         let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -925,6 +927,7 @@ final class MusicScraperService {
             return true
         }
 
+        if looksLikeOpaqueSearchText(pathBaseName) { return true }
         if pathBaseName == song.id { return true }
         return false
     }

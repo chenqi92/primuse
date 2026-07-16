@@ -88,6 +88,17 @@ actor ConnectorScanner {
                                         // a remote replacement (refresh). Decide on size
                                         // first since lastModified isn't always populated.
                                         if !songContentChanged(existing: existing, incoming: scannedSong.song) {
+                                            if connector is any RefreshingMetadataSongConnector {
+                                                let refreshed = refreshServerMetadata(
+                                                    existing: existing,
+                                                    incoming: scannedSong.song
+                                                )
+                                                if refreshed != existing,
+                                                   let idx = allSongIndexByPath[scannedSong.song.filePath] {
+                                                    allSongs[idx] = refreshed
+                                                    existingByPath[scannedSong.song.filePath] = refreshed
+                                                }
+                                            }
                                             continue
                                         }
                                         // Replaced — overwrite the entry already in
@@ -297,6 +308,41 @@ actor ConnectorScanner {
         let revisionAdded = incoming.revision != nil && existing.revision == nil
         let mtimeAdded = incoming.lastModified != nil && existing.lastModified == nil
         return sizeChanged || mtimeChanged || revisionChanged || revisionAdded || mtimeAdded || sidecarChanged
+    }
+
+    private func refreshServerMetadata(existing: Song, incoming: Song) -> Song {
+        var refreshed = existing
+
+        if existing.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || MediaMetadataTextRepair.isSuspicious(existing.title) {
+            refreshed.title = incoming.title
+        }
+        if existing.artistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+            || MediaMetadataTextRepair.isSuspicious(existing.artistName) {
+            refreshed.artistName = incoming.artistName
+            refreshed.artistID = incoming.artistID
+        }
+        if existing.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+            || MediaMetadataTextRepair.isSuspicious(existing.albumTitle) {
+            refreshed.albumTitle = incoming.albumTitle
+            refreshed.albumID = incoming.albumID
+        }
+        if existing.genre?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+            || MediaMetadataTextRepair.isSuspicious(existing.genre) {
+            refreshed.genre = incoming.genre
+        }
+
+        if refreshed.trackNumber == nil { refreshed.trackNumber = incoming.trackNumber }
+        if refreshed.discNumber == nil { refreshed.discNumber = incoming.discNumber }
+        if refreshed.year == nil { refreshed.year = incoming.year }
+        if refreshed.duration <= 0 { refreshed.duration = incoming.duration }
+        if refreshed.fileSize <= 0 { refreshed.fileSize = incoming.fileSize }
+        if refreshed.bitRate == nil { refreshed.bitRate = incoming.bitRate }
+        if refreshed.sampleRate == nil { refreshed.sampleRate = incoming.sampleRate }
+        if refreshed.bitDepth == nil { refreshed.bitDepth = incoming.bitDepth }
+        if refreshed.coverArtFileName == nil { refreshed.coverArtFileName = incoming.coverArtFileName }
+
+        return refreshed
     }
 
     private struct SidecarRefs {

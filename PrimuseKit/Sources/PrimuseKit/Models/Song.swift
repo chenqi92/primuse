@@ -1,3 +1,4 @@
+import CoreFoundation
 import Foundation
 import GRDB
 
@@ -114,6 +115,90 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         self.artistPinyin = artistPinyin
         self.albumPinyin = albumPinyin
         self.lyricsText = lyricsText
+    }
+}
+
+/// Repairs metadata text returned by media servers when legacy GBK/GB18030
+/// bytes were decoded as ISO-8859-1. It also exposes filename fallbacks for
+/// fields that already contain U+FFFD and therefore cannot be losslessly
+/// recovered from the server response.
+public enum MediaMetadataTextRepair {
+    public static func repaired(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard !trimmed.contains("\u{FFFD}") else { return nil }
+
+        return legacyChineseCandidate(for: trimmed) ?? trimmed
+    }
+
+    public static func isSuspicious(_ value: String?) -> Bool {
+        guard let value else { return false }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        return trimmed.contains("\u{FFFD}") || legacyChineseCandidate(for: trimmed) != nil
+    }
+
+    public static func fileNameTitle(from path: String?) -> String? {
+        guard let baseName = fileBaseName(from: path) else { return nil }
+        return splitArtistAndTitle(baseName)?.title ?? baseName
+    }
+
+    public static func fileNameArtist(from path: String?) -> String? {
+        guard let baseName = fileBaseName(from: path) else { return nil }
+        return splitArtistAndTitle(baseName)?.artist
+    }
+
+    private static func fileBaseName(from path: String?) -> String? {
+        guard let path else { return nil }
+        let lastComponent = (path as NSString).lastPathComponent
+        let baseName = (lastComponent as NSString)
+            .deletingPathExtension
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return baseName.isEmpty ? nil : baseName
+    }
+
+    private static func splitArtistAndTitle(_ value: String) -> (artist: String, title: String)? {
+        guard let range = value.range(of: "\\s+[–—-]\\s+", options: .regularExpression) else {
+            return nil
+        }
+        let artist = String(value[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = String(value[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !artist.isEmpty, !title.isEmpty else { return nil }
+        return (artist, title)
+    }
+
+    private static func legacyChineseCandidate(for value: String) -> String? {
+        guard value.unicodeScalars.allSatisfy({ $0.value <= 0xFF }),
+              let latin1Data = value.data(using: .isoLatin1) else {
+            return nil
+        }
+
+        let gb18030 = CFStringConvertEncodingToNSStringEncoding(
+            CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)
+        )
+        guard let decoded = String(data: latin1Data, encoding: String.Encoding(rawValue: gb18030)),
+              decoded != value,
+              !decoded.contains("\u{FFFD}") else {
+            return nil
+        }
+
+        let originalExtendedLatinCount = value.unicodeScalars.filter { (0xA1...0xFF).contains($0.value) }.count
+        let decodedHanCount = decoded.unicodeScalars.filter { isHan($0.value) }.count
+
+        // Requiring several extended-Latin bytes and at least two resulting
+        // Han characters avoids rewriting normal Western names such as
+        // "Beyoncé" while still covering short mojibake titles like "¹ý»ð".
+        guard originalExtendedLatinCount >= 3, decodedHanCount >= 2 else {
+            return nil
+        }
+        return decoded.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func isHan(_ scalar: UInt32) -> Bool {
+        (0x3400...0x4DBF).contains(scalar)
+            || (0x4E00...0x9FFF).contains(scalar)
+            || (0xF900...0xFAFF).contains(scalar)
     }
 }
 
