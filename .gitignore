@@ -37,3 +37,6 @@ PrimuseTopShelf/Info.plist
 
 # 官网内容归属独立仓库 primuse-homepage, 误放于此, 不并入 app 仓库
 /web/
+music
+output
+.playwright-cli

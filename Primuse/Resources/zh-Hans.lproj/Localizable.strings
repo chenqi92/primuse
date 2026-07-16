@@ -177,6 +177,7 @@
 "clear_all" = "清除全部";
 "done" = "完成";
 "base_path_hint" = "基础路径（如 /dav）";
+"server_base_path_hint" = "服务器 URL 子路径（可选，如 /jellyfin）";
 "songs_found" = "首歌曲已找到";
 "files_scanned" = "个文件已扫描";
 "connect_browse" = "连接并浏览";

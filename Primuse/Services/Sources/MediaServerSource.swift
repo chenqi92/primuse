@@ -233,74 +233,85 @@ actor MediaServerSource: SongScanningConnector {
         try await connect()
 
         let normalizedPath = normalize(path)
-        guard let libraryID = libraryID(from: normalizedPath) else {
+        let libraryIDs: [String]
+        if normalizedPath == "/" {
+            // Media-server sources are whole-library sources. ScanService uses
+            // "/" as the shared sentinel for that contract, so resolve it to
+            // every visible music library before enumerating tracks.
+            libraryIDs = preferredLibraries(from: try await fetchLibraries()).map(\.id)
+        } else if let libraryID = libraryID(from: normalizedPath) {
+            libraryIDs = [libraryID]
+        } else {
             throw SourceError.pathNotFound(path)
         }
 
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    var startIndex = 0
                     let pageSize = 200
 
-                    switch kind {
-                    case .plex:
-                        while true {
-                            try Task.checkCancellation()
-                            let result = try await fetchPlexTracks(
-                                sectionID: libraryID,
-                                startIndex: startIndex,
-                                limit: pageSize
-                            )
+                    for libraryID in libraryIDs {
+                        var startIndex = 0
 
-                            if result.items.isEmpty {
-                                break
-                            }
-
-                            for item in result.items {
-                                plexItems[item.ratingKey] = item
-                                let song = buildSong(from: item)
-                                continuation.yield(
-                                    ConnectorScannedSong(
-                                        song: song,
-                                        displayName: item.title
-                                    )
+                        switch kind {
+                        case .plex:
+                            while true {
+                                try Task.checkCancellation()
+                                let result = try await fetchPlexTracks(
+                                    sectionID: libraryID,
+                                    startIndex: startIndex,
+                                    limit: pageSize
                                 )
-                            }
 
-                            startIndex += result.items.count
+                                if result.items.isEmpty {
+                                    break
+                                }
 
-                            if result.items.count < pageSize {
-                                break
-                            }
-                        }
-                    case .jellyfin, .emby:
-                        while true {
-                            try Task.checkCancellation()
-                            let result = try await fetchAudioItems(
-                                parentID: libraryID,
-                                startIndex: startIndex,
-                                limit: pageSize
-                            )
-
-                            if result.items.isEmpty {
-                                break
-                            }
-
-                            for item in result.items {
-                                let song = buildSong(from: item)
-                                continuation.yield(
-                                    ConnectorScannedSong(
-                                        song: song,
-                                        displayName: item.name
+                                for item in result.items {
+                                    plexItems[item.ratingKey] = item
+                                    let song = buildSong(from: item)
+                                    continuation.yield(
+                                        ConnectorScannedSong(
+                                            song: song,
+                                            displayName: item.title
+                                        )
                                     )
-                                )
+                                }
+
+                                startIndex += result.items.count
+
+                                if result.items.count < pageSize {
+                                    break
+                                }
                             }
+                        case .jellyfin, .emby:
+                            while true {
+                                try Task.checkCancellation()
+                                let result = try await fetchAudioItems(
+                                    parentID: libraryID,
+                                    startIndex: startIndex,
+                                    limit: pageSize
+                                )
 
-                            startIndex += result.items.count
+                                if result.items.isEmpty {
+                                    break
+                                }
 
-                            if result.items.count < pageSize {
-                                break
+                                for item in result.items {
+                                    let song = buildSong(from: item)
+                                    continuation.yield(
+                                        ConnectorScannedSong(
+                                            song: song,
+                                            displayName: item.name
+                                        )
+                                    )
+                                }
+
+                                startIndex += result.items.count
+
+                                if result.items.count < pageSize {
+                                    break
+                                }
                             }
                         }
                     }

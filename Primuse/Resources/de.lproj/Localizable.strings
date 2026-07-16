@@ -306,6 +306,7 @@
 "directories_selected" = "Verzeichnisse ausgewählt";
 "clear_all" = "Alle entfernen";
 "base_path_hint" = "Basispfad (z. B. /dav)";
+"server_base_path_hint" = "Server-URL-Unterpfad (optional, z. B. /jellyfin)";
 "songs_found" = "Titel gefunden";
 "files_scanned" = "Dateien gescannt";
 "connect_browse" = "Verbinden & durchsuchen";

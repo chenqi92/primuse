@@ -177,6 +177,7 @@
 "clear_all" = "Clear All";
 "done" = "Done";
 "base_path_hint" = "Base Path (e.g. /dav)";
+"server_base_path_hint" = "Server URL subpath (optional, e.g. /jellyfin)";
 "songs_found" = "songs found";
 "files_scanned" = "files scanned";
 "connect_browse" = "Connect & Browse";

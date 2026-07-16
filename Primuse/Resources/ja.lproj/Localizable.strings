@@ -307,6 +307,7 @@
 "directories_selected" = "個のディレクトリを選択中";
 "clear_all" = "すべて消去";
 "base_path_hint" = "ベースパス（例: /dav）";
+"server_base_path_hint" = "サーバー URL のサブパス（任意、例: /jellyfin）";
 "songs_found" = "曲が見つかりました";
 "files_scanned" = "個のファイルをスキャン";
 "connect_browse" = "接続してブラウズ";

@@ -291,6 +291,9 @@ struct AddSourceView: View {
         }
 
         macSection("advanced") {
+            if sourceType.isServerLibrary {
+                macTextRow("server_base_path_hint", text: $basePath, focus: .basePath)
+            }
             macToggleRow("auto_connect", isOn: $autoConnect)
             if sourceType.supports2FA {
                 macToggleRow("remember_device", isOn: $rememberDevice)
@@ -321,9 +324,7 @@ struct AddSourceView: View {
                 macTextRow("base_path_hint", text: $basePath, focus: .basePath)
             }
         case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic:
-            macSection("server_config") {
-                macTextRow("base_path_hint", text: $basePath, focus: .basePath)
-            }
+            EmptyView()
         case .ftp:
             macSection("ftp_config") {
                 macCustomRow("encryption") {
@@ -590,6 +591,12 @@ struct AddSourceView: View {
         }
 
         Section("advanced") {
+            if sourceType.isServerLibrary {
+                TextField("server_base_path_hint", text: $basePath)
+                    .focused($focusedField, equals: .basePath)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+            }
             Toggle("auto_connect", isOn: $autoConnect)
             if sourceType.supports2FA {
                 Toggle("remember_device", isOn: $rememberDevice)
@@ -625,16 +632,7 @@ struct AddSourceView: View {
                     .onSubmit { focusedField = .username }
             }
         case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic:
-            Section("server_config") {
-                TextField("base_path_hint", text: $basePath)
-                    .focused($focusedField, equals: .basePath)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-                    .submitLabel(.next)
-                    .onSubmit {
-                        focusedField = authType == .apiKey ? .password : .username
-                    }
-            }
+            EmptyView()
         case .ftp:
             Section("ftp_config") {
                 Picker("encryption", selection: $ftpEncryption) {

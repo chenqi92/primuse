@@ -306,6 +306,7 @@
 "directories_selected" = "dossiers sélectionnés";
 "clear_all" = "Tout effacer";
 "base_path_hint" = "Chemin de base (par ex. /dav)";
+"server_base_path_hint" = "Sous-chemin de l’URL du serveur (facultatif, ex. /jellyfin)";
 "songs_found" = "morceaux trouvés";
 "files_scanned" = "fichiers analysés";
 "connect_browse" = "Connecter et parcourir";

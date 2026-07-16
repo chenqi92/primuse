@@ -306,6 +306,7 @@
 "directories_selected" = "개 디렉터리 선택됨";
 "clear_all" = "모두 지우기";
 "base_path_hint" = "기본 경로(예: /dav)";
+"server_base_path_hint" = "서버 URL 하위 경로(선택 사항, 예: /jellyfin)";
 "songs_found" = "곡 발견됨";
 "files_scanned" = "개 파일 스캔됨";
 "connect_browse" = "연결 후 둘러보기";

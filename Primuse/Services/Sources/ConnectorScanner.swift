@@ -59,6 +59,8 @@ actor ConnectorScanner {
                     var addedCount = 0
                     var encounteredPaths: Set<String> = []
                     var hadDirectoryFailure = false
+                    var successfulDirectoryCount = 0
+                    var firstDirectoryError: Error?
 
                     if !existingSongs.isEmpty {
                         continuation.yield(
@@ -114,14 +116,22 @@ actor ConnectorScanner {
                                         )
                                     )
                                 }
+                                successfulDirectoryCount += 1
                             } catch is CancellationError {
                                 throw CancellationError()
                             } catch {
                                 hadDirectoryFailure = true
+                                if firstDirectoryError == nil {
+                                    firstDirectoryError = error
+                                }
                                 plog("⚠️ Failed to scan directory \(directory): \(error)")
                                 NSLog("⚠️ Failed to scan directory \(directory): \(error.localizedDescription)")
                                 continue
                             }
+                        }
+
+                        if successfulDirectoryCount == 0, let firstDirectoryError {
+                            throw firstDirectoryError
                         }
 
                         if !hadDirectoryFailure {
@@ -219,14 +229,22 @@ actor ConnectorScanner {
                                     )
                                 }
                             }
+                            successfulDirectoryCount += 1
                         } catch is CancellationError {
                             throw CancellationError()
                         } catch {
                             hadDirectoryFailure = true
+                            if firstDirectoryError == nil {
+                                firstDirectoryError = error
+                            }
                             plog("⚠️ Failed to scan directory \(directory): \(error)")
                             NSLog("⚠️ Failed to scan directory \(directory): \(error.localizedDescription)")
                             continue
                         }
+                    }
+
+                    if successfulDirectoryCount == 0, let firstDirectoryError {
+                        throw firstDirectoryError
                     }
 
                     if !hadDirectoryFailure {
