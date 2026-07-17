@@ -1858,3 +1858,6 @@
 "local_import_provider_error_title" = "Cloud-Speicher hat kein Audio geliefert";
 "local_import_provider_error_message_format" = "%1$d Element(e) ausgewählt, %2$d fehlgeschlagen. Der Cloud-Speicher hat Primuse eine Fehlerantwort statt der Originalaudiodatei übergeben – meist erfordert die Datei eine kostenpflichtige Mitgliedschaft, ist durch Hotlink-Schutz gesperrt oder dir fehlt die Download-Berechtigung.\n\nBeispiel: %3$@\n\nSo gehst du vor:\n1. Füge den passenden Cloud-Speicher bevorzugt als Musikquelle in der App hinzu (er lädt über die eigene API des Dienstes). Solche Dateien lassen sich nicht über den System-Import aus Dateien beziehen.\n2. Oder speichere den Song in der Cloud-App über „In Dateien sichern“ in einem lokalen „Auf meinem iPhone“-Ordner und importiere von dort (sofern der Dienst den Export der Originaldatei erlaubt).";
 "local_import_reason_copy" = "Kopieren fehlgeschlagen";
+"filter_songs_placeholder" = "Titel filtern…";
+"filter_albums_placeholder" = "Alben filtern…";
+"filter_artists_placeholder" = "Künstler filtern…";

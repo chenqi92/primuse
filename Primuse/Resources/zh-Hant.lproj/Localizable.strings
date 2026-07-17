@@ -1834,3 +1834,6 @@
 "local_import_provider_error_title" = "雲端硬碟未回傳音訊";
 "local_import_provider_error_message_format" = "本次選擇 %1$d 個項目，失敗 %2$d 個。雲端硬碟交給猿音的是一段錯誤回應，不是音訊原始檔——通常是該檔案需要會員、被防盜連結限制，或沒有下載權限。\n\n失敗範例：%3$@\n\n建議：\n1. 優先改用猿音內建的對應雲端硬碟音樂源（走雲端硬碟本身的介面下載），這類檔案透過系統「檔案」匯入無法繞過。\n2. 或在雲端硬碟 App 裡把歌曲「儲存到檔案」的「我的 iPhone」本機資料夾後再匯入（若雲端硬碟允許匯出原始檔）。";
 "local_import_reason_copy" = "拷貝失敗";
+"filter_songs_placeholder" = "篩選歌曲…";
+"filter_albums_placeholder" = "篩選專輯…";
+"filter_artists_placeholder" = "篩選藝人…";

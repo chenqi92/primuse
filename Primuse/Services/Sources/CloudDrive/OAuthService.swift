@@ -1,6 +1,7 @@
 import Foundation
 import AuthenticationServices
 import CryptoKit
+import PrimuseKit
 #if os(iOS)
 #if os(iOS)
 import UIKit
@@ -39,11 +40,12 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
         // 2. Present system browser
         let callbackURL = try await presentAuthSession(
             url: authURL,
-            callbackScheme: config.callbackURLScheme
+            callbackScheme: config.callbackURLScheme,
+            registeredRedirectURI: config.redirectURI
         )
 
         // 3. Extract authorization code from callback (校验 state 一致后才接受)
-        let code = try extractCode(from: callbackURL, expectedState: state)
+        let code = try extractCode(from: callbackURL, expectedState: state, config: config)
 
         // 4. Exchange code for tokens
         let tokens = try await exchangeCodeForTokens(
@@ -101,14 +103,21 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
 
     // MARK: - Step 2: Present Auth Session
 
-    private func presentAuthSession(url: URL, callbackScheme: String) async throws -> URL {
+    private func presentAuthSession(
+        url: URL,
+        callbackScheme: String,
+        registeredRedirectURI: String
+    ) async throws -> URL {
         #if os(macOS)
         // macOS 26 + sandbox 下 ASWebAuthenticationSession 的浏览器窗口经常
         // 不显示/不加载 URL(已确认设 prefersEphemeralWebBrowserSession 也无效)。
         // 改成走系统默认浏览器,通过 primuse:// URL Scheme 把 code 回调进 app。
         // 配合 PrimuseApp.onOpenURL → MacOAuthBridge.handle 完成回调链路。
         return try await withCheckedThrowingContinuation { continuation in
-            MacOAuthBridge.shared.expectCallback(scheme: callbackScheme) { @Sendable result in
+            MacOAuthBridge.shared.expectCallback(
+                scheme: callbackScheme,
+                registeredRedirectURI: registeredRedirectURI
+            ) { @Sendable result in
                 switch result {
                 case .success(let url):
                     continuation.resume(returning: url)
@@ -168,15 +177,21 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
 
     // MARK: - Step 3: Extract Code
 
-    private func extractCode(from url: URL, expectedState: String) throws -> String {
+    private func extractCode(
+        from url: URL,
+        expectedState: String,
+        config: CloudOAuthConfig
+    ) throws -> String {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             throw OAuthError.invalidCallback("Cannot parse callback URL")
         }
 
-        // Check for error
-        if let error = components.queryItems?.first(where: { $0.name == "error" })?.value {
-            let desc = components.queryItems?.first(where: { $0.name == "error_description" })?.value
-            throw OAuthError.authorizationDenied(error, desc)
+        guard OAuthCallbackURLMatcher.matches(
+            url,
+            registeredRedirectURI: config.redirectURI,
+            callbackScheme: config.callbackURLScheme
+        ) else {
+            throw OAuthError.invalidCallback("Callback URL does not match registered redirect URI")
         }
 
         // 校验 state 与本次会话生成的随机数一致:授权服务器会原样回传 state,
@@ -187,7 +202,17 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
             throw OAuthError.invalidCallback("State mismatch in callback URL")
         }
 
-        guard let code = components.queryItems?.first(where: { $0.name == "code" })?.value else {
+        // OAuth error callbacks must carry the same state before they are
+        // accepted as belonging to this authorization session.
+        if let error = components.queryItems?.first(where: { $0.name == "error" })?.value {
+            let desc = components.queryItems?.first(where: { $0.name == "error_description" })?.value
+            throw OAuthError.authorizationDenied(error, desc)
+        }
+
+        guard
+            let code = components.queryItems?.first(where: { $0.name == "code" })?.value,
+            !code.isEmpty
+        else {
             throw OAuthError.invalidCallback("No authorization code in callback URL")
         }
 
@@ -448,28 +473,41 @@ final class MacOAuthBridge {
 
     private var pending: (@Sendable (Result<URL, Error>) -> Void)?
     private var expectedScheme: String?
+    private var registeredRedirectURI: String?
 
     private init() {}
 
-    func expectCallback(scheme: String, completion: @escaping @Sendable (Result<URL, Error>) -> Void) {
+    func expectCallback(
+        scheme: String,
+        registeredRedirectURI: String,
+        completion: @escaping @Sendable (Result<URL, Error>) -> Void
+    ) {
         if let pending {
             pending(.failure(OAuthError.userCancelled))
         }
         expectedScheme = scheme.lowercased()
+        self.registeredRedirectURI = registeredRedirectURI
         pending = completion
     }
 
     /// 由 `PrimuseApp.onOpenURL` 调用。返回 true 表示已消费这个 URL。
     @discardableResult
     func handle(_ url: URL) -> Bool {
-        guard let scheme = url.scheme?.lowercased(),
-              let expected = expectedScheme,
-              scheme == expected else {
+        guard
+            let expectedScheme,
+            let registeredRedirectURI,
+            OAuthCallbackURLMatcher.matches(
+                url,
+                registeredRedirectURI: registeredRedirectURI,
+                callbackScheme: expectedScheme
+            )
+        else {
             return false
         }
         let cb = pending
         pending = nil
-        expectedScheme = nil
+        self.expectedScheme = nil
+        self.registeredRedirectURI = nil
         cb?(.success(url))
         return true
     }
@@ -478,6 +516,7 @@ final class MacOAuthBridge {
         let cb = pending
         pending = nil
         expectedScheme = nil
+        registeredRedirectURI = nil
         cb?(reason)
     }
 }

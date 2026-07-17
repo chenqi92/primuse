@@ -1858,3 +1858,6 @@
 "local_import_provider_error_title" = "Le service cloud n’a renvoyé aucun audio";
 "local_import_provider_error_message_format" = "%1$d élément(s) sélectionné(s), %2$d échec(s). Le service cloud a fourni à Primuse une réponse d’erreur au lieu de l’audio original — généralement le fichier nécessite un abonnement payant, est bloqué par une protection anti-hotlink, ou tu n’as pas l’autorisation de téléchargement.\n\nExemple d’échec : %3$@\n\nQue faire :\n1. Ajoute de préférence le service cloud correspondant comme source musicale dans l’app (il télécharge via l’API du service). Ce type de fichier ne peut pas être obtenu via l’import système depuis Fichiers.\n2. Ou, dans l’app cloud, utilise « Enregistrer dans Fichiers » vers un dossier local « Sur mon iPhone » puis importe depuis là (si le service autorise l’export du fichier original).";
 "local_import_reason_copy" = "Échec de la copie";
+"filter_songs_placeholder" = "Filtrer les titres…";
+"filter_albums_placeholder" = "Filtrer les albums…";
+"filter_artists_placeholder" = "Filtrer les artistes…";

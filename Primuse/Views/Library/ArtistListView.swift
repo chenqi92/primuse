@@ -135,7 +135,7 @@ struct ArtistListView: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 11))
                 .foregroundStyle(PMColor.textFaint)
-            TextField("", text: $searchText, prompt: Text(verbatim: "过滤艺术家…"))
+            TextField("", text: $searchText, prompt: Text("filter_artists_placeholder"))
                 .textFieldStyle(.plain)
                 .font(.system(size: 12))
                 .foregroundStyle(PMColor.text)

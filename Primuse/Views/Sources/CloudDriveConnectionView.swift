@@ -410,7 +410,9 @@ struct CloudDriveConnectionView: View {
     }
 
     private var oauthCallbackDisplay: String {
-        "\(CloudOAuthConfig.callbackScheme)://callback"
+        source.type == .pan123
+            ? Pan123Source.redirectURI
+            : "\(CloudOAuthConfig.callbackScheme)://callback"
     }
 
     private var oauthBridgeDisplay: String {

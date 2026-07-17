@@ -395,7 +395,7 @@ struct MacNowPlayingView: View {
 
     private var nowPlayingInfoLine: String {
         guard let song = player.currentSong else { return "" }
-        var parts = ["正在播放", song.fileFormat.displayName]
+        var parts = [String(localized: "now_playing"), song.fileFormat.displayName]
         if let bitRate = song.bitRate, bitRate > 0 {
             let kbps = bitRate > 10_000 ? bitRate / 1_000 : bitRate
             parts.append("\(kbps)kbps")

@@ -1961,3 +1961,6 @@
 "local_import_provider_error_title" = "网盘未返回音频";
 "local_import_provider_error_message_format" = "本次选择 %1$d 个项目，失败 %2$d 个。网盘交给猿音的是一段错误响应，不是音频原文件——通常是该文件需要会员、被防盗链限制，或没有下载权限。\n\n失败示例：%3$@\n\n建议：\n1. 优先改用猿音内置的对应云盘音乐源（走网盘自身接口下载），这类文件经系统“文件”导入无法绕过。\n2. 或在网盘 App 里把歌曲“存储到文件”的“我的 iPhone”本地文件夹后再导入（若网盘允许导出原文件）。";
 "local_import_reason_copy" = "拷贝失败";
+"filter_songs_placeholder" = "过滤歌曲…";
+"filter_albums_placeholder" = "过滤专辑…";
+"filter_artists_placeholder" = "过滤艺术家…";

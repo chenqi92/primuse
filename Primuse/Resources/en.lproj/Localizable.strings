@@ -1710,3 +1710,6 @@
 "local_import_provider_error_title" = "Cloud Drive Returned No Audio";
 "local_import_provider_error_message_format" = "You selected %1$d item(s), and %2$d failed. The cloud drive handed Primuse an error response instead of the original audio — usually the file requires a paid membership, is blocked by hotlink protection, or you lack download permission.\n\nExample failure: %3$@\n\nWhat to do:\n1. Prefer adding the matching cloud drive as an in-app music source (it downloads via the drive’s own API); files like this can’t be obtained through the system Files import.\n2. Or, in the cloud drive app, “Save to Files” into a local “On My iPhone” folder and import from there (if the drive allows exporting the original file).";
 "local_import_reason_copy" = "Copy failed";
+"filter_songs_placeholder" = "Filter songs…";
+"filter_albums_placeholder" = "Filter albums…";
+"filter_artists_placeholder" = "Filter artists…";

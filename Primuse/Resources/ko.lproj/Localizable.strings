@@ -1858,3 +1858,6 @@
 "local_import_provider_error_title" = "클라우드 드라이브가 오디오를 반환하지 않음";
 "local_import_provider_error_message_format" = "%1$d개 항목을 선택했고 %2$d개가 실패했습니다. 클라우드 드라이브가 원본 오디오가 아니라 오류 응답을 Primuse에 제공했습니다. 보통 해당 파일이 멤버십이 필요하거나, 핫링크 보호로 제한되었거나, 다운로드 권한이 없기 때문입니다.\n\n실패 예: %3$@\n\n방법:\n1. 먼저 해당 클라우드 드라이브를 앱 안의 음악 소스로 추가하세요(드라이브 자체 API로 다운로드합니다). 이런 파일은 시스템 파일 가져오기로는 받을 수 없습니다.\n2. 또는 클라우드 앱에서 곡을 “파일에 저장”하여 “나의 iPhone” 로컬 폴더에 넣은 뒤 가져오세요(드라이브가 원본 파일 내보내기를 허용하는 경우).";
 "local_import_reason_copy" = "복사 실패";
+"filter_songs_placeholder" = "곡 필터…";
+"filter_albums_placeholder" = "앨범 필터…";
+"filter_artists_placeholder" = "아티스트 필터…";

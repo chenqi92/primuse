@@ -168,7 +168,7 @@ struct AlbumGridView: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 11))
                 .foregroundStyle(PMColor.textFaint)
-            TextField("", text: $albumFilter, prompt: Text(verbatim: "过滤专辑…"))
+            TextField("", text: $albumFilter, prompt: Text("filter_albums_placeholder"))
                 .textFieldStyle(.plain)
                 .font(.system(size: 12))
                 .foregroundStyle(PMColor.text)
