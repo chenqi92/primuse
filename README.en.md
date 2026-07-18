@@ -12,6 +12,14 @@ A native iOS / macOS / Apple TV music player that streams from NAS, media server
   </a>
 </p>
 
+## Documentation
+
+- [中文说明](README.md) · [English README](README.en.md)
+- [中文更新日志](CHANGELOG.md) · [English Changelog](CHANGELOG.en.md)
+- [Screenshots](#screenshots) · [macOS Desktop App](#macos-desktop-app) · [Apple TV App](#apple-tv-app)
+- [Features](#features) · [Getting Started](#getting-started) · [Custom Scraping Sources](#custom-scraping-sources)
+- [Project Structure](#project-structure) · [Dependencies](#dependencies) · [Architecture](#architecture)
+
 ## Screenshots
 
 <p align="center">
@@ -95,14 +103,14 @@ Play your whole collection on the big screen in the living room, sharing the sam
 - **Top Shelf** — shows recently played and recommendations when the app is focused on the Home screen
 - **Direct multi-source access** — NAS, self-hosted servers (Navidrome / Subsonic, etc.) and cloud drives play directly on the TV; some sources are relayed through the iPhone
 - **Multi-device sync** — library, playlists, data sources sync in real time with iPhone / Mac over iCloud
-- **English & Chinese UI** — switches automatically with the system language
+- **Seven-language UI** — supports English, Simplified and Traditional Chinese, German, French, Japanese, and Korean, following the system language automatically
 
 All other capabilities — multi-source streaming, audio-quality processing, cross-device sync, etc. — match iOS.
 
 ## Features
 
-- **Multi-source streaming** — supports Synology DSM, QNAP, UGREEN UGOS, Feiniu fnOS, SMB/CIFS, WebDAV, SFTP, FTP, NFS, S3, UPnP/DLNA, Jellyfin, Emby, Plex and local files
-- **Cloud drive access** — supports Baidu Netdisk, Aliyun Drive, Google Drive, OneDrive and Dropbox; cloud tracks can play while downloading and cache on demand
+- **Multi-source streaming** — supports Synology DSM, QNAP, UGREEN UGOS, Feiniu fnOS, SMB/CIFS, WebDAV, SFTP, FTP, NFS, S3, UPnP/DLNA, Navidrome/Subsonic, Jellyfin, Emby, Plex and local files
+- **Cloud drive access** — supports 123 Cloud Drive, 115, Baidu Netdisk, Aliyun Drive, Google Drive, OneDrive and Dropbox; cloud tracks can play while downloading and cache on demand
 - **Playback engine** — built on SFBAudioEngine, supporting FLAC, APE, WAV, MP3, AAC, Opus, DSD, TTA, WV and more, with crossfade, ReplayGain, sleep timer, EQ, reverb and compression/limiting
 - **DLNA receiver** — acts as a UPnP/AV MediaRenderer on the same Wi-Fi network, so control points such as VLC, Synology Audio Station, Plex and Hi-Fi Cast can discover it and cast audio to it
 - **Apple Music search** — once authorized, search the Apple Music catalog alongside your library and play subscription content through the system player

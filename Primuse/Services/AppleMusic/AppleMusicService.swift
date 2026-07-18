@@ -3,12 +3,12 @@ import MusicKit
 import PrimuseKit
 
 enum AppleMusicFeatureSettings {
-    static let syncUserLibraryKey = "primuse.appleMusic.syncUserLibrary"
+    static let syncUserLibraryKey = AppleMusicLibraryPreferences.syncUserLibraryKey
     static let catalogSearchEnabledKey = "primuse.appleMusic.catalogSearchEnabled"
     static let autoAddToSmartPlaylistsKey = "primuse.appleMusic.autoAddToSmartPlaylists"
 
     static var syncUserLibraryEnabled: Bool {
-        bool(forKey: syncUserLibraryKey, defaultValue: true)
+        AppleMusicLibraryPreferences.syncUserLibraryEnabled
     }
 
     static var catalogSearchEnabled: Bool {

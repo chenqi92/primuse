@@ -16,8 +16,8 @@ settings:
     SWIFT_VERSION: "6.0"
     # 全平台唯一版本号来源:iOS / macOS / tvOS / watchOS 及各扩展统一继承这里,
     # 各 target 不再单独覆盖,发版只改这一处,避免漏改导致版本不一致。
-    MARKETING_VERSION: "1.6.4"
-    CURRENT_PROJECT_VERSION: "19"
+    MARKETING_VERSION: "1.7.0"
+    CURRENT_PROJECT_VERSION: "20"
     DEVELOPMENT_TEAM: "2U97K3U27A"
     CODE_SIGN_STYLE: Automatic
     CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION: YES

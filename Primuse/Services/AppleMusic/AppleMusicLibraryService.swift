@@ -22,23 +22,22 @@ import PrimuseKit
 final class AppleMusicLibraryService {
     /// Apple Music 那个虚拟 source 的固定 ID — 全猿音里 hard-code 这个值,
     /// 不走 UUID, 让 song.sourceID 一致, 多次启动 / 重装也能 match 上。
-    nonisolated static let systemSourceID = "primuse.appleMusic.system"
+    nonisolated static let systemSourceID = AppleMusicLibraryIdentity.sourceID
 
     /// 「Apple Music 资料库」镜像歌单的固定 ID。每次 sync 完整覆盖,
     /// UI 上按这个 id 识别后 *禁用从歌单移除单首歌* — 不能反向 push 到
     /// Apple Music 删收藏, 移除一首本地视图意味着下次 sync 又回来,
     /// 体验上是"删了又出现"的 bug, 索性禁用。
-    nonisolated static let systemPlaylistID = "primuse.system.appleMusicLibrary"
+    nonisolated static let systemPlaylistID = AppleMusicLibraryIdentity.systemPlaylistID
 
     /// 用户在 Apple Music 自建的 playlist 镜像 ID 前缀, 后面接 amID。
     /// 跟「Apple Music 资料库」全集镜像并存, 同样受 sync 覆盖保护。
-    nonisolated static let userPlaylistIDPrefix = "primuse.system.appleMusic.playlist."
+    nonisolated static let userPlaylistIDPrefix = AppleMusicLibraryIdentity.userPlaylistIDPrefix
 
     /// 是否任意 Apple Music 镜像歌单 (全集 / 用户自建)。给 UI 用来决定要不要
     /// 禁删 / 禁移除单曲。
     nonisolated static func isAppleMusicMirrorPlaylist(_ playlistID: String) -> Bool {
-        playlistID == systemPlaylistID
-            || playlistID.hasPrefix(userPlaylistIDPrefix)
+        AppleMusicLibraryIdentity.isMirrorPlaylist(playlistID)
     }
 
     private struct UserPlaylistMirror: Sendable {

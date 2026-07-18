@@ -811,11 +811,11 @@ final class MusicLibrary {
     /// its virtual source is disabled.
     var playlists: [Playlist] {
         let hidesAppleMusicMirrors = !appleMusicLibrarySyncEnabled
-            || disabledSourceIDs.contains(AppleMusicLibraryService.systemSourceID)
+            || disabledSourceIDs.contains(AppleMusicLibraryIdentity.sourceID)
         return allPlaylists.filter { playlist in
             guard !playlist.isDeleted else { return false }
             return !hidesAppleMusicMirrors
-                || !AppleMusicLibraryService.isAppleMusicMirrorPlaylist(playlist.id)
+                || !AppleMusicLibraryIdentity.isMirrorPlaylist(playlist.id)
         }
     }
     /// Soft-deleted playlists, newest deletion first. Drives the "Recently
@@ -887,7 +887,7 @@ final class MusicLibrary {
     /// Reading UserDefaults directly from `playlists` would not invalidate
     /// SwiftUI views when the macOS settings toggle changes.
     private(set) var appleMusicLibrarySyncEnabled =
-        AppleMusicFeatureSettings.syncUserLibraryEnabled
+        AppleMusicLibraryPreferences.syncUserLibraryEnabled
 
     /// Cached filtered views — rebuilt only when songs/disabled state change
     private(set) var visibleSongs: [Song] = []

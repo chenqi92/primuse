@@ -12,6 +12,14 @@
   </a>
 </p>
 
+## 文档索引
+
+- [中文说明](README.md) · [English README](README.en.md)
+- [中文更新日志](CHANGELOG.md) · [English Changelog](CHANGELOG.en.md)
+- [应用截图](#应用截图) · [macOS 桌面版](#macos-桌面版) · [Apple TV 版](#apple-tv-版)
+- [功能特性](#功能特性) · [快速开始](#快速开始) · [自定义刮削源](#自定义刮削源)
+- [项目结构](#项目结构) · [依赖包](#依赖包) · [架构](#架构)
+
 ## 应用截图
 
 <p align="center">
@@ -95,14 +103,14 @@
 - **顶部展示（Top Shelf）** — 主屏聚焦应用时展示最近播放与推荐
 - **多源直连** — NAS、自建服务器（Navidrome / Subsonic 等）、云盘可在 TV 上直接播放；部分源经 iPhone 中继
 - **多设备同步** — 曲库、歌单、数据源与 iPhone / Mac 经 iCloud 实时同步
-- **中英文界面** — 跟随系统语言自动切换
+- **多语言界面** — 支持简体中文、繁体中文、英语、德语、法语、日语和韩语，跟随系统语言自动切换
 
 其余多源串流、音质处理、跨设备同步等能力与 iOS 一致。
 
 ## 功能特性
 
-- **多源串流** — 支持 Synology DSM、QNAP、绿联 UGOS、飞牛 fnOS、SMB/CIFS、WebDAV、SFTP、FTP、NFS、S3、UPnP/DLNA、Jellyfin、Emby、Plex、本地文件
-- **云盘接入** — 支持百度网盘、阿里云盘、Google Drive、OneDrive、Dropbox，云端歌曲可边下边播并按需缓存
+- **多源串流** — 支持 Synology DSM、QNAP、绿联 UGOS、飞牛 fnOS、SMB/CIFS、WebDAV、SFTP、FTP、NFS、S3、UPnP/DLNA、Navidrome/Subsonic、Jellyfin、Emby、Plex、本地文件
+- **云盘接入** — 支持 123 云盘、115、百度网盘、阿里云盘、Google Drive、OneDrive、Dropbox，云端歌曲可边下边播并按需缓存
 - **播放引擎** — 基于 SFBAudioEngine，支持 FLAC、APE、WAV、MP3、AAC、Opus、DSD、TTA、WV 等格式，提供交叉淡入淡出、ReplayGain、睡眠定时、EQ、混响和压缩/限幅
 - **DLNA 接收** — 可在同一 Wi-Fi 下作为 UPnP/AV MediaRenderer 被 VLC、群晖 Audio Station、Plex、Hi-Fi Cast 等控制点发现并投送音频
 - **Apple Music 搜索** — 授权后可在搜索页同时查询 Apple Music 曲库，并通过系统播放器播放订阅内容
@@ -170,7 +178,7 @@ xcodebuild -scheme Primuse \
   build
 ```
 
-### 5. 命令行安装到设备
+### 6. 命令行安装到设备
 
 ```bash
 # 安装
@@ -261,7 +269,7 @@ primuse/
 │   │   ├── Settings/               # 设置、均衡器、刮削器配置
 │   │   ├── Sources/                # 源管理、连接流程
 │   │   └── Components/             # 可复用 UI 组件
-│   ├── Resources/                  # 本地化（en、zh-Hans）、资源文件
+│   ├── Resources/                  # 本地化（en、zh-Hans、zh-Hant、de、fr、ja、ko）、资源文件
 │   └── Utilities/                  # 日志工具、扩展
 ├── PrimuseKit/                     # 共享框架（模型、协议）
 │   └── Sources/PrimuseKit/Models/  # Song、Album、Artist、Playlist 等
