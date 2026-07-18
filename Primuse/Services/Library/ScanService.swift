@@ -60,6 +60,13 @@ final class ScanService {
     /// of Song values, so JSON encoding it on the main actor visibly stalls
     /// scrolling even though scanning itself is asynchronous.
     private var checkpointWriteTask: Task<Void, Never>?
+    /// A checkpoint contains the complete accumulated song array. Encoding it
+    /// after every 1.5-second library flush keeps a core busy for most of a
+    /// large scan even though the work is off-main. Ten-second persistence is
+    /// still frequent enough for resume while avoiding a queue of full-library
+    /// JSON encodes. Cancellation and completion always force a final write.
+    private var lastCheckpointPersistenceAt = Date.distantPast
+    private static let checkpointPersistenceInterval: TimeInterval = 10
     #if os(iOS)
     private var backgroundTaskIDs: [String: UIBackgroundTaskIdentifier] = [:]
     #endif
@@ -315,6 +322,7 @@ final class ScanService {
         // body can't run terminal cleanup/state writes once it resumes.
         scanGenerations[sourceID, default: 0] += 1
         scanStates[sourceID]?.isScanning = false
+        persistCheckpoints(force: true)
         endBackgroundTask(for: sourceID)
     }
 
@@ -336,7 +344,7 @@ final class ScanService {
 
     func removeCheckpoint(for sourceID: String) {
         checkpoints[sourceID] = nil
-        persistCheckpoints()
+        persistCheckpoints(force: true)
         if scanStates[sourceID]?.canResume == true {
             scanStates[sourceID] = nil
         }
@@ -709,7 +717,7 @@ final class ScanService {
         // always 0 since we removed Phase 1 counting) and the UI would
         // show "click to resume scan" on a finished source.
         checkpoints[sourceID] = nil
-        persistCheckpoints()
+        persistCheckpoints(force: true)
         scanStates[sourceID] = nil
     }
 
@@ -776,7 +784,12 @@ final class ScanService {
         persistCheckpoints()
     }
 
-    private func persistCheckpoints() {
+    private func persistCheckpoints(force: Bool = false) {
+        let now = Date()
+        guard force
+                || now.timeIntervalSince(lastCheckpointPersistenceAt)
+                    >= Self.checkpointPersistenceInterval else { return }
+        lastCheckpointPersistenceAt = now
         let snapshot = checkpoints
         let url = checkpointURL
         let previous = checkpointWriteTask
