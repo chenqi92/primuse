@@ -48,12 +48,19 @@
 // Onboarding
 "onboarding_welcome_title" = "あなたの音楽、あなたのサーバー";
 "onboarding_welcome_subtitle" = "Primuse はあなた自身の NAS、クラウドドライブ、ホームネットワークから音楽を再生します。ファイルをアップロードする必要はありません。";
-"onboarding_sources_title" = "あらゆるソースに対応";
+"onboarding_sources_title" = "音楽をひとつに";
 "onboarding_sources_nas" = "Synology、QNAP、Ugreen、SMB / NFS 共有";
-"onboarding_sources_cloud" = "Baidu Pan、OneDrive、Google Drive、Dropbox";
+"onboarding_sources_cloud" = "123 Pan、Baidu Pan、Aliyun Drive など";
+"onboarding_sources_apple_music" = "Apple Music を任意で接続し、ライブラリと一緒に表示";
+"onboarding_sources_network" = "WebDAV、SFTP、Jellyfin、UPnP / DLNA など";
 "onboarding_sources_webdav" = "WebDAV、FTP、SFTP — パスワード保護にも対応";
 "onboarding_sources_dlna" = "ネットワーク上の UPnP / DLNA メディアサーバー";
 "onboarding_sources_footer" = "いつでも追加できます。数に制限はありません。";
+"onboarding_metadata_title" = "ライブラリをより完全に";
+"onboarding_metadata_details" = "アートワーク、歌詞、アルバム、アーティスト情報を補完";
+"onboarding_metadata_providers" = "一般的な音楽プラットフォーム互換のカスタム取得元を読み込み";
+"onboarding_metadata_settings" = "「設定 > メタデータとスクレイピング」で有効化・並べ替え";
+"onboarding_metadata_footer" = "内蔵プロバイダはすぐに使えます。拡張元は自分で追加・認証します。";
 "onboarding_privacy_title" = "完全にあなたのもの";
 "onboarding_privacy_no_tracking" = "アナリティクスなし、広告なし、サードパーティトラッカーなし";
 "onboarding_privacy_icloud" = "ライブラリ設定はあなたの iCloud のみで同期";
@@ -61,6 +68,7 @@
 "onboarding_next" = "次へ";
 "onboarding_add_first_source" = "最初のソースを追加";
 "onboarding_later" = "あとで";
+"feature_guide" = "機能ガイド";
 
 // Tag Editor
 "tag_editor_menu" = "タグを編集";
@@ -977,6 +985,7 @@
 "discovery_reason_libraryPick" = "ライブラリのおすすめ";
 "update_modal_title_format" = "Primuse %@ が利用可能になりました";
 "update_modal_subtitle" = "最新の機能と改善を入手するにはアップデートしてください";
+"update_whats_new" = "新機能";
 "spotlight_artist_subtitle" = "Primuse のアーティスト";
 "spotlight_playlist_subtitle_format" = "Primuse のプレイリスト · %d 曲";
 "smart_value_format_none" = "すべてのフォーマット";
@@ -1877,3 +1886,15 @@
 "filter_songs_placeholder" = "曲を絞り込む…";
 "filter_albums_placeholder" = "アルバムを絞り込む…";
 "filter_artists_placeholder" = "アーティストを絞り込む…";
+"onboarding_experience_title" = "スマートフォンだけにとどまらない音楽体験";
+"onboarding_experience_media" = "ロスレス音源、単語同期歌詞、ミュージックビデオ";
+"onboarding_experience_devices" = "AirPlay、DLNA、Apple TV、車載再生";
+"onboarding_experience_insights" = "スマートプレイリスト、再生統計、年間レポート";
+"onboarding_experience_footer" = "ライブラリの整理からあらゆる場所での再生まで、必要な機能だけを使えます。";
+"update_show_more" = "すべて表示";
+"update_show_less" = "折りたたむ";
+"onboarding_personalization_title" = "自分らしいホーム画面に";
+"onboarding_personalization_icon" = "「設定 > 外観」で App アイコンを自由に変更";
+"onboarding_personalization_home" = "ホームのセクションを表示・非表示・並べ替え";
+"onboarding_personalization_quick" = "アルバム、アーティスト、プレイリストをすばやく登録";
+"onboarding_personalization_footer" = "これらの設定はいつでも変更できます。";

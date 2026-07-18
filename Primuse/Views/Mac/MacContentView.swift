@@ -17,6 +17,7 @@ struct MacContentView: View {
     @State private var preferences = MacUIPreferences.shared
     @State private var showNewPlaylist = false
     @State private var showSmartEditor = false
+    @State private var showInitialOnboarding = false
     @State private var newPlaylistName = ""
     @State private var newPlaylistDescription = ""
     /// 当前打开的工具弹框 (nil = 没开)。侧栏「工具」区点击设置它, sheet 关掉清空。
@@ -116,7 +117,7 @@ struct MacContentView: View {
         .background(PMColor.bg.ignoresSafeArea())
         .background(PMWindowChromeConfigurator())
         .ignoresSafeArea(.container, edges: .top)
-        .sheet(isPresented: onboardingPresented) {
+        .sheet(isPresented: $showInitialOnboarding) {
             OnboardingView()
                 .frame(minWidth: 720, minHeight: 560)
         }
@@ -143,7 +144,13 @@ struct MacContentView: View {
         .sheet(isPresented: $showSmartEditor) {
             SmartPlaylistEditorView(existing: nil)
         }
-        .task { MainWindowOpener.register(openWindow) }
+        .task {
+            MainWindowOpener.register(openWindow)
+            if !hasSeenOnboarding && sourcesStore.sources.isEmpty {
+                hasSeenOnboarding = true
+                showInitialOnboarding = true
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .primuseSidebarRequestNewPlaylist)) { _ in
             newPlaylistName = ""
             newPlaylistDescription = ""
@@ -198,15 +205,6 @@ struct MacContentView: View {
 
     private var isFullScreenNowPlaying: Bool {
         isWindowFullScreen && nowPlayingPresented
-    }
-
-    private var onboardingPresented: Binding<Bool> {
-        Binding(
-            get: { !hasSeenOnboarding && sourcesStore.sources.isEmpty },
-            set: { isPresented in
-                if !isPresented { hasSeenOnboarding = true }
-            }
-        )
     }
 
     private func selectRoute(_ route: MacRoute) {

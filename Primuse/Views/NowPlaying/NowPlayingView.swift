@@ -514,6 +514,12 @@ struct NowPlayingView: View {
 
     @ViewBuilder
     private func portraitLayout(geo: GeometryProxy, artSize: CGFloat) -> some View {
+        // MV 是 16:9，若沿用方形封面按高度推导出的宽度，会在竖屏里显得
+        // 明显偏小。视频改为尽量吃满屏宽；方形封面仍保持原来的视觉尺度。
+        let mediaWidth = player.isMusicVideoPlaybackActive
+            ? min(max(0, geo.size.width - 20), 720)
+            : artSize
+
         VStack(spacing: 0) {
                     // Grabber handle (system-matching dimensions)
                     Capsule()
@@ -609,11 +615,20 @@ struct NowPlayingView: View {
                         Spacer()
 
                         // Artwork
-                        artworkOrMusicVideo(size: artSize, cornerRadius: 12)
-                        .scaleEffect(player.isPlaying ? 1.0 : 0.9)
+                        artworkOrMusicVideo(size: mediaWidth, cornerRadius: 12)
+                        .scaleEffect(
+                            player.isMusicVideoPlaybackActive
+                                ? 1.0
+                                : (player.isPlaying ? 1.0 : 0.9)
+                        )
                         .shadow(color: .black.opacity(0.3), radius: 20, y: 8)
                         .animation(.spring(response: 0.5, dampingFraction: 0.7), value: player.isPlaying)
-                        .onTapGesture { withAnimation(.easeInOut(duration: 0.3)) { showLyrics = true } }
+                        .onTapGesture {
+                            // 视频画面本身不再充当「打开歌词」的隐藏入口，避免用户
+                            // 想点 MV 时意外切走；封面模式仍保留原交互。
+                            guard !player.isMusicVideoPlaybackActive else { return }
+                            withAnimation(.easeInOut(duration: 0.3)) { showLyrics = true }
+                        }
 
                         Spacer()
                     }
@@ -1388,7 +1403,10 @@ struct MusicVideoFullScreenView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .ignoresSafeArea()
 
-            Button(action: onDismiss) {
+            Button {
+                MusicVideoOrientationController.restorePreviousOrientation()
+                onDismiss()
+            } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(.white)
@@ -1406,6 +1424,12 @@ struct MusicVideoFullScreenView: View {
         }
         #if os(iOS)
         .statusBarHidden(true)
+        .onAppear {
+            MusicVideoOrientationController.enterLandscape()
+        }
+        .onDisappear {
+            MusicVideoOrientationController.restorePreviousOrientation()
+        }
         #endif
     }
 }
@@ -1420,6 +1444,53 @@ struct MusicVideoSurface: View {
 }
 
 #if os(iOS)
+/// Uses the public scene-geometry API to make MV fullscreen behave like a video
+/// player on iPhone. The previous orientation is restored when the cover closes,
+/// so the rest of the app does not get stranded in landscape.
+@MainActor
+private enum MusicVideoOrientationController {
+    private static var restoreMask: UIInterfaceOrientationMask?
+
+    static func enterLandscape() {
+        guard UIDevice.current.userInterfaceIdiom == .phone,
+              let scene = foregroundWindowScene else { return }
+
+        if restoreMask == nil {
+            restoreMask = mask(for: scene.interfaceOrientation)
+        }
+        request([.landscapeLeft, .landscapeRight], in: scene)
+    }
+
+    static func restorePreviousOrientation() {
+        guard let restoreMask else { return }
+        self.restoreMask = nil
+        guard UIDevice.current.userInterfaceIdiom == .phone,
+              let scene = foregroundWindowScene else { return }
+        request(restoreMask, in: scene)
+    }
+
+    private static var foregroundWindowScene: UIWindowScene? {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive }
+    }
+
+    private static func mask(for orientation: UIInterfaceOrientation) -> UIInterfaceOrientationMask {
+        switch orientation {
+        case .landscapeLeft: return .landscapeLeft
+        case .landscapeRight: return .landscapeRight
+        case .portraitUpsideDown: return .portraitUpsideDown
+        default: return .portrait
+        }
+    }
+
+    private static func request(_ orientations: UIInterfaceOrientationMask, in scene: UIWindowScene) {
+        scene.requestGeometryUpdate(.iOS(interfaceOrientations: orientations)) { error in
+            plog("⚠️ MV orientation request failed: \(error.localizedDescription)")
+        }
+    }
+}
+
 private struct PlatformMusicVideoSurface: UIViewRepresentable {
     let player: AVPlayer
 

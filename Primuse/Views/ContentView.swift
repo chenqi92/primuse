@@ -94,6 +94,7 @@ struct ContentView: View {
     @State private var autoYearlyReport: YearlyReportData?
     /// 首启 onboarding —— @AppStorage 持久, 关掉后永久 true。
     @AppStorage("primuse.hasSeenOnboarding") private var hasSeenOnboarding: Bool = false
+    @State private var showInitialOnboarding = false
     private let legacyTabBarClearance: CGFloat = 49
 
     @ViewBuilder
@@ -101,6 +102,7 @@ struct ContentView: View {
         TabView(selection: $selectedTab) {
             Tab(String(localized: "home_title"), systemImage: "house.fill", value: 0) {
                 HomeView(switchToSettingsTab: { selectedTab = 3 })
+                    .id("primuse.tab.home")
             }
 
             Tab(String(localized: "library_title"), systemImage: "books.vertical", value: 1) {
@@ -287,7 +289,12 @@ struct ContentView: View {
         // 重新出现) 都跑一次, trigger 内部用 UserDefaults 记录已弹避免重复。
         // 触发条件: 当前月份 == 1 + 上一年没弹过 + 上一年听满 ≥ 2 个不同月份。
         .task {
-            if let report = YearlyReportAutoTrigger.shouldShowReport(
+            // 展示前就写入“一次性”标记。这样即使用户在导览期间直接杀掉
+            // App，下次启动也不会再次自动弹出；设置页仍可手动重看。
+            if !hasSeenOnboarding && sourcesStore.sources.isEmpty {
+                hasSeenOnboarding = true
+                showInitialOnboarding = true
+            } else if let report = YearlyReportAutoTrigger.shouldShowReport(
                 library: library,
                 sourcesStore: sourcesStore
             ) {
@@ -299,10 +306,7 @@ struct ContentView: View {
         }
         // 首启 onboarding —— 仅当未看过且库里没源 (避免 CloudKit 同步迟到时
         // 让老用户重看一次)
-        .fullScreenCover(isPresented: Binding(
-            get: { !hasSeenOnboarding && sourcesStore.sources.isEmpty },
-            set: { if !$0 { hasSeenOnboarding = true } }
-        )) {
+        .fullScreenCover(isPresented: $showInitialOnboarding) {
             OnboardingView()
         }
         // Spotlight 点击 ── identifier 形如 "song:<id>" / "album:<id>" 等。

@@ -195,7 +195,19 @@ final class AppUpdateChecker {
     }
 
     private func fetchLatest() async throws -> UpdateInfo? {
-        guard let url = lookupURL() else {
+        let countryCode = Locale.current.region?.identifier.uppercased()
+        if let countryCode,
+           let regionalResult = try await fetchLatest(countryCode: countryCode) {
+            return regionalResult
+        }
+
+        // App 可能尚未在用户当前 storefront 上架，或 Apple 返回空结果。
+        // 再查一次不带地区的默认 storefront，避免因此完全失去更新检测。
+        return try await fetchLatest(countryCode: nil)
+    }
+
+    private func fetchLatest(countryCode: String?) async throws -> UpdateInfo? {
+        guard let url = lookupURL(countryCode: countryCode) else {
             return nil
         }
         var req = URLRequest(url: url)
@@ -215,19 +227,24 @@ final class AppUpdateChecker {
         )
     }
 
-    private func lookupURL() -> URL? {
+    private func lookupURL(countryCode: String?) -> URL? {
         var components = URLComponents(string: "https://itunes.apple.com/lookup")
+        var queryItems: [URLQueryItem]
         if let explicitAppStoreID {
-            components?.queryItems = [
+            queryItems = [
                 URLQueryItem(name: "id", value: explicitAppStoreID),
                 URLQueryItem(name: "entity", value: lookupEntity),
             ]
         } else {
-            components?.queryItems = [
+            queryItems = [
                 URLQueryItem(name: "bundleId", value: bundleID),
                 URLQueryItem(name: "entity", value: lookupEntity),
             ]
         }
+        if let countryCode {
+            queryItems.append(URLQueryItem(name: "country", value: countryCode))
+        }
+        components?.queryItems = queryItems
         return components?.url
     }
 

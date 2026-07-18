@@ -41,7 +41,7 @@ struct HomeView: View {
                 .padding(.bottom, 100)
             }
             .task {
-                refreshHomeSnapshotIfNeeded()
+                await refreshHomeSnapshotAfterPresentationIfNeeded()
             }
             .onChange(of: library.searchRevision) { _, _ in
                 scheduleDebouncedHomeRefresh()
@@ -107,6 +107,8 @@ struct HomeView: View {
     // not rebuild recommendations and album groupings on the main actor while
     // the user is scrolling; the snapshot refreshes once the burst settles.
     private static let homeRefreshDebounce: Duration = .seconds(3)
+    @State private var recommendationTask: Task<Void, Never>?
+    @State private var libraryHighlightsTask: Task<Void, Never>?
 
     private struct HomeSnapshotSignature: Equatable {
         let libraryRevision: Int
@@ -117,11 +119,17 @@ struct HomeView: View {
         let dayStamp: Int
     }
 
-    private struct HomeAlbumTile: Identifiable {
+    private struct HomeAlbumTile: Identifiable, Sendable {
         let album: Album
         let artworkSong: Song?
 
         var id: String { album.id }
+    }
+
+    private struct HomeAlbumAccumulator: Sendable {
+        var latestDate: Date
+        var firstSong: Song
+        var firstCoveredSong: Song?
     }
 
     private struct HomePlaylistTile: Identifiable {
@@ -246,7 +254,15 @@ struct HomeView: View {
         )
     }
 
-    private func refreshHomeSnapshotIfNeeded() {
+    /// 先把已有快照交给 SwiftUI 画出首帧，再检查资料库是否需要刷新。
+    /// `.task` 在 tab 切入时会先同步执行到第一个 suspension point；旧实现
+    /// 直接在这里做全库计算，导致导航动画必须等计算结束才显示首页。
+    private func refreshHomeSnapshotAfterPresentationIfNeeded() async {
+        await Task.yield()
+        if homeSnapshot.hasContent {
+            try? await Task.sleep(for: .milliseconds(180))
+        }
+        guard !Task.isCancelled else { return }
         refreshHomeSnapshot(force: false)
     }
 
@@ -254,8 +270,31 @@ struct HomeView: View {
         let signature = homeSnapshotSignature
         guard force || signature != lastHomeSnapshotSignature else { return }
 
+        let visibleSongIDs = Set(library.visibleSongs.map(\.id))
+        let visibleAlbumIDs = Set(library.visibleAlbums.map(\.id))
+        let retainedRecommendations = homeSnapshot.forYouResults.filter {
+            visibleSongIDs.contains($0.song.id)
+        }
+        let retainedHeroCovers = homeSnapshot.heroCoverSongs.filter {
+            visibleSongIDs.contains($0.id)
+        }
+        let retainedRecentlyAddedAlbums = homeSnapshot.recentlyAddedAlbums.filter {
+            visibleAlbumIDs.contains($0.id)
+        }
+        let recommendationInput = showForYou
+            ? MusicDiscoveryEngine.recommendationInput(in: library)
+            : nil
+        // Array copies are copy-on-write and therefore cheap on the main actor.
+        // The detached worker below is the only place that traverses them.
+        let visibleSongs = library.visibleSongs
+        let visibleAlbums = library.visibleAlbums
+
         let startedAt = Date()
-        let snapshot = makeHomeSnapshot()
+        let snapshot = makeHomeSnapshot(
+            forYouResults: retainedRecommendations,
+            heroCoverSongs: retainedHeroCovers,
+            recentlyAddedAlbums: retainedRecentlyAddedAlbums
+        )
         homeSnapshot = snapshot
         lastHomeSnapshotSignature = signature
 
@@ -264,7 +303,31 @@ struct HomeView: View {
         tintProvider.prepare(snapshot.forYouResults.map(\.song))
         tintProvider.prepare(Array(snapshot.recentSongs.prefix(15)))
 
+        scheduleLibraryHighlightsRefresh(
+            songs: visibleSongs,
+            albums: visibleAlbums,
+            recentSongs: snapshot.recentSongs,
+            signature: signature
+        )
+
+        if let recommendationInput {
+            scheduleRecommendationRefresh(
+                input: recommendationInput,
+                signature: signature
+            )
+        } else {
+            recommendationTask?.cancel()
+            recommendationTask = nil
+        }
+
         let elapsed = Date().timeIntervalSince(startedAt)
+        #if DEBUG
+        plog(String(format: "🏠 home snapshot main %.0fms songs=%d albums=%d artists=%d",
+                    elapsed * 1000,
+                    signature.visibleSongCount,
+                    signature.visibleAlbumCount,
+                    signature.visibleArtistCount))
+        #else
         if elapsed > 0.08 {
             plog(String(format: "🏠 home snapshot refresh %.0fms songs=%d albums=%d artists=%d",
                         elapsed * 1000,
@@ -272,9 +335,90 @@ struct HomeView: View {
                         signature.visibleAlbumCount,
                         signature.visibleArtistCount))
         }
+        #endif
     }
 
-    private func makeHomeSnapshot() -> HomeSnapshot {
+    /// Hero 封面和最近专辑都需要遍历整库；它们与推荐一样不应该参与
+    /// Tab 切换首帧。保留旧快照，后台算完后再一次性发布。
+    private func scheduleLibraryHighlightsRefresh(
+        songs: [Song],
+        albums: [Album],
+        recentSongs: [Song],
+        signature: HomeSnapshotSignature
+    ) {
+        libraryHighlightsTask?.cancel()
+        libraryHighlightsTask = Task { @MainActor in
+            let payload = await Task.detached(priority: .utility) {
+                let startedAt = Date()
+                let heroCoverSongs = Self.makeHeroCoverSongs(
+                    songs: songs,
+                    recentSongs: recentSongs
+                )
+                let albumTiles = Self.makeRecentlyAddedAlbumTiles(
+                    songs: songs,
+                    albums: albums,
+                    limit: 12
+                )
+                return (
+                    heroCoverSongs,
+                    albumTiles,
+                    Date().timeIntervalSince(startedAt)
+                )
+            }.value
+
+            guard !Task.isCancelled, homeSnapshotSignature == signature else { return }
+            homeSnapshot.heroCoverSongs = payload.0
+            homeSnapshot.recentlyAddedAlbums = payload.1
+
+            #if DEBUG
+            if payload.2 > 0.02 {
+                plog(String(
+                    format: "🏠 library highlights background %.0fms songs=%d",
+                    payload.2 * 1000,
+                    songs.count
+                ))
+            }
+            #endif
+        }
+    }
+
+    /// 推荐是首页快照里唯一仍需约 200ms 的部分。输入在主线程快速复制，
+    /// 真正的归一化和全库评分放到 detached task；完成后只回主线程发布
+    /// 12 条结果。旧快照在此期间继续显示。
+    private func scheduleRecommendationRefresh(
+        input: MusicDiscoveryEngine.RecommendationInput,
+        signature: HomeSnapshotSignature
+    ) {
+        recommendationTask?.cancel()
+        recommendationTask = Task { @MainActor in
+            let payload = await Task.detached(priority: .utility) {
+                let startedAt = Date()
+                let results = MusicDiscoveryEngine.dailyRecommendations(from: input, limit: 12)
+                return (results, Date().timeIntervalSince(startedAt))
+            }.value
+
+            guard !Task.isCancelled, homeSnapshotSignature == signature else { return }
+            homeSnapshot.forYouResults = payload.0
+            tintProvider.prepare(payload.0.map(\.song))
+
+            #if DEBUG
+            if payload.1 > 0.05 {
+                plog(String(
+                    format: "🏠 recommendations background %.0fms songs=%d",
+                    payload.1 * 1000,
+                    input.songs.count
+                ))
+            }
+            #endif
+        }
+    }
+
+    private func makeHomeSnapshot(
+        forYouResults: [MusicDiscoveryResult],
+        heroCoverSongs: [Song],
+        recentlyAddedAlbums: [HomeAlbumTile]
+    ) -> HomeSnapshot {
+        let snapshotStartedAt = Date()
         let recentSongs = makeRecentSongs()
         let summary = PlayHistoryStore.shared.summary(in: .week)
         let topArtistHistory = PlayHistoryStore.shared.topArtists(in: .month, limit: 8)
@@ -286,20 +430,43 @@ struct HomeView: View {
             .filter { $0.id != MusicLibrary.likedSongsPlaylistID }
             .sorted { $0.updatedAt > $1.updatedAt }
         let playlistTiles = regularPlaylists.prefix(10).map(makeHomePlaylistTile)
+        let baseFinishedAt = Date()
 
-        return HomeSnapshot(
+        let heroFinishedAt = Date()
+        let albumsFinishedAt = Date()
+        let topArtists = topArtistsForHome(history: topArtistHistory)
+        let artistsFinishedAt = Date()
+        let quickItems = makeHomeQuickItems(regularPlaylists: regularPlaylists)
+        let quickFinishedAt = Date()
+
+        let snapshot = HomeSnapshot(
             hasContent: !library.visibleSongs.isEmpty,
             statsGlimpse: summary.totalPlays > 0 ? summary : nil,
-            forYouResults: makeForYouResults(),
+            forYouResults: forYouResults,
             recentSongs: recentSongs,
-            heroCoverSongs: makeHeroCoverSongs(recentSongs: recentSongs),
-            recentlyAddedAlbums: makeRecentlyAddedAlbumTiles(limit: 12),
-            topArtists: topArtistsForHome(history: topArtistHistory),
+            heroCoverSongs: heroCoverSongs,
+            recentlyAddedAlbums: recentlyAddedAlbums,
+            topArtists: topArtists,
             topArtistsHasHistory: !topArtistHistory.isEmpty,
             playlists: playlistTiles,
-            quickItems: makeHomeQuickItems(regularPlaylists: regularPlaylists),
+            quickItems: quickItems,
             likedPlaylist: likedPlaylist
         )
+
+        #if DEBUG
+        let total = quickFinishedAt.timeIntervalSince(snapshotStartedAt)
+        plog(String(
+            format: "🏠 snapshot parts total=%.0fms base=%.0f hero=%.0f albums=%.0f artists=%.0f quick=%.0f",
+            total * 1000,
+            baseFinishedAt.timeIntervalSince(snapshotStartedAt) * 1000,
+            heroFinishedAt.timeIntervalSince(baseFinishedAt) * 1000,
+            albumsFinishedAt.timeIntervalSince(heroFinishedAt) * 1000,
+            artistsFinishedAt.timeIntervalSince(albumsFinishedAt) * 1000,
+            quickFinishedAt.timeIntervalSince(artistsFinishedAt) * 1000
+        ))
+        #endif
+
+        return snapshot
     }
 
     private func makeHomePlaylistTile(_ playlist: Playlist) -> HomePlaylistTile {
@@ -340,20 +507,69 @@ struct HomeView: View {
         }
     }
 
-    private func makeRecentlyAddedAlbumTiles(limit: Int) -> [HomeAlbumTile] {
-        let albums = library.recentlyAddedAlbums(limit: limit)
-        let songsByAlbum = Dictionary(grouping: library.visibleSongs) { $0.albumID ?? "" }
-        return albums.map { album in
-            let songs = songsByAlbum[album.id] ?? []
-            let orderedSongs = songs.sorted { lhs, rhs in
-                let leftTrack = lhs.trackNumber ?? Int.max
-                let rightTrack = rhs.trackNumber ?? Int.max
-                if leftTrack != rightTrack { return leftTrack < rightTrack }
-                return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+    nonisolated private static func makeRecentlyAddedAlbumTiles(
+        songs: [Song],
+        albums: [Album],
+        limit: Int
+    ) -> [HomeAlbumTile] {
+        // 旧实现先在 MusicLibrary 内把全库按专辑分组一次，再回到这里二次
+        // 分组并逐专辑排序。万首库上仅这一段就会占用主线程约 40ms。
+        // 单次遍历同时收集最近日期、第一首歌和第一首带封面的歌，结果与旧
+        // 规则一致，但不再创建两套包含所有歌曲的临时数组。
+        var accumulators: [String: HomeAlbumAccumulator] = [:]
+        accumulators.reserveCapacity(albums.count)
+
+        for song in songs {
+            guard let albumID = song.albumID, !albumID.isEmpty else { continue }
+            let hasCover = song.coverArtFileName?.isEmpty == false
+
+            if var accumulator = accumulators[albumID] {
+                if song.dateAdded > accumulator.latestDate {
+                    accumulator.latestDate = song.dateAdded
+                }
+                if Self.homeAlbumSongPrecedes(song, accumulator.firstSong) {
+                    accumulator.firstSong = song
+                }
+                if hasCover {
+                    if let firstCoveredSong = accumulator.firstCoveredSong {
+                        if Self.homeAlbumSongPrecedes(song, firstCoveredSong) {
+                            accumulator.firstCoveredSong = song
+                        }
+                    } else {
+                        accumulator.firstCoveredSong = song
+                    }
+                }
+                accumulators[albumID] = accumulator
+            } else {
+                accumulators[albumID] = HomeAlbumAccumulator(
+                    latestDate: song.dateAdded,
+                    firstSong: song,
+                    firstCoveredSong: hasCover ? song : nil
+                )
             }
-            let artworkSong = orderedSongs.first { $0.coverArtFileName?.isEmpty == false } ?? orderedSongs.first
-            return HomeAlbumTile(album: album, artworkSong: artworkSong)
         }
+
+        return albums
+            .sorted {
+                let left = accumulators[$0.id]?.latestDate ?? .distantPast
+                let right = accumulators[$1.id]?.latestDate ?? .distantPast
+                return left > right
+            }
+            .prefix(limit)
+            .map { album in
+                let accumulator = accumulators[album.id]
+                return HomeAlbumTile(
+                    album: album,
+                    artworkSong: accumulator?.firstCoveredSong ?? accumulator?.firstSong
+                )
+            }
+    }
+
+    nonisolated private static func homeAlbumSongPrecedes(_ lhs: Song, _ rhs: Song) -> Bool {
+        let leftTrack = lhs.trackNumber ?? Int.max
+        let rightTrack = rhs.trackNumber ?? Int.max
+        if leftTrack != rightTrack { return leftTrack < rightTrack }
+        return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
     }
 
     // MARK: - Stats Glimpse
@@ -647,10 +863,13 @@ struct HomeView: View {
         }
     }
 
-    private func makeHeroCoverSongs(recentSongs: [Song]) -> [Song] {
+    nonisolated private static func makeHeroCoverSongs(
+        songs: [Song],
+        recentSongs: [Song]
+    ) -> [Song] {
         // 优先最近播放, 不够再补最近添加, 都过滤出有 cover 的歌, 最后随机
         // 抽 4 首。结果跟随首页快照刷新,避免每次 tab 回首页都重排。
-        let added = library.visibleSongs.sorted { $0.dateAdded > $1.dateAdded }.prefix(60)
+        let added = songs.sorted { $0.dateAdded > $1.dateAdded }.prefix(60)
         // 用 seen-set 按 id 去重: recentSongs 自身可能含重复 id (脏快照/跨源未彻底
         // 去重), 否则下方 ForEach(id: \.element.id) 会因重复 id 触发 SwiftUI 告警/崩溃。
         var pool: [Song] = []
@@ -940,12 +1159,6 @@ struct HomeView: View {
             // the same card hierarchy until the batched tint result arrives.
             shape.fill(homeCardSurface)
         }
-    }
-
-    /// Build the recommendation pool from local metadata + playback history.
-    /// No network calls; the same engine also powers "similar songs".
-    private func makeForYouResults() -> [MusicDiscoveryResult] {
-        MusicDiscoveryEngine.dailyRecommendations(in: library, limit: 12)
     }
 
     // MARK: - Continue Listening (formerly Recently Played)

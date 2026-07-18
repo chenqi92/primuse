@@ -47,12 +47,19 @@
 // Onboarding
 "onboarding_welcome_title" = "Votre musique, vos serveurs";
 "onboarding_welcome_subtitle" = "Primuse lit la musique depuis votre NAS, vos services cloud et votre réseau domestique, sans envoyer aucun fichier à qui que ce soit.";
-"onboarding_sources_title" = "Connectez n'importe quelle source";
+"onboarding_sources_title" = "Réunissez toute votre musique";
 "onboarding_sources_nas" = "Synology, QNAP, Ugreen et partages SMB / NFS";
-"onboarding_sources_cloud" = "Baidu Pan, OneDrive, Google Drive, Dropbox";
+"onboarding_sources_cloud" = "123 Pan, Baidu Pan, Aliyun Drive et plus";
+"onboarding_sources_apple_music" = "Connectez Apple Music en option et parcourez-le avec votre bibliothèque";
+"onboarding_sources_network" = "WebDAV, SFTP, Jellyfin, UPnP / DLNA et plus";
 "onboarding_sources_webdav" = "WebDAV, FTP, SFTP — même protégés par mot de passe";
 "onboarding_sources_dlna" = "Serveurs multimédias UPnP / DLNA de votre réseau";
 "onboarding_sources_footer" = "Vous pouvez en ajouter autant que vous voulez, à tout moment.";
+"onboarding_metadata_title" = "Complétez votre bibliothèque";
+"onboarding_metadata_details" = "Ajoutez pochettes, paroles et informations d’album et d’artiste";
+"onboarding_metadata_providers" = "Importez des sources personnalisées compatibles avec les plateformes musicales courantes";
+"onboarding_metadata_settings" = "Activez-les et classez-les dans Réglages > Métadonnées et récupération";
+"onboarding_metadata_footer" = "Les sources intégrées sont prêtes à l’emploi ; vous ajoutez et autorisez les extensions.";
 "onboarding_privacy_title" = "Entièrement à vous";
 "onboarding_privacy_no_tracking" = "Aucune analyse, aucune publicité, aucun traceur tiers";
 "onboarding_privacy_icloud" = "Les réglages de la bibliothèque sont synchronisés uniquement via votre iCloud";
@@ -60,6 +67,7 @@
 "onboarding_next" = "Continuer";
 "onboarding_add_first_source" = "Ajouter votre première source";
 "onboarding_later" = "Peut-être plus tard";
+"feature_guide" = "Guide des fonctions";
 
 // Tag Editor
 "tag_editor_menu" = "Modifier les tags";
@@ -976,6 +984,7 @@
 "discovery_reason_libraryPick" = "Sélection de la bibliothèque";
 "update_modal_title_format" = "Primuse %@ est maintenant disponible";
 "update_modal_subtitle" = "Mettez à jour pour profiter des dernières fonctionnalités et améliorations";
+"update_whats_new" = "Nouveautés";
 "spotlight_artist_subtitle" = "Artiste dans Primuse";
 "spotlight_playlist_subtitle_format" = "Liste de lecture Primuse · %d morceaux";
 "smart_value_format_none" = "Tous les formats";
@@ -1876,3 +1885,15 @@
 "filter_songs_placeholder" = "Filtrer les titres…";
 "filter_albums_placeholder" = "Filtrer les albums…";
 "filter_artists_placeholder" = "Filtrer les artistes…";
+"onboarding_experience_title" = "La musique au-delà du téléphone";
+"onboarding_experience_media" = "Audio sans perte, paroles mot à mot et clips vidéo";
+"onboarding_experience_devices" = "AirPlay, DLNA, Apple TV et lecture en voiture";
+"onboarding_experience_insights" = "Playlists intelligentes, statistiques d’écoute et bilan annuel";
+"onboarding_experience_footer" = "De l’organisation à l’écoute partout, utilisez uniquement les fonctions utiles.";
+"update_show_more" = "Tout afficher";
+"update_show_less" = "Réduire";
+"onboarding_personalization_title" = "Un accueil qui vous ressemble";
+"onboarding_personalization_icon" = "Choisissez l’icône de l’App dans Réglages > Apparence";
+"onboarding_personalization_home" = "Affichez, masquez et réorganisez les sections de l’accueil";
+"onboarding_personalization_quick" = "Épinglez albums, artistes et playlists pour un accès rapide";
+"onboarding_personalization_footer" = "Vous pourrez modifier ces options à tout moment.";

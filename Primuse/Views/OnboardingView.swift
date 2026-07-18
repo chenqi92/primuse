@@ -9,21 +9,30 @@ private struct MacOnboardingProtocolGroup: Identifiable {
 }
 #endif
 
-/// 首启引导。3 个 page —— 介绍 + 支持的音乐源 + 隐私承诺 —— 最后一页"开始使用"
-/// 跳到 AddSourceView,引导用户立刻添加第一个源。任何路径关闭后都把
-/// `primuse.hasSeenOnboarding` 写 true,后续启动不再弹。
+/// 首启引导。iOS 只展示具体能力：
+/// 「音乐源 → 元数据增强 → 播放体验 → 个性化」。
+/// 设置页也能以 feature-guide 模式重新打开。
+/// 任何路径关闭后都把 `primuse.hasSeenOnboarding` 写 true，后续启动不再弹。
 ///
 /// 设计理由:
 /// - 用户装上 app 啥都没,直接进资料库会看到空状态,容易直接卸载
 /// - App Store 审核员也是同样体验,1.2(a) "Information Needed" 跟这个有关
 /// - 类似 Apple Music / Cider 都有 onboarding,用户接受度高
 struct OnboardingView: View {
+    var isFeatureGuide = false
+
     @AppStorage("primuse.hasSeenOnboarding") private var hasSeenOnboarding: Bool = false
     @State private var pageIndex = 0
     @State private var presentAddSource = false
     @Environment(\.dismiss) private var dismiss
 
-    private let pageCount = 3
+    private var pageCount: Int {
+        #if os(macOS)
+        3
+        #else
+        4
+        #endif
+    }
 
     var body: some View {
         content
@@ -39,11 +48,37 @@ struct OnboardingView: View {
         macBody
         #else
         ZStack {
-            // 跟年度报告 / NowPlayingView 一致的紫蓝 ambient gradient
+            // 保留深色沉浸感，但让光晕跟随用户当前主题色，不把品牌锁死为深紫色。
+            Color(red: 0.018, green: 0.022, blue: 0.035)
+                .ignoresSafeArea()
+
+            RadialGradient(
+                colors: [
+                    Color.accentColor.opacity(0.50),
+                    Color.accentColor.opacity(0.10),
+                    .clear,
+                ],
+                center: .topLeading,
+                startRadius: 10,
+                endRadius: 520
+            )
+            .ignoresSafeArea()
+
+            RadialGradient(
+                colors: [
+                    Color.accentColor.opacity(0.22),
+                    .clear,
+                ],
+                center: .bottomTrailing,
+                startRadius: 20,
+                endRadius: 420
+            )
+            .ignoresSafeArea()
+
             LinearGradient(
                 colors: [
-                    Color(red: 0.16, green: 0.10, blue: 0.42),
-                    Color(red: 0.05, green: 0.04, blue: 0.18),
+                    .clear,
+                    Color.black.opacity(0.34),
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
@@ -54,9 +89,10 @@ struct OnboardingView: View {
                 Spacer()
 
                 TabView(selection: $pageIndex) {
-                    welcomePage.tag(0)
-                    sourcesPage.tag(1)
-                    privacyPage.tag(2)
+                    sourcesPage.tag(0)
+                    metadataPage.tag(1)
+                    experiencePage.tag(2)
+                    personalizationPage.tag(3)
                 }
                 #if os(iOS)
                 .tabViewStyle(.page(indexDisplayMode: .never))
@@ -160,12 +196,14 @@ struct OnboardingView: View {
             Button {
                 if pageIndex < pageCount - 1 {
                     withAnimation(.easeInOut(duration: 0.2)) { pageIndex += 1 }
+                } else if isFeatureGuide {
+                    finish()
                 } else {
                     presentAddSource = true
                 }
             } label: {
                 Text(pageIndex == pageCount - 1
-                     ? String(localized: "onboarding_mac_done")
+                     ? String(localized: isFeatureGuide ? "done" : "onboarding_mac_done")
                      : String(localized: "onboarding_mac_continue"))
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white)
@@ -308,7 +346,7 @@ struct OnboardingView: View {
         [
             MacOnboardingProtocolGroup(title: String(localized: "onboarding_mac_group_local"), items: ["SMB / CIFS", "WebDAV", "SFTP", "FTP", "NFS", "S3", "UPnP / DLNA"]),
             MacOnboardingProtocolGroup(title: String(localized: "onboarding_mac_group_media_server"), items: ["Jellyfin", "Emby", "Plex", "Synology Audio Station", "QNAP", "UGREEN UGOS", "fnOS"]),
-            MacOnboardingProtocolGroup(title: String(localized: "onboarding_mac_group_cloud"), items: ["Baidu Pan", "Aliyun Drive", "Google Drive", "OneDrive", "Dropbox"]),
+            MacOnboardingProtocolGroup(title: String(localized: "onboarding_mac_group_cloud"), items: ["123 Pan", "Baidu Pan", "Aliyun Drive", "Google Drive", "OneDrive", "Dropbox"]),
             MacOnboardingProtocolGroup(title: String(localized: "onboarding_mac_group_other"), items: ["Apple Music", String(localized: "onboarding_mac_source_local_file")]),
         ]
     }
@@ -369,28 +407,6 @@ struct OnboardingView: View {
     }
     #endif
 
-    private var welcomePage: some View {
-        VStack(spacing: 24) {
-            Image(systemName: "music.note.list")
-                .font(.system(size: 96, weight: .semibold))
-                .foregroundStyle(.white)
-                .padding(.top, 12)
-
-            VStack(spacing: 12) {
-                Text(String(localized: "onboarding_welcome_title"))
-                    .font(.system(size: 30, weight: .bold))
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.white)
-
-                Text(String(localized: "onboarding_welcome_subtitle"))
-                    .font(.body)
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.white.opacity(0.78))
-                    .padding(.horizontal, 24)
-            }
-        }
-    }
-
     private var sourcesPage: some View {
         VStack(spacing: 24) {
             Image(systemName: "externaldrive.fill.badge.icloud")
@@ -406,8 +422,8 @@ struct OnboardingView: View {
             VStack(alignment: .leading, spacing: 12) {
                 onboardingRow("server.rack", "onboarding_sources_nas")
                 onboardingRow("icloud.fill", "onboarding_sources_cloud")
-                onboardingRow("network", "onboarding_sources_webdav")
-                onboardingRow("dot.radiowaves.left.and.right", "onboarding_sources_dlna")
+                onboardingRow("applelogo", "onboarding_sources_apple_music")
+                onboardingRow("network", "onboarding_sources_network")
             }
             .padding(.horizontal, 32)
 
@@ -419,24 +435,84 @@ struct OnboardingView: View {
         }
     }
 
-    private var privacyPage: some View {
+    private var metadataPage: some View {
         VStack(spacing: 24) {
-            Image(systemName: "lock.shield.fill")
+            Image(systemName: "wand.and.stars")
                 .font(.system(size: 80, weight: .semibold))
                 .foregroundStyle(.white)
                 .padding(.top, 12)
 
-            Text(String(localized: "onboarding_privacy_title"))
+            Text(String(localized: "onboarding_metadata_title"))
                 .font(.system(size: 28, weight: .bold))
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.white)
 
             VStack(alignment: .leading, spacing: 12) {
-                onboardingRow("eye.slash.fill", "onboarding_privacy_no_tracking")
-                onboardingRow("icloud.and.arrow.up.fill", "onboarding_privacy_icloud")
-                onboardingRow("server.rack", "onboarding_privacy_local")
+                onboardingRow("photo.on.rectangle.angled", "onboarding_metadata_details")
+                onboardingRow("puzzlepiece.extension.fill", "onboarding_metadata_providers")
+                onboardingRow("slider.horizontal.3", "onboarding_metadata_settings")
             }
             .padding(.horizontal, 32)
+
+            Text(String(localized: "onboarding_metadata_footer"))
+                .font(.subheadline)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.white.opacity(0.65))
+                .padding(.horizontal, 24)
+        }
+    }
+
+    private var experiencePage: some View {
+        VStack(spacing: 24) {
+            Image(systemName: "play.rectangle.on.rectangle.fill")
+                .font(.system(size: 80, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.top, 12)
+
+            Text(String(localized: "onboarding_experience_title"))
+                .font(.system(size: 28, weight: .bold))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.white)
+
+            VStack(alignment: .leading, spacing: 12) {
+                onboardingRow("music.note.tv.fill", "onboarding_experience_media")
+                onboardingRow("airplayaudio", "onboarding_experience_devices")
+                onboardingRow("chart.bar.xaxis", "onboarding_experience_insights")
+            }
+            .padding(.horizontal, 32)
+
+            Text(String(localized: "onboarding_experience_footer"))
+                .font(.subheadline)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.white.opacity(0.65))
+                .padding(.horizontal, 24)
+        }
+    }
+
+    private var personalizationPage: some View {
+        VStack(spacing: 24) {
+            Image(systemName: "paintpalette.fill")
+                .font(.system(size: 80, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.top, 12)
+
+            Text(String(localized: "onboarding_personalization_title"))
+                .font(.system(size: 28, weight: .bold))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.white)
+
+            VStack(alignment: .leading, spacing: 12) {
+                onboardingRow("app.badge.fill", "onboarding_personalization_icon")
+                onboardingRow("rectangle.3.group.fill", "onboarding_personalization_home")
+                onboardingRow("star.square.on.square.fill", "onboarding_personalization_quick")
+            }
+            .padding(.horizontal, 32)
+
+            Text(String(localized: "onboarding_personalization_footer"))
+                .font(.subheadline)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.white.opacity(0.65))
+                .padding(.horizontal, 24)
         }
     }
 
@@ -465,17 +541,17 @@ struct OnboardingView: View {
     }
 
     private var bottomButtons: some View {
-        VStack(spacing: 12) {
+        let isLastPage = pageIndex == pageCount - 1
+
+        return VStack(spacing: 12) {
             Button {
-                if pageIndex < pageCount - 1 {
+                if !isLastPage {
                     withAnimation(.easeInOut(duration: 0.25)) { pageIndex += 1 }
                 } else {
-                    presentAddSource = true
+                    finish()
                 }
             } label: {
-                Text(pageIndex < pageCount - 1
-                     ? String(localized: "onboarding_next")
-                     : String(localized: "onboarding_add_first_source"))
+                Text(isLastPage ? String(localized: "done") : String(localized: "onboarding_next"))
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.black)
                     .frame(maxWidth: .infinity)
@@ -483,17 +559,20 @@ struct OnboardingView: View {
                     .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
             }
 
+            // 始终保留副按钮的固定高度。最后一页仅隐藏内容，不改变 footer
+            // 高度，避免“完成”按钮突然向下跳。
             Button {
                 finish()
             } label: {
-                Text(String(localized: pageIndex < pageCount - 1
-                            ? "skip"
-                            : "onboarding_later"))
+                Text("close")
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.78))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
             }
+            .opacity(isLastPage ? 0 : 1)
+            .allowsHitTesting(!isLastPage)
+            .accessibilityHidden(isLastPage)
         }
     }
 

@@ -290,8 +290,17 @@ struct MusicDiscoveryResult: Identifiable, Sendable {
     var primaryReason: MusicDiscoveryReason { reasons.first ?? .libraryPick }
 }
 
-@MainActor
 enum MusicDiscoveryEngine {
+    struct RecommendationInput: Sendable {
+        let songs: [Song]
+        let recentWeekIDs: Set<String>
+        let recentMonthIDs: Set<String>
+        let topArtists: Set<String>
+        let seedIDs: [String]
+        let now: Date
+    }
+
+    @MainActor
     static func similarSongs(
         to seed: Song,
         in library: MusicLibrary,
@@ -325,40 +334,73 @@ enum MusicDiscoveryEngine {
             .map { $0 }
     }
 
+    @MainActor
+    static func recommendationInput(
+        in library: MusicLibrary,
+        history: PlayHistoryStore = .shared,
+        now: Date = Date()
+    ) -> RecommendationInput {
+        let songs = library.visibleSongs.filteredPlayable()
+        let songIDs = Set(songs.map(\.id))
+        var seedIDs: [String] = []
+        var seenSeedIDs = Set<String>()
+
+        for item in history.topSongs(in: .year, limit: 12)
+        where songIDs.contains(item.id) && seenSeedIDs.insert(item.id).inserted {
+            seedIDs.append(item.id)
+        }
+        for song in library.recentlyPlayedSongs(limit: 12)
+        where songIDs.contains(song.id) && seenSeedIDs.insert(song.id).inserted {
+            seedIDs.append(song.id)
+        }
+
+        return RecommendationInput(
+            songs: songs,
+            recentWeekIDs: Set(history.entries(in: .week, now: now).map(\.songID)),
+            recentMonthIDs: Set(history.entries(in: .month, now: now).map(\.songID)),
+            topArtists: Set(history.topArtists(in: .month, limit: 6).map { normalized($0.title) }),
+            seedIDs: seedIDs,
+            now: now
+        )
+    }
+
+    @MainActor
     static func recommendations(
         in library: MusicLibrary,
         history: PlayHistoryStore = .shared,
         limit: Int = 12,
         now: Date = Date()
     ) -> [MusicDiscoveryResult] {
-        let songs = library.visibleSongs.filteredPlayable()
+        recommendations(
+            from: recommendationInput(in: library, history: history, now: now),
+            limit: limit
+        )
+    }
+
+    private static func recommendations(
+        from input: RecommendationInput,
+        limit: Int
+    ) -> [MusicDiscoveryResult] {
+        let songs = input.songs
         guard !songs.isEmpty else { return [] }
 
-        let byID = Dictionary(uniqueKeysWithValues: songs.map { ($0.id, $0) })
-        let recentWeekIDs = Set(history.entries(in: .week, now: now).map(\.songID))
-        let recentMonthIDs = Set(history.entries(in: .month, now: now).map(\.songID))
-        let topArtists = Set(history.topArtists(in: .month, limit: 6).map { normalized($0.title) })
-
-        var seeds: [Song] = []
-        var seedIDs = Set<String>()
-        for item in history.topSongs(in: .year, limit: 12) {
-            if let song = byID[item.id], seedIDs.insert(song.id).inserted {
-                seeds.append(song)
-            }
-        }
-        for song in library.recentlyPlayedSongs(limit: 12) where seedIDs.insert(song.id).inserted {
-            seeds.append(song)
-        }
+        // 10K+ 曲库里，推荐算法的热点不是打分本身，而是内层循环反复做
+        // String.folding / 路径拆分。先把每首歌的比较特征归一化一次，
+        // 后续 candidate × seed 只做普通值比较。
+        let normalizedSongs = songs.map(NormalizedSong.init)
+        let byID = Dictionary(uniqueKeysWithValues: normalizedSongs.map { ($0.song.id, $0) })
+        let seeds = input.seedIDs.compactMap { byID[$0] }
 
         guard !seeds.isEmpty else {
-            return coldStartRecommendations(from: songs, excluding: [], limit: limit, now: now)
+            return coldStartRecommendations(from: songs, excluding: [], limit: limit, now: input.now)
         }
 
-        var results = songs.compactMap { candidate -> MusicDiscoveryResult? in
-            guard !recentWeekIDs.contains(candidate.id) else { return nil }
+        var results = normalizedSongs.compactMap { candidate -> MusicDiscoveryResult? in
+            let song = candidate.song
+            guard !input.recentWeekIDs.contains(song.id) else { return nil }
 
             var best = Match(score: 0, reasons: [])
-            for seed in seeds where seed.id != candidate.id {
+            for seed in seeds where seed.song.id != song.id {
                 let match = similarity(between: seed, and: candidate)
                 if match.score > best.score { best = match }
             }
@@ -366,28 +408,28 @@ enum MusicDiscoveryEngine {
             var score = best.score
             var reasons = best.reasons
 
-            if let artist = candidate.artistName, topArtists.contains(normalized(artist)) {
+            if let artist = candidate.artistName, input.topArtists.contains(artist) {
                 score += 18
                 append(.recentFavorite, to: &reasons)
             }
 
-            if !recentMonthIDs.contains(candidate.id) {
+            if !input.recentMonthIDs.contains(song.id) {
                 score += 12
                 append(.notRecentlyPlayed, to: &reasons)
             }
 
-            if now.timeIntervalSince(candidate.dateAdded) <= 30 * 24 * 60 * 60 {
+            if input.now.timeIntervalSince(song.dateAdded) <= 30 * 24 * 60 * 60 {
                 score += 8
                 append(.newToLibrary, to: &reasons)
             }
 
-            if candidate.coverArtFileName?.isEmpty == false {
+            if song.coverArtFileName?.isEmpty == false {
                 score += 3
             }
 
             guard score >= 16 else { return nil }
             if reasons.isEmpty { reasons = [.libraryPick] }
-            return MusicDiscoveryResult(song: candidate, score: score, reasons: reasons)
+            return MusicDiscoveryResult(song: song, score: score, reasons: reasons)
         }
 
         results.sort { lhs, rhs in
@@ -397,27 +439,38 @@ enum MusicDiscoveryEngine {
 
         var unique = uniqued(results).prefix(limit).map { $0 }
         if unique.count < limit {
-            let excluded = Set(unique.map(\.song.id)).union(recentWeekIDs)
+            let excluded = Set(unique.map(\.song.id)).union(input.recentWeekIDs)
             unique.append(contentsOf: coldStartRecommendations(
                 from: songs,
                 excluding: excluded,
                 limit: limit - unique.count,
-                now: now
+                now: input.now
             ))
         }
         return unique
     }
 
+    @MainActor
     static func dailyRecommendations(
         in library: MusicLibrary,
         history: PlayHistoryStore = .shared,
         limit: Int = 12,
         now: Date = Date()
     ) -> [MusicDiscoveryResult] {
-        recommendations(in: library, history: history, limit: max(limit * 3, limit), now: now)
+        dailyRecommendations(
+            from: recommendationInput(in: library, history: history, now: now),
+            limit: limit
+        )
+    }
+
+    static func dailyRecommendations(
+        from input: RecommendationInput,
+        limit: Int = 12
+    ) -> [MusicDiscoveryResult] {
+        recommendations(from: input, limit: max(limit * 3, limit))
             .sorted { lhs, rhs in
-                let left = lhs.score + stableDailyNoise(lhs.song.id, now: now) * 8
-                let right = rhs.score + stableDailyNoise(rhs.song.id, now: now) * 8
+                let left = lhs.score + stableDailyNoise(lhs.song.id, now: input.now) * 8
+                let right = rhs.score + stableDailyNoise(rhs.song.id, now: input.now) * 8
                 if left != right { return left > right }
                 return lhs.song.title.localizedCompare(rhs.song.title) == .orderedAscending
             }
@@ -425,6 +478,7 @@ enum MusicDiscoveryEngine {
             .map { $0 }
     }
 
+    @MainActor
     static func songRadio(
         from seed: Song,
         in library: MusicLibrary,
@@ -711,13 +765,13 @@ enum MusicDiscoveryEngine {
     // `nonisolated` — pure string helpers with no actor state. Lets the
     // `NormalizedSong` feature cache pre-fold strings without hopping the
     // main actor (and keeps the door open for a future detached radio build).
-    private nonisolated static func parentFolder(_ path: String) -> String {
+    private static func parentFolder(_ path: String) -> String {
         let folder = (path as NSString).deletingLastPathComponent
         guard folder != "." else { return "" }
         return normalized(folder)
     }
 
-    private nonisolated static func normalized(_ text: String) -> String {
+    private static func normalized(_ text: String) -> String {
         text
             .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
             .trimmingCharacters(in: .whitespacesAndNewlines)

@@ -9,6 +9,8 @@ import AppKit
 #endif
 
 struct SettingsView: View {
+    @State private var showFeatureGuide = false
+
     var body: some View {
         NavigationStack {
             List {
@@ -184,6 +186,15 @@ struct SettingsView: View {
                         Label("licenses", systemImage: "doc.text")
                     }
 
+                    #if os(iOS)
+                    Button {
+                        showFeatureGuide = true
+                    } label: {
+                        Label("feature_guide", systemImage: "sparkles.rectangle.stack")
+                            .foregroundStyle(.primary)
+                    }
+                    #endif
+
                     Link(destination: URL(string: "https://github.com/chenqi92/primuse")!) {
                         Label("github_repository", systemImage: "chevron.left.forwardslash.chevron.right")
                     }
@@ -200,6 +211,11 @@ struct SettingsView: View {
             .navigationTitle("settings_title")
             .toolbarTitleDisplayMode(.inlineLarge)
         }
+        #if os(iOS)
+        .fullScreenCover(isPresented: $showFeatureGuide) {
+            OnboardingView(isFeatureGuide: true)
+        }
+        #endif
     }
 }
 

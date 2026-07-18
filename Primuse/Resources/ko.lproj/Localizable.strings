@@ -47,12 +47,19 @@
 // Onboarding
 "onboarding_welcome_title" = "당신의 음악, 당신의 서버";
 "onboarding_welcome_subtitle" = "Primuse는 당신의 NAS, 클라우드 드라이브, 홈 네트워크에서 음악을 재생합니다. 파일을 어디에도 업로드하지 않습니다.";
-"onboarding_sources_title" = "모든 소스에 연결";
+"onboarding_sources_title" = "음악을 한곳에";
 "onboarding_sources_nas" = "Synology, QNAP, Ugreen, SMB / NFS 공유";
-"onboarding_sources_cloud" = "Baidu Pan, OneDrive, Google Drive, Dropbox";
+"onboarding_sources_cloud" = "123 Pan, Baidu Pan, Aliyun Drive 등";
+"onboarding_sources_apple_music" = "Apple Music을 선택적으로 연결해 라이브러리와 함께 탐색";
+"onboarding_sources_network" = "WebDAV, SFTP, Jellyfin, UPnP / DLNA 등";
 "onboarding_sources_webdav" = "WebDAV, FTP, SFTP — 비밀번호 보호 지원";
 "onboarding_sources_dlna" = "네트워크의 UPnP / DLNA 미디어 서버";
 "onboarding_sources_footer" = "언제든지 원하는 만큼 추가할 수 있습니다.";
+"onboarding_metadata_title" = "라이브러리를 더 완전하게";
+"onboarding_metadata_details" = "커버, 가사, 앨범 및 아티스트 정보 채우기";
+"onboarding_metadata_providers" = "일반 음악 플랫폼과 호환되는 사용자 지정 스크래퍼 가져오기";
+"onboarding_metadata_settings" = "설정 > 메타데이터 및 스크래핑에서 활성화 및 순서 변경";
+"onboarding_metadata_footer" = "내장 제공자는 바로 사용할 수 있으며 확장 소스는 직접 추가하고 인증합니다.";
 "onboarding_privacy_title" = "온전히 당신의 것";
 "onboarding_privacy_no_tracking" = "분석, 광고, 외부 추적 없음";
 "onboarding_privacy_icloud" = "라이브러리 설정은 당신의 iCloud로만 동기화";
@@ -60,6 +67,7 @@
 "onboarding_next" = "계속";
 "onboarding_add_first_source" = "첫 번째 소스 추가";
 "onboarding_later" = "나중에";
+"feature_guide" = "기능 가이드";
 
 // Tag Editor
 "tag_editor_menu" = "태그 편집";
@@ -976,6 +984,7 @@
 "discovery_reason_libraryPick" = "라이브러리 추천";
 "update_modal_title_format" = "Primuse %@를 사용할 수 있습니다";
 "update_modal_subtitle" = "최신 기능과 개선 사항을 위해 업데이트하세요";
+"update_whats_new" = "새로운 기능";
 "spotlight_artist_subtitle" = "Primuse의 아티스트";
 "spotlight_playlist_subtitle_format" = "Primuse 재생 목록 · %d곡";
 "smart_value_format_none" = "모든 형식";
@@ -1876,3 +1885,15 @@
 "filter_songs_placeholder" = "곡 필터…";
 "filter_albums_placeholder" = "앨범 필터…";
 "filter_artists_placeholder" = "아티스트 필터…";
+"onboarding_experience_title" = "휴대폰을 넘어서는 음악 경험";
+"onboarding_experience_media" = "무손실 오디오, 단어별 가사 및 뮤직비디오";
+"onboarding_experience_devices" = "AirPlay, DLNA, Apple TV 및 차량 재생";
+"onboarding_experience_insights" = "스마트 재생목록, 감상 통계 및 연간 리포트";
+"onboarding_experience_footer" = "라이브러리 정리부터 어디서나 재생까지 필요한 기능만 사용할 수 있습니다.";
+"update_show_more" = "모두 보기";
+"update_show_less" = "접기";
+"onboarding_personalization_title" = "나만의 홈 화면";
+"onboarding_personalization_icon" = "설정 > 외관에서 App 아이콘을 자유롭게 변경";
+"onboarding_personalization_home" = "홈 섹션을 표시하거나 숨기고 순서를 변경";
+"onboarding_personalization_quick" = "앨범, 아티스트 및 재생목록을 빠른 항목으로 지정";
+"onboarding_personalization_footer" = "이 옵션은 언제든지 다시 변경할 수 있습니다.";

@@ -47,12 +47,19 @@
 // Onboarding
 "onboarding_welcome_title" = "Deine Musik, deine Server";
 "onboarding_welcome_subtitle" = "Primuse spielt von deinem eigenen NAS, deinen Cloud-Speichern und deinem Heimnetzwerk – ohne eine einzige Datei irgendwohin hochzuladen.";
-"onboarding_sources_title" = "Verbinde jede Quelle";
+"onboarding_sources_title" = "Deine Musik an einem Ort";
 "onboarding_sources_nas" = "Synology, QNAP, Ugreen sowie SMB / NFS-Freigaben";
-"onboarding_sources_cloud" = "Baidu Pan, OneDrive, Google Drive, Dropbox";
+"onboarding_sources_cloud" = "123 Pan, Baidu Pan, Aliyun Drive und mehr";
+"onboarding_sources_apple_music" = "Apple Music optional verbinden und zusammen mit der Mediathek durchsuchen";
+"onboarding_sources_network" = "WebDAV, SFTP, Jellyfin, UPnP / DLNA und mehr";
 "onboarding_sources_webdav" = "WebDAV, FTP, SFTP – auch passwortgeschützt";
 "onboarding_sources_dlna" = "UPnP / DLNA-Medienserver in deinem Netzwerk";
 "onboarding_sources_footer" = "Du kannst jederzeit so viele hinzufügen, wie du möchtest.";
+"onboarding_metadata_title" = "Vervollständige deine Mediathek";
+"onboarding_metadata_details" = "Cover, Liedtexte sowie Album- und Künstlerinfos ergänzen";
+"onboarding_metadata_providers" = "Benutzerdefinierte Quellen für gängige Musikplattformen importieren";
+"onboarding_metadata_settings" = "Unter Einstellungen > Metadaten & Abrufen aktivieren und sortieren";
+"onboarding_metadata_footer" = "Integrierte Anbieter sind sofort nutzbar; Erweiterungen fügst du selbst hinzu und autorisierst sie.";
 "onboarding_privacy_title" = "Komplett dein Eigentum";
 "onboarding_privacy_no_tracking" = "Keine Analyse, keine Werbung, keine Tracker";
 "onboarding_privacy_icloud" = "Mediathek-Einstellungen werden nur über deine iCloud synchronisiert";
@@ -60,6 +67,7 @@
 "onboarding_next" = "Weiter";
 "onboarding_add_first_source" = "Erste Quelle hinzufügen";
 "onboarding_later" = "Vielleicht später";
+"feature_guide" = "Funktionsübersicht";
 
 // Tag Editor
 "tag_editor_menu" = "Tags bearbeiten";
@@ -976,6 +984,7 @@
 "discovery_reason_libraryPick" = "Mediathek-Empfehlung";
 "update_modal_title_format" = "Primuse %@ ist jetzt verfügbar";
 "update_modal_subtitle" = "Aktualisiere für die neuesten Funktionen und Verbesserungen";
+"update_whats_new" = "Neu in dieser Version";
 "spotlight_artist_subtitle" = "Künstler in Primuse";
 "spotlight_playlist_subtitle_format" = "Primuse-Wiedergabeliste · %d Titel";
 "smart_value_format_none" = "Beliebiges Format";
@@ -1876,3 +1885,15 @@
 "filter_songs_placeholder" = "Titel filtern…";
 "filter_albums_placeholder" = "Alben filtern…";
 "filter_artists_placeholder" = "Künstler filtern…";
+"onboarding_experience_title" = "Musikgenuss über das Smartphone hinaus";
+"onboarding_experience_media" = "Lossless-Audio, wortgenaue Liedtexte und Musikvideos";
+"onboarding_experience_devices" = "AirPlay, DLNA, Apple TV und Wiedergabe im Auto";
+"onboarding_experience_insights" = "Intelligente Playlists, Hörstatistiken und Jahresberichte";
+"onboarding_experience_footer" = "Von der Organisation bis zur Wiedergabe überall – nutze nur, was du brauchst.";
+"update_show_more" = "Alles anzeigen";
+"update_show_less" = "Weniger anzeigen";
+"onboarding_personalization_title" = "Deine persönliche Startseite";
+"onboarding_personalization_icon" = "App-Symbol unter Einstellungen > Darstellung frei wählen";
+"onboarding_personalization_home" = "Bereiche der Startseite ein-/ausblenden und neu anordnen";
+"onboarding_personalization_quick" = "Alben, Künstler und Playlists für den Schnellzugriff anheften";
+"onboarding_personalization_footer" = "Diese Optionen kannst du jederzeit wieder ändern.";
