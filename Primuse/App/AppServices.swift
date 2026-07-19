@@ -29,6 +29,13 @@ final class AppServices {
     let duplicateCleanup: DuplicateCleanupService
 
     private var sourceLifecycleObserverTokens: [NSObjectProtocol] = []
+    private struct SourceCleanupRequest {
+        var purgePersistentCaches = false
+        var removeImportedFiles = false
+        var uploadSourcesSnapshot = false
+    }
+    private var pendingSourceCleanup: [String: SourceCleanupRequest] = [:]
+    private var sourceCleanupTask: Task<Void, Never>?
 
     private init() {
         // Class is @MainActor so this initializer is too — but the static
@@ -188,8 +195,12 @@ final class AppServices {
                     // 产品取舍 —— restore 不会自动重扫找回歌, 保留拷贝意义不大,
                     // 而用户删源的核心诉求就是立即回收空间。Toggling isEnabled
                     // never posts this notification.
-                    self.removeSourceLibraryData(id: id, purgePersistentCaches: true, removeImportedFiles: true)
-                    self.uploadSourcesSnapshotAfterSoftDeleteIfNeeded()
+                    self.removeSourceLibraryData(
+                        id: id,
+                        purgePersistentCaches: true,
+                        removeImportedFiles: true,
+                        uploadSourcesSnapshot: true
+                    )
                 }
             }
         )
@@ -213,27 +224,67 @@ final class AppServices {
         }
     }
 
-    private func removeSourceLibraryData(id: String, purgePersistentCaches: Bool, removeImportedFiles: Bool = false) {
+    private func removeSourceLibraryData(
+        id: String,
+        purgePersistentCaches: Bool,
+        removeImportedFiles: Bool = false,
+        uploadSourcesSnapshot: Bool = false
+    ) {
+        // Stop source-specific work immediately, but coalesce the expensive
+        // library/cache cleanup. Rapidly removing many 10K-song sources used
+        // to run the complete O(librarySize) pipeline once per source.
         scanService.cancelScan(for: id)
         scanService.removeCheckpoint(for: id)
         scanService.removeSynologyAPI(for: id)
-        metadataBackfill.discardWork(forSourceID: id)
-        musicLibrary.removeSongsForSource(id)
-        sourcesStore.updateLocal(id) {
-            $0.songCount = 0
-            $0.lastScannedAt = nil
+        var request = pendingSourceCleanup[id] ?? SourceCleanupRequest()
+        request.purgePersistentCaches = request.purgePersistentCaches || purgePersistentCaches
+        request.removeImportedFiles = request.removeImportedFiles || removeImportedFiles
+        request.uploadSourcesSnapshot = request.uploadSourcesSnapshot || uploadSourcesSnapshot
+        pendingSourceCleanup[id] = request
+
+        sourceCleanupTask?.cancel()
+        sourceCleanupTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(400))
+            } catch {
+                return
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.flushPendingSourceCleanup()
+        }
+    }
+
+    private func flushPendingSourceCleanup() {
+        let requests = pendingSourceCleanup
+        pendingSourceCleanup.removeAll(keepingCapacity: true)
+        sourceCleanupTask = nil
+        guard !requests.isEmpty else { return }
+
+        let sourceIDs = Set(requests.keys)
+        metadataBackfill.discardWorkNow(forSourceIDs: sourceIDs)
+        musicLibrary.removeSongsForSources(sourceIDs)
+        sourcesStore.resetLocalScanState(for: sourceIDs)
+
+        let cachePurgeIDs = Set(requests.compactMap { id, request in
+            request.purgePersistentCaches ? id : nil
+        })
+        sourceManager.deleteSourceCaches(sourceIDs: cachePurgeIDs)
+
+        for (id, request) in requests {
+            if request.removeImportedFiles {
+                removeImportedLocalFilesIfNeeded(sourceID: id)
+            }
         }
 
-        if purgePersistentCaches {
-            sourceManager.deleteSourceCaches(sourceID: id)
+        if requests.values.contains(where: \.uploadSourcesSnapshot) {
+            uploadSourcesSnapshotAfterSoftDeleteIfNeeded()
         }
 
-        if removeImportedFiles {
-            removeImportedLocalFilesIfNeeded(sourceID: id)
-        }
-
-        Task { @MainActor in
-            await sourceManager.removeConnector(for: id)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            for id in sourceIDs {
+                await self.sourceManager.removeConnector(for: id)
+            }
         }
     }
 

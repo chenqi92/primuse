@@ -1318,9 +1318,11 @@ struct SourcesContentView: View {
     }
 
     private func deleteSource(_ source: MusicSource) {
-        // Cancel any active scan first — otherwise it keeps adding songs back
+        // Cancel any active scan first — otherwise it keeps adding songs back.
+        // The global source-lifecycle coordinator batches library/cache removal
+        // across rapid deletions; doing it here as well caused duplicate
+        // full-library rebuilds and per-song cache invalidations.
         stopBackgroundWork(for: source.id)
-        library.removeSongsForSource(source.id)
         // Soft-delete: the row moves to "Recently Deleted" and stays
         // recoverable for the retention window. Credentials, OAuth tokens,
         // app credentials and cloud directory names are deliberately NOT
@@ -1329,13 +1331,11 @@ struct SourcesContentView: View {
         // belongs to the permanent-purge stage.
         sourceStore.remove(id: source.id)
         scanService.removeSynologyAPI(for: source.id)
-        Task { await sourceManager.removeConnector(for: source.id) }
     }
 
     private func stopBackgroundWork(for sourceID: String) {
         scanService.cancelScan(for: sourceID)
         scanService.removeCheckpoint(for: sourceID)
-        backfill.discardWork(forSourceID: sourceID)
     }
 
     private func pauseBackgroundWork(for sourceID: String) {

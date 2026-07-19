@@ -291,8 +291,13 @@ final class SourceManager {
         ) { [weak self] note in
             guard let self else { return }
             let songs = (note.userInfo?["songs"] as? [Song]) ?? []
+            let sourceIDs = Set((note.userInfo?["sourceIDs"] as? [String]) ?? [])
             MainActor.assumeIsolated {
-                self.deleteLocalCaches(for: songs)
+                if sourceIDs.isEmpty {
+                    self.deleteLocalCaches(for: songs)
+                } else {
+                    self.deleteLocalCachesForRemovedSources(sourceIDs, songs: songs)
+                }
             }
         }
 
@@ -1154,7 +1159,7 @@ final class SourceManager {
         if FileManager.default.fileExists(atPath: target.path) {
             if let expectedSize, expectedSize > 0, byteSize(at: target) != expectedSize {
                 plog("🗑 MV cache: stale/incomplete cached video source=\(source.id.prefix(8)) path=\((path as NSString).lastPathComponent) actual=\(byteSize(at: target) / 1024)KB expected=\(expectedSize / 1024)KB")
-                removeCacheFileFamily(at: target)
+                Self.removeCacheFileFamily(at: target)
             } else {
                 recordVideoCacheAccess(target)
                 return target
@@ -1187,7 +1192,7 @@ final class SourceManager {
             guard let expected = try? await Self.musicVideoFileSize(path: path, connector: connector),
                   expected > 0, byteSize(at: target) != expected else { return }
             plog("🗑 MV cache: remote size changed, invalidating \(target.lastPathComponent)")
-            removeCacheFileFamily(at: target)
+            Self.removeCacheFileFamily(at: target)
         }
     }
 
@@ -1347,7 +1352,7 @@ final class SourceManager {
         guard let mvPath = normalizedMusicVideoPath(for: song),
               URL(string: mvPath)?.scheme == nil else { return }
         musicVideoCacheTasks[Self.musicVideoCacheKey(sourceID: song.sourceID, path: mvPath)]?.cancel()
-        removeCacheFileFamily(at: videoCacheURL(sourceID: song.sourceID, path: mvPath))
+        Self.removeCacheFileFamily(at: videoCacheURL(sourceID: song.sourceID, path: mvPath))
     }
 
     // MARK: - Audio Cache
@@ -2088,7 +2093,7 @@ final class SourceManager {
 
     func deleteAudioCache(for song: Song) {
         let cacheURL = cacheURL(for: song)
-        removeCacheFileFamily(at: cacheURL)
+        Self.removeCacheFileFamily(at: cacheURL)
         deleteConnectorTempCaches(for: song)
         let relativePath = audioCacheRelativePath(for: song)
         Task { await AudioCacheManager.shared.removeEntry(path: relativePath) }
@@ -2102,21 +2107,121 @@ final class SourceManager {
     func deleteLocalCaches(for songs: [Song]) {
         guard songs.isEmpty == false else { return }
 
+        let cachesRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let tempRoot = FileManager.default.temporaryDirectory
+        var cacheTargets: [URL] = []
+        cacheTargets.reserveCapacity(songs.count * 6)
+        var audioRelativePaths: [String] = []
+        audioRelativePaths.reserveCapacity(songs.count)
+
         for song in songs {
-            deleteAudioCache(for: song)
-            deleteMusicVideoCache(for: song)
+            let audioName = cacheFileName(for: song)
+            cacheTargets.append(
+                cachesRoot
+                    .appendingPathComponent(Self.audioCacheDirName)
+                    .appendingPathComponent(song.sourceID)
+                    .appendingPathComponent(audioName)
+            )
+            audioRelativePaths.append("\(song.sourceID)/\(audioName)")
+
+            let sanitized = song.filePath.replacingOccurrences(of: "/", with: "_")
+            cacheTargets.append(
+                tempRoot.appendingPathComponent("primuse_smb_cache")
+                    .appendingPathComponent(song.sourceID).appendingPathComponent(sanitized)
+            )
+            cacheTargets.append(
+                tempRoot.appendingPathComponent("primuse_ftp_cache")
+                    .appendingPathComponent(song.sourceID).appendingPathComponent(sanitized)
+            )
+            cacheTargets.append(
+                tempRoot.appendingPathComponent("primuse_sftp_cache")
+                    .appendingPathComponent(song.sourceID).appendingPathComponent(sanitized)
+            )
+            cacheTargets.append(
+                tempRoot.appendingPathComponent("primuse_webdav_cache")
+                    .appendingPathComponent(sanitized)
+            )
+
+            if let mvPath = normalizedMusicVideoPath(for: song),
+               URL(string: mvPath)?.scheme == nil {
+                musicVideoCacheTasks[
+                    Self.musicVideoCacheKey(sourceID: song.sourceID, path: mvPath)
+                ]?.cancel()
+                cacheTargets.append(
+                    cachesRoot
+                        .appendingPathComponent(Self.videoCacheDirName)
+                        .appendingPathComponent(song.sourceID)
+                        .appendingPathComponent(
+                            Self.videoCacheFileName(sourceID: song.sourceID, path: mvPath)
+                        )
+                )
+            }
+            offlineAudioSnapshots[song.id] = .notCached
+        }
+
+        // A source deletion can remove thousands of songs. Posting one artwork
+        // invalidation per song (often twice: id + cover ref) forced SwiftUI
+        // through thousands of update cycles. Clear the small in-memory cache
+        // once and publish one broad invalidation instead.
+        if songs.count == 1, let song = songs.first {
             CachedArtworkView.invalidateCache(for: song.id)
             if let coverRef = song.coverArtFileName {
                 CachedArtworkView.invalidateCache(for: coverRef)
             }
+        } else {
+            CachedArtworkView.clearMemoryCache()
         }
 
+        Task.detached(priority: .utility) { [cacheTargets] in
+            for target in cacheTargets {
+                if Task.isCancelled { return }
+                Self.removeCacheFileFamily(at: target)
+            }
+        }
+
+        Task {
+            await AudioCacheManager.shared.removeEntries(paths: audioRelativePaths)
+        }
         let songIDs = songs.map(\.id)
         Task {
-            for songID in songIDs {
-                await MetadataAssetStore.shared.invalidateCoverCache(forSongID: songID)
-                await MetadataAssetStore.shared.invalidateLyricsCache(forSongID: songID)
+            await MetadataAssetStore.shared.invalidateCaches(forSongIDs: songIDs)
+        }
+    }
+
+    /// Source removal already deletes whole per-source audio/video/temp
+    /// directories, so do not expand every song into six individual file
+    /// deletion operations. Only legacy WebDAV cache files lack a source
+    /// directory and still require per-song paths.
+    private func deleteLocalCachesForRemovedSources(_ sourceIDs: Set<String>, songs: [Song]) {
+        guard !sourceIDs.isEmpty else { return }
+        let songIDs = songs.map(\.id)
+        for songID in songIDs {
+            offlineAudioSnapshots.removeValue(forKey: songID)
+        }
+        for (key, task) in musicVideoCacheTasks where sourceIDs.contains(where: { key.hasPrefix("\($0):") }) {
+            task.cancel()
+        }
+
+        CachedArtworkView.clearMemoryCache()
+
+        let legacyWebDAVRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("primuse_webdav_cache")
+        let legacyTargets = songs.map {
+            legacyWebDAVRoot.appendingPathComponent(
+                $0.filePath.replacingOccurrences(of: "/", with: "_")
+            )
+        }
+        Task.detached(priority: .utility) { [legacyTargets] in
+            for target in legacyTargets {
+                if Task.isCancelled { return }
+                Self.removeCacheFileFamily(at: target)
             }
+        }
+        Task {
+            await MetadataAssetStore.shared.invalidateCaches(forSongIDs: songIDs)
+            await AudioCacheManager.shared.removeAllEntries(
+                forSourcePrefixes: sourceIDs.map { "\($0)/" }
+            )
         }
     }
 
@@ -2130,11 +2235,11 @@ final class SourceManager {
             temp.appendingPathComponent("primuse_webdav_cache").appendingPathComponent(sanitized),
         ]
         for url in candidates {
-            removeCacheFileFamily(at: url)
+            Self.removeCacheFileFamily(at: url)
         }
     }
 
-    private nonisolated func removeCacheFileFamily(at url: URL) {
+    private nonisolated static func removeCacheFileFamily(at url: URL) {
         try? FileManager.default.removeItem(at: url)
         let partial = URL(fileURLWithPath: url.path + ".partial")
         try? FileManager.default.removeItem(at: partial)
@@ -2143,11 +2248,24 @@ final class SourceManager {
     }
 
     func deleteSourceCaches(sourceID: String) {
-        let fileManager = FileManager.default
-        for path in Self.perSourceCacheDirs(sourceID: sourceID) {
-            try? fileManager.removeItem(at: path)
+        deleteSourceCaches(sourceIDs: [sourceID])
+    }
+
+    func deleteSourceCaches(sourceIDs: Set<String>) {
+        guard !sourceIDs.isEmpty else { return }
+        let paths = sourceIDs.flatMap(Self.perSourceCacheDirs(sourceID:))
+        Task.detached(priority: .utility) { [paths] in
+            let fileManager = FileManager.default
+            for path in paths {
+                if Task.isCancelled { return }
+                try? fileManager.removeItem(at: path)
+            }
         }
-        Task { await AudioCacheManager.shared.removeAllEntries(forSourcePrefix: "\(sourceID)/") }
+        Task {
+            await AudioCacheManager.shared.removeAllEntries(
+                forSourcePrefixes: sourceIDs.map { "\($0)/" }
+            )
+        }
     }
 
     /// 清空所有音频缓存。返回 (成功删除字节数, 失败文件数)。

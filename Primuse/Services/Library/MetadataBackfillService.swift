@@ -104,6 +104,12 @@ final class MetadataBackfillService {
     private static let remainingCountRefreshInterval: TimeInterval = 5
 
     private var worker: Task<Void, Never>?
+    /// Source lifecycle notifications can arrive from the view, CloudKit and
+    /// the global cleanup coordinator almost simultaneously. Coalesce them so
+    /// removing several large sources scans the library once instead of once
+    /// per notification/source on the main actor.
+    private var pendingDiscardSourceIDs: Set<String> = []
+    private var discardWorkTask: Task<Void, Never>?
     /// Exact session progress, kept non-observable so one completed network
     /// request doesn't invalidate every view that observes this service.
     private var processedTotal: Int = 0
@@ -292,6 +298,29 @@ final class MetadataBackfillService {
             UserDefaults.standard.set(true, forKey: flacStreamInfoFixKey)
         }
 
+        // Sixth one-time migration. Before partial ID3 results were persisted,
+        // an MP3 whose title/artist parsed correctly but whose duration did not
+        // was pinned in failedSongIDs forever. Give those rows one fresh pass:
+        // the native TIT2/TPE1/TALB reader can now recover their text, and the
+        // worker saves that text even if duration remains unavailable.
+        let partialID3FixKey = "primuse.backfillFailedReset.v2026_07_partialID3Text"
+        if !UserDefaults.standard.bool(forKey: partialID3FixKey) {
+            let mp3IDs = Set(library.songs.lazy.filter {
+                $0.fileFormat == .mp3
+            }.map(\.id))
+            let resetIDs = failedSongIDs.intersection(mp3IDs)
+            if !resetIDs.isEmpty {
+                failedSongIDs.subtract(resetIDs)
+                sessionGivenUpIDs.subtract(resetIDs)
+                titleCheckedIDs.subtract(resetIDs)
+                for id in resetIDs { transientFailureCounts[id] = nil }
+                saveFailed()
+                saveTitleChecked()
+                plog("📥 Backfill: clearing \(resetIDs.count) failed MP3 rows for partial ID3 text retry")
+            }
+            UserDefaults.standard.set(true, forKey: partialID3FixKey)
+        }
+
         // A re-scan that found a path with new bytes wipes the failed
         // mark so backfill re-attempts the song with the fresh file. The
         // song's metadata in the library is already reset to bare by
@@ -474,16 +503,56 @@ final class MetadataBackfillService {
     /// worker processes fixed snapshots, so without stopping it a deleted
     /// 10K-song source can keep burning through stale rows until relaunch.
     func discardWork(forSourceID sourceID: String) {
-        let ids = Set(library.songs.lazy.filter { $0.sourceID == sourceID }.map(\.id))
-        if !ids.isEmpty {
-            failedSongIDs.subtract(ids)
-            sessionGivenUpIDs.subtract(ids)
-            titleCheckedIDs.subtract(ids)
-            for id in ids { transientFailureCounts[id] = nil }
-            saveFailed()
-            saveTitleChecked()
-        }
+        discardWork(forSourceIDs: [sourceID])
+    }
+
+    func discardWork(forSourceIDs sourceIDs: Set<String>) {
+        guard !sourceIDs.isEmpty else { return }
+        pendingDiscardSourceIDs.formUnion(sourceIDs)
+        // Network work must stop immediately; only the potentially expensive
+        // library/state sweep is debounced.
         stop()
+
+        discardWorkTask?.cancel()
+        discardWorkTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(300))
+            } catch {
+                return
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.flushPendingDiscardWork()
+        }
+    }
+
+    /// Used by the source-cleanup coordinator immediately before it removes
+    /// the songs from MusicLibrary. Waiting for the debounce after that point
+    /// would lose the IDs needed to clear the persisted backfill state.
+    func discardWorkNow(forSourceIDs sourceIDs: Set<String>) {
+        guard !sourceIDs.isEmpty else { return }
+        pendingDiscardSourceIDs.formUnion(sourceIDs)
+        stop()
+        discardWorkTask?.cancel()
+        discardWorkTask = nil
+        flushPendingDiscardWork()
+    }
+
+    private func flushPendingDiscardWork() {
+        let sourceIDs = pendingDiscardSourceIDs
+        pendingDiscardSourceIDs.removeAll(keepingCapacity: true)
+        discardWorkTask = nil
+        guard !sourceIDs.isEmpty else { return }
+
+        let songIDs = Set(library.songs.lazy.filter {
+            sourceIDs.contains($0.sourceID)
+        }.map(\.id))
+        guard !songIDs.isEmpty else { return }
+        failedSongIDs.subtract(songIDs)
+        sessionGivenUpIDs.subtract(songIDs)
+        titleCheckedIDs.subtract(songIDs)
+        for id in songIDs { transientFailureCounts[id] = nil }
+        saveFailed()
+        saveTitleChecked()
     }
 
     /// Re-evaluate the queue every time the library changes (e.g. a fresh
@@ -765,7 +834,11 @@ final class MetadataBackfillService {
                 let shouldFlush = pendingFlush.count >= Self.flushBatchSize
                     || Date().timeIntervalSince(lastFlushAt) >= Self.flushInterval
                 if shouldFlush, !pendingFlush.isEmpty {
-                    let batch = pendingFlush.filter(isStillEligible)
+                    // Partial metadata can be accompanied by markFailed=true
+                    // (for example TIT2 parsed but duration did not). Failure
+                    // membership must stop future network retries, not discard
+                    // the useful result we already have.
+                    let batch = pendingFlush.filter(canApplyBackfillResult)
                     pendingFlush.removeAll(keepingCapacity: true)
                     lastFlushAt = Date()
                     if !batch.isEmpty {
@@ -793,7 +866,7 @@ final class MetadataBackfillService {
 
         // Final flush
         if !pendingFlush.isEmpty {
-            let batch = pendingFlush.filter(isStillEligible)
+            let batch = pendingFlush.filter(canApplyBackfillResult)
             pendingFlush.removeAll()
             if !batch.isEmpty {
                 library.replaceSongs(batch)
@@ -1056,9 +1129,17 @@ final class MetadataBackfillService {
             }
         }
 
-        // Nothing parseable at all → no merge, mark failed so we
-        // don't burn quota retrying.
+        // Duration can fail independently from the ID3 text frames. Preserve
+        // any title/artist/album/cover we did recover, then mark the row failed
+        // only to stop repeated network reads. Older code returned nil here,
+        // so a valid TIT2 was silently thrown away and the filename remained
+        // visible until an online scrape replaced the song.
         if metadataLooksMissing(metadata) {
+            if hasUsablePartialMetadata(metadata, comparedTo: song) {
+                let partial = mergeSong(bare: song, metadata: metadata)
+                plog("⚠️ Backfill: '\(song.title)' has no duration after head+tail; saving partial tags as '\(partial.title)' and marking duration failed")
+                return BackfillOutcome(song: partial, markFailed: true)
+            }
             plog("⚠️ Backfill: '\(song.title)' has no parseable metadata after head+tail; marking failed")
             return BackfillOutcome(song: nil, markFailed: true)
         }
@@ -1200,9 +1281,37 @@ final class MetadataBackfillService {
         m.duration <= 0
     }
 
+    private func hasUsablePartialMetadata(
+        _ metadata: MetadataService.SongMetadata,
+        comparedTo song: Song
+    ) -> Bool {
+        let incomingTitle = metadata.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let currentTitle = song.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (!incomingTitle.isEmpty && incomingTitle != currentTitle)
+            || metadata.artist != nil
+            || metadata.albumTitle != nil
+            || metadata.trackNumber != nil
+            || metadata.discNumber != nil
+            || metadata.year != nil
+            || metadata.genre != nil
+            || metadata.sampleRate != nil
+            || metadata.bitRate != nil
+            || metadata.bitDepth != nil
+            || metadata.coverArtFileName != nil
+            || metadata.lyricsFileName != nil
+            || metadata.replayGainTrackGain != nil
+            || metadata.replayGainTrackPeak != nil
+            || metadata.replayGainAlbumGain != nil
+            || metadata.replayGainAlbumPeak != nil
+    }
+
     private func mergeSong(bare: Song, metadata: MetadataService.SongMetadata) -> Song {
-        let artistID = metadata.artist.map { Self.hash($0.lowercased()) }
-        let albumID: String? = if let artist = metadata.artist, let album = metadata.albumTitle {
+        let metadataTitle = metadata.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let mergedTitle = metadataTitle.isEmpty ? bare.title : metadata.title
+        let mergedArtist = metadata.artist ?? bare.artistName
+        let mergedAlbum = metadata.albumTitle ?? bare.albumTitle
+        let artistID = mergedArtist.map { Self.hash($0.lowercased()) }
+        let albumID: String? = if let artist = mergedArtist, let album = mergedAlbum {
             Self.hash("\(artist.lowercased()):\(album.lowercased())")
         } else {
             nil
@@ -1217,33 +1326,37 @@ final class MetadataBackfillService {
 
         return Song(
             id: bare.id,
-            title: metadata.title,
+            title: mergedTitle,
             albumID: albumID,
             artistID: artistID,
-            albumTitle: metadata.albumTitle,
-            artistName: metadata.artist,
-            trackNumber: metadata.trackNumber,
-            discNumber: metadata.discNumber,
-            duration: metadata.duration,
+            albumTitle: mergedAlbum,
+            artistName: mergedArtist,
+            trackNumber: metadata.trackNumber ?? bare.trackNumber,
+            discNumber: metadata.discNumber ?? bare.discNumber,
+            duration: metadata.duration > 0 ? metadata.duration : bare.duration,
             fileFormat: bare.fileFormat,
             filePath: bare.filePath,
             sourceID: bare.sourceID,
             fileSize: bare.fileSize,
-            bitRate: metadata.bitRate,
-            sampleRate: metadata.sampleRate,
-            bitDepth: metadata.bitDepth,
-            genre: metadata.genre,
-            year: metadata.year,
+            bitRate: metadata.bitRate ?? bare.bitRate,
+            sampleRate: metadata.sampleRate ?? bare.sampleRate,
+            bitDepth: metadata.bitDepth ?? bare.bitDepth,
+            genre: metadata.genre ?? bare.genre,
+            year: metadata.year ?? bare.year,
             lastModified: bare.lastModified,
             dateAdded: bare.dateAdded,
             coverArtFileName: coverRef,
             lyricsFileName: lyricsRef,
             mvPath: mvRef,
-            replayGainTrackGain: metadata.replayGainTrackGain,
-            replayGainTrackPeak: metadata.replayGainTrackPeak,
-            replayGainAlbumGain: metadata.replayGainAlbumGain,
-            replayGainAlbumPeak: metadata.replayGainAlbumPeak,
-            revision: bare.revision
+            replayGainTrackGain: metadata.replayGainTrackGain ?? bare.replayGainTrackGain,
+            replayGainTrackPeak: metadata.replayGainTrackPeak ?? bare.replayGainTrackPeak,
+            replayGainAlbumGain: metadata.replayGainAlbumGain ?? bare.replayGainAlbumGain,
+            replayGainAlbumPeak: metadata.replayGainAlbumPeak ?? bare.replayGainAlbumPeak,
+            revision: bare.revision,
+            titlePinyin: mergedTitle == bare.title ? bare.titlePinyin : nil,
+            artistPinyin: mergedArtist == bare.artistName ? bare.artistPinyin : nil,
+            albumPinyin: mergedAlbum == bare.albumTitle ? bare.albumPinyin : nil,
+            lyricsText: bare.lyricsText
         )
     }
 
@@ -1272,6 +1385,26 @@ final class MetadataBackfillService {
         guard backfillableSourceIDs().contains(song.sourceID) else { return false }
         guard let live = library.song(id: song.id), live.sourceID == song.sourceID else { return false }
         return self.needsBackfill(live)
+    }
+
+    /// Validate that an in-flight result still belongs to the live file. This
+    /// deliberately ignores failedSongIDs: a partial result is marked failed
+    /// before the coalesced flush, but its already-parsed tags must still land.
+    private func canApplyBackfillResult(_ song: Song) -> Bool {
+        guard !library.disabledSourceIDs.contains(song.sourceID) else { return false }
+        guard backfillableSourceIDs().contains(song.sourceID) else { return false }
+        guard let live = library.song(id: song.id),
+              live.sourceID == song.sourceID,
+              live.filePath == song.filePath else {
+            return false
+        }
+        if let liveRevision = live.revision, let resultRevision = song.revision {
+            return liveRevision == resultRevision
+        }
+        if live.fileSize > 0, song.fileSize > 0 {
+            return live.fileSize == song.fileSize
+        }
+        return true
     }
 
     /// A song still needs backfill if it's bare (no duration), or it's an MP3

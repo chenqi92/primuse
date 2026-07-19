@@ -59,13 +59,6 @@ struct MacSourcesView: View {
         .onReceive(NotificationCenter.default.publisher(for: CloudDirectoryNameStore.didChangeNotification)) { _ in
             cloudDirectoryNameRefreshID = UUID()
         }
-        // 不可逆清理(Keychain 凭据/云盘 token/书签/缓存)推迟到源被
-        // *彻底*删除时才执行。歌曲记录在软删除时已经移出资料库,防止隐藏源
-        // 继续贡献侧边栏数量;从「最近删除」还原后重新扫描即可恢复歌曲。
-        .onReceive(NotificationCenter.default.publisher(for: .primuseSourceDidDelete)) { note in
-            guard let id = note.userInfo?["id"] as? String else { return }
-            purgeSourceData(id: id)
-        }
         .confirmationDialog(
             Text(verbatim: "移除此音乐源？"),
             isPresented: Binding(
@@ -608,32 +601,13 @@ struct MacSourcesView: View {
     /// 凭据、云盘 token、书签仍保留到彻底删除,便于从回收站还原后重新扫描。
     private func deleteSource(_ source: MusicSource) {
         stopBackgroundWork(for: source.id)
-        library.removeSongsForSource(source.id)
         scanService.removeSynologyAPI(for: source.id)
         sourceStore.remove(id: source.id)
-        Task { await sourceManager.removeConnector(for: source.id) }
-    }
-
-    /// 彻底删除兜底清理:软删除阶段已经移除歌曲记录,这里重复调用保持幂等;
-    /// Keychain 凭据、云盘 token / app 凭据、目录名、安全书签和派生缓存只在
-    /// permanentlyDelete / 30 天 prune 后清掉。
-    private func purgeSourceData(id: String) {
-        library.removeSongsForSource(id)
-        sourceManager.deleteSourceCaches(sourceID: id)
-        LocalBookmarkStore.remove(sourceID: id)
-        KeychainService.deletePassword(for: id)
-        Task {
-            let tm = CloudTokenManager(sourceID: id)
-            await tm.deleteTokens()
-            await tm.deleteAppCredentials()
-        }
-        CloudDirectoryNameStore.deleteAll(for: id)
     }
 
     private func stopBackgroundWork(for sourceID: String) {
         scanService.cancelScan(for: sourceID)
         scanService.removeCheckpoint(for: sourceID)
-        backfill.discardWork(forSourceID: sourceID)
     }
 
     private func pauseBackgroundWork(for sourceID: String) {

@@ -151,11 +151,25 @@ enum FileMetadataReader {
     private static let flacMetadataReadLimit = 1024 * 1024
 
     private static func applyID3Fallback(to metadata: inout Metadata, url: URL) {
-        guard metadata.coverArtData == nil,
-              let id3 = parseID3Metadata(from: readID3TagData(from: url)) else {
-            return
-        }
-        metadata.coverArtData = id3.coverArtData
+        let tagData = readID3TagData(from: url)
+        let text = ID3TextMetadataParser.parse(tagData)
+        let artwork = parseID3Metadata(from: tagData)
+        guard text != nil || artwork != nil else { return }
+
+        // AVFoundation may reject a truncated cloud-Range temp file even
+        // though its complete ID3v2 tag is present at byte zero. Keep its
+        // values when available, but fill every missing field from the small
+        // native parser below. Previously this fallback only recovered APIC,
+        // so a readable TIT2 still fell back to the filename.
+        metadata.title = metadata.title ?? text?.title
+        metadata.artist = metadata.artist ?? text?.artist
+        metadata.albumTitle = metadata.albumTitle ?? text?.albumTitle
+        metadata.albumArtist = metadata.albumArtist ?? text?.albumArtist
+        metadata.trackNumber = metadata.trackNumber ?? text?.trackNumber
+        metadata.discNumber = metadata.discNumber ?? text?.discNumber
+        metadata.year = metadata.year ?? text?.year
+        metadata.genre = metadata.genre ?? text?.genre
+        metadata.coverArtData = metadata.coverArtData ?? artwork?.coverArtData
     }
 
     static func id3TagByteCount(in data: Data) -> Int? {

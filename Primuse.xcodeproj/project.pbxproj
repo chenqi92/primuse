@@ -210,6 +210,7 @@
 		4C233E3EE22134B9B5EFD109 /* RecentlyDeletedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCF14896C5977140D504187F /* RecentlyDeletedView.swift */; };
 		4D2711DD289A920BBAFB66F3 /* MacRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFCB474474519BE89590D828 /* MacRoute.swift */; };
 		4D3A6BFB31C8699E95C3469D /* TVCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FFB43F39C3A62C7EBDB2D72 /* TVCredentialStore.swift */; };
+		4D8C3FF9D79817779D622D03 /* ID3TextMetadataParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBCB026F846B0E1D4C27C84B /* ID3TextMetadataParser.swift */; };
 		4D970484FA45E36B191F0C9D /* ConfigurableScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFBD55481DE18F95FCC74F76 /* ConfigurableScraper.swift */; };
 		4D9FDCB6AB92B02FFCFD83D4 /* SourceTypeSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C50B958D5A7FEF1F9E8AD24 /* SourceTypeSelectionView.swift */; };
 		4E2AF701883BE301B6436E31 /* FnOSAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04E02F82BB81A881C4607BDC /* FnOSAPI.swift */; };
@@ -1166,6 +1167,7 @@
 		DB14DE8A67533EDCDC866501 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		DB4558DD0619B411D61E2FEB /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		DBB6099288DBCBB2E75611D2 /* PrimuseControlWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrimuseControlWidgets.swift; sourceTree = "<group>"; };
+		DBCB026F846B0E1D4C27C84B /* ID3TextMetadataParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ID3TextMetadataParser.swift; sourceTree = "<group>"; };
 		DCF14896C5977140D504187F /* RecentlyDeletedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentlyDeletedView.swift; sourceTree = "<group>"; };
 		DD09951914FB65D3573E5824 /* ExternalDisplayNowPlayingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalDisplayNowPlayingView.swift; sourceTree = "<group>"; };
 		DD23D48B7298FECE44ABE083 /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = de.lproj/Localizable.strings; sourceTree = "<group>"; };
@@ -1515,6 +1517,7 @@
 			children = (
 				A23633FE819BBF49FE93B63D /* ActivityAttributes */,
 				38CBDB962B370140AC75A17D /* Internal */,
+				AFC591E3A4BEE6456BA66E38 /* Metadata */,
 				6B4555C595F754161FB68F73 /* Models */,
 				D7B9A30E7467B10B25922382 /* Resources */,
 				F49A5BE606706F898B5DEAC8 /* Streaming */,
@@ -1882,6 +1885,14 @@
 				9F7380ABF7CFF416B08F01F2 /* TagEditorView.swift */,
 			);
 			path = Library;
+			sourceTree = "<group>";
+		};
+		AFC591E3A4BEE6456BA66E38 /* Metadata */ = {
+			isa = PBXGroup;
+			children = (
+				DBCB026F846B0E1D4C27C84B /* ID3TextMetadataParser.swift */,
+			);
+			path = Metadata;
 			sourceTree = "<group>";
 		};
 		B328E2A73345B855028189CB /* Views */ = {
@@ -2642,6 +2653,7 @@
 				18EF7BC5C1B706CD5A3E761F /* CloudDriveStreamResolver.swift in Sources */,
 				EA28DFE79AF807B40A5B91B4 /* CredentialBundle.swift in Sources */,
 				6FE53DDA9986F85A3897E582 /* EQPreset.swift in Sources */,
+				4D8C3FF9D79817779D622D03 /* ID3TextMetadataParser.swift in Sources */,
 				72DE4A2D47DAEB67BBDB4492 /* LANSync.swift in Sources */,
 				274D2D5B9C91780E4F97141A /* Localization.swift in Sources */,
 				FDE9341F377DC2DBA47DC9D9 /* LyricLine.swift in Sources */,

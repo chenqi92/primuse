@@ -241,13 +241,31 @@ actor AudioCacheManager {
     /// 用 —— 删源时一次清掉所有属于这个 sourceID 的访问时间戳, 不然
     /// accessLog 里残留的 dead key 越堆越多。
     func removeAllEntries(forSourcePrefix prefix: String) {
+        removeAllEntries(forSourcePrefixes: [prefix])
+    }
+
+    func removeAllEntries(forSourcePrefixes prefixes: [String]) {
+        guard !prefixes.isEmpty else { return }
         ensureInitialized()
-        let keys = accessLog.keys.filter { $0.hasPrefix(prefix) }
+        let keys = accessLog.keys.filter { key in prefixes.contains { key.hasPrefix($0) } }
         for key in keys { accessLog[key] = nil }
-        let manifestKeys = offlineManifest.keys.filter { $0.hasPrefix(prefix) }
+        let manifestKeys = offlineManifest.keys.filter { key in prefixes.contains { key.hasPrefix($0) } }
         for key in manifestKeys { offlineManifest[key] = nil }
         if !keys.isEmpty { schedulePersist() }
         if !manifestKeys.isEmpty { scheduleManifestPersist() }
+    }
+
+    func removeEntries(paths: [String]) {
+        guard !paths.isEmpty else { return }
+        ensureInitialized()
+        var accessChanged = false
+        var manifestChanged = false
+        for path in paths {
+            accessChanged = accessLog.removeValue(forKey: path) != nil || accessChanged
+            manifestChanged = offlineManifest.removeValue(forKey: path) != nil || manifestChanged
+        }
+        if accessChanged { schedulePersist() }
+        if manifestChanged { scheduleManifestPersist() }
     }
 
     func clearAll() {

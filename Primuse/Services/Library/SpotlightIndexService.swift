@@ -74,6 +74,14 @@ final class SpotlightIndexService {
         }
     }
 
+    /// Stop CPU/file work when the app is resigning active. A Spotlight
+    /// rebuild is opportunistic and must never compete with UIKit's 10-second
+    /// scene-update watchdog window.
+    func cancelPendingReindex() {
+        pendingTask?.cancel()
+        pendingTask = nil
+    }
+
     /// 解析 NSUserActivity 拿出原始 identifier。Spotlight 点击会把
     /// `CSSearchableItemActivityIdentifier` 塞进 userInfo,这里直接还出来。
     static func identifier(from activity: NSUserActivity) -> SpotlightItem? {
@@ -116,17 +124,14 @@ final class SpotlightIndexService {
     ) async {
         let index = CSSearchableIndex.default()
 
-        // 先把旧索引按 domain 删干净
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            index.deleteSearchableItems(withDomainIdentifiers: [
-                kSongDomain, kAlbumDomain, kArtistDomain, kPlaylistDomain,
-            ]) { _ in continuation.resume() }
-        }
-
         var items: [CSSearchableItem] = []
         items.reserveCapacity(songs.count + albums.count + artists.count + playlists.count)
+        // Album tracks commonly share one cover reference. Decode each unique
+        // image once instead of rereading/recompressing it for every song.
+        var thumbnailCache: [String: Data] = [:]
+        var missingThumbnails: Set<String> = []
 
-        for song in songs {
+        for (offset, song) in songs.enumerated() {
             if Task.isCancelled { return }
             let attrs = CSSearchableItemAttributeSet(contentType: .audio)
             attrs.title = song.title
@@ -135,12 +140,26 @@ final class SpotlightIndexService {
             attrs.contentDescription = [song.artistName, song.albumTitle]
                 .compactMap { $0 }.joined(separator: " — ")
             attrs.keywords = [song.title, song.artistName, song.albumTitle].compactMap { $0 }
-            attrs.thumbnailData = await thumbnailData(for: song.coverArtFileName)
+            if let coverRef = song.coverArtFileName, !coverRef.isEmpty {
+                if let cached = thumbnailCache[coverRef] {
+                    attrs.thumbnailData = cached
+                } else if !missingThumbnails.contains(coverRef) {
+                    if let thumbnail = await thumbnailData(for: coverRef) {
+                        thumbnailCache[coverRef] = thumbnail
+                        attrs.thumbnailData = thumbnail
+                    } else {
+                        missingThumbnails.insert(coverRef)
+                    }
+                }
+            }
             items.append(CSSearchableItem(
                 uniqueIdentifier: "song:\(song.id)",
                 domainIdentifier: kSongDomain,
                 attributeSet: attrs
             ))
+            if offset.isMultiple(of: 100) {
+                await Task.yield()
+            }
         }
         for album in albums {
             if Task.isCancelled { return }
@@ -188,6 +207,16 @@ final class SpotlightIndexService {
         }
 
         if Task.isCancelled { return }
+
+        // Build the replacement completely before deleting the live index.
+        // Cancellation during source-removal bursts now keeps the previous
+        // valid index instead of leaving Spotlight empty/half-built.
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            index.deleteSearchableItems(withDomainIdentifiers: [
+                kSongDomain, kAlbumDomain, kArtistDomain, kPlaylistDomain,
+            ]) { _ in continuation.resume() }
+        }
+
         let finalItems = items // 让闭包捕获 immutable let,不再触发并发警告
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             index.indexSearchableItems(finalItems) { error in

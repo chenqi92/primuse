@@ -1297,31 +1297,43 @@ final class MusicLibrary {
         persistSnapshot()
     }
 
-    private func postSongsRemoved(_ songs: [Song]) {
+    private func postSongsRemoved(_ songs: [Song], sourceIDs: Set<String>? = nil) {
         guard songs.isEmpty == false else { return }
+        var userInfo: [String: Any] = ["songs": songs]
+        if let sourceIDs, !sourceIDs.isEmpty {
+            userInfo["sourceIDs"] = Array(sourceIDs)
+        }
         NotificationCenter.default.post(
             name: .primuseSongsRemoved,
             object: nil,
-            userInfo: ["songs": songs]
+            userInfo: userInfo
         )
     }
 
     /// Remove all songs for a given source
     func removeSongsForSource(_ sourceID: String) {
-        let removedSongs = songs.filter { $0.sourceID == sourceID }
-        disabledSourceIDs.remove(sourceID)
+        removeSongsForSources([sourceID])
+    }
+
+    /// Remove several sources in one library pass. Repeated per-source
+    /// removeAll/playlist cleanup/index rebuild made rapid source deletion
+    /// O(sourceCount × librarySize) on the main actor.
+    func removeSongsForSources(_ sourceIDs: Set<String>) {
+        guard !sourceIDs.isEmpty else { return }
+        let removedSongs = songs.filter { sourceIDs.contains($0.sourceID) }
+        disabledSourceIDs.subtract(sourceIDs)
         guard !removedSongs.isEmpty else {
             rebuildVisibleCache()
             return
         }
 
-        songs.removeAll { $0.sourceID == sourceID }
+        songs.removeAll { sourceIDs.contains($0.sourceID) }
         invalidateSearchCaches()
         cleanPlaylistEntries()
         cleanPlaybackHistoryEntries()
         rebuildIndex()
         persistSnapshot()
-        postSongsRemoved(removedSongs)
+        postSongsRemoved(removedSongs, sourceIDs: sourceIDs)
     }
 
     /// Look up the current Song by its stable id. Used by row views to

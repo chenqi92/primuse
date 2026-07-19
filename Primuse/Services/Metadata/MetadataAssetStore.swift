@@ -300,6 +300,17 @@ actor MetadataAssetStore {
         try? FileManager.default.removeItem(at: lyricsDirectory.appendingPathComponent(fileName))
     }
 
+    /// Batch invalidation stays on this actor's executor and avoids creating
+    /// two Tasks/actor hops per song when a large source is removed.
+    func invalidateCaches(forSongIDs songIDs: [String]) {
+        for songID in songIDs {
+            let cover = hashedFileName(for: songID, pathExtension: "jpg")
+            try? FileManager.default.removeItem(at: artworkDirectory.appendingPathComponent(cover))
+            let lyrics = hashedFileName(for: songID, pathExtension: "json")
+            try? FileManager.default.removeItem(at: lyricsDirectory.appendingPathComponent(lyrics))
+        }
+    }
+
     /// Check if a reference is an old-style local hashed filename (for migration).
     nonisolated func isLegacyLocalRef(_ ref: String) -> Bool {
         !ref.contains("/") && !ref.contains("://")

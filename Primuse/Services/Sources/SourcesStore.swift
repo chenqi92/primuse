@@ -98,6 +98,21 @@ final class SourcesStore {
         persist()
     }
 
+    /// Reset scan-derived state for a batch of removed sources with one
+    /// Observable mutation/persist instead of rewriting sources.json per row.
+    func resetLocalScanState(for sourceIDs: Set<String>) {
+        guard !sourceIDs.isEmpty else { return }
+        var changed = false
+        for index in allSources.indices where sourceIDs.contains(allSources[index].id) {
+            if allSources[index].songCount != 0 || allSources[index].lastScannedAt != nil {
+                allSources[index].songCount = 0
+                allSources[index].lastScannedAt = nil
+                changed = true
+            }
+        }
+        if changed { persist() }
+    }
+
     /// Source delete: hide from UI, keep the row on disk for recycle-bin
     /// recovery — but push a REAL deleteRecord to CloudKit so the
     /// upstream record clears. The previous "save with isDeleted=true"

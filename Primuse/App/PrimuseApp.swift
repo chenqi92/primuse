@@ -651,6 +651,11 @@ struct PrimuseApp: App {
                 .onChange(of: scenePhase) { _, newPhase in
                     switch newPhase {
                     case .background, .inactive:
+                        // Spotlight is optional background work. Stop it before
+                        // UIKit starts the scene-update watchdog countdown;
+                        // rebuilding thousands of thumbnails here previously
+                        // contributed to 0x8BADF00D terminations.
+                        AppServices.shared.spotlightIndex.cancelPendingReindex()
                         playerService.handleAppWillResignActive()
                         musicLibrary.persistNow()
                         // 把整库快照上传到 iCloud,供 tvOS 等不扫描的端下载浏览。
@@ -669,6 +674,7 @@ struct PrimuseApp: App {
                         )
                     case .active:
                         playerService.handleAppDidBecomeActive()
+                        AppServices.shared.spotlightIndex.reindex(library: musicLibrary)
                         Task { await updateChecker.checkForUpdate() }
                         // Auto-resume any scan that was interrupted (app killed,
                         // backgrounded past the begin/endBackgroundTask window, or
