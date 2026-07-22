@@ -6,11 +6,37 @@ import CryptoKit
 /// arrays: comparing two `[Song]` values also compares lyricsText. Publishing
 /// an immutable reference keeps the same observation semantics while making
 /// the pre-notification check an O(1) identity change.
-private final class LibraryArrayReference<Element> {
+private final class LibraryArrayReference<Element: Sendable>: @unchecked Sendable {
     let value: [Element]
 
     init(_ value: [Element] = []) {
         self.value = value
+    }
+}
+
+/// Releasing a 10K+ value-type array can recursively release tens of thousands
+/// of strings and nested values. ARC normally performs that work on whichever
+/// thread swaps the final reference; for observable library publications that
+/// is the main actor. During process suspension/termination this used enough of
+/// UIKit's five-second watchdog window to trigger 0x8BADF00D.
+///
+/// Keep small arrays synchronous, but hand the final ownership of large,
+/// immutable snapshots to a serial utility queue. The serial queue bounds the
+/// amount of simultaneous ARC work and preserves value lifetime safely because
+/// every element is Sendable and the wrapper never mutates its array.
+private enum LibraryArrayReclaimer {
+    private static let asynchronousReleaseThreshold = 512
+    private static let queue = DispatchQueue(
+        label: "com.welape.primuse.library-array-reclaimer",
+        qos: .utility,
+        autoreleaseFrequency: .workItem
+    )
+
+    static func release<Element: Sendable>(_ reference: LibraryArrayReference<Element>) {
+        guard reference.value.count >= asynchronousReleaseThreshold else { return }
+        queue.async {
+            withExtendedLifetime(reference) {}
+        }
     }
 }
 
@@ -817,17 +843,29 @@ final class MusicLibrary {
     private var songsReference = LibraryArrayReference<Song>()
     private(set) var songs: [Song] {
         get { songsReference.value }
-        set { songsReference = LibraryArrayReference(newValue) }
+        set {
+            let previous = songsReference
+            songsReference = LibraryArrayReference(newValue)
+            LibraryArrayReclaimer.release(previous)
+        }
     }
     private var albumsReference = LibraryArrayReference<Album>()
     private(set) var albums: [Album] {
         get { albumsReference.value }
-        set { albumsReference = LibraryArrayReference(newValue) }
+        set {
+            let previous = albumsReference
+            albumsReference = LibraryArrayReference(newValue)
+            LibraryArrayReclaimer.release(previous)
+        }
     }
     private var artistsReference = LibraryArrayReference<Artist>()
     private(set) var artists: [Artist] {
         get { artistsReference.value }
-        set { artistsReference = LibraryArrayReference(newValue) }
+        set {
+            let previous = artistsReference
+            artistsReference = LibraryArrayReference(newValue)
+            LibraryArrayReclaimer.release(previous)
+        }
     }
     /// Backing storage that includes soft-deleted entries. UI-facing
     /// `playlists` filters this down.
@@ -920,17 +958,29 @@ final class MusicLibrary {
     private var visibleSongsReference = LibraryArrayReference<Song>()
     private(set) var visibleSongs: [Song] {
         get { visibleSongsReference.value }
-        set { visibleSongsReference = LibraryArrayReference(newValue) }
+        set {
+            let previous = visibleSongsReference
+            visibleSongsReference = LibraryArrayReference(newValue)
+            LibraryArrayReclaimer.release(previous)
+        }
     }
     private var visibleAlbumsReference = LibraryArrayReference<Album>()
     private(set) var visibleAlbums: [Album] {
         get { visibleAlbumsReference.value }
-        set { visibleAlbumsReference = LibraryArrayReference(newValue) }
+        set {
+            let previous = visibleAlbumsReference
+            visibleAlbumsReference = LibraryArrayReference(newValue)
+            LibraryArrayReclaimer.release(previous)
+        }
     }
     private var visibleArtistsReference = LibraryArrayReference<Artist>()
     private(set) var visibleArtists: [Artist] {
         get { visibleArtistsReference.value }
-        set { visibleArtistsReference = LibraryArrayReference(newValue) }
+        set {
+            let previous = visibleArtistsReference
+            visibleArtistsReference = LibraryArrayReference(newValue)
+            LibraryArrayReclaimer.release(previous)
+        }
     }
     @ObservationIgnored private var songIndexByID: [String: Int] = [:]
     @ObservationIgnored private var visibleSongIndexByID: [String: Int] = [:]
@@ -1516,6 +1566,13 @@ final class MusicLibrary {
         return songs[index]
     }
 
+    /// O(1) visible-only lookup for background workers and external routes.
+    /// Unlike `song(id:)`, this deliberately excludes disabled sources.
+    func visibleSong(id: String) -> Song? {
+        _ = visibleSongsReference
+        return visibleSongByID[id]
+    }
+
     /// O(1) membership check for UI observers that must distinguish the
     /// enabled/visible library from songs retained under a disabled source.
     func containsVisibleSong(id: String) -> Bool {
@@ -1988,7 +2045,7 @@ final class MusicLibrary {
 
     private func resolveIdentity(_ identity: SongIdentity) -> String? {
         // Tier 1: exact ID — same mount on both devices, or hash collision.
-        if songs.contains(where: { $0.id == identity.songID }) {
+        if songIndexByID[identity.songID] != nil {
             return identity.songID
         }
         // Tier 2: cloud account + file path. `sourceIdentityResolver`

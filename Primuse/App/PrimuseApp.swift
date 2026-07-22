@@ -650,7 +650,7 @@ struct PrimuseApp: App {
                 .onChange(of: musicLibrary.songReplacementToken) { _, _ in
                     guard let currentID = playerService.currentSong?.id,
                           musicLibrary.lastReplacedSongIDs.contains(currentID),
-                          let updated = musicLibrary.songs.first(where: { $0.id == currentID })
+                          let updated = musicLibrary.song(id: currentID)
                     else { return }
                     playerService.syncSongMetadata(updated)
                     // forceRefreshNowPlayingArtwork 内部已 bump coverRevision,

@@ -1678,7 +1678,7 @@ final class AudioPlayerService {
             guard needsRewrite else { return }
             Task { @MainActor [weak self] in
                 guard let self, let library = self.library else { return }
-                guard var existing = library.songs.first(where: { $0.id == songID }) else { return }
+                guard var existing = library.song(id: songID) else { return }
                 existing.duration = resolved
                 library.replaceSong(existing)
                 plog(String(format: "🎵 SFB resolved real duration for '%@': %.1fs (was %.1fs) — rewrote library", songTitle, resolved, storedDuration))
@@ -1795,7 +1795,7 @@ final class AudioPlayerService {
             queueEntries[queueIndex].song.duration = sanitized
         }
 
-        if let library, var storedSong = library.songs.first(where: { $0.id == song.id }) {
+        if let library, var storedSong = library.song(id: song.id) {
             storedSong.duration = sanitized
             library.replaceSong(storedSong)
         }

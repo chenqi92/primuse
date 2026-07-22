@@ -425,7 +425,7 @@ struct ContentView: View {
     private func handleSpotlightItem(_ item: SpotlightItem) {
         switch item {
         case .song(let id):
-            guard let song = library.visibleSongs.first(where: { $0.id == id }) else { return }
+            guard let song = library.visibleSong(id: id) else { return }
             // 命中歌 + 整库剩下的拼起来当队列,跟 Siri / Shortcuts 同款行为
             let rest = library.visibleSongs.filter { $0.id != id }
             player.setQueue([song] + rest, startAt: 0)

@@ -532,7 +532,7 @@ extension WatchSessionBridge: WCSessionDelegate {
             // 用户播放入口必须走 visible* API: 歌曲所属源在 watch 队列快照推送
             // 之后被停用时, 不能再让 iPhone 播放已停用源的歌曲。与 ContentView
             // 等其它外部播放入口口径一致。
-            if let song = library.visibleSongs.first(where: { $0.id == id }) {
+            if let song = library.visibleSong(id: id) {
                 await player.play(song: song, caller: "watch")
             } else {
                 // 未命中 (源已停用 / 队列已变) ── 清掉去重 hash 强推一次最新

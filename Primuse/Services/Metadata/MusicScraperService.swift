@@ -20,6 +20,10 @@ final class MusicScraperService {
     private var pendingEnrichmentSongIDs: [String] = []
     private var pendingEnrichmentSongIDSet: Set<String> = []
     private var isPausedForSceneTransition = false
+    /// Bound both observable full-library publications and checkpoint replay.
+    /// Eight items is large enough to collapse the repeated 10K-song array
+    /// churn while remaining a small, idempotent unit after interruption.
+    private static let songPublicationBatchSize = 8
     private let scrapeCheckpointURL: URL
     private var scrapeCheckpoint: ScrapeCheckpoint?
     #if os(iOS)
@@ -464,15 +468,50 @@ final class MusicScraperService {
             let settings = ScraperSettings.load()
             let onlyFillMissing = settings.onlyFillMissingFields && !forceRescrape
 
+            var pendingSongUpdates: [Song] = []
+            var pendingSidecarOperations: [@Sendable () async -> Void] = []
+            var lastCompletedSongID: String?
+            var completedSongCountInBatch = 0
+
+            // The checkpoint is committed only after every library mutation up
+            // to that song has been published. Cancellation therefore replays
+            // at most this small idempotent batch instead of skipping metadata
+            // which existed only in a task-local buffer.
+            @MainActor func publishPendingSongBatch() {
+                guard let completedSongID = lastCompletedSongID else { return }
+                if !pendingSongUpdates.isEmpty {
+                    library.replaceSongs(pendingSongUpdates)
+                }
+                for operation in pendingSidecarOperations {
+                    startSidecarWriteTask(operation)
+                }
+                pendingSongUpdates.removeAll(keepingCapacity: true)
+                pendingSidecarOperations.removeAll(keepingCapacity: true)
+                lastCompletedSongID = nil
+                completedSongCountInBatch = 0
+                advanceScrapeCheckpoint(afterCompleting: completedSongID)
+            }
+
             // Phase 1: Scrape song metadata + write sidecar files
             for song in songs {
                 guard !Task.isCancelled else { return }
+                var completedCurrentSong = false
                 defer {
                     // A lifecycle cancellation means this song may only be
-                    // partially written. Leave the checkpoint on it so resume
-                    // repeats one idempotent unit instead of silently skipping.
-                    if !Task.isCancelled {
-                        advanceScrapeCheckpoint(afterCompleting: song.id)
+                    // partially written. Leave the checkpoint at the beginning
+                    // of its unpublished batch so resume repeats idempotent work
+                    // instead of silently skipping task-local mutations.
+                    if completedCurrentSong, !Task.isCancelled {
+                        if pendingSongUpdates.isEmpty, pendingSidecarOperations.isEmpty {
+                            advanceScrapeCheckpoint(afterCompleting: song.id)
+                        } else {
+                            lastCompletedSongID = song.id
+                            completedSongCountInBatch += 1
+                            if pendingSongUpdates.count >= Self.songPublicationBatchSize
+                                || completedSongCountInBatch >= Self.songPublicationBatchSize {
+                                publishPendingSongBatch()
+                            }
+                        }
                     }
                 }
 
@@ -483,6 +522,7 @@ final class MusicScraperService {
                         guard !Task.isCancelled else { return }
                         processedCount += 1
                         skippedCount += 1
+                        completedCurrentSong = true
                         continue
                     }
                     guard !Task.isCancelled else { return }
@@ -527,7 +567,7 @@ final class MusicScraperService {
                         }
 
                         guard !Task.isCancelled else { return }
-                        library.replaceSong(updatedSong)
+                        pendingSongUpdates.append(updatedSong)
                         updatedCount += 1
 
                         await writeBackToMediaServerIfSupported(
@@ -544,54 +584,56 @@ final class MusicScraperService {
                             let songID = updatedSong.id
 
                             let canWriteSidecar = await sourceManager.supportsSidecarWriting(for: songForWrite)
-                            guard canWriteSidecar else {
+                            if !canWriteSidecar {
                                 plog("📝 Batch sidecar: source does not support writing for '\(songForWrite.title)'")
-                                continue
-                            }
+                            } else {
+                                // Start sidecar work only after the matching
+                                // library batch is visible. Otherwise a fast
+                                // local sidecar write could publish its path and
+                                // then be overwritten by the delayed song batch.
+                                pendingSidecarOperations.append {
+                                    do {
+                                        let writeResult = try await MusicScraperService.writeSidecarWithTimeout(
+                                            seconds: sidecarSettings.timeout,
+                                            sourceManager: sourceManager,
+                                            for: songForWrite,
+                                            coverData: sidecarCoverData, lyricsLines: sidecarLyricsLines
+                                        )
 
-                            // Write sidecar files to source asynchronously (don't block scraping loop)
-                            startSidecarWriteTask {
-                                do {
-                                    let writeResult = try await MusicScraperService.writeSidecarWithTimeout(
-                                        seconds: sidecarSettings.timeout,
-                                        sourceManager: sourceManager,
-                                        for: songForWrite,
-                                        coverData: sidecarCoverData, lyricsLines: sidecarLyricsLines
-                                    )
+                                        var needsUpdate = false
+                                        var refSong = songForWrite
 
-                                    var needsUpdate = false
-                                    var refSong = songForWrite
-
-                                    if writeResult.coverWritten {
-                                        if let coverPath = Self.sidecarReferencePath(for: songForWrite, suffix: "-cover.jpg") {
-                                            refSong.coverArtFileName = coverPath
-                                            needsUpdate = true
+                                        if writeResult.coverWritten {
+                                            if let coverPath = Self.sidecarReferencePath(for: songForWrite, suffix: "-cover.jpg") {
+                                                refSong.coverArtFileName = coverPath
+                                                needsUpdate = true
+                                            }
+                                            if let coverData {
+                                                await MetadataAssetStore.shared.cacheCover(coverData, forSongID: songID)
+                                            }
                                         }
-                                        if let coverData {
-                                            await MetadataAssetStore.shared.cacheCover(coverData, forSongID: songID)
+                                        if writeResult.lyricsWritten, let lyricsLines {
+                                            // 同上: 不指向 NAS .lrc, 字级数据只在
+                                            // 本地 hash JSON。
+                                            // 用户动作 (scrape) 触发的 sidecar 镜像写回, 强制覆盖
+                                            await MetadataAssetStore.shared.cacheLyrics(lyricsLines, forSongID: songID, force: true)
                                         }
-                                    }
-                                    if writeResult.lyricsWritten, let lyricsLines {
-                                        // 同上: 不指向 NAS .lrc, 字级数据只在
-                                        // 本地 hash JSON。
-                                        // 用户动作 (scrape) 触发的 sidecar 镜像写回, 强制覆盖
-                                        await MetadataAssetStore.shared.cacheLyrics(lyricsLines, forSongID: songID, force: true)
-                                    }
 
-                                    guard !Task.isCancelled else { return }
-                                    if needsUpdate {
-                                        await MainActor.run {
-                                            library.updateAssetReferences(songID: refSong.id, coverRef: refSong.coverArtFileName)
+                                        guard !Task.isCancelled else { return }
+                                        if needsUpdate {
+                                            await MainActor.run {
+                                                library.updateAssetReferences(songID: refSong.id, coverRef: refSong.coverArtFileName)
+                                            }
                                         }
-                                    }
 
-                                    if !writeResult.errors.isEmpty {
-                                        plog("⚠️ Batch sidecar errors for '\(songForWrite.title)': \(writeResult.errors)")
+                                        if !writeResult.errors.isEmpty {
+                                            plog("⚠️ Batch sidecar errors for '\(songForWrite.title)': \(writeResult.errors)")
+                                        }
+                                    } catch is CancellationError {
+                                        plog("⚠️ Batch sidecar timed out (\(sidecarSettings.timeout.finiteInt())s) for '\(songForWrite.title)'")
+                                    } catch {
+                                        plog("⚠️ Batch sidecar skipped for '\(songForWrite.title)': \(error.localizedDescription)")
                                     }
-                                } catch is CancellationError {
-                                    plog("⚠️ Batch sidecar timed out (\(sidecarSettings.timeout.finiteInt())s) for '\(songForWrite.title)'")
-                                } catch {
-                                    plog("⚠️ Batch sidecar skipped for '\(songForWrite.title)': \(error.localizedDescription)")
                                 }
                             }
                         }
@@ -605,8 +647,12 @@ final class MusicScraperService {
                     processedCount += 1
                     failedCount += 1
                 }
-
+                completedCurrentSong = true
             }
+
+            // Publish a short tail before derived album/artist work and before
+            // declaring the scrape complete.
+            publishPendingSongBatch()
 
             // Phase 2: Scrape album and artist covers
             guard !Task.isCancelled else { return }
@@ -852,18 +898,39 @@ final class MusicScraperService {
     private func runBackgroundEnrichment(in library: MusicLibrary) async {
         isBackgroundEnriching = true
 
+        var pendingSongUpdates: [Song] = []
+        @MainActor func publishPendingSongUpdates() {
+            guard !pendingSongUpdates.isEmpty else { return }
+            library.replaceSongs(pendingSongUpdates)
+            pendingSongUpdates.removeAll(keepingCapacity: true)
+        }
+
         defer {
+            if Task.isCancelled {
+                // Scene-transition cancellation intentionally does not publish
+                // a partial full-library batch. Put those ids back so the
+                // resumed worker repeats the idempotent enrichment instead of
+                // dropping results which were only task-local.
+                for songID in pendingSongUpdates.map(\.id).reversed()
+                    where pendingEnrichmentSongIDSet.insert(songID).inserted {
+                    pendingEnrichmentSongIDs.insert(songID, at: 0)
+                }
+            }
             backgroundEnrichmentTask = nil
             isBackgroundEnriching = false
         }
 
         while !Task.isCancelled {
             if isScraping {
+                // Don't leave completed enrichment results task-local while a
+                // user-initiated scrape waits for this worker to yield.
+                publishPendingSongUpdates()
                 try? await Task.sleep(for: .seconds(1))
                 continue
             }
 
             guard let song = nextSongForBackgroundEnrichment(in: library) else {
+                publishPendingSongUpdates()
                 return
             }
 
@@ -899,15 +966,21 @@ final class MusicScraperService {
 
                     guard !Task.isCancelled else { return }
                     if enrichedSong != song {
-                        library.replaceSong(enrichedSong)
+                        pendingSongUpdates.append(enrichedSong)
                         await writeBackToMediaServerIfSupported(
                             original: song,
                             updated: enrichedSong,
                             coverData: result.coverData,
                             lyricsLines: result.lyricsLines
                         )
+                        guard !Task.isCancelled else { return }
+                        if pendingSongUpdates.count >= Self.songPublicationBatchSize {
+                            publishPendingSongUpdates()
+                        }
                     }
                 }
+            } catch is CancellationError {
+                return
             } catch {
                 plog("⚠️ Background enrichment skipped for '\(song.title)': \(error.localizedDescription)")
             }
@@ -921,7 +994,7 @@ final class MusicScraperService {
             pendingEnrichmentSongIDs.removeFirst()
             pendingEnrichmentSongIDSet.remove(songID)
 
-            if let song = library.visibleSongs.first(where: { $0.id == songID }) {
+            if let song = library.visibleSong(id: songID) {
                 return song
             }
         }
