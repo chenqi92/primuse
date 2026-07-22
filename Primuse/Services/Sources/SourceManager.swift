@@ -924,7 +924,8 @@ final class SourceManager {
                 try await operation()
             }
             group.addTask {
-                let nanoseconds = UInt64(max(0.1, seconds) * 1_000_000_000)
+                let nanoseconds = (max(0.1, seconds) * 1_000_000_000)
+                    .finiteUInt64(or: 100_000_000)
                 try await Task.sleep(nanoseconds: nanoseconds)
                 throw SourceError.timeout
             }
@@ -1072,7 +1073,7 @@ final class SourceManager {
     private nonisolated static let videoCacheChunkBytes: Int64 = 4 * 1024 * 1024
 
     private func videoCacheDirectory(for sourceID: String) -> URL {
-        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let dir = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
             .appendingPathComponent(Self.videoCacheDirName)
             .appendingPathComponent(sourceID)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -1308,7 +1309,7 @@ final class SourceManager {
     }
 
     private nonisolated func evictVideoCache(reserveBytes: Int64, protectedPaths: Set<String>) {
-        let basePath = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let basePath = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
             .appendingPathComponent(Self.videoCacheDirName)
         guard let enumerator = FileManager.default.enumerator(
             at: basePath,
@@ -1362,7 +1363,7 @@ final class SourceManager {
     private static let directDownloadUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 
     private func audioCacheDirectory(for sourceID: String) -> URL {
-        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let dir = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
             .appendingPathComponent(Self.audioCacheDirName)
             .appendingPathComponent(sourceID)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -1875,7 +1876,7 @@ final class SourceManager {
     /// 在任意线程跑。
     private static var audioCacheSizeDirs: [URL] {
         [
-            FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+            FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
                 .appendingPathComponent(audioCacheDirName),
             smbCacheDir,
         ]
@@ -1886,7 +1887,7 @@ final class SourceManager {
     /// (否则统计会系统性低估 SMB/SFTP/NFS/云 等源的真实占用)。
     static func perSourceCacheDirs(sourceID: String) -> [URL] {
         let fm = FileManager.default
-        let caches = fm.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let caches = fm.primuseDirectoryURL(for: .cachesDirectory)
         let temp = fm.temporaryDirectory
         return [
             caches.appendingPathComponent(audioCacheDirName).appendingPathComponent(sourceID),
@@ -1954,7 +1955,7 @@ final class SourceManager {
     }
 
     func audioCacheBreakdown() async -> AudioCacheBreakdown {
-        let basePath = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let basePath = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
             .appendingPathComponent(Self.audioCacheDirName)
         let aliveSourceIDs: Set<String>
         if let sources = try? await sourcesProvider() {
@@ -2065,7 +2066,7 @@ final class SourceManager {
     /// 重新下, 但不会丢功能。
     @discardableResult
     func purgeAllPartialFiles() -> (freedBytes: Int64, failedCount: Int) {
-        let basePath = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let basePath = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
             .appendingPathComponent(Self.audioCacheDirName)
         var freed: Int64 = 0
         var failed = 0
@@ -2107,7 +2108,7 @@ final class SourceManager {
     func deleteLocalCaches(for songs: [Song]) {
         guard songs.isEmpty == false else { return }
 
-        let cachesRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let cachesRoot = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
         let tempRoot = FileManager.default.temporaryDirectory
         var cacheTargets: [URL] = []
         cacheTargets.reserveCapacity(songs.count * 6)
@@ -2277,7 +2278,7 @@ final class SourceManager {
     /// removeItem 是 best-effort 的最后一步。
     @discardableResult
     func clearAudioCache() async -> (freedBytes: Int64, failedCount: Int) {
-        let basePath = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let basePath = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
             .appendingPathComponent(Self.audioCacheDirName)
         var freed: Int64 = 0
         var failed = 0
@@ -2333,7 +2334,7 @@ final class SourceManager {
     /// 只清 mtime 超过阈值的, 现在正在 streaming 的 `.partial` (mtime
     /// 是新的) 不会被误删。
     func pruneStalePartialFiles(olderThanDays days: Int = 7) {
-        let basePath = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let basePath = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
             .appendingPathComponent(Self.audioCacheDirName)
         guard let enumerator = FileManager.default.enumerator(
             at: basePath,
@@ -2367,7 +2368,7 @@ final class SourceManager {
     /// 回收磁盘, 不然 caches/primuse_audio_cache/<sourceID>/ 里的整本歌
     /// + `.partial` 半成品永远没人动。
     func purgeAudioCache(forSourceID sourceID: String) {
-        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let dir = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
             .appendingPathComponent(Self.audioCacheDirName)
             .appendingPathComponent(sourceID)
         try? FileManager.default.removeItem(at: dir)

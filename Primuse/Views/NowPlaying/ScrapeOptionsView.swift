@@ -353,7 +353,7 @@ struct ScrapeOptionsView: View {
                 Spacer(minLength: 6)
 
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text(verbatim: "\(Int((item.confidence * 100).rounded()))%")
+                    Text(verbatim: "\((item.confidence * 100).rounded().finiteInt())%")
                         .font(.system(size: 11, weight: .semibold, design: .monospaced))
                         .foregroundStyle(item.confidence > 0.9 ? PMColor.ok : PMColor.brand)
                     if item.sourceConfig.type.supportsWordLevelLyrics {
@@ -1595,7 +1595,8 @@ struct ScrapeOptionsView: View {
                 await applyResult(writeResult)
             }
             group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                let nanoseconds = (seconds * 1_000_000_000).finiteUInt64(or: 30_000_000_000)
+                try await Task.sleep(nanoseconds: nanoseconds)
                 throw CancellationError()
             }
             // 等任意一个先完成。如果是真实工作完成 → 第二个 sleep task 被 cancelAll
@@ -1617,7 +1618,7 @@ struct ScrapeOptionsView: View {
         var maxScore = 0.0
 
         let targetMs = song.duration.sanitizedDuration > 0
-            ? Int((song.duration.sanitizedDuration * 1000).rounded())
+            ? (song.duration.sanitizedDuration * 1000).rounded().finiteInt()
             : nil
         if let target = targetMs, let ms = durationMs {
             maxScore += 50

@@ -56,7 +56,7 @@ final class PlayHistoryStore {
     private var currentMaxElapsed: TimeInterval = 0
 
     private init() {
-        let docs = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let docs = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
             .appendingPathComponent("Primuse", isDirectory: true)
         try? FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true)
         self.storeURL = docs.appendingPathComponent("play_history.json")
@@ -127,7 +127,10 @@ final class PlayHistoryStore {
     func mergeRemoteEntries(_ remoteEntries: [Entry]) {
         guard !remoteEntries.isEmpty else { return }
         let before = Set(entries.map(\.id))
-        var mergedByID = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
+        var mergedByID = Dictionary(
+            entries.map { ($0.id, $0) },
+            uniquingKeysWith: { lhs, rhs in lhs.playedAt >= rhs.playedAt ? lhs : rhs }
+        )
         for entry in remoteEntries {
             mergedByID[entry.id] = entry
         }
@@ -193,8 +196,8 @@ final class PlayHistoryStore {
         let scoped = entries(in: range)
         let groups = Dictionary(grouping: scoped) { $0.songID }
         return groups
-            .map { (songID, plays) -> RankedItem in
-                let first = plays.first!
+            .compactMap { (songID, plays) -> RankedItem? in
+                guard let first = plays.first else { return nil }
                 return RankedItem(
                     id: songID,
                     title: first.songTitle,
@@ -233,8 +236,8 @@ final class PlayHistoryStore {
         let scoped = entries(in: range).filter { !$0.albumTitle.isEmpty }
         let groups = Dictionary(grouping: scoped) { "\($0.albumTitle)|\($0.artistName)" }
         return groups
-            .map { (key, plays) -> RankedItem in
-                let first = plays.first!
+            .compactMap { (key, plays) -> RankedItem? in
+                guard let first = plays.first else { return nil }
                 return RankedItem(
                     id: "album:\(key)",
                     title: first.albumTitle,

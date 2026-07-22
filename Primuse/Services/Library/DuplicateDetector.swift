@@ -29,7 +29,7 @@ enum DuplicateDetector {
             DuplicateKey(
                 title: normalize(song.title),
                 artist: normalize(song.artistName ?? ""),
-                durationBucket: Int(song.duration) / durationBucketSec
+                durationBucket: song.duration.finiteInt() / durationBucketSec
             )
         }
 
@@ -39,12 +39,13 @@ enum DuplicateDetector {
                 // 标题或艺术家是空的 group 没意义 (会把所有 "未知" 归为一组)
                 guard !key.title.isEmpty else { return nil }
                 let sorted = members.sorted { qualityScore(of: $0) > qualityScore(of: $1) }
-                let displaySong = sorted.first!
+                guard let displaySong = sorted.first else { return nil }
                 return DuplicateGroup(
                     id: "\(key.title)|\(key.artist)|\(key.durationBucket)",
                     title: displaySong.title,
                     artist: displaySong.artistName ?? "",
                     duration: displaySong.duration,
+                    bestSong: displaySong,
                     songs: sorted
                 )
             }
@@ -93,10 +94,10 @@ struct DuplicateGroup: Identifiable, Sendable {
     let title: String
     let artist: String
     let duration: TimeInterval
+    let bestSong: Song
     /// 按质量评分降序排列, 第一个是推荐保留的。
     let songs: [Song]
 
-    var bestSong: Song { songs.first! }
     var redundantSongs: [Song] { Array(songs.dropFirst()) }
     var count: Int { songs.count }
 }

@@ -222,19 +222,21 @@ public enum ID3TextMetadataParser {
     }
 
     private static func ascii(_ data: Data, at offset: Int, count: Int) -> String? {
-        guard offset >= 0, count >= 0, offset + count <= data.count else { return nil }
+        guard offset >= 0, count >= 0, offset <= data.count, count <= data.count - offset else {
+            return nil
+        }
         return String(data: data.subdata(in: offset..<(offset + count)), encoding: .isoLatin1)
     }
 
     private static func uint24BE(_ data: Data, at offset: Int) -> Int {
-        guard offset + 3 <= data.count else { return 0 }
+        guard offset >= 0, offset <= data.count - 3 else { return 0 }
         return (Int(data[offset]) << 16)
             | (Int(data[offset + 1]) << 8)
             | Int(data[offset + 2])
     }
 
     private static func uint32BE(_ data: Data, at offset: Int) -> Int {
-        guard offset + 4 <= data.count else { return 0 }
+        guard offset >= 0, offset <= data.count - 4 else { return 0 }
         return (Int(data[offset]) << 24)
             | (Int(data[offset + 1]) << 16)
             | (Int(data[offset + 2]) << 8)
@@ -242,7 +244,7 @@ public enum ID3TextMetadataParser {
     }
 
     private static func syncSafeInt(_ data: Data, at offset: Int) -> Int {
-        guard offset + 4 <= data.count else { return 0 }
+        guard offset >= 0, offset <= data.count - 4 else { return 0 }
         return (Int(data[offset] & 0x7F) << 21)
             | (Int(data[offset + 1] & 0x7F) << 14)
             | (Int(data[offset + 2] & 0x7F) << 7)

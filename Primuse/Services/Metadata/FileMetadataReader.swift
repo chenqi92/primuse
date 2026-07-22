@@ -601,14 +601,14 @@ enum FileMetadataReader {
     }
 
     private static func readUInt24BE(_ data: Data, at offset: Int) -> Int {
-        guard offset + 3 <= data.count else { return 0 }
+        guard offset >= 0, offset <= data.count - 3 else { return 0 }
         return (Int(data[offset]) << 16)
             | (Int(data[offset + 1]) << 8)
             | Int(data[offset + 2])
     }
 
     private static func readUInt32BE(_ data: Data, at offset: Int) -> Int {
-        guard offset + 4 <= data.count else { return 0 }
+        guard offset >= 0, offset <= data.count - 4 else { return 0 }
         return (Int(data[offset]) << 24)
             | (Int(data[offset + 1]) << 16)
             | (Int(data[offset + 2]) << 8)
@@ -616,7 +616,7 @@ enum FileMetadataReader {
     }
 
     private static func readSyncSafeInt(_ data: Data, at offset: Int) -> Int {
-        guard offset + 4 <= data.count else { return 0 }
+        guard offset >= 0, offset <= data.count - 4 else { return 0 }
         return (Int(data[offset] & 0x7F) << 21)
             | (Int(data[offset + 1] & 0x7F) << 14)
             | (Int(data[offset + 2] & 0x7F) << 7)
@@ -624,7 +624,9 @@ enum FileMetadataReader {
     }
 
     private static func asciiString(_ data: Data, start: Int, length: Int) -> String? {
-        guard start >= 0, length >= 0, start + length <= data.count else { return nil }
+        guard start >= 0, length >= 0, start <= data.count, length <= data.count - start else {
+            return nil
+        }
         return String(data: data.subdata(in: start..<(start + length)), encoding: .isoLatin1)
     }
 

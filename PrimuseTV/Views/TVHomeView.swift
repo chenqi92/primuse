@@ -15,7 +15,7 @@ struct TVHomeView: View {
     private var heroSongs: [TVSong] { store.songs(forAlbum: hero.id) }
     private var heroSubtitle: String {
         var parts = [PMString("ext.tv.songsCount", heroSongs.count)]
-        let mins = Int(heroSongs.reduce(0) { $0 + $1.duration } / 60)
+        let mins = (heroSongs.reduce(0) { $0 + $1.duration } / 60).finiteInt()
         if mins > 0 { parts.append(PMString("ext.tv.minCount", mins)) }
         if hero.year > 0 { parts.append("\(hero.year)") }
         parts.append(hero.artist)

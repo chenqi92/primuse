@@ -1,4 +1,5 @@
 import Foundation
+import PrimuseKit
 
 enum OfflineAudioCacheState: String, Codable, Sendable, Equatable {
     case notCached
@@ -48,7 +49,7 @@ actor AudioCacheManager {
     }
 
     private init() {
-        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let caches = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
         basePath = caches.appendingPathComponent("primuse_audio_cache")
         logURL = basePath.appendingPathComponent(".access_log.json")
         manifestURL = basePath.appendingPathComponent(".offline_manifest.json")

@@ -231,6 +231,7 @@ actor NFSSource: MusicSourceConnector {
     /// 的 NFS_READ RPC (offset + count), 协议级支持任意 offset 读, 让
     /// CloudPlaybackSource 边下边播替代整文件下载。
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+        guard length > 0 else { return Data() }
         let selection = try resolveSelectionPath(for: path)
         let client = try resolveClient()
         try await ensureConnected(to: selection.exportPath)
@@ -258,11 +259,17 @@ actor NFSSource: MusicSourceConnector {
                 }
             }
             let start = max(0, total + offset)
-            let end = min(total, start + length)
+            guard let requestedEnd = SafeByteRange.exclusiveEnd(offset: start, length: length) else {
+                return Data()
+            }
+            let end = min(total, requestedEnd)
             guard start < end else { return Data() }
             actualRange = start..<end
         } else {
-            actualRange = offset..<(offset + length)
+            guard let end = SafeByteRange.exclusiveEnd(offset: offset, length: length) else {
+                return Data()
+            }
+            actualRange = offset..<end
         }
 
         return try await withCheckedThrowingContinuation { continuation in

@@ -177,7 +177,7 @@ final class CloudKitSyncService {
         self.sourcesStore = sourcesStore
         self.scraperConfigStore = scraperConfigStore
         self.scraperSettingsStore = scraperSettingsStore
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appSupport = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
         let directory = appSupport.appendingPathComponent("Primuse", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         self.stateURL = directory.appendingPathComponent("cloudkit-engine-state.bin")

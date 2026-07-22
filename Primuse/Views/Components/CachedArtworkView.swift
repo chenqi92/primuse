@@ -544,9 +544,9 @@ struct CachedArtworkView: View {
             return cg.bytesPerRow * cg.height
         }
         #if os(iOS)
-        return Int(image.size.width * image.size.height * image.scale * image.scale * 4)
+        return (image.size.width * image.size.height * image.scale * image.scale * 4).finiteInt()
         #else
-        return Int(image.size.width * image.size.height * 4)
+        return (image.size.width * image.size.height * 4).finiteInt()
         #endif
     }
 

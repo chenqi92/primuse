@@ -368,7 +368,7 @@ struct TagEditorView: View {
 
     private var macDurationText: String {
         guard song.duration > 0 else { return "—" }
-        let total = Int(song.duration.rounded())
+        let total = song.duration.rounded().finiteInt()
         return String(format: "%d:%02d", total / 60, total % 60)
     }
 

@@ -138,6 +138,7 @@ actor SMBSource: MusicSourceConnector {
      /// 的 SMB2 READ (8-byte offset), 协议级支持 byte range, 让 CloudPlaybackSource
      /// 边下边播替代整文件下载。
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+        guard length > 0 else { return Data() }
         let normalizedPath = Self.normalizeRemotePath(path)
         let resolvedPath = try resolve(path: normalizedPath)
         guard case let .share(shareName, relativePath) = resolvedPath else {
@@ -157,13 +158,19 @@ actor SMBSource: MusicSourceConnector {
                     throw SourceError.fileNotFound(relativePath)
                 }
                 let start = max(0, total + offset)
-                let end = min(total, start + length)
+                guard let requestedEnd = SafeByteRange.exclusiveEnd(offset: start, length: length) else {
+                    return Data()
+                }
+                let end = min(total, requestedEnd)
                 guard start < end else { return Data() }
                 return try await client.contents(atPath: relativePath, range: UInt64(start)..<UInt64(end))
             }
+            guard let end = SafeByteRange.exclusiveEnd(offset: offset, length: length) else {
+                return Data()
+            }
             return try await client.contents(
                 atPath: relativePath,
-                range: UInt64(offset)..<UInt64(offset + length)
+                range: UInt64(offset)..<UInt64(end)
             )
         }
     }

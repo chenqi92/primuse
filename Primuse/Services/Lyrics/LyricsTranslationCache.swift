@@ -34,7 +34,7 @@ final class LyricsTranslationCache {
 
     private init() {
         let appSupport = FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .primuseDirectoryURL(for: .applicationSupportDirectory)
         let dir = appSupport.appendingPathComponent("Primuse/LyricsTranslation", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         self.fileURL = dir.appendingPathComponent("cache.json")

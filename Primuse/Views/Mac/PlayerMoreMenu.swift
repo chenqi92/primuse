@@ -640,14 +640,14 @@ private struct MacSleepTimerPopover: View {
 
     private var selectedPreset: Int? {
         guard let end = player.sleepTimerEndDate else { return nil }
-        let minutes = Int(round(end.timeIntervalSince(now) / 60.0))
+        let minutes = round(end.timeIntervalSince(now) / 60.0).finiteInt()
         return presets.min(by: { abs($0 - minutes) < abs($1 - minutes) })
             .flatMap { abs($0 - minutes) <= 1 ? $0 : nil }
     }
 
     private var statusText: String {
         if let end = player.sleepTimerEndDate {
-            let remaining = max(0, Int(end.timeIntervalSince(now)))
+            let remaining = max(0, end.timeIntervalSince(now).finiteInt())
             return "\(Lz("Remaining")) \(TimeInterval(remaining).formattedDuration)"
         }
         if player.sleepStopAfterSongID != nil {
@@ -687,7 +687,7 @@ struct MacSimilarSongsPopover: View {
         let song: Song
         let affinity: Double
         var id: String { song.id }
-        var score: Int { min(99, max(1, Int((affinity * 100).rounded()))) }
+        var score: Int { min(99, max(1, (affinity * 100).rounded().finiteInt(or: 1))) }
     }
 
     /// 全库相似度计算 (较重) —— 只在 seed 变化时算一次, 结果缓存到 `localRows`。

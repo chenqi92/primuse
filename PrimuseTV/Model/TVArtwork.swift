@@ -2,6 +2,7 @@
 import SwiftUI
 import UIKit
 import CryptoKit
+import PrimuseKit
 
 /// tvOS 封面加载:本地缓存 → iTunes Search API 在线取 → 落盘缓存。
 /// 本地曲库的封面缓存没同步到 tvOS,所以这里按「艺术家 + 专辑名」在线取真实封面;
@@ -13,7 +14,7 @@ actor TVArtworkLoader {
     private var negative: Set<String> = []   // 查不到的,本次会话不再反复请求
 
     private var cacheDir: URL {
-        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let base = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
         let dir = base.appendingPathComponent("PrimuseTVArtwork", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir

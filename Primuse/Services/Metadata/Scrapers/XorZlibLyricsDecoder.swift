@@ -46,7 +46,8 @@ enum XorZlibLyricsDecoder {
                 .replacingOccurrences(of: "]", with: "")
                 .split(separator: ",")
             guard nums.count == 2,
-                  let lineStart = Int(nums[0]), let lineDur = Int(nums[1]) else { continue }
+                  let lineStart = Int(nums[0]), let lineDur = Int(nums[1]),
+                  let lineEnd = safeAdd(lineStart, lineDur) else { continue }
 
             let body = String(line[head.upperBound...])
             let pieces = parseWordPieces(body)
@@ -57,11 +58,13 @@ enum XorZlibLyricsDecoder {
 
             lineOut.append("[\(fmt(lineStart))]\(plain)")
 
+            let absoluteStarts = pieces.compactMap { safeAdd(lineStart, $0.offsetRel) }
+            guard absoluteStarts.count == pieces.count else { continue }
             var wordLine = "[\(fmt(lineStart))]"
-            for p in pieces {
-                wordLine += "<\(fmt(lineStart + p.offsetRel))>\(p.text)"
+            for (piece, absoluteStart) in zip(pieces, absoluteStarts) {
+                wordLine += "<\(fmt(absoluteStart))>\(piece.text)"
             }
-            wordLine += "<\(fmt(lineStart + lineDur))>"
+            wordLine += "<\(fmt(lineEnd))>"
             wordOut.append(wordLine)
         }
 
@@ -91,12 +94,18 @@ enum XorZlibLyricsDecoder {
     }
 
     private static func fmt(_ ms: Int) -> String {
-        let totalCs = (ms + 5) / 10
+        // Round without `ms + 5`, which can overflow on malformed lyrics.
+        let totalCs = ms / 10 + (ms % 10 >= 5 ? 1 : 0)
         let cs = totalCs % 100
         let totalSec = totalCs / 100
         let s = totalSec % 60
         let m = totalSec / 60
         return String(format: "%02d:%02d.%02d", m, s, cs)
+    }
+
+    private static func safeAdd(_ lhs: Int, _ rhs: Int) -> Int? {
+        let (sum, overflow) = lhs.addingReportingOverflow(rhs)
+        return overflow ? nil : sum
     }
 
     private static func inflateZlib(_ data: Data) -> Data? {

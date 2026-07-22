@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import PrimuseKit
 import UniformTypeIdentifiers
 
 /// resolveVideoAsset 的返回形态: 直链/本地文件给 AVPlayer(url:),
@@ -98,9 +99,18 @@ final class MusicVideoStreamingLoader: NSObject, @unchecked Sendable {
         }
 
         var offset = dataRequest.requestedOffset
-        let end: Int64 = dataRequest.requestsAllDataToEndOfResource
-            ? contentLength
-            : min(contentLength, offset + Int64(dataRequest.requestedLength))
+        let end: Int64
+        if dataRequest.requestsAllDataToEndOfResource {
+            end = contentLength
+        } else if let requestedEnd = SafeByteRange.exclusiveEnd(
+            offset: offset,
+            length: Int64(dataRequest.requestedLength)
+        ) {
+            end = min(contentLength, requestedEnd)
+        } else {
+            finish(box, error: CocoaError(.fileReadInvalidFileName))
+            return
+        }
 
         do {
             while offset < end {
@@ -130,9 +140,13 @@ final class MusicVideoStreamingLoader: NSObject, @unchecked Sendable {
     /// 长度覆盖请求区间即可信; 下载完成瞬间 partial 被 move 成 target,
     /// 读失败自然落到下一候选或网络直取。
     private func readLocalRange(offset: Int64, length: Int) -> Data? {
+        guard length >= 0,
+              let end = SafeByteRange.exclusiveEnd(offset: offset, length: Int64(length)) else {
+            return nil
+        }
         for candidate in [cacheTarget, cachePartial] {
             guard let size = (try? FileManager.default.attributesOfItem(atPath: candidate.path)[.size]) as? Int64,
-                  size >= offset + Int64(length),
+                  size >= end,
                   let handle = try? FileHandle(forReadingFrom: candidate) else { continue }
             defer { try? handle.close() }
             guard (try? handle.seek(toOffset: UInt64(offset))) != nil,

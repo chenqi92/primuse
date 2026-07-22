@@ -525,7 +525,7 @@ struct PlaylistDetailView: View {
             Color(red: 0.4, green: 0.7, blue: 0.95),
             Color(red: 0.7, green: 0.6, blue: 0.95),
         ]
-        let h = abs(source.type.rawValue.hashValue) % palette.count
+        let h = source.type.rawValue.utf8.reduce(0) { ($0 + Int($1)) % palette.count }
         return palette[h]
     }
     #endif

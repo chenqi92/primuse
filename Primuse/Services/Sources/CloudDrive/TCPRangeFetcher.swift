@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import PrimuseKit
 import Security
 
 /// 用 `NWConnection` 走 TCP + HTTP/1.1 发 Range GET，从协议层绕开 HTTP/3(QUIC)。
@@ -55,7 +56,8 @@ enum TCPRangeFetcher {
         timeoutSeconds: TimeInterval
     ) async throws -> Data {
         guard let host = url.host else { throw FetchError.badURL }
-        let port = NWEndpoint.Port(rawValue: UInt16(url.port ?? 443)) ?? 443
+        let rawPort = UInt16(exactly: url.port ?? 443) ?? 443
+        let port = NWEndpoint.Port(rawValue: rawPort) ?? 443
         let endpoint = await TCPConnectionPool.shared.endpoint(host: host, port: port)
         return try await endpoint.fetch(
             url: url, offset: offset, length: length,
@@ -197,7 +199,9 @@ private actor TCPHostEndpoint {
                     )
                 }
                 group.addTask {
-                    try await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
+                    let nanoseconds = (max(0.1, timeoutSeconds) * 1_000_000_000)
+                        .finiteUInt64(or: 100_000_000)
+                    try await Task.sleep(nanoseconds: nanoseconds)
                     pooled.cancel()  // 取消连接，唤醒上面挂起的握手/收发 continuation。
                     throw TCPRangeFetcher.FetchError.timeout
                 }
@@ -306,7 +310,9 @@ private final class PooledConnection: @unchecked Sendable {
         let encodedPath = comps?.percentEncodedPath ?? url.path
         var path = encodedPath.isEmpty ? "/" : encodedPath
         if let q = comps?.percentEncodedQuery ?? url.query, !q.isEmpty { path += "?" + q }
-        let rangeHeader = offset < 0 ? "bytes=\(offset)" : "bytes=\(offset)-\(offset + length - 1)"
+        guard let rangeHeader = SafeByteRange.httpHeader(offset: offset, length: length) else {
+            throw TCPRangeFetcher.FetchError.malformedResponse
+        }
         var head = "GET \(path) HTTP/1.1\r\n"
         head += "Host: \(host)\r\n"
         head += "Range: \(rangeHeader)\r\n"
@@ -332,7 +338,10 @@ private final class PooledConnection: @unchecked Sendable {
             let total = Int64(body.count)
             let actualOffset = offset < 0 ? max(0, total + offset) : offset
             guard actualOffset < total else { return Data() }
-            let upper = min(actualOffset + length, total)
+            guard let requestedEnd = SafeByteRange.exclusiveEnd(offset: actualOffset, length: length) else {
+                return Data()
+            }
+            let upper = min(requestedEnd, total)
             return body.subdata(in: Int(actualOffset)..<Int(upper))
         default:
             throw TCPRangeFetcher.FetchError.http(status)
@@ -443,7 +452,10 @@ private final class PooledConnection: @unchecked Sendable {
             if lower.hasPrefix("content-length:") {
                 let v = line.drop(while: { $0 != ":" }).dropFirst()
                     .trimmingCharacters(in: .whitespaces)
-                cl = Int(v)
+                guard let parsedLength = Int(v), parsedLength >= 0 else {
+                    throw TCPRangeFetcher.FetchError.malformedResponse
+                }
+                cl = parsedLength
             } else if lower.hasPrefix("transfer-encoding:") && lower.contains("chunked") {
                 chunked = true
             }
@@ -461,7 +473,8 @@ private final class PooledConnection: @unchecked Sendable {
             let sizeLine = data.subdata(in: i..<lineEnd.lowerBound)
             guard let sizeStr = String(data: sizeLine, encoding: .ascii)?
                 .split(separator: ";").first.map(String.init),
-                  let size = Int(sizeStr.trimmingCharacters(in: .whitespaces), radix: 16) else { return nil }
+                  let size = Int(sizeStr.trimmingCharacters(in: .whitespaces), radix: 16),
+                  size >= 0 else { return nil }
             if size == 0 {
                 // 终止块：到最终空行(可能带 trailer)为止。
                 if let term = data.range(of: dblCrlf, in: i..<data.endIndex) {
@@ -490,7 +503,8 @@ private final class PooledConnection: @unchecked Sendable {
             let sizeLine = data.subdata(in: i..<lineEnd.lowerBound)
             guard let sizeStr = String(data: sizeLine, encoding: .ascii)?
                 .split(separator: ";").first.map(String.init),
-                  let size = Int(sizeStr.trimmingCharacters(in: .whitespaces), radix: 16) else { break }
+                  let size = Int(sizeStr.trimmingCharacters(in: .whitespaces), radix: 16),
+                  size >= 0 else { break }
             if size == 0 { break }
             let chunkStart = lineEnd.upperBound
             let chunkEnd = data.index(chunkStart, offsetBy: size, limitedBy: data.endIndex) ?? data.endIndex

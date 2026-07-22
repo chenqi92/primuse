@@ -23,7 +23,7 @@ enum TVPlaybackIssue: Equatable {
 /// 把真实歌曲解析成网络流 URL 并交给 AVPlayer;解析失败转成可展示的 TVPlaybackIssue。
 @MainActor
 final class TVPlaybackCoordinator {
-    private unowned let store: TVStore
+    private weak var store: TVStore?
     private let engine: TVAudioEngine
     private let registry = StreamResolverRegistry.shared
 
@@ -38,6 +38,9 @@ final class TVPlaybackCoordinator {
         startAt: Double = 0,
         autoPlay: Bool = true
     ) async {
+        // Keep the store alive for the whole asynchronous playback setup. A queued
+        // task may otherwise outlive TVStore and turn an `unowned` access into a trap.
+        guard let store else { return }
         store.playbackIssue = nil
         guard let song = store.library.song(id: songID) else {
             plog("🎬 TV play: song not found id=\(songID)")
@@ -185,6 +188,7 @@ final class TVPlaybackCoordinator {
         startAt: Double,
         autoPlay: Bool
     ) async {
+        guard let store else { return }
         do {
             let tempURL = try await downloadToTemp(song: song, source: source, credential: credential, ext: ext)
             engine.loadDecoded(fileURL: tempURL, title: song.title, artist: song.artistName ?? "",

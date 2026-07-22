@@ -254,6 +254,9 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
     /// 元数据齐全, backfill 跳过它, 正常只会收到正 offset。
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
         try await connect()
+        guard let rangeHeader = SafeByteRange.httpHeader(offset: offset, length: length) else {
+            return Data()
+        }
         guard let songID = songID(from: path),
               let url = buildRESTURL(
                   method: "stream",
@@ -266,11 +269,7 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
         }
 
         var request = URLRequest(url: url)
-        if offset < 0 {
-            request.setValue("bytes=\(offset)", forHTTPHeaderField: "Range")
-        } else {
-            request.setValue("bytes=\(offset)-\(offset + length - 1)", forHTTPHeaderField: "Range")
-        }
+        request.setValue(rangeHeader, forHTTPHeaderField: "Range")
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             throw SourceError.connectionFailed("HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)")

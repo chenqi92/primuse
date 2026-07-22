@@ -1,4 +1,5 @@
 import Foundation
+import PrimuseKit
 
 /// Thread-safe file logger that writes to the app's Caches directory.
 /// The log file URL is exposed via `logFileURL` for sharing/diagnostics
@@ -24,7 +25,7 @@ final class FileLogger: @unchecked Sendable {
     private var currentBytes: Int = 0
 
     private init() {
-        let docs = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let docs = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
         fileURL = docs.appendingPathComponent("primuse_debug.log")
         rotatedURL = docs.appendingPathComponent("primuse_debug.log.1")
 

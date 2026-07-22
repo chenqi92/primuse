@@ -161,7 +161,7 @@ struct ListeningStatsView: View {
         let counts = snapshot.dailyCounts
         let days = max(counts.count, 1)
         let totalMin = Int(s.totalSec / 60)
-        let coverage = Int((Double(s.activeDays) / Double(days) * 100).rounded())
+        let coverage = (Double(s.activeDays) / Double(days) * 100).rounded().finiteInt()
         let coverLabel = (range == .week || range == .month) ? "覆盖率" : "全年覆盖率"
         return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 4), spacing: 14) {
             macSummaryCell(value: decimal(s.totalPlays),
@@ -212,7 +212,9 @@ struct ListeningStatsView: View {
             return "全部历史累计"
         }
         guard previous > 0 else { return "暂无往期对比" }
-        let pct = Int((Double(current - previous) / Double(previous) * 100).rounded())
+        let pct = ((Double(current) - Double(previous)) / Double(previous) * 100)
+            .rounded()
+            .finiteInt()
         let vs: String
         switch range {
         case .week:  vs = "上周"
@@ -770,9 +772,9 @@ struct ListeningStatsView: View {
 
     private func formatHours(_ sec: TimeInterval) -> String {
         if sec < 60 {
-            return String(format: String(localized: "stats_seconds_format"), Int(sec))
+            return String(format: String(localized: "stats_seconds_format"), sec.finiteInt())
         }
-        let totalMin = Int(sec / 60)
+        let totalMin = (sec / 60).finiteInt()
         if totalMin < 60 {
             return String(format: String(localized: "stats_minutes_format"), totalMin)
         }

@@ -377,7 +377,7 @@ struct YearlyReportView: View {
                     names.isEmpty ? String(localized: "yearly_meta_genres_sub_empty") : String(localized: "yearly_meta_genres_sub"),
                     "guitars", false)
         case .exploration:
-            let focus = Int((data.explorationTopArtistShare * 100).rounded())
+            let focus = (data.explorationTopArtistShare * 100).rounded().finiteInt()
             let exploration = max(0, 100 - focus)
             let tendency = data.personality?.exploration == .explorer
                 ? String(localized: "yearly_exploration_explorer")
@@ -431,8 +431,8 @@ struct YearlyReportView: View {
 
     private func formatDuration(_ sec: TimeInterval) -> String {
         guard sec > 0 else { return String(localized: "yearly_duration_zero") }
-        let hours = Int(sec / 3600)
-        let minutes = Int(sec.truncatingRemainder(dividingBy: 3600) / 60)
+        let hours = (sec / 3600).finiteInt()
+        let minutes = (sec.truncatingRemainder(dividingBy: 3600) / 60).finiteInt()
         if hours > 0 { return String(format: String(localized: "yearly_duration_hm_format"), hours, minutes) }
         return String(format: String(localized: "yearly_duration_minutes_format"), minutes)
     }

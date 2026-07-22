@@ -335,11 +335,11 @@ private final class HTTPRangeFetcher: @unchecked Sendable {
     }
 
     func fetch(offset: Int64, length: Int64) async throws -> Data {
+        guard let rangeHeader = SafeByteRange.httpHeader(offset: offset, length: length) else {
+            return Data()
+        }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        let rangeHeader = offset < 0
-            ? "bytes=\(offset)"
-            : "bytes=\(offset)-\(offset + length - 1)"
         request.setValue(rangeHeader, forHTTPHeaderField: "Range")
         request.timeoutInterval = 60
 
@@ -490,6 +490,10 @@ private final class State: @unchecked Sendable {
         errorOut: AutoreleasingUnsafeMutablePointer<NSError?>?
     ) -> Data? {
         if offset >= totalLength { return Data() }
+        guard let requestedEnd = SafeByteRange.exclusiveEnd(offset: offset, length: length) else {
+            errorOut?.pointee = NSError(domain: NSPOSIXErrorDomain, code: Int(EINVAL))
+            return nil
+        }
         if isClosed() {
             errorOut?.pointee = NSError(
                 domain: NSPOSIXErrorDomain,
@@ -498,7 +502,7 @@ private final class State: @unchecked Sendable {
             )
             return nil
         }
-        let endOffset = min(offset + length, totalLength)
+        let endOffset = min(requestedEnd, totalLength)
 
         let served: Data?
 
@@ -886,18 +890,19 @@ private final class State: @unchecked Sendable {
     }
 
     private func readFromCacheIfAvailable(offset: Int64, endOffset: Int64) -> Data? {
+        guard offset >= 0, endOffset >= offset else { return nil }
         lock.lock()
         let coveringRange = cachedRanges.first { $0.contains(offset) }
         let url = activeURL
         lock.unlock()
         guard let coveringRange else { return nil }
         let upper = min(endOffset, coveringRange.upperBound)
-        guard upper > offset else { return nil }
+        guard upper > offset, let readLength = Int(exactly: upper - offset) else { return nil }
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
         do {
             try handle.seek(toOffset: UInt64(offset))
-            return try handle.read(upToCount: Int(upper - offset))
+            return try handle.read(upToCount: readLength)
         } catch {
             return nil
         }
@@ -919,7 +924,9 @@ private final class State: @unchecked Sendable {
         }
 
         lock.lock()
-        mergeRange(offset..<offset + Int64(data.count))
+        if let end = SafeByteRange.exclusiveEnd(offset: offset, length: Int64(data.count)) {
+            mergeRange(offset..<end)
+        }
         // Once the entire file is covered AND we're allowed to persist,
         // rename .partial → final so the canonical cache path is only
         // ever populated when truly complete. Future plays of this song

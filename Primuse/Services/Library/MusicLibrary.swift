@@ -388,7 +388,10 @@ enum MusicDiscoveryEngine {
         // String.folding / 路径拆分。先把每首歌的比较特征归一化一次，
         // 后续 candidate × seed 只做普通值比较。
         let normalizedSongs = songs.map(NormalizedSong.init)
-        let byID = Dictionary(uniqueKeysWithValues: normalizedSongs.map { ($0.song.id, $0) })
+        let byID = Dictionary(
+            normalizedSongs.map { ($0.song.id, $0) },
+            uniquingKeysWith: { current, _ in current }
+        )
         let seeds = input.seedIDs.compactMap { byID[$0] }
 
         guard !seeds.isEmpty else {
@@ -966,9 +969,9 @@ final class MusicLibrary {
     init(fileManager: FileManager = .default) {
         // tvOS 只允许写 Caches / tmp;须与 LibrarySnapshotSync / SourcesStore 同目录。
         #if os(tvOS)
-        let appSupport = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let appSupport = fileManager.primuseDirectoryURL(for: .cachesDirectory)
         #else
-        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appSupport = fileManager.primuseDirectoryURL(for: .applicationSupportDirectory)
         #endif
         let directory = appSupport.appendingPathComponent("Primuse", isDirectory: true)
         try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -1877,7 +1880,10 @@ final class MusicLibrary {
     ) -> [PendingSongIdentity] {
         let now = Date()
         let cutoff = now.addingTimeInterval(-Self.pendingIdentityTTL)
-        let existingByIdentity = Dictionary(uniqueKeysWithValues: existing.map { ($0.identity, $0) })
+        let existingByIdentity = Dictionary(
+            existing.map { ($0.identity, $0) },
+            uniquingKeysWith: { lhs, rhs in lhs.firstSeenAt <= rhs.firstSeenAt ? lhs : rhs }
+        )
         var result: [PendingSongIdentity] = []
         var seen = Set<SongIdentity>()
         for identity in fresh {

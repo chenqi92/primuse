@@ -221,7 +221,7 @@ public struct ListeningStatsSnapshot: Codable, Sendable {
         self.updatedAt = updatedAt
     }
 
-    public var totalHours: Int { Int((totalSeconds / 3600).rounded()) }
+    public var totalHours: Int { (totalSeconds / 3600).rounded().finiteInt() }
 
     public static func load() -> ListeningStatsSnapshot? {
         WidgetSharedStore.load(ListeningStatsSnapshot.self, key: PrimuseConstants.listeningStatsKey)

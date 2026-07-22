@@ -478,7 +478,7 @@ actor ConfigurableScraper: MusicScraper {
             // 用公开 API 安全中断 JSContext; 这是不引私有符号下的合理代价)。
             watchdog.asyncAfter(deadline: .now() + timeout) {
                 if guardBox.claim() {
-                    plog("⏱️ JS[\(configID)] execution timed out after \(Int(timeout))s, abandoning")
+                    plog("⏱️ JS[\(configID)] execution timed out after \(timeout.finiteInt())s, abandoning")
                     continuation.resume(throwing: ScraperError.parseError("Script execution timed out"))
                 }
             }
@@ -798,7 +798,8 @@ enum PlainHTTPClient {
         guard let url = request.url,
               url.scheme == "http",
               let host = url.host,
-              let port = NWEndpoint.Port(rawValue: UInt16(url.port ?? 80)) else {
+              let rawPort = UInt16(exactly: url.port ?? 80),
+              let port = NWEndpoint.Port(rawValue: rawPort) else {
             throw ScraperError.networkError("Invalid HTTP URL: \(request.url?.absoluteString ?? "nil")")
         }
 
@@ -822,7 +823,7 @@ enum PlainHTTPClient {
             // receiveLoop 永不回调,这里兜底 cancel 连接并 finish,避免 continuation
             // 永久挂起及 NWConnection 泄漏。finish 幂等,正常完成后此回调是 no-op。
             queue.asyncAfter(deadline: .now() + timeout) {
-                finish(.failure(ScraperError.networkError("HTTP request timed out after \(Int(timeout))s")))
+                finish(.failure(ScraperError.networkError("HTTP request timed out after \(timeout.finiteInt())s")))
             }
 
             @Sendable func receiveLoop() {

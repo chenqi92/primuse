@@ -43,7 +43,7 @@ actor S3Source: MusicSourceConnector {
         self.secretKey = secretKey
         self.useSsl = useSsl
 
-        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let cacheDir = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
             .appendingPathComponent("primuse_s3_cache/\(sourceID)")
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
         self.cacheDirectory = cacheDir
@@ -129,9 +129,9 @@ actor S3Source: MusicSourceConnector {
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
         let url = try objectURL(for: path)
         var request = try signedRequest(url: url, method: "GET")
-        let rangeHeader = offset < 0
-            ? "bytes=\(offset)"
-            : "bytes=\(offset)-\(offset + length - 1)"
+        guard let rangeHeader = SafeByteRange.httpHeader(offset: offset, length: length) else {
+            return Data()
+        }
         request.setValue(rangeHeader, forHTTPHeaderField: "Range")
         request.timeoutInterval = 60
 
@@ -146,7 +146,10 @@ actor S3Source: MusicSourceConnector {
             let total = Int64(data.count)
             let actualOffset = offset < 0 ? max(0, total + offset) : offset
             guard actualOffset < total else { return Data() }
-            let upper = min(actualOffset + length, total)
+            guard let requestedEnd = SafeByteRange.exclusiveEnd(offset: actualOffset, length: length) else {
+                return Data()
+            }
+            let upper = min(requestedEnd, total)
             return data.subdata(in: Int(actualOffset)..<Int(upper))
         default:
             throw SourceError.connectionFailed("S3 range request failed: HTTP \(http.statusCode)")

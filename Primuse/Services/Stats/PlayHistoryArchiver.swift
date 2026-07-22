@@ -139,7 +139,7 @@ enum PlayHistoryArchiver {
     }
 
     private static func archiveDirectory() -> URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
             .appendingPathComponent("Primuse", isDirectory: true)
             .appendingPathComponent(directoryName, isDirectory: true)
     }

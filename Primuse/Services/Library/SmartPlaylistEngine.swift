@@ -266,7 +266,9 @@ enum SmartPlaylistEngine {
     }()
 
     private static func parseDate(_ text: String) -> Date? {
-        if text.hasPrefix("days:"), let days = Int(text.dropFirst("days:".count)) {
+        if text.hasPrefix("days:"),
+           let days = Int(text.dropFirst("days:".count)),
+           days >= 0 {
             return Calendar.current.date(byAdding: .day, value: -days, to: Date())
         }
         if let d = isoFormatter.date(from: text) { return d }
@@ -282,6 +284,7 @@ enum SmartPlaylistEngine {
         smart: SmartPlaylist,
         history: PlayHistoryStore
     ) -> [Song] {
+        let safeLimit = max(0, smart.limit ?? Int.max)
         let sorted: [Song]
         switch smart.sortField {
         case .title:
@@ -302,12 +305,12 @@ enum SmartPlaylistEngine {
             sorted = songs.sorted { (lookup[$0.id] ?? 0) < (lookup[$1.id] ?? 0) }
         case .random:
             // random 模式忽略 direction (用户既然要随机就别再纠结升降序)
-            return Array(songs.shuffled().prefix(smart.limit ?? Int.max))
+            return Array(songs.shuffled().prefix(safeLimit))
         }
 
         let directional = smart.sortDirection == .descending ? Array(sorted.reversed()) : sorted
-        if let limit = smart.limit, directional.count > limit {
-            return Array(directional.prefix(limit))
+        if directional.count > safeLimit {
+            return Array(directional.prefix(safeLimit))
         }
         return directional
     }

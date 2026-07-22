@@ -140,7 +140,7 @@ final class MetadataBackfillService {
         self.library = library
         self.sourceManager = sourceManager
         self.backfillableSourceIDs = backfillableSourceIDs
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appSupport = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
         let directory = appSupport.appendingPathComponent("Primuse", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         self.failedURL = directory.appendingPathComponent("backfill-failed.json")
@@ -952,7 +952,7 @@ final class MetadataBackfillService {
         let seconds: TimeInterval
 
         var errorDescription: String? {
-            "Timed out reading tags after \(Int(seconds))s"
+            "Timed out reading tags after \(seconds.finiteInt())s"
         }
     }
 
@@ -1017,7 +1017,8 @@ final class MetadataBackfillService {
     ) async throws -> T {
         try await withCheckedThrowingContinuation { continuation in
             let box = AsyncTimeoutBox<T>(continuation)
-            let timeoutNanoseconds = UInt64(max(0.1, seconds) * 1_000_000_000)
+            let timeoutNanoseconds = (max(0.1, seconds) * 1_000_000_000)
+                .finiteUInt64(or: 100_000_000)
 
             let workTask = Task {
                 do {
@@ -1165,7 +1166,9 @@ final class MetadataBackfillService {
                   (metadata.bitRate ?? 0) <= 0,
                   metadata.duration > 0,
                   song.fileSize > 0 {
-            metadata.bitRate = Int((Double(song.fileSize) * 8.0 / metadata.duration / 1000.0).rounded())
+            metadata.bitRate = (Double(song.fileSize) * 8.0 / metadata.duration / 1000.0)
+                .rounded()
+                .finiteInt()
         }
         let merged = mergeSong(bare: song, metadata: metadata)
         let artworkStillMissing = Self.needsEmbeddedArtworkBackfill(song)

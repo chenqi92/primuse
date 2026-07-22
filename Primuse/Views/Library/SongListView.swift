@@ -1069,7 +1069,7 @@ struct SongListView: View {
             Color(red: 0.4, green: 0.7, blue: 0.95),
             Color(red: 0.7, green: 0.6, blue: 0.95),
         ]
-        let h = abs(source.type.rawValue.hashValue) % palette.count
+        let h = source.type.rawValue.utf8.reduce(0) { ($0 + Int($1)) % palette.count }
         return palette[h]
     }
 
@@ -1156,7 +1156,10 @@ struct SongListView: View {
             recomputeSorted()
             return
         }
-        let byID = Dictionary(uniqueKeysWithValues: songs.map { ($0.id, $0) })
+        let byID = Dictionary(
+            songs.map { ($0.id, $0) },
+            uniquingKeysWith: { current, _ in current }
+        )
         let sortKeyChanged = cachedSortedSongs.contains { old in
             guard let new = byID[old.id] else { return false }
             return sortKey(for: new) != sortKey(for: old)

@@ -117,7 +117,7 @@ final class ScrobbleService {
               var session = currentSession,
               session.entry.songID == songID else { return }
 
-        let durationSec = Int(duration)
+        let durationSec = duration.finiteInt()
         guard durationSec > 0, session.entry.durationSec != durationSec else { return }
 
         let old = session.entry
@@ -297,7 +297,8 @@ final class ScrobbleService {
                 // 等到下一个 due 时间, 最长睡 60s 一次让 cancel 能生效
                 let nextWake = (queue.map(\.nextRetryAt).min() ?? now) - now
                 let sleep = max(5, min(60, nextWake))
-                try? await Task.sleep(nanoseconds: UInt64(sleep * 1_000_000_000))
+                let nanoseconds = (sleep * 1_000_000_000).finiteUInt64(or: 5_000_000_000)
+                try? await Task.sleep(nanoseconds: nanoseconds)
                 if Task.isCancelled { return }
                 continue
             }
@@ -409,7 +410,9 @@ final class ScrobbleService {
             artist: song.artistName ?? "Unknown Artist",
             album: song.albumTitle,
             albumArtist: nil,
-            durationSec: song.duration > 0 ? Int(song.duration) : nil,
+            durationSec: song.duration.isFinite && song.duration > 0
+                ? song.duration.finiteInt()
+                : nil,
             trackNumber: song.trackNumber,
             startedAt: Int64(Date().timeIntervalSince1970)
         )

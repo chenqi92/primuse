@@ -556,7 +556,7 @@ struct MacHomeView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     taskProgressBar(progress)
-                    Text(verbatim: "\(Int(min(max(progress, 0), 1) * 100))%")
+                    Text(verbatim: "\((min(max(progress, 0), 1) * 100).finiteInt())%")
                         .font(.system(size: 10.5, weight: .medium, design: .monospaced))
                         .foregroundStyle(PMColor.textMuted)
                         .monospacedDigit()
@@ -1197,7 +1197,7 @@ private struct MacHomeSourceStatusCard: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     progressBar(progress)
-                    Text(verbatim: "\(Int(min(max(progress, 0), 1) * 100))%")
+                    Text(verbatim: "\((min(max(progress, 0), 1) * 100).finiteInt())%")
                         .font(.system(size: 10.5, weight: .medium, design: .monospaced))
                         .foregroundStyle(PMColor.textMuted)
                         .monospacedDigit()

@@ -53,6 +53,9 @@ actor FTPByteReader: ByteRangeReader {
     }
 
     func read(offset: Int64, length: Int64) async throws -> Data {
+        guard SafeByteRange.exclusiveEnd(offset: offset, length: length) != nil else {
+            return Data()
+        }
         let path = filePath
         let p = provider
         let len = Int(min(max(0, length), Int64(Int.max)))

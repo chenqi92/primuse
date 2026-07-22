@@ -280,6 +280,7 @@ extension MusicSourceConnector {
     /// Default fallback: download the whole file via `localURL` then slice.
     /// Correct but slow. Cloud connectors override this with HTTP Range.
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+        guard length > 0 else { return Data() }
         let url = try await localURL(for: path)
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
@@ -288,6 +289,9 @@ extension MusicSourceConnector {
         if offset < 0 {
             actualOffset = UInt64(max(0, fileSize + offset))
         } else {
+            guard SafeByteRange.exclusiveEnd(offset: offset, length: length) != nil else {
+                return Data()
+            }
             actualOffset = UInt64(offset)
         }
         try handle.seek(toOffset: actualOffset)

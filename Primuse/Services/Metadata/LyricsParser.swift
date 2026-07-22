@@ -33,7 +33,8 @@ enum LyricsParser {
             }
 
             // 取最后一个行首时间戳之后的内容作为正文
-            let bodyStart = heads.last!.range.upperBound
+            guard let lastHead = heads.last else { continue }
+            let bodyStart = lastHead.range.upperBound
             let body = String(raw[bodyStart...])
 
             for head in heads {
@@ -83,8 +84,9 @@ enum LyricsParser {
         for i in 0..<(syllables.count - 1) {
             syllables[i].end = max(syllables[i].end, syllables[i + 1].start)
         }
-        if syllables.last!.end <= syllables.last!.start {
-            syllables[syllables.count - 1].end = syllables.last!.start + 0.4
+        if let lastIndex = syllables.indices.last,
+           syllables[lastIndex].end <= syllables[lastIndex].start {
+            syllables[lastIndex].end = syllables[lastIndex].start + 0.4
         }
 
         let plain = syllables.map(\.text).joined()
@@ -128,8 +130,9 @@ enum LyricsParser {
                 syllables[i].end = syllables[i + 1].start
             }
         }
-        if syllables.last!.end <= syllables.last!.start {
-            syllables[syllables.count - 1].end = syllables.last!.start + 0.4
+        if let lastIndex = syllables.indices.last,
+           syllables[lastIndex].end <= syllables[lastIndex].start {
+            syllables[lastIndex].end = syllables[lastIndex].start + 0.4
         }
 
         let plain = syllables.map(\.text).joined()

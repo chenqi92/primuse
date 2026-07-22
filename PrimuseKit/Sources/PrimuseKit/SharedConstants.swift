@@ -161,6 +161,62 @@ public enum SafeJSONSerialization {
     }
 }
 
+public extension BinaryFloatingPoint {
+    /// Converts a floating-point value to `Int` without allowing malformed
+    /// metadata (`NaN`, infinity, or an out-of-range finite value) to trap.
+    /// Callers can choose a domain-appropriate fallback; durations normally
+    /// use zero so an invalid value is treated as unknown.
+    func finiteInt(or fallback: Int = 0) -> Int {
+        let value = Double(self)
+        guard value.isFinite,
+              value >= Double(Int.min),
+              value < Double(Int.max) else {
+            return fallback
+        }
+        return Int(value)
+    }
+
+    /// Converts a floating-point value to `UInt64` without trapping on
+    /// negative, non-finite, or out-of-range timeout/configuration values.
+    func finiteUInt64(or fallback: UInt64 = 0) -> UInt64 {
+        let value = Double(self)
+        guard value.isFinite,
+              value >= 0,
+              value < Double(UInt64.max) else {
+            return fallback
+        }
+        return UInt64(value)
+    }
+}
+
+public extension FileManager {
+    /// Search-path APIs normally return one URL on Apple platforms, but using
+    /// `.first!` turns an unusual container/filesystem failure into a process
+    /// trap. Temporary storage is a safe last-resort location for startup.
+    func primuseDirectoryURL(for directory: SearchPathDirectory) -> URL {
+        urls(for: directory, in: .userDomainMask).first ?? temporaryDirectory
+    }
+}
+
+public enum SafeByteRange {
+    /// Returns the exclusive end for a non-negative byte range, or `nil`
+    /// when the range is empty, negative, or would overflow `Int64`.
+    public static func exclusiveEnd(offset: Int64, length: Int64) -> Int64? {
+        guard offset >= 0, length > 0 else { return nil }
+        let (end, overflow) = offset.addingReportingOverflow(length)
+        guard !overflow, end > offset else { return nil }
+        return end
+    }
+
+    /// RFC 7233 Range header. Negative offsets use suffix-range syntax.
+    public static func httpHeader(offset: Int64, length: Int64) -> String? {
+        guard length > 0 else { return nil }
+        if offset < 0 { return "bytes=\(offset)" }
+        guard let end = exclusiveEnd(offset: offset, length: length) else { return nil }
+        return "bytes=\(offset)-\(end - 1)"
+    }
+}
+
 public enum PrimuseConstants {
     public static let appGroupIdentifier = "group.com.welape.yuanyin"
     public static let playbackStateKey = "playbackState"

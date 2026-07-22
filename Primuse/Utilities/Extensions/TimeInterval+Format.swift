@@ -1,4 +1,5 @@
 import Foundation
+import PrimuseKit
 
 extension TimeInterval {
     static func sanitized(_ value: TimeInterval?) -> TimeInterval {
@@ -11,7 +12,7 @@ extension TimeInterval {
     }
 
     var formattedDuration: String {
-        let totalSeconds = Int(sanitizedDuration.rounded(.down))
+        let totalSeconds = sanitizedDuration.rounded(.down).finiteInt()
         let hours = totalSeconds / 3600
         let minutes = (totalSeconds % 3600) / 60
         let seconds = totalSeconds % 60
@@ -23,7 +24,7 @@ extension TimeInterval {
     }
 
     var formattedShort: String {
-        let totalSeconds = Int(sanitizedDuration.rounded(.down))
+        let totalSeconds = sanitizedDuration.rounded(.down).finiteInt()
         let hours = totalSeconds / 3600
         let minutes = (totalSeconds % 3600) / 60
 

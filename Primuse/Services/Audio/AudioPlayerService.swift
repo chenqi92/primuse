@@ -3275,7 +3275,7 @@ final class AudioPlayerService {
         nextURL: URL,
         nextDecoderKind: DecoderKind
     ) {
-        let totalSteps = max(1, Int(duration / 0.05))
+        let totalSteps = max(1, (duration / 0.05).finiteInt(or: 1))
         let stepCounter = StepCounter()
         let rampPlayID = playID
 
@@ -4179,8 +4179,8 @@ final class AudioPlayerService {
             state.albumTitle ?? "",
             state.coverImageName ?? "",
             state.isPlaying ? "1" : "0",
-            String(Int(state.currentTime.rounded())),
-            String(Int(state.duration.rounded()))
+            String(state.currentTime.rounded().finiteInt()),
+            String(state.duration.rounded().finiteInt())
         ].joined(separator: "|")
     }
 }

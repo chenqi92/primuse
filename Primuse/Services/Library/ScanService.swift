@@ -75,7 +75,7 @@ final class ScanService {
     private let decoder = JSONDecoder()
 
     init(fileManager: FileManager = .default) {
-        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appSupport = fileManager.primuseDirectoryURL(for: .applicationSupportDirectory)
         let directory = appSupport.appendingPathComponent("Primuse", isDirectory: true)
         try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         checkpointURL = directory.appendingPathComponent("scan-checkpoints.json")

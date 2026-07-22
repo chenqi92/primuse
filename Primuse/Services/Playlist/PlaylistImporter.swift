@@ -93,7 +93,10 @@ enum PlaylistImporter {
         // 命中停用源的歌只会出现在全量 library.songs 里, 写进歌单后通过
         // songs(forPlaylist:) 也看不到, 会造成"导入成功却凭空少歌"。
         let visibleSongs = library.visibleSongs
-        let songsByID = Dictionary(uniqueKeysWithValues: visibleSongs.map { ($0.id, $0) })
+        let songsByID = Dictionary(
+            visibleSongs.map { ($0.id, $0) },
+            uniquingKeysWith: { current, _ in current }
+        )
         let entries = file.tracks.map { track -> ImportEntry in
             // 1. song.id 完全匹配
             if let s = songsByID[track.songID] {

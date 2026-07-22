@@ -115,17 +115,15 @@ actor UPnPSource: SongScanningConnector {
     }
 
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
-        guard length > 0 else { return Data() }
+        guard let rangeHeader = SafeByteRange.httpHeader(offset: offset, length: length) else {
+            return Data()
+        }
 
         let remoteURL = try playbackURL(for: path)
         var request = URLRequest(url: remoteURL)
         request.httpMethod = "GET"
         request.timeoutInterval = 30
-        if offset < 0 {
-            request.setValue("bytes=\(offset)", forHTTPHeaderField: "Range")
-        } else {
-            request.setValue("bytes=\(offset)-\(offset + length - 1)", forHTTPHeaderField: "Range")
-        }
+        request.setValue(rangeHeader, forHTTPHeaderField: "Range")
 
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -139,7 +137,10 @@ actor UPnPSource: SongScanningConnector {
             let totalSize = Int64(data.count)
             let actualOffset = offset < 0 ? max(0, totalSize + offset) : offset
             guard actualOffset < totalSize else { return Data() }
-            let upperBound = min(actualOffset + length, totalSize)
+            guard let requestedEnd = SafeByteRange.exclusiveEnd(offset: actualOffset, length: length) else {
+                return Data()
+            }
+            let upperBound = min(requestedEnd, totalSize)
             return data.subdata(in: Int(actualOffset)..<Int(upperBound))
         default:
             throw SourceError.connectionFailed("UPnP range request failed: HTTP \(httpResponse.statusCode)")

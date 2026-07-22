@@ -627,7 +627,7 @@ struct MacNowPlayingView: View {
             ), accessibilityLabel: String(localized: "volume"))
             .frame(width: 118)
 
-            Text(verbatim: "\(Int((engine.volume * 100).rounded()))")
+            Text(verbatim: "\((engine.volume * 100).rounded().finiteInt())")
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                 .monospacedDigit()
                 .foregroundStyle(.white.opacity(0.62))

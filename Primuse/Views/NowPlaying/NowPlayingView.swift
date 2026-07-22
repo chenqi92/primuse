@@ -2516,7 +2516,9 @@ struct LyricsScrollView: View {
     private func scheduleWordAutoFollowResume() {
         wordAutoFollowResumeTask?.cancel()
         wordAutoFollowResumeTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: UInt64(Self.manualScrollGracePeriod * 1_000_000_000))
+            let nanoseconds = (Self.manualScrollGracePeriod * 1_000_000_000)
+                .finiteUInt64(or: 1_000_000_000)
+            try? await Task.sleep(nanoseconds: nanoseconds)
             guard !Task.isCancelled else { return }
             guard Date().timeIntervalSince(lastUserScrollTime) >= Self.manualScrollGracePeriod else { return }
             wordDragStartOffset = wordAutoOffset

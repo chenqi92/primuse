@@ -27,7 +27,7 @@ actor UgreenSource: MusicSourceConnector {
         self.sourceID = sourceID
         self.api = UgreenAPI(host: host, port: port, useSsl: useSsl)
         self.username = username; self.password = password
-        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let dir = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
             .appendingPathComponent("primuse_audio_cache/\(sourceID)")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         self.cacheDirectory = dir
@@ -108,14 +108,14 @@ actor UgreenSource: MusicSourceConnector {
     /// 下载。
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
         try await connect()
+        guard let rangeHeader = SafeByteRange.httpHeader(offset: offset, length: length) else {
+            return Data()
+        }
         guard let url = await api.downloadURL(path: path) else {
             throw SourceError.fileNotFound(path)
         }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        let rangeHeader = offset < 0
-            ? "bytes=\(offset)"
-            : "bytes=\(offset)-\(offset + length - 1)"
         request.setValue(rangeHeader, forHTTPHeaderField: "Range")
         request.timeoutInterval = 60
 
@@ -138,7 +138,10 @@ actor UgreenSource: MusicSourceConnector {
             let total = Int64(data.count)
             let actualOffset = offset < 0 ? max(0, total + offset) : offset
             guard actualOffset < total else { return Data() }
-            let upper = min(actualOffset + length, total)
+            guard let requestedEnd = SafeByteRange.exclusiveEnd(offset: actualOffset, length: length) else {
+                return Data()
+            }
+            let upper = min(requestedEnd, total)
             return data.subdata(in: Int(actualOffset)..<Int(upper))
         default:
             throw SourceError.connectionFailed("Ugreen range request failed: HTTP \(http.statusCode)")

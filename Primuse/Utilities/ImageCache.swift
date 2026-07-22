@@ -1,4 +1,5 @@
 import Foundation
+import PrimuseKit
 #if os(iOS)
 #if os(iOS)
 import UIKit
@@ -17,7 +18,7 @@ actor ImageCache {
         memoryCache.countLimit = 200
         memoryCache.totalCostLimit = 50 * 1024 * 1024 // 50 MB
 
-        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let cacheDir = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
         cacheDirectory = cacheDir.appendingPathComponent("cover_art")
         try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
     }

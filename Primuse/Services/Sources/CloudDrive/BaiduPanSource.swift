@@ -700,7 +700,8 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
             // 31034: 接口频次超限 — 退避重试
             if errno == 31034, attempt < Self.rateLimitMaxRetries {
                 plog("☁️ Baidu rate-limited, backoff \(backoff)s and retry")
-                try await Task.sleep(nanoseconds: UInt64(backoff * 1_000_000_000))
+                let nanoseconds = (backoff * 1_000_000_000).finiteUInt64(or: 1_000_000_000)
+                try await Task.sleep(nanoseconds: nanoseconds)
                 backoff *= 2
                 attempt += 1
                 continue
@@ -718,7 +719,8 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
         lastRequestAt = reservedTime
         let wait = reservedTime.timeIntervalSince(now)
         if wait > 0 {
-            try await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
+            let nanoseconds = (wait * 1_000_000_000).finiteUInt64()
+            try await Task.sleep(nanoseconds: nanoseconds)
         }
     }
 

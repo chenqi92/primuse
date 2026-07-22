@@ -73,9 +73,10 @@ actor NFSByteReader: ByteRangeReader {
     }
 
     func read(offset: Int64, length: Int64) async throws -> Data {
+        guard let end = SafeByteRange.exclusiveEnd(offset: offset, length: length) else {
+            return Data()
+        }
         let c = try await ensure()
-        let end = offset + max(0, length)
-        guard offset < end else { return Data() }
         let rel = relativePath
         return try await withCheckedThrowingContinuation { cont in
             c.contents(atPath: rel, range: offset..<end, progress: nil) { result in

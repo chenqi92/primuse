@@ -31,6 +31,27 @@ import Testing
     #expect(didThrow)
 }
 
+@Test func finiteIntRejectsNonFiniteAndOutOfRangeValues() {
+    #expect(42.9.finiteInt() == 42)
+    #expect(Double.nan.finiteInt() == 0)
+    #expect(Double.infinity.finiteInt(or: 7) == 7)
+    #expect(Double(Int.max).finiteInt(or: 9) == 9)
+    #expect(Double(Int.min).finiteInt() == Int.min)
+    #expect(Float(42.9).finiteInt() == 42)
+    #expect(Float.nan.finiteInt(or: 3) == 3)
+    #expect((-1.0).finiteUInt64(or: 5) == 5)
+    #expect(Double.infinity.finiteUInt64(or: 6) == 6)
+}
+
+@Test func safeByteRangeRejectsInvalidAndOverflowingRanges() {
+    #expect(SafeByteRange.exclusiveEnd(offset: 10, length: 5) == 15)
+    #expect(SafeByteRange.exclusiveEnd(offset: -1, length: 5) == nil)
+    #expect(SafeByteRange.exclusiveEnd(offset: Int64.max - 1, length: 2) == nil)
+    #expect(SafeByteRange.httpHeader(offset: 10, length: 5) == "bytes=10-14")
+    #expect(SafeByteRange.httpHeader(offset: -5, length: 5) == "bytes=-5")
+    #expect(SafeByteRange.httpHeader(offset: 0, length: 0) == nil)
+}
+
 @Test func testAudioFormatRouting() {
     #expect(AudioFormat.mp3.requiresFFmpeg == false)
     #expect(AudioFormat.flac.requiresFFmpeg == false)

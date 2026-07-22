@@ -511,7 +511,7 @@ extension CarPlaySceneDelegate {
             return a < b
         }
         return sortedKeys.map { letter in
-            let sectionItems = grouped[letter]!.map(makeItem)
+            let sectionItems = (grouped[letter] ?? []).map(makeItem)
             return CPListSection(items: sectionItems, header: letter, sectionIndexTitle: letter)
         }
     }

@@ -57,9 +57,10 @@ actor SMBByteReader: ByteRangeReader {
     }
 
     func read(offset: Int64, length: Int64) async throws -> Data {
+        guard let end = SafeByteRange.exclusiveEnd(offset: offset, length: length) else {
+            return Data()
+        }
         let m = try await ensure()
-        let end = offset + max(0, length)
-        guard offset < end else { return Data() }
         return try await m.contents(atPath: relativePath, range: UInt64(offset)..<UInt64(end))
     }
 

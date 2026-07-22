@@ -54,7 +54,7 @@ actor LRCLIBScraper: MusicScraper {
         }
         let safeDuration = duration?.sanitizedDuration ?? 0
         if safeDuration > 0 {
-            queryItems.append(URLQueryItem(name: "duration", value: String(Int(safeDuration.rounded(.down)))))
+            queryItems.append(URLQueryItem(name: "duration", value: String(safeDuration.rounded(.down).finiteInt())))
         }
         components.queryItems = queryItems
 

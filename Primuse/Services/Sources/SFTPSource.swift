@@ -190,6 +190,7 @@ actor SFTPSource: MusicSourceConnector {
     /// 每次开关 file handle 一次 (SSH 连接复用), 8 路并发 prefetch 时
      /// 同时开多个 file 也安全。
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+        guard length > 0 else { return Data() }
         guard let sftp else {
             throw SourceError.connectionFailed("Not connected")
         }

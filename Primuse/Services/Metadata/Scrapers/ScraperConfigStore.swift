@@ -1,4 +1,5 @@
 import Foundation
+import PrimuseKit
 
 /// Non-persistent review payload shown before a custom scraper is imported.
 struct ScraperImportSummary: Sendable {
@@ -41,7 +42,7 @@ final class ScraperConfigStore: @unchecked Sendable {
     private let lock = NSLock()
 
     private init() {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appSupport = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
         configDir = appSupport.appendingPathComponent("Primuse/ScraperConfigs")
         try? FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
         loadAll()
@@ -204,13 +205,14 @@ final class ScraperConfigStore: @unchecked Sendable {
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw ScraperConfigError.downloadFailed("HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)")
         }
-        if let length = http.value(forHTTPHeaderField: "Content-Length").flatMap(Int.init),
-           length > Self.maxRemoteImportBytes {
-            throw ScraperConfigError.downloadFailed("Response too large")
+        let declaredLength = http.value(forHTTPHeaderField: "Content-Length").flatMap(Int.init)
+        if let declaredLength,
+           declaredLength < 0 || declaredLength > Self.maxRemoteImportBytes {
+            throw ScraperConfigError.downloadFailed("Invalid response size")
         }
 
         var data = Data()
-        data.reserveCapacity(min(http.value(forHTTPHeaderField: "Content-Length").flatMap(Int.init) ?? 0, Self.maxRemoteImportBytes))
+        data.reserveCapacity(min(declaredLength ?? 0, Self.maxRemoteImportBytes))
         for try await byte in bytes {
             if data.count >= Self.maxRemoteImportBytes {
                 throw ScraperConfigError.downloadFailed("Response too large")

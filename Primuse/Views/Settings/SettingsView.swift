@@ -827,9 +827,9 @@ struct PlaybackSettingsView: View {
                         Text("crossfade_duration")
                             .font(.caption)
                         Slider(value: $settings.crossfadeDuration, in: 1...12, step: 1) {
-                            Text("\(Int(settings.crossfadeDuration))s")
+                            Text("\(settings.crossfadeDuration.finiteInt())s")
                         }
-                        Text("\(Int(settings.crossfadeDuration)) \(String(localized: "seconds"))")
+                        Text("\(settings.crossfadeDuration.finiteInt()) \(String(localized: "seconds"))")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }

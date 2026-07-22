@@ -444,7 +444,7 @@ private struct MacSTSlider: View {
     init(value: Binding<Double>,
          in range: ClosedRange<Double> = 0...100,
          width: CGFloat = 200,
-         formatter: @escaping (Double) -> String = { "\(Int($0.rounded()))" }) {
+         formatter: @escaping (Double) -> String = { "\($0.rounded().finiteInt())" }) {
         self._value = value
         self.range = range
         self.width = width
@@ -683,10 +683,10 @@ private struct MacSTPlaybackView: View {
                         MacSTSlider(
                             value: Binding(
                                 get: { Double(s.prewarmQueueCount) },
-                                set: { s.prewarmQueueCount = Int($0.rounded()) }
+                                set: { s.prewarmQueueCount = $0.rounded().finiteInt() }
                             ),
                             in: 0...8,
-                            formatter: { "\(Int($0.rounded()))" }
+                            formatter: { "\($0.rounded().finiteInt())" }
                         )
                     }
                 }
@@ -743,7 +743,7 @@ private struct MacSTEqualizerView: View {
         MacEQFaderCard(
             bands: eq.bandFrequencyLabels,
             gains: Binding(
-                get: { eq.bands.map { Int($0.rounded()) } },
+                get: { eq.bands.map { $0.rounded().finiteInt() } },
                 set: { newGains in
                     for (i, g) in newGains.enumerated() {
                         eq.setBand(i, gain: Float(g))
@@ -847,7 +847,7 @@ private struct MacEQFader: View {
                         guard let start = dragStartGain else { return }
                         // 上拖 (negative y) → 增益变高
                         let deltaDB = -g.translation.height / dbPerPoint
-                        gain = max(-12, min(12, start + Int(deltaDB.rounded())))
+                        gain = max(-12, min(12, start + deltaDB.rounded().finiteInt()))
                     }
                     .onEnded { _ in dragStartGain = nil }
             )
@@ -1058,7 +1058,7 @@ private struct MacSTScrapingView: View {
                     MacSTSlider(
                         value: $sidecarWriteTimeout,
                         in: 5...120,
-                        formatter: { "\(Int($0.rounded()))s" }
+                        formatter: { "\($0.rounded().finiteInt())s" }
                     )
                 }
             }
@@ -1523,7 +1523,7 @@ private struct MacScraperImportPreview {
 
     var rateLimitText: String {
         guard let rateLimitMs, rateLimitMs > 0 else { return "60 rpm · burst 8" }
-        let rpm = max(1, Int((60_000.0 / Double(rateLimitMs)).rounded()))
+        let rpm = max(1, (60_000.0 / Double(rateLimitMs)).rounded().finiteInt(or: 1))
         return "\(rpm) rpm · burst 8"
     }
 
@@ -2303,7 +2303,7 @@ enum MacWidgetDataPublisher {
         let summary = store.summary(in: .year)
         WrappedSnapshot(
             year: year,
-            totalHours: Int((summary.totalSec / 3600).rounded()),
+            totalHours: (summary.totalSec / 3600).rounded().finiteInt(),
             topArtist: store.topArtists(in: .year, limit: 1).first?.title,
             topSong: store.topSongs(in: .year, limit: 1).first?.title
         ).save()

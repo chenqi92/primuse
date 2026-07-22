@@ -7,7 +7,7 @@ actor LibraryDatabase {
 
     static func create() async throws -> LibraryDatabase {
         let fileManager = FileManager.default
-        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appSupport = fileManager.primuseDirectoryURL(for: .applicationSupportDirectory)
         let dbDirectory = appSupport.appendingPathComponent("Primuse", isDirectory: true)
         try fileManager.createDirectory(at: dbDirectory, withIntermediateDirectories: true)
 

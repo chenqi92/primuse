@@ -733,7 +733,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
 
     private static func lyricsToLRC(_ lines: [LyricLine]) -> String {
         lines.map { line in
-            let minutes = Int(line.timestamp) / 60
+            let minutes = line.timestamp.finiteInt() / 60
             let seconds = line.timestamp - Double(minutes * 60)
             return String(format: "[%02d:%05.2f]%@", minutes, seconds, line.text)
         }

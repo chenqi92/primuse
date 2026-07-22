@@ -199,7 +199,7 @@ struct OverviewCard: View {
     }
 
     private func growthText(_ growth: Double) -> String {
-        let pct = Int(abs(growth * 100))
+        let pct = abs(growth * 100).finiteInt()
         if growth > 0.05 {
             return String(format: String(localized: "yearly_card_growth_more_format"), pct)
         } else if growth < -0.05 {
@@ -664,7 +664,7 @@ struct ExplorationCard: View {
     let data: YearlyReportData
 
     private var focusPercent: Int {
-        Int((data.explorationTopArtistShare * 100).rounded())
+        (data.explorationTopArtistShare * 100).rounded().finiteInt()
     }
 
     private var explorationPercent: Int {
@@ -914,8 +914,8 @@ struct ClosingCard: View {
 // MARK: - Helpers
 
 private func formatDuration(_ seconds: TimeInterval) -> String {
-    let h = Int(seconds / 3600)
-    let m = Int(seconds.truncatingRemainder(dividingBy: 3600) / 60)
+    let h = (seconds / 3600).finiteInt()
+    let m = (seconds.truncatingRemainder(dividingBy: 3600) / 60).finiteInt()
     if h > 0 { return String(format: String(localized: "yearly_duration_hm_format"), h, m) }
     return String(format: String(localized: "yearly_duration_minutes_format"), m)
 }

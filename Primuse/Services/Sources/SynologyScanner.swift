@@ -462,7 +462,7 @@ actor SynologyScanner {
         // Try to download file header and parse with AVFoundation
         do {
             // Download first 4MB (enough for ID3/FLAC/MP4 metadata + cover art)
-            let readSize = min(Int(item.size), 4 * 1024 * 1024)
+            let readSize = min(Int(clamping: item.size), 4 * 1024 * 1024)
             guard readSize > 0 else {
                 return makeSong(id: songID, title: title, artist: artist, album: album,
                                trackNumber: trackNumber, duration: duration, format: format,

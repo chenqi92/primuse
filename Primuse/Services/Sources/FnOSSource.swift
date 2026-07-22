@@ -29,7 +29,7 @@ actor FnOSSource: MusicSourceConnector {
         self.sourceID = sourceID
         self.api = FnOSAPI(host: host, port: port, useSsl: useSsl)
         self.username = username; self.password = password
-        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let dir = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
             .appendingPathComponent("primuse_audio_cache/\(sourceID)")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         self.cacheDirectory = dir
@@ -111,14 +111,14 @@ actor FnOSSource: MusicSourceConnector {
     /// 直接生效, 让 CloudPlaybackSource 边下边播替代整文件下载。
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
         try await connect()
+        guard let rangeHeader = SafeByteRange.httpHeader(offset: offset, length: length) else {
+            return Data()
+        }
         guard let url = await api.downloadURL(path: path) else {
             throw SourceError.fileNotFound(path)
         }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        let rangeHeader = offset < 0
-            ? "bytes=\(offset)"  // suffix-byte form: bytes=-N
-            : "bytes=\(offset)-\(offset + length - 1)"
         request.setValue(rangeHeader, forHTTPHeaderField: "Range")
         if let token = await api.token {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -145,7 +145,10 @@ actor FnOSSource: MusicSourceConnector {
             let total = Int64(data.count)
             let actualOffset = offset < 0 ? max(0, total + offset) : offset
             guard actualOffset < total else { return Data() }
-            let upper = min(actualOffset + length, total)
+            guard let requestedEnd = SafeByteRange.exclusiveEnd(offset: actualOffset, length: length) else {
+                return Data()
+            }
+            let upper = min(requestedEnd, total)
             return data.subdata(in: Int(actualOffset)..<Int(upper))
         default:
             throw SourceError.connectionFailed("fnOS range request failed: HTTP \(http.statusCode)")

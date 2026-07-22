@@ -88,7 +88,7 @@ enum PlaylistExporter {
         lines.append("#PLAYLIST:\(playlist.name)")
         for song in songs {
             // EXTINF: 时长 (秒, 整数), 艺术家 - 歌曲名
-            let duration = max(0, Int(song.duration.rounded()))
+            let duration = max(0, song.duration.rounded().finiteInt())
             let displayArtist = song.artistName ?? ""
             let title = displayArtist.isEmpty ? song.title : "\(displayArtist) - \(song.title)"
             lines.append("#EXTINF:\(duration),\(title)")
@@ -138,7 +138,9 @@ enum PlaylistExporter {
                 title: song.title,
                 artistName: song.artistName,
                 albumTitle: song.albumTitle,
-                durationSec: song.duration > 0 ? Int(song.duration) : nil,
+                durationSec: song.duration.isFinite && song.duration > 0
+                    ? song.duration.finiteInt()
+                    : nil,
                 trackNumber: song.trackNumber,
                 discNumber: song.discNumber,
                 fileFormat: song.fileFormat.displayName,

@@ -41,7 +41,7 @@ final class MusicScraperService {
 
     init(sourceManager: SourceManager) {
         self.sourceManager = sourceManager
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appSupport = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
         let directory = appSupport.appendingPathComponent("Primuse", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         scrapeCheckpointURL = directory.appendingPathComponent("scrape-checkpoint.json")
@@ -196,7 +196,7 @@ final class MusicScraperService {
                                 plog("⚠️ Sidecar write errors: \(writeResult.errors)")
                             }
                         } catch is CancellationError {
-                            plog("⚠️ Sidecar write timed out (\(Int(sidecarSettings.timeout))s) for '\(songForWrite.title)'")
+                            plog("⚠️ Sidecar write timed out (\(sidecarSettings.timeout.finiteInt())s) for '\(songForWrite.title)'")
                         } catch {
                             plog("⚠️ Sidecar write skipped for '\(songForWrite.title)': \(error.localizedDescription)")
                         }
@@ -313,7 +313,10 @@ final class MusicScraperService {
 
     func resumePendingScrape(in library: MusicLibrary) {
         guard !isScraping, let checkpoint = scrapeCheckpoint else { return }
-        let songsByID = Dictionary(uniqueKeysWithValues: library.visibleSongs.map { ($0.id, $0) })
+        let songsByID = Dictionary(
+            library.visibleSongs.map { ($0.id, $0) },
+            uniquingKeysWith: { current, _ in current }
+        )
         let startIndex = min(max(checkpoint.nextSongIndex, 0), checkpoint.songIDs.count)
         let songs = checkpoint.songIDs.dropFirst(startIndex).compactMap { songsByID[$0] }
         guard !songs.isEmpty else {
@@ -507,7 +510,7 @@ final class MusicScraperService {
                                         plog("⚠️ Batch sidecar errors for '\(songForWrite.title)': \(writeResult.errors)")
                                     }
                                 } catch is CancellationError {
-                                    plog("⚠️ Batch sidecar timed out (\(Int(sidecarSettings.timeout))s) for '\(songForWrite.title)'")
+                                    plog("⚠️ Batch sidecar timed out (\(sidecarSettings.timeout.finiteInt())s) for '\(songForWrite.title)'")
                                 } catch {
                                     plog("⚠️ Batch sidecar skipped for '\(songForWrite.title)': \(error.localizedDescription)")
                                 }
@@ -1054,7 +1057,9 @@ final class MusicScraperService {
                 return writeResult
             }
             group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(max(0.1, seconds) * 1_000_000_000))
+                let nanoseconds = (max(0.1, seconds) * 1_000_000_000)
+                    .finiteUInt64(or: 100_000_000)
+                try await Task.sleep(nanoseconds: nanoseconds)
                 throw CancellationError()
             }
 

@@ -872,8 +872,9 @@ final class DLNARendererService {
                 let value = line.split(separator: ":", maxSplits: 1).last ?? ""
                 return Int(value.trimmingCharacters(in: .whitespaces))
             } ?? 0
-        let totalLength = headerEnd + contentLength
-        guard data.count >= totalLength else { return nil }
+        guard contentLength >= 0 else { return nil }
+        let (totalLength, overflow) = headerEnd.addingReportingOverflow(contentLength)
+        guard !overflow, totalLength >= headerEnd, data.count >= totalLength else { return nil }
         return String(data: data.prefix(totalLength), encoding: .utf8)
     }
 
@@ -921,7 +922,7 @@ final class DLNARendererService {
 
     private var renderingVolumePercent: Int {
         let volume = rendererMuted ? lastNonMutedVolume : player.audioEngine.volume
-        return max(0, min(100, Int((volume * 100).rounded())))
+        return max(0, min(100, Double(volume * 100).rounded().finiteInt()))
     }
 
     private func setRenderingVolumePercent(_ percent: Int) {
@@ -2811,6 +2812,7 @@ final class DLNAMediaServer {
 
     /// "Range: bytes=0-1024" / "bytes=500-" / "bytes=-200" 三种形式。
     private func parseByteRange(_ value: String, totalSize: Int) -> (Int, Int)? {
+        guard totalSize > 0 else { return nil }
         let prefix = "bytes="
         guard let rangeStart = value.range(of: prefix) else { return nil }
         let after = value[rangeStart.upperBound...]
@@ -2820,15 +2822,15 @@ final class DLNAMediaServer {
         let endStr = parts[1].trimmingCharacters(in: .whitespaces)
         if startStr.isEmpty {
             // "-200" → 最后 200 字节
-            guard let suffix = Int(endStr) else { return nil }
-            let start = max(0, totalSize - suffix)
+            guard let suffix = Int(endStr), suffix > 0 else { return nil }
+            let start = suffix >= totalSize ? 0 : totalSize - suffix
             return (start, totalSize - 1)
         }
-        guard let start = Int(startStr) else { return nil }
+        guard let start = Int(startStr), start >= 0, start < totalSize else { return nil }
         if endStr.isEmpty {
             return (start, totalSize - 1)
         }
-        guard let end = Int(endStr) else { return nil }
+        guard let end = Int(endStr), end >= start else { return nil }
         return (start, min(end, totalSize - 1))
     }
 

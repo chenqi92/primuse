@@ -194,7 +194,7 @@ struct MenuBarPlayerView: View {
             )
             .controlSize(.mini)
             .tint(PMColor.text.opacity(0.7))
-            Text(String(format: "%d", Int(engine.volume * 100)))
+            Text(String(format: "%d", Double(engine.volume * 100).finiteInt()))
                 .font(.system(size: 10, design: .monospaced))
                 .monospacedDigit()
                 .foregroundStyle(PMColor.textFaint)
@@ -276,7 +276,7 @@ private struct MenuBarPlayerProgress: View {
 
     private func formatTime(_ time: TimeInterval) -> String {
         guard time.isFinite, time >= 0 else { return "0:00" }
-        let total = Int(time)
+        let total = time.finiteInt()
         return String(format: "%d:%02d", total / 60, total % 60)
     }
 }

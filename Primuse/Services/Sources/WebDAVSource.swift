@@ -202,13 +202,12 @@ actor WebDAVSource: MusicSourceConnector {
     }
 
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+        guard let rangeHeader = SafeByteRange.httpHeader(offset: offset, length: length) else {
+            return Data()
+        }
         var request = URLRequest(url: try fileURL(for: path))
         request.httpMethod = "GET"
-        if offset < 0 {
-            request.setValue("bytes=\(offset)", forHTTPHeaderField: "Range")
-        } else {
-            request.setValue("bytes=\(offset)-\(offset + length - 1)", forHTTPHeaderField: "Range")
-        }
+        request.setValue(rangeHeader, forHTTPHeaderField: "Range")
         if !username.isEmpty || !password.isEmpty {
             let credential = Data("\(username):\(password)".utf8).base64EncodedString()
             request.setValue("Basic \(credential)", forHTTPHeaderField: "Authorization")
@@ -226,7 +225,10 @@ actor WebDAVSource: MusicSourceConnector {
             let totalSize = Int64(data.count)
             let actualOffset = offset < 0 ? max(0, totalSize + offset) : offset
             guard actualOffset < totalSize else { return Data() }
-            let upper = min(actualOffset + length, totalSize)
+            guard let requestedEnd = SafeByteRange.exclusiveEnd(offset: actualOffset, length: length) else {
+                return Data()
+            }
+            let upper = min(requestedEnd, totalSize)
             return data.subdata(in: Int(actualOffset)..<Int(upper))
         default:
             throw SourceError.connectionFailed("WebDAV range request failed: HTTP \(http.statusCode)")

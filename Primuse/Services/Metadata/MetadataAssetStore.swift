@@ -29,9 +29,9 @@ actor MetadataAssetStore {
     private init(fileManager: FileManager = .default) {
         // tvOS 只允许写 Caches / tmp;Application Support 不可写(歌词/封面落不了盘)。
         #if os(tvOS)
-        let appSupport = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let appSupport = fileManager.primuseDirectoryURL(for: .cachesDirectory)
         #else
-        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appSupport = fileManager.primuseDirectoryURL(for: .applicationSupportDirectory)
         #endif
         let rootDirectory = appSupport.appendingPathComponent("Primuse/MetadataAssets", isDirectory: true)
         artworkDirectory = rootDirectory.appendingPathComponent("artwork", isDirectory: true)
@@ -52,7 +52,7 @@ actor MetadataAssetStore {
         try? fileManager.createDirectory(at: artworkContentDirectory, withIntermediateDirectories: true)
 
         // One-time migration from old Caches location
-        let oldRoot = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let oldRoot = fileManager.primuseDirectoryURL(for: .cachesDirectory)
             .appendingPathComponent("primuse_metadata", isDirectory: true)
         migrateIfNeeded(from: oldRoot, fileManager: fileManager)
 

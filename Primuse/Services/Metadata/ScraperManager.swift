@@ -237,7 +237,7 @@ actor ScraperManager {
         durationMs targetMs: Int?,
         maxCount: Int
     ) -> [ScraperSearchItem] {
-        guard !items.isEmpty else { return [] }
+        guard !items.isEmpty, maxCount > 0 else { return [] }
         let normTitle = normalizeComparableText(title)
         let normArtist = normalizeComparableText(artist)
 

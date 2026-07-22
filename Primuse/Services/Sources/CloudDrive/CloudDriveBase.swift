@@ -78,7 +78,7 @@ struct CloudDriveHelper: Sendable {
     let tokenManager: CloudTokenManager
 
     var cacheDirectory: URL {
-        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let cacheDir = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
             .appendingPathComponent("primuse_cloud_cache/\(sourceID)")
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
         return cacheDir
@@ -152,14 +152,11 @@ struct CloudDriveHelper: Sendable {
                 throw CloudDriveError.apiError(code, "Range request failed (TCP)")
             }
         }
+        guard let rangeHeader = SafeByteRange.httpHeader(offset: offset, length: length) else {
+            return Data()
+        }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        let rangeHeader: String
-        if offset < 0 {
-            rangeHeader = "bytes=\(offset)"  // suffix-byte-range form: bytes=-N
-        } else {
-            rangeHeader = "bytes=\(offset)-\(offset + length - 1)"
-        }
         request.setValue(rangeHeader, forHTTPHeaderField: "Range")
         if let accessToken {
             request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
@@ -188,7 +185,10 @@ struct CloudDriveHelper: Sendable {
                 ? max(0, totalSize + offset)
                 : offset
             guard actualOffset < totalSize else { return Data() }
-            let upper = min(actualOffset + length, totalSize)
+            guard let requestedEnd = SafeByteRange.exclusiveEnd(offset: actualOffset, length: length) else {
+                return Data()
+            }
+            let upper = min(requestedEnd, totalSize)
             return data.subdata(in: Int(actualOffset)..<Int(upper))
         default:
             // Surface the status code so the caller can decide whether

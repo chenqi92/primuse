@@ -44,7 +44,7 @@ actor SynologySource: MusicSourceConnector {
         self.deviceId = deviceId
 
         // Use Caches directory (survives app restarts, system can purge when low on storage)
-        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let cacheDir = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
             .appendingPathComponent("primuse_audio_cache/\(sourceID)")
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
         self.cacheDirectory = cacheDir
@@ -213,14 +213,14 @@ actor SynologySource: MusicSourceConnector {
     }
 
     private func fetchRangeOnce(path: String, offset: Int64, length: Int64) async throws -> Data {
+        guard let rangeHeader = SafeByteRange.httpHeader(offset: offset, length: length) else {
+            return Data()
+        }
         guard let url = try await streamingURL(for: path) else {
             throw SynologyError.invalidURL
         }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        let rangeHeader = offset < 0
-            ? "bytes=\(offset)"  // suffix-byte form: bytes=-N (last N bytes)
-            : "bytes=\(offset)-\(offset + length - 1)"
         request.setValue(rangeHeader, forHTTPHeaderField: "Range")
         request.timeoutInterval = 60
 
@@ -252,7 +252,10 @@ actor SynologySource: MusicSourceConnector {
             let total = Int64(data.count)
             let actualOffset = offset < 0 ? max(0, total + offset) : offset
             guard actualOffset < total else { return Data() }
-            let upper = min(actualOffset + length, total)
+            guard let requestedEnd = SafeByteRange.exclusiveEnd(offset: actualOffset, length: length) else {
+                return Data()
+            }
+            let upper = min(requestedEnd, total)
             return data.subdata(in: Int(actualOffset)..<Int(upper))
         case 401:
             // Session expired —— surface as notLoggedIn so fetchRange can

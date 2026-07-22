@@ -1,6 +1,7 @@
 #if os(tvOS)
 import AVFoundation
 import Foundation
+import PrimuseKit
 import Security
 import UniformTypeIdentifiers
 
@@ -182,9 +183,17 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
                 // 拼进 Range 头也会被部分服务器拒为 416。改发开放式 Range(bytes=offset-)。
                 length = -1
             } else {
-                // 用 &+ 防御 requestedLength 极大时的加法溢出。
-                let requestedEnd = requestedStart &+ Int64(max(1, dataReq.requestedLength))
-                length = max(1, requestedEnd - offset)
+                let requestedLength = Int64(max(1, dataReq.requestedLength))
+                if let requestedEnd = SafeByteRange.exclusiveEnd(
+                    offset: requestedStart,
+                    length: requestedLength
+                ), requestedEnd > offset {
+                    length = requestedEnd - offset
+                } else {
+                    // An invalid/extreme request is safer as an open-ended
+                    // range than as wrapping signed arithmetic.
+                    length = -1
+                }
             }
         } else {
             offset = 0
@@ -192,8 +201,11 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
         }
         if length <= 0 {
             req.setValue("bytes=\(offset)-", forHTTPHeaderField: "Range")
+        } else if let rangeHeader = SafeByteRange.httpHeader(offset: offset, length: length) {
+            req.setValue(rangeHeader, forHTTPHeaderField: "Range")
         } else {
-            req.setValue("bytes=\(offset)-\(offset &+ length - 1)", forHTTPHeaderField: "Range")
+            loadingRequest.finishLoading(with: CocoaError(.fileReadInvalidFileName))
+            return false
         }
 
         let id = ObjectIdentifier(loadingRequest)
@@ -333,10 +345,12 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
             || http.value(forHTTPHeaderField: "Accept-Ranges")?.contains("bytes") == true
         // 优先用 Content-Range 的总长度(bytes a-b/total)
         if let range = http.value(forHTTPHeaderField: "Content-Range"),
-           let totalStr = range.split(separator: "/").last, let total = Int64(totalStr) {
+           let totalStr = range.split(separator: "/").last,
+           let total = Int64(totalStr), total >= 0 {
             info.contentLength = total
         } else if http.statusCode == 200,
-                  let lenStr = http.value(forHTTPHeaderField: "Content-Length"), let len = Int64(lenStr) {
+                  let lenStr = http.value(forHTTPHeaderField: "Content-Length"),
+                  let len = Int64(lenStr), len >= 0 {
             info.contentLength = len
         }
     }
