@@ -911,151 +911,50 @@ struct NowPlayingView: View {
     // MARK: - More Menu
 
     private var moreMenu: some View {
-        Menu {
-            // 收藏 / 编辑当前歌曲
-            Section {
-                Button { showAddToPlaylist = true } label: {
-                    Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
-                }
-                .disabled(player.currentSong == nil)
+        let snapshot = NowPlayingMoreMenuSnapshot(
+            songID: player.currentSong?.id,
+            hasSong: player.currentSong != nil,
+            isAppleMusicMode: player.isAppleMusicMode,
+            showsLyricsPreferences: showLyrics,
+            albumID: currentAlbum?.id,
+            artistID: currentArtist?.id,
+            canOpenAlbum: currentAlbum != nil && onOpenAlbum != nil,
+            canOpenArtist: currentArtist != nil && onOpenArtist != nil,
+            shareText: player.currentSong.map { "\($0.title) - \($0.artistName ?? "")" },
+            castingRendererName: player.castingRenderer?.friendlyName,
+            isSleepTimerActive: player.isSleepTimerActive,
+            lyricsFontScale: lyricsFontScale,
+            playbackRate: playbackSettings.playbackRate,
+            isLyricsTranslationEnabled: LyricsTranslationSettingsStore.shared.isEnabled
+        )
 
-                Button { showSimilarSongs = true } label: {
-                    Label(String(localized: "similar_songs"), systemImage: "sparkles")
-                }
-                .disabled(player.currentSong == nil)
-
-                if !player.isAppleMusicMode {
-                    Button { showTagEditor = true } label: {
-                        Label(String(localized: "tag_editor_menu"), systemImage: "tag")
-                    }
-                    .disabled(player.currentSong == nil)
-                }
-            }
-
-            // 信息 / 分享
-            Section {
-                Button { showSongInfo = true } label: {
-                    Label(String(localized: "song_info"), systemImage: "info.circle")
-                }
-                .disabled(player.currentSong == nil)
-
-                if let album = currentAlbum, onOpenAlbum != nil {
-                    Button { onOpenAlbum?(album) } label: {
-                        Label(String(localized: "go_to_album"), systemImage: "square.stack")
-                    }
-                }
-
-                if let artist = currentArtist, onOpenArtist != nil {
-                    Button { onOpenArtist?(artist) } label: {
-                        Label(String(localized: "go_to_artist"), systemImage: "music.mic")
-                    }
-                }
-
-                if let song = player.currentSong {
-                    ShareLink(item: "\(song.title) - \(song.artistName ?? "")") {
-                        Label(String(localized: "share"), systemImage: "square.and.arrow.up")
-                    }
-                }
-            }
-
-            // 投屏 ── Apple Music DRM 流没法 push, 自动 disable; 当前在投屏时
-            // menu 文案变成 "停止投屏" + 显示目标设备名。
-            Section {
-                Button { showCastPicker = true } label: {
-                    if let renderer = player.castingRenderer {
-                        Label(String(format: String(localized: "cast_casting_to_format"),
-                                     renderer.friendlyName),
-                              systemImage: "airplayaudio")
-                    } else {
-                        Label(String(localized: "cast_to_device"), systemImage: "airplayaudio")
-                    }
-                }
-                .disabled(player.currentSong == nil || player.isAppleMusicMode)
-            }
-
-            // 阅读偏好（仅歌词模式可见）—— Picker(.menu) submenu 形式
-            if showLyrics {
-                Section {
-                    Picker(selection: $lyricsFontScale) {
-                        Text("lyrics_font_small").tag(0.85)
-                        Text("lyrics_font_medium").tag(1.0)
-                        Text("lyrics_font_large").tag(1.2)
-                        Text("lyrics_font_xlarge").tag(1.5)
-                    } label: {
-                        Label(String(localized: "lyrics_font_size"), systemImage: "textformat.size")
-                    }
-                    .pickerStyle(.menu)
-
-                    // 翻译快捷开关 ── 听歌时不用绕回设置, 直接 toggle。
-                    // didSet 会触发 lyricsTranslationSettingsChanged 通知,
-                    // TranslationView 监听到会重新启动翻译 / 清空翻译数据。
-                    Button {
-                        LyricsTranslationSettingsStore.shared.isEnabled.toggle()
-                    } label: {
-                        Label(
-                            LyricsTranslationSettingsStore.shared.isEnabled
-                                ? String(localized: "lyrics_translation_off")
-                                : String(localized: "lyrics_translation_on"),
-                            systemImage: LyricsTranslationSettingsStore.shared.isEnabled
-                                ? "character.bubble.fill"
-                                : "character.bubble"
-                        )
-                    }
-                }
-            }
-
-            // 播放控制
-            Section {
-                Button { showSleepTimer = true } label: {
-                    Label(
-                        player.isSleepTimerActive ? String(localized: "sleep_timer_active") : String(localized: "sleep_timer"),
-                        systemImage: player.isSleepTimerActive ? "moon.zzz.fill" : "moon.zzz"
-                    )
-                }
-
-                // 播放速度子菜单 — AVAudioUnitTimePitch 改 rate 即时生效,
-                // 不需要重启 engine 或重 schedule buffer。1.0 是 passthrough。
-                // ApplicationMusicPlayer 不支持改速度, Apple Music 模式 hide。
-                if !player.isAppleMusicMode {
-                    Picker(selection: Binding(
-                        get: { playbackSettings.playbackRate },
-                        set: { playbackSettings.playbackRate = $0 }
-                    )) {
-                        Text("0.5×").tag(Float(0.5))
-                        Text("0.75×").tag(Float(0.75))
-                        Text(String(localized: "playback_rate_normal")).tag(Float(1.0))
-                        Text("1.25×").tag(Float(1.25))
-                        Text("1.5×").tag(Float(1.5))
-                        Text("1.75×").tag(Float(1.75))
-                        Text("2.0×").tag(Float(2.0))
-                    } label: {
-                        Label(
-                            playbackSettings.playbackRate == 1.0
-                                ? String(localized: "playback_rate")
-                                : String(format: "%@ %.2fx", String(localized: "playback_rate"), playbackSettings.playbackRate),
-                            systemImage: "speedometer"
-                        )
-                    }
-                    .pickerStyle(.menu)
-                }
-            }
-
-            // 销毁 ── Apple Music 歌不能从猿音删 (要去 Apple Music 取消收藏)
-            if !player.isAppleMusicMode {
-                Section {
-                    Button(role: .destructive) {
-                        showDeleteConfirm = true
-                    } label: {
-                        Label(String(localized: "delete_song"), systemImage: "trash")
-                    }
-                    .disabled(player.currentSong == nil)
-                }
-            }
-        } label: {
-            Image(systemName: "ellipsis.circle.fill")
-                .font(.title).symbolRenderingMode(.hierarchical)
-                .foregroundStyle(.white.opacity(0.6))
-        }
+        return NowPlayingMoreMenu(
+            snapshot: snapshot,
+            lyricsFontScale: $lyricsFontScale,
+            playbackRate: Binding(
+                get: { playbackSettings.playbackRate },
+                set: { playbackSettings.playbackRate = $0 }
+            ),
+            onAddToPlaylist: { showAddToPlaylist = true },
+            onShowSimilarSongs: { showSimilarSongs = true },
+            onEditTags: { showTagEditor = true },
+            onShowSongInfo: { showSongInfo = true },
+            onOpenAlbum: {
+                guard let album = currentAlbum else { return }
+                onOpenAlbum?(album)
+            },
+            onOpenArtist: {
+                guard let artist = currentArtist else { return }
+                onOpenArtist?(artist)
+            },
+            onShowCastPicker: { showCastPicker = true },
+            onToggleLyricsTranslation: {
+                LyricsTranslationSettingsStore.shared.isEnabled.toggle()
+            },
+            onShowSleepTimer: { showSleepTimer = true },
+            onDelete: { showDeleteConfirm = true }
+        )
+        .equatable()
     }
 
     // MARK: - Background gradient from cover dominant color
@@ -2170,6 +2069,191 @@ struct AirPlayButton: View {
     var body: some View { Color.clear.frame(width: 44, height: 44) }
 }
 #endif
+
+// MARK: - Stable native More menu
+
+/// Only state that can legitimately change the native menu's contents. Playback
+/// progress and lyric scroll state are intentionally absent, so their frequent
+/// updates cannot invalidate an already-presented menu.
+private struct NowPlayingMoreMenuSnapshot: Equatable {
+    let songID: String?
+    let hasSong: Bool
+    let isAppleMusicMode: Bool
+    let showsLyricsPreferences: Bool
+    let albumID: String?
+    let artistID: String?
+    let canOpenAlbum: Bool
+    let canOpenArtist: Bool
+    let shareText: String?
+    let castingRendererName: String?
+    let isSleepTimerActive: Bool
+    let lyricsFontScale: Double
+    let playbackRate: Float
+    let isLyricsTranslationEnabled: Bool
+}
+
+/// Keeps the existing SwiftUI `Menu` interaction and visual design, while using
+/// an equatable update boundary to stop unrelated parent updates from rebuilding
+/// the menu hierarchy and resetting its internal scroll position.
+private struct NowPlayingMoreMenu: View, @MainActor Equatable {
+    let snapshot: NowPlayingMoreMenuSnapshot
+    @Binding var lyricsFontScale: Double
+    @Binding var playbackRate: Float
+
+    let onAddToPlaylist: () -> Void
+    let onShowSimilarSongs: () -> Void
+    let onEditTags: () -> Void
+    let onShowSongInfo: () -> Void
+    let onOpenAlbum: () -> Void
+    let onOpenArtist: () -> Void
+    let onShowCastPicker: () -> Void
+    let onToggleLyricsTranslation: () -> Void
+    let onShowSleepTimer: () -> Void
+    let onDelete: () -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.snapshot == rhs.snapshot
+    }
+
+    var body: some View {
+        Menu {
+            Section {
+                Button(action: onAddToPlaylist) {
+                    Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
+                }
+                .disabled(!snapshot.hasSong)
+
+                Button(action: onShowSimilarSongs) {
+                    Label(String(localized: "similar_songs"), systemImage: "sparkles")
+                }
+                .disabled(!snapshot.hasSong)
+
+                if !snapshot.isAppleMusicMode {
+                    Button(action: onEditTags) {
+                        Label(String(localized: "tag_editor_menu"), systemImage: "tag")
+                    }
+                    .disabled(!snapshot.hasSong)
+                }
+            }
+
+            Section {
+                Button(action: onShowSongInfo) {
+                    Label(String(localized: "song_info"), systemImage: "info.circle")
+                }
+                .disabled(!snapshot.hasSong)
+
+                if snapshot.canOpenAlbum {
+                    Button(action: onOpenAlbum) {
+                        Label(String(localized: "go_to_album"), systemImage: "square.stack")
+                    }
+                }
+
+                if snapshot.canOpenArtist {
+                    Button(action: onOpenArtist) {
+                        Label(String(localized: "go_to_artist"), systemImage: "music.mic")
+                    }
+                }
+
+                if let shareText = snapshot.shareText {
+                    ShareLink(item: shareText) {
+                        Label(String(localized: "share"), systemImage: "square.and.arrow.up")
+                    }
+                }
+            }
+
+            Section {
+                Button(action: onShowCastPicker) {
+                    if let rendererName = snapshot.castingRendererName {
+                        Label(
+                            String(
+                                format: String(localized: "cast_casting_to_format"),
+                                rendererName
+                            ),
+                            systemImage: "airplayaudio"
+                        )
+                    } else {
+                        Label(String(localized: "cast_to_device"), systemImage: "airplayaudio")
+                    }
+                }
+                .disabled(!snapshot.hasSong || snapshot.isAppleMusicMode)
+            }
+
+            if snapshot.showsLyricsPreferences {
+                Section {
+                    Picker(selection: $lyricsFontScale) {
+                        Text("lyrics_font_small").tag(0.85)
+                        Text("lyrics_font_medium").tag(1.0)
+                        Text("lyrics_font_large").tag(1.2)
+                        Text("lyrics_font_xlarge").tag(1.5)
+                    } label: {
+                        Label(String(localized: "lyrics_font_size"), systemImage: "textformat.size")
+                    }
+                    .pickerStyle(.menu)
+
+                    Button(action: onToggleLyricsTranslation) {
+                        Label(
+                            snapshot.isLyricsTranslationEnabled
+                                ? String(localized: "lyrics_translation_off")
+                                : String(localized: "lyrics_translation_on"),
+                            systemImage: snapshot.isLyricsTranslationEnabled
+                                ? "character.bubble.fill"
+                                : "character.bubble"
+                        )
+                    }
+                }
+            }
+
+            Section {
+                Button(action: onShowSleepTimer) {
+                    Label(
+                        snapshot.isSleepTimerActive
+                            ? String(localized: "sleep_timer_active")
+                            : String(localized: "sleep_timer"),
+                        systemImage: snapshot.isSleepTimerActive ? "moon.zzz.fill" : "moon.zzz"
+                    )
+                }
+
+                if !snapshot.isAppleMusicMode {
+                    Picker(selection: $playbackRate) {
+                        Text("0.5×").tag(Float(0.5))
+                        Text("0.75×").tag(Float(0.75))
+                        Text(String(localized: "playback_rate_normal")).tag(Float(1.0))
+                        Text("1.25×").tag(Float(1.25))
+                        Text("1.5×").tag(Float(1.5))
+                        Text("1.75×").tag(Float(1.75))
+                        Text("2.0×").tag(Float(2.0))
+                    } label: {
+                        Label(
+                            snapshot.playbackRate == 1.0
+                                ? String(localized: "playback_rate")
+                                : String(
+                                    format: "%@ %.2fx",
+                                    String(localized: "playback_rate"),
+                                    snapshot.playbackRate
+                                ),
+                            systemImage: "speedometer"
+                        )
+                    }
+                    .pickerStyle(.menu)
+                }
+            }
+
+            if !snapshot.isAppleMusicMode {
+                Section {
+                    Button(role: .destructive, action: onDelete) {
+                        Label(String(localized: "delete_song"), systemImage: "trash")
+                    }
+                    .disabled(!snapshot.hasSong)
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle.fill")
+                .font(.title)
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.white.opacity(0.6))
+        }
+    }
+}
 
 // MARK: - LyricsScrollView (隔离的歌词渲染子 view)
 
