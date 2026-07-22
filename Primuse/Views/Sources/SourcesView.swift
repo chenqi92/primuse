@@ -894,14 +894,11 @@ struct SourcesContentView: View {
     }
 
     /// Source IDs that currently have at least one song being downloaded for
-    /// offline use. Derived from the observed `offlineAudioSnapshots` dictionary
-    /// (only songs SourceManager has touched are present, so this is far smaller
-    /// than the full library) and resolved to source IDs via `song(id:)`. Used by
-    /// `sourceCard` so the per-card "is caching" checks never fall through to the
-    /// synchronous disk-stat path of `offlineAudioSnapshot(for:)`.
+    /// offline use. SourceManager publishes only membership transitions here;
+    /// per-chunk progress remains scoped to the affected song row.
     private var downloadingSourceIDs: Set<String> {
         var ids = Set<String>()
-        for (songID, snapshot) in sourceManager.offlineAudioSnapshots where snapshot.isDownloading {
+        for songID in sourceManager.offlineDownloadingSongIDs {
             if let sourceID = library.song(id: songID)?.sourceID {
                 ids.insert(sourceID)
             }

@@ -2,6 +2,18 @@ import Foundation
 import PrimuseKit
 import CryptoKit
 
+/// Observation's Equatable fast path is counterproductive for large model
+/// arrays: comparing two `[Song]` values also compares lyricsText. Publishing
+/// an immutable reference keeps the same observation semantics while making
+/// the pre-notification check an O(1) identity change.
+private final class LibraryArrayReference<Element> {
+    let value: [Element]
+
+    init(_ value: [Element] = []) {
+        self.value = value
+    }
+}
+
 enum LibrarySearchMatchKind: Sendable {
     case metadata
     case lyrics
@@ -802,9 +814,21 @@ enum MusicDiscoveryEngine {
 @MainActor
 @Observable
 final class MusicLibrary {
-    private(set) var songs: [Song] = []
-    private(set) var albums: [Album] = []
-    private(set) var artists: [Artist] = []
+    private var songsReference = LibraryArrayReference<Song>()
+    private(set) var songs: [Song] {
+        get { songsReference.value }
+        set { songsReference = LibraryArrayReference(newValue) }
+    }
+    private var albumsReference = LibraryArrayReference<Album>()
+    private(set) var albums: [Album] {
+        get { albumsReference.value }
+        set { albumsReference = LibraryArrayReference(newValue) }
+    }
+    private var artistsReference = LibraryArrayReference<Artist>()
+    private(set) var artists: [Artist] {
+        get { artistsReference.value }
+        set { artistsReference = LibraryArrayReference(newValue) }
+    }
     /// Backing storage that includes soft-deleted entries. UI-facing
     /// `playlists` filters this down.
     private(set) var allPlaylists: [Playlist] = []
@@ -893,18 +917,36 @@ final class MusicLibrary {
         AppleMusicLibraryPreferences.syncUserLibraryEnabled
 
     /// Cached filtered views — rebuilt only when songs/disabled state change
-    private(set) var visibleSongs: [Song] = []
-    private(set) var visibleAlbums: [Album] = []
-    private(set) var visibleArtists: [Artist] = []
-    private var visibleSongByID: [String: Song] = [:]
+    private var visibleSongsReference = LibraryArrayReference<Song>()
+    private(set) var visibleSongs: [Song] {
+        get { visibleSongsReference.value }
+        set { visibleSongsReference = LibraryArrayReference(newValue) }
+    }
+    private var visibleAlbumsReference = LibraryArrayReference<Album>()
+    private(set) var visibleAlbums: [Album] {
+        get { visibleAlbumsReference.value }
+        set { visibleAlbumsReference = LibraryArrayReference(newValue) }
+    }
+    private var visibleArtistsReference = LibraryArrayReference<Artist>()
+    private(set) var visibleArtists: [Artist] {
+        get { visibleArtistsReference.value }
+        set { visibleArtistsReference = LibraryArrayReference(newValue) }
+    }
+    @ObservationIgnored private var visibleSongByID: [String: Song] = [:]
+    @ObservationIgnored private var visibleSongsBySourceID: [String: [Song]] = [:]
     /// Source cards are re-rendered frequently while scanning/backfilling.
     /// Keep the source grouping beside the other visible caches so those
     /// renders don't filter a 10K+ song array once per card per frame.
-    private var visiblePlayableSongsBySourceID: [String: [Song]] = [:]
+    @ObservationIgnored private var visiblePlayableSongsBySourceID: [String: [Song]] = [:]
     /// Sidebar counters need all visible songs, not just playable ones. Keeping
     /// counts here avoids one full-library filter per source on every sidebar
     /// body evaluation.
-    private var visibleSongCountBySourceID: [String: Int] = [:]
+    @ObservationIgnored private var visibleSongCountBySourceID: [String: Int] = [:]
+    /// Changes only when the ordered set of visible song IDs changes. Views
+    /// that cache a sorted song list observe this lightweight counter instead
+    /// of comparing `[Song]`; a derived `Song` equality also walks lyricsText,
+    /// which made a 10K-song library block AttributeGraph for several seconds.
+    private(set) var visibleSongCollectionRevision: Int = 0
     private(set) var searchRevision: Int = 0
     /// Lyrics cache files are searched directly by `LibrarySearchWorker`.
     /// Keep their invalidation separate from structural library revisions so
@@ -929,6 +971,7 @@ final class MusicLibrary {
     var artistCount: Int { visibleArtists.count }
 
     private func rebuildVisibleCache() {
+        let previousVisibleSongs = visibleSongs
         if disabledSourceIDs.isEmpty {
             visibleSongs = songs
             visibleAlbums = albums
@@ -942,28 +985,40 @@ final class MusicLibrary {
         }
         let lookups = Self.makeVisibleLookups(songs: visibleSongs)
         visibleSongByID = lookups.songByID
+        visibleSongsBySourceID = lookups.songsBySourceID
         visiblePlayableSongsBySourceID = lookups.playableBySourceID
         visibleSongCountBySourceID = lookups.countBySourceID
+        if !Self.haveSameOrderedIDs(previousVisibleSongs, visibleSongs) {
+            visibleSongCollectionRevision &+= 1
+        }
+    }
+
+    private nonisolated static func haveSameOrderedIDs(_ lhs: [Song], _ rhs: [Song]) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        return zip(lhs, rhs).allSatisfy { $0.id == $1.id }
     }
 
     private nonisolated static func makeVisibleLookups(
         songs: [Song]
     ) -> (
         songByID: [String: Song],
+        songsBySourceID: [String: [Song]],
         playableBySourceID: [String: [Song]],
         countBySourceID: [String: Int]
     ) {
         var songByID: [String: Song] = [:]
+        var songsBySourceID: [String: [Song]] = [:]
         var playableBySourceID: [String: [Song]] = [:]
         var countBySourceID: [String: Int] = [:]
         for song in songs {
             if songByID[song.id] == nil { songByID[song.id] = song }
+            songsBySourceID[song.sourceID, default: []].append(song)
             countBySourceID[song.sourceID, default: 0] += 1
             if song.isPlayable {
                 playableBySourceID[song.sourceID, default: []].append(song)
             }
         }
-        return (songByID, playableBySourceID, countBySourceID)
+        return (songByID, songsBySourceID, playableBySourceID, countBySourceID)
     }
 
     private func invalidateSearchCaches() {
@@ -1422,22 +1477,33 @@ final class MusicLibrary {
     func song(id: String) -> Song? {
         // Backfill asks this several times per result. Enabled songs are in the
         // visible cache, making the common path O(1) instead of O(library size).
-        visibleSongByID[id] ?? songs.first(where: { $0.id == id })
+        _ = visibleSongsReference
+        return visibleSongByID[id] ?? songs.first(where: { $0.id == id })
     }
 
     /// O(1) membership check for UI observers that must distinguish the
     /// enabled/visible library from songs retained under a disabled source.
     func containsVisibleSong(id: String) -> Bool {
-        visibleSongByID[id] != nil
+        _ = visibleSongsReference
+        return visibleSongByID[id] != nil
     }
 
     /// Cached source slice used by SourcesView.
     func playableSongs(forSourceID sourceID: String) -> [Song] {
-        visiblePlayableSongsBySourceID[sourceID] ?? []
+        _ = visibleSongsReference
+        return visiblePlayableSongsBySourceID[sourceID] ?? []
+    }
+
+    /// Cached source slice for song-list routes. Avoids re-filtering the full
+    /// visible library every time a macOS source detail view is invalidated.
+    func visibleSongs(forSourceID sourceID: String) -> [Song] {
+        _ = visibleSongsReference
+        return visibleSongsBySourceID[sourceID] ?? []
     }
 
     func visibleSongCount(forSourceID sourceID: String) -> Int {
-        visibleSongCountBySourceID[sourceID, default: 0]
+        _ = visibleSongsReference
+        return visibleSongCountBySourceID[sourceID, default: 0]
     }
 
     /// Backward-compatible synchronous search. Keep it metadata-only so older
@@ -1496,11 +1562,13 @@ final class MusicLibrary {
     }
 
     func songs(forPlaylist playlistID: String) -> [Song] {
-        (playlistSongIDs[playlistID] ?? []).compactMap { visibleSongByID[$0] }
+        _ = visibleSongsReference
+        return (playlistSongIDs[playlistID] ?? []).compactMap { visibleSongByID[$0] }
     }
 
     func recentlyPlayedSongs(limit: Int = 6) -> [Song] {
-        Array(recentPlaybackSongIDs.prefix(limit).compactMap { visibleSongByID[$0] })
+        _ = visibleSongsReference
+        return Array(recentPlaybackSongIDs.prefix(limit).compactMap { visibleSongByID[$0] })
     }
 
     func contains(songID: String, inPlaylist playlistID: String) -> Bool {

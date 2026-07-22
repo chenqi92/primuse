@@ -43,6 +43,24 @@ private struct OfflineDownloadTaskRecord {
     let task: Task<Void, Never>
 }
 
+/// Per-song observation node for the offline badge. A single dictionary on
+/// SourceManager caused every visible SongRowView to refresh whenever one
+/// newly-visible song finished its disk probe or one download advanced.
+@MainActor
+@Observable
+final class OfflineAudioSnapshotEntry {
+    private(set) var snapshot: OfflineAudioCacheSnapshot
+
+    init(snapshot: OfflineAudioCacheSnapshot) {
+        self.snapshot = snapshot
+    }
+
+    fileprivate func update(_ snapshot: OfflineAudioCacheSnapshot) {
+        guard self.snapshot != snapshot else { return }
+        self.snapshot = snapshot
+    }
+}
+
 private final class OfflineDirectDownloadDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     private let partial: URL
     private let initialBytes: Int64
@@ -262,7 +280,11 @@ private struct SourceDiagnosticAdvice: Sendable {
 final class SourceManager {
     private var connectors: [String: any MusicSourceConnector] = [:]
     private let sourcesProvider: @Sendable () async throws -> [MusicSource]
-    private(set) var offlineAudioSnapshots: [String: OfflineAudioCacheSnapshot] = [:]
+    @ObservationIgnored private var offlineAudioSnapshots: [String: OfflineAudioCacheSnapshot] = [:]
+    @ObservationIgnored private var offlineAudioSnapshotEntries: [String: OfflineAudioSnapshotEntry] = [:]
+    /// Lightweight aggregate used by the source cards. Download progress does
+    /// not mutate this set; only entering/leaving the downloading state does.
+    private(set) var offlineDownloadingSongIDs: Set<String> = []
     private var offlineDownloadTasks: [String: OfflineDownloadTaskRecord] = [:]
     private var musicVideoCacheTasks: [String: Task<URL, Error>] = [:]
     private var musicVideoCacheTargets: [String: URL] = [:]
@@ -1418,24 +1440,101 @@ final class SourceManager {
             return snapshot
         }
         let url = cacheURL(for: song)
-        guard FileManager.default.fileExists(atPath: url.path) else { return .notCached }
-        return OfflineAudioCacheSnapshot(
-            state: .cached,
-            progress: nil,
-            byteCount: fileSize(at: url),
-            errorMessage: nil
+        let snapshot: OfflineAudioCacheSnapshot
+        if FileManager.default.fileExists(atPath: url.path) {
+            snapshot = OfflineAudioCacheSnapshot(
+                state: .cached,
+                progress: nil,
+                byteCount: fileSize(at: url),
+                errorMessage: nil
+            )
+        } else {
+            snapshot = .notCached
+        }
+        // Source-level cache estimates may inspect thousands of songs once.
+        // Persist positive and negative results so progress redraws never
+        // repeat those synchronous file-system stats.
+        setOfflineAudioSnapshot(snapshot, for: song.id)
+        return snapshot
+    }
+
+    /// Returns a stable observation node scoped to one song. Reading this
+    /// entry from SongRowView does not make that row depend on the complete
+    /// SourceManager cache dictionary.
+    func offlineAudioSnapshotEntry(for song: Song) -> OfflineAudioSnapshotEntry {
+        if let entry = offlineAudioSnapshotEntries[song.id] {
+            return entry
+        }
+        let entry = OfflineAudioSnapshotEntry(
+            snapshot: offlineAudioSnapshots[song.id] ?? .notCached
         )
+        offlineAudioSnapshotEntries[song.id] = entry
+        return entry
+    }
+
+    private func setOfflineAudioSnapshot(
+        _ snapshot: OfflineAudioCacheSnapshot,
+        for songID: String
+    ) {
+        guard offlineAudioSnapshots[songID] != snapshot else { return }
+        offlineAudioSnapshots[songID] = snapshot
+        offlineAudioSnapshotEntries[songID]?.update(snapshot)
+        let wasDownloading = offlineDownloadingSongIDs.contains(songID)
+        if snapshot.isDownloading != wasDownloading {
+            if snapshot.isDownloading {
+                offlineDownloadingSongIDs.insert(songID)
+            } else {
+                offlineDownloadingSongIDs.remove(songID)
+            }
+        }
+    }
+
+    private func removeOfflineAudioSnapshot(for songID: String) {
+        offlineAudioSnapshots.removeValue(forKey: songID)
+        offlineAudioSnapshotEntries[songID]?.update(.notCached)
+        offlineAudioSnapshotEntries.removeValue(forKey: songID)
+        offlineDownloadingSongIDs.remove(songID)
+    }
+
+    /// Populate a row's first snapshot lazily. Negative results are cached as
+    /// well, preventing repeated disk stats when the same row is recycled.
+    func ensureOfflineAudioSnapshot(for song: Song) async {
+        guard offlineAudioSnapshots[song.id] == nil else { return }
+        let url = cacheURL(for: song)
+        let info = await Task.detached(priority: .utility) {
+            Self.offlineFileInfo(at: url)
+        }.value
+        let snapshot = await AudioCacheManager.shared.snapshot(
+            path: audioCacheRelativePath(for: song),
+            fileExists: info.exists,
+            byteCount: info.byteCount
+        )
+        // A download may have started while the disk probe was in flight.
+        guard offlineAudioSnapshots[song.id] == nil else { return }
+        setOfflineAudioSnapshot(snapshot, for: song.id)
     }
 
     func refreshOfflineAudioSnapshot(for song: Song) async {
         let url = cacheURL(for: song)
-        let exists = FileManager.default.fileExists(atPath: url.path)
+        let info = await Task.detached(priority: .utility) {
+            Self.offlineFileInfo(at: url)
+        }.value
         let snapshot = await AudioCacheManager.shared.snapshot(
             path: audioCacheRelativePath(for: song),
-            fileExists: exists,
-            byteCount: exists ? fileSize(at: url) : nil
+            fileExists: info.exists,
+            byteCount: info.byteCount
         )
-        offlineAudioSnapshots[song.id] = snapshot
+        setOfflineAudioSnapshot(snapshot, for: song.id)
+    }
+
+    private nonisolated static func offlineFileInfo(at url: URL) -> (exists: Bool, byteCount: Int64?) {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return (false, nil)
+        }
+        let size = (try? url.resourceValues(forKeys: [.totalFileAllocatedSizeKey]))?
+            .totalFileAllocatedSize
+            .map(Int64.init)
+        return (true, size)
     }
 
     func downloadForOffline(song: Song) {
@@ -1513,7 +1612,7 @@ final class SourceManager {
         offlineDownloadTasks[song.id]?.task.cancel()
         offlineDownloadTasks[song.id] = nil
         deleteAudioCache(for: song)
-        offlineAudioSnapshots[song.id] = .notCached
+        setOfflineAudioSnapshot(.notCached, for: song.id)
     }
 
     private func waitForOfflineDownload(_ song: Song) async {
@@ -1548,24 +1647,24 @@ final class SourceManager {
         let relativePath = audioCacheRelativePath(for: song)
         let target = cacheURL(for: song)
 
-        offlineAudioSnapshots[song.id] = OfflineAudioCacheSnapshot(
+        setOfflineAudioSnapshot(OfflineAudioCacheSnapshot(
             state: .downloading,
             progress: 0,
             byteCount: song.fileSize > 0 ? song.fileSize : nil,
             errorMessage: nil
-        )
+        ), for: song.id)
 
         do {
             try Task.checkCancellation()
             if FileManager.default.fileExists(atPath: target.path) {
                 let size = fileSize(at: target)
                 await AudioCacheManager.shared.pin(path: relativePath, byteCount: size)
-                offlineAudioSnapshots[song.id] = OfflineAudioCacheSnapshot(
+                setOfflineAudioSnapshot(OfflineAudioCacheSnapshot(
                     state: .pinned,
                     progress: nil,
                     byteCount: size,
                     errorMessage: nil
-                )
+                ), for: song.id)
                 return
             }
 
@@ -1601,27 +1700,27 @@ final class SourceManager {
             try Task.checkCancellation()
             let size = fileSize(at: target)
             await AudioCacheManager.shared.markDownloaded(path: relativePath, byteCount: size, pinned: true)
-            offlineAudioSnapshots[song.id] = OfflineAudioCacheSnapshot(
+            setOfflineAudioSnapshot(OfflineAudioCacheSnapshot(
                 state: .pinned,
                 progress: nil,
                 byteCount: size,
                 errorMessage: nil
-            )
+            ), for: song.id)
             plog(String(format: "✅ Offline: '%@' downloaded and pinned size=%lldKB elapsed=%.1fs", song.title, (size ?? 0) / 1024, Date().timeIntervalSince(startedAt)))
         } catch {
             if Task.isCancelled {
-                offlineAudioSnapshots[song.id] = .notCached
+                setOfflineAudioSnapshot(.notCached, for: song.id)
                 plog(String(format: "↩️ Offline download cancelled for '%@' after %.1fs", song.title, Date().timeIntervalSince(startedAt)))
                 return
             }
             let partial = URL(fileURLWithPath: target.path + ".offline")
             let partialSize = byteSize(at: partial)
-            offlineAudioSnapshots[song.id] = OfflineAudioCacheSnapshot(
+            setOfflineAudioSnapshot(OfflineAudioCacheSnapshot(
                 state: .failed,
                 progress: nil,
                 byteCount: partialSize > 0 ? partialSize : nil,
                 errorMessage: error.localizedDescription
-            )
+            ), for: song.id)
             plog(String(format: "⚠️ Offline download failed for '%@' after %.1fs partial=%lldKB: %@", song.title, Date().timeIntervalSince(startedAt), partialSize / 1024, error.localizedDescription))
         }
     }
@@ -1651,12 +1750,12 @@ final class SourceManager {
             plog("↩️ Offline resume '\(song.title)' from \(offset / 1024)KB / \(song.fileSize / 1024)KB")
         }
         try handle.seek(toOffset: UInt64(offset))
-        offlineAudioSnapshots[song.id] = OfflineAudioCacheSnapshot(
+        setOfflineAudioSnapshot(OfflineAudioCacheSnapshot(
             state: .downloading,
             progress: song.fileSize > 0 ? min(0.99, Double(offset) / Double(song.fileSize)) : nil,
             byteCount: song.fileSize,
             errorMessage: nil
-        )
+        ), for: song.id)
 
         do {
             while offset < song.fileSize {
@@ -1667,12 +1766,12 @@ final class SourceManager {
                 }
                 try handle.write(contentsOf: data)
                 offset += Int64(data.count)
-                offlineAudioSnapshots[song.id] = OfflineAudioCacheSnapshot(
+                setOfflineAudioSnapshot(OfflineAudioCacheSnapshot(
                     state: .downloading,
                     progress: min(0.99, Double(offset) / Double(song.fileSize)),
                     byteCount: song.fileSize,
                     errorMessage: nil
-                )
+                ), for: song.id)
             }
             try handle.close()
             try? FileManager.default.removeItem(at: target)
@@ -1723,12 +1822,12 @@ final class SourceManager {
         ) { [weak self] downloadedBytes, totalBytes in
             Task { @MainActor [weak self] in
                 let total = totalBytes ?? expectedTotal
-                self?.offlineAudioSnapshots[songID] = OfflineAudioCacheSnapshot(
+                self?.setOfflineAudioSnapshot(OfflineAudioCacheSnapshot(
                     state: .downloading,
                     progress: total.map { $0 > 0 ? min(0.99, Double(downloadedBytes) / Double($0)) : 0 },
                     byteCount: total,
                     errorMessage: nil
-                )
+                ), for: songID)
             }
         }
 
@@ -1748,12 +1847,12 @@ final class SourceManager {
     }
 
     private func downloadOfflineFromURL(_ url: URL, song: Song, target: URL) async throws {
-        offlineAudioSnapshots[song.id] = OfflineAudioCacheSnapshot(
+        setOfflineAudioSnapshot(OfflineAudioCacheSnapshot(
             state: .downloading,
             progress: nil,
             byteCount: song.fileSize > 0 ? song.fileSize : nil,
             errorMessage: nil
-        )
+        ), for: song.id)
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 300
         let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
@@ -2098,7 +2197,7 @@ final class SourceManager {
         deleteConnectorTempCaches(for: song)
         let relativePath = audioCacheRelativePath(for: song)
         Task { await AudioCacheManager.shared.removeEntry(path: relativePath) }
-        offlineAudioSnapshots[song.id] = .notCached
+        setOfflineAudioSnapshot(.notCached, for: song.id)
     }
 
     func deleteLocalCaches(for song: Song) {
@@ -2157,7 +2256,7 @@ final class SourceManager {
                         )
                 )
             }
-            offlineAudioSnapshots[song.id] = .notCached
+            setOfflineAudioSnapshot(.notCached, for: song.id)
         }
 
         // A source deletion can remove thousands of songs. Posting one artwork
@@ -2197,7 +2296,7 @@ final class SourceManager {
         guard !sourceIDs.isEmpty else { return }
         let songIDs = songs.map(\.id)
         for songID in songIDs {
-            offlineAudioSnapshots.removeValue(forKey: songID)
+            removeOfflineAudioSnapshot(for: songID)
         }
         for (key, task) in musicVideoCacheTasks where sourceIDs.contains(where: { key.hasPrefix("\($0):") }) {
             task.cancel()

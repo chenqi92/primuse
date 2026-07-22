@@ -4,23 +4,104 @@ import PrimuseKit
 import AppKit
 #endif
 
+/// Reference-backed storage prevents AttributeGraph from applying
+/// `Array<Song>.==` to the list cache whenever metadata changes. Song's
+/// synthesized equality includes lyricsText, so a value-backed SwiftUI state
+/// made each background backfill publication walk the full lyrics library.
+@MainActor
+@Observable
+private final class SongListRowModel {
+    private final class SongReference {
+        let value: Song
+
+        init(_ value: Song) {
+            self.value = value
+        }
+    }
+
+    private var reference: SongReference
+
+    var song: Song { reference.value }
+
+    init(song: Song) {
+        reference = SongReference(song)
+    }
+
+    func replace(with song: Song) {
+        // SongReference deliberately has identity equality. Assigning a new
+        // Song value therefore notifies only this row without Observation
+        // comparing the complete lyricsText payload first.
+        reference = SongReference(song)
+    }
+}
+
+@MainActor
+@Observable
+private final class SongListCache {
+    /// This is the List's only structural observable value. Metadata patches
+    /// never mutate it, so backfill updates cannot rebuild the whole List.
+    private(set) var sortedSongIDs: [String] = []
+
+    @ObservationIgnored private var songsByID: [String: Song] = [:]
+    @ObservationIgnored private var rowModelsByID: [String: SongListRowModel] = [:]
+
+    func replace(with songs: [Song]) {
+        let nextSongsByID = Dictionary(
+            songs.map { ($0.id, $0) },
+            uniquingKeysWith: { current, _ in current }
+        )
+
+        // Existing row models are already kept current by `patch`. Replacing
+        // all previously visited models here would turn an explicit sort into
+        // hundreds/thousands of independent row invalidations before the List
+        // even applies its new ID order.
+        rowModelsByID = rowModelsByID.filter { nextSongsByID[$0.key] != nil }
+        songsByID = nextSongsByID
+        sortedSongIDs = songs.map(\.id)
+    }
+
+    func patch(_ replacements: [String: Song]) {
+        guard !replacements.isEmpty else { return }
+        for (songID, song) in replacements {
+            songsByID[songID] = song
+            rowModelsByID[songID]?.replace(with: song)
+        }
+    }
+
+    func song(id: String) -> Song? {
+        songsByID[id]
+    }
+
+    func rowModel(id: String) -> SongListRowModel? {
+        if let model = rowModelsByID[id] {
+            return model
+        }
+        guard let song = songsByID[id] else { return nil }
+        let model = SongListRowModel(song: song)
+        rowModelsByID[id] = model
+        return model
+    }
+
+    func releaseRowModels() {
+        rowModelsByID.removeAll(keepingCapacity: false)
+    }
+}
+
 struct SongListView: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(MetadataBackfillService.self) private var backfill
     @Environment(MusicLibrary.self) private var library
     @Environment(MusicScraperService.self) private var scraperService
-    let songs: [Song]
+    /// Keep only a lightweight scope in the view identity. Storing `[Song]`
+    /// here made SwiftUI/AttributeGraph compare every Song (including its full
+    /// lyricsText) whenever an ancestor refreshed.
+    private let scope: Scope
     @State private var sortOrder: SongSortOrder = .title
-    @State private var cachedSortedSongs: [Song] = []
+    @State private var listCache = SongListCache()
     @State private var searchText: String = ""
-    /// ID set the cached order was built from. When `songs` changes by
-    /// metadata only (backfill filling in title/duration on existing IDs)
-    /// we update each row in-place instead of re-running localizedCompare
-    /// across the whole list. Without this, every backfilled track would
-    /// trigger an O(N log N) re-sort on the main thread, and a 1k-song
-    /// list mid-scan would be visibly stuttery.
-    @State private var lastSortedIDSet: Set<String> = []
+    @State private var sortGeneration: Int = 0
+    @State private var sortTask: Task<Void, Never>?
     #if os(macOS)
     @State private var macViewMode: MacSongsViewMode = .list
     @State private var macRowDensity: MacSongsRowDensity = .standard
@@ -40,7 +121,16 @@ struct SongListView: View {
     @State private var playCountsBySongID: [String: Int] = [:]
     #endif
 
-    enum SongSortOrder: String, CaseIterable {
+    private enum Scope: Hashable, Sendable {
+        case library
+        case source(String)
+    }
+
+    init(sourceID: String? = nil) {
+        scope = sourceID.map(Scope.source) ?? .library
+    }
+
+    enum SongSortOrder: String, CaseIterable, Sendable {
         case title, artist, album, dateAdded, format
 
         var label: LocalizedStringKey {
@@ -129,9 +219,19 @@ struct SongListView: View {
 
     var body: some View {
         content
-            .onAppear { recomputeSorted() }
-            .onChange(of: sortOrder) { _, _ in recomputeSorted() }
-            .onChange(of: songs) { _, _ in updateSortedSongsIfNeeded() }
+            .onAppear { scheduleSortedRecompute() }
+            .onChange(of: sortOrder) { _, _ in scheduleSortedRecompute() }
+            .onChange(of: library.visibleSongCollectionRevision) { _, _ in
+                scheduleSortedRecompute(debounced: true)
+            }
+            .onChange(of: library.songReplacementToken) { _, _ in
+                applyLibrarySongReplacements()
+            }
+            .onDisappear {
+                sortTask?.cancel()
+                sortTask = nil
+                listCache.releaseRowModels()
+            }
             #if os(macOS)
             .sheet(isPresented: $showAddVisibleToPlaylist) {
                 MacAddVisibleSongsToPlaylistSheet(
@@ -168,6 +268,15 @@ struct SongListView: View {
             #endif
     }
 
+    private var songs: [Song] {
+        switch scope {
+        case .library:
+            library.visibleSongs
+        case .source(let sourceID):
+            library.visibleSongs(forSourceID: sourceID)
+        }
+    }
+
     @ViewBuilder
     private var content: some View {
         if songs.isEmpty {
@@ -187,8 +296,10 @@ struct SongListView: View {
 
     private var iosSongList: some View {
         List {
-            ForEach(filteredSongs) { song in
-                songButton(song)
+            ForEach(filteredSongIDs, id: \.self) { songID in
+                if let model = listCache.rowModel(id: songID) {
+                    IOSSongListRow(model: model, onPlay: playSong)
+                }
             }
         }
         .listStyle(.plain)
@@ -412,8 +523,10 @@ struct SongListView: View {
             Rectangle().fill(PMColor.divider).frame(height: 0.5)
 
             LazyVStack(spacing: 1) {
-                ForEach(Array(filteredSongs.enumerated()), id: \.element.id) { index, song in
-                    songTableRow(song, index: index)
+                ForEach(Array(filteredSongIDs.enumerated()), id: \.element) { index, songID in
+                    if let song = listCache.song(id: songID) {
+                        songTableRow(song, index: index)
+                    }
                 }
             }
             .padding(.vertical, 4)
@@ -645,8 +758,10 @@ struct SongListView: View {
 
     private var compactSongList: some View {
         LazyVStack(spacing: 0) {
-            ForEach(Array(filteredSongs.enumerated()), id: \.element.id) { index, song in
-                compactSongRow(song, index: index)
+            ForEach(Array(filteredSongIDs.enumerated()), id: \.element) { index, songID in
+                if let song = listCache.song(id: songID) {
+                    compactSongRow(song, index: index)
+                }
             }
         }
         .padding(.top, 8)
@@ -721,8 +836,10 @@ struct SongListView: View {
             alignment: .leading,
             spacing: 20
         ) {
-            ForEach(filteredSongs) { song in
-                songGridTile(song, highlighted: player.currentSong?.id == song.id)
+            ForEach(filteredSongIDs, id: \.self) { songID in
+                if let song = listCache.song(id: songID) {
+                    songGridTile(song, highlighted: player.currentSong?.id == song.id)
+                }
             }
         }
         .padding(.top, 12)
@@ -1103,104 +1220,109 @@ struct SongListView: View {
         }
     }
 
-    private func songButton(_ song: Song) -> some View {
-        Button {
-            playSong(song)
-        } label: {
-            SongRowView(
-                song: song,
-                isPlaying: player.currentSong?.id == song.id,
-                context: SongRowView.context(
-                    for: song,
-                    sourcesStore: sourcesStore,
-                    backfill: backfill
-                )
-            )
-        }
-        .buttonStyle(.plain)
-    }
-
-    /// 当前用搜索过滤后的歌曲列表;空字符串时返回完整 cachedSortedSongs。
-    /// 大小写无关,匹配标题/艺术家/专辑任一字段。
-    private var filteredSongs: [Song] {
-        var base = cachedSortedSongs
+    /// The List/ForEach data contains stable lightweight IDs only. Keeping
+    /// `Song` values out of the view's structural output is important: SwiftUI
+    /// may compare ForEach data when updating a List, and Song equality walks
+    /// full lyrics text.
+    private var filteredSongIDs: [String] {
+        var base = listCache.sortedSongIDs
         #if os(macOS)
         if let selectedSourceID {
-            base = base.filter { $0.sourceID == selectedSourceID }
+            base = base.filter { listCache.song(id: $0)?.sourceID == selectedSourceID }
         }
         #endif
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return base }
-        return base.filter {
-            $0.title.localizedCaseInsensitiveContains(q)
-            || ($0.artistName?.localizedCaseInsensitiveContains(q) ?? false)
-            || ($0.albumTitle?.localizedCaseInsensitiveContains(q) ?? false)
+        return base.filter { songID in
+            guard let song = listCache.song(id: songID) else { return false }
+            return song.title.localizedCaseInsensitiveContains(q)
+                || (song.artistName?.localizedCaseInsensitiveContains(q) ?? false)
+                || (song.albumTitle?.localizedCaseInsensitiveContains(q) ?? false)
         }
     }
 
-    /// Decide whether `songs` changed structurally (added/removed), in
-    /// metadata that affects the active sort field, or in metadata that
-    /// doesn't. Only the first two warrant a re-sort:
-    ///
-    /// - ID set changed → re-sort.
-    /// - ID set same, but at least one row's `sortKey` changed (e.g.
-    ///   backfill filled in a previously-empty title while sorted by
-    ///   title) → re-sort, otherwise the visible order would silently
-    ///   diverge from the chosen sort.
-    /// - ID set same, no sortKey changes → in-place patch, preserving
-    ///   order to avoid an O(N log N) localizedCompare on every
-    ///   backfill tick.
-    private func updateSortedSongsIfNeeded() {
-        let newIDSet = Set(songs.map(\.id))
-        guard newIDSet == lastSortedIDSet else {
-            recomputeSorted()
-            return
+    /// Materialize Song values only for explicit actions (queue, export,
+    /// scrape), never as the List's structural data.
+    private var filteredSongs: [Song] {
+        filteredSongIDs.compactMap { listCache.song(id: $0) }
+    }
+
+    /// Patch only the rows touched by a metadata replacement. Do not reorder
+    /// the complete list while background scraping/backfill is publishing:
+    /// besides forcing a 10K-row List diff, that could move the row whose
+    /// More menu the user is currently operating. The next explicit sort,
+    /// collection change, or appearance rebuilds the order from fresh data.
+    private func applyLibrarySongReplacements() {
+        let replacedIDs = library.lastReplacedSongIDs
+        guard !replacedIDs.isEmpty, !listCache.sortedSongIDs.isEmpty else { return }
+
+        var replacements: [String: Song] = [:]
+        replacements.reserveCapacity(replacedIDs.count)
+        for songID in replacedIDs {
+            guard listCache.song(id: songID) != nil,
+                  let latest = library.song(id: songID),
+                  belongsToCurrentScope(latest)
+            else { continue }
+            replacements[songID] = latest
         }
-        let byID = Dictionary(
-            songs.map { ($0.id, $0) },
-            uniquingKeysWith: { current, _ in current }
-        )
-        let sortKeyChanged = cachedSortedSongs.contains { old in
-            guard let new = byID[old.id] else { return false }
-            return sortKey(for: new) != sortKey(for: old)
-        }
-        if sortKeyChanged {
-            recomputeSorted()
-        } else {
-            cachedSortedSongs = cachedSortedSongs.compactMap { byID[$0.id] }
+
+        guard !replacements.isEmpty else { return }
+        listCache.patch(replacements)
+    }
+
+    private func belongsToCurrentScope(_ song: Song) -> Bool {
+        switch scope {
+        case .library:
+            return library.containsVisibleSong(id: song.id)
+        case .source(let sourceID):
+            return song.sourceID == sourceID && library.containsVisibleSong(id: song.id)
         }
     }
 
-    /// The string representation of whichever song field drives the
-    /// active sort. Compared to detect when an in-place metadata update
-    /// invalidates the cached order. `.dateAdded` and `.format` rarely
-    /// change after creation, so those sorts almost always stay on the
-    /// fast path; `.title` / `.artist` / `.album` re-sort during
-    /// backfill, which is exactly the correctness boundary we want.
-    private func sortKey(for song: Song) -> String {
-        switch sortOrder {
-        case .title: return song.title
-        case .artist: return song.artistName ?? ""
-        case .album: return song.albumTitle ?? ""
-        case .dateAdded: return String(song.dateAdded.timeIntervalSince1970)
-        case .format: return song.fileFormat.displayName
+    /// Sorting 10K localized strings can take long enough to drop frames, even
+    /// after the array-equality hang is removed. Debounce scan/backfill bursts
+    /// and do that CPU work away from the main actor; only publish the finished
+    /// copy if it still belongs to the newest generation.
+    private func scheduleSortedRecompute(debounced: Bool = false) {
+        sortGeneration &+= 1
+        let generation = sortGeneration
+        let snapshot = songs
+        let order = sortOrder
+
+        sortTask?.cancel()
+        sortTask = Task { @MainActor in
+            if debounced {
+                do {
+                    try await Task.sleep(for: .milliseconds(180))
+                } catch {
+                    return
+                }
+            }
+            guard !Task.isCancelled else { return }
+            let sorted = await Task.detached(priority: .userInitiated) {
+                Self.sorted(snapshot, by: order)
+            }.value
+            guard !Task.isCancelled,
+                  sortGeneration == generation,
+                  sortOrder == order
+            else { return }
+            listCache.replace(with: sorted)
         }
     }
 
-    private func recomputeSorted() {
-        switch sortOrder {
+    private nonisolated static func sorted(_ songs: [Song], by order: SongSortOrder) -> [Song] {
+        switch order {
         case .title:
-            cachedSortedSongs = songs.sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
+            songs.sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
         case .artist:
-            cachedSortedSongs = songs.sorted { ($0.artistName ?? "").localizedCompare($1.artistName ?? "") == .orderedAscending }
+            songs.sorted { ($0.artistName ?? "").localizedCompare($1.artistName ?? "") == .orderedAscending }
         case .album:
-            cachedSortedSongs = songs.sorted { ($0.albumTitle ?? "").localizedCompare($1.albumTitle ?? "") == .orderedAscending }
+            songs.sorted { ($0.albumTitle ?? "").localizedCompare($1.albumTitle ?? "") == .orderedAscending }
         case .dateAdded:
-            cachedSortedSongs = songs.sorted { $0.dateAdded > $1.dateAdded }
+            songs.sorted { $0.dateAdded > $1.dateAdded }
         case .format:
-            cachedSortedSongs = songs.sorted { $0.fileFormat.displayName < $1.fileFormat.displayName }
+            songs.sorted { $0.fileFormat.displayName < $1.fileFormat.displayName }
         }
-        lastSortedIDSet = Set(cachedSortedSongs.map(\.id))
     }
 
     private var totalDuration: TimeInterval {
@@ -1216,6 +1338,36 @@ struct SongListView: View {
         plog("🎶 SongList setQueue visible=\(visibleQueue.count) queue=\(queue.count) start='\(first.title)'")
         player.setQueue(queue, startAt: 0)
         Task { await player.play(song: first) }
+    }
+}
+
+/// A row-level observation boundary. Metadata/backfill changes replace the
+/// model for one song, and only this subtree re-evaluates; the parent List no
+/// longer observes Song values or per-row source/backfill state.
+private struct IOSSongListRow: View {
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(SourcesStore.self) private var sourcesStore
+    @Environment(MetadataBackfillService.self) private var backfill
+
+    let model: SongListRowModel
+    let onPlay: (Song) -> Void
+
+    var body: some View {
+        let song = model.song
+        Button {
+            onPlay(song)
+        } label: {
+            SongRowView(
+                song: song,
+                isPlaying: player.currentSong?.id == song.id,
+                context: SongRowView.context(
+                    for: song,
+                    sourcesStore: sourcesStore,
+                    backfill: backfill
+                )
+            )
+        }
+        .buttonStyle(.plain)
     }
 }
 

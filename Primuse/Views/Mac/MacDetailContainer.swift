@@ -74,7 +74,7 @@ struct MacDetailContainer: View {
         case .section(let section):
             switch section {
             case .songs:
-                SongListView(songs: library.visibleSongs)
+                SongListView()
                     .navigationTitle(section.title)
             case .albums:
                 AlbumGridView()
@@ -101,9 +101,8 @@ struct MacDetailContainer: View {
         case .source(let id):
             // Sources don't yet have a per-source detail view — for now
             // route the click to the songs filtered by that source.
-            let songs = library.visibleSongs.filter { $0.sourceID == id }
             let name = sourcesStore.sources.first(where: { $0.id == id })?.name ?? ""
-            SongListView(songs: songs)
+            SongListView(sourceID: id)
                 .navigationTitle(Text(verbatim: name))
         }
     }

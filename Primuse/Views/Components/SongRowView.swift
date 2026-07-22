@@ -46,7 +46,7 @@ struct SongRowView: View {
     private var isBare: Bool { song.duration <= 0 && !song.isStandaloneMusicVideo }
     private var offlineSnapshot: OfflineAudioCacheSnapshot {
         guard supportsOfflineAudioCache else { return .notCached }
-        return sourceManager.offlineAudioSnapshot(for: song)
+        return sourceManager.offlineAudioSnapshotEntry(for: song).snapshot
     }
 
     var body: some View {
@@ -204,6 +204,10 @@ struct SongRowView: View {
             }
         }
         .contentShape(Rectangle())
+        .task(id: song.id) {
+            guard supportsOfflineAudioCache else { return }
+            await sourceManager.ensureOfflineAudioSnapshot(for: song)
+        }
         // VoiceOver 把整行合并成一个可选元素,读出来 "歌名,艺术家",
         // 操作菜单走 contextMenu (VoiceOver 长按手势仍可触发)。
         .accessibilityElement(children: .combine)

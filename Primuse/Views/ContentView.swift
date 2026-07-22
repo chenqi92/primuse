@@ -195,7 +195,7 @@ struct ContentView: View {
         case .library:
             LibraryView(deepLink: $libraryDeepLink)
         case .librarySongs:
-            librarySubpane(title: "tab_songs") { SongListView(songs: library.visibleSongs) }
+            librarySubpane(title: "tab_songs") { SongListView() }
         case .libraryAlbums:
             librarySubpane(title: "tab_albums") { AlbumGridView() }
         case .libraryArtists:

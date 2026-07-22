@@ -496,7 +496,7 @@ struct LibraryView: View {
     private func destination(for section: LibrarySection) -> some View {
         switch section {
         case .songs:
-            SongListView(songs: songs)
+            SongListView()
         case .albums:
             AlbumGridView()
         case .artists:
