@@ -41,6 +41,11 @@ private final class SongListCache {
     /// This is the List's only structural observable value. Metadata patches
     /// never mutate it, so backfill updates cannot rebuild the whole List.
     private(set) var sortedSongIDs: [String] = []
+    /// Replacing a 10K-item order through List's normal diff path makes it
+    /// calculate thousands of moves on the main thread. A new identity tells
+    /// List to rebuild only its visible rows, which is both cheaper and the
+    /// expected behaviour for an explicit sort (scroll position returns top).
+    private(set) var presentationRevision: Int = 0
 
     @ObservationIgnored private var songsByID: [String: Song] = [:]
     @ObservationIgnored private var rowModelsByID: [String: SongListRowModel] = [:]
@@ -57,7 +62,11 @@ private final class SongListCache {
         // even applies its new ID order.
         rowModelsByID = rowModelsByID.filter { nextSongsByID[$0.key] != nil }
         songsByID = nextSongsByID
-        sortedSongIDs = songs.map(\.id)
+        let nextIDs = songs.map(\.id)
+        if sortedSongIDs != nextIDs {
+            sortedSongIDs = nextIDs
+            presentationRevision &+= 1
+        }
     }
 
     func patch(_ replacements: [String: Song]) {
@@ -82,9 +91,6 @@ private final class SongListCache {
         return model
     }
 
-    func releaseRowModels() {
-        rowModelsByID.removeAll(keepingCapacity: false)
-    }
 }
 
 struct SongListView: View {
@@ -219,18 +225,20 @@ struct SongListView: View {
 
     var body: some View {
         content
-            .onAppear { scheduleSortedRecompute() }
+            .onAppear {
+                // NavigationStack keeps this destination alive while another
+                // tab is selected. Reuse its existing order instead of
+                // sorting 10K songs again on every return.
+                if listCache.sortedSongIDs.isEmpty {
+                    scheduleSortedRecompute()
+                }
+            }
             .onChange(of: sortOrder) { _, _ in scheduleSortedRecompute() }
             .onChange(of: library.visibleSongCollectionRevision) { _, _ in
                 scheduleSortedRecompute(debounced: true)
             }
             .onChange(of: library.songReplacementToken) { _, _ in
                 applyLibrarySongReplacements()
-            }
-            .onDisappear {
-                sortTask?.cancel()
-                sortTask = nil
-                listCache.releaseRowModels()
             }
             #if os(macOS)
             .sheet(isPresented: $showAddVisibleToPlaylist) {
@@ -303,6 +311,7 @@ struct SongListView: View {
             }
         }
         .listStyle(.plain)
+        .id(listCache.presentationRevision)
         .toolbar { sortToolbarItem }
     }
 
@@ -1288,6 +1297,14 @@ struct SongListView: View {
         let generation = sortGeneration
         let snapshot = songs
         let order = sortOrder
+
+        // Give List stable IDs and row data immediately. Previously the first
+        // frame had no rows until localized sorting of the entire library
+        // finished, which presented as a black screen for several seconds.
+        // The completed background sort replaces only the ID order.
+        if listCache.sortedSongIDs.isEmpty {
+            listCache.replace(with: snapshot)
+        }
 
         sortTask?.cancel()
         sortTask = Task { @MainActor in
