@@ -234,7 +234,7 @@ final class AudioPlayerService {
             // mirror task 同步 Apple Music shuffle 时跳过 — 不要再写回 AM
             // 触发 polling 抖动。本地播放时正常重建 shuffle order。
             if isMirroringFromAppleMusic { return }
-            if isAppleMusicMode {
+            if isAppleMusicMode && !isPrimuseManagingAppleMusicQueue {
                 AppServices.shared.appleMusic.setAppleMusicShuffle(shuffleEnabled)
                 return
             }
@@ -245,7 +245,7 @@ final class AudioPlayerService {
     var repeatMode: RepeatMode = .off {
         didSet {
             if isMirroringFromAppleMusic { return }
-            if isAppleMusicMode {
+            if isAppleMusicMode && !isPrimuseManagingAppleMusicQueue {
                 AppServices.shared.appleMusic.setAppleMusicRepeat(repeatMode)
             }
         }
@@ -262,6 +262,12 @@ final class AudioPlayerService {
     /// mirror task 写自己字段时设为 true, 让 didSet 跳过"再写回 Apple Music"
     /// 的副作用, 避免 mirror → setRepeat/setShuffle → polling → mirror 的回环。
     private var isMirroringFromAppleMusic = false
+
+    /// `true` when Primuse owns a queue containing both Apple Music and
+    /// non-Apple-Music songs. ApplicationMusicPlayer cannot contain our local /
+    /// NAS entries, so in this mode it only plays the current DRM track while
+    /// Primuse keeps the canonical queue and advances across providers.
+    private var isPrimuseManagingAppleMusicQueue = false
 
     // MARK: - DLNA Casting (推到外部 Renderer)
 
@@ -484,6 +490,7 @@ final class AudioPlayerService {
         duration = 0
         isLoading = true
         isPlaying = false
+        isPrimuseManagingAppleMusicQueue = false
         startAppleMusicMirror()
         plog("⏸ yielded audio session to Apple Music (playID bumped)")
     }
@@ -1030,6 +1037,7 @@ final class AudioPlayerService {
             stopAppleMusicMirror()
             AppServices.shared.appleMusic.stopAppleMusic()
         }
+        isPrimuseManagingAppleMusicQueue = false
 
         // 切到新歌前主动触发上一首的 streaming session finalize, 让它有机会
         // 把 .partial 转成 final (如果缺口在 50MB 自动补齐阈值内)。
@@ -1097,6 +1105,30 @@ final class AudioPlayerService {
         duration = song.duration
         isLoading = true
         isPlaying = false
+        isAtTrackEnd = false
+
+        // A mixed Primuse queue cannot be represented by
+        // ApplicationMusicPlayer. Keep that queue here and give MusicKit only
+        // the current DRM song; next/previous and track-end then advance the
+        // original queue instead of silently switching to the Apple Music
+        // library. For an Apple-Music-only queue, MusicKit can still own the
+        // full context and perform native gapless transitions.
+        let selectedQueueEntryMatches = queueEntries.indices.contains(currentIndex)
+            && queueEntries[currentIndex].song.id == song.id
+        isPrimuseManagingAppleMusicQueue = selectedQueueEntryMatches
+            && queueEntries.contains { $0.song.sourceID != AppleMusicLibraryService.systemSourceID }
+        let appleMusic = AppServices.shared.appleMusic
+        if isPrimuseManagingAppleMusicQueue {
+            appleMusic.prepareForPrimuseManagedQueue()
+        } else {
+            appleMusic.setAppleMusicShuffle(shuffleEnabled)
+            appleMusic.setAppleMusicRepeat(repeatMode)
+        }
+        // Capture before starting the mirror: its immediate first sync may
+        // still contain the previous MusicKit queue.
+        let queueContext = isPrimuseManagingAppleMusicQueue
+            ? [song]
+            : queue.filter { $0.sourceID == AppleMusicLibraryService.systemSourceID }
         startAppleMusicMirror()
         let appleMusicLibrary = AppServices.shared.appleMusicLibrary
 
@@ -1120,7 +1152,7 @@ final class AudioPlayerService {
         // 不阻塞 play(song:) 调用方。成功后 AppleMusicService 的 mirror 会把
         // nowPlaying / progress 同步回来；失败或卡住由上面的 timeout 收口。
         Task {
-            await appleMusicLibrary.play(primuseSong: song)
+            await appleMusicLibrary.play(primuseSong: song, queueContext: queueContext)
         }
     }
 
@@ -1175,9 +1207,11 @@ final class AudioPlayerService {
          isMirroringFromAppleMusic = true
          defer { isMirroringFromAppleMusic = false }
 
-         // currentSong: 自动跳下一首时 nowPlayingSong 会变, 同步过来。
+         // MusicKit owns the current song only for Apple-Music-only queues.
+         // In a mixed queue Primuse deliberately gives MusicKit one item and
+         // keeps the original Song identity / currentIndex itself.
          let pSong = AppleMusicLibraryService.toPrimuseSong(nps)
-         if pSong.id != currentSong?.id {
+         if !isPrimuseManagingAppleMusicQueue, pSong.id != currentSong?.id {
              currentSong = pSong
          }
          isPlaying = am.isAppleMusicPlaying
@@ -1188,14 +1222,32 @@ final class AudioPlayerService {
          }
          currentTime = am.currentPlaybackTime
          if am.currentDuration > 0 { duration = am.currentDuration }
-         // queue 镜像 ── 转成 QueueEntry, 让 NowPlayingView 队列视图直接渲染。
-         let newIDs = am.queueSongs.map(\.id)
-         if newIDs != queueEntries.map(\.song.id) {
-             queueEntries = am.queueSongs.map { QueueEntry(song: $0) }
+         // A MusicKit queue can only describe Apple Music entries. Mirroring
+         // it over a mixed queue used to discard thousands of local songs as
+         // soon as shuffle landed on one Apple Music track.
+         if !isPrimuseManagingAppleMusicQueue {
+             let newIDs = am.queueSongs.map(\.id)
+             if newIDs != queueEntries.map(\.song.id) {
+                 queueEntries = am.queueSongs.map { QueueEntry(song: $0) }
+             }
+             if let currentID = currentSong?.id,
+                let mirroredIndex = queueEntries.firstIndex(where: { $0.song.id == currentID }) {
+                 currentIndex = mirroredIndex
+             }
+             if repeatMode != am.repeatModeMirror { repeatMode = am.repeatModeMirror }
+             if shuffleEnabled != am.shuffleEnabledMirror { shuffleEnabled = am.shuffleEnabledMirror }
          }
-         if repeatMode != am.repeatModeMirror { repeatMode = am.repeatModeMirror }
-         if shuffleEnabled != am.shuffleEnabledMirror { shuffleEnabled = am.shuffleEnabledMirror }
      }
+
+    /// Called by `AppleMusicService` when a one-item MusicKit queue reaches
+    /// `.stopped`. Only mixed queues use Primuse track-end handling; pure Apple
+    /// Music queues remain system-managed.
+    func handleAppleMusicPlaybackEnded() {
+        guard isPrimuseManagingAppleMusicQueue, isAppleMusicMode else { return }
+        Task { @MainActor [weak self] in
+            await self?.handleTrackEnd()
+        }
+    }
 
     func play(song: Song, from url: URL) async {
         // 与主 play(song:) 一致的路由: 投屏时推远端、Apple Music 镜像时先停镜像。
@@ -1209,6 +1261,7 @@ final class AudioPlayerService {
             stopAppleMusicMirror()
             AppServices.shared.appleMusic.stopAppleMusic()
         }
+        isPrimuseManagingAppleMusicQueue = false
         let id = UUID()
         playID = id
         clearPendingPlaybackRecovery()
@@ -2309,6 +2362,7 @@ final class AudioPlayerService {
         if isAppleMusicMode {
             AppServices.shared.appleMusic.stopAppleMusic()
             stopAppleMusicMirror()
+            isPrimuseManagingAppleMusicQueue = false
             currentSong = nil
             currentTime = 0
             duration = 0
@@ -2385,7 +2439,7 @@ final class AudioPlayerService {
     }
 
     func next(caller: String = #fileID, callerLine: Int = #line) async {
-        if isAppleMusicMode {
+        if isAppleMusicMode && !isPrimuseManagingAppleMusicQueue {
             AppServices.shared.appleMusic.skipToNextAppleMusic()
             return
         }
@@ -2408,7 +2462,7 @@ final class AudioPlayerService {
     }
 
     func previous() async {
-        if isAppleMusicMode {
+        if isAppleMusicMode && !isPrimuseManagingAppleMusicQueue {
             // 跟本地行为一致 ── 播放进度过 3s 时倒回开头, 否则跳上一首。
             if currentTime > 3 {
                 AppServices.shared.appleMusic.seekAppleMusic(to: 0)
@@ -2706,6 +2760,11 @@ final class AudioPlayerService {
         queueGeneration += 1
         queueEntries = songs.map { QueueEntry(song: $0) }
         currentIndex = max(0, min(index, songs.count - 1))
+        // Protect a newly-installed local/mixed queue from an existing Apple
+        // Music mirror during the short interval before `play(song:)` runs.
+        isPrimuseManagingAppleMusicQueue = songs.contains {
+            $0.sourceID != AppleMusicLibraryService.systemSourceID
+        }
         let currentTitle = queueEntries[currentIndex].song.title
         let firstTitle = queueEntries.first?.song.title ?? "-"
         let lastTitle = queueEntries.last?.song.title ?? "-"
@@ -2767,6 +2826,7 @@ final class AudioPlayerService {
         pendingNextShuffleIndices = nil
         shuffledIndices = []
         shufflePosition = 0
+        isPrimuseManagingAppleMusicQueue = false
     }
 
     /// Move queue rows. Used by the QueueView reorder handle. Beyond
@@ -2825,7 +2885,7 @@ final class AudioPlayerService {
     var upcomingQueueEntries: [QueueEntry] {
         guard !queueEntries.isEmpty else { return [] }
 
-        guard shuffleEnabled, !isAppleMusicMode else {
+        guard shuffleEnabled, !(isAppleMusicMode && !isPrimuseManagingAppleMusicQueue) else {
             let start = currentIndex + 1
             guard start < queueEntries.count else { return [] }
             return Array(queueEntries[start..<queueEntries.count])

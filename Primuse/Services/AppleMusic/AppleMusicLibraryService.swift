@@ -140,7 +140,14 @@ final class AppleMusicLibraryService {
 
     /// 用 PrimuseKit.Song 在系统侧起播 — filePath 字段实际是 MusicItemID。
     /// 缓存命中直接 play, miss 时走 catalog lookup 兜底 (冷启动场景)。
-    func play(primuseSong song: PrimuseKit.Song) async {
+    ///
+    /// `queueContext` 是调用方当前 Apple Music 播放上下文。传入混合队列中的
+    /// 单首歌时，ApplicationMusicPlayer 只负责该 DRM 曲目，跨来源切歌仍由
+    /// AudioPlayerService 管理；传入纯 Apple Music 歌单时则保留系统队列能力。
+    func play(
+        primuseSong song: PrimuseKit.Song,
+        queueContext: [PrimuseKit.Song]? = nil
+    ) async {
         // songCache 是 in-memory, 重启后空。空 cache → orderedQueueFromCache
         // 返回 [], ApplicationMusicPlayer 的 queue 只装当前歌, 用户点"播放全部"
         // 看到的 queue 只剩 1 首播完就停。先确保 cache 至少有 user library
@@ -177,10 +184,21 @@ final class AppleMusicLibraryService {
             plog("⚠️Apple Music 找不到曲目 \(amID)")
             return
         }
-        // 把整个 user library cache 当 queue 推给 ApplicationMusicPlayer ──
-        // mini player / 大播放器的下一首 / 上一首才会有内容可跳。songCache 是
-        // 上次 sync 时缓存的全部 MusicKit.Song, 按当前点击的 song 作为起点。
-        let queue = orderedQueueFromCache()
+        // Prefer the exact queue selected in Primuse. Falling back to the full
+        // Apple Music cache preserves the legacy direct-play behaviour for
+        // callers that do not have a queue context.
+        let contextualQueue: [MusicKit.Song]? = queueContext?.compactMap { contextSong -> MusicKit.Song? in
+            guard contextSong.sourceID == Self.systemSourceID else { return nil }
+            return songCache[contextSong.filePath]
+        }
+        let queue: [MusicKit.Song]
+        if let contextualQueue,
+           !contextualQueue.isEmpty,
+           contextualQueue.contains(where: { $0.id == mk.id }) {
+            queue = contextualQueue
+        } else {
+            queue = orderedQueueFromCache()
+        }
         let startIndex = queue.firstIndex(where: { $0.id == mk.id }) ?? 0
         if queue.isEmpty {
             await appleMusic.play(mk)

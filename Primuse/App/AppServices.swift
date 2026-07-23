@@ -97,6 +97,9 @@ final class AppServices {
         let amService = AppleMusicService()
         self.appleMusic = amService
         self.appleMusicLibrary = AppleMusicLibraryService(library: library, appleMusic: amService)
+        amService.onPlaybackEnded = { [weak player] in
+            player?.handleAppleMusicPlaybackEnded()
+        }
 
         // 确保 Apple Music 虚拟 source 一直存在 — 用户首次安装 / iCloud
         // 同步过来时, 我们这边没这个 source 记录, library 里的 Apple Music

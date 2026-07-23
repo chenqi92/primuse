@@ -23,15 +23,18 @@ A native iOS / macOS / Apple TV music player that streams from NAS, media server
 ## Screenshots
 
 <p align="center">
-  <img src="https://is2-ssl.mzstatic.com/image/thumb/PurpleSource221/v4/56/72/5e/56725ead-13f7-fb62-ef05-da8efe62f4c6/IMG_1783.PNG/0x0ss.png" width="200"/>
-  <img src="https://is2-ssl.mzstatic.com/image/thumb/PurpleSource221/v4/59/71/15/597115d0-a075-2d3f-7b6b-21b2af50136c/IMG_1784.PNG/0x0ss.png" width="200"/>
-  <img src="https://is2-ssl.mzstatic.com/image/thumb/PurpleSource221/v4/e8/2a/5c/e82a5c09-08ea-938b-1252-93e74123e2f8/IMG_1786.PNG/0x0ss.png" width="200"/>
-  <img src="https://is2-ssl.mzstatic.com/image/thumb/PurpleSource211/v4/55/48/e9/5548e9c8-b537-854c-14aa-ddd5deb6cd81/IMG_1787.PNG/0x0ss.png" width="200"/>
+  <img src="Docs/screenshots/ios/en-US/01-home.jpg" width="160" alt="Primuse Home"/>
+  <img src="Docs/screenshots/ios/en-US/02-appearance.jpg" width="160" alt="Light and dark appearance"/>
+  <img src="Docs/screenshots/ios/en-US/03-songs.jpg" width="160" alt="Songs library"/>
+  <img src="Docs/screenshots/ios/en-US/04-albums.jpg" width="160" alt="Album browsing"/>
+  <img src="Docs/screenshots/ios/en-US/05-playlists.jpg" width="160" alt="Playlists"/>
 </p>
 <p align="center">
-  <img src="https://is2-ssl.mzstatic.com/image/thumb/PurpleSource211/v4/41/50/40/41504042-741a-7667-0797-f3e872ecd687/IMG_1788.PNG/0x0ss.png" width="200"/>
-  <img src="https://is2-ssl.mzstatic.com/image/thumb/PurpleSource221/v4/46/a9/82/46a9820f-e0fc-cb4f-f805-23c5be85c285/IMG_1789.PNG/0x0ss.png" width="200"/>
-  <img src="https://is2-ssl.mzstatic.com/image/thumb/PurpleSource211/v4/21/67/99/21679962-ad5e-5244-86f1-5d08c6402e39/IMG_1790.PNG/0x0ss.png" width="200"/>
+  <img src="Docs/screenshots/ios/en-US/06-search.jpg" width="160" alt="Populated search results"/>
+  <img src="Docs/screenshots/ios/en-US/07-now-playing.jpg" width="160" alt="Now Playing"/>
+  <img src="Docs/screenshots/ios/en-US/08-lyrics.jpg" width="160" alt="Synchronized lyrics"/>
+  <img src="Docs/screenshots/ios/en-US/09-sources.jpg" width="160" alt="Music source management"/>
+  <img src="Docs/screenshots/ios/en-US/10-equalizer.jpg" width="160" alt="10-band equalizer"/>
 </p>
 
 ## macOS Desktop App
@@ -40,24 +43,19 @@ A native desktop client redesigned for the Mac, sharing the same music library, 
 
 <table>
   <tr>
-    <td align="center"><img src="Docs/screenshots/macos/zh/home.png" width="420"/><br/>Home</td>
-    <td align="center"><img src="Docs/screenshots/macos/zh/player.png" width="420"/><br/>Player</td>
+    <td align="center"><img src="Docs/screenshots/macos/en-US/01-home.jpg" width="420" alt="macOS Home"/><br/>Desktop Music Command Center</td>
+    <td align="center"><img src="Docs/screenshots/macos/en-US/02-sources.jpg" width="420" alt="macOS Sources"/><br/>Source Management</td>
   </tr>
   <tr>
-    <td align="center"><img src="Docs/screenshots/macos/zh/search.png" width="420"/><br/>Search</td>
-    <td align="center"><img src="Docs/screenshots/macos/zh/desktop-lyrics.png" width="420"/><br/>Desktop Lyrics</td>
+    <td align="center"><img src="Docs/screenshots/macos/en-US/03-songs.jpg" width="420" alt="macOS Songs Library"/><br/>Complete Songs Library</td>
+    <td align="center"><img src="Docs/screenshots/macos/en-US/04-now-playing.jpg" width="420" alt="macOS Now Playing"/><br/>Now Playing and Synced Lyrics</td>
   </tr>
   <tr>
-    <td align="center"><img src="Docs/screenshots/macos/zh/appearance.png" width="420"/><br/>Appearance</td>
-    <td align="center"><img src="Docs/screenshots/macos/zh/stats.png" width="420"/><br/>Listening Stats</td>
+    <td align="center"><img src="Docs/screenshots/macos/en-US/05-mini-player.jpg" width="420" alt="macOS Mini Player"/><br/>Mini Player</td>
+    <td align="center"><img src="Docs/screenshots/macos/en-US/06-desktop-lyrics.jpg" width="420" alt="macOS Desktop Lyrics"/><br/>Standalone Desktop Lyrics</td>
   </tr>
   <tr>
-    <td align="center"><img src="Docs/screenshots/macos/zh/metadata.png" width="420"/><br/>Metadata Scraping</td>
-    <td align="center"><img src="Docs/screenshots/macos/zh/duplicates.png" width="420"/><br/>Duplicate Cleanup</td>
-  </tr>
-  <tr>
-    <td align="center"><img src="Docs/screenshots/macos/zh/settings.png" width="420"/><br/>Settings</td>
-    <td align="center"><img src="Docs/screenshots/macos/zh/add-source.png" width="420"/><br/>Add Music Source</td>
+    <td align="center" colspan="2"><img src="Docs/screenshots/macos/en-US/07-menu-bar.jpg" width="860" alt="macOS Menu Bar Player"/><br/>Menu Bar Player and Quick Controls</td>
   </tr>
 </table>
 
@@ -83,16 +81,15 @@ Play your whole collection on the big screen in the living room, sharing the sam
 
 <table>
   <tr>
-    <td align="center"><img src="Docs/screenshots/tv/zh/home.png" width="420"/><br/>Home</td>
-    <td align="center"><img src="Docs/screenshots/tv/zh/nowplaying.png" width="420"/><br/>Now Playing</td>
+    <td align="center"><img src="Docs/screenshots/tv/en-US/01-home.jpg" width="420" alt="Apple TV Home"/><br/>Home on the Big Screen</td>
+    <td align="center"><img src="Docs/screenshots/tv/en-US/02-library.jpg" width="420" alt="Apple TV Library"/><br/>Complete Library</td>
   </tr>
   <tr>
-    <td align="center"><img src="Docs/screenshots/tv/zh/library.png" width="420"/><br/>Library</td>
-    <td align="center"><img src="Docs/screenshots/tv/zh/playlists.png" width="420"/><br/>Playlists</td>
+    <td align="center"><img src="Docs/screenshots/tv/en-US/03-playlists.jpg" width="420" alt="Apple TV Playlists"/><br/>Playlists</td>
+    <td align="center"><img src="Docs/screenshots/tv/en-US/04-search.jpg" width="420" alt="Apple TV Search"/><br/>Search from the Sofa</td>
   </tr>
   <tr>
-    <td align="center"><img src="Docs/screenshots/tv/zh/search.png" width="420"/><br/>Search</td>
-    <td></td>
+    <td align="center" colspan="2"><img src="Docs/screenshots/tv/en-US/05-now-playing.jpg" width="860" alt="Apple TV Now Playing"/><br/>Now Playing and Synced Lyrics</td>
   </tr>
 </table>
 

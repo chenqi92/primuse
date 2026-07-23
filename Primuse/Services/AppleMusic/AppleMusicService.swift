@@ -87,6 +87,10 @@ final class AppleMusicService {
 
     private var searchTask: Task<Void, Never>?
     private var playbackStatusObservation: Task<Void, Never>?
+    /// Fired once when an Apple Music queue that was observed playing reaches
+    /// `.stopped`. AudioPlayerService uses this to advance a mixed-source queue.
+    @ObservationIgnored var onPlaybackEnded: (() -> Void)?
+    @ObservationIgnored private var hasObservedActivePlayback = false
     /// 上个 tick 的 queue 轻量指纹 (entry id 列表) ── 只有指纹变化才重做
     /// 全量 SHA256 + Song 结构体投影, 避免每 0.5s 对几千首 queue 烧主线程。
     private var lastQueueSignature: [String] = []
@@ -229,6 +233,7 @@ final class AppleMusicService {
          let player = ApplicationMusicPlayer.shared
          nowPlayingSong = starting
          isAppleMusicPlaying = true
+         hasObservedActivePlayback = false
          observePlaybackStatusIfNeeded()
          do {
              player.queue = ApplicationMusicPlayer.Queue(for: songs, startingAt: starting)
@@ -242,6 +247,7 @@ final class AppleMusicService {
                  plog("⚠️Apple Music play(queue) failed: \(error.localizedDescription)")
                  lastPlaybackError = error.localizedDescription
                  isAppleMusicPlaying = false
+                 hasObservedActivePlayback = false
              }
          }
      }
@@ -286,6 +292,7 @@ final class AppleMusicService {
         // 不能等 try 成功才设, 否则 UI 永远不显示 mini player。
         nowPlayingSong = song
         isAppleMusicPlaying = true
+        hasObservedActivePlayback = false
         observePlaybackStatusIfNeeded()
         do {
             player.queue = ApplicationMusicPlayer.Queue(for: [song])
@@ -305,6 +312,7 @@ final class AppleMusicService {
                 // 哪首歌, 并通过 lastPlaybackError UI 看到错误原因。否则用户
                 // 体验是 "点了没反应" + 没 mini player + 看不到任何错误。
                 isAppleMusicPlaying = false
+                hasObservedActivePlayback = false
             }
         }
     }
@@ -332,6 +340,7 @@ final class AppleMusicService {
         // queue.currentEntry 把 nowPlayingSong 复活, mini player 关不掉。
         playbackStatusObservation?.cancel()
         playbackStatusObservation = nil
+        hasObservedActivePlayback = false
         ApplicationMusicPlayer.shared.stop()
         nowPlayingSong = nil
         isAppleMusicPlaying = false
@@ -364,6 +373,10 @@ final class AppleMusicService {
          let player = ApplicationMusicPlayer.shared
          let status = player.state.playbackStatus
          let nowPlaying = status == .playing
+         let endedAfterPlaying = status == .stopped && hasObservedActivePlayback
+         if nowPlaying {
+             hasObservedActivePlayback = true
+         }
          if isAppleMusicPlaying != nowPlaying {
              isAppleMusicPlaying = nowPlaying
          }
@@ -371,6 +384,10 @@ final class AppleMusicService {
          // nowPlayingSong ── 否则 stopAppleMusic() 清掉的值会被复活, mini player
          // 关不掉。stopped 直接收摊本 tick。
          if status == .stopped {
+             hasObservedActivePlayback = false
+             if endedAfterPlaying {
+                 onPlaybackEnded?()
+             }
              return
          }
          // queue.currentEntry 反映用户在 queue 里走到哪 — 不限于初次 play, 也包括
@@ -425,6 +442,16 @@ final class AppleMusicService {
      func seekAppleMusic(to time: TimeInterval) {
          ApplicationMusicPlayer.shared.playbackTime = max(0, time)
          currentPlaybackTime = max(0, time)
+     }
+
+     /// Mixed-source queues are advanced by Primuse, not MusicKit. Reset the
+     /// system player's modes so its one-item DRM queue ends exactly once;
+     /// Primuse's own repeat and shuffle state remains untouched.
+     func prepareForPrimuseManagedQueue() {
+         ApplicationMusicPlayer.shared.state.repeatMode = MusicKit.MusicPlayer.RepeatMode.none
+         ApplicationMusicPlayer.shared.state.shuffleMode = .off
+         repeatModeMirror = .off
+         shuffleEnabledMirror = false
      }
 
      func setAppleMusicRepeat(_ mode: PrimuseKit.RepeatMode) {

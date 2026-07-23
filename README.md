@@ -23,15 +23,18 @@
 ## 应用截图
 
 <p align="center">
-  <img src="https://is2-ssl.mzstatic.com/image/thumb/PurpleSource221/v4/56/72/5e/56725ead-13f7-fb62-ef05-da8efe62f4c6/IMG_1783.PNG/0x0ss.png" width="200"/>
-  <img src="https://is2-ssl.mzstatic.com/image/thumb/PurpleSource221/v4/59/71/15/597115d0-a075-2d3f-7b6b-21b2af50136c/IMG_1784.PNG/0x0ss.png" width="200"/>
-  <img src="https://is2-ssl.mzstatic.com/image/thumb/PurpleSource221/v4/e8/2a/5c/e82a5c09-08ea-938b-1252-93e74123e2f8/IMG_1786.PNG/0x0ss.png" width="200"/>
-  <img src="https://is2-ssl.mzstatic.com/image/thumb/PurpleSource211/v4/55/48/e9/5548e9c8-b537-854c-14aa-ddd5deb6cd81/IMG_1787.PNG/0x0ss.png" width="200"/>
+  <img src="Docs/screenshots/ios/zh-Hans/01-home.jpg" width="160" alt="Primuse 首页"/>
+  <img src="Docs/screenshots/ios/zh-Hans/02-appearance.jpg" width="160" alt="亮色与暗色外观"/>
+  <img src="Docs/screenshots/ios/zh-Hans/03-songs.jpg" width="160" alt="歌曲资料库"/>
+  <img src="Docs/screenshots/ios/zh-Hans/04-albums.jpg" width="160" alt="专辑浏览"/>
+  <img src="Docs/screenshots/ios/zh-Hans/05-playlists.jpg" width="160" alt="歌单"/>
 </p>
 <p align="center">
-  <img src="https://is2-ssl.mzstatic.com/image/thumb/PurpleSource211/v4/41/50/40/41504042-741a-7667-0797-f3e872ecd687/IMG_1788.PNG/0x0ss.png" width="200"/>
-  <img src="https://is2-ssl.mzstatic.com/image/thumb/PurpleSource221/v4/46/a9/82/46a9820f-e0fc-cb4f-f805-23c5be85c285/IMG_1789.PNG/0x0ss.png" width="200"/>
-  <img src="https://is2-ssl.mzstatic.com/image/thumb/PurpleSource211/v4/21/67/99/21679962-ad5e-5244-86f1-5d08c6402e39/IMG_1790.PNG/0x0ss.png" width="200"/>
+  <img src="Docs/screenshots/ios/zh-Hans/06-search.jpg" width="160" alt="搜索结果"/>
+  <img src="Docs/screenshots/ios/zh-Hans/07-now-playing.jpg" width="160" alt="正在播放"/>
+  <img src="Docs/screenshots/ios/zh-Hans/08-lyrics.jpg" width="160" alt="同步歌词"/>
+  <img src="Docs/screenshots/ios/zh-Hans/09-sources.jpg" width="160" alt="音乐源管理"/>
+  <img src="Docs/screenshots/ios/zh-Hans/10-equalizer.jpg" width="160" alt="十段均衡器"/>
 </p>
 
 ## macOS 桌面版
@@ -40,24 +43,19 @@
 
 <table>
   <tr>
-    <td align="center"><img src="Docs/screenshots/macos/zh/home.png" width="420"/><br/>首页</td>
-    <td align="center"><img src="Docs/screenshots/macos/zh/player.png" width="420"/><br/>播放器</td>
+    <td align="center"><img src="Docs/screenshots/macos/zh-Hans/01-home.jpg" width="420" alt="macOS 首页"/><br/>桌面音乐中枢</td>
+    <td align="center"><img src="Docs/screenshots/macos/zh-Hans/02-sources.jpg" width="420" alt="macOS 音乐源"/><br/>音乐源管理</td>
   </tr>
   <tr>
-    <td align="center"><img src="Docs/screenshots/macos/zh/search.png" width="420"/><br/>搜索</td>
-    <td align="center"><img src="Docs/screenshots/macos/zh/desktop-lyrics.png" width="420"/><br/>桌面歌词</td>
+    <td align="center"><img src="Docs/screenshots/macos/zh-Hans/03-songs.jpg" width="420" alt="macOS 歌曲资料库"/><br/>完整歌曲资料库</td>
+    <td align="center"><img src="Docs/screenshots/macos/zh-Hans/04-now-playing.jpg" width="420" alt="macOS 正在播放"/><br/>正在播放与同步歌词</td>
   </tr>
   <tr>
-    <td align="center"><img src="Docs/screenshots/macos/zh/appearance.png" width="420"/><br/>外观</td>
-    <td align="center"><img src="Docs/screenshots/macos/zh/stats.png" width="420"/><br/>听歌统计</td>
+    <td align="center"><img src="Docs/screenshots/macos/zh-Hans/05-mini-player.jpg" width="420" alt="macOS 迷你播放器"/><br/>迷你播放器</td>
+    <td align="center"><img src="Docs/screenshots/macos/zh-Hans/06-desktop-lyrics.jpg" width="420" alt="macOS 桌面歌词"/><br/>独立桌面歌词</td>
   </tr>
   <tr>
-    <td align="center"><img src="Docs/screenshots/macos/zh/metadata.png" width="420"/><br/>元数据刮削</td>
-    <td align="center"><img src="Docs/screenshots/macos/zh/duplicates.png" width="420"/><br/>重复歌曲清理</td>
-  </tr>
-  <tr>
-    <td align="center"><img src="Docs/screenshots/macos/zh/settings.png" width="420"/><br/>设置</td>
-    <td align="center"><img src="Docs/screenshots/macos/zh/add-source.png" width="420"/><br/>添加音乐源</td>
+    <td align="center" colspan="2"><img src="Docs/screenshots/macos/zh-Hans/07-menu-bar.jpg" width="860" alt="macOS 菜单栏播放器"/><br/>菜单栏播放器与快捷控制</td>
   </tr>
 </table>
 
@@ -83,16 +81,15 @@
 
 <table>
   <tr>
-    <td align="center"><img src="Docs/screenshots/tv/zh/home.png" width="420"/><br/>首页</td>
-    <td align="center"><img src="Docs/screenshots/tv/zh/nowplaying.png" width="420"/><br/>正在播放</td>
+    <td align="center"><img src="Docs/screenshots/tv/zh-Hans/01-home.jpg" width="420" alt="Apple TV 首页"/><br/>大屏首页</td>
+    <td align="center"><img src="Docs/screenshots/tv/zh-Hans/02-library.jpg" width="420" alt="Apple TV 资料库"/><br/>完整资料库</td>
   </tr>
   <tr>
-    <td align="center"><img src="Docs/screenshots/tv/zh/library.png" width="420"/><br/>资料库</td>
-    <td align="center"><img src="Docs/screenshots/tv/zh/playlists.png" width="420"/><br/>歌单</td>
+    <td align="center"><img src="Docs/screenshots/tv/zh-Hans/03-playlists.jpg" width="420" alt="Apple TV 歌单"/><br/>歌单</td>
+    <td align="center"><img src="Docs/screenshots/tv/zh-Hans/04-search.jpg" width="420" alt="Apple TV 搜索"/><br/>大屏搜索</td>
   </tr>
   <tr>
-    <td align="center"><img src="Docs/screenshots/tv/zh/search.png" width="420"/><br/>搜索</td>
-    <td></td>
+    <td align="center" colspan="2"><img src="Docs/screenshots/tv/zh-Hans/05-now-playing.jpg" width="860" alt="Apple TV 正在播放"/><br/>正在播放与同步歌词</td>
   </tr>
 </table>
 
