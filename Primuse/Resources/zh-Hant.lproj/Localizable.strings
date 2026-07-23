@@ -683,6 +683,7 @@
 "dup_best_badge" = "推薦";
 "dup_action_done_format" = "已移除 %d 首";
 "dup_clean_all_done_format" = "已批次移除 %d 首冗餘";
+"dup_clean_failed_format" = "有 %d 首冗餘刪除失敗，已保留在資料庫中";
 "stats_title" = "聽歌統計";
 "stats_range" = "時間範圍";
 "stats_range_week" = "本週";

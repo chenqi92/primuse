@@ -20,6 +20,7 @@ struct DuplicateSongsView: View {
     @State private var cleanedCount: Int = 0
     @State private var lastActionMessage: String?
     @State private var showAllGroups = false
+    @State private var scanGeneration = 0
     #if os(macOS)
     @State private var retentionStrategy: MacDuplicateRetentionStrategy = .highestBitrate
     #endif
@@ -142,16 +143,9 @@ struct DuplicateSongsView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        // 清理期间禁交互, 避免用户中途点其他按钮触发状态错乱。状态来自
-        // service, 跨 view 销毁/重建也保持一致。
-        .disabled(cleaner.progress != nil)
-        .onChange(of: cleaner.progress?.isFinished) { _, finished in
+        .onChange(of: cleaner.completionRevision) { _, _ in
             // 后台完成后顺便 rescan + 给个总结提示, 即便用户切走又回来也成。
-            guard finished == true else { return }
-            let n = cleaner.lastCompletedCount
-            if n > 0 {
-                flashAction(String(format: String(localized: "dup_clean_all_done_format"), n))
-            }
+            showCleanupResult()
             Task { await rescan() }
         }
     }
@@ -184,13 +178,8 @@ struct DuplicateSongsView: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
-            .disabled(cleaner.progress != nil)
-            .onChange(of: cleaner.progress?.isFinished) { _, finished in
-                guard finished == true else { return }
-                let n = cleaner.lastCompletedCount
-                if n > 0 {
-                    flashAction(String(format: String(localized: "dup_clean_all_done_format"), n))
-                }
+            .onChange(of: cleaner.completionRevision) { _, _ in
+                showCleanupResult()
                 Task { await rescan() }
             }
     }
@@ -334,7 +323,7 @@ struct DuplicateSongsView: View {
             // 清理在 DuplicateCleanupService 里跑, 不绑这个窗口的生命周期 —— 清理
             // 过程中底栏换成"在后台继续", 用户可以直接关掉窗口去用 app, 清理照常
             // 进行; 重新打开本工具还能看到进度。
-            if let progress = cleaner.progress, !progress.isFinished {
+            if let progress = cleaner.progress {
                 cleaningFooter(progress)
             } else {
                 idleFooter
@@ -377,7 +366,7 @@ struct DuplicateSongsView: View {
                     .background(PMColor.bad, in: .rect(cornerRadius: 6))
             }
             .buttonStyle(.plain)
-            .disabled(totalRedundantCount == 0)
+            .disabled(totalRedundantCount == 0 || cleaner.progress != nil)
         }
     }
 
@@ -614,6 +603,7 @@ struct DuplicateSongsView: View {
                     Text("dup_clean_all_action")
                 }
             }
+            .disabled(totalRedundantCount == 0 || cleaner.progress != nil)
         }
     }
 
@@ -640,6 +630,7 @@ struct DuplicateSongsView: View {
                     .font(.subheadline.weight(.medium))
                 }
                 .padding(.vertical, 4)
+                .disabled(cleaner.progress != nil)
             } label: {
                 HStack(spacing: 8) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -691,7 +682,7 @@ struct DuplicateSongsView: View {
                     .font(.subheadline)
             }
             .buttonStyle(.borderless)
-            .disabled(group.songs.count <= 1)
+            .disabled(group.songs.count <= 1 || cleaner.progress != nil)
         }
         .padding(.vertical, 2)
     }
@@ -699,14 +690,25 @@ struct DuplicateSongsView: View {
     // MARK: - Actions
 
     private func rescan() async {
+        scanGeneration &+= 1
+        let generation = scanGeneration
         isScanning = true
-        defer { isScanning = false }
+        defer {
+            if generation == scanGeneration {
+                isScanning = false
+            }
+        }
         // 主线程只负责拍 snapshot, 实际 Dictionary(grouping:) + folding
         // + sort 全部到后台跑。10k+ 库主线程跑要 1-3s 直接卡 UI。
         let snapshot = library.visibleSongs
         let detected = await Task.detached(priority: .userInitiated) {
             DuplicateDetector.detect(in: snapshot)
         }.value
+        // A pull-to-refresh may have captured the pre-cleanup library while
+        // the completion-triggered scan starts later with committed data.
+        // Only the newest scan may publish, so an older detached result can
+        // never restore the stale duplicate count.
+        guard generation == scanGeneration else { return }
         groups = detected
         expandedGroupID = nil
         showAllGroups = false
@@ -733,6 +735,18 @@ struct DuplicateSongsView: View {
         let toRemove = groups.flatMap(\.redundantSongs)
         #endif
         cleaner.cleanup(toRemove)
+    }
+
+    private func showCleanupResult() {
+        let failedCount = cleaner.lastFailedTitles.count
+        if failedCount > 0 {
+            flashAction(String(format: String(localized: "dup_clean_failed_format"), failedCount))
+        } else if cleaner.lastCompletedCount > 0 {
+            flashAction(String(
+                format: String(localized: "dup_clean_all_done_format"),
+                cleaner.lastCompletedCount
+            ))
+        }
     }
 
     private func flashAction(_ msg: String) {

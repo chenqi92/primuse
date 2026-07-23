@@ -829,6 +829,7 @@
 "dup_best_badge" = "Meilleure";
 "dup_action_done_format" = "%d supprimé(s)";
 "dup_clean_all_done_format" = "%d copies redondantes supprimées";
+"dup_clean_failed_format" = "%d copies n’ont pas pu être supprimées et ont été conservées";
 "stats_title" = "Statistiques d'écoute";
 "stats_range" = "Plage";
 "stats_range_week" = "Cette semaine";

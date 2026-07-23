@@ -830,6 +830,7 @@
 "dup_best_badge" = "おすすめ";
 "dup_action_done_format" = "%d 件を削除しました";
 "dup_clean_all_done_format" = "%d 件の重複を一括削除しました";
+"dup_clean_failed_format" = "%d 件の重複を削除できなかったため、ライブラリに残しました";
 "stats_title" = "再生統計";
 "stats_range" = "期間";
 "stats_range_week" = "今週";

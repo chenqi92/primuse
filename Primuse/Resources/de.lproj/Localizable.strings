@@ -829,6 +829,7 @@
 "dup_best_badge" = "Beste";
 "dup_action_done_format" = "%d entfernt";
 "dup_clean_all_done_format" = "%d überflüssige Kopien entfernt";
+"dup_clean_failed_format" = "%d Kopien konnten nicht gelöscht werden und wurden behalten";
 "stats_title" = "Hörstatistik";
 "stats_range" = "Zeitraum";
 "stats_range_week" = "Diese Woche";

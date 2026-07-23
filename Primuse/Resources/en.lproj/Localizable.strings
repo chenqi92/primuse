@@ -753,6 +753,7 @@
 "dup_best_badge" = "Best";
 "dup_action_done_format" = "Removed %d";
 "dup_clean_all_done_format" = "Removed %d redundant copies";
+"dup_clean_failed_format" = "%d copies could not be deleted and were kept";
 
 // MARK: - Listening Stats
 "stats_title" = "Listening Stats";

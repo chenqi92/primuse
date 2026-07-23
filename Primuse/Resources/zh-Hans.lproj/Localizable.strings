@@ -754,6 +754,7 @@
 "dup_best_badge" = "推荐";
 "dup_action_done_format" = "已移除 %d 首";
 "dup_clean_all_done_format" = "已批量移除 %d 首冗余";
+"dup_clean_failed_format" = "有 %d 首冗余删除失败，已保留在资料库中";
 
 // MARK: - Listening Stats (听歌统计)
 "stats_title" = "听歌统计";

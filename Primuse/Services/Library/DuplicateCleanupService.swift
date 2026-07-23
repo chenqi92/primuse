@@ -24,6 +24,9 @@ final class DuplicateCleanupService {
     /// 让 view 能向用户反馈「N 首删除失败」, 同时这些歌不会被 tombstone,
     /// 下次重扫仍可见。
     private(set) var lastFailedTitles: [String] = []
+    /// 每次资料库批量删除和结果字段都提交后递增。界面监听它刷新扫描，不能
+    /// 监听源文件进度的 100%，因为那一刻资料库事务尚未落地。
+    private(set) var completionRevision: UInt = 0
 
     private let library: MusicLibrary
     private let sourceManager: SourceManager
@@ -89,7 +92,14 @@ final class DuplicateCleanupService {
                 if done == songs.count
                     || done.isMultiple(of: 16)
                     || now.timeIntervalSince(lastProgressPublishAt) >= 0.1 {
-                    self.progress = Progress(done: done, total: songs.count)
+                    // `deleteSourceFiles` reaching its total only means the
+                    // source-side work is done. Keep one unit pending until
+                    // `library.deleteSongs` below has committed the in-memory
+                    // library/tombstones. Otherwise the view observes 100%,
+                    // rescans the old snapshot, and leaves the just-deleted
+                    // duplicate count on screen indefinitely.
+                    let committedDone = min(done, max(songs.count - 1, 0))
+                    self.progress = Progress(done: committedDone, total: songs.count)
                     lastProgressPublishAt = now
                 }
             }
@@ -116,6 +126,7 @@ final class DuplicateCleanupService {
             }
             self.lastCompletedCount = removableSongs.count
             self.lastFailedTitles = failedSongs.map(\.title)
+            self.completionRevision &+= 1
 
             if outcomes.count < songs.count {
                 self.progress = nil

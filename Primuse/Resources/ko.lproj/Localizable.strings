@@ -829,6 +829,7 @@
 "dup_best_badge" = "추천";
 "dup_action_done_format" = "%d곡 삭제됨";
 "dup_clean_all_done_format" = "중복본 %d개 삭제됨";
+"dup_clean_failed_format" = "중복본 %d개를 삭제하지 못해 보관함에 유지했습니다";
 "stats_title" = "청취 통계";
 "stats_range" = "범위";
 "stats_range_week" = "이번 주";
