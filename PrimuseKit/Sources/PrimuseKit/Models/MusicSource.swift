@@ -167,6 +167,19 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         isMediaServer || isSubsonicFamily
     }
 
+    /// Whether this source exposes a server/file-system operation that really
+    /// removes the underlying audio. Read-only catalogue protocols must never
+    /// be counted as removable duplicates.
+    public var supportsFileDeletion: Bool {
+        switch self {
+        case .upnp, .subsonic, .navidrome, .airsonic, .gonic,
+             .appleMusic, .appleMusicLibrary:
+            return false
+        default:
+            return true
+        }
+    }
+
     /// True for sources whose "scope" is the whole source itself, with no
     /// per-folder selection step. Drives the Sources UI to show "scan now"
     /// directly instead of a "connect & pick directories" flow.

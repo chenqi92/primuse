@@ -16,7 +16,13 @@ import PrimuseKit
 ///  · 列表项的目录/文件区分与 id 字段(fid / cid / pc)以官方文档为准。
 actor U115Source: MusicSourceConnector, OAuthCloudSource {
     let sourceID: String
+    nonisolated let preferredDeleteBatchSize = 100
     private let helper: CloudDriveHelper
+
+    /// The playback identity is 115's pick_code, while recycle-bin deletion
+    /// requires the numeric file id. Listing/downurl responses contain both;
+    /// retain that relation for real deletion without changing stored song ids.
+    private var fileIDByPickCode: [String: String] = [:]
 
     /// pickCode → (downloadURL, expiry)。115 直链有时效,缓存 20 分钟省去重复换链。
     private var downloadURLCache: [String: (url: URL, expiresAt: Date)] = [:]
@@ -96,6 +102,9 @@ actor U115Source: MusicSourceConnector, OAuthCloudSource {
                 } else {
                     // 文件:用 pick_code(pc)作为 path,取直链时需要。
                     guard let pc = item["pc"] as? String, !pc.isEmpty else { continue }
+                    if let fileID = Self.stringValue(item["fid"] ?? item["file_id"]), !fileID.isEmpty {
+                        fileIDByPickCode[pc] = fileID
+                    }
                     all.append(RemoteFileItem(name: name, path: pc, isDirectory: false,
                                               size: size, modifiedDate: nil, revision: sha1))
                 }
@@ -132,6 +141,54 @@ actor U115Source: MusicSourceConnector, OAuthCloudSource {
         return try await helper.rangeRequest(url: url, offset: offset, length: length, userAgent: Self.userAgent)
     }
 
+    /// Move files to 115's recycle bin. The OpenAPI takes file ids rather
+    /// than the pick_codes Primuse uses for playback, so resolve every id and
+    /// only report success after the service confirms the batch operation.
+    func deleteFile(at path: String) async throws {
+        try await deleteFiles(at: [path])
+    }
+
+    func deleteFiles(at paths: [String]) async throws {
+        let uniquePickCodes = Array(Set(paths))
+        guard !uniquePickCodes.isEmpty else { return }
+        var fileIDs: [String] = []
+        fileIDs.reserveCapacity(uniquePickCodes.count)
+        for pickCode in uniquePickCodes {
+            fileIDs.append(try await resolveFileID(for: pickCode))
+        }
+
+        let token = try await getToken()
+        let body = CloudDriveHelper.formURLEncodedBody([
+            .init(name: "file_ids", value: fileIDs.joined(separator: ",")),
+        ])
+        let (data, http) = try await helper.withTokenRetry(
+            initialToken: token,
+            refresh: refreshToken
+        ) { @Sendable tok in
+            try await self.helper.makeAuthorizedRequest(
+                url: URL(string: "\(Self.apiBase)/ufile/delete")!,
+                method: "POST",
+                body: body,
+                contentType: "application/x-www-form-urlencoded",
+                accessToken: tok
+            )
+        }
+        guard (200...299).contains(http.statusCode) else {
+            throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+        }
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        let state = json["state"] as? Bool
+        let code = Self.intValue(json["code"])
+        guard state == true || code == 0 else {
+            throw CloudDriveError.apiError(code ?? http.statusCode, json["message"] as? String ?? json["error"] as? String ?? "115 delete not confirmed")
+        }
+        for pickCode in uniquePickCodes {
+            downloadURLCache.removeValue(forKey: pickCode)
+            fileIDByPickCode.removeValue(forKey: pickCode)
+        }
+        plog("🗑️ 115 items moved to recycle bin: \(fileIDs.count)")
+    }
+
     // MARK: - 私有
 
     /// path 是文件的 pick_code;调 downurl 换直链。
@@ -154,14 +211,39 @@ actor U115Source: MusicSourceConnector, OAuthCloudSource {
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
         // data 以 file_id 为键:{ "<file_id>": { "url": { "url": "https://..." } } }
         guard let payload = json["data"] as? [String: Any],
-              let first = payload.values.first as? [String: Any],
+              let entry = payload.first,
+              let first = entry.value as? [String: Any],
               let urlField = first["url"] as? [String: Any],
               let link = urlField["url"] as? String,
               let fileURL = URL(string: link) else {
             throw CloudDriveError.fileNotFound(pickCode)
         }
+        fileIDByPickCode[pickCode] = entry.key
         downloadURLCache[pickCode] = (fileURL, Date().addingTimeInterval(Self.downloadURLTTL))
         return fileURL
+    }
+
+    private func resolveFileID(for pickCode: String) async throws -> String {
+        if let fileID = fileIDByPickCode[pickCode], !fileID.isEmpty { return fileID }
+        _ = try await getDownloadURL(for: pickCode)
+        guard let fileID = fileIDByPickCode[pickCode], !fileID.isEmpty else {
+            throw CloudDriveError.fileNotFound(pickCode)
+        }
+        return fileID
+    }
+
+    private static func stringValue(_ value: Any?) -> String? {
+        if let string = value as? String { return string }
+        if let number = value as? NSNumber { return number.stringValue }
+        if let int = value as? Int { return String(int) }
+        return nil
+    }
+
+    private static func intValue(_ value: Any?) -> Int? {
+        if let int = value as? Int { return int }
+        if let number = value as? NSNumber { return number.intValue }
+        if let string = value as? String { return Int(string) }
+        return nil
     }
 
     private func getToken() async throws -> String {

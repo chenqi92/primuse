@@ -213,6 +213,38 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
         helper.scanAudioFiles(from: path) { [self] p in try await listFiles(at: p) }
     }
 
+    /// Move the item to Aliyun Drive's recycle bin. PDS may report failures
+    /// in a JSON body, so a 2xx status alone is not treated as confirmation.
+    func deleteFile(at path: String) async throws {
+        guard !path.isEmpty, let driveId else { throw CloudDriveError.invalidResponse }
+        let token = try await getToken()
+        let body = try SafeJSONSerialization.data(withJSONObject: [
+            "drive_id": driveId,
+            "file_id": path,
+        ])
+        let (data, http) = try await helper.withTokenRetry(
+            initialToken: token,
+            refresh: refreshToken
+        ) { @Sendable tok in
+            try await self.helper.makeAuthorizedRequest(
+                url: URL(string: "\(Self.apiBase)/adrive/v1.0/openFile/recyclebin/trash")!,
+                method: "POST",
+                body: body,
+                contentType: "application/json",
+                accessToken: tok
+            )
+        }
+        guard (200...299).contains(http.statusCode) else {
+            throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+        }
+        let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        if let code = json["code"] as? String, !code.isEmpty {
+            throw CloudDriveError.apiError(http.statusCode, "\(code): \(json["message"] as? String ?? "")")
+        }
+        downloadURLCache.removeValue(forKey: path)
+        plog("🗑️ Aliyun Drive item moved to recycle bin: \(path)")
+    }
+
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
         let url = try await getDownloadURL(for: path)
         return try await helper.rangeRequest(url: url, offset: offset, length: length)
@@ -283,6 +315,6 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
     }
 
     static func oauthConfig(clientId: String, clientSecret: String?) -> CloudOAuthConfig {
-        CloudOAuthConfig(authURL: "\(oauthBase)/authorize", tokenURL: "\(oauthBase)/access_token", clientId: clientId, clientSecret: clientSecret, scopes: ["user:base", "file:all:read"], redirectURI: "\(CloudOAuthConfig.callbackScheme)://aliyun/callback")
+        CloudOAuthConfig(authURL: "\(oauthBase)/authorize", tokenURL: "\(oauthBase)/access_token", clientId: clientId, clientSecret: clientSecret, scopes: ["user:base", "file:all:read", "file:all:write"], redirectURI: "\(CloudOAuthConfig.callbackScheme)://aliyun/callback")
     }
 }

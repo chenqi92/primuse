@@ -112,6 +112,26 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
         helper.scanAudioFiles(from: path) { [self] p in try await listFiles(at: p) }
     }
 
+    /// Microsoft Graph DELETE moves a driveItem to OneDrive's recycle bin.
+    func deleteFile(at path: String) async throws {
+        guard !path.isEmpty else { throw CloudDriveError.invalidResponse }
+        let token = try await getToken()
+        let (data, http) = try await helper.withTokenRetry(
+            initialToken: token,
+            refresh: refreshToken
+        ) { @Sendable tok in
+            try await self.helper.makeAuthorizedRequest(
+                url: URL(string: "\(Self.graphBase)/me/drive/items/\(path)")!,
+                method: "DELETE", accessToken: tok
+            )
+        }
+        guard http.statusCode == 204 else {
+            throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+        }
+        invalidateDownloadURL(for: path)
+        plog("🗑️ OneDrive item moved to recycle bin: \(path)")
+    }
+
     /// Microsoft 推荐第三方流量带「装饰」User-Agent(格式 NONISV|公司|应用/版本),
     /// 否则 undecorated 流量在 SharePoint/OneDrive CDN 可能被降级调度。URLSession
     /// 跨 302 保留自定义 header, 所以重定向到 *.microsoftpersonalcontent.com CDN 后仍生效。

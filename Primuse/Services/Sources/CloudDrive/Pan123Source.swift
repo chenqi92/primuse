@@ -21,6 +21,7 @@ import PrimuseKit
 actor Pan123Source: MusicSourceConnector, OAuthCloudSource {
     let sourceID: String
     nonisolated let supportsSidecarWriting = true   // 刮削封面/歌词回写 123 云盘
+    nonisolated let preferredDeleteBatchSize = 100
     private let helper: CloudDriveHelper
 
     private static let apiBase = "https://open-api.123pan.com"
@@ -134,9 +135,19 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource {
     }
 
     func deleteFile(at path: String) async throws {
-        guard let fid = Self.intValue(path) else { throw CloudDriveError.invalidResponse }
-        let body = try SafeJSONSerialization.data(withJSONObject: ["fileIDs": [fid]])
+        try await deleteFiles(at: [path])
+    }
+
+    func deleteFiles(at paths: [String]) async throws {
+        let uniquePaths = Array(Set(paths))
+        let ids = uniquePaths.compactMap(Self.intValue).sorted()
+        guard !ids.isEmpty, ids.count == uniquePaths.count else {
+            throw CloudDriveError.invalidResponse
+        }
+        let body = try SafeJSONSerialization.data(withJSONObject: ["fileIDs": ids])
         _ = try await authedRequest("/api/v1/file/trash", method: "POST", body: body)
+        for path in uniquePaths { invalidateDownloadURL(for: path) }
+        plog("🗑️ 123 Drive items moved to trash: \(ids.count)")
     }
 
     // MARK: - 上传辅助

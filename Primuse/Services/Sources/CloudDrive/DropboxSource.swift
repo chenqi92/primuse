@@ -159,6 +159,23 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource {
         helper.scanAudioFiles(from: path) { [self] p in try await listFiles(at: p) }
     }
 
+    /// Remove the server-side entry with Dropbox delete_v2 and require the
+    /// returned metadata as confirmation before Primuse removes its row.
+    func deleteFile(at path: String) async throws {
+        guard !path.isEmpty else { throw CloudDriveError.invalidResponse }
+        let json = try await postJSON(
+            url: "\(Self.apiBase)/files/delete_v2",
+            body: ["path": path]
+        )
+        guard let metadata = json["metadata"] as? [String: Any],
+              let tag = metadata[".tag"] as? String,
+              tag == "file" || tag == "folder" else {
+            throw CloudDriveError.apiError(200, "Dropbox did not confirm deleted metadata")
+        }
+        invalidateTemporaryLink(for: path)
+        plog("🗑️ Dropbox item deleted: \(path)")
+    }
+
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
         // Use Dropbox's `get_temporary_link` to obtain a short-lived
         // pre-signed URL (4-hour validity per Dropbox docs; we cache 50 min

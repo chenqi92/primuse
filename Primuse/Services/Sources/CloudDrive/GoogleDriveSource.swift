@@ -186,6 +186,37 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
         helper.scanAudioFiles(from: path) { [self] p in try await listFiles(at: p) }
     }
 
+    /// Recoverable deletion: mark the Drive file as trashed and require the
+    /// updated resource to explicitly confirm `trashed=true`.
+    func deleteFile(at path: String) async throws {
+        guard !path.isEmpty else { throw CloudDriveError.invalidResponse }
+        let token = try await getToken()
+        var components = URLComponents(string: "\(Self.apiBase)/files/\(path)")!
+        components.queryItems = [
+            .init(name: "supportsAllDrives", value: "true"),
+            .init(name: "fields", value: "id,trashed"),
+        ]
+        guard let deleteURL = components.url else { throw CloudDriveError.invalidResponse }
+        let body = try SafeJSONSerialization.data(withJSONObject: ["trashed": true])
+        let (data, http) = try await helper.withTokenRetry(
+            initialToken: token,
+            refresh: refreshToken
+        ) { @Sendable tok in
+            try await self.helper.makeAuthorizedRequest(
+                url: deleteURL, method: "PATCH", body: body,
+                contentType: "application/json", accessToken: tok
+            )
+        }
+        guard http.statusCode == 200 else {
+            throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+        }
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        guard json["trashed"] as? Bool == true else {
+            throw CloudDriveError.apiError(http.statusCode, "Google Drive did not confirm trashed=true")
+        }
+        plog("🗑️ Google Drive item moved to trash: \(path)")
+    }
+
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
         let token = try await getToken()
         var components = URLComponents(string: "\(Self.apiBase)/files/\(path)")!

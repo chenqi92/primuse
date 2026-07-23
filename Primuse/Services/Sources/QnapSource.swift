@@ -122,6 +122,14 @@ actor QnapSource: MusicSourceConnector {
         return await api.downloadURL(path: path)
     }
 
+    func deleteFile(at path: String) async throws {
+        try await connect()
+        try await api.deleteFile(path: path)
+        let sanitized = path.replacingOccurrences(of: "/", with: "_")
+        try? FileManager.default.removeItem(at: cacheDirectory.appendingPathComponent(sanitized))
+        plog("🗑️ QNAP item moved to recycle bin: \(path)")
+    }
+
     /// HTTP Range GET on QNAP download URL。downloadURL 返回的 URL 已带认证
     /// (sid query param), 标准 Range header 直接生效, 让 CloudPlaybackSource
     /// 边下边播替代整文件下载。

@@ -107,6 +107,14 @@ actor FnOSSource: MusicSourceConnector {
         return await api.downloadURL(path: path)
     }
 
+    func deleteFile(at path: String) async throws {
+        try await connect()
+        try await api.deleteFile(path: path)
+        let sanitized = path.replacingOccurrences(of: "/", with: "_")
+        try? FileManager.default.removeItem(at: cacheDirectory.appendingPathComponent(sanitized))
+        plog("🗑️ fnOS item moved to recycle bin: \(path)")
+    }
+
     /// HTTP Range GET on fnOS download URL。fnOS 走 HTTP, 标准 Range header
     /// 直接生效, 让 CloudPlaybackSource 边下边播替代整文件下载。
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {

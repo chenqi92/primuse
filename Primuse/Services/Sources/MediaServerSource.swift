@@ -192,6 +192,26 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         }
     }
 
+    /// Delete through the media server instead of only removing Primuse's
+    /// local row. Jellyfin/Emby expose Items/{id}; Plex uses the ratingKey
+    /// metadata endpoint and deletes the underlying media as well.
+    func deleteFile(at path: String) async throws {
+        try await connect()
+        guard let itemID = itemID(from: path) else {
+            throw SourceError.fileNotFound(path)
+        }
+        switch kind {
+        case .jellyfin, .emby:
+            _ = try await performRequest(path: "/Items/\(itemID)", method: "DELETE")
+        case .plex:
+            _ = try await performRequest(path: "/library/metadata/\(itemID)", method: "DELETE")
+            plexItems.removeValue(forKey: itemID)
+        }
+        let ext = (path as NSString).pathExtension.isEmpty ? "mp3" : (path as NSString).pathExtension
+        try? FileManager.default.removeItem(at: cacheDirectory.appendingPathComponent("\(itemID).\(ext)"))
+        plog("🗑️ Media server item deleted: \(itemID)")
+    }
+
     private func playbackURL(for itemID: String) async throws -> URL {
         switch kind {
         case .plex:

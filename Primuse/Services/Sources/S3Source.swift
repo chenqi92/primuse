@@ -156,6 +156,24 @@ actor S3Source: MusicSourceConnector {
         }
     }
 
+    /// S3 DeleteObject. Versioned buckets create a delete marker; unversioned
+    /// buckets remove the object. In both cases the live key is really gone.
+    func deleteFile(at path: String) async throws {
+        guard !path.isEmpty else { throw SourceError.fileNotFound(path) }
+        let request = try signedRequest(url: objectURL(for: path), method: "DELETE")
+        let (data, response) = try await rangeSession.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw SourceError.connectionFailed("Invalid S3 delete response")
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let detail = String(data: data, encoding: .utf8) ?? ""
+            throw SourceError.connectionFailed("S3 delete failed: HTTP \(http.statusCode) \(detail)")
+        }
+        let sanitized = path.replacingOccurrences(of: "/", with: "_")
+        try? FileManager.default.removeItem(at: cacheDirectory.appendingPathComponent(sanitized))
+        plog("🗑️ S3 object deleted: \(path)")
+    }
+
     private func bucketURL() throws -> URL {
         let scheme = useSsl ? "https" : "http"
         guard var url = NetworkURLBuilder.baseURL(host: endpoint, scheme: scheme, port: port) else {

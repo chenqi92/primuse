@@ -199,6 +199,43 @@ actor QnapAPI {
         return comps.url
     }
 
+    /// File Station API v5 delete. `force=0` preserves QNAP's recycle-bin
+    /// semantics. Only status=1/success=true is accepted as server confirmation.
+    func deleteFile(path: String) async throws {
+        guard let sid else { throw SourceError.connectionFailed("Not logged in") }
+        let normalized = path.isEmpty ? "/" : path
+        let parent = (normalized as NSString).deletingLastPathComponent
+        let name = (normalized as NSString).lastPathComponent
+        guard !name.isEmpty else { throw SourceError.fileNotFound(path) }
+
+        var comps = URLComponents(string: "\(baseURLString)/cgi-bin/filemanager/utilRequest.cgi")!
+        comps.queryItems = [
+            .init(name: "func", value: "delete"),
+            .init(name: "sid", value: sid),
+            .init(name: "path", value: parent.isEmpty ? "/" : parent),
+            .init(name: "file_total", value: "1"),
+            .init(name: "file_name", value: name),
+            .init(name: "v", value: "1"),
+            .init(name: "force", value: "0"),
+        ]
+        let (data, response) = try await session().data(from: comps.url!)
+        if let http = response as? HTTPURLResponse,
+           http.statusCode == 401 || http.statusCode == 403 {
+            invalidateSession()
+            throw SourceError.authenticationFailed
+        }
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw SourceError.connectionFailed("QNAP delete HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)")
+        }
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        let success = (json["success"] as? Bool == true)
+            || (json["success"] as? String)?.lowercased() == "true"
+        guard qnapStatus(json) == 1, success || json["pid"] != nil else {
+            let message = json["error"] as? String ?? json["message"] as? String ?? String(data: data, encoding: .utf8) ?? ""
+            throw SourceError.connectionFailed("QNAP delete not confirmed: \(message)")
+        }
+    }
+
     // MARK: - Helpers
 
     /// 长生命周期 session 复用: 带 delegate 的 session 在被 invalidate 前

@@ -76,6 +76,17 @@ import Testing
     #expect(MusicSourceType.smb.defaultPort(useSsl: false) == 445)
 }
 
+@Test func fileDeletionCapabilityExcludesReadOnlyCatalogues() {
+    let readOnly: Set<MusicSourceType> = [
+        .upnp, .subsonic, .navidrome, .airsonic, .gonic,
+        .appleMusic, .appleMusicLibrary,
+    ]
+
+    for sourceType in MusicSourceType.allCases {
+        #expect(sourceType.supportsFileDeletion == !readOnly.contains(sourceType))
+    }
+}
+
 @Test func testVideoFormatRouting() {
     #expect(VideoFormat.from(fileExtension: "MP4") == .mp4)
     #expect(VideoFormat.mov.isNativelyPlayable == true)

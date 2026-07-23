@@ -609,6 +609,11 @@ struct DuplicateSongsView: View {
 
     @ViewBuilder
     private func groupSection(_ group: DuplicateGroup) -> some View {
+        let writableSourceIDs = deletableSourceIDsSnapshot
+        let removableCount = removableSongs(
+            in: group,
+            deletableSourceIDs: writableSourceIDs
+        ).count
         Section {
             DisclosureGroup(
                 isExpanded: Binding(
@@ -617,7 +622,12 @@ struct DuplicateSongsView: View {
                 )
             ) {
                 ForEach(group.songs, id: \.id) { song in
-                    songRow(song: song, isBest: song.id == group.bestSong.id, group: group)
+                    songRow(
+                        song: song,
+                        isBest: song.id == group.bestSong.id,
+                        group: group,
+                        canDelete: writableSourceIDs.contains(song.sourceID)
+                    )
                 }
 
                 Button {
@@ -625,12 +635,12 @@ struct DuplicateSongsView: View {
                 } label: {
                     HStack {
                         Image(systemName: "sparkles")
-                        Text(String(format: String(localized: "dup_keep_best_action_format"), group.songs.count - 1))
+                        Text(String(format: String(localized: "dup_keep_best_action_format"), removableCount))
                     }
                     .font(.subheadline.weight(.medium))
                 }
                 .padding(.vertical, 4)
-                .disabled(cleaner.progress != nil)
+                .disabled(removableCount == 0 || cleaner.progress != nil)
             } label: {
                 HStack(spacing: 8) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -650,7 +660,7 @@ struct DuplicateSongsView: View {
     }
 
     @ViewBuilder
-    private func songRow(song: Song, isBest: Bool, group: DuplicateGroup) -> some View {
+    private func songRow(song: Song, isBest: Bool, group: DuplicateGroup, canDelete: Bool) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
@@ -682,7 +692,7 @@ struct DuplicateSongsView: View {
                     .font(.subheadline)
             }
             .buttonStyle(.borderless)
-            .disabled(group.songs.count <= 1 || cleaner.progress != nil)
+            .disabled(group.songs.count <= 1 || !canDelete || cleaner.progress != nil)
         }
         .padding(.vertical, 2)
     }
@@ -715,11 +725,10 @@ struct DuplicateSongsView: View {
     }
 
     private func keepBest(of group: DuplicateGroup) {
-        #if os(macOS)
-        let toRemove = macRedundantSongs(in: group)
-        #else
-        let toRemove = group.redundantSongs
-        #endif
+        let toRemove = removableSongs(
+            in: group,
+            deletableSourceIDs: deletableSourceIDsSnapshot
+        )
         guard !toRemove.isEmpty else { return }
         cleaner.cleanup(toRemove)
     }
@@ -729,11 +738,10 @@ struct DuplicateSongsView: View {
     }
 
     private func cleanAll() {
-        #if os(macOS)
-        let toRemove = groups.flatMap { macRedundantSongs(in: $0) }
-        #else
-        let toRemove = groups.flatMap(\.redundantSongs)
-        #endif
+        let writableSourceIDs = deletableSourceIDsSnapshot
+        let toRemove = groups.flatMap {
+            removableSongs(in: $0, deletableSourceIDs: writableSourceIDs)
+        }
         cleaner.cleanup(toRemove)
     }
 
@@ -760,7 +768,10 @@ struct DuplicateSongsView: View {
     // MARK: - Display helpers
 
     private var totalRedundantCount: Int {
-        groups.reduce(0) { $0 + $1.songs.count - 1 }
+        let writableSourceIDs = deletableSourceIDsSnapshot
+        return groups.reduce(0) {
+            $0 + removableSongs(in: $1, deletableSourceIDs: writableSourceIDs).count
+        }
     }
 
     #if os(macOS)
@@ -769,8 +780,9 @@ struct DuplicateSongsView: View {
     }
 
     private var recoverableBytes: Int64 {
-        groups
-            .flatMap { macRedundantSongs(in: $0) }
+        let writableSourceIDs = deletableSourceIDsSnapshot
+        return groups
+            .flatMap { removableSongs(in: $0, deletableSourceIDs: writableSourceIDs) }
             .reduce(Int64(0)) { $0 + max(Int64(0), $1.fileSize) }
     }
 
@@ -850,6 +862,28 @@ struct DuplicateSongsView: View {
         return ByteCountFormatter.string(fromByteCount: song.fileSize, countStyle: .file)
     }
     #endif
+
+    /// If a group contains a read-only source, that file must remain and all
+    /// writable copies are removable. When every source is writable, preserve
+    /// the normal quality/strategy-selected winner.
+    private var deletableSourceIDsSnapshot: Set<String> {
+        Set(sourcesStore.sources.lazy
+            .filter { $0.type.supportsFileDeletion }
+            .map(\.id))
+    }
+
+    private func removableSongs(
+        in group: DuplicateGroup,
+        deletableSourceIDs: Set<String>
+    ) -> [Song] {
+        let writable = group.songs.filter { deletableSourceIDs.contains($0.sourceID) }
+        guard writable.count == group.songs.count else { return writable }
+        #if os(macOS)
+        return macRedundantSongs(in: group)
+        #else
+        return group.redundantSongs
+        #endif
+    }
 
     private var visibleGroups: [DuplicateGroup] {
         if showAllGroups || groups.count <= Self.initialGroupRenderCap {

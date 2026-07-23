@@ -172,6 +172,30 @@ actor FnOSAPI {
         try await listDirectory(path: "/")
     }
 
+    /// fnOS file-service deletion. The API call is authenticated and its
+    /// business result must be explicit before the caller removes local data.
+    func deleteFile(path: String) async throws {
+        guard let token else { throw SourceError.connectionFailed("Not logged in") }
+        let data = try await postJSON(
+            path: "/api/v1/file/delete",
+            body: ["paths": [path], "path": path, "permanent": false],
+            auth: token
+        )
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        let hasCode = json["code"] != nil
+        let code = intValue(json["code"])
+        if isAuthFailureCode(code) {
+            invalidateSession()
+            throw SourceError.authenticationFailed
+        }
+        let success = (hasCode && (code == 200 || code == 0))
+            || json["success"] as? Bool == true
+        guard success else {
+            let message = json["message"] as? String ?? json["msg"] as? String ?? "code \(code)"
+            throw SourceError.connectionFailed("fnOS delete not confirmed: \(message)")
+        }
+    }
+
     func downloadURL(path: String) -> URL? {
         guard let token else { return nil }
         // 用 URLComponents 让系统正确编码查询值: .urlQueryAllowed 不会转义

@@ -204,6 +204,32 @@ actor UgreenAPI {
         try await listDirectory(path: "/")
     }
 
+    /// UGOS file manager deletion. Keep the item recoverable (`is_force=false`)
+    /// and require the business response's code to confirm the operation.
+    func deleteFile(path: String) async throws {
+        guard let token else { throw SourceError.connectionFailed("Not logged in") }
+        var comps = URLComponents(string: "\(baseURLString)/ugreen/v1/filemgr/delete")!
+        comps.queryItems = [.init(name: "token", value: token)]
+        let data = try await postJSON(
+            url: comps.url!,
+            body: ["paths": [path], "is_force": false]
+        )
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        let code = intValue(json["code"])
+        if isAuthFailureCode(code) {
+            invalidateSession()
+            throw SourceError.authenticationFailed
+        }
+        let hasCode = json["code"] != nil
+        let success = (hasCode && (code == 200 || code == 0))
+            || json["success"] as? Bool == true
+        guard success else {
+            let message = json["message"] as? String ?? json["msg"] as? String ?? "code \(code)"
+            throw SourceError.connectionFailed("Ugreen delete not confirmed: \(message)")
+        }
+        v2DownloadCache.removeValue(forKey: path)
+    }
+
     func downloadURL(path: String) async -> URL? {
         // 优先 pewee 三步流程(detectionPermissions → getDownloadToken → dl_url);
         // 任一步失败 / 无 v2 凭证时退回 v1 直链 file/download?path=&token=。
