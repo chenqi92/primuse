@@ -1,6 +1,7 @@
 import Foundation
 import PrimuseKit
 import CryptoKit
+import GRDB
 
 /// Observation's Equatable fast path is counterproductive for large model
 /// arrays: comparing two `[Song]` values also compares lyricsText. Publishing
@@ -240,6 +241,7 @@ enum LibrarySearchWorker {
         songs: [Song],
         albums: [Album],
         cache: LibrarySearchCache,
+        includeMetadata: Bool = true,
         includeLyrics: Bool = true,
         songLimit: Int = 120,
         albumLimit: Int = 10
@@ -271,11 +273,13 @@ enum LibrarySearchWorker {
                 }
             }
 
-            consider(song.title, boost: 30)
-            consider(song.artistName, boost: 20)
-            consider(song.albumTitle, boost: 14)
-            consider(song.genre, boost: 6)
-            consider(song.fileFormat.rawValue, boost: 2)
+            if includeMetadata {
+                consider(song.title, boost: 30)
+                consider(song.artistName, boost: 20)
+                consider(song.albumTitle, boost: 14)
+                consider(song.genre, boost: 6)
+                consider(song.fileFormat.rawValue, boost: 2)
+            }
 
             if shouldSearchLyrics,
                bestScore < 90,
@@ -307,7 +311,9 @@ enum LibrarySearchWorker {
             return lhs.song.title.localizedCaseInsensitiveCompare(rhs.song.title) == .orderedAscending
         }.prefix(songLimit))
 
-        let albumResults = searchAlbums(query: query, albums: albums, limit: albumLimit)
+        let albumResults = includeMetadata
+            ? searchAlbums(query: query, albums: albums, limit: albumLimit)
+            : []
 
         return LibrarySearchOutput(songResults: songResults, albumResults: albumResults, cache: cache)
     }
@@ -403,6 +409,940 @@ enum LibrarySearchWorker {
 
     private static func lyricsCacheKey(for song: Song) -> String {
         "\(song.id)|\(song.lyricsFileName ?? "")"
+    }
+}
+
+/// Result returned by the persistent search index. `lyricsIndexComplete` is
+/// false only during the first incremental build (or immediately after songs
+/// are added). SearchView uses the inexpensive, cancellable literal fallback
+/// in that window so existing lyrics search never disappears.
+struct LibraryIndexedSearchOutput: Sendable {
+    var output: LibrarySearchOutput
+    var lyricsIndexComplete: Bool
+}
+
+/// Private on-device search engine for the snapshot-backed MusicLibrary.
+///
+/// Search-time work is deliberately limited to FTS lookups and ranking. ICU
+/// Mandarin transliteration happens only when metadata/lyrics change, and the
+/// resulting original text, full pinyin, compact pinyin and initials are kept
+/// in a persistent SQLite database. This avoids the old behavior where every
+/// keystroke transliterated thousands of lyric lines.
+actor LibrarySearchIndex {
+    static let shared = LibrarySearchIndex()
+
+    private static let baseSchemaVersion = "v1_persistent_original_pinyin"
+    private static let substringSchemaVersion = "v2_compact_pinyin_substring"
+    private static let externalContentSchemaVersion = "v3_external_lyrics_content"
+    private static let lyricsBatchSize = 12
+    private static let lyricQueryMinimumLength = 3
+
+    private let dbPool: DatabasePool?
+    private var lastMetadataRevisionKey: String?
+    private var preparedSongIDs: Set<String> = []
+    private var isPreparing = false
+    private var pendingPreparationSongs: [Song]?
+
+    private init(fileManager: FileManager = .default) {
+        do {
+            #if os(tvOS)
+            let base = fileManager.primuseDirectoryURL(for: .cachesDirectory)
+            #else
+            let base = fileManager.primuseDirectoryURL(for: .applicationSupportDirectory)
+            #endif
+            let directory = base.appendingPathComponent("Primuse", isDirectory: true)
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+            let pool = try DatabasePool(
+                path: directory.appendingPathComponent("library-search.sqlite").path
+            )
+            try Self.migrate(pool)
+            dbPool = pool
+        } catch {
+            dbPool = nil
+            plog("🔎 Search index unavailable: \(error.localizedDescription)")
+        }
+    }
+
+    private static func migrate(_ pool: DatabasePool) throws {
+        var migrator = DatabaseMigrator()
+        migrator.registerMigration(baseSchemaVersion) { db in
+            try db.create(table: "metadataSearchState") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("songID", .text).notNull().unique()
+                t.column("fingerprint", .text).notNull()
+            }
+            try db.create(virtualTable: "metadataLexicalFts", using: FTS5()) { t in
+                t.tokenizer = FTS5TokenizerDescriptor(components: ["trigram"])
+                t.column("title")
+                t.column("artist")
+                t.column("album")
+                t.column("genre")
+            }
+            try db.create(virtualTable: "metadataPinyinFts", using: FTS5()) { t in
+                t.tokenizer = .unicode61()
+                t.prefixes = [1, 2, 3, 4]
+                t.column("title")
+                t.column("artist")
+                t.column("album")
+                t.column("initials")
+                t.column("compact")
+            }
+
+            try db.create(table: "lyricsSearchDocuments") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("songID", .text).notNull().unique()
+                t.column("signature", .text).notNull()
+                t.column("originalText", .text).notNull()
+                t.column("pinyinText", .text).notNull()
+                t.column("compactPinyin", .text).notNull()
+                t.column("initials", .text).notNull()
+                t.column("timestamps", .blob).notNull()
+            }
+            try db.create(virtualTable: "lyricsOriginalFts", using: FTS5()) { t in
+                t.tokenizer = FTS5TokenizerDescriptor(components: ["trigram"])
+                t.column("originalText")
+            }
+            try db.create(virtualTable: "lyricsPinyinFts", using: FTS5()) { t in
+                t.tokenizer = .unicode61()
+                t.prefixes = [2, 3, 4]
+                t.column("pinyinText")
+                t.column("compactPinyin")
+                t.column("initials")
+            }
+        }
+        migrator.registerMigration(substringSchemaVersion) { db in
+            // unicode61 handles word/phrase prefixes efficiently, while
+            // trigram handles compact pinyin and initials at any position
+            // (for example `henaihenaini` or `zjl`).
+            try db.create(virtualTable: "metadataPinyinSubstringFts", using: FTS5()) { t in
+                t.tokenizer = FTS5TokenizerDescriptor(components: ["trigram"])
+                t.column("compact")
+                t.column("initials")
+            }
+            try db.create(virtualTable: "lyricsPinyinSubstringFts", using: FTS5()) { t in
+                t.tokenizer = FTS5TokenizerDescriptor(components: ["trigram"])
+                t.column("compactPinyin")
+                t.column("initials")
+            }
+            // Preserve an index created by an earlier development build.
+            try db.execute(sql: """
+                INSERT INTO metadataPinyinSubstringFts (rowid, compact, initials)
+                SELECT rowid, compact, initials FROM metadataPinyinFts
+                """)
+            try db.execute(sql: """
+                INSERT INTO lyricsPinyinSubstringFts (rowid, compactPinyin, initials)
+                SELECT rowid, compactPinyin, initials FROM lyricsPinyinFts
+                """)
+        }
+        migrator.registerMigration(externalContentSchemaVersion) { db in
+            // Lyrics text already lives in lyricsSearchDocuments. External-
+            // content FTS keeps only posting lists instead of another full
+            // copy in each virtual table, and GRDB installs synchronization
+            // triggers for later inserts, updates and deletes.
+            for table in ["lyricsOriginalFts", "lyricsPinyinFts", "lyricsPinyinSubstringFts"] {
+                for suffix in ["ai", "ad", "au"] {
+                    try db.execute(sql: "DROP TRIGGER IF EXISTS \"__\(table)_\(suffix)\"")
+                }
+                try db.execute(sql: "DROP TABLE IF EXISTS \"\(table)\"")
+            }
+            try db.create(virtualTable: "lyricsOriginalFts", using: FTS5()) { t in
+                t.tokenizer = FTS5TokenizerDescriptor(components: ["trigram"])
+                t.synchronize(withTable: "lyricsSearchDocuments")
+                t.column("originalText")
+            }
+            try db.create(virtualTable: "lyricsPinyinFts", using: FTS5()) { t in
+                t.tokenizer = .unicode61()
+                t.prefixes = [2, 3, 4]
+                t.synchronize(withTable: "lyricsSearchDocuments")
+                t.column("pinyinText")
+                t.column("compactPinyin")
+                t.column("initials")
+            }
+            try db.create(virtualTable: "lyricsPinyinSubstringFts", using: FTS5()) { t in
+                t.tokenizer = FTS5TokenizerDescriptor(components: ["trigram"])
+                t.synchronize(withTable: "lyricsSearchDocuments")
+                t.column("compactPinyin")
+                t.column("initials")
+            }
+            try db.create(table: "searchIndexMaintenance", ifNotExists: true) { t in
+                t.column("key", .text).primaryKey()
+            }
+            try db.execute(
+                sql: "INSERT OR IGNORE INTO searchIndexMaintenance (key) VALUES ('vacuum_v3')"
+            )
+        }
+        try migrator.migrate(pool)
+        let needsVacuum = try pool.read { db in
+            try Bool.fetchOne(
+                db,
+                sql: "SELECT EXISTS(SELECT 1 FROM searchIndexMaintenance WHERE key = 'vacuum_v3')"
+            ) ?? false
+        }
+        if needsVacuum {
+            try pool.writeWithoutTransaction { db in
+                try db.execute(sql: "VACUUM")
+                try db.execute(sql: "DELETE FROM searchIndexMaintenance WHERE key = 'vacuum_v3'")
+            }
+        }
+    }
+
+    /// Runs at utility/background priority. Calls made while an older snapshot
+    /// is being prepared replace the pending snapshot instead of starting a
+    /// second transliteration job.
+    func prepare(songs: [Song]) async {
+        guard dbPool != nil else { return }
+        if isPreparing {
+            pendingPreparationSongs = songs
+            return
+        }
+
+        isPreparing = true
+        var currentSongs = songs
+        while true {
+            await synchronizeMetadata(songs: currentSongs, revisionKey: nil)
+            await synchronizeLyrics(songs: currentSongs)
+
+            if let pending = pendingPreparationSongs {
+                pendingPreparationSongs = nil
+                currentSongs = pending
+            } else {
+                break
+            }
+        }
+        isPreparing = false
+
+        await MainActor.run {
+            NotificationCenter.default.post(
+                name: .primuseLibrarySearchIndexDidChange,
+                object: nil
+            )
+        }
+    }
+
+    /// Index a newly written lyric immediately. The normal background pass
+    /// remains the source of truth and repairs any interrupted update later.
+    func refreshLyrics(songID: String, fallbackText: String?) async {
+        guard let pool = dbPool else { return }
+        let store = MetadataAssetStore.shared
+        let signature = store.cachedLyricsSearchSignature(songID: songID, lyricsFileName: nil)
+        let lines = store.cachedLyricsForSearch(songID: songID, lyricsFileName: nil)
+            ?? Self.lines(fromPlainText: fallbackText)
+        guard let lines, !lines.isEmpty else { return }
+        let resolvedSignature = signature ?? "inline:\(Self.digest(fallbackText ?? ""))"
+        let document = Self.makeLyricsDocument(
+            songID: songID,
+            signature: resolvedSignature,
+            lines: lines
+        )
+        do {
+            try Self.upsertLyricsDocuments([document], in: pool)
+        } catch {
+            plog("🔎 Failed to refresh lyrics index: \(error.localizedDescription)")
+        }
+    }
+
+    /// Search a fully indexed snapshot. Metadata synchronization is cheap on
+    /// normal queries because stable fingerprints avoid both writes and ICU.
+    func search(
+        query: String,
+        songs: [Song],
+        albums: [Album],
+        metadataRevisionKey: String,
+        songLimit: Int = 120,
+        albumLimit: Int = 10
+    ) async -> LibraryIndexedSearchOutput? {
+        guard let pool = dbPool else { return nil }
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return LibraryIndexedSearchOutput(
+                output: LibrarySearchOutput(
+                    songResults: [],
+                    albumResults: [],
+                    cache: LibrarySearchCache()
+                ),
+                lyricsIndexComplete: true
+            )
+        }
+
+        await synchronizeMetadata(songs: songs, revisionKey: metadataRevisionKey)
+
+        do {
+            let songByID = Dictionary(uniqueKeysWithValues: songs.map { ($0.id, $0) })
+            var metadataIDs: [String] = []
+            var seenMetadata = Set<String>()
+
+            if trimmed.count >= 3 {
+                let ids = try Self.matchingSongIDs(
+                    pool: pool,
+                    ftsTable: "metadataLexicalFts",
+                    stateTable: "metadataSearchState",
+                    pattern: Self.quotedFTS(trimmed),
+                    limit: songLimit * 2
+                )
+                Self.appendUnique(ids, to: &metadataIDs, seen: &seenMetadata)
+            } else if Self.containsHan(trimmed) {
+                // Trigram indexes intentionally do not handle one/two-character
+                // queries. A short literal metadata pass is bounded and never
+                // invokes transliteration.
+                let ids = songs.lazy
+                    .filter { Self.metadataContainsLiteral($0, query: trimmed) }
+                    .prefix(songLimit * 2)
+                    .map(\.id)
+                Self.appendUnique(Array(ids), to: &metadataIDs, seen: &seenMetadata)
+            }
+
+            if !Self.containsHan(trimmed) {
+                let normalized = Self.normalizedLatinQuery(trimmed)
+                let terms = Set([normalized.spaced, normalized.compact])
+                    .filter { !$0.isEmpty }
+                    .map { Self.quotedFTS($0) + "*" }
+                    .sorted()
+                if !terms.isEmpty {
+                    let ids = try Self.matchingSongIDs(
+                        pool: pool,
+                        ftsTable: "metadataPinyinFts",
+                        stateTable: "metadataSearchState",
+                        pattern: terms.joined(separator: " OR "),
+                        limit: songLimit * 2
+                    )
+                    Self.appendUnique(ids, to: &metadataIDs, seen: &seenMetadata)
+                }
+                if normalized.compact.count >= Self.lyricQueryMinimumLength {
+                    let ids = try Self.matchingSongIDs(
+                        pool: pool,
+                        ftsTable: "metadataPinyinSubstringFts",
+                        stateTable: "metadataSearchState",
+                        pattern: Self.quotedFTS(normalized.compact),
+                        limit: songLimit * 2
+                    )
+                    Self.appendUnique(ids, to: &metadataIDs, seen: &seenMetadata)
+                }
+            }
+
+            var lyricHits: [LyricsHit] = []
+            var seenLyrics = Set<String>()
+            if trimmed.count >= Self.lyricQueryMinimumLength {
+                let originalIDs = try Self.matchingLyricsIDs(
+                    pool: pool,
+                    ftsTable: "lyricsOriginalFts",
+                    pattern: Self.quotedFTS(trimmed),
+                    limit: songLimit
+                )
+                let documents = try Self.lyricsDocuments(ids: originalIDs, pool: pool)
+                for id in originalIDs where !seenLyrics.contains(id) {
+                    guard let document = documents[id],
+                          let match = Self.originalLyricsMatch(document, query: trimmed) else { continue }
+                    seenLyrics.insert(id)
+                    lyricHits.append(LyricsHit(songID: id, snippet: match.snippet, timestamp: match.timestamp))
+                }
+
+                if !Self.containsHan(trimmed) {
+                    let normalized = Self.normalizedLatinQuery(trimmed)
+                    var pinyinIDs: [String] = []
+                    var seenPinyin = Set<String>()
+                    let terms = Set([normalized.spaced, normalized.compact])
+                        .filter { $0.count >= Self.lyricQueryMinimumLength }
+                        .map { Self.quotedFTS($0) + "*" }
+                        .sorted()
+                    if !terms.isEmpty {
+                        let ids = try Self.matchingLyricsIDs(
+                            pool: pool,
+                            ftsTable: "lyricsPinyinFts",
+                            pattern: terms.joined(separator: " OR "),
+                            limit: songLimit
+                        )
+                        Self.appendUnique(ids, to: &pinyinIDs, seen: &seenPinyin)
+                    }
+                    if normalized.compact.count >= Self.lyricQueryMinimumLength {
+                        let ids = try Self.matchingLyricsIDs(
+                            pool: pool,
+                            ftsTable: "lyricsPinyinSubstringFts",
+                            pattern: Self.quotedFTS(normalized.compact),
+                            limit: songLimit
+                        )
+                        Self.appendUnique(ids, to: &pinyinIDs, seen: &seenPinyin)
+                    }
+                    if !pinyinIDs.isEmpty {
+                        let pinyinDocuments = try Self.lyricsDocuments(ids: pinyinIDs, pool: pool)
+                        for id in pinyinIDs where !seenLyrics.contains(id) {
+                            guard let document = pinyinDocuments[id],
+                                  let match = Self.pinyinLyricsMatch(document, query: normalized) else { continue }
+                            seenLyrics.insert(id)
+                            lyricHits.append(LyricsHit(songID: id, snippet: match.snippet, timestamp: match.timestamp))
+                        }
+                    }
+                }
+            }
+
+            var ranked: [LibrarySearchResult] = []
+            ranked.reserveCapacity(min(songLimit * 2, metadataIDs.count + lyricHits.count))
+            var resultIDs = Set<String>()
+            for (offset, id) in metadataIDs.enumerated() {
+                guard let song = songByID[id] else { continue }
+                let literal = Self.metadataContainsLiteral(song, query: trimmed)
+                ranked.append(LibrarySearchResult(
+                    song: song,
+                    matchKind: literal ? .metadata : .fuzzy,
+                    score: max(100, 220 - offset),
+                    lyricSnippet: nil,
+                    lyricTimestamp: nil
+                ))
+                resultIDs.insert(id)
+            }
+            for (offset, hit) in lyricHits.enumerated() where !resultIDs.contains(hit.songID) {
+                guard let song = songByID[hit.songID] else { continue }
+                ranked.append(LibrarySearchResult(
+                    song: song,
+                    matchKind: .lyrics,
+                    score: max(60, 95 - offset),
+                    lyricSnippet: hit.snippet,
+                    lyricTimestamp: hit.timestamp
+                ))
+                resultIDs.insert(hit.songID)
+            }
+            let songResults = Array(ranked.sorted { lhs, rhs in
+                if lhs.score != rhs.score { return lhs.score > rhs.score }
+                return lhs.song.title.localizedCaseInsensitiveCompare(rhs.song.title) == .orderedAscending
+            }.prefix(songLimit))
+
+            let albumByID = Dictionary(uniqueKeysWithValues: albums.map { ($0.id, $0) })
+            var albumResults: [Album] = []
+            var albumIDs = Set<String>()
+            for id in metadataIDs {
+                guard let albumID = songByID[id]?.albumID,
+                      !albumIDs.contains(albumID),
+                      let album = albumByID[albumID] else { continue }
+                albumIDs.insert(albumID)
+                albumResults.append(album)
+                if albumResults.count == albumLimit { break }
+            }
+
+            let lyricsComplete = preparedSongIDs.count == songs.count
+                && songs.allSatisfy { preparedSongIDs.contains($0.id) }
+            return LibraryIndexedSearchOutput(
+                output: LibrarySearchOutput(
+                    songResults: songResults,
+                    albumResults: albumResults,
+                    cache: LibrarySearchCache()
+                ),
+                lyricsIndexComplete: lyricsComplete
+            )
+        } catch {
+            plog("🔎 Indexed search failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private func synchronizeMetadata(songs: [Song], revisionKey: String?) async {
+        guard let pool = dbPool else { return }
+        if let revisionKey, lastMetadataRevisionKey == revisionKey { return }
+
+        do {
+            let existing = try Self.metadataStates(in: pool)
+            let songIDs = Set(songs.map(\.id))
+            var changed: [(song: Song, fingerprint: String, stateID: Int64?)] = []
+            changed.reserveCapacity(min(songs.count, 256))
+            for song in songs {
+                let fingerprint = Self.metadataFingerprint(song)
+                if existing[song.id]?.fingerprint != fingerprint {
+                    changed.append((song, fingerprint, existing[song.id]?.id))
+                }
+            }
+            let removed = existing.filter { !songIDs.contains($0.key) }.map(\.value.id)
+            let metadataChanges = changed
+
+            if !metadataChanges.isEmpty || !removed.isEmpty {
+                try await pool.write { db in
+                    for id in removed {
+                        try db.execute(sql: "DELETE FROM metadataLexicalFts WHERE rowid = ?", arguments: [id])
+                        try db.execute(sql: "DELETE FROM metadataPinyinFts WHERE rowid = ?", arguments: [id])
+                        try db.execute(sql: "DELETE FROM metadataPinyinSubstringFts WHERE rowid = ?", arguments: [id])
+                        try db.execute(sql: "DELETE FROM metadataSearchState WHERE id = ?", arguments: [id])
+                    }
+                    for change in metadataChanges {
+                        let document = Self.makeMetadataDocument(change.song)
+                        let stateID: Int64
+                        if let existingID = change.stateID {
+                            stateID = existingID
+                            try db.execute(
+                                sql: "UPDATE metadataSearchState SET fingerprint = ? WHERE id = ?",
+                                arguments: [change.fingerprint, existingID]
+                            )
+                            try db.execute(sql: "DELETE FROM metadataLexicalFts WHERE rowid = ?", arguments: [existingID])
+                            try db.execute(sql: "DELETE FROM metadataPinyinFts WHERE rowid = ?", arguments: [existingID])
+                            try db.execute(sql: "DELETE FROM metadataPinyinSubstringFts WHERE rowid = ?", arguments: [existingID])
+                        } else {
+                            try db.execute(
+                                sql: "INSERT INTO metadataSearchState (songID, fingerprint) VALUES (?, ?)",
+                                arguments: [change.song.id, change.fingerprint]
+                            )
+                            stateID = db.lastInsertedRowID
+                        }
+                        try db.execute(
+                            sql: "INSERT INTO metadataLexicalFts (rowid, title, artist, album, genre) VALUES (?, ?, ?, ?, ?)",
+                            arguments: [stateID, change.song.title, change.song.artistName ?? "", change.song.albumTitle ?? "", change.song.genre ?? ""]
+                        )
+                        try db.execute(
+                            sql: "INSERT INTO metadataPinyinFts (rowid, title, artist, album, initials, compact) VALUES (?, ?, ?, ?, ?, ?)",
+                            arguments: [stateID, document.title, document.artist, document.album, document.initials, document.compact]
+                        )
+                        try db.execute(
+                            sql: "INSERT INTO metadataPinyinSubstringFts (rowid, compact, initials) VALUES (?, ?, ?)",
+                            arguments: [stateID, document.compact, document.initials]
+                        )
+                    }
+                }
+            }
+            lastMetadataRevisionKey = revisionKey
+        } catch {
+            plog("🔎 Metadata index sync failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func synchronizeLyrics(songs: [Song]) async {
+        guard let pool = dbPool else { return }
+        do {
+            var existing = try Self.lyricsStates(in: pool)
+            let visibleIDs = Set(songs.map(\.id))
+            let store = MetadataAssetStore.shared
+
+            for start in stride(from: 0, to: songs.count, by: Self.lyricsBatchSize) {
+                if Task.isCancelled { return }
+                let end = min(start + Self.lyricsBatchSize, songs.count)
+                var documents: [LyricsDocument] = []
+                var removals: [Int64] = []
+
+                for song in songs[start..<end] {
+                    let fileSignature = store.cachedLyricsSearchSignature(
+                        songID: song.id,
+                        lyricsFileName: song.lyricsFileName
+                    )
+                    let inlineText = song.lyricsText?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let signature: String?
+                    if let fileSignature {
+                        signature = "file:\(fileSignature)"
+                    } else if let inlineText, !inlineText.isEmpty {
+                        signature = "inline:\(Self.digest(inlineText))"
+                    } else {
+                        signature = nil
+                    }
+
+                    guard let signature else {
+                        if let old = existing.removeValue(forKey: song.id) { removals.append(old.id) }
+                        continue
+                    }
+                    if existing[song.id]?.signature == signature { continue }
+
+                    let lines = store.cachedLyricsForSearch(
+                        songID: song.id,
+                        lyricsFileName: song.lyricsFileName
+                    ) ?? Self.lines(fromPlainText: inlineText)
+                    guard let lines, !lines.isEmpty else { continue }
+                    documents.append(Self.makeLyricsDocument(
+                        songID: song.id,
+                        signature: signature,
+                        lines: lines
+                    ))
+                    existing[song.id] = StoredLyricsState(id: existing[song.id]?.id ?? -1, signature: signature)
+                }
+
+                if !removals.isEmpty {
+                    try Self.removeLyricsDocuments(ids: removals, in: pool)
+                }
+                if !documents.isEmpty {
+                    try Self.upsertLyricsDocuments(documents, in: pool)
+                }
+
+                // Let interactive FTS reads interleave with the first build,
+                // and keep one-time indexing from becoming sustained CPU load.
+                await Task.yield()
+                try? await Task.sleep(for: .milliseconds(18))
+            }
+
+            let staleIDs = existing
+                .filter { !visibleIDs.contains($0.key) }
+                .map(\.value.id)
+                .filter { $0 >= 0 }
+            if !staleIDs.isEmpty {
+                try Self.removeLyricsDocuments(ids: staleIDs, in: pool)
+            }
+            preparedSongIDs = visibleIDs
+        } catch {
+            plog("🔎 Lyrics index sync failed: \(error.localizedDescription)")
+        }
+    }
+
+    private struct StoredMetadataState {
+        let id: Int64
+        let fingerprint: String
+    }
+
+    private struct StoredLyricsState {
+        let id: Int64
+        let signature: String
+    }
+
+    private struct MetadataDocument {
+        let title: String
+        let artist: String
+        let album: String
+        let initials: String
+        let compact: String
+    }
+
+    private struct LyricsDocument {
+        let songID: String
+        let signature: String
+        let originalText: String
+        let pinyinText: String
+        let compactPinyin: String
+        let initials: String
+        let timestamps: [TimeInterval]
+    }
+
+    private struct LyricsHit {
+        let songID: String
+        let snippet: String
+        let timestamp: TimeInterval
+    }
+
+    private struct NormalizedLatinQuery {
+        let spaced: String
+        let compact: String
+    }
+
+    private static func metadataStates(in pool: DatabasePool) throws -> [String: StoredMetadataState] {
+        try pool.read { db in
+            let rows = try Row.fetchAll(db, sql: "SELECT id, songID, fingerprint FROM metadataSearchState")
+            return Dictionary(uniqueKeysWithValues: rows.map { row in
+                let id: Int64 = row["id"]
+                let songID: String = row["songID"]
+                let fingerprint: String = row["fingerprint"]
+                return (songID, StoredMetadataState(id: id, fingerprint: fingerprint))
+            })
+        }
+    }
+
+    private static func lyricsStates(in pool: DatabasePool) throws -> [String: StoredLyricsState] {
+        try pool.read { db in
+            let rows = try Row.fetchAll(db, sql: "SELECT id, songID, signature FROM lyricsSearchDocuments")
+            return Dictionary(uniqueKeysWithValues: rows.map { row in
+                let id: Int64 = row["id"]
+                let songID: String = row["songID"]
+                let signature: String = row["signature"]
+                return (songID, StoredLyricsState(id: id, signature: signature))
+            })
+        }
+    }
+
+    private static func upsertLyricsDocuments(_ documents: [LyricsDocument], in pool: DatabasePool) throws {
+        guard !documents.isEmpty else { return }
+        try pool.write { db in
+            for document in documents {
+                let existingID = try Int64.fetchOne(
+                    db,
+                    sql: "SELECT id FROM lyricsSearchDocuments WHERE songID = ?",
+                    arguments: [document.songID]
+                )
+                let timestamps = try JSONEncoder().encode(document.timestamps)
+                if let existingID {
+                    try db.execute(
+                        sql: """
+                        UPDATE lyricsSearchDocuments
+                        SET signature = ?, originalText = ?, pinyinText = ?,
+                            compactPinyin = ?, initials = ?, timestamps = ?
+                        WHERE id = ?
+                        """,
+                        arguments: [document.signature, document.originalText, document.pinyinText, document.compactPinyin, document.initials, timestamps, existingID]
+                    )
+                } else {
+                    try db.execute(
+                        sql: """
+                        INSERT INTO lyricsSearchDocuments
+                            (songID, signature, originalText, pinyinText, compactPinyin, initials, timestamps)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        arguments: [document.songID, document.signature, document.originalText, document.pinyinText, document.compactPinyin, document.initials, timestamps]
+                    )
+                }
+            }
+        }
+    }
+
+    private static func removeLyricsDocuments(ids: [Int64], in pool: DatabasePool) throws {
+        guard !ids.isEmpty else { return }
+        try pool.write { db in
+            for id in ids {
+                try db.execute(sql: "DELETE FROM lyricsSearchDocuments WHERE id = ?", arguments: [id])
+            }
+        }
+    }
+
+    private static func matchingSongIDs(
+        pool: DatabasePool,
+        ftsTable: String,
+        stateTable: String,
+        pattern: String,
+        limit: Int
+    ) throws -> [String] {
+        try pool.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT state.songID
+                FROM \(ftsTable)
+                JOIN \(stateTable) AS state ON state.id = \(ftsTable).rowid
+                WHERE \(ftsTable) MATCH ?
+                ORDER BY rank
+                LIMIT ?
+                """, arguments: [pattern, limit])
+            return rows.map { row in
+                let songID: String = row["songID"]
+                return songID
+            }
+        }
+    }
+
+    private static func matchingLyricsIDs(
+        pool: DatabasePool,
+        ftsTable: String,
+        pattern: String,
+        limit: Int
+    ) throws -> [String] {
+        try pool.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT documents.songID
+                FROM \(ftsTable)
+                JOIN lyricsSearchDocuments AS documents ON documents.id = \(ftsTable).rowid
+                WHERE \(ftsTable) MATCH ?
+                ORDER BY rank
+                LIMIT ?
+                """, arguments: [pattern, limit])
+            return rows.map { row in
+                let songID: String = row["songID"]
+                return songID
+            }
+        }
+    }
+
+    private static func lyricsDocuments(
+        ids: [String],
+        pool: DatabasePool
+    ) throws -> [String: LyricsDocument] {
+        guard !ids.isEmpty else { return [:] }
+        return try pool.read { db in
+            var result: [String: LyricsDocument] = [:]
+            result.reserveCapacity(ids.count)
+            for songID in ids {
+                guard let row = try Row.fetchOne(
+                    db,
+                    sql: """
+                    SELECT songID, signature, originalText, pinyinText,
+                           compactPinyin, initials, timestamps
+                    FROM lyricsSearchDocuments WHERE songID = ?
+                    """,
+                    arguments: [songID]
+                ) else { continue }
+                let data: Data = row["timestamps"]
+                let timestamps = (try? JSONDecoder().decode([TimeInterval].self, from: data)) ?? []
+                let id: String = row["songID"]
+                let signature: String = row["signature"]
+                let originalText: String = row["originalText"]
+                let pinyinText: String = row["pinyinText"]
+                let compactPinyin: String = row["compactPinyin"]
+                let initials: String = row["initials"]
+                result[id] = LyricsDocument(
+                    songID: id,
+                    signature: signature,
+                    originalText: originalText,
+                    pinyinText: pinyinText,
+                    compactPinyin: compactPinyin,
+                    initials: initials,
+                    timestamps: timestamps
+                )
+            }
+            return result
+        }
+    }
+
+    private static func makeMetadataDocument(_ song: Song) -> MetadataDocument {
+        let title = song.titlePinyin ?? PinyinTransformer.pinyin(song.title) ?? folded(song.title)
+        let artistSource = song.artistName ?? ""
+        let albumSource = song.albumTitle ?? ""
+        let artist = song.artistPinyin ?? PinyinTransformer.pinyin(artistSource) ?? folded(artistSource)
+        let album = song.albumPinyin ?? PinyinTransformer.pinyin(albumSource) ?? folded(albumSource)
+        let values = [title, artist, album]
+        return MetadataDocument(
+            title: title,
+            artist: artist,
+            album: album,
+            initials: values.map(initialsFromPinyin).joined(separator: " "),
+            compact: values.map(compactLatin).joined(separator: " ")
+        )
+    }
+
+    private static func makeLyricsDocument(
+        songID: String,
+        signature: String,
+        lines: [LyricLine]
+    ) -> LyricsDocument {
+        let flattened = lines.flatMap { line -> [LyricLine] in
+            var result = [line]
+            if let background = line.background { result.append(contentsOf: background) }
+            return result
+        }.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let originals = flattened.map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let originalText = originals.joined(separator: "\n")
+
+        // Transform the whole lyric in one ICU call. Newlines survive the
+        // transform, preserving line/timestamp alignment without thousands of
+        // per-line CoreFoundation invocations.
+        let transformed = PinyinTransformer.pinyin(originalText) ?? folded(originalText)
+        var pinyinLines = splitLines(transformed)
+        if pinyinLines.count != originals.count {
+            pinyinLines = originals.map { PinyinTransformer.pinyin($0) ?? folded($0) }
+        }
+        let compactLines = pinyinLines.map(compactLatin)
+        let initialLines = pinyinLines.map(initialsFromPinyin)
+        return LyricsDocument(
+            songID: songID,
+            signature: signature,
+            originalText: originalText,
+            pinyinText: pinyinLines.joined(separator: "\n"),
+            compactPinyin: compactLines.joined(separator: "\n"),
+            initials: initialLines.joined(separator: "\n"),
+            timestamps: flattened.map(\.timestamp)
+        )
+    }
+
+    private static func originalLyricsMatch(
+        _ document: LyricsDocument,
+        query: String
+    ) -> (snippet: String, timestamp: TimeInterval)? {
+        let lines = splitLines(document.originalText)
+        guard let index = lines.firstIndex(where: {
+            $0.range(of: query, options: [.caseInsensitive, .diacriticInsensitive], locale: .current) != nil
+        }) else { return nil }
+        return snippet(document: document, lineIndex: index)
+    }
+
+    private static func pinyinLyricsMatch(
+        _ document: LyricsDocument,
+        query: NormalizedLatinQuery
+    ) -> (snippet: String, timestamp: TimeInterval)? {
+        let pinyin = splitLines(document.pinyinText)
+        let compact = splitLines(document.compactPinyin)
+        let initials = splitLines(document.initials)
+        let count = min(pinyin.count, compact.count, initials.count)
+        guard count > 0 else { return nil }
+        for index in 0..<count {
+            if (!query.spaced.isEmpty && pinyin[index].localizedCaseInsensitiveContains(query.spaced))
+                || (!query.compact.isEmpty && compact[index].contains(query.compact))
+                || (!query.compact.isEmpty && initials[index].contains(query.compact)) {
+                return snippet(document: document, lineIndex: index)
+            }
+        }
+        return nil
+    }
+
+    private static func snippet(
+        document: LyricsDocument,
+        lineIndex: Int
+    ) -> (snippet: String, timestamp: TimeInterval)? {
+        let lines = splitLines(document.originalText)
+        guard lines.indices.contains(lineIndex) else { return nil }
+        let lower = max(0, lineIndex - 1)
+        let upper = min(lines.count - 1, lineIndex + 1)
+        var snippetLines = Array(lines[lower...upper])
+        if lower > 0 { snippetLines[0] = "..." + snippetLines[0] }
+        if upper < lines.count - 1 { snippetLines[snippetLines.count - 1] += "..." }
+        let timestamp = document.timestamps.indices.contains(lineIndex)
+            ? document.timestamps[lineIndex]
+            : 0
+        return (snippetLines.joined(separator: "\n"), timestamp)
+    }
+
+    private static func metadataFingerprint(_ song: Song) -> String {
+        digest([
+            song.title,
+            song.artistName ?? "",
+            song.albumTitle ?? "",
+            song.genre ?? "",
+            song.titlePinyin ?? "",
+            song.artistPinyin ?? "",
+            song.albumPinyin ?? ""
+        ].joined(separator: "\u{1F}"))
+    }
+
+    private static func digest(_ text: String) -> String {
+        SHA256.hash(data: Data(text.utf8)).prefix(16).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func normalizedLatinQuery(_ text: String) -> NormalizedLatinQuery {
+        let value = folded(text)
+        let spacedScalars = value.unicodeScalars.map { scalar -> UnicodeScalar in
+            CharacterSet.alphanumerics.contains(scalar) ? scalar : UnicodeScalar(32)!
+        }
+        let spaced = String(String.UnicodeScalarView(spacedScalars))
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+        return NormalizedLatinQuery(spaced: spaced, compact: compactLatin(spaced))
+    }
+
+    private static func folded(_ text: String) -> String {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current).lowercased()
+    }
+
+    private static func compactLatin(_ text: String) -> String {
+        let scalars = folded(text).unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }
+        return String(String.UnicodeScalarView(scalars))
+    }
+
+    private static func initialsFromPinyin(_ text: String) -> String {
+        text.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .compactMap(\.first)
+            .map(String.init)
+            .joined()
+            .lowercased()
+    }
+
+    private static func splitLines(_ text: String) -> [String] {
+        text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+    }
+
+    private static func lines(fromPlainText text: String?) -> [LyricLine]? {
+        guard let text else { return nil }
+        let lines = splitLines(text)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !lines.isEmpty else { return nil }
+        return lines.map { LyricLine(timestamp: 0, text: $0) }
+    }
+
+    private static func metadataContainsLiteral(_ song: Song, query: String) -> Bool {
+        [song.title, song.artistName, song.albumTitle, song.genre]
+            .compactMap { $0 }
+            .contains { $0.localizedCaseInsensitiveContains(query) }
+    }
+
+    private static func containsHan(_ text: String) -> Bool {
+        text.unicodeScalars.contains { scalar in
+            switch scalar.value {
+            case 0x3400...0x4DBF, 0x4E00...0x9FFF, 0xF900...0xFAFF, 0x20000...0x2FA1F:
+                return true
+            default:
+                return false
+            }
+        }
+    }
+
+    private static func quotedFTS(_ text: String) -> String {
+        "\"" + text.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+    }
+
+    private static func appendUnique(_ ids: [String], to output: inout [String], seen: inout Set<String>) {
+        for id in ids where !seen.contains(id) {
+            seen.insert(id)
+            output.append(id)
+        }
     }
 }
 
@@ -1225,7 +2165,14 @@ final class MusicLibrary {
         ) { [weak self] note in
             guard let self,
                   let info = note.userInfo,
-                  info["songID"] as? String != nil else { return }
+                  let songID = info["songID"] as? String else { return }
+            let fallbackText = info["lyricsText"] as? String
+            Task(priority: .utility) {
+                await LibrarySearchIndex.shared.refreshLyrics(
+                    songID: songID,
+                    fallbackText: fallbackText
+                )
+            }
             Task { @MainActor in
                 self.scheduleLyricsSearchInvalidation()
             }
@@ -1500,18 +2447,18 @@ final class MusicLibrary {
                 // "Bare incoming" matches `MetadataBackfillService.isBareSong` —
                 // a Phase A scan that found no metadata. If the existing
                 // entry has any metadata at all, prefer it.
-                let incomingIsBare = newSong.duration == 0
-                    && newSong.bitRate == nil
-                    && newSong.artistID == nil
-                    && newSong.albumID == nil
-                    && newSong.year == nil
-                    && newSong.genre == nil
-                let existingHasMetadata = existing.duration > 0
-                    || existing.bitRate != nil
-                    || existing.artistID != nil
+                let incomingHasTechnicalMetadata = newSong.duration > 0 || newSong.bitRate != nil
+                let incomingHasCatalogMetadata = newSong.artistID != nil
+                    || newSong.albumID != nil
+                    || newSong.year != nil
+                    || newSong.genre != nil
+                let incomingIsBare = !incomingHasTechnicalMetadata && !incomingHasCatalogMetadata
+                let existingHasTechnicalMetadata = existing.duration > 0 || existing.bitRate != nil
+                let existingHasCatalogMetadata = existing.artistID != nil
                     || existing.albumID != nil
                     || existing.year != nil
                     || existing.genre != nil
+                let existingHasMetadata = existingHasTechnicalMetadata || existingHasCatalogMetadata
                 if incomingIsBare && existingHasMetadata {
                     var merged = existing
                     merged.fileSize = newSong.fileSize
@@ -2828,6 +3775,10 @@ extension Notification.Name {
     /// 后, 把对应 song 的 lyricsText 字段更新写库 + 翻 FTS5 索引, 让歌词
     /// 全文搜索覆盖新写入的歌 (不止 backfill 跑过的老歌)。
     static let primuseLyricsDidCache = Notification.Name("primuse.lyricsDidCache")
+    /// Posted once a background persistent search-index pass completes. An
+    /// open search page reruns only its local query so newly indexed pinyin
+    /// lyrics appear without issuing another Apple Music network request.
+    static let primuseLibrarySearchIndexDidChange = Notification.Name("primuse.librarySearchIndexDidChange")
     /// 请求全屏打开 NowPlayingView。SearchView 点歌词命中结果时会触发, 让
     /// 用户立刻看到歌词上下文 + auto-seek 到命中行。
     static let primuseRequestShowNowPlaying = Notification.Name("primuse.requestShowNowPlaying")

@@ -269,6 +269,32 @@ actor MetadataAssetStore {
     /// JSON lyric cache; it deliberately avoids network/source reads while the
     /// user is typing.
     nonisolated func cachedLyricsForSearch(songID: String, lyricsFileName: String?) -> [LyricLine]? {
+        for url in lyricsSearchCandidateURLs(songID: songID, lyricsFileName: lyricsFileName) {
+            guard let data = try? Data(contentsOf: url),
+                  let lines = try? JSONDecoder().decode([LyricLine].self, from: data) else { continue }
+            return lines
+        }
+        return nil
+    }
+
+    /// A cheap, persistent signature for the local lyrics file. The search
+    /// index compares this before decoding/transliterating a lyric, so normal
+    /// launches only stat cached files and never rebuild unchanged pinyin.
+    nonisolated func cachedLyricsSearchSignature(songID: String, lyricsFileName: String?) -> String? {
+        for url in lyricsSearchCandidateURLs(songID: songID, lyricsFileName: lyricsFileName) {
+            guard let values = try? url.resourceValues(forKeys: [
+                .isRegularFileKey,
+                .fileSizeKey,
+                .contentModificationDateKey
+            ]), values.isRegularFile == true else { continue }
+            let size = values.fileSize ?? 0
+            let modified = values.contentModificationDate?.timeIntervalSinceReferenceDate ?? 0
+            return "\(url.lastPathComponent)|\(size)|\(modified)"
+        }
+        return nil
+    }
+
+    nonisolated private func lyricsSearchCandidateURLs(songID: String, lyricsFileName: String?) -> [URL] {
         var candidates: [URL] = []
         if let lyricsFileName,
            !lyricsFileName.isEmpty,
@@ -276,14 +302,9 @@ actor MetadataAssetStore {
            lyricsFileName.hasSuffix(".json") {
             candidates.append(lyricsDirectoryURL.appendingPathComponent(lyricsFileName))
         }
-        candidates.append(lyricsDirectoryURL.appendingPathComponent(expectedLyricsFileName(for: songID)))
-
-        for url in candidates {
-            guard let data = try? Data(contentsOf: url),
-                  let lines = try? JSONDecoder().decode([LyricLine].self, from: data) else { continue }
-            return lines
-        }
-        return nil
+        let expected = lyricsDirectoryURL.appendingPathComponent(expectedLyricsFileName(for: songID))
+        if candidates.last != expected { candidates.append(expected) }
+        return candidates
     }
 
     /// Remove cached cover art for a specific song (e.g., after scraping updates it).

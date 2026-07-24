@@ -55,22 +55,30 @@ struct DiagnosticReportsView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Section {
-                    Button(role: .destructive) {
-                        showClearConfirm = true
-                    } label: {
-                        Label(String(localized: "diagnostics_clear"), systemImage: "trash")
-                    }
-                }
             }
         }
         .navigationTitle(String(localized: "diagnostics_title"))
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if !reports.isEmpty {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(role: .destructive) {
+                        showClearConfirm = true
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .accessibilityLabel(String(localized: "diagnostics_clear"))
+                }
+            }
+        }
         .task { reload() }
-        .confirmationDialog(
+        // Use a centered alert instead of an iPad popover. A confirmation
+        // dialog attached to the List used the bottom destructive section as
+        // its source rect; with only one report at the top, the arrow could
+        // point at an empty, recycled List row far below the report.
+        .alert(
             String(localized: "diagnostics_clear_confirm"),
             isPresented: $showClearConfirm,
-            titleVisibility: .visible
         ) {
             Button(String(localized: "diagnostics_clear"), role: .destructive) {
                 service.clearAll()

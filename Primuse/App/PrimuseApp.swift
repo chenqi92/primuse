@@ -593,6 +593,17 @@ struct PrimuseApp: App {
                     // 让 FTS5 全文歌词搜索可用 (v5 migration 加了列但留空)。
                     // 完成后自带 UserDefaults flag, 后续启动直接 noop。
                     AppServices.shared.lyricsTextBackfill.startIfNeeded()
+                    // Build/update the persistent original+pinyin search index
+                    // after launch has settled. The actor processes lyrics in
+                    // throttled utility batches and skips unchanged files by
+                    // signature, so cold start and interactive searches never
+                    // transliterate the whole library.
+                    let searchSongs = musicLibrary.visibleSongs
+                    Task(priority: .utility) {
+                        try? await Task.sleep(for: .seconds(3))
+                        guard !Task.isCancelled else { return }
+                        await LibrarySearchIndex.shared.prepare(songs: searchSongs)
+                    }
                     // 清掉 7 天没动的 .partial 半成品 —— Range streaming 路径
                     // 用户跳过 / prewarm 完没接着播的歌会留下大量孤立
                     // .partial 永久占盘, LRU 看不到这些。同步执行很快

@@ -80,7 +80,18 @@ struct SearchView: View {
         .background {
             SearchLibraryRevisionObserver {
                 workCoordinator.lyricsCache = LibrarySearchCache()
+                let songs = library.visibleSongs
+                Task(priority: .utility) {
+                    await LibrarySearchIndex.shared.prepare(songs: songs)
+                }
+                if !searchText.isEmpty {
+                    performSearch(query: searchText)
+                }
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .primuseLibrarySearchIndexDidChange)) { _ in
+            guard !searchText.isEmpty else { return }
+            performSearch(query: searchText)
         }
         .onDisappear { workCoordinator.cancelSearch() }
     }
@@ -897,6 +908,7 @@ struct SearchView: View {
         let songsSnapshot = library.visibleSongs
         let albumsSnapshot = library.visibleAlbums
         let cacheSnapshot = workCoordinator.lyricsCache
+        let metadataRevisionKey = "\(library.visibleSongCollectionRevision):\(library.searchRevision)"
 
         workCoordinator.generation += 1
         let myGen = workCoordinator.generation
@@ -916,18 +928,60 @@ struct SearchView: View {
             try? await Task.sleep(for: .milliseconds(200))
             guard !Task.isCancelled else { return }
 
-            let worker = Task.detached(priority: .userInitiated) {
-                LibrarySearchWorker.compute(
-                    query: query,
-                    songs: songsSnapshot,
-                    albums: albumsSnapshot,
-                    cache: cacheSnapshot
-                )
-            }
-            let output = await withTaskCancellationHandler {
-                await worker.value
-            } onCancel: {
-                worker.cancel()
+            let indexed = await LibrarySearchIndex.shared.search(
+                query: query,
+                songs: songsSnapshot,
+                albums: albumsSnapshot,
+                metadataRevisionKey: metadataRevisionKey
+            )
+            guard !Task.isCancelled else { return }
+
+            let output: LibrarySearchOutput
+            if var indexed {
+                // The first persistent lyrics build is intentionally gradual.
+                // Until it has examined the current song set, merge only the
+                // old literal-lyrics path (no metadata/pinyin ICU scan) so the
+                // feature remains complete during migration.
+                if !indexed.lyricsIndexComplete {
+                    let fallbackWorker = Task.detached(priority: .utility) {
+                        LibrarySearchWorker.compute(
+                            query: query,
+                            songs: songsSnapshot,
+                            albums: [],
+                            cache: cacheSnapshot,
+                            includeMetadata: false,
+                            includeLyrics: true,
+                            albumLimit: 0
+                        )
+                    }
+                    let fallback = await withTaskCancellationHandler {
+                        await fallbackWorker.value
+                    } onCancel: {
+                        fallbackWorker.cancel()
+                    }
+                    indexed.output = mergeIndexedSearch(
+                        indexed.output,
+                        literalFallback: fallback
+                    )
+                }
+                output = indexed.output
+            } else {
+                // FTS5/trigram is unavailable only on an unsupported SQLite
+                // runtime. Keep the corrected cancellable worker as a safe
+                // compatibility fallback.
+                let fallbackWorker = Task.detached(priority: .userInitiated) {
+                    LibrarySearchWorker.compute(
+                        query: query,
+                        songs: songsSnapshot,
+                        albums: albumsSnapshot,
+                        cache: cacheSnapshot
+                    )
+                }
+                output = await withTaskCancellationHandler {
+                    await fallbackWorker.value
+                } onCancel: {
+                    fallbackWorker.cancel()
+                }
             }
             guard !Task.isCancelled else { return }
             searchResults = output.songResults
@@ -936,6 +990,27 @@ struct SearchView: View {
             renderedQuery = query
             isSearching = false
         }
+    }
+
+    private func mergeIndexedSearch(
+        _ indexed: LibrarySearchOutput,
+        literalFallback: LibrarySearchOutput
+    ) -> LibrarySearchOutput {
+        var results = indexed.songResults
+        var ids = Set(results.map(\.id))
+        for result in literalFallback.songResults where !ids.contains(result.id) {
+            ids.insert(result.id)
+            results.append(result)
+        }
+        results.sort { lhs, rhs in
+            if lhs.score != rhs.score { return lhs.score > rhs.score }
+            return lhs.song.title.localizedCaseInsensitiveCompare(rhs.song.title) == .orderedAscending
+        }
+        return LibrarySearchOutput(
+            songResults: Array(results.prefix(120)),
+            albumResults: indexed.albumResults,
+            cache: literalFallback.cache
+        )
     }
 
     private var searchingPlaceholder: some View {
