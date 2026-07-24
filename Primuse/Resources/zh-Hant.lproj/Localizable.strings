@@ -862,7 +862,7 @@
 "onboarding_welcome_title" = "你的音樂，存在你的伺服器";
 "onboarding_welcome_subtitle" = "猿音從你自己的 NAS、雲端硬碟和家裡的網路播放音樂 —— 不上傳任何檔案到任何人。";
 "onboarding_sources_title" = "將音樂彙整到一處";
-"onboarding_sources_nas" = "群暉、威聯通、綠聯，以及 SMB / NFS 共享";
+"onboarding_sources_nas" = "群暉、威聯通及 SMB / NFS 共享 · 綠聯/飛牛等待官方公開 API";
 "onboarding_sources_cloud" = "123 雲盤、百度網盤、阿里雲盤等雲端音樂";
 "onboarding_sources_apple_music" = "可選擇連接 Apple Music，一併瀏覽訂閱資料庫";
 "onboarding_sources_network" = "WebDAV、SFTP、Jellyfin、UPnP / DLNA 等服務";

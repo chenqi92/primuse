@@ -77,6 +77,16 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     /// `NSAppleMusicUsageDescription` privacy prompt.
     case appleMusicLibrary
 
+    /// Vendor-specific NAS integrations that are intentionally unavailable
+    /// until their manufacturers publish supported public APIs. The existing
+    /// connector scaffolding is not a product-ready implementation.
+    public var isAwaitingPublicAPI: Bool {
+        switch self {
+        case .ugreen, .fnos: return true
+        default: return false
+        }
+    }
+
     public var displayName: String {
         switch self {
         case .synology: return "Synology"
@@ -315,9 +325,8 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         switch self {
         case .synology: return "DSM 6/7, OTP"
         case .qnap: return "QTS/QuTS"
-        case .ugreen: return "UGOS"
-        case .fnos:
-            return String(localized: "src.subtitle.fnos", bundle: Bundle.primuseKit)
+        case .ugreen, .fnos:
+            return String(localized: "src.subtitle.awaitingPublicAPI", bundle: Bundle.primuseKit)
         case .webdav: return "HTTPS/HTTP"
         case .smb: return "SMB2/3, CIFS"
         case .ftp: return "FTP/FTPS/FTPES"

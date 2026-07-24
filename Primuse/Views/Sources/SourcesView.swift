@@ -305,6 +305,11 @@ struct SourcesContentView: View {
                         if let host = source.host, !host.isEmpty { Text("·"); Text(host) }
                     }
                     .font(.caption).foregroundStyle(.secondary)
+                    if source.type.isAwaitingPublicAPI {
+                        Label(source.type.subtitle, systemImage: "clock.badge.exclamationmark")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.orange)
+                    }
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {

@@ -18,6 +18,7 @@ This release starts at commit `4a8937f9` and focuses on large-library performanc
 
 ### Changed
 
+- **NAS support status** — UGREEN UGOS and Feiniu fnOS now show as unavailable while awaiting vendor-supported public APIs and can’t enter the new-source setup flow
 - **123 Cloud Drive OAuth callback** — replaced the HTTPS relay with the registered app deep link and added strict scheme, host, path, and state validation
 - **Home and Library layout** — introduced clearer card hierarchies and redesigned Quick Favorites plus the Songs, Albums, Artists, and Playlists entry points
 - **Music video playback** — videos are larger in portrait, automatically enter landscape fullscreen on iPhone, and restore the previous orientation on exit
@@ -80,7 +81,7 @@ This release starts at commit `4a8937f9` and focuses on large-library performanc
 - Added whole-folder local imports with duplicate-import and post-reinstall recovery handling
 - Added third-party OAuth for 123 Cloud Drive with cover and lyrics write-back
 - Added MV sidecar discovery, a dedicated playback mode, fullscreen controls, and local caching
-- Added playlist shuffle and improved the UGREEN NAS API integration
+- Added playlist shuffle and refined experimental UGREEN NAS API scaffolding (not a supported integration)
 
 ### Changed
 
@@ -217,7 +218,7 @@ This release starts at commit `4a8937f9` and focuses on large-library performanc
 
 - Moved FFT processing off the real-time audio thread
 - Fixed remote-stream duration probing, media-server direct playback, LRCLIB casts, and OAuth refresh encoding
-- Hardened QNAP, S3, UGREEN NAS, Last.fm, and DLNA protocol handling
+- Hardened QNAP, S3, Last.fm, and DLNA protocol handling and refined experimental UGREEN NAS API scaffolding
 
 ---
 

@@ -243,6 +243,12 @@ struct MacSourcesView: View {
                         .foregroundStyle(PMColor.textFaint)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                    if source.type.isAwaitingPublicAPI {
+                        Label(source.type.subtitle, systemImage: "clock.badge.exclamationmark")
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundStyle(.orange)
+                            .lineLimit(1)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 

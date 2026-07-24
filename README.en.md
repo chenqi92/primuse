@@ -106,7 +106,8 @@ All other capabilities — multi-source streaming, audio-quality processing, cro
 
 ## Features
 
-- **Multi-source streaming** — supports Synology DSM, QNAP, UGREEN UGOS, Feiniu fnOS, SMB/CIFS, WebDAV, SFTP, FTP, NFS, S3, UPnP/DLNA, Navidrome/Subsonic, Jellyfin, Emby, Plex and local files
+- **Multi-source streaming** — supports Synology DSM, QNAP, SMB/CIFS, WebDAV, SFTP, FTP, NFS, S3, UPnP/DLNA, Navidrome/Subsonic, Jellyfin, Emby, Plex and local files
+- **NAS API status** — UGREEN UGOS and Feiniu fnOS are awaiting vendor-supported public APIs and aren’t implemented yet
 - **Cloud drive access** — supports 123 Cloud Drive, 115, Baidu Netdisk, Aliyun Drive, Google Drive, OneDrive and Dropbox; cloud tracks can play while downloading and cache on demand
 - **Playback engine** — built on SFBAudioEngine, supporting FLAC, APE, WAV, MP3, AAC, Opus, DSD, TTA, WV and more, with crossfade, ReplayGain, sleep timer, EQ, reverb and compression/limiting
 - **DLNA receiver** — acts as a UPnP/AV MediaRenderer on the same Wi-Fi network, so control points such as VLC, Synology Audio Station, Plex and Hi-Fi Cast can discover it and cast audio to it

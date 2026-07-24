@@ -44,8 +44,11 @@ struct TVSourceTypePicker: View {
                         TVEyebrow(text: "在本地网络发现").padding(.bottom, 14)
                         LazyVGrid(columns: columns, alignment: .leading, spacing: 24) {
                             ForEach(store.discoveredDevices) { d in
-                                typeCard(icon: d.sourceType.iconName, label: d.name, hint: "\(d.host):\(d.port)",
-                                         badge: Self.shortProtocol(d.sourceType), accentIcon: true) {
+                                typeCard(icon: d.sourceType.iconName, label: d.name,
+                                         hint: d.sourceType.isAwaitingPublicAPI ? d.sourceType.subtitle : "\(d.host):\(d.port)",
+                                         badge: d.sourceType.isAwaitingPublicAPI ? "API 待公开" : Self.shortProtocol(d.sourceType),
+                                         accentIcon: true,
+                                         isEnabled: !d.sourceType.isAwaitingPublicAPI) {
                                     onPick(d.sourceType, (d.host, d.port, d.name))
                                 }
                             }
@@ -57,7 +60,9 @@ struct TVSourceTypePicker: View {
                     LazyVGrid(columns: columns, alignment: .leading, spacing: 24) {
                         ForEach(Array(TVStore.addableTypes.enumerated()), id: \.element) { idx, t in
                             typeCard(icon: t.iconName, label: t.displayName, hint: Self.hint(for: t),
-                                     accentIcon: idx == 0) { onPick(t, nil) }
+                                     badge: t.isAwaitingPublicAPI ? "API 待公开" : nil,
+                                     accentIcon: idx == 0,
+                                     isEnabled: !t.isAwaitingPublicAPI) { onPick(t, nil) }
                         }
                     }
                     Text("◯ Menu 返回 · 选择后填写连接信息或在 iPhone 上完成")
@@ -72,7 +77,8 @@ struct TVSourceTypePicker: View {
     }
 
     private func typeCard(icon: String, label: String, hint: String, badge: String? = nil,
-                          accentIcon: Bool, action: @escaping () -> Void) -> some View {
+                          accentIcon: Bool, isEnabled: Bool = true,
+                          action: @escaping () -> Void) -> some View {
         TVFocusButton(radius: 16, scale: 1.08, lift: 10, action: action) { focused in
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .top) {
@@ -98,6 +104,8 @@ struct TVSourceTypePicker: View {
             .padding(22).frame(height: 178, alignment: .topLeading).frame(maxWidth: .infinity, alignment: .leading)
             .background(focused ? Color.white : Color.white.opacity(0.10))
         }
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.58)
     }
 
     static func shortProtocol(_ t: MusicSourceType) -> String {
@@ -120,6 +128,7 @@ struct TVSourceTypePicker: View {
     }
 
     static func hint(for t: MusicSourceType) -> String {
+        if t.isAwaitingPublicAPI { return t.subtitle }
         switch t {
         case .smb: return "NAS · TrueNAS · 共享文件夹"
         case .webdav: return "群晖 · Nextcloud"

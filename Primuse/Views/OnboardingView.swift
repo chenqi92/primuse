@@ -345,7 +345,7 @@ struct OnboardingView: View {
     private var macProtocolGroups: [MacOnboardingProtocolGroup] {
         [
             MacOnboardingProtocolGroup(title: String(localized: "onboarding_mac_group_local"), items: ["SMB / CIFS", "WebDAV", "SFTP", "FTP", "NFS", "S3", "UPnP / DLNA"]),
-            MacOnboardingProtocolGroup(title: String(localized: "onboarding_mac_group_media_server"), items: ["Jellyfin", "Emby", "Plex", "Synology Audio Station", "QNAP", "UGREEN UGOS", "fnOS"]),
+            MacOnboardingProtocolGroup(title: String(localized: "onboarding_mac_group_media_server"), items: ["Jellyfin", "Emby", "Plex", "Synology Audio Station", "QNAP", "UGREEN UGOS · API pending", "fnOS · API pending"]),
             MacOnboardingProtocolGroup(title: String(localized: "onboarding_mac_group_cloud"), items: ["123 Pan", "Baidu Pan", "Aliyun Drive", "Google Drive", "OneDrive", "Dropbox"]),
             MacOnboardingProtocolGroup(title: String(localized: "onboarding_mac_group_other"), items: ["Apple Music", String(localized: "onboarding_mac_source_local_file")]),
         ]

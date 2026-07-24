@@ -74,6 +74,7 @@ struct TVSource: Identifiable, Hashable {
     let status: TVSourceStatus
     let songs: Int
     let color: Color
+    let availabilityNote: String?     // 尚未开放的厂商 API 状态说明
     let playability: TVPlayability   // 能否在 TV 播放(徽标用)
     let canEnterCredential: Bool     // 是否适合在 TV 上手动输入账号密码(服务端登录类源)
     let supports2FA: Bool            // NAS 类:支持两步验证(可在 TV 上输 OTP 申请受信设备)
@@ -316,13 +317,14 @@ final class TVStore {
         let cnt = hasRealLibrary ? library.visibleSongs.filter { $0.sourceID == s.id }.count : s.songCount
         let (c, _) = Self.tint(s.id)
         return TVSource(id: s.id, name: s.name, type: s.type.rawValue,
-                        iconName: s.type.iconName,
-                        host: s.host ?? s.basePath ?? s.type.displayName,
-                        status: s.isEnabled ? .connected : .disabled, songs: cnt, color: c,
-                        playability: playability(for: s),
-                        canEnterCredential: Self.manualCredentialTypes.contains(s.type),
-                        supports2FA: s.type.supports2FA,
-                        canScan: s.type == .smb)
+                         iconName: s.type.iconName,
+                         host: s.host ?? s.basePath ?? s.type.displayName,
+                         status: s.isEnabled ? .connected : .disabled, songs: cnt, color: c,
+                         availabilityNote: s.type.isAwaitingPublicAPI ? s.type.subtitle : nil,
+                         playability: playability(for: s),
+                         canEnterCredential: !s.type.isAwaitingPublicAPI && Self.manualCredentialTypes.contains(s.type),
+                         supports2FA: !s.type.isAwaitingPublicAPI && s.type.supports2FA,
+                         canScan: s.type == .smb)
     }
 
     /// NAS 两步验证:用一次性验证码登录,成功则把申请到的「受信设备」令牌(deviceId)存进源,
@@ -368,6 +370,8 @@ final class TVStore {
 
     private func playability(for s: MusicSource) -> TVPlayability {
         let type = s.type
+        // 厂商尚未提供可依赖的公开 API；保留同步记录和 UI 状态，但不宣称可播放。
+        if type.isAwaitingPublicAPI { return .unsupported }
         // 协议直连(SMB/NFS/FTP):TV 本机直读,无需中继 → 可直接播放。
         if Self.directProtocolTypes.contains(type) {
             return .ok

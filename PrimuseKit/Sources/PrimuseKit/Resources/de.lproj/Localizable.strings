@@ -10,6 +10,7 @@
 "src.displayName.pan115" = "115 Drive";
 "src.displayName.pan123" = "123 Pan";
 "src.subtitle.fnos" = "fnOS";
+"src.subtitle.awaitingPublicAPI" = "Wartet auf öffentliche API · Noch nicht verfügbar";
 "src.subtitle.baiduPan" = "Baidu Pan OAuth";
 "src.subtitle.aliyunDrive" = "Aliyun Drive PDS";
 "src.subtitle.pan115" = "115 Open Platform · Demnächst verfügbar";

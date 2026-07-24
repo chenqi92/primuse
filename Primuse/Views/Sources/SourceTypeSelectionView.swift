@@ -191,6 +191,7 @@ struct SourceTypeSelectionView: View {
 
     private func macSourceTypeTile(_ type: MusicSourceType) -> some View {
         Button {
+            guard !type.isAwaitingPublicAPI else { return }
             pendingType = type
         } label: {
             HStack(spacing: 10) {
@@ -212,14 +213,20 @@ struct SourceTypeSelectionView: View {
                 }
 
                 Spacer(minLength: 4)
-                if type.supports2FA {
+                if type.isAwaitingPublicAPI {
+                    Image(systemName: "clock.badge.exclamationmark")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(PMColor.warn)
+                } else if type.supports2FA {
                     Image(systemName: "lock.shield")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(PMColor.warn)
                 }
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(PMColor.textFaint)
+                if !type.isAwaitingPublicAPI {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(PMColor.textFaint)
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
@@ -231,13 +238,17 @@ struct SourceTypeSelectionView: View {
             }
         }
         .buttonStyle(.plain)
+        .disabled(type.isAwaitingPublicAPI)
+        .opacity(type.isAwaitingPublicAPI ? 0.62 : 1)
         .onTapGesture(count: 2) {
+            guard !type.isAwaitingPublicAPI else { return }
             addTarget = .type(type)
         }
     }
 
     private func macDeviceTile(_ device: DiscoveredDevice) -> some View {
         Button {
+            guard !device.sourceType.isAwaitingPublicAPI else { return }
             addTarget = .device(device)
         } label: {
             HStack(spacing: 10) {
@@ -252,16 +263,24 @@ struct SourceTypeSelectionView: View {
                         .font(.system(size: 12.5, weight: .semibold))
                         .foregroundStyle(PMColor.text)
                         .lineLimit(1)
-                    Text("\(device.sourceType.displayName) · \(device.host)")
+                    Text(device.sourceType.isAwaitingPublicAPI
+                         ? "\(device.sourceType.displayName) · \(device.sourceType.subtitle)"
+                         : "\(device.sourceType.displayName) · \(device.host)")
                         .font(.system(size: 10.5))
                         .foregroundStyle(PMColor.textFaint)
                         .lineLimit(1)
                 }
 
                 Spacer(minLength: 4)
-                Image(systemName: "plus.circle.fill")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(PMColor.ok)
+                if device.sourceType.isAwaitingPublicAPI {
+                    Image(systemName: "clock.badge.exclamationmark")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(PMColor.warn)
+                } else {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(PMColor.ok)
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
@@ -269,6 +288,8 @@ struct SourceTypeSelectionView: View {
             .pmCard(cornerRadius: 8)
         }
         .buttonStyle(.plain)
+        .disabled(device.sourceType.isAwaitingPublicAPI)
+        .opacity(device.sourceType.isAwaitingPublicAPI ? 0.62 : 1)
     }
 
     private var macSheetFooter: some View {
@@ -294,11 +315,11 @@ struct SourceTypeSelectionView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 14)
                     .frame(height: 28)
-                    .background((pendingType == nil ? PMColor.textFaint : PMColor.brand), in: .rect(cornerRadius: 6))
+                    .background((pendingType == nil || pendingType?.isAwaitingPublicAPI == true ? PMColor.textFaint : PMColor.brand), in: .rect(cornerRadius: 6))
             }
             .buttonStyle(.plain)
             .keyboardShortcut(.defaultAction)
-            .disabled(pendingType == nil)
+            .disabled(pendingType == nil || pendingType?.isAwaitingPublicAPI == true)
         }
         .padding(.horizontal, 18)
         .frame(height: 64)
@@ -386,6 +407,7 @@ struct SourceTypeSelectionView: View {
     /// 文字两行紧贴,跟 macOS 系统设置里 source list 的行高一致。
     private func typeButton(_ type: MusicSourceType) -> some View {
         Button {
+            guard !type.isAwaitingPublicAPI else { return }
             addTarget = .type(type)
         } label: {
             HStack(spacing: 10) {
@@ -404,22 +426,30 @@ struct SourceTypeSelectionView: View {
 
                 Spacer()
 
-                if type.supports2FA {
+                if type.isAwaitingPublicAPI {
+                    Image(systemName: "clock.badge.exclamationmark")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                } else if type.supports2FA {
                     Image(systemName: "lock.shield")
                         .font(.caption)
                         .foregroundStyle(.orange)
                 }
-                Image(systemName: "chevron.right")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                if !type.isAwaitingPublicAPI {
+                    Image(systemName: "chevron.right")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(type.isAwaitingPublicAPI)
     }
 
     private func deviceRow(_ device: DiscoveredDevice) -> some View {
         Button {
+            guard !device.sourceType.isAwaitingPublicAPI else { return }
             addTarget = .device(device)
         } label: {
             HStack(spacing: 10) {
@@ -431,19 +461,24 @@ struct SourceTypeSelectionView: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(device.name)
                         .font(.body)
-                    Text("\(device.sourceType.displayName) · \(device.host)")
+                    Text(device.sourceType.isAwaitingPublicAPI
+                         ? "\(device.sourceType.displayName) · \(device.sourceType.subtitle)"
+                         : "\(device.sourceType.displayName) · \(device.host)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
                 Spacer()
 
-                Image(systemName: "plus.circle.fill")
-                    .foregroundStyle(.green)
+                Image(systemName: device.sourceType.isAwaitingPublicAPI
+                      ? "clock.badge.exclamationmark"
+                      : "plus.circle.fill")
+                    .foregroundStyle(device.sourceType.isAwaitingPublicAPI ? Color.orange : Color.green)
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(device.sourceType.isAwaitingPublicAPI)
     }
     #endif
 
@@ -465,11 +500,13 @@ struct SourceTypeSelectionView: View {
                     Section(header: Text(category.displayNameFallback)) {
                         ForEach(filtered, id: \.self) { type in
                             Button {
+                                guard !type.isAwaitingPublicAPI else { return }
                                 addTarget = .type(type)
                             } label: {
                                 iosSourceTypeRow(type)
                             }
                             .buttonStyle(.plain)
+                            .disabled(type.isAwaitingPublicAPI)
                         }
                     }
                 }
@@ -836,6 +873,7 @@ struct SourceTypeSelectionView: View {
 
             ForEach(discoveryService.devices) { device in
                 Button {
+                    guard !device.sourceType.isAwaitingPublicAPI else { return }
                     addTarget = .device(device)
                 } label: {
                     HStack(spacing: 12) {
@@ -848,15 +886,21 @@ struct SourceTypeSelectionView: View {
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(device.name).font(.body)
-                            Text("\(device.sourceType.displayName) · \(device.host)")
+                            Text(device.sourceType.isAwaitingPublicAPI
+                                 ? "\(device.sourceType.displayName) · \(device.sourceType.subtitle)"
+                                 : "\(device.sourceType.displayName) · \(device.host)")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Image(systemName: "plus.circle.fill")
-                            .font(.title3).foregroundStyle(.green)
+                        Image(systemName: device.sourceType.isAwaitingPublicAPI
+                              ? "clock.badge.exclamationmark"
+                              : "plus.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(device.sourceType.isAwaitingPublicAPI ? Color.orange : Color.green)
                     }
                 }
                 .buttonStyle(.plain)
+                .disabled(device.sourceType.isAwaitingPublicAPI)
             }
 
             if !discoveryService.isDiscovering && !discoveryService.devices.isEmpty {
@@ -895,12 +939,17 @@ struct SourceTypeSelectionView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
-            if type.supports2FA {
+            if type.isAwaitingPublicAPI {
+                Image(systemName: "clock.badge.exclamationmark")
+                    .font(.caption).foregroundStyle(.orange)
+            } else if type.supports2FA {
                 Image(systemName: "lock.shield.fill")
                     .font(.caption).foregroundStyle(.orange)
             }
-            Image(systemName: "chevron.right")
-                .font(.caption).foregroundStyle(.secondary)
+            if !type.isAwaitingPublicAPI {
+                Image(systemName: "chevron.right")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
         // 撑满整行 + 整块可点(否则 Spacer 空白区不响应, 只有图标/文字/箭头能点)。
         .frame(maxWidth: .infinity)

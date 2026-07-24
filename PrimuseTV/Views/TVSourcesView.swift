@@ -217,6 +217,11 @@ private struct TVSourceRow: View {
                     Text(PMString("ext.tv.sources.typeSongs", source.type.uppercased(), TVFmt.count(source.songs)))
                         .font(.system(size: 16, design: .monospaced))
                         .foregroundStyle(TVColor.textFaint)
+                    if let availabilityNote = source.availabilityNote {
+                        Label(availabilityNote, systemImage: "clock.badge.exclamationmark")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(TVColor.warn)
+                    }
                 }
                 Spacer(minLength: 0)
                 if testing {

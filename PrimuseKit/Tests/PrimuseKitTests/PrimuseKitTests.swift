@@ -76,6 +76,13 @@ import Testing
     #expect(MusicSourceType.smb.defaultPort(useSsl: false) == 445)
 }
 
+@Test func vendorNASWithoutPublicAPIsRemainMarkedUnavailable() {
+    #expect(MusicSourceType.ugreen.isAwaitingPublicAPI)
+    #expect(MusicSourceType.fnos.isAwaitingPublicAPI)
+    #expect(MusicSourceType.synology.isAwaitingPublicAPI == false)
+    #expect(MusicSourceType.qnap.isAwaitingPublicAPI == false)
+}
+
 @Test func fileDeletionCapabilityExcludesReadOnlyCatalogues() {
     let readOnly: Set<MusicSourceType> = [
         .upnp, .subsonic, .navidrome, .airsonic, .gonic,

@@ -7,6 +7,7 @@
 "src.displayName.pan123"     = "123 云盘";
 
 "src.subtitle.fnos"          = "飞牛 OS";
+"src.subtitle.awaitingPublicAPI" = "等待官方公开 API · 暂未开放";
 "src.subtitle.baiduPan"      = "百度网盘 OAuth";
 "src.subtitle.aliyunDrive"   = "阿里云盘 PDS";
 "src.subtitle.pan115"        = "115 开放平台 · 暂未开放";

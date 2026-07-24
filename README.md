@@ -106,7 +106,8 @@
 
 ## 功能特性
 
-- **多源串流** — 支持 Synology DSM、QNAP、绿联 UGOS、飞牛 fnOS、SMB/CIFS、WebDAV、SFTP、FTP、NFS、S3、UPnP/DLNA、Navidrome/Subsonic、Jellyfin、Emby、Plex、本地文件
+- **多源串流** — 支持 Synology DSM、QNAP、SMB/CIFS、WebDAV、SFTP、FTP、NFS、S3、UPnP/DLNA、Navidrome/Subsonic、Jellyfin、Emby、Plex、本地文件
+- **NAS API 状态** — 绿联 UGOS 与飞牛 fnOS 正等待厂商提供公开 API，当前暂未实现
 - **云盘接入** — 支持 123 云盘、115、百度网盘、阿里云盘、Google Drive、OneDrive、Dropbox，云端歌曲可边下边播并按需缓存
 - **播放引擎** — 基于 SFBAudioEngine，支持 FLAC、APE、WAV、MP3、AAC、Opus、DSD、TTA、WV 等格式，提供交叉淡入淡出、ReplayGain、睡眠定时、EQ、混响和压缩/限幅
 - **DLNA 接收** — 可在同一 Wi-Fi 下作为 UPnP/AV MediaRenderer 被 VLC、群晖 Audio Station、Plex、Hi-Fi Cast 等控制点发现并投送音频

@@ -48,7 +48,7 @@
 "onboarding_welcome_title" = "Deine Musik, deine Server";
 "onboarding_welcome_subtitle" = "Primuse spielt von deinem eigenen NAS, deinen Cloud-Speichern und deinem Heimnetzwerk – ohne eine einzige Datei irgendwohin hochzuladen.";
 "onboarding_sources_title" = "Deine Musik an einem Ort";
-"onboarding_sources_nas" = "Synology, QNAP, Ugreen sowie SMB / NFS-Freigaben";
+"onboarding_sources_nas" = "Synology, QNAP sowie SMB / NFS-Freigaben · Ugreen/fnOS warten auf öffentliche APIs";
 "onboarding_sources_cloud" = "123 Pan, Baidu Pan, Aliyun Drive und mehr";
 "onboarding_sources_apple_music" = "Apple Music optional verbinden und zusammen mit der Mediathek durchsuchen";
 "onboarding_sources_network" = "WebDAV, SFTP, Jellyfin, UPnP / DLNA und mehr";
