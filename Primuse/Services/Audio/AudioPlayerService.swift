@@ -447,7 +447,7 @@ final class AudioPlayerService {
 
         // Defer heavy system registrations to avoid blocking first frame
         Task { @MainActor [weak self] in
-            AudioSessionManager.shared.configureForPlayback()
+            AudioSessionManager.shared.prepareForPlayback()
             self?.setupRemoteCommands()
             self?.setupAudioSessionCallbacks()
         }

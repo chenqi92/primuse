@@ -18,7 +18,6 @@ struct PrimuseTVApp: App {
                 .tint(TVColor.brand)
                 .onOpenURL { store.handleDeepLink($0) }
                 .task {
-                    store.engine.configureAudioSession()
                     #if DEBUG
                     switch ProcessInfo.processInfo.environment["TV_AUDIO_SMOKE"] {
                     case "1": store.engine.runSmokeTest()

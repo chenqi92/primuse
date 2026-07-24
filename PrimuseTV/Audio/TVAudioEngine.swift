@@ -26,7 +26,8 @@ final class TVAudioEngine {
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
     private var itemStatusObs: NSKeyValueObservation?
-    private var sessionConfigured = false
+    private var sessionCategoryConfigured = false
+    private var sessionIsActive = false
     private var resourceLoader: TVStreamResourceLoader?   // 自定义播放头时强引用(delegate 弱持有)
     private var protocolLoader: TVProtocolResourceLoader?  // 协议直连(SMB/NFS/FTP/SFTP)时强引用
 
@@ -59,17 +60,32 @@ final class TVAudioEngine {
     // 注:引擎随 app 生命周期存在(TVStore 持有,单例式),观察者用 [weak self]
     // 无循环引用;不写 deinit 清理(Swift 6 deinit 无法访问 MainActor 隔离属性)。
 
-    // MARK: 音频会话(这一步才会真正出声)
+    // MARK: 音频会话(真正播放时才激活)
 
-    func configureAudioSession() {
-        guard !sessionConfigured else { return }
+    private func activateAudioSession() {
         do {
             let s = AVAudioSession.sharedInstance()
-            try s.setCategory(.playback, mode: .default)
+            if !sessionCategoryConfigured {
+                try s.setCategory(.playback, mode: .default)
+                sessionCategoryConfigured = true
+            }
             try s.setActive(true)
-            sessionConfigured = true
+            sessionIsActive = true
         } catch {
             plog("TVAudioEngine: audio session error \(error)")
+        }
+    }
+
+    private func deactivateAudioSession() {
+        guard sessionIsActive else { return }
+        do {
+            try AVAudioSession.sharedInstance().setActive(
+                false,
+                options: .notifyOthersOnDeactivation
+            )
+            sessionIsActive = false
+        } catch {
+            plog("TVAudioEngine: audio session deactivation error \(error)")
         }
     }
 
@@ -83,7 +99,6 @@ final class TVAudioEngine {
 
     func load(url: URL, headers: [String: String] = [:], fileExtension: String? = nil,
               title: String, artist: String, album: String, duration: Double, isVideo: Bool) {
-        configureAudioSession()
         resetSFBIfNeeded()
         isVideoMode = isVideo
         npTitle = title; npArtist = artist; npAlbum = album
@@ -121,7 +136,6 @@ final class TVAudioEngine {
 
     func load(reader: ByteRangeReader, fileExtension: String?,
               title: String, artist: String, album: String, duration: Double, isVideo: Bool) {
-        configureAudioSession()
         resetSFBIfNeeded()
         isVideoMode = isVideo
         npTitle = title; npArtist = artist; npAlbum = album
@@ -167,7 +181,7 @@ final class TVAudioEngine {
 
     /// 非原生格式:用 SFBAudioEngine 解码播放已下载到本地的文件(AVPlayer 解不了的格式)。
     func loadDecoded(fileURL: URL, title: String, artist: String, album: String, duration: Double) {
-        configureAudioSession()
+        activateAudioSession()
         isVideoMode = false
         // 让 AVPlayer 静音让位。
         player.replaceCurrentItem(with: nil)
@@ -194,7 +208,7 @@ final class TVAudioEngine {
     }
 
     func play() {
-        configureAudioSession()
+        activateAudioSession()
         if usingSFB { sfb.resume() } else { player.play() }
         isPlaying = true
         status = .playing
@@ -219,6 +233,7 @@ final class TVAudioEngine {
         currentTime = 0
         status = .idle
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        deactivateAudioSession()
     }
 
     func seek(to seconds: Double) {

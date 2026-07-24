@@ -31,12 +31,21 @@ final class AudioSessionManager {
         }
     }
 
-    func configureForPlayback() {
+    /// Sets the playback category and installs lifecycle observers without
+    /// activating the session. Safe to call during app startup.
+    func prepareForPlayback() {
         let session = AVAudioSession.sharedInstance()
-        _ = activatePlaybackSession()
-
         guard !isConfigured else { return }
         isConfigured = true
+
+        // Configure the app's playback intent at launch, but do not activate the
+        // session until playback actually starts. Activating this non-mixable
+        // category while idle would interrupt audio from other apps.
+        do {
+            try session.setCategory(.playback, mode: .default, options: [])
+        } catch {
+            plog("Failed to configure audio session: \(error)")
+        }
 
         // Observe interruptions (phone calls, other apps playing audio, Siri, alarms)
         NotificationCenter.default.addObserver(
@@ -109,7 +118,9 @@ final class AudioSessionManager {
                 // Interruption ended. Check if we should auto-resume.
                 if shouldResume {
                     plog("🔊 Audio interruption ended — shouldResume")
-                    _ = self.activatePlaybackSession()
+                    // The player callback decides whether there is still a song
+                    // that should resume. Its resume path activates the session;
+                    // doing so here would reclaim audio even while Primuse is idle.
                     self.onInterruptionEndedShouldResume?()
                 } else {
                     plog("🔊 Audio interruption ended — should NOT resume")
@@ -137,7 +148,7 @@ final class AudioSessionManager {
     // stay platform-agnostic.
     @discardableResult
     func activatePlaybackSession() -> Bool { true }
-    func configureForPlayback() {}
+    func prepareForPlayback() {}
     func deactivate() {}
 #endif
 }
