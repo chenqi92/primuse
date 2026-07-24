@@ -59,13 +59,19 @@ struct LibrarySearchResult: Identifiable, Sendable {
 private struct LibrarySearchMatcher {
     let rawQuery: String
     let normalizedQuery: String
+    private let shouldTransliterateCandidates: Bool
 
     var isValid: Bool { !normalizedQuery.isEmpty }
     var normalizedLength: Int { normalizedQuery.count }
 
     init(query: String) {
         rawQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        normalizedQuery = Self.normalized(rawQuery)
+        // A Han query can be matched in its original script. Transliteration
+        // is only useful when the user typed Latin pinyin/initials; avoiding it
+        // for normal Chinese queries prevents thousands of unnecessary ICU
+        // transforms in a large library.
+        shouldTransliterateCandidates = !Self.containsHan(rawQuery)
+        normalizedQuery = Self.normalized(rawQuery, transliterateHan: false)
     }
 
     func score(candidate: String) -> (score: Int, kind: LibrarySearchMatchKind)? {
@@ -75,16 +81,21 @@ private struct LibrarySearchMatcher {
             return (120, .metadata)
         }
 
-        let normalizedCandidate = Self.normalized(candidate)
+        let normalizedCandidate = Self.normalized(
+            candidate,
+            transliterateHan: shouldTransliterateCandidates
+        )
         guard !normalizedCandidate.isEmpty else { return nil }
 
         if normalizedCandidate.contains(normalizedQuery) {
             return (110, .metadata)
         }
 
-        let initials = Self.initials(candidate)
-        if !initials.isEmpty, initials.contains(normalizedQuery) {
-            return (100, .metadata)
+        if shouldTransliterateCandidates {
+            let initials = Self.initials(candidate)
+            if !initials.isEmpty, initials.contains(normalizedQuery) {
+                return (100, .metadata)
+            }
         }
 
         if normalizedQuery.count >= 3,
@@ -102,9 +113,13 @@ private struct LibrarySearchMatcher {
             .filter { !$0.text.isEmpty }
         guard !indexedLines.isEmpty else { return nil }
 
-        let matchPosition = indexedLines.firstIndex { item in
-            item.text.localizedCaseInsensitiveContains(rawQuery)
-                || Self.normalized(item.text).contains(normalizedQuery)
+        var matchPosition: Int?
+        for (index, item) in indexedLines.enumerated() {
+            guard !Task.isCancelled else { return nil }
+            if lyricsContainQuery(item.text) {
+                matchPosition = index
+                break
+            }
         }
 
         guard let matchPosition else { return nil }
@@ -118,11 +133,31 @@ private struct LibrarySearchMatcher {
         return (snippetLines.joined(separator: "\n"), indexedLines[matchPosition].line.timestamp)
     }
 
-    private static func normalized(_ text: String) -> String {
-        let latin = text
-            .applyingTransform(.mandarinToLatin, reverse: false)?
-            .applyingTransform(.stripDiacritics, reverse: false)
-            ?? text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+    func lyricsContainQuery(_ text: String) -> Bool {
+        guard !rawQuery.isEmpty else { return false }
+        // Lyrics search is literal full-text search. Pinyin matching remains
+        // available for title/artist/album metadata, but transliterating every
+        // lyric line is prohibitively expensive and was the source of a
+        // MetricKit CPU exception on a 5K-file lyrics library.
+        return text.range(
+            of: rawQuery,
+            options: [.caseInsensitive, .diacriticInsensitive],
+            locale: .current
+        ) != nil
+    }
+
+    private static func normalized(_ text: String, transliterateHan: Bool) -> String {
+        let latin: String
+        if text.unicodeScalars.allSatisfy(\.isASCII) {
+            latin = text.lowercased()
+        } else if transliterateHan, containsHan(text) {
+            latin = text
+                .applyingTransform(.mandarinToLatin, reverse: false)?
+                .applyingTransform(.stripDiacritics, reverse: false)
+                ?? text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+        } else {
+            latin = text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+        }
 
         let allowed = CharacterSet.alphanumerics
         let scalars = latin.lowercased().unicodeScalars.filter { allowed.contains($0) }
@@ -130,10 +165,15 @@ private struct LibrarySearchMatcher {
     }
 
     private static func initials(_ text: String) -> String {
-        let latin = text
-            .applyingTransform(.mandarinToLatin, reverse: false)?
-            .applyingTransform(.stripDiacritics, reverse: false)
-            ?? text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+        let latin: String
+        if containsHan(text) {
+            latin = text
+                .applyingTransform(.mandarinToLatin, reverse: false)?
+                .applyingTransform(.stripDiacritics, reverse: false)
+                ?? text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+        } else {
+            latin = text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+        }
 
         let allowed = CharacterSet.alphanumerics
         var result = String.UnicodeScalarView()
@@ -151,6 +191,20 @@ private struct LibrarySearchMatcher {
         return String(result)
     }
 
+    private static func containsHan(_ text: String) -> Bool {
+        text.unicodeScalars.contains { scalar in
+            switch scalar.value {
+            case 0x3400...0x4DBF,
+                 0x4E00...0x9FFF,
+                 0xF900...0xFAFF,
+                 0x20000...0x2FA1F:
+                return true
+            default:
+                return false
+            }
+        }
+    }
+
     private static func isSubsequence(_ needle: String, of haystack: String) -> Bool {
         var remaining = needle[...]
         for char in haystack {
@@ -164,6 +218,7 @@ private struct LibrarySearchMatcher {
 }
 
 struct LibrarySearchCache: Sendable {
+    var lyricsTextByKey: [String: String] = [:]
     var lyricsLinesByKey: [String: [LyricLine]] = [:]
     var missingLyricsKeys: Set<String> = []
 }
@@ -197,8 +252,10 @@ enum LibrarySearchWorker {
         var cache = cache
         let shouldSearchLyrics = includeLyrics && matcher.normalizedLength >= minimumLyricsQueryLength
 
-        let rankedSongs = songs.compactMap { song -> LibrarySearchResult? in
-            if Task.isCancelled { return nil }
+        var rankedSongs: [LibrarySearchResult] = []
+        rankedSongs.reserveCapacity(min(songs.count, songLimit * 2))
+        for song in songs {
+            guard !Task.isCancelled else { break }
             var bestScore = 0
             var bestKind: LibrarySearchMatchKind?
             var lyricSnippet: String?
@@ -222,6 +279,8 @@ enum LibrarySearchWorker {
 
             if shouldSearchLyrics,
                bestScore < 90,
+               let searchableText = searchableLyricsText(for: song, cache: &cache),
+               matcher.lyricsContainQuery(searchableText),
                let lines = searchableLyricsLines(for: song, cache: &cache),
                let match = matcher.lyricsMatch(in: lines) {
                 let score = 70
@@ -233,14 +292,14 @@ enum LibrarySearchWorker {
                 }
             }
 
-            guard let bestKind else { return nil }
-            return LibrarySearchResult(
+            guard let bestKind else { continue }
+            rankedSongs.append(LibrarySearchResult(
                 song: song,
                 matchKind: bestKind,
                 score: bestScore,
                 lyricSnippet: lyricSnippet,
                 lyricTimestamp: lyricTimestamp
-            )
+            ))
         }
 
         let songResults = Array(rankedSongs.sorted { lhs, rhs in
@@ -256,8 +315,10 @@ enum LibrarySearchWorker {
     private static func searchAlbums(query: String, albums: [Album], limit: Int) -> [Album] {
         let matcher = LibrarySearchMatcher(query: query)
         guard matcher.isValid else { return [] }
-        let ranked = albums.compactMap { album -> (Album, Int)? in
-            if Task.isCancelled { return nil }
+        var ranked: [(Album, Int)] = []
+        ranked.reserveCapacity(min(albums.count, limit * 2))
+        for album in albums {
+            guard !Task.isCancelled else { break }
             var best = 0
             if let score = matcher.score(candidate: album.title)?.score {
                 best = max(best, score + 20)
@@ -266,7 +327,7 @@ enum LibrarySearchWorker {
                let score = matcher.score(candidate: artist)?.score {
                 best = max(best, score + 10)
             }
-            return best > 0 ? (album, best) : nil
+            if best > 0 { ranked.append((album, best)) }
         }
         return Array(ranked.sorted { lhs, rhs in
             if lhs.1 != rhs.1 { return lhs.1 > rhs.1 }
@@ -275,7 +336,7 @@ enum LibrarySearchWorker {
     }
 
     private static func searchableLyricsLines(for song: Song, cache: inout LibrarySearchCache) -> [LyricLine]? {
-        let cacheKey = "\(song.id)|\(song.lyricsFileName ?? "")"
+        let cacheKey = lyricsCacheKey(for: song)
         if let cached = cache.lyricsLinesByKey[cacheKey] { return cached }
         if cache.missingLyricsKeys.contains(cacheKey) { return nil }
 
@@ -301,6 +362,47 @@ enum LibrarySearchWorker {
         }
         cache.lyricsLinesByKey[cacheKey] = searchable
         return searchable
+    }
+
+    private static func searchableLyricsText(for song: Song, cache: inout LibrarySearchCache) -> String? {
+        if let text = song.lyricsText?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !text.isEmpty {
+            return text
+        }
+
+        let cacheKey = lyricsCacheKey(for: song)
+        if let cached = cache.lyricsTextByKey[cacheKey] { return cached }
+        if cache.missingLyricsKeys.contains(cacheKey) { return nil }
+
+        guard let lines = MetadataAssetStore.shared.cachedLyricsForSearch(
+            songID: song.id,
+            lyricsFileName: song.lyricsFileName
+        ) else {
+            cache.missingLyricsKeys.insert(cacheKey)
+            return nil
+        }
+
+        let text = lines
+            .flatMap { line -> [LyricLine] in
+                var parts = [line]
+                if let background = line.background {
+                    parts.append(contentsOf: background)
+                }
+                return parts
+            }
+            .map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+        guard !text.isEmpty else {
+            cache.missingLyricsKeys.insert(cacheKey)
+            return nil
+        }
+        cache.lyricsTextByKey[cacheKey] = text
+        return text
+    }
+
+    private static func lyricsCacheKey(for song: Song) -> String {
+        "\(song.id)|\(song.lyricsFileName ?? "")"
     }
 }
 
