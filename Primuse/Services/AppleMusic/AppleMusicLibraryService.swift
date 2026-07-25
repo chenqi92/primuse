@@ -7,7 +7,7 @@ import PrimuseKit
 /// 猿音 MusicLibrary, 跟 NAS / 云盘的歌一起出现在 Library 视图。
 ///
 /// 系统侧由 `ApplicationMusicPlayer` 负责 DRM 流播放, 我们这里只做:
-/// - 用 `MusicLibraryRequest<MusicKit.Song>()` 拉一次性 + 增量
+/// - iOS 用 `MusicLibraryRequest`, macOS 用 Apple Music API 分页拉完整云资料库
 /// - 把每首 MusicKit.Song 映射成 PrimuseKit.Song (sourceID 固定为
 ///   `appleMusicSystemSourceID`, filePath 是 Apple Music MusicItemID)
 /// - 写入 MusicLibrary, 后续 SongRowView / AlbumDetailView / NowPlaying
@@ -16,7 +16,7 @@ import PrimuseKit
 /// 不做 (Phase 2+):
 /// - CloudKit 同步 (Apple Music 库每个设备独立拉, 避免 sync 冲突)
 /// - 跨类型 Playlist (本地 + Apple Music 混入一个 Playlist)
-/// - Apple Music 歌词显示 (需新 LyricsScrollView 适配 MusicKit.Lyrics)
+/// - Apple Music 官方歌词读取（MusicKit 目前只公开 `hasLyrics`, 不公开正文）
 @MainActor
 @Observable
 final class AppleMusicLibraryService {
@@ -54,6 +54,13 @@ final class AppleMusicLibraryService {
         case mirror(UserPlaylistMirror)
         case empty(id: String, name: String)
         case failed(id: String, name: String, error: String)
+    }
+
+    /// macOS 会优先读云端资料库；云端权限不可用时仍保留 Music.app 的本机歌曲，
+    /// 但必须把降级原因带回 UI，不能把“仅同步到 2 首本机歌”误报成完整成功。
+    private struct LibrarySongFetchResult {
+        let songs: [MusicKit.Song]
+        let fallbackWarning: String?
     }
 
     enum SyncState: Sendable {
@@ -362,25 +369,8 @@ final class AppleMusicLibraryService {
             }
         }
         do {
-            // MusicLibraryRequest 一次性拉 user library 内 Song。limit 设到
-            // 上限 (默认 25, 调大到 100 一页), 后续翻页直到 nextBatch 为 nil。
-            var request = MusicLibraryRequest<MusicKit.Song>()
-            request.limit = 100
-            let response = try await request.response()
-            markSyncProgress()
-            var allMusicKitSongs: [MusicKit.Song] = []
-            allMusicKitSongs.append(contentsOf: response.items)
-
-            // 翻页接口在 MusicItemCollection 上 (不是 response 上)。直到
-            // 当前 collection 没有 nextBatch 为止。
-            var currentBatch = response.items
-            while currentBatch.hasNextBatch {
-                if Task.isCancelled { return }
-                guard let next = try await currentBatch.nextBatch() else { break }
-                allMusicKitSongs.append(contentsOf: next)
-                currentBatch = next
-                markSyncProgress()   // 每拉到一页就给看门狗续期, 大库不会被误判超时
-            }
+            let fetchResult = try await fetchLibrarySongs()
+            let allMusicKitSongs = fetchResult.songs
 
             if Task.isCancelled { return }
             plog("🎵 Apple Music library fetched: \(allMusicKitSongs.count) songs")
@@ -388,9 +378,12 @@ final class AppleMusicLibraryService {
 
             // 把 MusicKit.Song 缓存住, play 时直接喂给 ApplicationMusicPlayer
             // 不用走 catalog lookup。
-            for s in allMusicKitSongs {
-                songCache[s.id.rawValue] = s
-            }
+            // This is a full snapshot, so replace rather than append. Otherwise
+            // tracks removed from Apple Music (including the two stale local
+            // rows seen on macOS) remain playable in the in-memory queue.
+            songCache = Dictionary(
+                uniqueKeysWithValues: allMusicKitSongs.map { ($0.id.rawValue, $0) }
+            )
             let songs = allMusicKitSongs.map { Self.toPrimuseSong($0) }
             // 把这些歌加进 library, sourceIDs 限定 Apple Music, 让 addSongs
             // 自己处理删除 (Apple Music 删歌的 case 会被检测到)。
@@ -423,8 +416,13 @@ final class AppleMusicLibraryService {
             guard syncGeneration == generation else { return }
 
             lastSyncAt = Date()
-            state = .done(songCount: songs.count, at: lastSyncAt!)
-            plog("🎵 Apple Music library synced: \(songs.count) songs, \(syncedUserPlaylistCount) playlists → playlist \(Self.systemPlaylistID)")
+            if let warning = fetchResult.fallbackWarning {
+                state = .failed(warning)
+                plog("⚠️Apple Music library partially synced: \(songs.count) local songs preserved; \(warning)")
+            } else {
+                state = .done(songCount: songs.count, at: lastSyncAt!)
+                plog("🎵 Apple Music library synced: \(songs.count) songs, \(syncedUserPlaylistCount) playlists → playlist \(Self.systemPlaylistID)")
+            }
         } catch is CancellationError {
             if syncGeneration == generation {
                 state = .idle
@@ -437,28 +435,103 @@ final class AppleMusicLibraryService {
         }
     }
 
+    /// macOS 的 `MusicLibraryRequest` 读取 Music.app 保存在本机的资料库副本。
+    /// 用户未打开「同步资料库」时它只会返回本机导入的几首歌，即使同一 Apple
+    /// Account 的云端资料库还有很多歌曲。macOS 因此直接请求 Apple Music user
+    /// library API；云端确实为空时才保留旧的本机资料库行为。iOS 的本机副本会
+    /// 跟系统「同步资料库」一致，继续使用系统请求以避免改变现有稳定路径。
+    private func fetchLibrarySongs() async throws -> LibrarySongFetchResult {
+        #if os(macOS)
+        do {
+            let cloudSongs: [MusicKit.Song] = try await fetchCloudLibraryItems(endpoint: .songs)
+            if !cloudSongs.isEmpty {
+                plog("🎵 Apple Music cloud library fetched: \(cloudSongs.count) songs")
+                return LibrarySongFetchResult(songs: cloudSongs, fallbackWarning: nil)
+            }
+            plog("🎵 Apple Music cloud library is empty; falling back to the local Music library")
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as MusicDataRequest.Error {
+            let responseBody = String(data: error.originalResponse.data, encoding: .utf8) ?? "<non-UTF8>"
+            plog("⚠️Apple Music cloud API failed status=\(error.status) code=\(error.code) title='\(error.title)' detail='\(error.detailText)' body=\(responseBody.prefix(1000)); falling back to local Music library")
+            let localSongs = try await fetchDeviceLibrarySongs()
+            let warning = String(
+                format: String(localized: "apple_music_cloud_library_unavailable_format"),
+                String(describing: error.code),
+                localSongs.count
+            )
+            return LibrarySongFetchResult(songs: localSongs, fallbackWarning: warning)
+        } catch {
+            plog("⚠️Apple Music cloud API failed: \(String(reflecting: error)); falling back to local Music library")
+            let localSongs = try await fetchDeviceLibrarySongs()
+            let warning = String(
+                format: String(localized: "apple_music_cloud_library_unavailable_format"),
+                "—",
+                localSongs.count
+            )
+            return LibrarySongFetchResult(songs: localSongs, fallbackWarning: warning)
+        }
+        #endif
+        return LibrarySongFetchResult(
+            songs: try await fetchDeviceLibrarySongs(),
+            fallbackWarning: nil
+        )
+    }
+
+    private func fetchDeviceLibrarySongs() async throws -> [MusicKit.Song] {
+        var request = MusicLibraryRequest<MusicKit.Song>()
+        request.limit = 100
+        request.includeOnlyDownloadedContent = false
+        let response = try await request.response()
+        markSyncProgress()
+        var songs = Array(response.items)
+        var currentBatch = response.items
+        while currentBatch.hasNextBatch {
+            try Task.checkCancellation()
+            guard let next = try await currentBatch.nextBatch() else { break }
+            songs.append(contentsOf: next)
+            currentBatch = next
+            markSyncProgress()
+        }
+        return Self.uniquedMusicItems(songs)
+    }
+
+    /// Loads a complete Apple Music API collection with MusicKit-managed
+    /// developer and music-user tokens. Pagination URLs are validated by
+    /// PrimuseKit before another authenticated request is issued.
+    private func fetchCloudLibraryItems<Item>(
+        endpoint: AppleMusicLibraryAPI.Endpoint
+    ) async throws -> [Item] where Item: MusicKit.MusicItem & Decodable {
+        var nextURL: URL? = AppleMusicLibraryAPI.initialURL(for: endpoint)
+        var visitedURLs = Set<String>()
+        var items: [Item] = []
+
+        while let pageURL = nextURL {
+            try Task.checkCancellation()
+            guard visitedURLs.insert(pageURL.absoluteString).inserted else {
+                throw AppleMusicLibraryAPI.PaginationError.invalidNextURL(pageURL.absoluteString)
+            }
+
+            var urlRequest = URLRequest(url: pageURL)
+            urlRequest.timeoutInterval = Self.syncStallTimeout
+            let response = try await MusicDataRequest(urlRequest: urlRequest).response()
+            let page = try JSONDecoder().decode(MusicItemCollection<Item>.self, from: response.data)
+            items.append(contentsOf: page)
+            nextURL = try AppleMusicLibraryAPI.nextPageURL(from: response.data, endpoint: endpoint)
+            markSyncProgress()
+        }
+        return Self.uniquedMusicItems(items)
+    }
+
     /// 每个 user playlist 在 Primuse 里建独立的镜像歌单 ── ID 用 amID 派生固定,
     /// 多次 sync 不会重复创建; name 跟 Apple Music 那边对齐, 用户改名后下次 sync
     /// 会被刷新 (ensurePlaylist 已经处理 name 同步)。
-    /// 实现: MusicLibraryRequest<Playlist> 拉用户全部歌单 (含分页), 每个用
+    /// 实现: 按平台拉用户全部歌单 (含分页), 每个用
     /// `.with([.tracks])` 把 tracks 拉过来, 转 PrimuseKit.Song 后 replace 进对应歌单。
     @discardableResult
     private func syncUserPlaylists() async -> Int {
         do {
-            var request = MusicLibraryRequest<MusicKit.Playlist>()
-            request.limit = 100
-            let response = try await request.response()
-            markSyncProgress()
-            var allPlaylists: [MusicKit.Playlist] = []
-            allPlaylists.append(contentsOf: response.items)
-            var currentBatch = response.items
-            while currentBatch.hasNextBatch {
-                if Task.isCancelled { return 0 }
-                guard let next = try await currentBatch.nextBatch() else { break }
-                allPlaylists.append(contentsOf: next)
-                currentBatch = next
-                markSyncProgress()
-            }
+            let allPlaylists = try await fetchLibraryPlaylists()
             plog("🎵 Apple Music user playlists: \(allPlaylists.count)")
 
             var fetchedMirrors: [UserPlaylistMirror] = []
@@ -500,11 +573,40 @@ final class AppleMusicLibraryService {
         }
     }
 
+    private func fetchLibraryPlaylists() async throws -> [MusicKit.Playlist] {
+        #if os(macOS)
+        return try await fetchCloudLibraryItems(endpoint: .playlists)
+        #else
+        var request = MusicLibraryRequest<MusicKit.Playlist>()
+        request.limit = 100
+        let response = try await request.response()
+        markSyncProgress()
+        var playlists = Array(response.items)
+        var currentBatch = response.items
+        while currentBatch.hasNextBatch {
+            try Task.checkCancellation()
+            guard let next = try await currentBatch.nextBatch() else { break }
+            playlists.append(contentsOf: next)
+            currentBatch = next
+            markSyncProgress()
+        }
+        return Self.uniquedMusicItems(playlists)
+        #endif
+    }
+
     private func fetchUserPlaylistMirror(_ amPlaylist: MusicKit.Playlist) async -> UserPlaylistFetchResult {
         let pid = "\(Self.userPlaylistIDPrefix)\(amPlaylist.id.rawValue)"
         do {
             let detailed = try await amPlaylist.with([.tracks])
-            let tracks = detailed.tracks ?? []
+            var currentBatch = detailed.tracks ?? []
+            var tracks = Array(currentBatch)
+            while currentBatch.hasNextBatch {
+                try Task.checkCancellation()
+                guard let next = try await currentBatch.nextBatch() else { break }
+                tracks.append(contentsOf: next)
+                currentBatch = next
+                markSyncProgress()
+            }
             let songIDs: [String] = tracks.compactMap { track in
                 guard case let .song(s) = track else { return nil }
                 // 顺手填 cache (有些用户歌单里的 song 可能不在 user library 全集)
@@ -574,6 +676,11 @@ final class AppleMusicLibraryService {
     private static func uniqued(_ ids: [String]) -> [String] {
         var seen = Set<String>()
         return ids.filter { seen.insert($0).inserted }
+    }
+
+    private static func uniquedMusicItems<Item: MusicKit.MusicItem>(_ items: [Item]) -> [Item] {
+        var seen = Set<MusicItemID>()
+        return items.filter { seen.insert($0.id).inserted }
     }
 
     /// MusicKit.Song → PrimuseKit.Song 映射。

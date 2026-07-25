@@ -360,6 +360,7 @@
 "played" = "재생됨";
 "scrape_song_success" = "현재 곡의 메타데이터를 새로고침했습니다.";
 "scrape_song_failed" = "이 곡의 메타데이터를 새로고침할 수 없습니다.";
+"scrape_lyrics_not_found" = "가사를 찾을 수 없습니다. 다른 검색어나 가사 소스를 사용해 보세요.";
 "scrape_options" = "가져올 항목";
 "scrape_metadata_toggle" = "메타데이터(제목, 아티스트, 앨범)";
 "scrape_cover_toggle" = "커버 아트";
@@ -454,6 +455,7 @@
 "apple_music_library_idle" = "아직 동기화 안 됨";
 "apple_music_library_syncing" = "Apple Music 라이브러리 동기화 중…";
 "apple_music_library_done_format" = "%d곡 · %@";
+"apple_music_cloud_library_unavailable_format" = "Apple Music 클라우드 보관함을 사용할 수 없습니다(Apple 오류 %@). Mac의 Music이 iPhone과 같은 Apple Account 및 구독을 사용하는지 확인한 다음 '보관함 동기화'를 켜십시오. 로컬 %d곡은 유지되었습니다.";
 "apple_music_library_sync" = "Apple Music 라이브러리 동기화";
 "apple_music_library_resync" = "다시 동기화";
 "apple_music_lyrics_unavailable" = "이 곡의 가사가 없습니다. Apple Music의 시간 동기화 가사는 타사 앱에 제공되지 않으므로 사용 가능한 경우 전체 텍스트만 표시됩니다.";

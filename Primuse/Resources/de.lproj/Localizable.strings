@@ -360,6 +360,7 @@
 "played" = "Gespielt";
 "scrape_song_success" = "Metadaten für den aktuellen Titel wurden aktualisiert.";
 "scrape_song_failed" = "Die Metadaten dieses Titels konnten nicht aktualisiert werden.";
+"scrape_lyrics_not_found" = "Keine Liedtexte gefunden. Versuche eine andere Suche oder Liedtextquelle.";
 "scrape_options" = "Was abrufen";
 "scrape_metadata_toggle" = "Metadaten (Titel, Künstler, Album)";
 "scrape_cover_toggle" = "Cover";
@@ -454,6 +455,7 @@
 "apple_music_library_idle" = "Noch nicht synchronisiert";
 "apple_music_library_syncing" = "Apple-Music-Mediathek wird synchronisiert…";
 "apple_music_library_done_format" = "%d Titel · %@";
+"apple_music_cloud_library_unavailable_format" = "Die Apple-Music-Cloud-Mediathek ist nicht verfügbar (Apple-Fehler %@). Stelle sicher, dass Musik auf diesem Mac denselben Apple Account und dasselbe Abonnement wie dein iPhone verwendet, und aktiviere dann „Mediathek synchronisieren“. Deine %d lokalen Titel wurden beibehalten.";
 "apple_music_library_sync" = "Apple-Music-Mediathek synchronisieren";
 "apple_music_library_resync" = "Erneut synchronisieren";
 "apple_music_lyrics_unavailable" = "Für diesen Titel ist kein Liedtext vorhanden. Die zeitsynchronen Liedtexte von Apple Music werden Apps von Drittanbietern nicht bereitgestellt, daher wird, falls verfügbar, nur der vollständige Text angezeigt.";

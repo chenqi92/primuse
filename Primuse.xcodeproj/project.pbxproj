@@ -47,6 +47,7 @@
 		0E71A5DC6C92751D3051E4CD /* AlbumDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEE2C637A78576C7A05DF5BF /* AlbumDetailView.swift */; };
 		0ECB05DC84CAB0262BD9A12A /* LyricsLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69CE5C498EA110A27ACD19B9 /* LyricsLoader.swift */; };
 		0EF9A2707BC3958302910C83 /* Crypto in Frameworks */ = {isa = PBXBuildFile; productRef = 732C3E4918F41BB73857AAE7 /* Crypto */; };
+		0F4FB86FA16FEF99A50DF566 /* AppleMusicLibraryAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7FB6E8E617D8E1857173D1F /* AppleMusicLibraryAPI.swift */; };
 		0FCD8486687FFFE9C3531A3C /* RecentlyDeletedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCF14896C5977140D504187F /* RecentlyDeletedView.swift */; };
 		102BC68BDE6FF768C73E1108 /* PrimuseKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B1E36F2FECF46E724081F983 /* PrimuseKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		10487AC0C5FAFDAFC022D23A /* NFSBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44B4D0FC334BC388026F33AF /* NFSBrowserView.swift */; };
@@ -1205,6 +1206,7 @@
 		F6255A91A1DE2B2C344A5491 /* MusicScraperFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicScraperFactory.swift; sourceTree = "<group>"; };
 		F652918A8A39CEF7841384ED /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		F754A142263E60B3A764A992 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		F7FB6E8E617D8E1857173D1F /* AppleMusicLibraryAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMusicLibraryAPI.swift; sourceTree = "<group>"; };
 		F855798DF69A9D2170EF0511 /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		F8C714C150FC7495AF3988FB /* CloudAccount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudAccount.swift; sourceTree = "<group>"; };
 		F99EF0A47317166C18FD865D /* RelayStreamResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayStreamResolver.swift; sourceTree = "<group>"; };
@@ -1524,6 +1526,7 @@
 				D7B9A30E7467B10B25922382 /* Resources */,
 				F49A5BE606706F898B5DEAC8 /* Streaming */,
 				653663F81F12EC2A31ED433E /* TopShelf */,
+				F7FB6E8E617D8E1857173D1F /* AppleMusicLibraryAPI.swift */,
 				2555ED6B08291C7E7B7202E4 /* Localization.swift */,
 				3381F1A37A98DB25B41EEF83 /* LyricsSnapshotEncoder.swift */,
 				136A0C5EFAF6D7C7056C69A4 /* SharedConstants.swift */,
@@ -2646,6 +2649,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				5D9C7448984A096646317144 /* Album.swift in Sources */,
+				0F4FB86FA16FEF99A50DF566 /* AppleMusicLibraryAPI.swift in Sources */,
 				05FEEECAC78C364237505773 /* Artist.swift in Sources */,
 				657FFFBF45F93466E0411268 /* AudioFormat.swift in Sources */,
 				41A4BF2A4ED3D7C20BC2924A /* AudioQuality.swift in Sources */,

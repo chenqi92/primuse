@@ -1318,23 +1318,24 @@ struct ScrapeOptionsView: View {
                 hasCover = true
             }
 
-            // Download lyrics if available (keep in memory, don't store to disk yet)
-            var hasLyrics = false
-            var lyricsCount = 0
-            var lyricsLines: [LyricLine]?
-            let lyricsResult = try? await scraper.getLyrics(externalId: item.externalId)
-            plog("👉 getLyrics returned: hasResult=\(lyricsResult != nil) hasLyrics=\(lyricsResult?.hasLyrics ?? false) lrcLen=\(lyricsResult?.lrcContent?.count ?? 0)")
-            if let lyricsResult,
-               lyricsResult.hasLyrics,
-               let lrc = lyricsResult.lrcContent, !lrc.isEmpty {
-                let parsed = LyricsParser.parse(lrc)
-                plog("👉 LyricsParser parsed \(parsed.count) lines, wordLevel=\(parsed.contains { $0.isWordLevel })")
-                if !parsed.isEmpty {
-                    lyricsLines = parsed
-                    hasLyrics = true
-                    lyricsCount = parsed.count
-                }
-            }
+            // Lyrics are independent from the selected metadata candidate's
+            // source. iTunes/MusicBrainz candidates do not expose lyrics, so
+            // asking that same scraper always returned nil on macOS. Reuse the
+            // automatic/iOS lyrics-source chain with the selected candidate's
+            // normalized metadata instead.
+            let candidateDurationMs = detail?.durationMs ?? item.durationMs
+            let lyricsDuration = candidateDurationMs.map { TimeInterval($0) / 1000.0 }
+                ?? song.duration
+            let fetchedLyrics = await scraperService.fetchOnlineLyrics(
+                title: detail?.title ?? item.title,
+                artist: detail?.artist ?? item.artist ?? song.artistName,
+                album: detail?.album ?? item.album ?? song.albumTitle,
+                duration: lyricsDuration
+            )
+            let lyricsLines = fetchedLyrics.flatMap { $0.isEmpty ? nil : $0 }
+            let hasLyrics = lyricsLines != nil
+            let lyricsCount = lyricsLines?.count ?? 0
+            plog("👉 Dedicated lyrics scrape returned: hasLyrics=\(hasLyrics) lines=\(lyricsCount)")
 
             isScraping = false
             let coverPx = coverData.flatMap { coverPixelSize(from: $0) }

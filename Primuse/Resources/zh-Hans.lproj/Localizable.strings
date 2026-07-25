@@ -225,6 +225,7 @@
 "played" = "已播放";
 "scrape_song_success" = "当前歌曲元数据已刷新。";
 "scrape_song_failed" = "当前歌曲元数据刷新失败。";
+"scrape_lyrics_not_found" = "未找到可用歌词，请尝试其他关键词或歌词源。";
 "scrape_options" = "刮削内容";
 "scrape_metadata_toggle" = "元数据（标题、艺术家、专辑）";
 "scrape_cover_toggle" = "封面";
@@ -321,6 +322,7 @@
 "apple_music_library_idle" = "尚未同步";
 "apple_music_library_syncing" = "正在同步 Apple Music 资料库…";
 "apple_music_library_done_format" = "已同步 %d 首，%@";
+"apple_music_cloud_library_unavailable_format" = "Apple Music 云资料库不可用（Apple 错误 %@）。请确认 Mac 的“音乐”App 使用与 iPhone 相同的 Apple Account 和订阅，然后开启“同步资料库”。已保留本机 %d 首歌。";
 "apple_music_library_sync" = "同步 Apple Music 资料库";
 "apple_music_library_resync" = "重新同步";
 "apple_music_lyrics_unavailable" = "这首歌没有歌词。Apple Music 的同步歌词不开放给第三方应用，本页面显示的是整段静态歌词。";

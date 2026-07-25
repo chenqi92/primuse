@@ -247,6 +247,52 @@ final class MusicScraperService {
         return remoteBaseName.isEmpty ? local : remoteBaseName
     }
 
+    /// Fetch lyrics independently of the source used for a metadata candidate.
+    /// This is the same lyrics-only ScraperManager tier used by automatic
+    /// scraping, exposed for the macOS candidate-first preview flow.
+    func fetchOnlineLyrics(
+        title: String,
+        artist: String?,
+        album: String?,
+        duration: TimeInterval?
+    ) async -> [LyricLine]? {
+        await metadataService.fetchOnlineLyrics(
+            title: title,
+            artist: artist,
+            album: album,
+            duration: duration
+        )
+    }
+
+    /// Scrapes and stores lyrics without opening the source audio file.
+    ///
+    /// MusicKit cloud-library songs are playable by `ApplicationMusicPlayer`
+    /// but intentionally have no filesystem URL that Primuse can decode. The
+    /// regular metadata scrape starts by resolving such a URL, so it fails
+    /// before reaching any online lyrics source. This lyrics-only path uses the
+    /// metadata already supplied by Apple Music and writes the same hash cache
+    /// as a regular successful scrape.
+    func scrapeOnlineLyricsOnly(
+        song: Song,
+        in library: MusicLibrary
+    ) async -> (song: Song, lyrics: [LyricLine]?) {
+        let fetched = await fetchOnlineLyrics(
+            title: song.title,
+            artist: song.artistName,
+            album: song.albumTitle,
+            duration: song.duration > 0 ? song.duration : nil
+        )
+        guard let lyrics = fetched, !lyrics.isEmpty else {
+            return (song, nil)
+        }
+
+        await MetadataAssetStore.shared.cacheLyrics(lyrics, forSongID: song.id, force: true)
+        var updated = song
+        updated.lyricsFileName = MetadataAssetStore.shared.expectedLyricsFileName(for: song.id)
+        library.replaceSong(updated)
+        return (updated, lyrics)
+    }
+
     nonisolated static func searchQuery(title: String, artist: String?) -> String {
         var query = ScraperManager.searchTitle(title, artist: artist)
         if let artist,

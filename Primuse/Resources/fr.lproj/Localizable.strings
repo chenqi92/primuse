@@ -360,6 +360,7 @@
 "played" = "Écouté";
 "scrape_song_success" = "Métadonnées actualisées pour le morceau en cours.";
 "scrape_song_failed" = "Impossible d'actualiser les métadonnées de ce morceau.";
+"scrape_lyrics_not_found" = "Aucune parole trouvée. Essayez une autre recherche ou source de paroles.";
 "scrape_options" = "Contenu à récupérer";
 "scrape_metadata_toggle" = "Métadonnées (titre, artiste, album)";
 "scrape_cover_toggle" = "Pochette";
@@ -454,6 +455,7 @@
 "apple_music_library_idle" = "Pas encore synchronisé";
 "apple_music_library_syncing" = "Synchronisation de la bibliothèque Apple Music…";
 "apple_music_library_done_format" = "%d morceaux · %@";
+"apple_music_cloud_library_unavailable_format" = "La bibliothèque Apple Music dans le cloud est indisponible (erreur Apple %@). Vérifiez que Musique sur ce Mac utilise le même compte Apple et le même abonnement que votre iPhone, puis activez Synchroniser la bibliothèque. Vos %d morceaux locaux ont été conservés.";
 "apple_music_library_sync" = "Synchroniser la bibliothèque Apple Music";
 "apple_music_library_resync" = "Synchroniser à nouveau";
 "apple_music_lyrics_unavailable" = "Aucune parole pour ce morceau. Les paroles synchronisées d'Apple Music ne sont pas accessibles aux apps tierces ; seul le texte intégral est affiché lorsqu'il est disponible.";

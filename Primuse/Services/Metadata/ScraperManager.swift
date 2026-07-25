@@ -150,11 +150,19 @@ actor ScraperManager {
                         let searchResult = try await scraper.search(
                             query: cleanedTitle, artist: effectiveArtist, album: nil, limit: Self.autoScrapeLimit
                         )
+                        // Lyrics must match the requested title. Duration alone is not a
+                        // sufficient identity signal: short clips with no artist metadata
+                        // can otherwise accept an unrelated same-length song returned by a
+                        // noisy search provider. Metadata/cover retain their legacy ranked
+                        // fallback, while lyrics choose false-negative over false-positive.
+                        let titleCompatibleItems = searchResult.items.filter {
+                            Self.isLyricsTitleCompatible(candidate: $0.title, requested: cleanedTitle)
+                        }
                         let candidates = Self.topMatches(
-                            in: searchResult.items, title: cleanedTitle, artist: effectiveArtist,
+                            in: titleCompatibleItems, title: cleanedTitle, artist: effectiveArtist,
                             durationMs: durationMs(duration), maxCount: 3
                         )
-                        plog("🎤 [\(config.type.displayName)] lyrics search: \(searchResult.items.count) items → top \(candidates.count) candidates: \(candidates.map { "\($0.title)/\($0.artist ?? "?")" })")
+                        plog("🎤 [\(config.type.displayName)] lyrics search: \(searchResult.items.count) items, \(titleCompatibleItems.count) title-compatible → top \(candidates.count) candidates: \(candidates.map { "\($0.title)/\($0.artist ?? "?")" })")
                         var lineLevelFallback: [LyricLine]?
                         var triedCount = 0
                         var hasLyricsCount = 0
@@ -285,6 +293,19 @@ actor ScraperManager {
         }
 
         return s
+    }
+
+    /// Lyrics are destructive-looking when wrong, so require a normalized title
+    /// identity before fetching them. Equality covers the normal case; containment
+    /// keeps editions such as "Song Title (Live)" / "Song Title - Remastered"
+    /// working after `cleanTitle` has removed bracket noise.
+    private static func isLyricsTitleCompatible(candidate: String, requested: String) -> Bool {
+        let candidateTitle = normalizeComparableText(candidate)
+        let requestedTitle = normalizeComparableText(requested)
+        guard !candidateTitle.isEmpty, !requestedTitle.isEmpty else { return false }
+        return candidateTitle == requestedTitle
+            || candidateTitle.contains(requestedTitle)
+            || requestedTitle.contains(candidateTitle)
     }
 
     // MARK: - Helpers

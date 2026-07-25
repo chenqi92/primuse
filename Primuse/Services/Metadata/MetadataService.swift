@@ -180,6 +180,35 @@ actor MetadataService {
         return result
     }
 
+    /// Fetch only lyrics through the configured lyrics-source chain.
+    ///
+    /// The macOS candidate-first scraper obtains metadata and artwork from the
+    /// selected candidate's source, but lyrics are an independent asset: the
+    /// selected source (for example iTunes) may not support them at all. Keep
+    /// this path aligned with normal/iOS automatic scraping by delegating to
+    /// ScraperManager with only the lyrics tier enabled.
+    func fetchOnlineLyrics(
+        title: String,
+        artist: String?,
+        album: String?,
+        duration: TimeInterval?
+    ) async -> [LyricLine]? {
+        let settings = ScraperSettings.load()
+        let scrapeResult = await scraperManager.scrapeMetadata(
+            title: title,
+            artist: artist,
+            album: album,
+            duration: duration,
+            needs: ScraperManager.ScrapeNeeds(
+                metadata: false,
+                cover: false,
+                lyrics: true
+            ),
+            settings: settings
+        )
+        return scrapeResult.lyrics
+    }
+
     private func fetchOnlineMetadata(
         for result: inout SongMetadata,
         needsMetadata: Bool,

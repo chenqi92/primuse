@@ -212,6 +212,7 @@
 "played" = "已播放";
 "scrape_song_success" = "目前歌曲的中繼資料已重新整理。";
 "scrape_song_failed" = "目前歌曲的中繼資料重新整理失敗。";
+"scrape_lyrics_not_found" = "找不到可用歌詞，請嘗試其他關鍵字或歌詞來源。";
 "scrape_options" = "刮取內容";
 "scrape_metadata_toggle" = "中繼資料（標題、演出者、專輯）";
 "scrape_cover_toggle" = "封面";
@@ -306,6 +307,7 @@
 "apple_music_library_idle" = "尚未同步";
 "apple_music_library_syncing" = "正在同步 Apple Music 資料庫…";
 "apple_music_library_done_format" = "已同步 %d 首，%@";
+"apple_music_cloud_library_unavailable_format" = "Apple Music 雲端資料庫無法使用（Apple 錯誤 %@）。請確認 Mac 的「音樂」App 使用與 iPhone 相同的 Apple Account 與訂閱，然後開啟「同步資料庫」。已保留本機 %d 首歌。";
 "apple_music_library_sync" = "同步 Apple Music 資料庫";
 "apple_music_library_resync" = "重新同步";
 "apple_music_lyrics_unavailable" = "這首歌沒有歌詞。Apple Music 的同步歌詞不開放給第三方 App，本頁面顯示的是整段靜態歌詞。";

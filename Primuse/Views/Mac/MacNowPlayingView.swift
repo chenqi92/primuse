@@ -732,13 +732,25 @@ struct MacNowPlayingView: View {
         isScrapingCurrentSong = true
         defer { isScrapingCurrentSong = false }
         do {
-            let (u, _, _) = try await scraperService.scrapeSingle(song: song, in: library)
+            let u: Song
+            if song.sourceID == AppleMusicLibraryIdentity.sourceID {
+                // MusicKit cloud songs do not expose a local audio URL. Their
+                // Apple-provided metadata is already authoritative, so scrape
+                // lyrics directly instead of entering the file-based pipeline.
+                u = await scraperService.scrapeOnlineLyricsOnly(song: song, in: library).song
+            } else {
+                let scrapeResult = try await scraperService.scrapeSingle(song: song, in: library)
+                u = scrapeResult.0
+            }
             CachedArtworkView.invalidateCache(for: u.id)
             if let oldRef = song.coverArtFileName { CachedArtworkView.invalidateCache(for: oldRef) }
             player.syncSongMetadata(u)
             player.forceRefreshNowPlayingArtwork()
             await reloadLyrics()
-            scrapeAlertMessage = String(localized: "scrape_song_success")
+            guard player.currentSong?.id == song.id else { return }
+            scrapeAlertMessage = String(localized: lyrics.isEmpty
+                ? "scrape_lyrics_not_found"
+                : "scrape_song_success")
         } catch {
             scrapeAlertMessage = String(localized: "scrape_song_failed")
         }

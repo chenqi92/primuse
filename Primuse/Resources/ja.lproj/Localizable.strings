@@ -361,6 +361,7 @@
 "played" = "再生済み";
 "scrape_song_success" = "現在の曲のメタデータを更新しました。";
 "scrape_song_failed" = "この曲のメタデータを更新できませんでした。";
+"scrape_lyrics_not_found" = "歌詞が見つかりませんでした。別の検索語または歌詞ソースをお試しください。";
 "scrape_options" = "取得する内容";
 "scrape_metadata_toggle" = "メタデータ（タイトル、アーティスト、アルバム）";
 "scrape_cover_toggle" = "アートワーク";
@@ -455,6 +456,7 @@
 "apple_music_library_idle" = "未同期";
 "apple_music_library_syncing" = "Apple Music ライブラリを同期中…";
 "apple_music_library_done_format" = "%d 曲 · %@";
+"apple_music_cloud_library_unavailable_format" = "Apple Musicのクラウドライブラリを利用できません（Appleエラー %@）。Macの「ミュージック」がiPhoneと同じApple Accountとサブスクリプションを使用していることを確認し、「ライブラリを同期」をオンにしてください。ローカルの%d曲は保持されました。";
 "apple_music_library_sync" = "Apple Music ライブラリを同期";
 "apple_music_library_resync" = "再同期";
 "apple_music_lyrics_unavailable" = "この曲の歌詞はありません。Apple Music の時間同期歌詞はサードパーティアプリに公開されていないため、利用できる場合は全文のみが表示されます。";

@@ -225,6 +225,7 @@
 "played" = "Played";
 "scrape_song_success" = "Metadata refreshed for the current song.";
 "scrape_song_failed" = "Unable to refresh metadata for this song.";
+"scrape_lyrics_not_found" = "No lyrics were found. Try another query or lyrics source.";
 "scrape_options" = "What to Scrape";
 "scrape_metadata_toggle" = "Metadata (title, artist, album)";
 "scrape_cover_toggle" = "Cover Art";
@@ -321,6 +322,7 @@
 "apple_music_library_idle" = "Not synced yet";
 "apple_music_library_syncing" = "Syncing Apple Music library…";
 "apple_music_library_done_format" = "%d songs · %@";
+"apple_music_cloud_library_unavailable_format" = "Apple Music cloud library is unavailable (Apple error %@). Make sure Music on this Mac uses the same Apple Account and subscription as your iPhone, then turn on Sync Library. Your %d local songs were preserved.";
 "apple_music_library_sync" = "Sync Apple Music library";
 "apple_music_library_resync" = "Sync again";
 "apple_music_lyrics_unavailable" = "No lyrics for this track. Apple Music's time-synced lyrics aren't exposed to third-party apps, so only the full text is shown when available.";
