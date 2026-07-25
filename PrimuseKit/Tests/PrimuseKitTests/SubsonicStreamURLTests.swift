@@ -79,6 +79,26 @@ import Testing
     #expect(q["maxBitRate"] == "320")
 }
 
+@Test func airsonicUsesCompatibleProtocolVersion() async throws {
+    let song = Song(id: "s-air", title: "Legacy", duration: 180,
+                    fileFormat: .mp3, filePath: "/songs/air1.mp3", sourceID: "src-air")
+    let source = MusicSource(name: "Airsonic", type: .airsonic, host: "air.local",
+                             port: 4040, useSsl: false, username: "u")
+    let url = try await SubsonicStreamResolver().streamURL(
+        for: song,
+        source: source,
+        credential: SourceCredential(password: "p")
+    )
+    let query = Dictionary(uniqueKeysWithValues:
+        (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? [])
+            .map { ($0.name, $0.value ?? "") })
+
+    #expect(query["v"] == "1.15.0")
+    #expect(query["p"] == "enc:70")
+    #expect(query["t"] == nil)
+    #expect(query["s"] == nil)
+}
+
 @Test func subsonicMissingCredentialThrows() async {
     let song = Song(id: "s3", title: "T", fileFormat: .flac, filePath: "/songs/a.flac", sourceID: "src1")
     let source = MusicSource(name: "Navi", type: .navidrome, host: "h.com", username: "u")

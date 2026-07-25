@@ -443,6 +443,7 @@ final class SourceManager {
         case .subsonic, .navidrome, .airsonic, .gonic:
             connector = SubsonicSource(
                 sourceID: source.id,
+                sourceType: source.type,
                 host: source.host ?? "",
                 port: source.port,
                 useSsl: source.useSsl,

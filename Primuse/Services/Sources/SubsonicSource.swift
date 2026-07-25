@@ -21,6 +21,8 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
     private let username: String
     private let salt: String
     private let token: String         // md5(password + salt)
+    private let apiVersion: String
+    private let encodedPassword: String?
     private let session: URLSession
     private let cacheDirectory: URL
 
@@ -30,15 +32,17 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
     private var serverType: String?
     private var isOpenSubsonic = false
 
-    /// Subsonic API 协议版本。1.16.1 覆盖我们用到的全部端点;
-    /// OpenSubsonic 扩展(getLyricsBySongId)在此基础上额外探测。
-    private static let apiVersion = "1.16.1"
+    /// Airsonic Advanced 目前只接受 1.15.0，对更高版本会返回错误 30。
+    /// 其他实现保持 1.16.1；OpenSubsonic 扩展能力仍由 ping 响应单独探测。
+    private static let defaultAPIVersion = "1.16.1"
+    private static let airsonicAPIVersion = "1.15.0"
     private static let clientName = "Primuse"
     private static let pageSize = 500          // getAlbumList2 单页上限
     private static let transcodeBitRate = 320  // 转码目标码率 kbps
 
     init(
         sourceID: String,
+        sourceType: MusicSourceType,
         host: String,
         port: Int?,
         useSsl: Bool,
@@ -49,6 +53,12 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
         self.sourceID = sourceID
         self.baseURL = Self.makeBaseURL(host: host, port: port, useSsl: useSsl, basePath: basePath)
         self.username = username
+        self.apiVersion = sourceType == .airsonic
+            ? Self.airsonicAPIVersion
+            : Self.defaultAPIVersion
+        // Airsonic Advanced 的新密码存储不支持 Subsonic 的 MD5 token 校验，
+        // 但仍支持规范中的 `p=enc:<UTF-8 hex>` 形式。
+        self.encodedPassword = sourceType == .airsonic ? Self.hexEncoded(password) : nil
         let salt = Self.randomSalt()
         self.salt = salt
         self.token = Self.md5Hex(password + salt)
@@ -469,14 +479,19 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
     }
 
     private func authQueryItems() -> [URLQueryItem] {
-        [
+        var items = [
             URLQueryItem(name: "u", value: username),
-            URLQueryItem(name: "t", value: token),
-            URLQueryItem(name: "s", value: salt),
-            URLQueryItem(name: "v", value: Self.apiVersion),
-            URLQueryItem(name: "c", value: Self.clientName),
-            URLQueryItem(name: "f", value: "json")
         ]
+        if let encodedPassword {
+            items.append(URLQueryItem(name: "p", value: "enc:\(encodedPassword)"))
+        } else {
+            items.append(URLQueryItem(name: "t", value: token))
+            items.append(URLQueryItem(name: "s", value: salt))
+        }
+        items.append(URLQueryItem(name: "v", value: apiVersion))
+        items.append(URLQueryItem(name: "c", value: Self.clientName))
+        items.append(URLQueryItem(name: "f", value: "json"))
+        return items
     }
 
     private func songID(from path: String) -> String? {
@@ -520,6 +535,10 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
 
     private static func md5Hex(_ value: String) -> String {
         Insecure.MD5.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func hexEncoded(_ value: String) -> String {
+        value.utf8.map { String(format: "%02x", $0) }.joined()
     }
 
     private static func hash(_ value: String) -> String {

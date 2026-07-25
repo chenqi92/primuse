@@ -3,11 +3,13 @@ import Foundation
 
 /// Subsonic / OpenSubsonic 家族(Subsonic / Navidrome / Airsonic / gonic)的流式解析。
 ///
-/// stream URL 是**无状态**的:鉴权(salt + token=md5(password+salt))直接拼在 query 里,
+/// stream URL 是**无状态**的:通常以 salt + token=md5(password+salt) 鉴权；
+/// Airsonic 兼容模式改用协议规定的 `p=enc:<UTF-8 hex>`。参数直接拼在 query 里,
 /// 没有会话、不会过期,AVPlayer 可直接播。这是从 iOS `SubsonicSource` 抽出的纯逻辑核心,
 /// 不依赖任何 iOS-only 类型(`NetworkURLBuilder` / `SmartSSLDelegate` 的逻辑在此内联)。
 public struct SubsonicStreamResolver: StreamResolver {
     static let apiVersion = "1.16.1"
+    static let airsonicAPIVersion = "1.15.0"
     static let clientName = "Primuse"
     static let transcodeBitRate = 320   // WMA → 服务端转码 mp3 的目标码率 kbps
 
@@ -29,10 +31,13 @@ public struct SubsonicStreamResolver: StreamResolver {
         }
         let salt = Self.randomSalt()
         let token = Self.md5Hex(password + salt)
+        let apiVersion = source.type == .airsonic ? Self.airsonicAPIVersion : Self.apiVersion
+        let encodedPassword = source.type == .airsonic ? Self.hexEncoded(password) : nil
         // 本地能解的格式取原文件(format=raw);WMA 让服务端转码 mp3 渐进流。
         let transcode = song.fileFormat == .wma
         guard let url = Self.streamURL(base: base, username: username, token: token, salt: salt,
-                                       songID: songID, transcode: transcode) else {
+                                       songID: songID, transcode: transcode, apiVersion: apiVersion,
+                                       encodedPassword: encodedPassword) else {
             throw StreamResolveError.cannotBuildURL
         }
         return url
@@ -43,20 +48,25 @@ public struct SubsonicStreamResolver: StreamResolver {
     /// 构造 `{base}/rest/stream.view?u=&t=&s=&v=&c=&f=json&id=&format=...`。
     /// salt 作参数注入以便测试断言固定输出。
     static func streamURL(base: URL, username: String, token: String, salt: String,
-                          songID: String, transcode: Bool, bitRate: Int = transcodeBitRate) -> URL? {
+                          songID: String, transcode: Bool, bitRate: Int = transcodeBitRate,
+                          apiVersion: String = apiVersion, encodedPassword: String? = nil) -> URL? {
         var url = base
         url.appendPathComponent("rest")
         url.appendPathComponent("stream.view")
         guard var comp = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
         var items = [
             URLQueryItem(name: "u", value: username),
-            URLQueryItem(name: "t", value: token),
-            URLQueryItem(name: "s", value: salt),
-            URLQueryItem(name: "v", value: apiVersion),
-            URLQueryItem(name: "c", value: clientName),
-            URLQueryItem(name: "f", value: "json"),
-            URLQueryItem(name: "id", value: songID),
         ]
+        if let encodedPassword {
+            items.append(URLQueryItem(name: "p", value: "enc:\(encodedPassword)"))
+        } else {
+            items.append(URLQueryItem(name: "t", value: token))
+            items.append(URLQueryItem(name: "s", value: salt))
+        }
+        items.append(URLQueryItem(name: "v", value: apiVersion))
+        items.append(URLQueryItem(name: "c", value: clientName))
+        items.append(URLQueryItem(name: "f", value: "json"))
+        items.append(URLQueryItem(name: "id", value: songID))
         if transcode {
             items.append(URLQueryItem(name: "format", value: "mp3"))
             items.append(URLQueryItem(name: "maxBitRate", value: String(bitRate)))
@@ -101,6 +111,10 @@ public struct SubsonicStreamResolver: StreamResolver {
 
     static func md5Hex(_ value: String) -> String {
         Insecure.MD5.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    static func hexEncoded(_ value: String) -> String {
+        value.utf8.map { String(format: "%02x", $0) }.joined()
     }
 
     static func randomSalt() -> String {
