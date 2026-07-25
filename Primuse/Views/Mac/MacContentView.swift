@@ -20,10 +20,21 @@ struct MacContentView: View {
     @State private var showInitialOnboarding = false
     @State private var newPlaylistName = ""
     @State private var newPlaylistDescription = ""
+    /// Keep the one-tap lyrics scrape above `MacNowPlayingView`'s lifetime.
+    /// The expanded player is removed from the view tree when it is collapsed;
+    /// a task/state owned by that child can therefore lose its UI completion
+    /// path halfway through a request. `MacContentView` stays mounted, so the
+    /// scrape continues and publishes its result even while the player is
+    /// collapsed.
+    @State private var lyricsScrapeTask: Task<Void, Never>?
+    @State private var isScrapingCurrentSongLyrics = false
+    @State private var lyricsScrapeAlertMessage: String?
     /// 当前打开的工具弹框 (nil = 没开)。侧栏「工具」区点击设置它, sheet 关掉清空。
     @State private var activeTool: MacTool?
 
     @Environment(\.openWindow) private var openWindow
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(MusicScraperService.self) private var scraperService
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(MusicLibrary.self) private var library
     @AppStorage("primuse.hasSeenOnboarding") private var hasSeenOnboarding = false
@@ -65,7 +76,8 @@ struct MacContentView: View {
                             withAnimation(.easeInOut(duration: 0.25)) {
                                 nowPlayingPresented = false
                             }
-                        })
+                        }, isScrapingCurrentSong: isScrapingCurrentSongLyrics,
+                           onScrapeCurrentSong: startCurrentSongLyricsScrape)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                         .zIndex(1)
                     }
@@ -144,6 +156,15 @@ struct MacContentView: View {
         .sheet(isPresented: $showSmartEditor) {
             SmartPlaylistEditorView(existing: nil)
         }
+        .alert(String(localized: "scrape_song"),
+               isPresented: Binding(
+                   get: { lyricsScrapeAlertMessage != nil },
+                   set: { if !$0 { lyricsScrapeAlertMessage = nil } }
+               )) {
+            Button("done", role: .cancel) {}
+        } message: {
+            Text(lyricsScrapeAlertMessage ?? "")
+        }
         .task {
             MainWindowOpener.register(openWindow)
             if !hasSeenOnboarding && sourcesStore.sources.isEmpty {
@@ -205,6 +226,67 @@ struct MacContentView: View {
 
     private var isFullScreenNowPlaying: Bool {
         isWindowFullScreen && nowPlayingPresented
+    }
+
+    private func startCurrentSongLyricsScrape() {
+        guard lyricsScrapeTask == nil,
+              let displayedSong = player.currentSong else { return }
+
+        isScrapingCurrentSongLyrics = true
+        lyricsScrapeTask = Task { @MainActor in
+            defer {
+                isScrapingCurrentSongLyrics = false
+                lyricsScrapeTask = nil
+            }
+
+            do {
+                let song: Song
+                if displayedSong.sourceID == AppleMusicLibraryIdentity.sourceID {
+                    song = AppServices.shared.appleMusicLibrary.canonicalLibrarySong(for: displayedSong)
+                    if song.id != displayedSong.id {
+                        _ = await MetadataAssetStore.shared.preserveLyricsAlias(
+                            fromSongID: displayedSong.id,
+                            toSongID: song.id
+                        )
+                        player.adoptCanonicalAppleMusicSong(song, replacing: displayedSong.id)
+                    }
+                } else {
+                    song = displayedSong
+                }
+
+                let updatedSong: Song
+                let scrapedLyrics: [LyricLine]?
+                if song.sourceID == AppleMusicLibraryIdentity.sourceID {
+                    let result = await scraperService.scrapeOnlineLyricsOnly(song: song, in: library)
+                    updatedSong = result.song
+                    scrapedLyrics = result.lyrics
+                } else {
+                    let result = try await scraperService.scrapeSingle(song: song, in: library)
+                    updatedSong = result.0
+                    scrapedLyrics = result.2
+                }
+
+                CachedArtworkView.invalidateCache(for: updatedSong.id)
+                if let oldRef = song.coverArtFileName {
+                    CachedArtworkView.invalidateCache(for: oldRef)
+                }
+                player.syncSongMetadata(updatedSong)
+                player.forceRefreshNowPlayingArtwork()
+
+                // This notification is the view-independent completion path:
+                // an expanded player reloads immediately; a collapsed player
+                // reads the same song-ID cache on its next appearance.
+                NotificationCenter.default.post(
+                    name: .primuseLyricsDidChange,
+                    object: updatedSong.id
+                )
+                lyricsScrapeAlertMessage = String(localized: scrapedLyrics?.isEmpty == false
+                    ? "scrape_song_success"
+                    : "scrape_lyrics_not_found")
+            } catch {
+                lyricsScrapeAlertMessage = String(localized: "scrape_song_failed")
+            }
+        }
     }
 
     private func selectRoute(_ route: MacRoute) {

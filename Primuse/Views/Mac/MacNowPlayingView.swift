@@ -18,10 +18,11 @@ import PrimuseKit
 /// screen the left column also gets the SYS-05 cover transport rail.
 struct MacNowPlayingView: View {
     var onClose: () -> Void
+    var isScrapingCurrentSong: Bool
+    var onScrapeCurrentSong: () -> Void
     @Environment(AudioPlayerService.self) private var player
     @Environment(AudioEngine.self) private var engine
     @Environment(MusicLibrary.self) private var library
-    @Environment(MusicScraperService.self) private var scraperService
     @Environment(SourceManager.self) private var sourceManager
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(ThemeService.self) private var theme
@@ -31,8 +32,6 @@ struct MacNowPlayingView: View {
     @State private var currentIndex: Int = 0
     @State private var lastManualLyricsScroll = Date.distantPast
     @State private var lyricsAutoFollowTask: Task<Void, Never>?
-    @State private var isScrapingCurrentSong = false
-    @State private var scrapeAlertMessage: String?
     @State private var hostWindow: NSWindow?
     /// 当前主窗口是否处于 macOS 全屏。全屏时使用设计稿 SYS-05 的
     /// NP-FullScreen 双栏布局: 隐藏侧栏后放大封面、歌词和浮动控制。
@@ -155,11 +154,6 @@ struct MacNowPlayingView: View {
             guard (note.object as? NSWindow) === hostWindow else { return }
             isWindowFullScreen = false
         }
-        .alert(String(localized: "scrape_song"),
-               isPresented: Binding(get: { scrapeAlertMessage != nil },
-                                    set: { if !$0 { scrapeAlertMessage = nil } })) {
-            Button("done", role: .cancel) {}
-        } message: { Text(scrapeAlertMessage ?? "") }
     }
 
     // MARK: - Sections
@@ -354,7 +348,7 @@ struct MacNowPlayingView: View {
                                     .font(.title3)
                                     .foregroundStyle(playerSecondaryColor)
                                 Button {
-                                    Task { await scrapeCurrentSong() }
+                                    onScrapeCurrentSong()
                                 } label: {
                                     HStack(spacing: 7) {
                                         if isScrapingCurrentSong {
@@ -838,50 +832,6 @@ struct MacNowPlayingView: View {
         }
         let index = max(0, low - 1)
         if currentIndex != index { currentIndex = index }
-    }
-
-    // MARK: - Actions
-
-    private func scrapeCurrentSong() async {
-        guard let displayedSong = player.currentSong else { return }
-        isScrapingCurrentSong = true
-        defer { isScrapingCurrentSong = false }
-        do {
-            let song: Song
-            if displayedSong.sourceID == AppleMusicLibraryIdentity.sourceID {
-                song = AppServices.shared.appleMusicLibrary.canonicalLibrarySong(for: displayedSong)
-                if song.id != displayedSong.id {
-                    _ = await MetadataAssetStore.shared.preserveLyricsAlias(
-                        fromSongID: displayedSong.id,
-                        toSongID: song.id
-                    )
-                    player.adoptCanonicalAppleMusicSong(song, replacing: displayedSong.id)
-                }
-            } else {
-                song = displayedSong
-            }
-            let u: Song
-            if song.sourceID == AppleMusicLibraryIdentity.sourceID {
-                // MusicKit cloud songs do not expose a local audio URL. Their
-                // Apple-provided metadata is already authoritative, so scrape
-                // lyrics directly instead of entering the file-based pipeline.
-                u = await scraperService.scrapeOnlineLyricsOnly(song: song, in: library).song
-            } else {
-                let scrapeResult = try await scraperService.scrapeSingle(song: song, in: library)
-                u = scrapeResult.0
-            }
-            CachedArtworkView.invalidateCache(for: u.id)
-            if let oldRef = song.coverArtFileName { CachedArtworkView.invalidateCache(for: oldRef) }
-            player.syncSongMetadata(u)
-            player.forceRefreshNowPlayingArtwork()
-            await reloadLyrics()
-            guard player.currentSong?.id == u.id else { return }
-            scrapeAlertMessage = String(localized: lyrics.isEmpty
-                ? "scrape_lyrics_not_found"
-                : "scrape_song_success")
-        } catch {
-            scrapeAlertMessage = String(localized: "scrape_song_failed")
-        }
     }
 
     // 删除歌曲流程已移到 PlayerMoreMenu,这里不再保留 deleteCurrentSong。
