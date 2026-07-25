@@ -25,6 +25,7 @@ struct MacNowPlayingView: View {
     @Environment(SourceManager.self) private var sourceManager
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(ThemeService.self) private var theme
+    @Environment(\.colorScheme) private var colorScheme
 
     @State private var lyrics: [LyricLine] = []
     @State private var currentIndex: Int = 0
@@ -44,14 +45,43 @@ struct MacNowPlayingView: View {
 
     private static let lyricsMinScale: Double = 0.7
     private static let lyricsMaxScale: Double = 1.8
-    private static let lyricsActiveBaseSize: CGFloat = 30
-    private static let lyricsInactiveBaseSize: CGFloat = 22
-    private static let lyricsActiveBaseSizeFS: CGFloat = 44
-    private static let lyricsInactiveBaseSizeFS: CGFloat = 28
+    /// Keep lyric rows on a stable layout size and only apply a subtle active
+    /// scale at render time. The previous 30/22 (fullscreen 44/28) ratio made
+    /// every line takeover feel like a large zoom even though it was animated.
+    private static let lyricsBaseSize: CGFloat = 25
+    private static let lyricsBaseSizeFS: CGFloat = 32
+    private static let lyricsActiveVisualScale: CGFloat = 1.10
+    /// Match the iOS lyrics motion: the row highlight and the scroll position
+    /// travel on the same smooth curve, so a line change reads as one gesture.
+    private static let lyricsTransitionDuration: TimeInterval = 0.54
+    private static let lyricsVisualAnchor: CGFloat = 0.42
+    private static let lineLevelLookahead: TimeInterval = 0.25
+    private static let wordLevelLookahead: TimeInterval = 0.10
+    /// Give people enough time to browse earlier/later lyrics before playback
+    /// takes control of the scroll position again. Three seconds was shorter
+    /// than a typical reading pause and made the pane appear locked.
+    private static let manualLyricsScrollGracePeriod: TimeInterval = 6
 
     private var isCurrentLiked: Bool {
         guard let songID = player.currentSong?.id else { return false }
         return library.isLiked(songID: songID)
+    }
+
+    private var usesLightPlayerAppearance: Bool { colorScheme == .light }
+    private var playerPrimaryColor: Color {
+        usesLightPlayerAppearance ? .black.opacity(0.88) : .white
+    }
+    private var playerSecondaryColor: Color {
+        usesLightPlayerAppearance ? .black.opacity(0.64) : .white.opacity(0.72)
+    }
+    private var playerFaintColor: Color {
+        usesLightPlayerAppearance ? .black.opacity(0.46) : .white.opacity(0.5)
+    }
+    private var playerGlassFill: Color {
+        usesLightPlayerAppearance ? .black.opacity(0.07) : .white.opacity(0.12)
+    }
+    private var playerGlassBorder: Color {
+        usesLightPlayerAppearance ? .black.opacity(0.12) : .white.opacity(0.16)
     }
 
     var body: some View {
@@ -148,10 +178,10 @@ struct MacNowPlayingView: View {
             VStack(spacing: 8) {
                 Text("player_empty_title")
                     .font(.system(size: 34, weight: .bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(playerPrimaryColor)
                 Text("player_empty_message")
                     .font(.title3)
-                    .foregroundStyle(.white.opacity(0.72))
+                    .foregroundStyle(playerSecondaryColor)
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
             }
@@ -163,19 +193,39 @@ struct MacNowPlayingView: View {
     /// 驱动多色斑模糊, 替代之前的 cover blur + ultraThinMaterial 组合, 让背景跟着
     /// 当前歌曲色调走, 跟设计稿 AmbientBackdrop 视觉一致。
     ///
-    /// 关键: 先铺一层不透明的 `bgDeep` 实色底。`AmbientBackdrop` 内部对整组 (含自身
-    /// 底色) 施加了 `.opacity(strength)`, 单独用时会半透 —— 这个 view 是盖在
-    /// MacDetailContainer (首页仪表盘) 之上的 overlay, 不补底就会"穿透"看到后面的
-    /// 内容。补一层不透明底后整页变实, 顶部玻璃按钮也回到暗背景上、白色图标恢复可读。
+    /// 关键: 两种外观都先铺不透明底，避免 overlay 穿透到后面的详情页。深色延续
+    /// 高对比的 ambient backdrop；浅色用低饱和封面色斑叠在系统浅色背景上，而不是
+    /// 强制显示深色播放器。
     private var backdrop: some View {
         ZStack {
-            PMColor.ambientDarkBase
-            AmbientBackdrop(
-                accent: theme.accentColor,
-                darkAccent: theme.darkAccent,
-                strength: 0.85,
-                forceDark: true
-            )
+            if usesLightPlayerAppearance {
+                PMColor.bg
+                RadialGradient(
+                    colors: [theme.accentColor.opacity(0.28), .clear],
+                    center: .topLeading,
+                    startRadius: 20,
+                    endRadius: 720
+                )
+                RadialGradient(
+                    colors: [theme.darkAccent.opacity(0.14), .clear],
+                    center: .bottomTrailing,
+                    startRadius: 40,
+                    endRadius: 760
+                )
+                LinearGradient(
+                    colors: [.white.opacity(0.52), .white.opacity(0.28)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            } else {
+                PMColor.ambientDarkBase
+                AmbientBackdrop(
+                    accent: theme.accentColor,
+                    darkAccent: theme.darkAccent,
+                    strength: 0.85,
+                    forceDark: true
+                )
+            }
         }
         .ignoresSafeArea()
     }
@@ -224,7 +274,7 @@ struct MacNowPlayingView: View {
                     .clipShape(RoundedRectangle(cornerRadius: coverRadius, style: .continuous))
                     .overlay {
                         RoundedRectangle(cornerRadius: coverRadius, style: .continuous)
-                            .strokeBorder(.white.opacity(0.14), lineWidth: 0.5)
+                            .strokeBorder(playerPrimaryColor.opacity(0.14), lineWidth: 0.5)
                     }
                 } else if let song = player.currentSong {
                     CachedArtworkView(
@@ -256,24 +306,24 @@ struct MacNowPlayingView: View {
                 Text(nowPlayingInfoLine)
                     .font(.system(size: 11, weight: .semibold))
                     .tracking(1.2)
-                    .foregroundStyle(.white.opacity(0.62))
+                    .foregroundStyle(playerFaintColor)
                     .textCase(.uppercase)
                 Text(player.currentSong?.title ?? "")
                     .font(.system(size: isWindowFullScreen ? 56 : 36, weight: .bold))
                     .tracking(-0.6)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(playerPrimaryColor)
                     .lineLimit(2)
                     .multilineTextAlignment(textAlignment)
                     .padding(.top, 10)
                 Text(artistAlbumLine)
                     .font(.system(size: isWindowFullScreen ? 20 : 16))
-                    .foregroundStyle(.white.opacity(0.78))
+                    .foregroundStyle(playerSecondaryColor)
                     .lineLimit(1)
                     .padding(.top, 6)
                 if let sourceLabel, !sourceLabel.isEmpty {
                     Text(sourceLabel)
                         .font(.system(size: 11, weight: .regular, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.5))
+                        .foregroundStyle(playerFaintColor)
                         .lineLimit(1)
                         .padding(.top, 6)
                 }
@@ -289,7 +339,10 @@ struct MacNowPlayingView: View {
     private var lyricsPane: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(alignment: .leading, spacing: isWindowFullScreen ? 26 : 18) {
+                // Every row keeps the same layout height. Only the active row is
+                // subtly scaled at the rendering layer, so switching lines does
+                // not reflow the stack or produce a hard jump.
+                LazyVStack(alignment: .leading, spacing: isWindowFullScreen ? 18 : 14) {
                     Spacer(minLength: isWindowFullScreen ? 120 : 80)
                         .frame(height: isWindowFullScreen ? 120 : 80)
                     if lyrics.isEmpty {
@@ -299,17 +352,29 @@ struct MacNowPlayingView: View {
                             VStack(spacing: 12) {
                                 Text("no_lyrics")
                                     .font(.title3)
-                                    .foregroundStyle(.white.opacity(0.6))
+                                    .foregroundStyle(playerSecondaryColor)
                                 Button {
                                     Task { await scrapeCurrentSong() }
                                 } label: {
-                                    Label("scrape_song", systemImage: "wand.and.stars")
-                                        .font(.system(size: 12.5, weight: .semibold))
-                                        .padding(.horizontal, 14)
-                                        .padding(.vertical, 7)
-                                        .background(Color.white.opacity(0.18), in: Capsule())
-                                        .overlay { Capsule().strokeBorder(.white.opacity(0.22), lineWidth: 0.5) }
-                                        .foregroundStyle(.white)
+                                    HStack(spacing: 7) {
+                                        if isScrapingCurrentSong {
+                                            ProgressView()
+                                                .controlSize(.small)
+                                                .tint(playerPrimaryColor)
+                                                .transition(.scale.combined(with: .opacity))
+                                        } else {
+                                            Image(systemName: "wand.and.stars")
+                                                .transition(.scale.combined(with: .opacity))
+                                        }
+                                        Text("scrape_song")
+                                    }
+                                    .font(.system(size: 12.5, weight: .semibold))
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 7)
+                                    .background(playerGlassFill, in: Capsule())
+                                    .overlay { Capsule().strokeBorder(playerGlassBorder, lineWidth: 0.5) }
+                                    .foregroundStyle(playerPrimaryColor)
+                                    .animation(.smooth(duration: 0.2, extraBounce: 0), value: isScrapingCurrentSong)
                                 }
                                 .buttonStyle(.plain)
                                 .disabled(isScrapingCurrentSong)
@@ -319,13 +384,16 @@ struct MacNowPlayingView: View {
                     } else {
                         ForEach(Array(lyrics.enumerated()), id: \.element.id) { i, line in
                             let isActive = i == currentIndex
-                            let baseSize = activeFontSize(isActive: isActive)
-                            macLyricLine(line: line, index: i, isActive: isActive, fontSize: baseSize)
+                            macLyricLine(
+                                line: line,
+                                index: i,
+                                isActive: isActive,
+                                fontSize: lyricLayoutFontSize
+                            )
                                 .id(line.id)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .contentShape(Rectangle())
                                 .onTapGesture { player.seek(to: line.timestamp) }
-                                .animation(.easeInOut(duration: 0.25), value: currentIndex)
                         }
                     }
                     Spacer(minLength: isWindowFullScreen ? 240 : 200)
@@ -338,18 +406,32 @@ struct MacNowPlayingView: View {
                 endStop: isWindowFullScreen ? 0.82 : 0.88
             )
             .onChange(of: currentIndex) { _, new in
-                guard Date().timeIntervalSince(lastManualLyricsScroll) >= 3 else { return }
+                guard Date().timeIntervalSince(lastManualLyricsScroll) >= Self.manualLyricsScrollGracePeriod else { return }
                 scrollLyrics(to: new, proxy: proxy, animated: true)
+            }
+            // A macOS trackpad/mouse wheel scroll is not guaranteed to produce
+            // a SwiftUI DragGesture. Observe the actual scroll phase as well so
+            // auto-follow yields while the user browses the complete lyrics.
+            // Programmatic scrollTo animations use `.animating` and are ignored.
+            .onScrollPhaseChange { oldPhase, newPhase in
+                switch newPhase {
+                case .tracking, .interacting, .decelerating:
+                    beginManualLyricsBrowsing()
+                case .idle:
+                    if oldPhase == .tracking || oldPhase == .interacting || oldPhase == .decelerating {
+                        endManualLyricsBrowsing(proxy: proxy)
+                    }
+                case .animating:
+                    break
+                }
             }
             .simultaneousGesture(
                 DragGesture(minimumDistance: 4)
                     .onChanged { _ in
-                        lyricsAutoFollowTask?.cancel()
-                        lastManualLyricsScroll = Date()
+                        beginManualLyricsBrowsing()
                     }
                     .onEnded { _ in
-                        lastManualLyricsScroll = Date()
-                        scheduleLyricsAutoFollow(proxy: proxy)
+                        endManualLyricsBrowsing(proxy: proxy)
                     }
             )
             .task(id: lyricsScrollIdentity) {
@@ -371,18 +453,33 @@ struct MacNowPlayingView: View {
     private func scheduleLyricsAutoFollow(proxy: ScrollViewProxy) {
         lyricsAutoFollowTask?.cancel()
         lyricsAutoFollowTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(3))
+            try? await Task.sleep(for: .seconds(Self.manualLyricsScrollGracePeriod))
             guard !Task.isCancelled,
-                  Date().timeIntervalSince(lastManualLyricsScroll) >= 3 else { return }
+                  Date().timeIntervalSince(lastManualLyricsScroll) >= Self.manualLyricsScrollGracePeriod else { return }
             scrollLyrics(to: currentIndex, proxy: proxy, animated: true)
         }
     }
 
+    private func beginManualLyricsBrowsing() {
+        lyricsAutoFollowTask?.cancel()
+        lastManualLyricsScroll = Date()
+    }
+
+    private func endManualLyricsBrowsing(proxy: ScrollViewProxy) {
+        lastManualLyricsScroll = Date()
+        scheduleLyricsAutoFollow(proxy: proxy)
+    }
+
     private func scrollLyrics(to index: Int, proxy: ScrollViewProxy, animated: Bool) {
         guard lyrics.indices.contains(index) else { return }
-        let update = { proxy.scrollTo(lyrics[index].id, anchor: .center) }
+        let update = {
+            proxy.scrollTo(
+                lyrics[index].id,
+                anchor: UnitPoint(x: 0.5, y: Self.lyricsVisualAnchor)
+            )
+        }
         if animated {
-            withAnimation(.easeInOut(duration: 0.3), update)
+            withAnimation(.smooth(duration: Self.lyricsTransitionDuration, extraBounce: 0), update)
         } else {
             var transaction = Transaction()
             transaction.disablesAnimations = true
@@ -390,48 +487,60 @@ struct MacNowPlayingView: View {
         }
     }
 
-    private func activeFontSize(isActive: Bool) -> CGFloat {
-        if isWindowFullScreen {
-            return isActive ? Self.lyricsActiveBaseSizeFS : Self.lyricsInactiveBaseSizeFS
-        }
-        return isActive ? Self.lyricsActiveBaseSize : Self.lyricsInactiveBaseSize
+    private var lyricLayoutFontSize: CGFloat {
+        isWindowFullScreen ? Self.lyricsBaseSizeFS : Self.lyricsBaseSize
     }
 
     @ViewBuilder
     private func macLyricLine(line: LyricLine, index: Int, isActive: Bool, fontSize: CGFloat) -> some View {
         let scaledSize = fontSize * CGFloat(lyricsFontScale)
-        let weight: Font.Weight = isActive ? .bold : .semibold
+        // Keep weight/layout stable and express activity through render-layer
+        // scale + opacity, mirroring the iOS word-level lyrics treatment.
+        let weight: Font.Weight = .semibold
         let tint = theme.accentColor
         let distance = abs(index - currentIndex)
         let opacity = lyricOpacity(isActive: isActive, distance: distance)
-        if shouldRenderWordTimeline(line: line, index: index, isActive: isActive) {
-            KaraokeLineView(
-                line: line,
-                fontSize: scaledSize,
-                weight: weight,
-                activeColor: .white,
-                inactiveColor: .white.opacity(isActive ? 0.42 : 0.58),
-                timeAt: { date in player.interpolatedTime(at: date) }
-            )
-            .shadow(color: isActive ? tint.opacity(0.45) : .clear, radius: 14)
-            .opacity(opacity)
-            .frame(minHeight: scaledSize * 1.3, alignment: .leading)
-        } else {
-            Text(line.text)
-                .font(.system(size: scaledSize, weight: weight))
-                .foregroundStyle(.white.opacity(isActive ? 1 : 0.92))
-                .opacity(opacity)
-                .lineSpacing(2)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(minHeight: scaledSize * 1.3, alignment: .leading)
+        let visualScale = lyricVisualScale(isActive: isActive)
+
+        Group {
+            if shouldRenderWordTimeline(line: line, index: index, isActive: isActive) {
+                KaraokeLineView(
+                    line: line,
+                    fontSize: scaledSize,
+                    weight: weight,
+                    activeColor: playerPrimaryColor,
+                    inactiveColor: playerSecondaryColor,
+                    timeAt: { date in player.interpolatedTime(at: date) }
+                )
+                .shadow(color: isActive ? tint.opacity(0.32) : .clear, radius: 14)
+            } else {
+                Text(line.text)
+                    .font(.system(size: scaledSize, weight: weight))
+                    .foregroundStyle(playerPrimaryColor)
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
+        .opacity(opacity)
+        .frame(minHeight: scaledSize * 1.3, alignment: .leading)
+        .scaleEffect(visualScale, anchor: .leading)
+        .animation(
+            .smooth(duration: Self.lyricsTransitionDuration, extraBounce: 0),
+            value: currentIndex
+        )
+    }
+
+    private func lyricVisualScale(isActive: Bool) -> CGFloat {
+        isActive ? Self.lyricsActiveVisualScale : 1
     }
 
     private func lyricOpacity(isActive: Bool, distance: Int) -> Double {
         if isActive { return 1 }
-        let visibleDistance = isWindowFullScreen ? 6 : 5
-        guard distance <= visibleDistance else { return 0 }
-        return max(0.18, 0.62 - Double(distance) * 0.12)
+        // Every row must remain readable when the user scrolls away from the
+        // current playback position. The old distance cutoff returned zero for
+        // all but the surrounding 5-6 rows, so the ScrollView did move while
+        // appearing to contain no additional lyrics.
+        return max(0.50, 0.78 - Double(distance) * 0.10)
     }
 
     private func shouldRenderWordTimeline(line: LyricLine, index: Int, isActive: Bool) -> Bool {
@@ -497,13 +606,13 @@ struct MacNowPlayingView: View {
                 Text("退出全屏")
                     .font(.system(size: 13, weight: .semibold))
             }
-            .foregroundStyle(.white.opacity(0.88))
+            .foregroundStyle(playerPrimaryColor.opacity(0.88))
             .padding(.horizontal, 14)
             .frame(height: 30)
-            .background(Color.white.opacity(0.12), in: Capsule())
+            .background(playerGlassFill, in: Capsule())
             .overlay {
                 Capsule()
-                    .strokeBorder(.white.opacity(0.16), lineWidth: 0.5)
+                    .strokeBorder(playerGlassBorder, lineWidth: 0.5)
             }
             .contentShape(Capsule())
         }
@@ -518,7 +627,7 @@ struct MacNowPlayingView: View {
             // Heart
             Button { toggleLikedCurrent() } label: {
                 circleIcon(isCurrentLiked ? "heart.fill" : "heart",
-                           tint: isCurrentLiked ? Color.white : Color.white.opacity(0.85),
+                           tint: isCurrentLiked ? Color.white : nil,
                            fill: isCurrentLiked ? theme.accentColor : nil)
                     .contentTransition(.symbolEffect(.replace))
             }
@@ -531,7 +640,7 @@ struct MacNowPlayingView: View {
             if player.canPlayMusicVideo, player.currentSong?.isStandaloneMusicVideo != true {
                 Button { player.toggleMusicVideoMode() } label: {
                     circleIcon(player.isMusicVideoModeEnabled ? "play.rectangle.fill" : "play.rectangle",
-                               tint: player.isMusicVideoModeEnabled ? .white : Color.white.opacity(0.85),
+                               tint: player.isMusicVideoModeEnabled ? .white : nil,
                                fill: player.isMusicVideoModeEnabled ? theme.accentColor.opacity(0.9) : nil)
                         .contentTransition(.symbolEffect(.replace))
                 }
@@ -567,7 +676,7 @@ struct MacNowPlayingView: View {
             } label: {
                 Text(verbatim: "A-")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.88))
+                    .foregroundStyle(playerPrimaryColor.opacity(0.88))
                     .frame(width: 36, height: 36)
                     .contentShape(Circle())
             }
@@ -582,7 +691,7 @@ struct MacNowPlayingView: View {
             } label: {
                 Text(verbatim: "A+")
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.88))
+                    .foregroundStyle(playerPrimaryColor.opacity(0.88))
                     .frame(width: 36, height: 36)
                     .contentShape(Circle())
             }
@@ -618,7 +727,7 @@ struct MacNowPlayingView: View {
         HStack(spacing: 8) {
             Image(systemName: volumeSymbol)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.82))
+                .foregroundStyle(playerPrimaryColor.opacity(0.82))
                 .frame(width: 18)
 
             PMVolumeSlider(value: Binding(
@@ -630,14 +739,14 @@ struct MacNowPlayingView: View {
             Text(verbatim: "\((engine.volume * 100).rounded().finiteInt())")
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                 .monospacedDigit()
-                .foregroundStyle(.white.opacity(0.62))
+                .foregroundStyle(playerSecondaryColor)
                 .frame(width: 28, alignment: .trailing)
         }
         .padding(.horizontal, 12)
         .frame(height: 34)
-        .background(Color.white.opacity(0.12), in: Capsule())
+        .background(playerGlassFill, in: Capsule())
         .overlay {
-            Capsule().strokeBorder(.white.opacity(0.16), lineWidth: 0.5)
+            Capsule().strokeBorder(playerGlassBorder, lineWidth: 0.5)
         }
         .glassEffect(.regular.interactive(), in: .capsule)
         .help(Text("volume"))
@@ -656,7 +765,7 @@ struct MacNowPlayingView: View {
     /// 区——之前 .frame 套在 Button 外面,Button 的实际命中区只跟图标
     /// 一样大,玻璃外圈那一圈点了没反应。
     private func circleIcon(_ symbol: String,
-                            tint: Color = .white.opacity(0.85),
+                            tint: Color? = nil,
                             fill: Color? = nil) -> some View {
         ZStack {
             if let fill {
@@ -664,7 +773,7 @@ struct MacNowPlayingView: View {
             }
             Image(systemName: symbol)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(tint)
+                .foregroundStyle(tint ?? playerPrimaryColor.opacity(0.85))
         }
         .frame(width: 36, height: 36)
         .contentShape(Circle())
@@ -711,11 +820,17 @@ struct MacNowPlayingView: View {
 
     private func updateIndex(time: TimeInterval) {
         guard !lyrics.isEmpty else { return }
+        // Use the same timing policy as iOS. A 10 Hz interpolated clock plus a
+        // small lookahead starts the smooth transition just before the vocal
+        // arrives; observing the coarse published currentTime made takeovers
+        // late and visually abrupt.
+        let hasWordLevelLyrics = lyrics.contains { $0.isWordLevel }
+        let target = time + (hasWordLevelLyrics ? Self.wordLevelLookahead : Self.lineLevelLookahead)
         var low = 0
         var high = lyrics.count
         while low < high {
             let middle = low + (high - low) / 2
-            if lyrics[middle].timestamp <= time {
+            if lyrics[middle].timestamp <= target {
                 low = middle + 1
             } else {
                 high = middle
@@ -728,10 +843,23 @@ struct MacNowPlayingView: View {
     // MARK: - Actions
 
     private func scrapeCurrentSong() async {
-        guard let song = player.currentSong else { return }
+        guard let displayedSong = player.currentSong else { return }
         isScrapingCurrentSong = true
         defer { isScrapingCurrentSong = false }
         do {
+            let song: Song
+            if displayedSong.sourceID == AppleMusicLibraryIdentity.sourceID {
+                song = AppServices.shared.appleMusicLibrary.canonicalLibrarySong(for: displayedSong)
+                if song.id != displayedSong.id {
+                    _ = await MetadataAssetStore.shared.preserveLyricsAlias(
+                        fromSongID: displayedSong.id,
+                        toSongID: song.id
+                    )
+                    player.adoptCanonicalAppleMusicSong(song, replacing: displayedSong.id)
+                }
+            } else {
+                song = displayedSong
+            }
             let u: Song
             if song.sourceID == AppleMusicLibraryIdentity.sourceID {
                 // MusicKit cloud songs do not expose a local audio URL. Their
@@ -747,7 +875,7 @@ struct MacNowPlayingView: View {
             player.syncSongMetadata(u)
             player.forceRefreshNowPlayingArtwork()
             await reloadLyrics()
-            guard player.currentSong?.id == song.id else { return }
+            guard player.currentSong?.id == u.id else { return }
             scrapeAlertMessage = String(localized: lyrics.isEmpty
                 ? "scrape_lyrics_not_found"
                 : "scrape_song_success")
@@ -766,7 +894,9 @@ private struct MacNowPlayingTimeObserver: View {
     var body: some View {
         Color.clear
             .frame(width: 0, height: 0)
-            .onChange(of: player.currentTime) { _, time in onTimeChange(time) }
+            .onReceive(Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()) { date in
+                onTimeChange(player.interpolatedTime(at: date))
+            }
     }
 }
 
@@ -786,7 +916,7 @@ private struct MacNowPlayingProgressRow: View {
                 .frame(width: 38, alignment: .leading)
         }
         .font(.system(size: 11, weight: .medium, design: .monospaced))
-        .foregroundStyle(.white.opacity(0.6))
+        .foregroundStyle(.primary.opacity(0.6))
         .frame(width: width)
     }
 
@@ -807,13 +937,13 @@ private struct MacNowPlayingScrubber: View {
             let fillWidth = width * clamped
             ZStack(alignment: .leading) {
                 Capsule()
-                    .fill(.white.opacity(0.18))
+                    .fill(.primary.opacity(0.18))
                     .frame(height: 3)
                 Capsule()
                     .fill(accent)
                     .frame(width: max(3, fillWidth), height: 3)
                 Circle()
-                    .fill(.white)
+                    .fill(.primary)
                     .frame(width: 8, height: 8)
                     .shadow(color: accent.opacity(0.35), radius: 8)
                     .offset(x: min(max(0, fillWidth - 4), max(0, width - 8)))

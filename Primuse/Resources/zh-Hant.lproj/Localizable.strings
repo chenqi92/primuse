@@ -1239,7 +1239,7 @@
 "Authorize" = "授權";
 "Authorize on the right to connect your subscription" = "點擊右側授權以連接你的訂閱";
 "Automatic Volume Balancing" = "自動音量平衡";
-"Available Widgets" = "可用 Widget";
+"Available Widgets" = "可用小工具";
 "Baidu Netdisk" = "百度網盤";
 "Batch Scraping" = "批次刮削";
 "Battery First · Drops to every 5 minutes when locked" = "電量優先 · 鎖定螢幕時降低至每 5 分鐘";
@@ -1897,3 +1897,13 @@
 "Medium / Large" = "中型 / 大型";
 "Small" = "小型";
 "Wrapped" = "年度回顧";
+
+// MARK: - macOS 外觀材質
+"material_liquid_glass" = "液態玻璃";
+"material_liquid_glass_desc" = "更通透且更具層次的系統外觀。";
+"material_classic" = "經典";
+"material_classic_desc" = "熟悉而清晰的經典外觀。";
+"material_macos_26_or_later" = "macOS 26 或以上版本";
+"material_macos_14_or_later" = "macOS 14 或以上版本";
+"material_auto_desc" = "自動選擇這台 Mac 支援的最佳外觀。";
+"appearance_system_blue" = "系統藍色";

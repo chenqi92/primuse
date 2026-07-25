@@ -8,7 +8,11 @@ import PrimuseKit
 /// - 热力图 (GitHub-style 7×N 格子, 颜色深度对应当日播放次数)
 /// - Top 排行 (歌曲 / 艺术家 / 专辑 三个 tab)
 struct ListeningStatsView: View {
+    #if os(macOS)
+    @State private var range: PlayHistoryStore.Range = .year
+    #else
     @State private var range: PlayHistoryStore.Range = .month
+    #endif
     @State private var rankTab: RankTab = .songs
     @State private var showClearConfirm = false
     private let store = PlayHistoryStore.shared
@@ -71,7 +75,7 @@ struct ListeningStatsView: View {
                     macEmptyState
                 } else {
                     macSummarySection(snapshot: snapshot)
-                    macHeatmapCard(counts: snapshot.dailyCounts)
+                    macHeatmapCard(days: snapshot.dailyStats)
                     macTopCards(snapshot: snapshot)
                 }
             }
@@ -120,7 +124,7 @@ struct ListeningStatsView: View {
                     }
                 }
             }
-            Text(statsRangeSubtitle(counts: snapshot.dailyCounts))
+            Text(statsRangeSubtitle(days: snapshot.dailyStats))
                 .font(.system(size: 13))
                 .foregroundStyle(PMColor.textMuted)
         }
@@ -128,11 +132,11 @@ struct ListeningStatsView: View {
 
     /// 设计稿副标题: "2026 年 1 月 1 日 — 今天 · 365 天"。起点取热力图首日,
     /// 天数取整个区间天数。
-    private func statsRangeSubtitle(counts: [(date: Date, count: Int)]) -> String {
-        let start = counts.first?.date ?? Date()
+    private func statsRangeSubtitle(days: [MacDailyStat]) -> String {
+        let start = days.first?.date ?? Date()
         let df = DateFormatter()
         df.dateFormat = "yyyy 年 M 月 d 日"
-        return "\(df.string(from: start)) — 今天 · \(counts.count) 天"
+        return "\(df.string(from: start)) — 今天 · \(days.count) 天"
     }
 
     private var macEmptyState: some View {
@@ -158,8 +162,7 @@ struct ListeningStatsView: View {
 
     private func macSummarySection(snapshot: MacStatsSnapshot) -> some View {
         let s = snapshot.summary
-        let counts = snapshot.dailyCounts
-        let days = max(counts.count, 1)
+        let days = max(snapshot.dailyStats.count, 1)
         let totalMin = Int(s.totalSec / 60)
         let coverage = (Double(s.activeDays) / Double(days) * 100).rounded().finiteInt()
         let coverLabel = (range == .week || range == .month) ? "覆盖率" : "全年覆盖率"
@@ -229,20 +232,24 @@ struct ListeningStatsView: View {
 
     // MARK: 热力图 (STATS-02)
 
-    private func macHeatmapCard(counts: [(date: Date, count: Int)]) -> some View {
-        let weeks = groupByWeek(counts: counts, cal: Calendar.current)
+    private func macHeatmapCard(days: [MacDailyStat]) -> some View {
+        let calendar = Calendar.current
+        let weeks = makeMacHeatmapWeeks(
+            days: days,
+            calendar: calendar,
+            displayEnd: macHeatmapDisplayEnd(now: Date(), calendar: calendar)
+        )
         return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
                 Text(verbatim: "GitHub 风格热力图")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(PMColor.text)
                 Spacer()
-                Text(verbatim: "7×\(weeks.count) = \(counts.count) 天")
+                Text(verbatim: "7×\(weeks.count) · \(days.count) 天")
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(PMColor.textFaint)
             }
-            macHeatmapGrid(weeks: weeks)
-            macHeatmapMonths(counts: counts)
+            macHeatmapGrid(weeks: weeks, calendar: calendar)
             macHeatmapLegend
         }
         .padding(18)
@@ -255,48 +262,125 @@ struct ListeningStatsView: View {
 
     /// 7 行 × N 周。格子边长按卡片宽度平分 (上限 16pt), 满一年时正好铺满整行;
     /// 区间短 (本周/本月) 时不会被拉成巨大方块, 靠左排列。
-    private func macHeatmapGrid(weeks: [[Int: (date: Date, count: Int)]]) -> some View {
+    private func macHeatmapGrid(weeks: [MacHeatmapWeek], calendar: Calendar) -> some View {
         let gap: CGFloat = 3
         let maxCell: CGFloat = 16
+        let weekdayWidth: CGFloat = 20
+        let weekdaySymbols = macWeekdaySymbols(calendar: calendar)
         return GeometryReader { geo in
             let n = CGFloat(max(weeks.count, 1))
-            let cell = min(maxCell, max(6, (geo.size.width - gap * (n - 1)) / n))
-            HStack(alignment: .top, spacing: gap) {
-                ForEach(weeks.indices, id: \.self) { wIdx in
-                    let column = weeks[wIdx]
+            let gridWidth = max(0, geo.size.width - weekdayWidth - 8)
+            let cell = min(maxCell, max(6, (gridWidth - gap * (n - 1)) / n))
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .top, spacing: 8) {
+                    Color.clear.frame(width: weekdayWidth, height: 12)
+                    HStack(alignment: .top, spacing: gap) {
+                        ForEach(weeks.indices, id: \.self) { weekIndex in
+                            let label = macMonthLabel(
+                                for: weeks,
+                                weekIndex: weekIndex,
+                                calendar: calendar
+                            )
+                            Color.clear
+                                .frame(width: cell, height: 12)
+                                .overlay(alignment: .leading) {
+                                    if let label {
+                                        Text(verbatim: label)
+                                            .font(.system(size: 9.5))
+                                            .foregroundStyle(PMColor.textFaint)
+                                            .lineLimit(1)
+                                            .fixedSize(horizontal: true, vertical: false)
+                                    }
+                                }
+                        }
+                    }
+                }
+
+                HStack(alignment: .top, spacing: 8) {
                     VStack(spacing: gap) {
-                        ForEach(0..<7, id: \.self) { dow in
-                            RoundedRectangle(cornerRadius: 2, style: .continuous)
-                                .fill(column[dow].map { heatColor(count: $0.count) } ?? Color.clear)
-                                .frame(width: cell, height: cell)
+                        ForEach(weekdaySymbols.indices, id: \.self) { index in
+                            Text(verbatim: weekdaySymbols[index])
+                                .font(.system(size: 9))
+                                .foregroundStyle(PMColor.textFaint)
+                                .frame(width: weekdayWidth, height: cell, alignment: .trailing)
+                        }
+                    }
+                    HStack(alignment: .top, spacing: gap) {
+                        ForEach(weeks) { week in
+                            VStack(spacing: gap) {
+                                ForEach(week.cells) { heatmapCell in
+                                    macHeatmapCell(heatmapCell, size: cell)
+                                }
+                            }
                         }
                     }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(height: maxCell * 7 + gap * 6)
+        .frame(height: 12 + 6 + maxCell * 7 + gap * 6)
     }
 
-    private func macHeatmapMonths(counts: [(date: Date, count: Int)]) -> some View {
-        let cal = Calendar.current
-        var seen = Set<Int>()
-        var labels: [String] = []
-        for c in counts {
-            let comp = cal.dateComponents([.year, .month], from: c.date)
-            let key = (comp.year ?? 0) * 100 + (comp.month ?? 0)
-            if seen.insert(key).inserted {
-                labels.append("\(comp.month ?? 0)月")
-            }
+    private func macHeatmapCell(_ cell: MacHeatmapCell, size: CGFloat) -> some View {
+        let fill: Color
+        if let day = cell.day {
+            fill = heatColor(count: day.count)
+        } else if cell.isFuture && cell.isInDisplayRange {
+            fill = PMColor.divider.opacity(0.52)
+        } else {
+            fill = PMColor.divider.opacity(0.34)
         }
-        return HStack(spacing: 0) {
-            ForEach(labels.indices, id: \.self) { i in
-                Text(verbatim: labels[i])
-                    .font(.system(size: 10))
-                    .foregroundStyle(PMColor.textFaint)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+        return RoundedRectangle(cornerRadius: 2, style: .continuous)
+            .fill(fill)
+            .frame(width: size, height: size)
+            .overlay {
+                if cell.isFuture && cell.isInDisplayRange {
+                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                        .strokeBorder(PMColor.cardBorder.opacity(0.7), lineWidth: 0.5)
+                }
             }
+            .help(macHeatmapTooltip(for: cell))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(macHeatmapTooltip(for: cell))
+    }
+
+    private func macHeatmapTooltip(for cell: MacHeatmapCell) -> String {
+        let date = cell.date.formatted(date: .long, time: .omitted)
+        guard let day = cell.day else { return "\(date)\n—" }
+        let plays = String(
+            format: String(localized: "stats_play_count_format"),
+            day.count
+        )
+        return "\(date)\n\(plays) · \(formatHours(day.totalSec))"
+    }
+
+    private func macWeekdaySymbols(calendar: Calendar) -> [String] {
+        let formatter = DateFormatter()
+        formatter.locale = Locale.current
+        let symbols = formatter.veryShortWeekdaySymbols ?? ["日", "一", "二", "三", "四", "五", "六"]
+        let start = min(max(calendar.firstWeekday - 1, 0), 6)
+        return Array(symbols[start...] + symbols[..<start])
+    }
+
+    private func macMonthLabel(
+        for weeks: [MacHeatmapWeek],
+        weekIndex: Int,
+        calendar: Calendar
+    ) -> String? {
+        let week = weeks[weekIndex]
+        let labelDate: Date?
+        if weekIndex == 0 {
+            labelDate = week.cells.first(where: \.isInDisplayRange)?.date
+        } else {
+            labelDate = week.cells.first(where: {
+                $0.isInDisplayRange && calendar.component(.day, from: $0.date) == 1
+            })?.date
         }
+        guard let labelDate else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale.current
+        formatter.setLocalizedDateFormatFromTemplate("MMM")
+        return formatter.string(from: labelDate)
     }
 
     private var macHeatmapLegend: some View {
@@ -334,9 +418,30 @@ struct ListeningStatsView: View {
         }
     }
 
+    private struct MacDailyStat: Identifiable {
+        let date: Date
+        let count: Int
+        let totalSec: TimeInterval
+        var id: Date { date }
+    }
+
+    private struct MacHeatmapCell: Identifiable {
+        let date: Date
+        let day: MacDailyStat?
+        let isFuture: Bool
+        let isInDisplayRange: Bool
+        var id: Date { date }
+    }
+
+    private struct MacHeatmapWeek: Identifiable {
+        let start: Date
+        let cells: [MacHeatmapCell]
+        var id: Date { start }
+    }
+
     private struct MacStatsSnapshot {
         let summary: PlayHistoryStore.Summary
-        let dailyCounts: [(date: Date, count: Int)]
+        let dailyStats: [MacDailyStat]
         let previousPlayCount: Int?
         let heavyRotationCount: Int
         let topSongs: [PlayHistoryStore.RankedItem]
@@ -348,16 +453,14 @@ struct ListeningStatsView: View {
     /// 分别再次过滤完整播放历史。
     private func makeMacStatsSnapshot() -> MacStatsSnapshot {
         let now = Date()
-        let currentStart = range.startDate(now: now)
-        let previousStart = range == .all
-            ? Date.distantPast
-            : currentStart.addingTimeInterval(-now.timeIntervalSince(currentStart))
+        let currentStart = macRangeStartDate(now: now)
+        let previousInterval = macPreviousRangeInterval(now: now, currentStart: currentStart)
         var scopedEntries: [PlayHistoryStore.Entry] = []
         var previousPlayCount = 0
         for entry in store.entries {
-            if entry.playedAt >= currentStart {
+            if entry.playedAt >= currentStart, entry.playedAt <= now {
                 scopedEntries.append(entry)
-            } else if range != .all, entry.playedAt >= previousStart {
+            } else if let previousInterval, previousInterval.contains(entry.playedAt) {
                 previousPlayCount += 1
             }
         }
@@ -365,8 +468,12 @@ struct ListeningStatsView: View {
         let calendar = Calendar.current
         let dayBuckets = Dictionary(grouping: scopedEntries) {
             calendar.startOfDay(for: $0.playedAt)
-        }.mapValues(\.count)
-        let counts = makeDailyCounts(dayBuckets: dayBuckets, now: now)
+        }
+        let dailyStats = makeDailyStats(
+            dayBuckets: dayBuckets,
+            now: now,
+            currentStart: currentStart
+        )
         let playsBySong = Dictionary(grouping: scopedEntries, by: \.songID)
         let summary = PlayHistoryStore.Summary(
             totalPlays: scopedEntries.count,
@@ -377,7 +484,7 @@ struct ListeningStatsView: View {
 
         return MacStatsSnapshot(
             summary: summary,
-            dailyCounts: counts,
+            dailyStats: dailyStats,
             previousPlayCount: range == .all ? nil : previousPlayCount,
             heavyRotationCount: playsBySong.values.lazy.filter { $0.count >= 5 }.count,
             topSongs: rankedSongs(playsBySong, limit: 6),
@@ -386,27 +493,122 @@ struct ListeningStatsView: View {
         )
     }
 
-    private func makeDailyCounts(
-        dayBuckets: [Date: Int],
-        now: Date
-    ) -> [(date: Date, count: Int)] {
+    private func makeDailyStats(
+        dayBuckets: [Date: [PlayHistoryStore.Entry]],
+        now: Date,
+        currentStart: Date
+    ) -> [MacDailyStat] {
         let calendar = Calendar.current
         let end = calendar.startOfDay(for: now)
         let rawStart: Date
         if range == .all {
             rawStart = dayBuckets.keys.min() ?? end
         } else {
-            rawStart = calendar.startOfDay(for: range.startDate(now: now))
+            rawStart = calendar.startOfDay(for: currentStart)
         }
         let floor = calendar.date(byAdding: .day, value: -740, to: end) ?? rawStart
         var cursor = max(rawStart, floor)
-        var result: [(date: Date, count: Int)] = []
+        var result: [MacDailyStat] = []
         while cursor <= end {
-            result.append((cursor, dayBuckets[cursor] ?? 0))
+            let entries = dayBuckets[cursor] ?? []
+            result.append(MacDailyStat(
+                date: cursor,
+                count: entries.count,
+                totalSec: entries.reduce(0) { $0 + $1.listenedSec }
+            ))
             cursor = calendar.date(byAdding: .day, value: 1, to: cursor)
                 ?? cursor.addingTimeInterval(86_400)
         }
         return result
+    }
+
+    private func macRangeStartDate(now: Date) -> Date {
+        let calendar = Calendar.current
+        switch range {
+        case .week:
+            return calendar.dateInterval(of: .weekOfYear, for: now)?.start ?? now
+        case .month:
+            return calendar.dateInterval(of: .month, for: now)?.start ?? now
+        case .year:
+            return calendar.dateInterval(of: .year, for: now)?.start ?? now
+        case .all:
+            return .distantPast
+        }
+    }
+
+    private func macPreviousRangeInterval(now: Date, currentStart: Date) -> DateInterval? {
+        let calendar = Calendar.current
+        let component: Calendar.Component
+        switch range {
+        case .week: component = .weekOfYear
+        case .month: component = .month
+        case .year: component = .year
+        case .all: return nil
+        }
+        guard let start = calendar.date(byAdding: component, value: -1, to: currentStart),
+              let end = calendar.date(byAdding: component, value: -1, to: now) else {
+            return nil
+        }
+        return DateInterval(start: start, end: end)
+    }
+
+    private func makeMacHeatmapWeeks(
+        days: [MacDailyStat],
+        calendar: Calendar,
+        displayEnd: Date
+    ) -> [MacHeatmapWeek] {
+        guard let firstDay = days.first?.date,
+              let firstWeekStart = calendar.dateInterval(of: .weekOfYear, for: firstDay)?.start,
+              let lastWeekStart = calendar.dateInterval(of: .weekOfYear, for: displayEnd)?.start else {
+            return []
+        }
+
+        let statsByDate = Dictionary(uniqueKeysWithValues: days.map {
+            (calendar.startOfDay(for: $0.date), $0)
+        })
+        let displayStart = calendar.startOfDay(for: firstDay)
+        let normalizedDisplayEnd = calendar.startOfDay(for: displayEnd)
+        let today = calendar.startOfDay(for: Date())
+        var result: [MacHeatmapWeek] = []
+        var weekStart = firstWeekStart
+        while weekStart <= lastWeekStart {
+            let cells = (0..<7).compactMap { offset -> MacHeatmapCell? in
+                guard let date = calendar.date(byAdding: .day, value: offset, to: weekStart) else {
+                    return nil
+                }
+                let normalizedDate = calendar.startOfDay(for: date)
+                return MacHeatmapCell(
+                    date: normalizedDate,
+                    day: statsByDate[normalizedDate],
+                    isFuture: normalizedDate > today,
+                    isInDisplayRange: normalizedDate >= displayStart
+                        && normalizedDate <= normalizedDisplayEnd
+                )
+            }
+            result.append(MacHeatmapWeek(start: weekStart, cells: cells))
+            guard let next = calendar.date(byAdding: .weekOfYear, value: 1, to: weekStart),
+                  next > weekStart else { break }
+            weekStart = next
+        }
+        return result
+    }
+
+    /// Keep the calendar silhouette stable while the selected period is still
+    /// in progress. Future cells are visual placeholders only; summaries and
+    /// daily statistics still stop at today.
+    private func macHeatmapDisplayEnd(now: Date, calendar: Calendar) -> Date {
+        let interval: DateInterval?
+        switch range {
+        case .week:
+            interval = calendar.dateInterval(of: .weekOfYear, for: now)
+        case .month:
+            interval = calendar.dateInterval(of: .month, for: now)
+        case .year, .all:
+            interval = calendar.dateInterval(of: .year, for: now)
+        }
+        guard let end = interval?.end else { return calendar.startOfDay(for: now) }
+        return calendar.date(byAdding: .day, value: -1, to: end)
+            ?? calendar.startOfDay(for: now)
     }
 
     private func rankedSongs(
@@ -607,7 +809,13 @@ struct ListeningStatsView: View {
     }
 
     private func logHeatmapStats() {
+        #if os(macOS)
+        let counts = makeMacStatsSnapshot().dailyStats.map {
+            (date: $0.date, count: $0.count)
+        }
+        #else
         let counts = store.dailyPlayCounts(in: range)
+        #endif
         let cal = Calendar.current
         let weeks = Set(counts.map { cell -> Int in
             let comp = cal.dateComponents([.weekOfYear, .yearForWeekOfYear], from: cell.date)

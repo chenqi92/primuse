@@ -1921,3 +1921,13 @@
 "Medium / Large" = "중형 / 대형";
 "Small" = "소형";
 "Wrapped" = "연간 결산";
+
+// MARK: - macOS appearance material
+"material_liquid_glass" = "리퀴드 글래스";
+"material_liquid_glass_desc" = "더 투명하고 입체적인 시스템 디자인입니다.";
+"material_classic" = "클래식";
+"material_classic_desc" = "익숙하고 선명한 디자인입니다.";
+"material_macos_26_or_later" = "macOS 26 이상";
+"material_macos_14_or_later" = "macOS 14 이상";
+"material_auto_desc" = "이 Mac에서 지원하는 최적의 디자인을 자동으로 선택합니다.";
+"appearance_system_blue" = "시스템 블루";

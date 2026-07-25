@@ -1364,7 +1364,7 @@
 "Authorize" = "授权";
 "Authorize on the right to connect your subscription" = "点击右侧授权以连接你的订阅";
 "Automatic Volume Balancing" = "自动音量平衡";
-"Available Widgets" = "可用 Widget";
+"Available Widgets" = "可用小组件";
 "Baidu Netdisk" = "百度网盘";
 "Batch Scraping" = "批量刮削";
 "Battery First · Drops to every 5 minutes when locked" = "电量优先 · 锁屏时降低至每 5 分钟";
@@ -2024,3 +2024,13 @@
 "Medium / Large" = "中号 / 大号";
 "Small" = "小号";
 "Wrapped" = "年度回顾";
+
+// MARK: - macOS 外观材质
+"material_liquid_glass" = "液态玻璃";
+"material_liquid_glass_desc" = "更通透、更有层次的系统外观。";
+"material_classic" = "经典";
+"material_classic_desc" = "熟悉、清晰的经典外观。";
+"material_macos_26_or_later" = "macOS 26 或更高版本";
+"material_macos_14_or_later" = "macOS 14 或更高版本";
+"material_auto_desc" = "自动选择这台 Mac 支持的最佳外观。";
+"appearance_system_blue" = "系统蓝色";

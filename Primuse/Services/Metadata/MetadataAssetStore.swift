@@ -265,6 +265,42 @@ actor MetadataAssetStore {
         return try? decoder.decode([LyricLine].self, from: data)
     }
 
+    /// Preserve lyrics written while MusicKit exposed a catalog-derived song
+    /// ID under the canonical Apple Music user-library ID. The alias is kept
+    /// for backwards compatibility; the canonical copy becomes the source of
+    /// truth after the next launch.
+    @discardableResult
+    func preserveLyricsAlias(fromSongID aliasSongID: String, toSongID canonicalSongID: String) -> Bool {
+        guard aliasSongID != canonicalSongID else { return false }
+        let aliasURL = lyricsDirectory.appendingPathComponent(
+            hashedFileName(for: aliasSongID, pathExtension: "json")
+        )
+        guard let aliasData = try? Data(contentsOf: aliasURL),
+              let aliasLines = try? decoder.decode([LyricLine].self, from: aliasData),
+              !aliasLines.isEmpty else { return false }
+
+        let canonicalURL = lyricsDirectory.appendingPathComponent(
+            hashedFileName(for: canonicalSongID, pathExtension: "json")
+        )
+        if let canonicalData = try? Data(contentsOf: canonicalURL),
+           let canonicalLines = try? decoder.decode([LyricLine].self, from: canonicalData),
+           !canonicalLines.isEmpty {
+            let aliasIsWordLevel = aliasLines.contains(where: \.isWordLevel)
+            let canonicalIsWordLevel = canonicalLines.contains(where: \.isWordLevel)
+            guard aliasIsWordLevel && !canonicalIsWordLevel else { return false }
+        }
+
+        do {
+            try aliasData.write(to: canonicalURL, options: .atomic)
+            Self.postLyricsCached(songID: canonicalSongID, lines: aliasLines)
+            plog("📝 preserved Apple Music lyrics alias \(aliasSongID.prefix(8)) → \(canonicalSongID.prefix(8))")
+            return true
+        } catch {
+            plog("⚠️failed to preserve Apple Music lyrics alias: \(error.localizedDescription)")
+            return false
+        }
+    }
+
     /// Synchronous lyrics lookup for local search. Only reads Primuse's local
     /// JSON lyric cache; it deliberately avoids network/source reads while the
     /// user is typing.

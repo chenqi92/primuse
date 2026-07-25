@@ -284,6 +284,116 @@ public enum AppleMusicLibraryIdentity {
     }
 }
 
+/// Platform-neutral identity used to reconcile the two IDs MusicKit exposes
+/// for the same Apple Music track: a user-library ID (`i.*`) and a catalog ID.
+public struct AppleMusicTrackIdentity: Sendable, Equatable {
+    public let itemID: String
+    public let alternateIDs: Set<String>
+    public let title: String
+    public let artist: String?
+    public let album: String?
+    public let duration: TimeInterval?
+
+    public init(
+        itemID: String,
+        alternateIDs: Set<String> = [],
+        title: String,
+        artist: String? = nil,
+        album: String? = nil,
+        duration: TimeInterval? = nil
+    ) {
+        self.itemID = itemID
+        self.alternateIDs = alternateIDs
+        self.title = title
+        self.artist = artist
+        self.album = album
+        self.duration = duration
+    }
+}
+
+/// Resolves a MusicKit playback item back to the canonical user-library item.
+/// ID overlap is authoritative; normalized metadata is a conservative fallback
+/// for MusicKit responses whose `PlayParameters` omit the catalog identifier.
+public enum AppleMusicTrackIdentityResolver {
+    public static func canonicalID(
+        for playback: AppleMusicTrackIdentity,
+        in library: [AppleMusicTrackIdentity]
+    ) -> String? {
+        guard !library.isEmpty else { return nil }
+
+        let playbackIDs = playback.alternateIDs.union([playback.itemID])
+        let exact = library.filter {
+            !$0.alternateIDs.union([$0.itemID]).isDisjoint(with: playbackIDs)
+        }
+        if exact.count == 1 { return exact[0].itemID }
+
+        let normalizedTitle = normalize(playback.title)
+        guard !normalizedTitle.isEmpty else { return nil }
+        let titleMatches = library.filter { normalize($0.title) == normalizedTitle }
+        guard !titleMatches.isEmpty else { return nil }
+
+        let ranked = titleMatches.map { candidate in
+            (candidate.itemID, metadataScore(playback: playback, candidate: candidate))
+        }.sorted {
+            if $0.1 != $1.1 { return $0.1 > $1.1 }
+            return $0.0 < $1.0
+        }
+
+        guard let best = ranked.first, best.1 >= 4 else { return nil }
+        if ranked.count > 1, ranked[1].1 == best.1 { return nil }
+        return best.0
+    }
+
+    private static func metadataScore(
+        playback: AppleMusicTrackIdentity,
+        candidate: AppleMusicTrackIdentity
+    ) -> Int {
+        var score = 0
+
+        let playbackArtist = normalize(playback.artist)
+        let candidateArtist = normalize(candidate.artist)
+        if !playbackArtist.isEmpty, playbackArtist == candidateArtist { score += 5 }
+
+        let playbackAlbum = normalize(playback.album)
+        let candidateAlbum = normalize(candidate.album)
+        if !playbackAlbum.isEmpty, playbackAlbum == candidateAlbum { score += 3 }
+
+        if let lhs = playback.duration, lhs > 0,
+           let rhs = candidate.duration, rhs > 0 {
+            let delta = abs(lhs - rhs)
+            if delta <= 0.75 {
+                score += 4
+            } else if delta <= 2.5 {
+                score += 3
+            }
+        }
+
+        return score
+    }
+
+    private static func normalize(_ value: String?) -> String {
+        guard let value else { return "" }
+        let folded = value.folding(
+            options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
+            locale: Locale(identifier: "en_US_POSIX")
+        )
+        let scalars = folded.unicodeScalars.filter {
+            CharacterSet.alphanumerics.contains($0)
+        }
+        return String(String.UnicodeScalarView(scalars))
+    }
+}
+
+/// Whether an Apple Music response is a complete cloud snapshot or merely the
+/// local-device fallback. Only a complete snapshot may prune songs/playlists.
+public enum AppleMusicLibrarySyncMode: Sendable, Equatable {
+    case authoritative
+    case partialFallback
+
+    public var shouldPruneMissingSongs: Bool { self == .authoritative }
+    public var shouldReplaceMirrorPlaylist: Bool { self == .authoritative }
+}
+
 /// Preferences that affect the platform-neutral music-library projection.
 ///
 /// The Apple Music settings UI and the shared library model must read the same

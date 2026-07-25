@@ -958,11 +958,22 @@ func PMLocalizedOrVerbatim(_ text: String) -> String {
 }
 
 func PMTextWithoutDesignCodes(_ text: String) -> String {
-    let codePattern = #"\b(?:STATS|THEME|SCROB|CAST|META|SRC|LIB|SYS|PL|FX|ST|P|S|C|L)-(?:\d{1,3}(?:/\d{1,3})?|\*)\b"#
+    let codePattern = #"(?<![A-Za-z0-9_])(?:STATS|THEME|SCROB|CAST|META|SRC|LIB|SYS|PL|FX|ST|P|S|C|L)-(?:\d{1,3}(?:/\d{1,3})?|\*)(?![A-Za-z0-9_])"#
     var cleaned = PMLocalizedOrVerbatim(text)
         .replacingOccurrences(of: codePattern,
                               with: "",
                               options: .regularExpression)
+    let implementationPatterns = [
+        #"\bprimuse\.[A-Za-z0-9_.]+\b"#,
+        #"\b(?:AudioCacheManager|CloudKitSyncService|NSUbiquitousKeyValueStore|SmartPlaylistEngine|SourceManager(?:\.[A-Za-z0-9_]+)?|WidgetKit|WidgetURL|AppIntent|CloudKVS|CKShare|SFBAudioEngine)\b"#,
+        #"\.(?:glassEffect|regularMaterial)(?:\([^)]*\))?"#,
+        #"\bif\s+#available\s*\([^)]*\)"#
+    ]
+    for pattern in implementationPatterns {
+        cleaned = cleaned.replacingOccurrences(of: pattern,
+                                               with: "",
+                                               options: .regularExpression)
+    }
     let cleanupPatterns = [
         #"\s*[（(]\s*[)）]\s*"#,
         #"\s*[·•|/—–-]+\s*(?:Matches design\s+sizes|与设计稿\s*尺寸一致)\s*$"#,

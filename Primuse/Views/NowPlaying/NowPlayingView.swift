@@ -1055,11 +1055,11 @@ struct NowPlayingView: View {
         guard let song = player.currentSong else { setLyrics([]); return }
         let loadStart = Date()
 
-        // Apple Music 走 MusicKit 原生 catalog 歌词, 不经刮削链路。先查
+        // Apple Music 优先走 MusicKit 原生 catalog 歌词。先查
         // MetadataAssetStore songID cache 命中直接显示 (cache 一份避免每次切
         // 歌都走 catalog 网络); miss 再问 MusicKit, 拿到 TTML 解析后写回 cache。
-        // 全失败 → setLyrics([]) 让 emptyLyricsView 显示"在 Apple Music 中查
-        // 看歌词"按钮 fallback。
+        // 全失败 → setLyrics([])，emptyLyricsView 仍允许用户走和 macOS 相同的
+        // 在线歌词刮削链路，而不是只能跳转 Apple Music。
         if song.sourceID == AppleMusicLibraryService.systemSourceID {
             if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id),
                !cached.isEmpty {
@@ -1273,9 +1273,22 @@ struct NowPlayingView: View {
 
 
     private func scrapeCurrentSong() async {
-        guard let song = player.currentSong else { return }
+        guard let displayedSong = player.currentSong else { return }
         isScrapingCurrentSong = true; defer { isScrapingCurrentSong = false }
         do {
+            let song: Song
+            if displayedSong.sourceID == AppleMusicLibraryIdentity.sourceID {
+                song = AppServices.shared.appleMusicLibrary.canonicalLibrarySong(for: displayedSong)
+                if song.id != displayedSong.id {
+                    _ = await MetadataAssetStore.shared.preserveLyricsAlias(
+                        fromSongID: displayedSong.id,
+                        toSongID: song.id
+                    )
+                    player.adoptCanonicalAppleMusicSong(song, replacing: displayedSong.id)
+                }
+            } else {
+                song = displayedSong
+            }
             let u: Song
             if song.sourceID == AppleMusicLibraryIdentity.sourceID {
                 // Keep iOS and macOS consistent: a MusicKit cloud song has no
@@ -1288,7 +1301,7 @@ struct NowPlayingView: View {
             CachedArtworkView.invalidateCache(for: u.id)
             if let oldRef = song.coverArtFileName { CachedArtworkView.invalidateCache(for: oldRef) }
             player.syncSongMetadata(u); player.forceRefreshNowPlayingArtwork(); await loadLyrics()
-            guard player.currentSong?.id == song.id else { return }
+            guard player.currentSong?.id == u.id else { return }
             if !lyrics.isEmpty { showLyrics = true }
             scrapeAlertMessage = String(localized: lyrics.isEmpty
                 ? "scrape_lyrics_not_found"
@@ -2282,7 +2295,6 @@ struct LyricsScrollView: View {
     let onScrape: () -> Void
     let onBackgroundTap: () -> Void
 
-    @Environment(\.openURL) private var openURL
     @AppStorage("lyricsFontScale") private var lyricsFontScale: Double = 1.0
     @State private var lyricsPinchScale: CGFloat = 1.0
     @State private var isPinchingLyrics = false
@@ -2382,30 +2394,28 @@ struct LyricsScrollView: View {
     private var emptyLyricsView: some View {
         VStack(spacing: 12) {
             Spacer().frame(height: 60)
-            if player.isAppleMusicMode {
-                // Apple Music DRM 歌词没有公开 API 拉给第三方 app, 我们做不了
-                // 本地刮削。引导用户去 Apple Music app 看官方歌词。
-                Text("apple_music_lyrics_not_available")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.5))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
-                if let song = player.currentSong,
-                   let url = AppServices.shared.appleMusicLibrary.catalogURL(for: song) {
-                    Button { openURL(url) } label: {
-                        Label("apple_music_view_lyrics", systemImage: "applelogo")
-                            .font(.subheadline)
+            Text("no_lyrics")
+                .font(.title3)
+                .foregroundStyle(.white.opacity(0.3))
+            Button { onScrape() } label: {
+                HStack(spacing: 7) {
+                    if isScrapingCurrentSong {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(.white)
+                            .transition(.scale.combined(with: .opacity))
+                    } else {
+                        Image(systemName: "wand.and.stars")
+                            .transition(.scale.combined(with: .opacity))
                     }
-                    .buttonStyle(.bordered).tint(.white)
+                    Text("scrape_song")
                 }
-            } else {
-                Text("no_lyrics").font(.title3).foregroundStyle(.white.opacity(0.3))
-                Button { onScrape() } label: {
-                    Label("scrape_song", systemImage: "wand.and.stars").font(.subheadline)
-                }
-                .buttonStyle(.bordered).tint(.white)
-                .disabled(isScrapingCurrentSong)
+                .font(.subheadline)
+                .animation(.smooth(duration: 0.2, extraBounce: 0), value: isScrapingCurrentSong)
             }
+            .buttonStyle(.bordered)
+            .tint(.white)
+            .disabled(isScrapingCurrentSong)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }

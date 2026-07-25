@@ -1921,3 +1921,13 @@
 "Medium / Large" = "Moyen / Grand";
 "Small" = "Petit";
 "Wrapped" = "Rétrospective";
+
+// MARK: - macOS appearance material
+"material_liquid_glass" = "Verre liquide";
+"material_liquid_glass_desc" = "Une apparence système plus translucide et profonde.";
+"material_classic" = "Classique";
+"material_classic_desc" = "Une apparence familière et claire.";
+"material_macos_26_or_later" = "macOS 26 ou version ultérieure";
+"material_macos_14_or_later" = "macOS 14 ou version ultérieure";
+"material_auto_desc" = "Choisit automatiquement la meilleure apparence prise en charge par ce Mac.";
+"appearance_system_blue" = "Bleu système";

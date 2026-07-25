@@ -1921,3 +1921,13 @@
 "Medium / Large" = "Mittel / Groß";
 "Small" = "Klein";
 "Wrapped" = "Jahresrückblick";
+
+// MARK: - macOS appearance material
+"material_liquid_glass" = "Liquid Glass";
+"material_liquid_glass_desc" = "Eine transparentere, vielschichtige Systemdarstellung.";
+"material_classic" = "Klassisch";
+"material_classic_desc" = "Eine vertraute, klare Darstellung.";
+"material_macos_26_or_later" = "macOS 26 oder neuer";
+"material_macos_14_or_later" = "macOS 14 oder neuer";
+"material_auto_desc" = "Wählt automatisch die beste von diesem Mac unterstützte Darstellung.";
+"appearance_system_blue" = "Systemblau";

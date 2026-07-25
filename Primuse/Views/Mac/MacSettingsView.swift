@@ -619,7 +619,7 @@ private struct MacSTPlaybackView: View {
                     MacSTToggle(isOn: $s.replayGainEnabled)
                 }
                 if s.replayGainEnabled {
-                    MacSTRow(Lz("RG Mode"), hint: "Track vs Album") {
+                    MacSTRow(Lz("RG Mode")) {
                         MacSTPicker(
                             selection: $s.replayGainMode,
                             options: ReplayGainMode.allCases.map { ($0, $0.displayName) },
@@ -647,10 +647,10 @@ private struct MacSTPlaybackView: View {
                         )
                     }
                 }
-                MacSTRow(Lz("Skip leading silence"), hint: "Silence trim · Intro") {
+                MacSTRow(Lz("Skip leading silence")) {
                     MacSTToggle(isOn: $s.skipLeadingSilenceEnabled)
                 }
-                MacSTRow(Lz("Skip trailing silence"), hint: "Silence trim · Outro") {
+                MacSTRow(Lz("Skip trailing silence")) {
                     MacSTToggle(isOn: $s.skipTrailingSilenceEnabled)
                 }
                 MacSTRow(Lz("Match Hardware Sample Rate"), hint: Lz("Works on physical iOS devices; ignored by some hardware")) {
@@ -661,7 +661,7 @@ private struct MacSTPlaybackView: View {
 
         MacSTSection(Lz("Cache")) {
             MacSTGroup {
-                MacSTRow(Lz("Enable Audio Cache"), hint: "AudioCacheManager · LRU", divider: false) {
+                MacSTRow(Lz("Enable Audio Cache"), divider: false) {
                     MacSTToggle(isOn: $s.audioCacheEnabled)
                 }
                 if s.audioCacheEnabled {
@@ -679,7 +679,7 @@ private struct MacSTPlaybackView: View {
                             AudioCacheManager.shared.clearAll()
                         }
                     }
-                    MacSTRow(Lz("Prewarm queue head"), hint: "P-24 · SourceManager.prewarm") {
+                    MacSTRow(Lz("Prewarm queue head")) {
                         MacSTSlider(
                             value: Binding(
                                 get: { Double(s.prewarmQueueCount) },
@@ -705,7 +705,7 @@ private struct MacSTEqualizerView: View {
 
         MacSTSection(Lz("10-Band Equalizer")) {
             MacSTGroup {
-                MacSTRow(Lz("Enable EQ"), hint: "FX-01", divider: false) {
+                MacSTRow(Lz("Enable EQ"), divider: false) {
                     MacSTToggle(isOn: $eq.isEnabled)
                 }
                 MacSTRow(Lz("Current Preset")) {
@@ -877,7 +877,7 @@ private struct MacSTEffectsView: View {
 
         MacSTSection(Lz("Reverb")) {
             MacSTGroup {
-                MacSTRow(Lz("Toggle"), hint: "FX-03", divider: false) {
+                MacSTRow(Lz("Toggle"), divider: false) {
                     MacSTToggle(isOn: $fx.reverbEnabled)
                 }
                 if fx.reverbEnabled {
@@ -915,7 +915,7 @@ private struct MacSTEffectsView: View {
 
         MacSTSection(Lz("Compressor / Limiter")) {
             MacSTGroup {
-                MacSTRow(Lz("Toggle"), hint: "FX-04", divider: false) {
+                MacSTRow(Lz("Toggle"), divider: false) {
                     MacSTToggle(isOn: $fx.compressorEnabled)
                 }
                 if fx.compressorEnabled {
@@ -1066,7 +1066,7 @@ private struct MacSTScrapingView: View {
 
         MacSTSection(Lz("Batch Scraping")) {
             MacSTGroup {
-                MacSTRow(Lz("Scrape Entire Library"), hint: "META-06", divider: false) {
+                MacSTRow(Lz("Scrape Entire Library"), divider: false) {
                     if scraperService.isScraping {
                         VStack(alignment: .trailing, spacing: 5) {
                             ProgressView(value: scraperService.progress)
@@ -1839,7 +1839,7 @@ private struct MacSTLyricsView: View {
 
         MacSTSection(Lz("Display Style")) {
             MacSTGroup {
-                MacSTRow(Lz("Font Size (lyricsFontScale)"), hint: Lz("iOS / macOS Shared · CloudKVS Sync"), divider: false) {
+                MacSTRow(String(localized: "lyrics_font_size"), divider: false) {
                     MacSTSlider(
                         value: Binding(
                             get: { lyricsFontScale * 100 },
@@ -1914,16 +1914,16 @@ private struct MacSTAppleMusicView: View {
         if appleMusic.authState == .authorized {
             MacSTSection(Lz("Library Sync")) {
                 MacSTGroup {
-                    MacSTRow(Lz("Sync User Library"), hint: Lz("SRC-29 · Apple Music Library"), divider: false) {
+                    MacSTRow(Lz("Sync User Library"), divider: false) {
                         MacSTToggle(isOn: syncUserLibraryBinding)
                     }
-                    MacSTRow(Lz("Catalog Search"), hint: "S-02") {
+                    MacSTRow(Lz("Catalog Search")) {
                         MacSTToggle(isOn: catalogSearchBinding)
                     }
-                    MacSTRow(Lz("Auto Add to Smart Playlists"), hint: Lz("LIB-05 · SmartPlaylistEngine")) {
+                    MacSTRow(Lz("Auto Add to Smart Playlists")) {
                         MacSTToggle(isOn: $autoAddToSmartPlaylists)
                     }
-                    MacSTRow(Lz("Sync Status"), hint: Lz("SRC-29 · Cross-Process Cache")) {
+                    MacSTRow(Lz("Sync Status")) {
                         MacSTInfoText(text: syncStateText,
                                       color: syncStateColor)
                     }
@@ -2057,10 +2057,12 @@ private struct MacSTWidgetView: View {
     private var wrappedWidgetEnabled = true
 
     var body: some View {
-        MacSTSection(Lz("Cross-Process Data Sharing"),
-                     hint: Lz("The main process pushes state to the WidgetKit extension through the App Group container")) {
+        MacSTSection(Lz("Widgets"),
+                     hint: String(localized: "desktop_widget_sync_footer")) {
             MacSTGroup {
-                MacSTRow(Lz("Push to Widget"), hint: "ST-07 · widget.syncEnabled", divider: false) {
+                MacSTRow(String(localized: "desktop_widget_sync_enabled"),
+                         hint: String(localized: "desktop_widget_sync_privacy_footer"),
+                         divider: false) {
                     MacSTToggle(isOn: $widgetSyncEnabled)
                 }
                 MacSTRow(Lz("Refresh Frequency"), hint: Lz("Higher frequency updates sooner but uses more energy")) {
@@ -2070,7 +2072,7 @@ private struct MacSTWidgetView: View {
                         width: 180
                     )
                 }
-                MacSTRow(Lz("Shared Data Scope"), hint: Lz("Widget payload")) {
+                MacSTRow(Lz("Shared Data Scope")) {
                     MacSTPicker(
                         selection: $sharedDataScope,
                         options: [
@@ -2081,18 +2083,18 @@ private struct MacSTWidgetView: View {
                         width: 280
                     )
                 }
-                MacSTRow(Lz("Clickable Interaction"), hint: "WidgetURL / AppIntent") {
+                MacSTRow(Lz("Clickable Interaction")) {
                     MacSTToggle(isOn: $clickableInteraction)
                 }
                 MacSTRow(Lz("Refresh Now")) {
-                    MacSTButton(title: Lz("Push Status"), systemImage: "arrow.triangle.2.circlepath") {
+                    MacSTButton(title: String(localized: "desktop_widget_sync_update_now"), systemImage: "arrow.triangle.2.circlepath") {
                         MacWidgetDataPublisher.publishFromSettings(player: player)
                     }
                 }
             }
         }
 
-        MacSTSection(Lz("Available Widgets"), hint: Lz("WidgetKit still manages the system widget gallery; checked items control which data Primuse pushes.")) {
+        MacSTSection(Lz("Available Widgets")) {
             MacSTGroup {
                 MacSTWidgetChecklistRow(
                     title: Lz("Now Playing"),
@@ -2862,7 +2864,9 @@ private struct MacSTCloudView: View {
     var body: some View {
         MacSTSection(String(localized: "icloud_sync_title")) {
             MacSTGroup {
-                MacSTRow(Lz("Master Toggle"), hint: "primuse.iCloudSyncEnabled · CloudKitSyncService", divider: false) {
+                MacSTRow(String(localized: "icloud_sync_enabled"),
+                         hint: String(localized: "icloud_sync_footer"),
+                         divider: false) {
                     MacSTToggle(isOn: Binding(
                         get: { enabled },
                         set: { newValue in
@@ -2902,18 +2906,18 @@ private struct MacSTCloudView: View {
             }
         }
 
-        MacSTSection(Lz("Sync Channel"), hint: Lz("Control item by item which data goes through iCloud")) {
+        MacSTSection(String(localized: "synced_items"), hint: String(localized: "synced_items_footer")) {
             MacSTGroup {
-                channelRow(Lz("Playlist"), spec: "C-01 · Playlist / SmartPlaylist", channel: .playlists, isOn: $syncPlaylists, divider: false)
-                channelRow(Lz("Source Configuration"), spec: "C-01 · MusicSource", channel: .sources, isOn: $syncSources)
-                channelRow(Lz("Playback History"), spec: "C-01 · STATS-07", channel: .playbackHistory, isOn: $syncPlaybackHistory)
-                channelRow(Lz("App Settings"), spec: "C-02 · NSUbiquitousKeyValueStore", channel: .settings, isOn: $syncSettings)
-                channelRow(Lz("Keychain Credentials"), spec: Lz("C-07 · Newly Written Credentials"), channel: .credentials, isOn: $syncCredentials)
-                channelRow(Lz("Listening Stats"), spec: "C-01 · STATS-*", channel: .listeningStats, isOn: $syncListeningStats)
+                channelRow(String(localized: "synced_playlists"), channel: .playlists, isOn: $syncPlaylists, divider: false)
+                channelRow(String(localized: "synced_sources"), channel: .sources, isOn: $syncSources)
+                channelRow(String(localized: "synced_playback_history"), channel: .playbackHistory, isOn: $syncPlaybackHistory)
+                channelRow(String(localized: "synced_settings"), channel: .settings, isOn: $syncSettings)
+                channelRow(String(localized: "synced_credentials"), channel: .credentials, isOn: $syncCredentials)
+                channelRow(String(localized: "stats_title"), channel: .listeningStats, isOn: $syncListeningStats)
             }
         }
 
-        MacSTSection(Lz("Family Sharing · CKShare (C-03)")) {
+        MacSTSection(String(localized: "family_sharing_title")) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 12) {
                     Image(systemName: familyEnabled ? "person.2.badge.gearshape.fill" : "person.2.badge.plus")
@@ -2926,7 +2930,9 @@ private struct MacSTCloudView: View {
                         Text(verbatim: familyEnabled ? Lz("Family Sharing Enabled") : Lz("Create Family Shared Library"))
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(PMColor.text)
-                        Text(verbatim: familyEnabled ? Lz("Share playlists, smart playlists, and family music sources") : Lz("Share collaborative library content via CloudKit"))
+                        Text(verbatim: familyEnabled
+                             ? Lz("Share playlists, smart playlists, and family music sources")
+                             : String(localized: "family_sharing_footer"))
                             .font(.system(size: 11))
                             .foregroundStyle(PMColor.textMuted)
                     }
@@ -2968,11 +2974,10 @@ private struct MacSTCloudView: View {
     }
 
     private func channelRow(_ label: String,
-                            spec: String,
                             channel: CloudSyncChannel,
                             isOn: Binding<Bool>,
                             divider: Bool = true) -> some View {
-        MacSTRow(label, hint: spec, divider: divider) {
+        MacSTRow(label, divider: divider) {
             MacSTToggle(isOn: Binding(
                 get: { isOn.wrappedValue },
                 set: { newValue in
@@ -3072,7 +3077,7 @@ private struct MacSTThemeView: View {
 
     private let swatches: [(hex: String, name: String, sub: String, color: Color)] = [
         ("#c96442", Lz("Terracotta"), Lz("Default · Warm Wood Listening Room"), PMColor.brandDefault),
-        ("#0a84ff", "macOS Blue", Lz("Standard HIG accent"), Color(red: 0.04, green: 0.52, blue: 1.0)),
+        ("#0a84ff", "macOS Blue", String(localized: "appearance_system_blue"), Color(red: 0.04, green: 0.52, blue: 1.0)),
         ("#1f8a5b", Lz("Forest"), Lz("Tranquil Woods"), Color(red: 0.12, green: 0.54, blue: 0.36)),
         ("#5e6b87", Lz("Slate"), Lz("Minimal Data Look"), Color(red: 0.37, green: 0.42, blue: 0.53)),
         ("#a0522d", Lz("Mahogany"), Lz("Vintage Vinyl"), Color(red: 0.63, green: 0.32, blue: 0.18)),
@@ -3084,7 +3089,7 @@ private struct MacSTThemeView: View {
     }
 
     var body: some View {
-        MacSTSection(Lz("Appearance"), hint: "THEME-01") {
+        MacSTSection(Lz("Appearance")) {
             MacSTGroup {
                 MacSTRow(Lz("Theme"), divider: false, block: true) {
                     HStack(spacing: 8) {
@@ -3102,8 +3107,7 @@ private struct MacSTThemeView: View {
             }
         }
 
-        MacSTSection(Lz("Brand Color"),
-                     hint: Lz("THEME-02 · Doesn't force-tint system controls · Affects only custom buttons, progress bars, active highlights, and ambient fallback")) {
+        MacSTSection(Lz("Brand Color")) {
             MacSTGroup {
                 ForEach(Array(swatches.enumerated()), id: \.offset) { index, swatch in
                     MacBrandSwatchRow(
@@ -3131,9 +3135,7 @@ private struct MacSTThemeView: View {
                         }
                     ))
                 }
-                MacSTRow(Lz("Ambient Intensity"),
-                         hint: Lz("THEME-03 · Controls the color-blob intensity behind NowPlaying / Mini / Desktop Lyrics backgrounds"),
-                         divider: true) {
+                MacSTRow(Lz("Ambient Intensity"), divider: true) {
                     MacSTSlider(
                         value: Binding(
                             get: { preferences.ambientStrength * 100 },
@@ -3146,7 +3148,7 @@ private struct MacSTThemeView: View {
             }
         }
 
-        MacSTSection(String(localized: "app_icon"), hint: Lz("THEME-04 · macOS swaps the runtime Dock icon; the Finder bundle icon stays the same")) {
+        MacSTSection(String(localized: "app_icon")) {
             LazyVGrid(
                 columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4),
                 spacing: 16
@@ -3162,17 +3164,17 @@ private struct MacSTThemeView: View {
         MacSTSection(Lz("Material")) {
             HStack(spacing: 8) {
                 MacMaterialCard(
-                    title: "A · Liquid Glass",
-                    sub: ".glassEffect()",
-                    macos: "macOS 26+",
+                    title: String(localized: "material_liquid_glass"),
+                    sub: String(localized: "material_liquid_glass_desc"),
+                    macos: String(localized: "material_macos_26_or_later"),
                     selected: preferences.appearance == .glass
                 ) {
                     preferences.appearance = .glass
                 }
                 MacMaterialCard(
-                    title: "B · Classic",
-                    sub: ".regularMaterial",
-                    macos: "macOS 14-25",
+                    title: String(localized: "material_classic"),
+                    sub: String(localized: "material_classic_desc"),
+                    macos: String(localized: "material_macos_14_or_later"),
                     selected: preferences.appearance == .classic
                 ) {
                     preferences.appearance = .classic
@@ -3180,7 +3182,9 @@ private struct MacSTThemeView: View {
             }
 
             MacSTGroup {
-                MacSTRow(Lz("Detect macOS version automatically at launch"), hint: "if #available(macOS 26.0, *)", divider: false) {
+                MacSTRow(Lz("Detect macOS version automatically at launch"),
+                         hint: String(localized: "material_auto_desc"),
+                         divider: false) {
                     MacSTToggle(isOn: $autoDetectMaterial)
                 }
             }
@@ -3325,7 +3329,7 @@ private struct MacMaterialCard: View {
                     }
                 }
                 Text(verbatim: sub)
-                    .font(.system(size: 10.5, design: .monospaced))
+                    .font(.system(size: 10.5))
                     .foregroundStyle(PMColor.textFaint)
                 Text(verbatim: macos)
                     .font(.system(size: 10))
@@ -4447,6 +4451,9 @@ private struct MacLogRow {
 private struct MacSTAboutView: View {
     @State private var showLicenses = false
 
+    private let repositoryURL = URL(string: "https://github.com/chenqi92/primuse")!
+    private let issuesURL = URL(string: "https://github.com/chenqi92/primuse/issues/new/choose")!
+
     private var version: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "-"
     }
@@ -4456,48 +4463,169 @@ private struct MacSTAboutView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            BrandMonogram(slot: .feature)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 22) {
+                BrandMonogram(slot: .feature)
 
-            Text(verbatim: PMAppDisplayName())
-                .font(.system(size: 24, weight: .bold))
-                .tracking(-0.4)
-                .foregroundStyle(PMColor.text)
-                .padding(.top, 14)
+                VStack(alignment: .leading, spacing: 7) {
+                    Text(verbatim: PMAppDisplayName())
+                        .font(.system(size: 26, weight: .bold))
+                        .tracking(-0.5)
+                        .foregroundStyle(PMColor.text)
 
-            Text(verbatim: "\(version) (build \(build)) · macOS 26.0+")
-                .font(.system(size: 12.5))
-                .foregroundStyle(PMColor.textMuted)
-                .padding(.top, 4)
+                    Text(verbatim: "\(String(localized: "version")) \(version)  ·  \(String(localized: "build")) \(build)")
+                        .font(.system(size: 12.5, weight: .medium))
+                        .foregroundStyle(PMColor.textMuted)
+
+                    Text(verbatim: String(localized: "onboarding_mac_welcome_desc"))
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(PMColor.textFaint)
+                        .lineSpacing(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(22)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(PMColor.bgElev, in: .rect(cornerRadius: 16))
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+            }
 
             HStack(spacing: 12) {
-                MacSTButton(title: Lz("Check for Updates")) {
+                aboutLinkCard(
+                    title: String(localized: "github_repository"),
+                    detail: "github.com/chenqi92/primuse",
+                    systemImage: "chevron.left.forwardslash.chevron.right"
+                ) {
+                    NSWorkspace.shared.open(repositoryURL)
+                }
+
+                aboutLinkCard(
+                    title: String(localized: "github_feedback"),
+                    detail: "GitHub Issues",
+                    systemImage: "exclamationmark.bubble",
+                    emphasized: true
+                ) {
+                    NSWorkspace.shared.open(issuesURL)
+                }
+            }
+
+            HStack(alignment: .top, spacing: 7) {
+                Image(systemName: "info.circle")
+                    .font(.system(size: 10.5, weight: .medium))
+                    .padding(.top, 1)
+                Text(verbatim: String(localized: "github_feedback_hint"))
+                    .font(.system(size: 10.5))
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .foregroundStyle(PMColor.textFaint)
+            .padding(.horizontal, 4)
+
+            HStack(spacing: 10) {
+                aboutUtilityButton(
+                    title: Lz("Check for Updates"),
+                    systemImage: "arrow.triangle.2.circlepath"
+                ) {
                     MacUpdateCheckWindowController.shared.show()
                 }
-                MacSTButton(title: Lz("Open-Source Licenses…")) {
+                aboutUtilityButton(
+                    title: Lz("Open-Source Licenses…"),
+                    systemImage: "doc.text"
+                ) {
                     showLicenses = true
                 }
-                MacSTButton(title: Lz("Diagnostic Logs…")) {
+                aboutUtilityButton(
+                    title: Lz("Diagnostic Logs…"),
+                    systemImage: "stethoscope"
+                ) {
                     MacDiagnosticsWindowController.shared.show()
                 }
             }
-            .padding(.top, 24)
 
-            Text(verbatim: Lz("Primuse is a native macOS player for NAS / media-server enthusiasts, built on SFBAudioEngine. This design covers 200+ features: Set A uses .glassEffect() on macOS 26+, Set B falls back to .regularMaterial.\n\n© 2026 Primuse Project · Made for lossless lovers."))
-                .font(.system(size: 11))
+            Text(verbatim: "© 2026 Primuse Project")
+                .font(.system(size: 10.5))
                 .foregroundStyle(PMColor.textFaint)
-                .lineSpacing(4)
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: 480, alignment: .leading)
-                .padding(.top, 32)
+                .padding(.top, 2)
+                .padding(.horizontal, 2)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .sheet(isPresented: $showLicenses) {
             MacLicensesPanel {
                 showLicenses = false
             }
         }
+    }
+
+    private func aboutLinkCard(
+        title: String,
+        detail: String,
+        systemImage: String,
+        emphasized: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(emphasized ? Color.white : PMColor.brand)
+                    .frame(width: 36, height: 36)
+                    .background(emphasized ? PMColor.brand : PMColor.brand.opacity(0.13), in: .rect(cornerRadius: 9))
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(verbatim: title)
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(PMColor.text)
+                        .lineLimit(1)
+                    Text(verbatim: detail)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(PMColor.textFaint)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 8)
+
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundStyle(emphasized ? PMColor.brand : PMColor.textFaint)
+            }
+            .padding(.horizontal, 14)
+            .frame(maxWidth: .infinity, minHeight: 68, alignment: .leading)
+            .background(emphasized ? PMColor.brand.opacity(0.10) : PMColor.bgElev, in: .rect(cornerRadius: 12))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(emphasized ? PMColor.brand.opacity(0.7) : PMColor.cardBorder,
+                                  lineWidth: emphasized ? 1 : 0.5)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func aboutUtilityButton(
+        title: String,
+        systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(PMColor.brand)
+                Text(verbatim: title)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(PMColor.text)
+            .frame(maxWidth: .infinity)
+            .frame(height: 42)
+            .background(PMColor.bgElev, in: .rect(cornerRadius: 9))
+            .overlay {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+            }
+        }
+        .buttonStyle(.plain)
     }
 }
 

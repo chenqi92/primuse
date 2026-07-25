@@ -2365,10 +2365,14 @@ final class MusicLibrary {
     /// 传 true (远端真的少了一首歌, listener 应当清缓存); 中间 flush 应当
     /// 传 false ── 因为中间 flush 拿到的是部分扫描结果, 还没扫到的歌会被
     /// line 164 临时移除, 下次 flush 又补回, 这种"伪移除"不应触发缓存清理。
+    /// `pruneMissingSongs` 进一步控制是否真的从内存资料库移除缺失歌曲；远端请求
+    /// 降级为本机部分结果时必须传 false，否则未下载的 Apple Music 歌曲及其元数据
+    /// 会被误删。
     func addSongs(
         _ newSongs: [Song],
         affectedSourceIDs explicitAffectedSourceIDs: Set<String>? = nil,
-        notifyRemovals: Bool = true
+        notifyRemovals: Bool = true,
+        pruneMissingSongs: Bool = true
     ) {
         // Merge semantics:
         //
@@ -2404,12 +2408,19 @@ final class MusicLibrary {
         let incomingIDs = Set(filteredNewSongs.map(\.id))
         let sourceIDs = explicitAffectedSourceIDs ?? Set(filteredNewSongs.map(\.sourceID))
 
-        let removedSongs = songs.filter { sourceIDs.contains($0.sourceID) && !incomingIDs.contains($0.id) }
+        // A degraded/partial provider response is not an authoritative source
+        // snapshot. Keep existing rows (and, critically, their persistent
+        // metadata caches) until a complete scan succeeds.
+        let removedSongs = pruneMissingSongs
+            ? songs.filter { sourceIDs.contains($0.sourceID) && !incomingIDs.contains($0.id) }
+            : []
         // Mutate a local copy and publish the observable array once. Mutating
         // `songs` for every row caused SwiftUI to repeatedly invalidate large
         // library views during an incremental scan.
         var mergedSongs = songs
-        mergedSongs.removeAll { sourceIDs.contains($0.sourceID) && !incomingIDs.contains($0.id) }
+        if pruneMissingSongs {
+            mergedSongs.removeAll { sourceIDs.contains($0.sourceID) && !incomingIDs.contains($0.id) }
+        }
 
         var existingIndexByID: [String: Int] = [:]
         existingIndexByID.reserveCapacity(mergedSongs.count)

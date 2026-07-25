@@ -1749,3 +1749,13 @@
 "onboarding_personalization_home" = "Show, hide, and reorder the sections on Home";
 "onboarding_personalization_quick" = "Pin albums, artists, and playlists for quick access";
 "onboarding_personalization_footer" = "You can change all of these options anytime.";
+
+// MARK: - macOS appearance material
+"material_liquid_glass" = "Liquid Glass";
+"material_liquid_glass_desc" = "A more translucent, layered system appearance.";
+"material_classic" = "Classic";
+"material_classic_desc" = "A familiar, clear appearance.";
+"material_macos_26_or_later" = "macOS 26 or later";
+"material_macos_14_or_later" = "macOS 14 or later";
+"material_auto_desc" = "Chooses the best appearance supported by this Mac.";
+"appearance_system_blue" = "System blue";

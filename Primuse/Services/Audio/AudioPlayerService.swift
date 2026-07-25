@@ -284,6 +284,7 @@ final class AudioPlayerService {
 
     var isCastingMode: Bool { castingRenderer != nil }
     private var appleMusicMirrorTask: Task<Void, Never>?
+    private var rescuedAppleMusicLyricsAliases: Set<String> = []
     private var musicVideoTimeObserver: Any?
     private var musicVideoEndObserver: NSObjectProtocol?
     private var musicVideoStatusObservation: NSKeyValueObservation?
@@ -1181,6 +1182,7 @@ final class AudioPlayerService {
          await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
              withObservationTracking {
                  _ = am.nowPlayingSong?.id
+                 _ = am.nowPlayingRawSongID
                  _ = am.isAppleMusicPlaying
                  _ = am.currentPlaybackTime
                  _ = am.currentDuration
@@ -1210,7 +1212,18 @@ final class AudioPlayerService {
          // MusicKit owns the current song only for Apple-Music-only queues.
          // In a mixed queue Primuse deliberately gives MusicKit one item and
          // keeps the original Song identity / currentIndex itself.
-         let pSong = AppleMusicLibraryService.toPrimuseSong(nps)
+         let pSong = AppServices.shared.appleMusicLibrary.canonicalPrimuseSong(for: nps)
+         if let rawSongID = am.nowPlayingRawSongID, rawSongID != pSong.id {
+             let aliasKey = "\(rawSongID)→\(pSong.id)"
+             if rescuedAppleMusicLyricsAliases.insert(aliasKey).inserted {
+                 Task {
+                     await MetadataAssetStore.shared.preserveLyricsAlias(
+                         fromSongID: rawSongID,
+                         toSongID: pSong.id
+                     )
+                 }
+             }
+         }
          if !isPrimuseManagingAppleMusicQueue, pSong.id != currentSong?.id {
              currentSong = pSong
          }
@@ -2925,6 +2938,24 @@ final class AudioPlayerService {
         if let queueIndex = queueEntries.firstIndex(where: { $0.song.id == updatedSong.id }) {
             queueEntries[queueIndex].song = updatedSong
         }
+    }
+
+    /// Replace a transient catalog-derived Apple Music identity with the
+    /// canonical user-library row without restarting playback. This is used as
+    /// a final guard by metadata actions that can be tapped between MusicKit
+    /// polling ticks.
+    func adoptCanonicalAppleMusicSong(_ canonical: Song, replacing aliasSongID: String) {
+        guard canonical.sourceID == AppleMusicLibraryService.systemSourceID,
+              currentSong?.sourceID == AppleMusicLibraryService.systemSourceID,
+              currentSong?.id == aliasSongID else { return }
+
+        currentSong = canonical
+        if canonical.duration > 0 { duration = canonical.duration }
+        for index in queueEntries.indices where queueEntries[index].song.id == aliasSongID {
+            queueEntries[index].song = canonical
+        }
+        updateNowPlayingInfo()
+        updatePlaybackState()
     }
 
     // MARK: - Gapless Playback

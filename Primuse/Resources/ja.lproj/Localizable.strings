@@ -1922,3 +1922,13 @@
 "Medium / Large" = "中 / 大";
 "Small" = "小";
 "Wrapped" = "年間まとめ";
+
+// MARK: - macOS appearance material
+"material_liquid_glass" = "リキッドグラス";
+"material_liquid_glass_desc" = "より透明感と奥行きのあるシステム外観。";
+"material_classic" = "クラシック";
+"material_classic_desc" = "見慣れた明瞭な外観。";
+"material_macos_26_or_later" = "macOS 26以降";
+"material_macos_14_or_later" = "macOS 14以降";
+"material_auto_desc" = "このMacが対応する最適な外観を自動的に選びます。";
+"appearance_system_blue" = "システムブルー";

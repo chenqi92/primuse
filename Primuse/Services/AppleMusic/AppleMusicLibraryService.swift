@@ -61,6 +61,7 @@ final class AppleMusicLibraryService {
     private struct LibrarySongFetchResult {
         let songs: [MusicKit.Song]
         let fallbackWarning: String?
+        let syncMode: AppleMusicLibrarySyncMode
     }
 
     enum SyncState: Sendable {
@@ -90,6 +91,11 @@ final class AppleMusicLibraryService {
     /// 不用每次再发 catalog lookup。冷启动后 cache 空, miss 时回退到
     /// MusicCatalogResourceRequest 拉一次。
     private var songCache: [String: MusicKit.Song] = [:]
+    /// Canonical user-library entries only. `songCache` may also contain
+    /// catalog-only tracks discovered through a playlist; using that mixed map
+    /// for identity resolution can accidentally prefer the transient catalog
+    /// object over its stable `i.*` library counterpart.
+    private var canonicalLibrarySongCache: [String: MusicKit.Song] = [:]
 
     init(library: MusicLibrary, appleMusic: AppleMusicService) {
         self.library = library
@@ -303,16 +309,100 @@ final class AppleMusicLibraryService {
     /// ApplicationMusicPlayer.queue.currentEntry.item 给的常常是 catalog Song
     /// (id 是纯数字), 跟我们 sync 拉回来的 user library Song (id `i.*`) 不一样,
     /// 直接用会让下游所有按 id 做 cache lookup 的代码 miss (封面 / 跳转 URL)。
-    /// 在 cache 里按 title + artist 反查找到 user library 那份, 没命中就 fallback
-    /// 返回原 song (功能降级但不崩)。
+    /// 优先使用 MusicKit playParameters 里的 catalog/library ID 交叉映射；字段
+    /// 不完整时再用标准化标题、歌手、专辑和时长做保守匹配。匹配不唯一时宁可
+    /// 返回原 song，也不把歌词关联到另一首同名歌曲。
     func canonicalForNowPlaying(_ s: MusicKit.Song) -> MusicKit.Song {
-        if songCache[s.id.rawValue] != nil { return s }   // 已经是 user library 版
-        if let matched = songCache.values.first(where: { cached in
-            cached.title == s.title && cached.artistName == s.artistName
-        }) {
-            return matched
+        if let exact = canonicalLibrarySongCache[s.id.rawValue] { return exact }
+        let candidates = canonicalLibrarySongCache.values.map(Self.trackIdentity)
+        guard let canonicalID = AppleMusicTrackIdentityResolver.canonicalID(
+            for: Self.trackIdentity(s),
+            in: candidates
+        ) else { return s }
+        return canonicalLibrarySongCache[canonicalID] ?? s
+    }
+
+    /// Canonical Primuse projection used by the player and scrape actions.
+    /// Returning the current MusicLibrary row preserves locally-added fields
+    /// such as `lyricsFileName` instead of rebuilding a bare MusicKit value.
+    func canonicalPrimuseSong(for s: MusicKit.Song) -> PrimuseKit.Song {
+        let projected = Self.toPrimuseSong(canonicalForNowPlaying(s))
+        return library.song(id: projected.id) ?? canonicalLibrarySong(for: projected)
+    }
+
+    /// Defense-in-depth for callers that only have a projected Primuse song
+    /// (for example a scrape button tapped during a MusicKit queue transition).
+    func canonicalLibrarySong(for song: PrimuseKit.Song) -> PrimuseKit.Song {
+        guard song.sourceID == Self.systemSourceID else { return song }
+        if let exact = library.song(id: song.id), exact.sourceID == Self.systemSourceID {
+            return exact
         }
-        return s
+        let librarySongs = library.songs.filter { $0.sourceID == Self.systemSourceID }
+        let candidates = librarySongs.map(Self.trackIdentity)
+        guard let canonicalID = AppleMusicTrackIdentityResolver.canonicalID(
+            for: Self.trackIdentity(song),
+            in: candidates
+        ) else { return song }
+        return library.song(id: canonicalID) ?? song
+    }
+
+    private nonisolated static func trackIdentity(_ song: MusicKit.Song) -> AppleMusicTrackIdentity {
+        AppleMusicTrackIdentity(
+            itemID: song.id.rawValue,
+            alternateIDs: alternateMusicItemIDs(for: song),
+            title: song.title,
+            artist: song.artistName,
+            album: song.albumTitle,
+            duration: song.duration
+        )
+    }
+
+    private nonisolated static func trackIdentity(_ song: PrimuseKit.Song) -> AppleMusicTrackIdentity {
+        AppleMusicTrackIdentity(
+            itemID: song.id,
+            alternateIDs: [song.filePath],
+            title: song.title,
+            artist: song.artistName,
+            album: song.albumTitle,
+            duration: song.duration > 0 ? song.duration : nil
+        )
+    }
+
+    /// `PlayParameters` intentionally exposes no Swift properties, but is
+    /// Codable. Apple includes both the playable/catalog ID and (for library
+    /// items) the library ID in that payload, so decode only the documented ID
+    /// shaped keys and ignore reporting/account fields.
+    private nonisolated static func alternateMusicItemIDs(for song: MusicKit.Song) -> Set<String> {
+        var result: Set<String> = [song.id.rawValue]
+        if let playParameters = song.playParameters,
+           let data = try? JSONEncoder().encode(playParameters),
+           let object = try? JSONSerialization.jsonObject(with: data) {
+            collectMusicItemIDs(from: object, into: &result)
+        }
+        if let url = song.url,
+           let components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            for item in components.queryItems ?? [] where item.name.lowercased() == "i" {
+                if let value = item.value, !value.isEmpty { result.insert(value) }
+            }
+        }
+        return result
+    }
+
+    private nonisolated static func collectMusicItemIDs(from object: Any, into result: inout Set<String>) {
+        if let dictionary = object as? [String: Any] {
+            for (key, value) in dictionary {
+                let normalizedKey = key.lowercased().filter(\.isLetter)
+                if ["id", "catalogid", "globalid", "libraryid"].contains(normalizedKey),
+                   let id = value as? String,
+                   !id.isEmpty {
+                    result.insert(id)
+                } else {
+                    collectMusicItemIDs(from: value, into: &result)
+                }
+            }
+        } else if let array = object as? [Any] {
+            for value in array { collectMusicItemIDs(from: value, into: &result) }
+        }
     }
 
     /// 标记同步又往前走了一步 (拉到一页 / 处理完一个歌单) ── 给看门狗续期。
@@ -381,16 +471,27 @@ final class AppleMusicLibraryService {
             // This is a full snapshot, so replace rather than append. Otherwise
             // tracks removed from Apple Music (including the two stale local
             // rows seen on macOS) remain playable in the in-memory queue.
-            songCache = Dictionary(
+            let fetchedSongCache = Dictionary(
                 uniqueKeysWithValues: allMusicKitSongs.map { ($0.id.rawValue, $0) }
             )
+            if fetchResult.syncMode == .authoritative {
+                songCache = fetchedSongCache
+                canonicalLibrarySongCache = fetchedSongCache
+            } else {
+                // A local-only fallback is incomplete. Keep any canonical
+                // cloud entries already known in this process and merely add
+                // the locally available items.
+                songCache.merge(fetchedSongCache) { _, incoming in incoming }
+                canonicalLibrarySongCache.merge(fetchedSongCache) { _, incoming in incoming }
+            }
             let songs = allMusicKitSongs.map { Self.toPrimuseSong($0) }
             // 把这些歌加进 library, sourceIDs 限定 Apple Music, 让 addSongs
             // 自己处理删除 (Apple Music 删歌的 case 会被检测到)。
             library.addSongs(
                 songs,
                 affectedSourceIDs: [Self.systemSourceID],
-                notifyRemovals: true
+                notifyRemovals: fetchResult.syncMode.shouldPruneMissingSongs,
+                pruneMissingSongs: fetchResult.syncMode.shouldPruneMissingSongs
             )
 
             // 同步生成「Apple Music 资料库」镜像歌单 ── 让用户在资料库 →
@@ -399,10 +500,20 @@ final class AppleMusicLibraryService {
                 id: Self.systemPlaylistID,
                 name: String(localized: "apple_music_library_playlist_name")
             )
-            library.replacePlaylistSongs(
-                playlistID: Self.systemPlaylistID,
-                songIDs: songs.map(\.id)
-            )
+            if fetchResult.syncMode.shouldReplaceMirrorPlaylist {
+                library.replacePlaylistSongs(
+                    playlistID: Self.systemPlaylistID,
+                    songIDs: songs.map(\.id)
+                )
+            } else {
+                var mergedIDs = library.rawSongIDs(forPlaylist: Self.systemPlaylistID)
+                var seenIDs = Set(mergedIDs)
+                mergedIDs.append(contentsOf: songs.map(\.id).filter { seenIDs.insert($0).inserted })
+                library.replacePlaylistSongs(
+                    playlistID: Self.systemPlaylistID,
+                    songIDs: mergedIDs
+                )
+            }
 
             // 临时诊断 ── 摸清同步过来的 cover URL 实际形态, 帮排查"歌没封面"。
             let withCover = songs.filter { $0.coverArtFileName != nil }.count
@@ -412,7 +523,9 @@ final class AppleMusicLibraryService {
             // 拉用户在 Apple Music 里建的 playlists, 每个映射成独立的本地镜像歌单
             // (跟「Apple Music 资料库」全集并存)。tracks 走 .with([.tracks])
             // 延迟加载关系, 失败的 playlist 跳过不阻塞整体 sync。
-            let syncedUserPlaylistCount = await syncUserPlaylists()
+            let syncedUserPlaylistCount = fetchResult.syncMode == .authoritative
+                ? await syncUserPlaylists()
+                : 0
             guard syncGeneration == generation else { return }
 
             lastSyncAt = Date()
@@ -438,17 +551,33 @@ final class AppleMusicLibraryService {
     /// macOS 的 `MusicLibraryRequest` 读取 Music.app 保存在本机的资料库副本。
     /// 用户未打开「同步资料库」时它只会返回本机导入的几首歌，即使同一 Apple
     /// Account 的云端资料库还有很多歌曲。macOS 因此直接请求 Apple Music user
-    /// library API；云端确实为空时才保留旧的本机资料库行为。iOS 的本机副本会
-    /// 跟系统「同步资料库」一致，继续使用系统请求以避免改变现有稳定路径。
+    /// library API；云端失败或意外返回空结果时只合并本机副本，不允许它缩减
+    /// 已持久化的云端资料库。iOS 的本机副本会跟系统「同步资料库」一致，继续
+    /// 使用系统请求以避免改变现有稳定路径。
     private func fetchLibrarySongs() async throws -> LibrarySongFetchResult {
         #if os(macOS)
         do {
             let cloudSongs: [MusicKit.Song] = try await fetchCloudLibraryItems(endpoint: .songs)
             if !cloudSongs.isEmpty {
                 plog("🎵 Apple Music cloud library fetched: \(cloudSongs.count) songs")
-                return LibrarySongFetchResult(songs: cloudSongs, fallbackWarning: nil)
+                return LibrarySongFetchResult(
+                    songs: cloudSongs,
+                    fallbackWarning: nil,
+                    syncMode: .authoritative
+                )
             }
-            plog("🎵 Apple Music cloud library is empty; falling back to the local Music library")
+            plog("⚠️Apple Music cloud library is empty; preserving the existing library and merging the local Music library")
+            let localSongs = try await fetchDeviceLibrarySongs()
+            let warning = String(
+                format: String(localized: "apple_music_cloud_library_unavailable_format"),
+                "—",
+                localSongs.count
+            )
+            return LibrarySongFetchResult(
+                songs: localSongs,
+                fallbackWarning: warning,
+                syncMode: .partialFallback
+            )
         } catch is CancellationError {
             throw CancellationError()
         } catch let error as MusicDataRequest.Error {
@@ -460,7 +589,11 @@ final class AppleMusicLibraryService {
                 String(describing: error.code),
                 localSongs.count
             )
-            return LibrarySongFetchResult(songs: localSongs, fallbackWarning: warning)
+            return LibrarySongFetchResult(
+                songs: localSongs,
+                fallbackWarning: warning,
+                syncMode: .partialFallback
+            )
         } catch {
             plog("⚠️Apple Music cloud API failed: \(String(reflecting: error)); falling back to local Music library")
             let localSongs = try await fetchDeviceLibrarySongs()
@@ -469,13 +602,19 @@ final class AppleMusicLibraryService {
                 "—",
                 localSongs.count
             )
-            return LibrarySongFetchResult(songs: localSongs, fallbackWarning: warning)
+            return LibrarySongFetchResult(
+                songs: localSongs,
+                fallbackWarning: warning,
+                syncMode: .partialFallback
+            )
         }
-        #endif
+        #else
         return LibrarySongFetchResult(
             songs: try await fetchDeviceLibrarySongs(),
-            fallbackWarning: nil
+            fallbackWarning: nil,
+            syncMode: .authoritative
         )
+        #endif
     }
 
     private func fetchDeviceLibrarySongs() async throws -> [MusicKit.Song] {
@@ -611,7 +750,11 @@ final class AppleMusicLibraryService {
                 guard case let .song(s) = track else { return nil }
                 // 顺手填 cache (有些用户歌单里的 song 可能不在 user library 全集)
                 songCache[s.id.rawValue] = s
-                return Self.toPrimuseSong(s).id
+                // Playlist relationships may expose catalog songs even when
+                // the same track exists as an `i.*` user-library item. Store
+                // the relationship with the canonical ID so the mirrored
+                // playlist continues to reference the persisted library row.
+                return Self.toPrimuseSong(canonicalForNowPlaying(s)).id
             }
             if songIDs.isEmpty {
                 return .empty(id: pid, name: amPlaylist.name)

@@ -69,6 +69,11 @@ final class AppleMusicService {
     /// AudioPlayerService.currentSong 是两套, 但 AudioPlayerService 会做镜像把这
     /// 个值同步到自己的 currentSong, 让 NowPlayingView 复用同一个 player。
     private(set) var nowPlayingSong: MusicKit.Song?
+    /// Primuse song ID projected directly from MusicKit's raw current entry.
+    /// When it differs from the canonical library projection,
+    /// AudioPlayerService uses it once to rescue metadata cached by older
+    /// builds under the transient catalog-derived ID.
+    private(set) var nowPlayingRawSongID: String?
     /// Apple Music 是否正在播放 (从 ApplicationMusicPlayer.playbackStatus 转过来)。
     private(set) var isAppleMusicPlaying: Bool = false
     /// ApplicationMusicPlayer.playbackTime 镜像 ── AudioPlayerService 通过观察这个
@@ -343,6 +348,7 @@ final class AppleMusicService {
         hasObservedActivePlayback = false
         ApplicationMusicPlayer.shared.stop()
         nowPlayingSong = nil
+        nowPlayingRawSongID = nil
         isAppleMusicPlaying = false
         currentPlaybackTime = 0
         currentDuration = 0
@@ -401,6 +407,10 @@ final class AppleMusicService {
                  // 反查 cache 拿 user library 版本 (i.* id), 保证下游 CachedArtworkView
                  // / catalogURL 等按 id 查 cache 的逻辑能命中。
                  let canonical = AppServices.shared.appleMusicLibrary.canonicalForNowPlaying(s)
+                 let rawSongID = AppleMusicLibraryService.toPrimuseSong(s).id
+                 if nowPlayingRawSongID != rawSongID {
+                     nowPlayingRawSongID = rawSongID
+                 }
                  if nowPlayingSong?.id != canonical.id {
                      nowPlayingSong = canonical
                  }
@@ -425,7 +435,8 @@ final class AppleMusicService {
                  if case .song(let s) = entry.item { return s }
                  return nil
              }
-             let projected = snapshot.map { AppleMusicLibraryService.toPrimuseSong($0) }
+             let libraryService = AppServices.shared.appleMusicLibrary
+             let projected = snapshot.map { libraryService.canonicalPrimuseSong(for: $0) }
              if projected.map(\.id) != queueSongs.map(\.id) {
                  queueSongs = projected
              }
