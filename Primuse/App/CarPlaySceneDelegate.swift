@@ -107,12 +107,9 @@ extension CarPlaySceneDelegate: CPTemplateApplicationSceneDelegate {
 
 // MARK: - Now Playing observer (Up Next + Album/Artist tap)
 
-// CarPlay's observer / delegate protocols are not yet `@MainActor` /
-// `Sendable`-annotated, so a strict-concurrency conformance from our
-// `@MainActor` class trips a "crosses into main actor-isolated code"
-// error. `@preconcurrency` lets us declare the conformance under the old
-// rules; remove once Apple updates the SDK annotations.
-extension CarPlaySceneDelegate: @preconcurrency CPNowPlayingTemplateObserver {
+// Keep the SDK callbacks nonisolated and explicitly hop to the main actor;
+// CarPlay may deliver them from a framework-owned executor.
+extension CarPlaySceneDelegate: CPNowPlayingTemplateObserver {
     nonisolated func nowPlayingTemplateUpNextButtonTapped(_ nowPlayingTemplate: CPNowPlayingTemplate) {
         Task { @MainActor [weak self] in
             self?.pushQueueTemplate()
@@ -256,8 +253,8 @@ extension CarPlaySceneDelegate {
     }
 
     /// Wraps `pushTemplate` so completion errors (max nav depth, duplicate
-    /// singleton push, etc.) are logged instead of bubbling up as
-    /// uncaught NSExceptions inside the framework's completion block.
+    /// singleton push, etc.) are logged instead of becoming an uncaught
+    /// framework exception.
     private func safePush(_ template: CPTemplate, label: String) {
         interfaceController?.pushTemplate(template, animated: true) { success, error in
             if let error {
@@ -647,18 +644,27 @@ extension CarPlaySceneDelegate {
         }
     }
 
-    /// Pushes `CPNowPlayingTemplate.shared` only if it's not already the
-    /// top template. The framework asserts when the same singleton is
-    /// pushed twice (the system "Now Playing" sidebar icon pushes it too —
-    /// our own push then collides and throws an NSException through the
-    /// interface controller completion handler).
+    /// Shows `CPNowPlayingTemplate.shared` without ever inserting the
+    /// singleton twice. It can already exist below an Up Next or search page;
+    /// checking only `topTemplate` then pushes the same instance again and
+    /// CarPlay rejects it. Pop to the existing instance when it is already in
+    /// the navigation hierarchy, otherwise push it for the first time.
     private func pushNowPlayingIfNeeded() {
         guard let ic = interfaceController else { return }
-        if ic.topTemplate === CPNowPlayingTemplate.shared {
+        let nowPlaying = CPNowPlayingTemplate.shared
+        if ic.topTemplate === nowPlaying {
             carplayLog.notice("📱 NowPlaying already on top, skipping push")
             return
         }
-        ic.pushTemplate(CPNowPlayingTemplate.shared, animated: true) { success, error in
+        if ic.templates.contains(where: { $0 === nowPlaying }) {
+            ic.pop(to: nowPlaying, animated: true) { success, error in
+                if let error {
+                    carplayLog.error("📱 popToTemplate(NowPlaying) failed: \(error.localizedDescription, privacy: .public)")
+                }
+            }
+            return
+        }
+        ic.pushTemplate(nowPlaying, animated: true) { success, error in
             if let error {
                 carplayLog.error("📱 pushTemplate(NowPlaying) failed: \(error.localizedDescription, privacy: .public)")
             }
