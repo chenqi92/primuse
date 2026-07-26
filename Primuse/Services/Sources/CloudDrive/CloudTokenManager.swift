@@ -134,14 +134,16 @@ actor CloudTokenManager {
     // MARK: - Keychain helpers
 
     private func keychainRead(key: String) -> Data? {
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: key,
             kSecAttrService as String: Self.serviceName,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecAttrSynchronizable as String: Self.synchronizableLookupValue,
         ]
+        if Self.supportsSynchronizableKeychainAttributes {
+            query[kSecAttrSynchronizable as String] = Self.synchronizableLookupValue
+        }
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         guard status == errSecSuccess else { return nil }
@@ -156,44 +158,56 @@ actor CloudTokenManager {
     private func keychainWrite(key: String, data: Data) -> Bool {
         keychainDelete(key: key) // Remove existing (both sync and non-sync variants)
         let synchronizable = CloudSyncChannel.usesSynchronizableKeychain()
-        let query: [String: Any] = [
+            && Self.supportsSynchronizableKeychainAttributes
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: key,
             kSecAttrService as String: Self.serviceName,
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
-            kSecAttrSynchronizable as String: synchronizable ? kCFBooleanTrue as Any : kCFBooleanFalse as Any,
         ]
+        if Self.supportsSynchronizableKeychainAttributes {
+            query[kSecAttrSynchronizable as String] = synchronizable
+                ? kCFBooleanTrue as Any
+                : kCFBooleanFalse as Any
+        }
         return Self.addKeychainItem(query, synchronizable: synchronizable, key: key)
     }
 
     @discardableResult
     private func keychainWriteLocal(key: String, data: Data) -> Bool {
         keychainDelete(key: key)
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: key,
             kSecAttrService as String: Self.serviceName,
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
-            kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
         ]
+        if Self.supportsSynchronizableKeychainAttributes {
+            query[kSecAttrSynchronizable as String] = kCFBooleanFalse as Any
+        }
         return Self.addKeychainItem(query, synchronizable: false, key: key)
     }
 
     private func keychainDelete(key: String) {
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: key,
             kSecAttrService as String: Self.serviceName,
-            kSecAttrSynchronizable as String: Self.synchronizableLookupValue,
         ]
+        if Self.supportsSynchronizableKeychainAttributes {
+            query[kSecAttrSynchronizable as String] = Self.synchronizableLookupValue
+        }
         SecItemDelete(query as CFDictionary)
     }
 
     /// Re-write any pre-iCloud (non-synchronizable) cloud-token entries as synchronizable.
     /// Idempotent — safe to call on every launch.
     nonisolated static func migrateLegacyEntriesToICloud() {
+        #if targetEnvironment(simulator)
+        return
+        #else
         let copyQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: serviceName,
@@ -228,6 +242,7 @@ actor CloudTokenManager {
             ]
             _ = addKeychainItem(addQuery, synchronizable: true, key: account)
         }
+        #endif
     }
 
     @discardableResult
@@ -256,5 +271,13 @@ actor CloudTokenManager {
             return kSecAttrSynchronizableAny
         }
         return kCFBooleanFalse as Any
+    }
+
+    private nonisolated static var supportsSynchronizableKeychainAttributes: Bool {
+        #if targetEnvironment(simulator)
+        false
+        #else
+        true
+        #endif
     }
 }

@@ -44,14 +44,19 @@ enum KeychainService {
         // on iCloud Keychain stay there — that's a system-level decision the
         // user has to revisit in iOS Settings.
         let synchronizable = CloudSyncChannel.usesSynchronizableKeychain()
-        let addQuery: [String: Any] = [
+            && Self.supportsSynchronizableKeychainAttributes
+        var addQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: PrimuseConstants.keychainServiceName,
             kSecAttrAccount as String: account,
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
-            kSecAttrSynchronizable as String: synchronizable ? kCFBooleanTrue as Any : kCFBooleanFalse as Any,
         ]
+        if Self.supportsSynchronizableKeychainAttributes {
+            addQuery[kSecAttrSynchronizable as String] = synchronizable
+                ? kCFBooleanTrue as Any
+                : kCFBooleanFalse as Any
+        }
         addPasswordItem(addQuery, synchronizable: synchronizable, account: account)
     }
 
@@ -68,15 +73,17 @@ enum KeychainService {
         // is the most-recently-written copy whenever the `credentials` channel
         // was toggled off, so it must win over a possibly-stale synchronizable
         // copy left over from when the channel was on.
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: PrimuseConstants.keychainServiceName,
             kSecAttrAccount as String: account,
             kSecReturnData as String: true,
             kSecReturnAttributes as String: true,
             kSecMatchLimit as String: kSecMatchLimitAll,
-            kSecAttrSynchronizable as String: kSecAttrSynchronizableAny,
         ]
+        if Self.supportsSynchronizableKeychainAttributes {
+            query[kSecAttrSynchronizable as String] = kSecAttrSynchronizableAny
+        }
 
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
@@ -112,12 +119,14 @@ enum KeychainService {
         // password change would only touch the local copy while the old
         // synchronizable copy keeps syncing the expired password to other
         // devices (and can resurface via `getPassword`'s Any-match).
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: PrimuseConstants.keychainServiceName,
             kSecAttrAccount as String: account,
-            kSecAttrSynchronizable as String: kSecAttrSynchronizableAny,
         ]
+        if Self.supportsSynchronizableKeychainAttributes {
+            query[kSecAttrSynchronizable as String] = kSecAttrSynchronizableAny
+        }
         SecItemDelete(query as CFDictionary)
     }
 
@@ -142,6 +151,12 @@ enum KeychainService {
     /// Re-write any pre-iCloud (non-synchronizable) entries as synchronizable so they
     /// sync forward to other devices. Idempotent — safe to call on every launch.
     static func migrateLegacyEntriesToICloud() {
+        #if targetEnvironment(simulator)
+        // Simulator apps are ad-hoc signed without the synchronizable-keychain
+        // entitlement. Local generic-password items still work as long as the
+        // synchronizable attribute is omitted entirely.
+        return
+        #else
         let copyQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: PrimuseConstants.keychainServiceName,
@@ -170,5 +185,14 @@ enum KeychainService {
 
             setPassword(password, for: account)
         }
+        #endif
+    }
+
+    private static var supportsSynchronizableKeychainAttributes: Bool {
+        #if targetEnvironment(simulator)
+        false
+        #else
+        true
+        #endif
     }
 }
