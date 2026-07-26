@@ -894,6 +894,12 @@ actor LibrarySearchIndex {
                 }
             }
             lastMetadataRevisionKey = revisionKey
+        } catch is CancellationError {
+            // Search requests and metadata snapshots are intentionally
+            // replaceable. GRDB observes the parent task cancellation while
+            // writing and rolls the transaction back; the next snapshot will
+            // retry it. Do not report this normal hand-off as an index error.
+            return
         } catch {
             plog("🔎 Metadata index sync failed: \(error.localizedDescription)")
         }
