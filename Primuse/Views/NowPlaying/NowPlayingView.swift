@@ -377,27 +377,15 @@ struct NowPlayingView: View {
                 }
                 Spacer()
                 musicVideoToggleButton(font: .title2, trailing: 6)
-                if !player.isAppleMusicMode {
-                    Button { showScrapeOptions = true } label: {
-                        Image(systemName: isScrapingCurrentSong ? "wand.and.stars.inverse" : "wand.and.stars")
-                            .font(.title2)
-                            .foregroundStyle(.white.opacity(isScrapingCurrentSong ? 0.4 : 0.6))
-                            .symbolEffect(.pulse, options: .repeating, isActive: isScrapingCurrentSong)
-                    }
-                    .disabled(player.currentSong == nil || isScrapingCurrentSong)
-                    .padding(.trailing, 6)
-                    .accessibilityLabel(Text("scrape_song"))
-                } else if let url = appleMusicCatalogURL {
-                    // Apple Music 歌没有刮削概念 ── 给一个跳转按钮, 用户去
-                    // Apple Music app 里看官方歌词 / 加收藏 / 查艺人。
-                    Button { openURL(url) } label: {
-                        Image(systemName: "arrow.up.right.square")
-                            .font(.title2)
-                            .foregroundStyle(.white.opacity(0.6))
-                    }
-                    .padding(.trailing, 6)
-                    .accessibilityLabel(Text("apple_music_open_in_app"))
+                Button { openScrapeForCurrentSong() } label: {
+                    Image(systemName: isScrapingCurrentSong ? "wand.and.stars.inverse" : "wand.and.stars")
+                        .font(.title2)
+                        .foregroundStyle(.white.opacity(isScrapingCurrentSong ? 0.4 : 0.6))
+                        .symbolEffect(.pulse, options: .repeating, isActive: isScrapingCurrentSong)
                 }
+                .disabled(player.currentSong == nil || isScrapingCurrentSong)
+                .padding(.trailing, 6)
+                .accessibilityLabel(Text("scrape_song"))
                 Button { toggleLikedCurrent() } label: {
                     Image(systemName: isCurrentLiked ? "heart.fill" : "heart")
                         .font(.title2)
@@ -574,25 +562,15 @@ struct NowPlayingView: View {
 
                             musicVideoToggleButton(font: .title3, trailing: 4)
 
-                            if !player.isAppleMusicMode {
-                                Button { showScrapeOptions = true } label: {
-                                    Image(systemName: isScrapingCurrentSong ? "wand.and.stars.inverse" : "wand.and.stars")
-                                        .font(.title3)
-                                        .foregroundStyle(.white.opacity(isScrapingCurrentSong ? 0.4 : 0.6))
-                                        .symbolEffect(.pulse, options: .repeating, isActive: isScrapingCurrentSong)
-                                }
-                                .disabled(player.currentSong == nil || isScrapingCurrentSong)
-                                .padding(.trailing, 4)
-                                .accessibilityLabel(Text("scrape_song"))
-                            } else if let url = appleMusicCatalogURL {
-                                Button { openURL(url) } label: {
-                                    Image(systemName: "arrow.up.right.square")
-                                        .font(.title3)
-                                        .foregroundStyle(.white.opacity(0.6))
-                                }
-                                .padding(.trailing, 4)
-                                .accessibilityLabel(Text("apple_music_open_in_app"))
+                            Button { openScrapeForCurrentSong() } label: {
+                                Image(systemName: isScrapingCurrentSong ? "wand.and.stars.inverse" : "wand.and.stars")
+                                    .font(.title3)
+                                    .foregroundStyle(.white.opacity(isScrapingCurrentSong ? 0.4 : 0.6))
+                                    .symbolEffect(.pulse, options: .repeating, isActive: isScrapingCurrentSong)
                             }
+                            .disabled(player.currentSong == nil || isScrapingCurrentSong)
+                            .padding(.trailing, 4)
+                            .accessibilityLabel(Text("scrape_song"))
 
                             Button { toggleLikedCurrent() } label: {
                                 Image(systemName: isCurrentLiked ? "heart.fill" : "heart")
@@ -647,25 +625,15 @@ struct NowPlayingView: View {
                             musicVideoToggleButton(font: .title2, trailing: 6)
 
                             // Scrape button (主屏抽出, 不再藏在 ··· 菜单里)
-                            if !player.isAppleMusicMode {
-                                Button { showScrapeOptions = true } label: {
-                                    Image(systemName: isScrapingCurrentSong ? "wand.and.stars.inverse" : "wand.and.stars")
-                                        .font(.title2)
-                                        .foregroundStyle(.white.opacity(isScrapingCurrentSong ? 0.4 : 0.6))
-                                        .symbolEffect(.pulse, options: .repeating, isActive: isScrapingCurrentSong)
-                                }
-                                .disabled(player.currentSong == nil || isScrapingCurrentSong)
-                                .padding(.trailing, 6)
-                                .accessibilityLabel(Text("scrape_song"))
-                            } else if let url = appleMusicCatalogURL {
-                                Button { openURL(url) } label: {
-                                    Image(systemName: "arrow.up.right.square")
-                                        .font(.title2)
-                                        .foregroundStyle(.white.opacity(0.6))
-                                }
-                                .padding(.trailing, 6)
-                                .accessibilityLabel(Text("apple_music_open_in_app"))
+                            Button { openScrapeForCurrentSong() } label: {
+                                Image(systemName: isScrapingCurrentSong ? "wand.and.stars.inverse" : "wand.and.stars")
+                                    .font(.title2)
+                                    .foregroundStyle(.white.opacity(isScrapingCurrentSong ? 0.4 : 0.6))
+                                    .symbolEffect(.pulse, options: .repeating, isActive: isScrapingCurrentSong)
                             }
+                            .disabled(player.currentSong == nil || isScrapingCurrentSong)
+                            .padding(.trailing, 6)
+                            .accessibilityLabel(Text("scrape_song"))
 
                             // Like button
                             Button { toggleLikedCurrent() } label: {
@@ -915,6 +883,7 @@ struct NowPlayingView: View {
             songID: player.currentSong?.id,
             hasSong: player.currentSong != nil,
             isAppleMusicMode: player.isAppleMusicMode,
+            appleMusicCatalogURL: appleMusicCatalogURL,
             showsLyricsPreferences: showLyrics,
             albumID: currentAlbum?.id,
             artistID: currentArtist?.id,
@@ -946,6 +915,10 @@ struct NowPlayingView: View {
             onOpenArtist: {
                 guard let artist = currentArtist else { return }
                 onOpenArtist?(artist)
+            },
+            onOpenInAppleMusic: {
+                guard let url = appleMusicCatalogURL else { return }
+                openURL(url)
             },
             onShowCastPicker: { showCastPicker = true },
             onToggleLyricsTranslation: {
@@ -1271,6 +1244,20 @@ struct NowPlayingView: View {
     }
 
 
+
+    /// Local/network sources keep the full candidate-based scrape sheet.
+    /// A MusicKit cloud song has no readable audio URL, so its matching top-bar
+    /// button runs the supported lyrics-only path directly. This keeps the
+    /// control in the same position for every source without routing Apple
+    /// Music through a file-based workflow that cannot succeed.
+    private func openScrapeForCurrentSong() {
+        guard player.currentSong != nil, !isScrapingCurrentSong else { return }
+        if player.isAppleMusicMode {
+            Task { await scrapeCurrentSong() }
+        } else {
+            showScrapeOptions = true
+        }
+    }
 
     private func scrapeCurrentSong() async {
         guard let displayedSong = player.currentSong else { return }
@@ -2103,6 +2090,7 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let songID: String?
     let hasSong: Bool
     let isAppleMusicMode: Bool
+    let appleMusicCatalogURL: URL?
     let showsLyricsPreferences: Bool
     let albumID: String?
     let artistID: String?
@@ -2130,6 +2118,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let onShowSongInfo: () -> Void
     let onOpenAlbum: () -> Void
     let onOpenArtist: () -> Void
+    let onOpenInAppleMusic: () -> Void
     let onShowCastPicker: () -> Void
     let onToggleLyricsTranslation: () -> Void
     let onShowSleepTimer: () -> Void
@@ -2175,6 +2164,15 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                 if snapshot.canOpenArtist {
                     Button(action: onOpenArtist) {
                         Label(String(localized: "go_to_artist"), systemImage: "music.mic")
+                    }
+                }
+
+                if snapshot.appleMusicCatalogURL != nil {
+                    Button(action: onOpenInAppleMusic) {
+                        Label(
+                            String(localized: "apple_music_open_in_app"),
+                            systemImage: "arrow.up.right.square"
+                        )
                     }
                 }
 
@@ -2365,6 +2363,10 @@ struct LyricsScrollView: View {
             wordLineFrames = [:]
             lyricRowHitFrames = [:]
             manualWordOffset = nil
+            wordDragStartOffset = 0
+            lastUserScrollTime = .distantPast
+            lyricsPinchScale = 1
+            isPinchingLyrics = false
             wordAutoFollowResumeTask?.cancel()
             lineAutoFollowResumeTask?.cancel()
         }
@@ -2428,7 +2430,7 @@ struct LyricsScrollView: View {
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 12) {
                         // Give the first and last rows enough physical room to
-                        // reach the same 42% visual anchor as every middle row.
+                        // reach the same visual anchor as every middle row.
                         Spacer().frame(height: geo.size.height * Self.lyricsVisualAnchor)
 
                         ForEach(Array(lyrics.enumerated()), id: \.element.id) { index, line in
@@ -2460,14 +2462,33 @@ struct LyricsScrollView: View {
                 .simultaneousGesture(
                     DragGesture(minimumDistance: 4)
                         .onChanged { _ in
-                            lineAutoFollowResumeTask?.cancel()
-                            lastUserScrollTime = Date()
+                            beginLineManualBrowsing()
                         }
                         .onEnded { _ in
-                            lastUserScrollTime = Date()
-                            scheduleLineAutoFollowResume(proxy: proxy)
+                            endLineManualBrowsing(proxy: proxy)
                         }
                 )
+                // DragGesture.onEnded describes the finger, not the actual
+                // ScrollView. Momentum can continue afterwards, and an
+                // interrupted gesture may never deliver onEnded. Observe the
+                // native scroll phase so auto-follow always resumes from the
+                // latest lyric after scrolling really becomes idle.
+                .onScrollPhaseChange { oldPhase, newPhase in
+                    switch newPhase {
+                    case .tracking, .interacting, .decelerating:
+                        beginLineManualBrowsing()
+                    case .idle:
+                        if oldPhase == .tracking
+                            || oldPhase == .interacting
+                            || oldPhase == .decelerating {
+                            endLineManualBrowsing(proxy: proxy)
+                        }
+                    case .animating:
+                        // Programmatic scrollTo animation is auto-follow, not
+                        // a reason to enter manual browsing mode.
+                        break
+                    }
+                }
                 .onChange(of: currentLineIndex) { _, idx in
                     guard !isPinchingLyrics, idx < lyrics.count else { return }
                     // 用户手动滚动后 manualScrollGracePeriod 内不要把视图拽回当前行,
@@ -2608,6 +2629,9 @@ struct LyricsScrollView: View {
                 }
                 manualWordOffset = wordDragStartOffset + value.translation.height
                 lastUserScrollTime = Date()
+                // Keep a watchdog armed even if the system cancels the gesture
+                // and SwiftUI never calls onEnded. The latest movement wins.
+                scheduleWordAutoFollowResume()
             }
             .onEnded { _ in
                 if let cur = manualWordOffset {
@@ -2635,6 +2659,16 @@ struct LyricsScrollView: View {
 
     private var lineLevelScrollIdentity: String {
         "\(songID ?? "")|\(lyrics.first?.id ?? "")|\(lyrics.last?.id ?? "")|\(lyrics.count)"
+    }
+
+    private func beginLineManualBrowsing() {
+        lineAutoFollowResumeTask?.cancel()
+        lastUserScrollTime = Date()
+    }
+
+    private func endLineManualBrowsing(proxy: ScrollViewProxy) {
+        lastUserScrollTime = Date()
+        scheduleLineAutoFollowResume(proxy: proxy)
     }
 
     private func scheduleLineAutoFollowResume(
@@ -2896,7 +2930,10 @@ struct LyricsScrollView: View {
     private static let lineLevelLookahead: TimeInterval = 0.25
     private static let wordLevelLineLookahead: TimeInterval = 0.10
     private static let wordLevelScrollDuration: TimeInterval = 0.54
-    private static let lyricsVisualAnchor: CGFloat = 0.42
+    /// Keep the active line in the upper-middle of the compact phone viewport.
+    /// 42% left too little room for upcoming lyrics once the header and bottom
+    /// controls were present, which made a missed follow update more obvious.
+    private static let lyricsVisualAnchor: CGFloat = 0.36
     /// active 行放大倍数。1.08 时一行满宽 (≈viewport-48) 向右长出约 7%,
     /// 仍落在 24pt 水平 padding 内, 不会被外层 .clipped() 切到。再大就要防裁切。
     private static let wordLevelActiveScale: CGFloat = 1.08
