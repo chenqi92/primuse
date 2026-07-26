@@ -106,7 +106,9 @@ final class MiniPlayerWindowController: NSWindowController, NSWindowDelegate {
             ctx.allowsImplicitAnimation = true
             window.animator().setFrame(newFrame, display: true)
         } completionHandler: { [weak window] in
-            window?.invalidateShadow()
+            Task { @MainActor in
+                window?.invalidateShadow()
+            }
         }
     }
 

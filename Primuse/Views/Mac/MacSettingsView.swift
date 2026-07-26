@@ -676,7 +676,9 @@ private struct MacSTPlaybackView: View {
                             formatter: { "\(Int($0)) MB" }
                         )
                         MacSTButton(title: Lz("Clean Up Now")) {
-                            AudioCacheManager.shared.clearAll()
+                            Task {
+                                await AudioCacheManager.shared.clearAll()
+                            }
                         }
                     }
                     MacSTRow(Lz("Prewarm queue head")) {

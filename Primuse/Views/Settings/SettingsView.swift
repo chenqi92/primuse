@@ -558,7 +558,7 @@ struct MetadataScrapingView: View {
                         TextEditor(text: $importText)
                             .font(.system(.caption, design: .monospaced))
                             .frame(minHeight: 200)
-                            .autocapitalization(.none)
+                            .textInputAutocapitalization(.never)
                     } footer: {
                         Text("scraper_import_auto_footer")
                     }

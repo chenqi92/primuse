@@ -478,7 +478,6 @@ struct PrimuseApp: App {
         #endif
     }
 
-    @ViewBuilder
     private func injectServices<V: View>(@ViewBuilder _ content: () -> V) -> some View {
         // On macOS we deliberately don't force the global tint to the brand
         // purple — letting SwiftUI fall through to the user's system accent

@@ -343,10 +343,7 @@ final class SSLTrustStore {
     }
 
     nonisolated private static func leafCertificate(from trust: SecTrust) -> SecCertificate? {
-        if #available(macOS 12.0, iOS 15.0, *) {
-            return (SecTrustCopyCertificateChain(trust) as? [SecCertificate])?.first
-        }
-        return SecTrustGetCertificateAtIndex(trust, 0)
+        (SecTrustCopyCertificateChain(trust) as? [SecCertificate])?.first
     }
 
     nonisolated private static func certificateExpiry(_ certificate: SecCertificate) -> Date? {

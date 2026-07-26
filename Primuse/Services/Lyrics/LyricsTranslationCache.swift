@@ -126,7 +126,7 @@ final class LyricsTranslationCache {
         saveTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(2))
             guard !Task.isCancelled else { return }
-            await self?.saveNow()
+            self?.saveNow()
         }
     }
 

@@ -133,7 +133,7 @@ final class WatchSessionBridge: NSObject {
 
     private func push(song: Song?, isPlaying: Bool, isLoading: Bool,
                       lyric: String, includeCover: Bool) {
-        guard let player else { return }
+        guard player != nil else { return }
 
         // 先发不带封面的状态: 文字 / 播放状态 / 歌词立刻到 watch, 不被封面
         // 磁盘读取 + 解码 + 缩放 + JPEG 编码 (可能数百毫秒) 阻塞。

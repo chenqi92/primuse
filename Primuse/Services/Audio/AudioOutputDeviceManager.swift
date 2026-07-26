@@ -52,8 +52,10 @@ final class AudioOutputDeviceManager {
     private(set) var systemDefaultID: AudioDeviceID?
 
     /// 已注册的监听 (block + address)，deinit 时逐个注销，避免随视图反复创建而泄漏。
-    /// nonisolated(unsafe): 仅在 @MainActor 的 init/installListener 写入、deinit 读取一次，
-    /// 无并发访问，故安全地让 nonisolated 的 deinit 能注销监听。
+    /// 仅在 @MainActor 的 init/installListener 写入、deinit 读取一次，无并发访问。
+    /// 监听句柄不是 UI 状态，不应让 Observation 宏生成隔离的 backing storage；
+    /// 显式忽略后，nonisolated(unsafe) 只用于允许 deinit 注销这些系统监听。
+    @ObservationIgnored
     nonisolated(unsafe) private var registeredListeners: [(block: AudioObjectPropertyListenerBlock, address: AudioObjectPropertyAddress)] = []
 
     init() {

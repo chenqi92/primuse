@@ -29,7 +29,7 @@ typedef NSData * _Nullable (^CloudInputFetchBlock)(int64_t offset, int64_t lengt
 /// `url` is informational only (we never actually open it on disk).
 - (instancetype)initWithURL:(nullable NSURL *)url
                 totalLength:(int64_t)totalLength
-                 fetchBlock:(CloudInputFetchBlock)fetchBlock NS_DESIGNATED_INITIALIZER;
+                 fetchBlock:(CloudInputFetchBlock)fetchBlock;
 
 @end
 

@@ -788,7 +788,7 @@ private struct PMHorizontalDragScroll: NSViewRepresentable {
     final class Coordinator: NSObject {
         weak var scrollView: NSScrollView?
 
-        @objc func handlePan(_ gesture: NSPanGestureRecognizer) {
+        @MainActor @objc func handlePan(_ gesture: NSPanGestureRecognizer) {
             guard let sv = scrollView, let doc = sv.documentView else { return }
             let translation = gesture.translation(in: sv)
             let clip = sv.contentView

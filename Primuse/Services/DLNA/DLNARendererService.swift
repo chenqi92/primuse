@@ -749,7 +749,8 @@ final class DLNARendererService {
         var copy = addr
         var buf = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
         inet_ntop(AF_INET, &copy, &buf, socklen_t(INET_ADDRSTRLEN))
-        return String(cString: buf)
+        let bytes = buf.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
+        return String(decoding: bytes, as: UTF8.self)
     }
 
     // MARK: - HTTP

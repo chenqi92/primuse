@@ -217,13 +217,18 @@ final class SpotlightIndexService {
             ]) { _ in continuation.resume() }
         }
 
-        let finalItems = items // 让闭包捕获 immutable let,不再触发并发警告
+        let finalItems = items
+        // `CSSearchableItem` is not Sendable. The indexing API consumes the
+        // array synchronously, but its completion handler is @Sendable; keep
+        // that handler limited to the Sendable count instead of implicitly
+        // capturing the whole item array just for logging.
+        let finalItemCount = finalItems.count
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             index.indexSearchableItems(finalItems) { error in
                 if let error {
                     spotlightLog.error("Spotlight index failed: \(error.localizedDescription)")
                 } else {
-                    spotlightLog.notice("Spotlight indexed \(finalItems.count) items")
+                    spotlightLog.notice("Spotlight indexed \(finalItemCount) items")
                 }
                 continuation.resume()
             }

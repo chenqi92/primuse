@@ -205,7 +205,9 @@ final class TVConfigServer: @unchecked Sendable {
                 var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
                 if getnameinfo(sa, socklen_t(sa.pointee.sa_len), &host, socklen_t(host.count),
                                nil, 0, NI_NUMERICHOST) == 0 {
-                    candidates.append((name, String(cString: host)))
+                    let terminator = host.firstIndex(of: 0) ?? host.endIndex
+                    let bytes = host[..<terminator].map { UInt8(bitPattern: $0) }
+                    candidates.append((name, String(decoding: bytes, as: UTF8.self)))
                 }
             }
             ptr = ifa.ifa_next

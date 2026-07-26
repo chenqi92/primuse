@@ -81,7 +81,7 @@ actor FnOSAPI {
     }
 
     func listDirectory(path: String) async throws -> [FileItem] {
-        guard let token else { throw SourceError.connectionFailed("Not logged in") }
+        guard token != nil else { throw SourceError.connectionFailed("Not logged in") }
 
         // 平铺式音乐目录单层超过 1000 个文件很常见, 必须翻页到尾,
         // 否则超出 limit 的歌永远扫不进库且无任何提示。
