@@ -4,6 +4,62 @@ import PrimuseKit
 import UIKit
 #endif
 
+/// Serializes sidecar writes per source and opens a session-only circuit after
+/// a credential/permission failure. This prevents an eight-song publication
+/// batch from creating eight SMB sessions and repeating the same rejected
+/// write hundreds or thousands of times.
+private actor SidecarWriteCircuitBreaker {
+    private struct SourceState {
+        var isRunning = false
+        var isUnavailable = false
+        var waiters: [CheckedContinuation<Bool, Never>] = []
+    }
+
+    private var states: [String: SourceState] = [:]
+
+    func acquire(sourceID: String) async -> Bool {
+        var state = states[sourceID, default: SourceState()]
+        if state.isUnavailable {
+            return false
+        }
+        if !state.isRunning {
+            state.isRunning = true
+            states[sourceID] = state
+            return true
+        }
+        return await withCheckedContinuation { continuation in
+            state.waiters.append(continuation)
+            states[sourceID] = state
+        }
+    }
+
+    /// Returns true only for the operation that opened the circuit, allowing
+    /// one concise diagnostic instead of one warning per song.
+    func release(sourceID: String, sourceUnavailable: Bool) -> Bool {
+        var state = states[sourceID, default: SourceState()]
+        let didOpenCircuit = sourceUnavailable && !state.isUnavailable
+        state.isUnavailable = state.isUnavailable || sourceUnavailable
+
+        if state.isUnavailable {
+            let waiters = state.waiters
+            state.waiters.removeAll(keepingCapacity: false)
+            state.isRunning = false
+            states[sourceID] = state
+            for waiter in waiters {
+                waiter.resume(returning: false)
+            }
+        } else if !state.waiters.isEmpty {
+            let next = state.waiters.removeFirst()
+            states[sourceID] = state
+            next.resume(returning: true)
+        } else {
+            state.isRunning = false
+            states[sourceID] = state
+        }
+        return didOpenCircuit
+    }
+}
+
 @MainActor
 @Observable
 final class MusicScraperService {
@@ -463,8 +519,14 @@ final class MusicScraperService {
         saveCheckpoint: Bool = true,
         allowBackgroundExecution: Bool = false
     ) {
-        guard !isScraping,
-              allowBackgroundExecution || !isPausedForSceneTransition else { return }
+        guard !isScraping else {
+            plog("MusicScraperService: ignored overlapping batch scrape request")
+            return
+        }
+        guard allowBackgroundExecution || !isPausedForSceneTransition else {
+            plog("MusicScraperService: deferred batch scrape during scene transition")
+            return
+        }
 
         let latestByID = Dictionary(library.visibleSongs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let songs = requestedSongs.reduce(into: (ordered: [Song](), seen: Set<String>())) { result, song in
@@ -513,9 +575,11 @@ final class MusicScraperService {
 
             let settings = ScraperSettings.load()
             let onlyFillMissing = settings.onlyFillMissingFields && !forceRescrape
+            let remoteMetadataSeeds = Self.preferredRemoteMetadataSeeds(in: songs)
 
             var pendingSongUpdates: [Song] = []
             var pendingSidecarOperations: [@Sendable () async -> Void] = []
+            let sidecarCircuitBreaker = SidecarWriteCircuitBreaker()
             var lastCompletedSongID: String?
             var completedSongCountInBatch = 0
 
@@ -564,7 +628,13 @@ final class MusicScraperService {
                 currentSongTitle = song.title
 
                 do {
-                    guard let result = try await processedSongWithAssets(song, forceRescrape: forceRescrape) else {
+                    let remoteIdentitySeed = Self.batchRemoteIdentity(for: song)
+                        .flatMap { remoteMetadataSeeds[$0] }
+                    guard let result = try await processedSongWithAssets(
+                        song,
+                        forceRescrape: forceRescrape,
+                        remoteIdentitySeed: remoteIdentitySeed
+                    ) else {
                         guard !Task.isCancelled else { return }
                         processedCount += 1
                         skippedCount += 1
@@ -638,6 +708,9 @@ final class MusicScraperService {
                                 // local sidecar write could publish its path and
                                 // then be overwritten by the delayed song batch.
                                 pendingSidecarOperations.append {
+                                    guard await sidecarCircuitBreaker.acquire(sourceID: songForWrite.sourceID) else {
+                                        return
+                                    }
                                     do {
                                         let writeResult = try await MusicScraperService.writeSidecarWithTimeout(
                                             seconds: sidecarSettings.timeout,
@@ -645,6 +718,14 @@ final class MusicScraperService {
                                             for: songForWrite,
                                             coverData: sidecarCoverData, lyricsLines: sidecarLyricsLines
                                         )
+                                        let didOpenCircuit = await sidecarCircuitBreaker.release(
+                                            sourceID: songForWrite.sourceID,
+                                            sourceUnavailable: writeResult.sourceUnavailable
+                                        )
+
+                                        if didOpenCircuit {
+                                            plog("⚠️ Batch sidecar: source \(songForWrite.sourceID) is read-only or unavailable; remaining writes skipped for this run")
+                                        }
 
                                         var needsUpdate = false
                                         var refSong = songForWrite
@@ -676,8 +757,20 @@ final class MusicScraperService {
                                             plog("⚠️ Batch sidecar errors for '\(songForWrite.title)': \(writeResult.errors)")
                                         }
                                     } catch is CancellationError {
+                                        _ = await sidecarCircuitBreaker.release(
+                                            sourceID: songForWrite.sourceID,
+                                            sourceUnavailable: false
+                                        )
                                         plog("⚠️ Batch sidecar timed out (\(sidecarSettings.timeout.finiteInt())s) for '\(songForWrite.title)'")
                                     } catch {
+                                        let sourceUnavailable = MusicScraperService.isSourceUnavailableSidecarError(error)
+                                        let didOpenCircuit = await sidecarCircuitBreaker.release(
+                                            sourceID: songForWrite.sourceID,
+                                            sourceUnavailable: sourceUnavailable
+                                        )
+                                        if didOpenCircuit {
+                                            plog("⚠️ Batch sidecar: source \(songForWrite.sourceID) is unavailable; remaining writes skipped for this run")
+                                        }
                                         plog("⚠️ Batch sidecar skipped for '\(songForWrite.title)': \(error.localizedDescription)")
                                     }
                                 }
@@ -797,6 +890,13 @@ final class MusicScraperService {
 
     private func beginBackgroundTaskIfNeeded() {
         #if os(iOS)
+        // Foreground batches can legitimately run for minutes. Holding a
+        // UIApplication background assertion for their whole lifetime makes
+        // UIKit report a >30-second background-task fault even though the app
+        // never left the foreground. The lifecycle handler stops/restarts the
+        // scrape at an atomic checkpoint when the scene actually backgrounds,
+        // so acquire the finite assertion only during that background window.
+        guard UIApplication.shared.applicationState != .active else { return }
         guard backgroundTaskID == .invalid else { return }
         backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "primuse.metadata-scrape") { [weak self] in
             Task { @MainActor [weak self] in
@@ -885,7 +985,66 @@ final class MusicScraperService {
         let lyricsLines: [LyricLine]?
     }
 
-    private func processedSongWithAssets(_ song: Song, forceRescrape: Bool, storeAssets: Bool = true) async throws -> ProcessedResult? {
+    /// Conservative per-run identity for byte-identical-looking copies. A
+    /// basename alone is not enough (different albums often contain the same
+    /// track name), while source + basename + exact byte size + format gives
+    /// us a useful duplicate hint without reading or hashing the whole remote
+    /// file. The key is used only to choose a search seed; song IDs, paths and
+    /// asset references always remain independent.
+    private struct BatchRemoteIdentity: Hashable {
+        let sourceID: String
+        let fileName: String
+        let fileSize: Int64
+        let fileFormat: AudioFormat
+    }
+
+    private nonisolated static func batchRemoteIdentity(for song: Song) -> BatchRemoteIdentity? {
+        let fileName = (song.filePath as NSString).lastPathComponent
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+        guard song.fileSize > 0, !fileName.isEmpty else { return nil }
+        return BatchRemoteIdentity(
+            sourceID: song.sourceID,
+            fileName: fileName,
+            fileSize: song.fileSize,
+            fileFormat: song.fileFormat
+        )
+    }
+
+    private nonisolated static func metadataSeedScore(_ song: Song) -> Int {
+        var score = 0
+        if song.duration > 0 { score += 32 }
+        if song.artistName?.isEmpty == false { score += 16 }
+        if song.albumTitle?.isEmpty == false { score += 8 }
+        if song.year != nil { score += 4 }
+        if song.genre?.isEmpty == false { score += 4 }
+        if song.sampleRate != nil { score += 2 }
+        if song.bitRate != nil { score += 2 }
+        if song.bitDepth != nil { score += 1 }
+        return score
+    }
+
+    private nonisolated static func preferredRemoteMetadataSeeds(
+        in songs: [Song]
+    ) -> [BatchRemoteIdentity: Song] {
+        var seeds: [BatchRemoteIdentity: Song] = [:]
+        for song in songs {
+            guard let identity = batchRemoteIdentity(for: song) else { continue }
+            if let existing = seeds[identity],
+               metadataSeedScore(existing) >= metadataSeedScore(song) {
+                continue
+            }
+            seeds[identity] = song
+        }
+        return seeds
+    }
+
+    private func processedSongWithAssets(
+        _ song: Song,
+        forceRescrape: Bool,
+        storeAssets: Bool = true,
+        remoteIdentitySeed: Song? = nil
+    ) async throws -> ProcessedResult? {
         // 服务端曲库源(Subsonic/Navidrome、Jellyfin/Emby/Plex): 元数据以服务端为
         // 权威, 自动刮削只「补空缺、绝不覆盖」。不读(可能转码的)音频流 —— 用歌曲
         // 已有 title/artist/album 直接查在线源, 只填 nil/空 的 artist/album/year/
@@ -926,12 +1085,42 @@ final class MusicScraperService {
         // 是 opaque item id, 必须回退到 scan 阶段保存的 song.title(真实文件名),
         // 否则会拿 uuid/id 搜歌词和封面导致错配。
         let fallbackTitle = await resolvedScrapeFallbackTitle(for: song)
-        let metadata = await metadataService.loadMetadata(
-            for: fileURL,
-            cacheKey: storeAssets ? song.id : nil,
-            trustedSource: false,
-            fallbackTitle: fallbackTitle
-        )
+        let metadata: MetadataService.SongMetadata
+        if fileURL.isFileURL {
+            metadata = await metadataService.loadMetadata(
+                for: fileURL,
+                cacheKey: storeAssets ? song.id : nil,
+                trustedSource: false,
+                fallbackTitle: fallbackTitle
+            )
+        } else {
+            // Range/HTTP-backed sources resolve to a streaming URL, not a
+            // readable local audio file. Feeding primuse-stream:// (or a
+            // remote HTTP URL) into FileMetadataReader returns empty tags and
+            // made batch scraping fall back to a weak first search result.
+            // Keep the scanned/backfilled library metadata as the identity
+            // seed instead; online providers may fill gaps and assets but may
+            // not erase a known title/artist/album merely because the file is
+            // remote. This also keeps identical NAS copies deterministic.
+            let identitySeed = remoteIdentitySeed ?? song
+            var seededMetadata = await metadataService.fillMissingOnline(
+                title: identitySeed.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? fallbackTitle
+                    : identitySeed.title,
+                artist: identitySeed.artistName,
+                album: identitySeed.albumTitle,
+                year: identitySeed.year,
+                genre: identitySeed.genre,
+                duration: identitySeed.duration,
+                needsCover: forceRescrape || song.coverArtFileName == nil,
+                needsLyrics: forceRescrape || song.lyricsFileName == nil
+            )
+            seededMetadata.duration = identitySeed.duration
+            seededMetadata.sampleRate = identitySeed.sampleRate
+            seededMetadata.bitRate = identitySeed.bitRate
+            seededMetadata.bitDepth = identitySeed.bitDepth
+            metadata = seededMetadata
+        }
         let merged = mergedSong(
             song,
             with: metadata,
@@ -1300,6 +1489,14 @@ final class MusicScraperService {
             }
             return result
         }
+    }
+
+    private nonisolated static func isSourceUnavailableSidecarError(_ error: Error) -> Bool {
+        guard let sourceError = error as? SourceError else { return false }
+        if case .authenticationFailed = sourceError {
+            return true
+        }
+        return false
     }
 
     private func writeBackToMediaServerIfSupported(

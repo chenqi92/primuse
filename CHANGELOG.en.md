@@ -13,7 +13,7 @@ This release consolidates changes made after 1.7.0 that had not yet been documen
 - **Real deletion across music sources** — duplicate cleanup can call each source's deletion capability instead of only removing local records, with batching, progress recovery, and retry support
 - **Mixed-source playback queues** — one queue can continuously play local, NAS, cloud-drive, Subsonic, and media-server tracks
 - **Persistent search index** — indexes titles, artists, albums, Pinyin, and lyrics for faster large-library search and lyric hits
-- **Airsonic Advanced compatibility mode** — handles its Subsonic API differences during scanning and playback
+- **Airsonic compatibility mode** — handles the Subsonic API differences in both classic and Advanced releases across scanning, artwork, lyrics, and Range playback
 - **Remote notification support** — adds the app-level registration and handling foundation for remote notifications
 - **CarPlay search entry** — adds an always-visible Search row to songs, albums, artists, playlists, and recent items, with recent phone search terms and matching results available in-car
 
@@ -31,6 +31,8 @@ This release consolidates changes made after 1.7.0 that had not yet been documen
 - **Baidu smart duplicate cleanup** — validates every per-file batch result so partial failures are not reported as success or written as false local deletions
 - **Baidu large-directory scans** — retries transient read failures and rate limits with backoff instead of abandoning the selected directory
 - **Search-result playback crash** — keeps the tab and bottom-player view structure stable while the system search controller is dismissed
+- **CloudKit and SMB crashes** — disables sync safely when CloudKit entitlements are unavailable and serializes SMB session lifecycles to prevent scrape-write/disconnect races
+- **Batch-scrape accuracy** — uses stable remote identity seeds and confidence-based matching, keeps duplicate copies consistent, rejects overlapping batches, and stops repeated writes to read-only or unauthorized sources
 - **Large-library stalls** — fixed cold-launch, song-list refresh, background scraping, and bulk-cleanup paths that could freeze the UI or trigger the scene watchdog
 - **Duplicate cleanup** — fixed stale results, interrupted batches that could not resume, and missing real deletion for Baidu sources
 - **Local-file recovery** — safely rebases old sandbox paths into the current container and stops custom local sources from being redirected to the managed import folder
@@ -45,6 +47,7 @@ This release consolidates changes made after 1.7.0 that had not yet been documen
 
 - **Library lookup** — replaces repeated full scans with caching and a persistent search index, reducing CPU while typing in very large libraries
 - **Scanning and cleanup** — batches song mutations and lowers checkpoint and UI publication frequency instead of persisting once per track
+- **Foreground batch work** — requests the finite iOS background-execution window only after the app actually backgrounds, eliminating long foreground-scrape warnings
 - **Lyrics and Now Playing** — reduces view recomputation from lyric scrolling and playback progress while keeping menus stable during high-frequency updates
 
 ---

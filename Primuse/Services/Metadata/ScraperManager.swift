@@ -234,14 +234,81 @@ actor ScraperManager {
     /// - title 完全相等 / 互相包含
     /// - artist 命中
     ///
-    /// 全部维度都没匹配上时,fallback 取 `items.first`(server 默认顺序)。
+    /// 评分只决定候选顺序；最终候选还必须通过下方置信门槛，
+    /// 不再把服务端首个结果当作无条件 fallback。
     static func bestMatch(
         in items: [ScraperSearchItem],
         title: String,
         artist: String?,
         durationMs targetMs: Int?
     ) -> ScraperSearchItem? {
-        topMatches(in: items, title: title, artist: artist, durationMs: targetMs, maxCount: 1).first
+        guard let candidate = topMatches(
+            in: items,
+            title: title,
+            artist: artist,
+            durationMs: targetMs,
+            maxCount: 1
+        ).first else { return nil }
+
+        // Automatic metadata and artwork are persisted immediately, so a
+        // provider's default first result is not an acceptable fallback when
+        // no identity signal agrees. Require a compatible title, then require
+        // either the supplied artist or a near-exact duration. This prefers a
+        // false negative (leave the user's existing metadata untouched) over
+        // silently assigning another singer's album/cover to a generic title.
+        return isConfidentAutoMatch(
+            candidate,
+            title: title,
+            artist: artist,
+            durationMs: targetMs
+        ) ? candidate : nil
+    }
+
+    static func isConfidentAutoMatch(
+        _ item: ScraperSearchItem,
+        title: String,
+        artist: String?,
+        durationMs targetMs: Int?
+    ) -> Bool {
+        let requestedTitle = normalizeComparableText(title)
+        let candidateTitle = normalizeComparableText(item.title)
+        guard !requestedTitle.isEmpty,
+              !candidateTitle.isEmpty,
+              candidateTitle == requestedTitle
+                || candidateTitle.contains(requestedTitle)
+                || requestedTitle.contains(candidateTitle) else {
+            return false
+        }
+
+        let requestedArtist = normalizeComparableText(artist)
+        let candidateArtist = normalizeComparableText(item.artist)
+        let artistMatches = !requestedArtist.isEmpty
+            && !candidateArtist.isEmpty
+            && (candidateArtist == requestedArtist
+                || candidateArtist.contains(requestedArtist)
+                || requestedArtist.contains(candidateArtist))
+        let durationMatches: Bool = if let targetMs,
+                                       targetMs > 0,
+                                       let candidateMs = item.durationMs {
+            abs(candidateMs - targetMs) < 2_000
+        } else {
+            false
+        }
+
+        if !requestedArtist.isEmpty {
+            return artistMatches || durationMatches
+        }
+
+        // Without an artist, an exact title alone is weak evidence: popular
+        // songs often have many covers with the same name. When both sides
+        // expose a duration, require it to agree as the second identity
+        // signal. Only fall back to an exact title when duration genuinely is
+        // unavailable, preferring a false negative over persisting a cover's
+        // artist/album into the user's track.
+        if let targetMs, targetMs > 0 {
+            return candidateTitle == requestedTitle && durationMatches
+        }
+        return candidateTitle == requestedTitle
     }
 
     /// 评分后取前 N 个候选(按分数降序)。供 lyrics 阶段依次 try、优先字级使用。

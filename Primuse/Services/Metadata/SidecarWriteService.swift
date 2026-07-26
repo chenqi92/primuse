@@ -18,6 +18,10 @@ actor SidecarWriteService {
     struct WriteResult: Sendable {
         var coverWritten: Bool = false
         var lyricsWritten: Bool = false
+        /// A credential/permission failure applies to the whole source, not
+        /// only this asset. Batch scraping uses this to stop the remaining
+        /// queued writes while keeping the locally cached metadata.
+        var sourceUnavailable: Bool = false
         var errors: [String] = []
     }
 
@@ -54,6 +58,7 @@ actor SidecarWriteService {
                 plog("📁 Sidecar: \(coverFileName) written to \(songDir)")
             } catch {
                 result.errors.append("Cover: \(error.localizedDescription)")
+                result.sourceUnavailable = Self.isSourceUnavailable(error)
                 // Never pass user-controlled paths or remote error descriptions
                 // to NSLog as the format string. A '%' in either value makes
                 // NSLog read a non-existent variadic argument and can crash.
@@ -62,7 +67,7 @@ actor SidecarWriteService {
         }
 
         // 2. Write <basename>.lrc next to audio file
-        if let lyricsLines, !lyricsLines.isEmpty {
+        if !result.sourceUnavailable, let lyricsLines, !lyricsLines.isEmpty {
             let lrcContent = lyricsLinesToLRC(lyricsLines)
             if let lrcData = lrcContent.data(using: .utf8) {
                 let lrcPath = (songDir as NSString).appendingPathComponent("\(baseNameNoExt).lrc")
@@ -72,12 +77,21 @@ actor SidecarWriteService {
                     plog("📁 Sidecar: \(baseNameNoExt).lrc written to \(songDir)")
                 } catch {
                     result.errors.append("Lyrics: \(error.localizedDescription)")
+                    result.sourceUnavailable = Self.isSourceUnavailable(error)
                     plog("⚠️ Sidecar: Failed to write .lrc: \(error)")
                 }
             }
         }
 
         return result
+    }
+
+    private nonisolated static func isSourceUnavailable(_ error: Error) -> Bool {
+        guard let sourceError = error as? SourceError else { return false }
+        if case .authenticationFailed = sourceError {
+            return true
+        }
+        return false
     }
 
     /// Convert parsed LyricLines back to standard LRC format

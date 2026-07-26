@@ -452,6 +452,12 @@ final class MetadataBackfillService {
 
     private func beginBackgroundTaskIfNeeded() {
         #if os(iOS)
+        // A foreground backfill may take far longer than the roughly
+        // 30-second UIApplication background window. Start an assertion only
+        // after the scene is actually inactive/background; PrimuseApp stops
+        // the foreground worker during the transition and restarts it once
+        // the background scene has settled.
+        guard UIApplication.shared.applicationState != .active else { return }
         guard backgroundTaskID == .invalid else { return }
         backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "primuse.backfill") { [weak self] in
             // System wants the time back ── stop worker gracefully, release token.
@@ -778,13 +784,20 @@ final class MetadataBackfillService {
         // body 是 main actor isolated, 各 task 完成回到这里时是 serial 的),
         // 不需要锁。
         var iterator = snapshot.makeIterator()
+        func nextEligibleSong() -> Song? {
+            while let candidate = iterator.next() {
+                if isStillEligible(candidate) {
+                    return candidate
+                }
+            }
+            return nil
+        }
         await withTaskGroup(of: (song: Song, outcome: BackfillOutcome).self) { group in
             defer { group.cancelAll() }
             // Seed: 启动 workerConcurrency 个 task
             for _ in 0..<Self.workerConcurrency {
-                guard let song = iterator.next() else { break }
+                guard let song = nextEligibleSong() else { break }
                 if shouldBlockForCellular() { return }
-                guard isStillEligible(song) else { continue }
                 group.addTask { [self] in (song, await self.processOne(song)) }
             }
 
@@ -800,6 +813,26 @@ final class MetadataBackfillService {
                     processedCount = processedTotal
                 }
                 let songID = result.song.id
+                if result.outcome.sourceUnavailable {
+                    // One bad credential applies to the connector, not merely
+                    // to this file. Park every pending song from that source
+                    // for this session so a 10k-song library does not create a
+                    // retry storm. Nothing is persisted: after the user fixes
+                    // credentials (or on next launch), normal retry resumes.
+                    let sourceSongIDs = Set(
+                        snapshot.lazy
+                            .filter { $0.sourceID == result.song.sourceID }
+                            .map(\.id)
+                    )
+                    let wasAlreadyParked = sourceSongIDs.isSubset(of: sessionGivenUpIDs)
+                    sessionGivenUpIDs.formUnion(sourceSongIDs)
+                    for parkedID in sourceSongIDs {
+                        transientFailureCounts[parkedID] = nil
+                    }
+                    if !wasAlreadyParked {
+                        plog("⚠️ Backfill: source \(result.song.sourceID) unavailable; parked \(sourceSongIDs.count) songs for this session")
+                    }
+                }
                 if result.outcome.markFailed, isStillEligible(result.song) {
                     failedSongIDs.insert(songID)
                     saveFailed()
@@ -857,8 +890,7 @@ final class MetadataBackfillService {
                 }
 
                 // 派发下一首给空闲 worker。
-                if let next = iterator.next() {
-                    guard isStillEligible(next) else { continue }
+                if let next = nextEligibleSong() {
                     group.addTask { [self] in (next, await self.processOne(next)) }
                 }
             }
@@ -928,6 +960,16 @@ final class MetadataBackfillService {
         }
     }
 
+    /// Authentication failures affect an entire connector. They remain
+    /// transient (never persisted as a bad song), but should trip the
+    /// per-session source circuit breaker immediately.
+    static func isSourceUnavailableBackfillError(_ error: Error) -> Bool {
+        if case SourceError.authenticationFailed = error {
+            return true
+        }
+        return false
+    }
+
     /// Outcome of one backfill attempt. `song` is the merged result to
     /// flush into the library when present (preserves whatever fields we
     /// did parse, e.g. artist+album when duration was unreadable).
@@ -941,6 +983,10 @@ final class MetadataBackfillService {
         /// network / throttle). The caller bumps a per-song retry counter and
         /// parks the song after `maxTransientRetries` so it stops re-queuing.
         var transientFailure: Bool = false
+        /// The connector itself cannot currently be used (for example, an SMB
+        /// password is missing). The caller parks every song from that source
+        /// for this session instead of retrying once per library item.
+        var sourceUnavailable: Bool = false
         /// Song parsed fine (has a usable duration) but has no extractable
         /// embedded artwork. Stop retrying it *for artwork* without marking it
         /// permanently failed — its duration update is still saved and it stays
@@ -1062,10 +1108,16 @@ final class MetadataBackfillService {
             // (常见于刚启动、源还没连上 / token 还没就绪),绝不能钉成永久失败,否则
             // 会一直卡在「无法读取歌曲详情」;不标记 → 下一轮回填自动重试。
             let transient = Self.isTransientBackfillError(error)
+            let sourceUnavailable = Self.isSourceUnavailableBackfillError(error)
             plog(String(format: "⚠️ Backfill failed for '%@' after %.2fs: %@ (%@)",
                         song.title, elapsed, error.localizedDescription,
                         transient ? "transient — will retry" : "permanent — marking failed"))
-            return BackfillOutcome(song: nil, markFailed: !transient, transientFailure: transient)
+            return BackfillOutcome(
+                song: nil,
+                markFailed: !transient,
+                transientFailure: transient,
+                sourceUnavailable: sourceUnavailable
+            )
         }
     }
 
