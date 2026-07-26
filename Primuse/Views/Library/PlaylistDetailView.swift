@@ -2,6 +2,7 @@ import SwiftUI
 import PrimuseKit
 
 struct PlaylistDetailView: View {
+    @Environment(\.dismiss) private var dismiss
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(SourceManager.self) private var sourceManager
@@ -187,6 +188,14 @@ struct PlaylistDetailView: View {
                         export(format: .json)
                     } label: {
                         Label("playlist_export_json", systemImage: "doc.badge.gearshape")
+                    }
+                    if canDeletePlaylist(playlist.id) {
+                        Divider()
+                        Button(role: .destructive) {
+                            deleteCurrentPlaylist()
+                        } label: {
+                            Label("delete_playlist", systemImage: "trash")
+                        }
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -548,6 +557,8 @@ struct PlaylistDetailView: View {
         library.deletePlaylist(id: playlist.id)
         #if os(macOS)
         NotificationCenter.default.post(name: .primuseSelectPlaylists, object: nil)
+        #else
+        dismiss()
         #endif
     }
 
