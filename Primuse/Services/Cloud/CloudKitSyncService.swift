@@ -1324,6 +1324,50 @@ final class CloudKitSyncService {
         }
     }
 
+    /// Apply a record delivered by a fetch without discarding an unsent local
+    /// mutation for the same record. `syncNow()` intentionally fetches before
+    /// sending; a plain remote apply here used to replace the local playlist,
+    /// so the subsequent save contained only the remote side of a concurrent
+    /// edit. Merge the set-like record types while their save is pending.
+    @MainActor
+    fileprivate func applyFetchedRecord(_ record: CKRecord, syncEngine: CKSyncEngine) {
+        let hasPendingSave = syncEngine.state.pendingRecordZoneChanges.contains { change in
+            guard case .saveRecord(let recordID) = change else { return false }
+            return Self.sameRecordID(recordID, record.recordID)
+        }
+        guard hasPendingSave,
+              let local = makeRecord(for: record.recordID) else {
+            applyRemoteRecord(record)
+            return
+        }
+
+        // Preserve the server change tag before the already-pending send asks
+        // makeRecord(for:) to rebuild the merged payload.
+        storeSystemFields(record)
+
+        if let channel = Self.channel(for: record.recordType),
+           !CloudSyncChannel.isEnabled(channel) {
+            return
+        }
+
+        switch record.recordType {
+        case RecordType.playlist:
+            mergePlaylistRecord(local: local, server: record)
+        case RecordType.playbackHistory:
+            mergePlaybackHistoryRecord(local: local, server: record)
+        case RecordType.listeningStats:
+            mergeListeningStatsRecord(local: local, server: record)
+        default:
+            // Atomic records keep their existing last-writer-wins behavior.
+            let localUpdated = (local["updatedAt"] as? Date) ?? .distantPast
+            let serverUpdated = (record["updatedAt"] as? Date) ?? .distantPast
+            if serverUpdated >= localUpdated {
+                applyRemoteRecord(record)
+                syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(record.recordID)])
+            }
+        }
+    }
+
     fileprivate func applyRemoteDeletion(
         recordID: CKRecord.ID,
         recordType: String,
@@ -1420,7 +1464,11 @@ final class CloudKitSyncService {
         // Stable cross-device identities — receivers fall back through
         // (cloudAccountID, filePath) and fuzzy match when the originating
         // Song.id doesn't line up with the local mount's hash.
-        if let data = encodeIdentities(makeIdentities(forSongIDs: songIDs)) {
+        var identities = makeIdentities(forSongIDs: songIDs)
+        identities.append(contentsOf: library.pendingSongIdentities(forPlaylist: playlistID))
+        var seenIdentities = Set<SongIdentity>()
+        identities = identities.filter { seenIdentities.insert($0).inserted }
+        if let data = encodeIdentities(identities) {
             record[Self.songIdentitiesField] = data
         }
         return true
@@ -1671,7 +1719,9 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
             }
         case .fetchedRecordZoneChanges(let event):
             for modification in event.modifications {
-                await MainActor.run { self.applyRemoteRecord(modification.record) }
+                await MainActor.run {
+                    self.applyFetchedRecord(modification.record, syncEngine: syncEngine)
+                }
             }
             for deletion in event.deletions {
                 await MainActor.run {

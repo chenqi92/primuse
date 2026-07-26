@@ -3034,6 +3034,19 @@ final class MusicLibrary {
         playlistSongIDs[playlistID] ?? []
     }
 
+    /// Cross-device identities that have not resolved on this device yet.
+    ///
+    /// These must be included again when a locally-dirty playlist is saved
+    /// after merging a fetched CloudKit record. Otherwise a song that exists
+    /// only on the other device is kept in the local pending bucket but is
+    /// silently removed from the next CloudKit payload.
+    func pendingSongIdentities(forPlaylist playlistID: String) -> [SongIdentity] {
+        let cutoff = Date().addingTimeInterval(-Self.pendingIdentityTTL)
+        return (pendingPlaylistIdentities[playlistID] ?? [])
+            .filter { $0.firstSeenAt >= cutoff }
+            .map(\.identity)
+    }
+
     /// Snapshot of recent playback song IDs — used by CloudKit sync.
     var recentPlaybackSongIDsForSync: [String] { recentPlaybackSongIDs }
 
