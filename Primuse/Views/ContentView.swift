@@ -129,7 +129,11 @@ struct ContentView: View {
         // in `_willDismissSearchController` with an unowned-reference crash.
         if #available(iOS 26.1, *) {
             tabRoot
-                .tabBarMinimizeBehavior(.onScrollDown)
+                // A minimized tab bar keeps only the selected tab and Search.
+                // Without a player accessory that leaves a large empty gap at
+                // the bottom and looks like the other tabs disappeared. Only
+                // minimize when Now Playing can occupy that compact space.
+                .tabBarMinimizeBehavior(miniPlayerActive ? .onScrollDown : .never)
                 .tabViewBottomAccessory(isEnabled: miniPlayerActive) {
                     NowPlayingAccessory(onTap: { showNowPlaying = true })
                 }
@@ -138,7 +142,7 @@ struct ContentView: View {
             // is still safer than replacing the whole TabView during search;
             // its empty accessory may reserve a small transparent strip.
             tabRoot
-                .tabBarMinimizeBehavior(.onScrollDown)
+                .tabBarMinimizeBehavior(miniPlayerActive ? .onScrollDown : .never)
                 .tabViewBottomAccessory {
                     if miniPlayerActive {
                         NowPlayingAccessory(onTap: { showNowPlaying = true })
