@@ -614,6 +614,12 @@ struct NowPlayingAccessory: View {
             Color.clear
                 .contentShape(Rectangle())
                 .onTapGesture { onTap() }
+                .accessibilityElement()
+                .accessibilityLabel(
+                    "\(String(localized: "now_playing")): \(player.currentSong?.title ?? "")"
+                )
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction { onTap() }
 
             HStack(spacing: 0) {
                 // Fixed left: cover art

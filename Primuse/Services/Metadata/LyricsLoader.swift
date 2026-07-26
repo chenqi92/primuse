@@ -44,6 +44,26 @@ enum LyricsLoader {
                 }
             }
 
+            // A server-side lyrics miss (notably Airsonic's external provider
+            // returning 404) should not stop the desktop/watch lyrics path.
+            // Reuse the title-safe online scraper and keep the result in the
+            // read-only local metadata overlay keyed by this song ID.
+            if connector is ServerLyricsConnector,
+               let online = await AppServices.shared.scraperService.fetchOnlineLyrics(
+                   title: song.title,
+                   artist: song.artistName,
+                   album: song.albumTitle,
+                   duration: song.duration > 0 ? song.duration : nil
+               ), !online.isEmpty {
+                _ = await MetadataAssetStore.shared.cacheLyrics(
+                    online,
+                    forSongID: song.id,
+                    force: true
+                )
+                logLoaded(online, song: song, tier: "Tier2d-online")
+                return online
+            }
+
             let songDir = (song.filePath as NSString).deletingLastPathComponent
             let baseName = ((song.filePath as NSString).lastPathComponent as NSString).deletingPathExtension
             let lrcPath: String

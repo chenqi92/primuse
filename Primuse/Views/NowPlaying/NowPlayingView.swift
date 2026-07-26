@@ -1103,6 +1103,7 @@ struct NowPlayingView: View {
     /// 模式: 已 setLyrics(currentCache), 这里只在 fingerprint 不一致时 update UI。
     private func runLyricsTier3Fetch(song: Song, currentCache: [LyricLine]?) {
         let capturedSourceManager = sourceManager
+        let capturedScraperService = scraperService
         let songID = song.id
         let songTitle = song.title
         let isRefresh = currentCache != nil
@@ -1134,6 +1135,28 @@ struct NowPlayingView: View {
                         }
                     }
                     plog(String(format: "📜 loadLyrics '%@' server-lyrics empty (connect=%.0fms)", songTitle, connectMs))
+
+                    // Airsonic and other read-only servers often delegate
+                    // lyrics to an external provider. A provider-side 404 is
+                    // not a terminal app result: fall through to the same
+                    // title-compatible online lyrics pipeline used by manual
+                    // scraping, then bind the result to this local song ID.
+                    if let online = await capturedScraperService.fetchOnlineLyrics(
+                        title: song.title,
+                        artist: song.artistName,
+                        album: song.albumTitle,
+                        duration: song.duration > 0 ? song.duration : nil
+                    ), !online.isEmpty {
+                        _ = await MetadataAssetStore.shared.cacheLyrics(
+                            online,
+                            forSongID: songID,
+                            force: true
+                        )
+                        plog(String(format: "📜 loadLyrics '%@' online fallback OK in %.0fms (%d lines)", songTitle, Date().timeIntervalSince(tier3Start) * 1000, online.count))
+                        if player.currentSong?.id == songID {
+                            setLyrics(online)
+                        }
+                    }
                     return
                 }
 
@@ -2279,6 +2302,30 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
 
 // MARK: - LyricsScrollView (隔离的歌词渲染子 view)
 
+/// Geometry preferences can be emitted several times while SwiftUI is still
+/// resolving one render pass. Writing each intermediate value straight back
+/// into `@State` creates a layout-feedback loop and iOS records an
+/// "updated multiple times per frame" runtime fault. Coalesce the transient
+/// values and apply only the last stable measurement on the main actor.
+@MainActor
+private final class LyricPreferenceUpdateCoordinator {
+    private var rowFrameTask: Task<Void, Never>?
+
+    func scheduleRowFrames(_ apply: @escaping @MainActor () -> Void) {
+        rowFrameTask?.cancel()
+        rowFrameTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(20))
+            guard !Task.isCancelled else { return }
+            apply()
+        }
+    }
+
+    func cancelAll() {
+        rowFrameTask?.cancel()
+        rowFrameTask = nil
+    }
+}
+
 /// 把歌词渲染抽出来作为独立 View,避免行切换 (`currentLineIndex` 变化) 让
 /// 整个 NowPlayingView 的 body 重算,从而触发 SwiftUI Menu 内嵌的 Picker(.menu)
 /// submenu 在父重算时被强制关闭(选字号弹框还没来得及选就消失)。
@@ -2302,9 +2349,10 @@ struct LyricsScrollView: View {
     /// 之后的帧变化走动画, 避免硬跳。切歌时重置。
     @State private var hasMeasuredWordFrames = false
     @State private var wordLineFrames: [String: CGRect] = [:]
-    /// 每行歌词在屏幕坐标中的点击区域。用它区分“点歌词跳转进度”与
-    /// “点空白返回封面”，避免父级手势吞掉行点击。
-    @State private var lyricRowHitFrames: [String: CGRect] = [:]
+    /// 行点击与父级空白点击是 simultaneous gestures。记录行点击时刻并在
+    /// 下一次主线程调度时仲裁，避免为每行持续发布全局 Geometry preference。
+    @State private var lastLyricRowTapAt: Date = .distantPast
+    @State private var preferenceUpdateCoordinator = LyricPreferenceUpdateCoordinator()
 
     // 用户手动拖动歌词时, 暂时冻结自动滚动 ── 否则刚拖到想看的位置, 下一帧
     // auto follow 又把视图拽回当前行, 等于不能浏览。lastUserScrollTime 静止
@@ -2361,7 +2409,7 @@ struct LyricsScrollView: View {
             wordAutoOffset = 0
             hasMeasuredWordFrames = false
             wordLineFrames = [:]
-            lyricRowHitFrames = [:]
+            lastLyricRowTapAt = .distantPast
             manualWordOffset = nil
             wordDragStartOffset = 0
             lastUserScrollTime = .distantPast
@@ -2369,6 +2417,7 @@ struct LyricsScrollView: View {
             isPinchingLyrics = false
             wordAutoFollowResumeTask?.cancel()
             lineAutoFollowResumeTask?.cancel()
+            preferenceUpdateCoordinator.cancelAll()
         }
         .lyricsTranslationTaskIfAvailable(
             songID: songID,
@@ -2376,19 +2425,22 @@ struct LyricsScrollView: View {
             settings: translationSettings,
             translatedTextByLineID: $translatedTextByLineID
         )
-        .onPreferenceChange(LyricRowHitFramePreferenceKey.self) { frames in
-            lyricRowHitFrames = frames
-        }
         .contentShape(Rectangle())
         .simultaneousGesture(
-            SpatialTapGesture(coordinateSpace: .global)
-                .onEnded { value in
+            SpatialTapGesture()
+                .onEnded { _ in
                     guard !lyrics.isEmpty, !isPinchingLyrics else { return }
-                    let tappedLyric = lyricRowHitFrames.values.contains {
-                        $0.insetBy(dx: -2, dy: -2).contains(value.location)
+                    let eventTime = Date()
+                    Task { @MainActor in
+                        await Task.yield()
+                        // Child row gestures may be delivered immediately
+                        // before or after this parent callback. Either order
+                        // lands within the same short arbitration window.
+                        guard abs(lastLyricRowTapAt.timeIntervalSince(eventTime)) > 0.08 else {
+                            return
+                        }
+                        onBackgroundTap()
                     }
-                    guard !tappedLyric else { return }
-                    onBackgroundTap()
                 }
         )
     }
@@ -2557,15 +2609,18 @@ struct LyricsScrollView: View {
             .offset(y: displayWordOffset(autoOffset: wordAutoOffset))
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .onPreferenceChange(LyricRowFramePreferenceKey.self) { frames in
-                if wordLineFrames != frames {
-                    wordLineFrames = frames
-                    // 切歌后第一次测量直接定位, 不要从 offset 0 滑入。之后的帧变化
-                    // (行切换导致 active 行 Text↔KaraokeLineView 高度微调 / 翻译加载)
-                    // 必须走动画: 否则会用 animated:false 把行切换刚启动的滚动 spring
-                    // 瞬时覆盖, 让滚动看起来像硬跳。
-                    let animate = hasMeasuredWordFrames
-                    hasMeasuredWordFrames = true
-                    updateWordAutoOffset(viewportHeight: geo.size.height, animated: animate)
+                let viewportHeight = geo.size.height
+                preferenceUpdateCoordinator.scheduleRowFrames {
+                    if wordLineFrames != frames {
+                        wordLineFrames = frames
+                        // 切歌后第一次测量直接定位, 不要从 offset 0 滑入。之后的帧变化
+                        // (行切换导致 active 行 Text↔KaraokeLineView 高度微调 / 翻译加载)
+                        // 必须走动画: 否则会用 animated:false 把行切换刚启动的滚动 spring
+                        // 瞬时覆盖, 让滚动看起来像硬跳。
+                        let animate = hasMeasuredWordFrames
+                        hasMeasuredWordFrames = true
+                        updateWordAutoOffset(viewportHeight: viewportHeight, animated: animate)
+                    }
                 }
             }
             .onChange(of: currentLineIndex) { _, _ in
@@ -2578,6 +2633,7 @@ struct LyricsScrollView: View {
             .simultaneousGesture(wordDragGesture())
             .onDisappear {
                 wordAutoFollowResumeTask?.cancel()
+                preferenceUpdateCoordinator.cancelAll()
             }
         }
         .clipped()
@@ -2728,15 +2784,6 @@ struct LyricsScrollView: View {
         }
     }
 
-    private func lyricRowHitFrameReader(id: String) -> some View {
-        GeometryReader { proxy in
-            Color.clear.preference(
-                key: LyricRowHitFramePreferenceKey.self,
-                value: [id: proxy.frame(in: .global)]
-            )
-        }
-    }
-
     private func targetWordContentOffset(for index: Int, viewportHeight: CGFloat) -> CGFloat {
         guard !lyrics.isEmpty else { return 0 }
         let safeIndex = min(max(index, 0), lyrics.count - 1)
@@ -2784,8 +2831,7 @@ struct LyricsScrollView: View {
         VStack(alignment: alignment, spacing: 4) {
             singleLineContent(line: line, isActive: isActive, index: index, fontSize: fontSize, weight: weight, dimmedByAmbient: dimmedByAmbient, timelineTime: timelineTime)
                 .contentShape(Rectangle())
-                .onTapGesture { player.seek(to: line.timestamp) }
-                .background(lyricRowHitFrameReader(id: "\(line.id)-primary"))
+                .onTapGesture { seekToLyricLine(line) }
                 .frame(width: availableWidth, alignment: frameAlignment)
 
             // 歌词翻译 — 在原文下面以略小的字号显示, 仅当启用且当前行有翻译。
@@ -2804,8 +2850,7 @@ struct LyricsScrollView: View {
                     // 会优先单行 + 截断显示省略号。
                     .fixedSize(horizontal: false, vertical: true)
                     .contentShape(Rectangle())
-                    .onTapGesture { player.seek(to: line.timestamp) }
-                    .background(lyricRowHitFrameReader(id: "\(line.id)-translation"))
+                    .onTapGesture { seekToLyricLine(line) }
                     .frame(width: availableWidth, alignment: frameAlignment)
             }
 
@@ -2814,8 +2859,7 @@ struct LyricsScrollView: View {
                     singleLineContent(line: bg, isActive: isActive, index: index, fontSize: fontSize * 0.7, weight: .medium, dimmedByAmbient: dimmedByAmbient, timelineTime: timelineTime)
                         .opacity(0.7)
                         .contentShape(Rectangle())
-                        .onTapGesture { player.seek(to: line.timestamp) }
-                        .background(lyricRowHitFrameReader(id: "\(line.id)-background-\(bg.id)"))
+                        .onTapGesture { seekToLyricLine(line) }
                         .frame(width: availableWidth, alignment: frameAlignment)
                 }
             }
@@ -2827,6 +2871,11 @@ struct LyricsScrollView: View {
         // 导致卡死的根因)。anchor 跟行对齐方向一致, 让行从锚定边「长出来」,
         // 左对齐行的左边缘 / 右对齐行的右边缘保持不动。
         .scaleEffect(visualScale, anchor: line.voice == .secondary ? .trailing : .leading)
+    }
+
+    private func seekToLyricLine(_ line: LyricLine) {
+        lastLyricRowTapAt = Date()
+        player.seek(to: line.timestamp)
     }
 
     @ViewBuilder
@@ -2969,14 +3018,6 @@ private enum SmoothWordLyricsCoordinateSpace {
 }
 
 private struct LyricRowFramePreferenceKey: PreferenceKey {
-    static let defaultValue: [String: CGRect] = [:]
-
-    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
-        value.merge(nextValue()) { _, new in new }
-    }
-}
-
-private struct LyricRowHitFramePreferenceKey: PreferenceKey {
     static let defaultValue: [String: CGRect] = [:]
 
     static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
