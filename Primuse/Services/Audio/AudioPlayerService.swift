@@ -3738,8 +3738,13 @@ final class AudioPlayerService {
                 return url
             } catch {
                 plog("🔗 resolveURL failed for '\(song.title)': \(error), filePath=\(song.filePath.prefix(80))")
-                if song.filePath.hasPrefix("/") {
-                    return URL(fileURLWithPath: song.filePath)
+                if let localURL = PrimuseSandboxPathResolver.existingURL(
+                    forStoredAbsolutePath: song.filePath
+                ) {
+                    if localURL.path != song.filePath {
+                        plog("🔗 rebased stale sandbox path for '\(song.title)' → \(localURL.path)")
+                    }
+                    return localURL
                 }
                 throw error
             }
@@ -3748,8 +3753,13 @@ final class AudioPlayerService {
             plog("🔗 resolvedURL for '\(song.title)': direct remote → \(redactedURL(remoteURL))")
             return remoteURL
         }
-        plog("🔗 resolvedURL for '\(song.title)': file path → \(song.filePath.prefix(80))")
-        return URL(fileURLWithPath: song.filePath)
+        if let localURL = PrimuseSandboxPathResolver.existingURL(
+            forStoredAbsolutePath: song.filePath
+        ) {
+            plog("🔗 resolvedURL for '\(song.title)': file path → \(localURL.path.prefix(80))")
+            return localURL
+        }
+        throw SourceError.fileNotFound(song.filePath)
     }
 
     // MARK: - Now Playing Info

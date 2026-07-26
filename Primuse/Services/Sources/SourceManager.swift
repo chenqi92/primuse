@@ -2701,6 +2701,11 @@ final class SourceManager {
                     return
                 }
 
+                // Local-source audio is already the durable local file. Copying
+                // it into the remote/offline cache only duplicates storage and
+                // can surface stale-container path warnings after reinstall.
+                guard source.type != .local else { return }
+
                 if source.type == .oneDrive {
                     plog("⏩ Cache: skip OneDrive prewarm for '\(song.title)' (foreground Range playback keeps priority)")
                     return

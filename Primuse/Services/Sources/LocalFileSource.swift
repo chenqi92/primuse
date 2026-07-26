@@ -27,8 +27,19 @@ actor LocalFileSource: SongScanningConnector {
         // 会随重装变化, 而持久化到源记录(并经 CloudKit 同步)的绝对 basePath 可能指向
         // 已不存在的旧容器, 导致 connect()/路径解析 pathNotFound、歌曲无法播放。对本地
         // 导入源始终按当前容器重算, 不信任存储的 basePath。
-        if sourceID == LocalImportService.existingSourceID {
+        // The normal Files-import source is identified by both its persisted
+        // ID and its reserved Documents/LocalMusic root. Older/demo fixtures
+        // may reuse the stored ID for a different local directory; forcing
+        // those onto LocalMusic makes an otherwise valid source unreachable.
+        let isManagedLocalImport = sourceID == LocalImportService.existingSourceID
+            && (basePath.lastPathComponent == "LocalMusic"
+                || basePath.path.contains("/Documents/LocalMusic"))
+        if isManagedLocalImport {
             self.basePath = LocalImportService.musicDirectory
+        } else if let rebased = PrimuseSandboxPathResolver.existingURL(
+            forStoredAbsolutePath: basePath.path
+        ) {
+            self.basePath = rebased
         } else {
             self.basePath = basePath
         }
@@ -249,6 +260,21 @@ actor LocalFileSource: SongScanningConnector {
     }
 
     private func resolvedURL(for path: String, allowRoot: Bool) throws -> URL {
+        if path.hasPrefix("/"),
+           let migratedURL = PrimuseSandboxPathResolver.existingURL(
+               forStoredAbsolutePath: path
+           ) {
+            let standardizedURL = migratedURL.standardizedFileURL
+            let standardizedBase = basePath.standardizedFileURL
+            let basePrefix = standardizedBase.path.hasSuffix("/")
+                ? standardizedBase.path
+                : standardizedBase.path + "/"
+            if (allowRoot && standardizedURL.path == standardizedBase.path)
+                || standardizedURL.path.hasPrefix(basePrefix) {
+                return standardizedURL
+            }
+        }
+
         let relativePath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let fileURL = (relativePath.isEmpty ? basePath : basePath.appendingPathComponent(relativePath)).standardizedFileURL
         let baseStandardized = basePath.standardizedFileURL
