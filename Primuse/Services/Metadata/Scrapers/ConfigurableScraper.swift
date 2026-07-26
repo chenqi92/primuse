@@ -21,6 +21,16 @@ actor ConfigurableScraper: MusicScraper {
     /// 因此把执行放到独立线程并在此时限后放弃, 避免 while(true) 挂死 actor。
     nonisolated static let maxScriptExecutionSeconds: TimeInterval = 4
 
+    /// RFC-reserved example domains are commonly used by scraper manifests to
+    /// mark an unsupported optional endpoint. Treat them as absent instead of
+    /// issuing a real request and trying to parse the Example Domain HTML.
+    nonisolated private static func isPlaceholderEndpoint(_ value: String) -> Bool {
+        guard let host = URLComponents(string: value)?.host?.lowercased() else { return false }
+        return ["example.com", "example.net", "example.org"].contains { reserved in
+            host == reserved || host.hasSuffix(".\(reserved)")
+        }
+    }
+
     init(config: ScraperConfig, cookie: String? = nil) {
         self.config = config
         self.type = .custom(config.id)
@@ -43,6 +53,7 @@ actor ConfigurableScraper: MusicScraper {
         sourceConfig: ScraperSourceConfig? = nil,
         timeout: TimeInterval = 10
     ) async throws -> Data? {
+        guard !isPlaceholderEndpoint(urlString) else { return nil }
         guard let request = buildResourceRequest(from: urlString, sourceConfig: sourceConfig, timeout: timeout) else {
             return nil
         }
@@ -62,7 +73,8 @@ actor ConfigurableScraper: MusicScraper {
     // MARK: - MusicScraper
 
     func search(query: String, artist: String?, album: String?, limit: Int) async throws -> ScraperSearchResult {
-        guard let endpoint = config.search else { return .empty(type) }
+        guard let endpoint = config.search,
+              !Self.isPlaceholderEndpoint(endpoint.url) else { return .empty(type) }
 
         var keyword = query
         if let artist, !artist.isEmpty { keyword += " \(artist)" }
@@ -106,7 +118,8 @@ actor ConfigurableScraper: MusicScraper {
     }
 
     func getDetail(externalId: String) async throws -> ScraperDetail? {
-        guard let endpoint = config.detail else { return nil }
+        guard let endpoint = config.detail,
+              !Self.isPlaceholderEndpoint(endpoint.url) else { return nil }
 
         let vars = ["id": externalId]
         let data = try await executeRequest(endpoint: endpoint, vars: vars)
@@ -131,7 +144,8 @@ actor ConfigurableScraper: MusicScraper {
     }
 
     func getCoverArt(externalId: String) async throws -> [ScraperCoverResult] {
-        guard let endpoint = config.cover else { return [] }
+        guard let endpoint = config.cover,
+              !Self.isPlaceholderEndpoint(endpoint.url) else { return [] }
 
         let vars = ["id": externalId]
         let data = try await executeRequest(endpoint: endpoint, vars: vars)
@@ -150,7 +164,8 @@ actor ConfigurableScraper: MusicScraper {
     }
 
     func getLyrics(externalId: String) async throws -> ScraperLyricsResult? {
-        guard let endpoint = config.lyrics else { return nil }
+        guard let endpoint = config.lyrics,
+              !Self.isPlaceholderEndpoint(endpoint.url) else { return nil }
 
         let vars = ["id": externalId]
         let data = try await executeRequest(endpoint: endpoint, vars: vars)
