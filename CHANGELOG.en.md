@@ -4,6 +4,51 @@
 
 ---
 
+## [1.7.3] (build 24) - 2026-07-26
+
+This release consolidates changes made after 1.7.0 that had not yet been documented, with a focus on very large libraries, real multi-source deletion, Apple Music, Baidu Netdisk, search playback, CarPlay, and cross-device sync.
+
+### Added
+
+- **Real deletion across music sources** — duplicate cleanup can call each source's deletion capability instead of only removing local records, with batching, progress recovery, and retry support
+- **Mixed-source playback queues** — one queue can continuously play local, NAS, cloud-drive, Subsonic, and media-server tracks
+- **Persistent search index** — indexes titles, artists, albums, Pinyin, and lyrics for faster large-library search and lyric hits
+- **Airsonic Advanced compatibility mode** — handles its Subsonic API differences during scanning and playback
+- **Remote notification support** — adds the app-level registration and handling foundation for remote notifications
+- **CarPlay search entry** — adds an always-visible Search row to songs, albums, artists, playlists, and recent items, with recent phone search terms and matching results available in-car
+
+### Changed
+
+- **Apple Music library sync** — rebuilt synchronization, identity mapping, and play-history association to reduce duplicates and stay aligned with the system library
+- **Apple Music lyric scraping** — service-owned work now continues after the player collapses and stores lyrics against the canonical song identity
+- **Source scanning** — added directory-selection sessions, batched scan mutations and checkpoints, and improved FTP continuity and remote metadata parsing
+- **Source counts** — source cards are reconciled against the device's actual library instead of displaying stale cloud snapshots or historical scan totals
+- **iCloud lyric snapshots** — oversized inline payloads progressively shrink to the newest subset that fits instead of dropping the whole lyric snapshot
+- **App icons and cloud sync** — refreshed the icon system and reduced unnecessary synchronization and view updates
+
+### Fixed
+
+- **Baidu smart duplicate cleanup** — validates every per-file batch result so partial failures are not reported as success or written as false local deletions
+- **Baidu large-directory scans** — retries transient read failures and rate limits with backoff instead of abandoning the selected directory
+- **Search-result playback crash** — keeps the tab and bottom-player view structure stable while the system search controller is dismissed
+- **Large-library stalls** — fixed cold-launch, song-list refresh, background scraping, and bulk-cleanup paths that could freeze the UI or trigger the scene watchdog
+- **Duplicate cleanup** — fixed stale results, interrupted batches that could not resume, and missing real deletion for Baidu sources
+- **Local-file recovery** — safely rebases old sandbox paths into the current container and stops custom local sources from being redirected to the managed import folder
+- **Local playback caching** — local files no longer enter the remote offline-cache pipeline, preventing duplicate storage and misleading warnings
+- **MV pause behavior** — pausing video also cancels the full-file background download while retaining its partial file for later use
+- **Scraping and translation logs** — empty titles no longer query online providers, and lyrics already in the target language no longer create no-op translation failures
+- **Simulator credentials** — uses local Keychain items when synchronizable Keychain attributes are unavailable, preserving credentials across app restarts
+- **Audio session startup** — cold launch no longer interrupts audio already playing in another app
+- **Malformed media and playback menus** — hardened invalid inputs, Now Playing menu updates, and lyric-scrolling edge cases
+
+### Performance
+
+- **Library lookup** — replaces repeated full scans with caching and a persistent search index, reducing CPU while typing in very large libraries
+- **Scanning and cleanup** — batches song mutations and lowers checkpoint and UI publication frequency instead of persisting once per track
+- **Lyrics and Now Playing** — reduces view recomputation from lyric scrolling and playback progress while keeping menus stable during high-frequency updates
+
+---
+
 ## [1.7.0] (build 20) - 2026-07-18
 
 This release starts at commit `4a8937f9` and focuses on large-library performance, the Home and Library experience, and cross-platform polish for iPhone, Mac, and Apple TV.

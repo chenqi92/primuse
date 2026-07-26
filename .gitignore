@@ -42,3 +42,6 @@ music
 output
 .playwright-cli
 Marketing
+
+# Local QA plans, execution evidence, and design notes
+Docs/
