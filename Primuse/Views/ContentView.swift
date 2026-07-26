@@ -122,26 +122,28 @@ struct ContentView: View {
 
     @ViewBuilder
     private var playerAwareTabRoot: some View {
-        // accessory modifier 必须按需挂 / 不挂 —— iOS 26 的
-        // `tabViewBottomAccessory` 即使闭包内是 EmptyView 也会保留透明
-        // 占位条。Modifier 切换会让 TabView 子树被当成不同结构重建,
-        // SearchView 等子页的 @State 会丢, 所以 tab content 自带稳定
-        // `.id(...)` 让 SwiftUI 跨 rebuild 复用 state。
-        if miniPlayerActive {
-            if #available(iOS 26.0, *) {
-                tabRoot
-                    .tabBarMinimizeBehavior(.onScrollDown)
-                    .tabViewBottomAccessory {
-                        // Apple Music 模式下 player.currentSong 也会被 mirror task
-                        // 设上 (走 NowPlayingAccessory 同一份实现), 不再需要单独
-                        // 的 AppleMusicAccessory 分支。
-                        if player.currentSong != nil {
-                            NowPlayingAccessory(onTap: { showNowPlaying = true })
-                        }
+        // Keep the modifier identity stable while search is active. Toggling
+        // between two different TabView structures at the instant a search
+        // result starts playback makes UIKit tear down UISearchController and
+        // install the accessory in the same update; on iOS 26 that can abort
+        // in `_willDismissSearchController` with an unowned-reference crash.
+        if #available(iOS 26.1, *) {
+            tabRoot
+                .tabBarMinimizeBehavior(.onScrollDown)
+                .tabViewBottomAccessory(isEnabled: miniPlayerActive) {
+                    NowPlayingAccessory(onTap: { showNowPlaying = true })
+                }
+        } else if #available(iOS 26.0, *) {
+            // 26.0 has no `isEnabled:` overload. Keeping the modifier attached
+            // is still safer than replacing the whole TabView during search;
+            // its empty accessory may reserve a small transparent strip.
+            tabRoot
+                .tabBarMinimizeBehavior(.onScrollDown)
+                .tabViewBottomAccessory {
+                    if miniPlayerActive {
+                        NowPlayingAccessory(onTap: { showNowPlaying = true })
                     }
-            } else {
-                tabRoot
-            }
+                }
         } else {
             tabRoot
         }
