@@ -2171,6 +2171,12 @@ final class AudioPlayerService {
             shouldResumeAfterInterruption = false
             syncPlaybackProgressFromEngine()
             musicVideoPlayer?.pause()
+            // AVPlayer pause only stops presentation. The parallel full-file
+            // MV cache task otherwise keeps downloading hundreds of MB while
+            // the UI visibly says playback is paused. Preserve its .partial
+            // file for a later resume/replay, but release network and battery
+            // immediately.
+            sourceManager?.cancelMusicVideoDownloads(keeping: nil)
             isPlaying = false
             updateNowPlayingInfo()
             updatePlaybackState()
