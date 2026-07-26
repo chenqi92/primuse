@@ -400,6 +400,41 @@ private final class CountingLoginURLProtocol: URLProtocol, @unchecked Sendable {
     #expect(BaiduPanStreamResolver.dlink(in: ["list": []]) == nil)
 }
 
+@Test func baiduFileManagerValidatesEveryItem() throws {
+    let data = Data(#"{"errno":0,"info":[{"errno":0,"path":"/a.mp3"},{"errno":0,"path":"/b.mp3"}]}"#.utf8)
+    let response = try BaiduFileManagerBatchResponse.decode(data)
+    try response.validate(expectedPaths: ["/a.mp3", "/b.mp3"])
+}
+
+@Test func baiduFileManagerRejectsPartialFailure() throws {
+    let data = Data(#"{"errno":0,"info":[{"errno":0,"path":"/a.mp3"},{"errno":12,"path":"/b.mp3"}]}"#.utf8)
+    let response = try BaiduFileManagerBatchResponse.decode(data)
+
+    #expect(throws: BaiduFileManagerBatchResponse.ValidationError.failedItems([
+        .init(errno: 12, path: "/b.mp3")
+    ])) {
+        try response.validate(expectedPaths: ["/a.mp3", "/b.mp3"])
+    }
+}
+
+@Test func baiduFileManagerRejectsMissingResultRows() throws {
+    let data = Data(#"{"errno":0,"info":[{"errno":0,"path":"/a.mp3"}]}"#.utf8)
+    let response = try BaiduFileManagerBatchResponse.decode(data)
+
+    #expect(throws: BaiduFileManagerBatchResponse.ValidationError.missingPaths(["/b.mp3"])) {
+        try response.validate(expectedPaths: ["/a.mp3", "/b.mp3"])
+    }
+}
+
+@Test func baiduFileManagerRequiresSynchronousItemResults() throws {
+    let data = Data(#"{"errno":0,"taskid":123}"#.utf8)
+    let response = try BaiduFileManagerBatchResponse.decode(data)
+
+    #expect(throws: BaiduFileManagerBatchResponse.ValidationError.missingItemResults) {
+        try response.validate(expectedPaths: ["/a.mp3"])
+    }
+}
+
 @Test func cloudRequestBuilders() {
     let json = CloudDriveStreamResolver.jsonRequest(
         url: URL(string: "https://api.dropboxapi.com/2/files/get_temporary_link")!,

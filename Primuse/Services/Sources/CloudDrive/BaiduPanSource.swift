@@ -92,7 +92,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
             throw CloudDriveError.invalidResponse
         }
 
-        _ = try await callFormAPI(
+        let responseData = try await callFormAPI(
             base: "\(Self.apiBase)/rest/2.0/xpan/file",
             queryItems: [
                 .init(name: "method", value: "filemanager"),
@@ -103,6 +103,26 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
                 .init(name: "filelist", value: fileList),
             ]
         )
+
+        // `errno == 0` at the response root only means the batch request was
+        // accepted. Baidu also returns one `info[].errno` per path. Ignoring
+        // those rows made partial failures look like a successful smart
+        // duplicate cleanup, so the app removed/tombstoned tracks whose cloud
+        // files were still present and they reappeared on a later scan.
+        do {
+            let response = try BaiduFileManagerBatchResponse.decode(responseData)
+            try response.validate(expectedPaths: requestedPaths)
+        } catch let error as BaiduFileManagerBatchResponse.ValidationError {
+            let errno: Int
+            switch error {
+            case .topLevel(let value): errno = value
+            case .failedItems(let items): errno = items.first?.errno ?? -1
+            case .missingItemResults, .missingPaths: errno = -1
+            }
+            throw CloudDriveError.apiError(errno, error.localizedDescription)
+        } catch {
+            throw CloudDriveError.invalidResponse
+        }
 
         let deletedSet = Set(requestedPaths)
         for path in requestedPaths {
@@ -754,9 +774,12 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
             let bodyPreview = String(data: data, encoding: .utf8)?.prefix(500) ?? ""
             plog("☁️ Baidu errno=\(errno) attempt=\(attempt) url=\(base) body=\(bodyPreview)")
 
-            // 31034: 接口频次超限 — 退避重试
-            if errno == 31034, attempt < Self.rateLimitMaxRetries {
-                plog("☁️ Baidu rate-limited, backoff \(backoff)s and retry")
+            // 31034 is the documented frequency limit. Large directory walks
+            // also intermittently return -9 after several successful pages;
+            // retrying a GET is safe and prevents one transient read from
+            // cancelling the rest of that selected directory tree.
+            if (errno == 31034 || errno == -9), attempt < Self.rateLimitMaxRetries {
+                plog("☁️ Baidu transient read errno=\(errno), backoff \(backoff)s and retry")
                 let nanoseconds = (backoff * 1_000_000_000).finiteUInt64(or: 1_000_000_000)
                 try await Task.sleep(nanoseconds: nanoseconds)
                 backoff *= 2
@@ -776,7 +799,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
         base: String,
         queryItems: [URLQueryItem],
         formItems: [URLQueryItem]
-    ) async throws -> [String: Any] {
+    ) async throws -> Data {
         var rateLimitAttempt = 0
         var transportAttempt = 0
         var rateLimitBackoff: TimeInterval = 0.5
@@ -828,7 +851,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
                 plog("☁️ Baidu invalid filemanager response url=\(base) body=\(body.prefix(500))")
                 throw CloudDriveError.invalidResponse
             }
-            if errno == 0 { return json }
+            if errno == 0 { return data }
 
             let bodyPreview = String(data: data, encoding: .utf8)?.prefix(500) ?? ""
             plog("☁️ Baidu errno=\(errno) attempt=\(rateLimitAttempt) url=\(base) body=\(bodyPreview)")
@@ -881,6 +904,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
         case 2: return "参数错误 (errno 2)"
         case 111: return "access_token 已过期 (errno 111)"
         case 31034: return "接口请求频次超限 (errno 31034)"
+        case -9: return "百度网盘临时读取错误 (errno -9)"
         case 42213: return "目录参数非法 (errno 42213)"
         default: return "百度网盘 errno \(errno)"
         }
