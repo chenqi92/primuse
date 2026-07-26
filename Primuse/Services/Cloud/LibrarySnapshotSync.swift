@@ -160,13 +160,9 @@ final class LibrarySnapshotSync: Sendable {
             srcInfo = attachSourcesSnapshot(record, gzKey: "sourcesGz", assetKey: "sources")
         }
         // 歌词:把本机已抓到的歌词(MetadataAssetStore 里的 .json)随快照传给 TV。
-        if let lyrics = Self.gatherLyricsBlob() {
-            if let gz = Self.gzip(lyrics.data), gz.count < Self.inlineGzLimit {
-                record["lyricsGz"] = gz as CKRecordValue
-                srcInfo += "; lyricsGz=\(gz.count)B files=\(lyrics.fileCount) skipped=\(lyrics.skippedFileCount)"
-            } else {
-                srcInfo += "; lyrics=skip-compressed-too-large files=\(lyrics.fileCount)"
-            }
+        if let lyrics = Self.gatherInlineLyricsBlob() {
+            record["lyricsGz"] = lyrics.gz as CKRecordValue
+            srcInfo += "; lyricsGz=\(lyrics.gz.count)B files=\(lyrics.snapshot.fileCount) skipped=\(lyrics.snapshot.skippedFileCount)"
         }
         record["modifiedAt"] = Date() as CKRecordValue
         guard !Task.isCancelled else { return false }
@@ -300,13 +296,44 @@ final class LibrarySnapshotSync: Sendable {
     private static let maxSingleLyricsFileBytes = 1 * 1024 * 1024
     private static let maxInlineSnapshotInputBytes = 8 * 1024 * 1024
 
-    /// 收集本机 MetadataAssetStore 的全部歌词文件 → {文件名: base64} 的 JSON。
-    private static func gatherLyricsBlob() -> LyricsSnapshotEncoder.Result? {
+    /// 收集本机 MetadataAssetStore 的歌词文件 → {文件名: base64} 的 JSON。
+    private static func gatherLyricsBlob(
+        maximumOutputBytes: Int = maxLyricsUploadRawBytes
+    ) -> LyricsSnapshotEncoder.Result? {
         LyricsSnapshotEncoder.encodeDirectory(
             MetadataAssetStore.shared.lyricsDirectoryURL,
-            maximumOutputBytes: maxLyricsUploadRawBytes,
+            maximumOutputBytes: maximumOutputBytes,
             maximumFileBytes: maxSingleLyricsFileBytes
         )
+    }
+
+    private struct InlineLyricsBlob {
+        let snapshot: LyricsSnapshotEncoder.Result
+        let gz: Data
+    }
+
+    /// CloudKit's inline field has a compressed-size limit. A raw 4 MB budget
+    /// can still produce an incompressible gzip larger than that limit (for
+    /// example, base64-heavy translated lyrics), which previously made the
+    /// whole lyrics snapshot disappear. Retry with progressively smaller raw
+    /// budgets and keep the newest subset chosen by LyricsSnapshotEncoder.
+    private static func gatherInlineLyricsBlob() -> InlineLyricsBlob? {
+        let guaranteedRawBudget = max(2, inlineGzLimit - 64 * 1024)
+        let budgets = [
+            maxLyricsUploadRawBytes,
+            2 * 1024 * 1024,
+            1 * 1024 * 1024,
+            guaranteedRawBudget,
+        ]
+        var attempted = Set<Int>()
+        for budget in budgets where attempted.insert(budget).inserted {
+            guard let snapshot = gatherLyricsBlob(maximumOutputBytes: budget),
+                  let gz = gzip(snapshot.data) else { continue }
+            if gz.count < inlineGzLimit {
+                return InlineLyricsBlob(snapshot: snapshot, gz: gz)
+            }
+        }
+        return nil
     }
 
     /// tvOS:把快照里的歌词文件还原到本机 MetadataAssetStore(文件名不变,
