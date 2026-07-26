@@ -1,4 +1,5 @@
 import Foundation
+import NaturalLanguage
 import PrimuseKit
 
 /// 歌词翻译设置 — 启用开关 + 目标语言。
@@ -72,6 +73,37 @@ final class LyricsTranslationSettingsStore {
             }
         }
         return "zh-Hans"
+    }
+
+    /// Returns false when the lyric body is confidently already in the target
+    /// language. Apple Translation reports that normal no-op case as an error
+    /// (for example Simplified Chinese → Simplified Chinese); treating it as a
+    /// failed translation pollutes logs and the negative cache. Script variants
+    /// remain distinct so zh-Hant → zh-Hans conversion is still attempted.
+    static func lyricsNeedTranslation(_ texts: [String], targetLanguageCode: String) -> Bool {
+        let sample = texts
+            .lazy
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .prefix(80)
+            .joined(separator: "\n")
+        guard !sample.isEmpty else { return false }
+
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(String(sample.prefix(4_000)))
+        guard let hypothesis = recognizer.languageHypotheses(withMaximum: 1).first,
+              hypothesis.value >= 0.65 else {
+            return true
+        }
+        return languageIdentity(hypothesis.key.rawValue)
+            != languageIdentity(targetLanguageCode)
+    }
+
+    private static func languageIdentity(_ raw: String) -> String {
+        let lower = raw.lowercased()
+        if lower.hasPrefix("zh-hans") { return "zh-Hans" }
+        if lower.hasPrefix("zh-hant") { return "zh-Hant" }
+        return lower.split(separator: "-").first.map(String.init) ?? lower
     }
 
     private func persist() {

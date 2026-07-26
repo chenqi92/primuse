@@ -55,8 +55,16 @@ actor ScraperManager {
         let enabledSources = settings.enabledSources
 
         // Clean title for search; also split "歌手 - 标题" 文件名(云盘无标签歌曲常见)
-        // 推出 effectiveArtist,避免用「阿蝉蝉 - 不谓侠（…）」整串脏标题去搜导致错配。
+        // 推出 effectiveArtist,避免用整串脏标题去搜导致错配。
         let (cleanedTitle, effectiveArtist) = Self.searchTitleArtist(title, artist: artist)
+        guard !cleanedTitle.isEmpty else {
+            // Some remote items have an empty title (or a filename made only
+            // of bracketed noise that cleanTitle removes). Sending an empty
+            // query makes every provider return a different validation error,
+            // burns quota, and records a misleading multi-source failure.
+            plog("🔍 Scrape skipped: empty cleaned title")
+            return result
+        }
 
         // Scrape metadata from first successful source
         if needs.metadata {

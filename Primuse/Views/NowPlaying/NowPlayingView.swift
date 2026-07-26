@@ -3011,6 +3011,14 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
             translationConfig = nil
             return
         }
+        guard LyricsTranslationSettingsStore.lyricsNeedTranslation(
+            lyrics.map(\.text),
+            targetLanguageCode: settings.targetLanguageCode
+        ) else {
+            translationConfig = nil
+            plog("ℹ️ Lyrics translation skipped: lyrics already match target language")
+            return
+        }
         let target = Locale.Language(identifier: settings.targetLanguageCode)
         // source: nil 让 framework 自动检测 (英、日、韩混排都能处理)
         translationConfig = TranslationSession.Configuration(source: nil, target: target)
