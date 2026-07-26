@@ -306,11 +306,14 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
 
     func fetchServerLyrics(for path: String) async -> String? {
         guard (try? await connect()) != nil, let songID = songID(from: path) else { return nil }
-        // OpenSubsonic 服务端(Navidrome/Gonic)优先用 getLyricsBySongId(可同步歌词)。
-        if let lrc = await modernLyrics(songID: songID) { return lrc }
-        // OpenSubsonic 服务端这就是权威结果(空 = 真没歌词), 不再退回老接口多打一轮请求。
-        if isOpenSubsonic { return nil }
-        // 非 OpenSubsonic 服务端(如 Airsonic): 退回老 Subsonic getLyrics(artist+title)。
+        // getLyricsBySongId is an OpenSubsonic extension. Calling it on
+        // Airsonic Advanced produces a server-side 404 exception before the
+        // legacy fallback, even though playback itself succeeds. Route by the
+        // capability advertised by ping so each family receives only the API
+        // it implements.
+        if isOpenSubsonic {
+            return await modernLyrics(songID: songID)
+        }
         return await legacyLyrics(songID: songID)
     }
 
