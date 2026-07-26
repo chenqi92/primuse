@@ -67,7 +67,6 @@ private actor SnapshotMutationLock {
 final class LibrarySnapshotSync: Sendable {
     static let shared = LibrarySnapshotSync()
 
-    private let containerID = "iCloud.com.welape.yuanyin"
     private let recordType = "LibrarySnapshot"
     private let recordName = "library-snapshot"
     private let credRecordType = "CredentialSnapshot"
@@ -75,8 +74,8 @@ final class LibrarySnapshotSync: Sendable {
     private let fullUploadSingleFlight = SnapshotUploadSingleFlight()
     private let cloudMutationLock = SnapshotMutationLock()
 
-    private var database: CKDatabase {
-        CKContainer(identifier: containerID).privateCloudDatabase
+    private var database: CKDatabase? {
+        CloudKitRuntime.makeContainer()?.privateCloudDatabase
     }
     private var recordID: CKRecord.ID { CKRecord.ID(recordName: recordName) }
     private var credRecordID: CKRecord.ID { CKRecord.ID(recordName: credRecordName) }
@@ -116,6 +115,10 @@ final class LibrarySnapshotSync: Sendable {
 
     private func performUploadNow() async -> Bool {
         guard !Task.isCancelled else { return false }
+        guard let database else {
+            plog("LibrarySnapshotSync: CloudKit unavailable in this build, skip upload")
+            return false
+        }
         let fm = FileManager.default
         guard fm.fileExists(atPath: libraryCacheURL.path) else {
             plog("LibrarySnapshotSync: no local library-cache.json, skip upload")
@@ -204,6 +207,10 @@ final class LibrarySnapshotSync: Sendable {
     }
 
     private func performUploadSourcesOnly() async -> Bool {
+        guard let database else {
+            plog("LibrarySnapshotSync: CloudKit unavailable in this build, skip sources upload")
+            return false
+        }
         let fm = FileManager.default
         guard fm.fileExists(atPath: sourcesURL.path) else {
             plog("LibrarySnapshotSync: no local sources.json, skip sources-only upload")
@@ -262,6 +269,10 @@ final class LibrarySnapshotSync: Sendable {
     /// 拉取最新快照写入本地容器。成功返回 true(调用方据此决定是否重载库)。
     @discardableResult
     func download() async -> Bool {
+        guard let database else {
+            plog("LibrarySnapshotSync: CloudKit unavailable in this build, skip download")
+            return false
+        }
         let fm = FileManager.default
         try? fm.createDirectory(at: directory, withIntermediateDirectories: true)
         do {
@@ -756,6 +767,10 @@ final class LibrarySnapshotSync: Sendable {
 
     /// tvOS:拉取并解密凭据包(供流式解析用)。
     func downloadCredentials() async -> CredentialBundle? {
+        guard let database else {
+            plog("LibrarySnapshotSync: CloudKit unavailable in this build, skip credential download")
+            return nil
+        }
         do {
             let record = try await database.record(for: credRecordID)
             guard let data = record.encryptedValues["credentials"] as? Data else { return nil }
@@ -771,6 +786,10 @@ final class LibrarySnapshotSync: Sendable {
     /// 覆盖上传加密凭据包(空包且无中继端点时跳过)。
     func uploadCredentials(_ bundle: CredentialBundle) async {
         guard !bundle.entries.isEmpty || bundle.relay != nil, let data = try? bundle.jsonData() else { return }
+        guard let database else {
+            plog("LibrarySnapshotSync: CloudKit unavailable in this build, skip credential upload")
+            return
+        }
         let record = CKRecord(recordType: credRecordType, recordID: credRecordID)
         record.encryptedValues["credentials"] = data
         record["modifiedAt"] = Date() as CKRecordValue

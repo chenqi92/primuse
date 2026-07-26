@@ -284,6 +284,16 @@ private struct SourceDiagnosticAdvice: Sendable {
 @Observable
 final class SourceManager {
     private var connectors: [String: any MusicSourceConnector] = [:]
+    /// Sidecar I/O uses a connector separate from playback, but it must remain
+    /// retained. AMSMB2 4.0.3 can crash in its C-context deinitializer after a
+    /// server rejects a write; creating one throwaway connector per song made
+    /// a read-only SMB scrape reliably hit that upstream lifetime bug.
+    private var sidecarConnectors: [String: any MusicSourceConnector] = [:]
+    /// A replaced SMB connector cannot be safely destroyed after a failed C
+    /// request on AMSMB2 4.0.3. Keep the rare retired instance alive until the
+    /// process exits; normal playback and scrape paths remain bounded at one
+    /// active connector per source.
+    private var retiredSMBSidecarConnectors: [any MusicSourceConnector] = []
     private let sourcesProvider: @Sendable () async throws -> [MusicSource]
     @ObservationIgnored private var offlineAudioSnapshots: [String: OfflineAudioCacheSnapshot] = [:]
     @ObservationIgnored private var offlineAudioSnapshotEntries: [String: OfflineAudioSnapshotEntry] = [:]
@@ -3078,7 +3088,15 @@ final class SourceManager {
         guard let source = sources.first(where: { $0.id == song.sourceID }) else {
             throw SourceError.fileNotFound("Source not found for song: \(song.title)")
         }
+        if let existing = sidecarConnectors[source.id] {
+            try await existing.connect()
+            return existing
+        }
         let conn = connector(for: source, cache: false)
+        // Retain before the first await. If connect/write fails, the AMSMB2
+        // object must not immediately deinitialize its possibly-invalid C
+        // context while the failure is unwinding.
+        sidecarConnectors[source.id] = conn
         try await conn.connect()
         return conn
     }
@@ -3177,8 +3195,16 @@ final class SourceManager {
     }
 
     func refreshConnector(for sourceID: String) async {
-        guard let connector = connectors.removeValue(forKey: sourceID) else { return }
-        await connector.disconnect()
+        if let connector = connectors.removeValue(forKey: sourceID) {
+            await connector.disconnect()
+        }
+        if let sidecar = sidecarConnectors.removeValue(forKey: sourceID) {
+            if sidecar is SMBSource {
+                retiredSMBSidecarConnectors.append(sidecar)
+            } else {
+                await sidecar.disconnect()
+            }
+        }
     }
 
     func removeConnector(for sourceID: String) async {
@@ -3190,6 +3216,18 @@ final class SourceManager {
             await connector.disconnect()
         }
         connectors.removeAll()
+
+        for (_, connector) in sidecarConnectors {
+            if connector is SMBSource {
+                // See the retention note above: a rejected libsmb2 request
+                // can leave AMSMB2 4.0.3 unsafe to destroy. Remove it from the
+                // reusable cache but keep that rare object alive.
+                retiredSMBSidecarConnectors.append(connector)
+            } else {
+                await connector.disconnect()
+            }
+        }
+        sidecarConnectors.removeAll()
     }
 }
 

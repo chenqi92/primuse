@@ -2,6 +2,44 @@ import CloudKit
 import Foundation
 import PrimuseKit
 import SwiftUI
+#if os(macOS)
+import Security
+#endif
+
+/// `CKContainer(identifier:)` raises an Objective-C exception when the running
+/// binary does not carry the requested iCloud entitlement. Swift cannot catch
+/// that exception, so test/ad-hoc builds must be rejected before construction.
+enum CloudKitRuntime {
+    static let containerID = "iCloud.com.welape.yuanyin"
+
+    static var canCreateContainer: Bool {
+        #if targetEnvironment(simulator)
+        // Simulator ad-hoc builds have no usable CloudKit container and the
+        // initializer traps even when an environment override is supplied.
+        false
+        #elseif os(macOS)
+        guard let task = SecTaskCreateFromSelf(nil),
+              let value = SecTaskCopyValueForEntitlement(
+                  task,
+                  "com.apple.developer.icloud-container-identifiers" as CFString,
+                  nil
+              ),
+              let identifiers = value as? [String] else {
+            return false
+        }
+        return identifiers.contains(containerID)
+        #else
+        // Installable iOS/tvOS/watchOS builds are signed against the target's
+        // entitlement file; an invalid profile is rejected at install/signing.
+        true
+        #endif
+    }
+
+    static func makeContainer() -> CKContainer? {
+        guard canCreateContainer else { return nil }
+        return CKContainer(identifier: containerID)
+    }
+}
 
 enum CloudSyncStatus: Equatable, Sendable {
     case disabled
@@ -36,7 +74,7 @@ enum AccountUnavailableReason: Equatable, Sendable {
 @MainActor
 @Observable
 final class CloudKitSyncService {
-    nonisolated static let containerID = "iCloud.com.welape.yuanyin"
+    nonisolated static let containerID = CloudKitRuntime.containerID
     nonisolated static let zoneID = CKRecordZone.ID(zoneName: "PrimuseSync")
 
     /// 家庭共享 zone ── owner 在这里创建 CKShare, 邀请的 participant 通过
@@ -471,21 +509,16 @@ final class CloudKitSyncService {
 
     private func configuredContainer() -> CKContainer? {
         if let container { return container }
-        guard Self.shouldCreateCloudKitContainer else {
-            status = .error("CloudKit unavailable in this simulator run — \(String(localized: "icloud_container_setup_hint"))")
+        guard let container = CloudKitRuntime.makeContainer() else {
+            status = .error("CloudKit unavailable in this build — \(String(localized: "icloud_container_setup_hint"))")
             return nil
         }
-        let container = CKContainer(identifier: Self.containerID)
         self.container = container
         return container
     }
 
-    private nonisolated static var shouldCreateCloudKitContainer: Bool {
-        #if targetEnvironment(simulator)
-        ProcessInfo.processInfo.environment["PRIMUSE_ENABLE_CLOUDKIT_IN_SIMULATOR"] == "1"
-        #else
-        true
-        #endif
+    func containerForSharingController() -> CKContainer? {
+        configuredContainer()
     }
 
     private func attachAccountChangeObserver() {

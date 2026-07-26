@@ -1692,8 +1692,12 @@ struct FamilySharingSettingsView: View {
         defer { isBusy = false }
         do {
             let share = try await sync.enableFamilySharing()
+            guard let container = sync.containerForSharingController() else {
+                throw NSError(domain: "Primuse.Cloud", code: -1,
+                              userInfo: [NSLocalizedDescriptionKey: "CloudKit unavailable"])
+            }
             pendingShare = share
-            pendingContainer = CKContainer(identifier: CloudKitSyncService.containerID)
+            pendingContainer = container
             familyEnabled = true
             showSharingController = true
         } catch {
@@ -1709,8 +1713,12 @@ struct FamilySharingSettingsView: View {
         // enableFamilySharing 是幂等的 ── zone / holder 已在时只追加邀请逻辑。
         do {
             let share = try await sync.enableFamilySharing()
+            guard let container = sync.containerForSharingController() else {
+                throw NSError(domain: "Primuse.Cloud", code: -1,
+                              userInfo: [NSLocalizedDescriptionKey: "CloudKit unavailable"])
+            }
             pendingShare = share
-            pendingContainer = CKContainer(identifier: CloudKitSyncService.containerID)
+            pendingContainer = container
             showSharingController = true
         } catch {
             errorMessage = error.localizedDescription

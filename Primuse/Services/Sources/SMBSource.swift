@@ -2,6 +2,33 @@ import Foundation
 import AMSMB2
 import PrimuseKit
 
+/// AMSMB2 wraps one mutable libsmb2 context. Swift actor isolation alone is
+/// not sufficient here because every AMSMB2 call suspends: while one call is
+/// awaiting I/O, another actor entry can disconnect or replace that same C
+/// context. Keep the complete request/retry lifecycle mutually exclusive.
+private actor SMBOperationGate {
+    private var isLocked = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func acquire() async {
+        if !isLocked {
+            isLocked = true
+            return
+        }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    func release() {
+        if waiters.isEmpty {
+            isLocked = false
+        } else {
+            waiters.removeFirst().resume()
+        }
+    }
+}
+
 actor SMBSource: MusicSourceConnector {
     let sourceID: String
     nonisolated let supportsSidecarWriting = true
@@ -12,6 +39,7 @@ actor SMBSource: MusicSourceConnector {
     private let password: String
     private var client: SMB2Manager?
     private var connectedShareName: String?
+    private let operationGate = SMBOperationGate()
     private let cacheDirectory: URL
 
     private enum ResolvedPath {
@@ -37,20 +65,23 @@ actor SMBSource: MusicSourceConnector {
     }
 
     func connect() async throws {
-        _ = try await ensureServerConnection()
-
-        if sharePath.isEmpty == false {
-            _ = try await ensureConnectedShare(named: sharePath)
+        try await withSerializedOperation {
+            if self.sharePath.isEmpty == false {
+                _ = try await self.ensureConnectedShare(named: self.sharePath)
+            } else {
+                _ = try await self.rawListShares()
+            }
         }
     }
 
     func disconnect() async {
+        await operationGate.acquire()
         if let client, connectedShareName != nil {
             try? await client.disconnectShare()
         }
-
         connectedShareName = nil
         client = nil
+        await operationGate.release()
     }
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
@@ -286,12 +317,6 @@ actor SMBSource: MusicSourceConnector {
         guard let client = SMB2Manager(url: serverURL, credential: credential) else {
             throw SourceError.connectionFailed("Invalid SMB server configuration")
         }
-        do {
-            _ = try await client.listShares()
-        } catch {
-            throw mapSMBError(error)
-        }
-
         self.client = client
         return client
     }
@@ -325,7 +350,11 @@ actor SMBSource: MusicSourceConnector {
 
     private func rawListShares() async throws -> [(name: String, comment: String)] {
         let client = try await ensureServerConnection()
-        return try await client.listShares()
+        do {
+            return try await client.listShares()
+        } catch {
+            throw mapSMBError(error)
+        }
     }
 
     /// Drop the cached client and tree-connect so the next call re-handshakes
@@ -345,6 +374,14 @@ actor SMBSource: MusicSourceConnector {
     private func runWithRetry<T: Sendable>(
         _ block: () async throws -> T
     ) async throws -> T {
+        try await withSerializedOperation {
+            try await self.runWithRetryWhileLocked(block)
+        }
+    }
+
+    private func runWithRetryWhileLocked<T: Sendable>(
+        _ block: () async throws -> T
+    ) async throws -> T {
         do {
             return try await block()
         } catch {
@@ -361,13 +398,27 @@ actor SMBSource: MusicSourceConnector {
         }
     }
 
+    private func withSerializedOperation<T: Sendable>(
+        _ operation: () async throws -> T
+    ) async throws -> T {
+        await operationGate.acquire()
+        do {
+            let result = try await operation()
+            await operationGate.release()
+            return result
+        } catch {
+            await operationGate.release()
+            throw error
+        }
+    }
+
     private nonisolated func mapSMBError(_ error: Error) -> Error {
         if error is SourceError { return error }
         let ns = error as NSError
         if ns.domain == NSPOSIXErrorDomain {
             switch ns.code {
             case Int(EACCES), Int(EPERM):
-                return SourceError.connectionFailed(String(localized: "smb_error_auth"))
+                return SourceError.authenticationFailed
             case Int(ENOENT):
                 return SourceError.connectionFailed(String(localized: "smb_error_not_found"))
             case Int(ECONNREFUSED):
