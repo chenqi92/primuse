@@ -14,6 +14,118 @@ private struct CarPlaySendableBox<T>: @unchecked Sendable {
     let value: T
 }
 
+/// Keeps CarPlay artwork decode off the main actor, deduplicates repeat rows,
+/// and repairs a Jellyfin/Emby JPEG variant that iOS ImageIO cannot decode
+/// cleanly (`NULL _blockArray`).
+private actor CarPlayArtworkDecoder {
+    static let shared = CarPlayArtworkDecoder()
+
+    private let thumbnails: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 512
+        cache.totalCostLimit = 16 * 1_024 * 1_024
+        return cache
+    }()
+
+    func thumbnail(forSongID songID: String, coverRef: String?) async -> UIImage? {
+        if let cached = thumbnails.object(forKey: songID as NSString) {
+            return cached
+        }
+        guard var data = await MetadataAssetStore.shared.cachedCoverData(forSongID: songID) else {
+            return nil
+        }
+
+        // Some ffmpeg-generated JPEGs use the same non-1x1 sampling factor
+        // for every component (for example Y/Cb/Cr are all 1x2). The stream is
+        // recoverable, but iOS 18 ImageIO logs a decode error for it. Detect
+        // that header without invoking ImageIO and ask the media server for a
+        // PNG representation. If the server is unavailable, leave this one row
+        // on its placeholder instead of repeatedly feeding bad data to ImageIO.
+        if Self.hasRedundantJPEGSampling(data) {
+            guard let repaired = await Self.fetchPNGVariant(from: coverRef) else {
+                return nil
+            }
+            data = repaired
+            await MetadataAssetStore.shared.cacheCover(repaired, forSongID: songID)
+        }
+
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+            return nil
+        }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: 88
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return nil
+        }
+        let thumbnail = UIImage(cgImage: cgImage)
+        thumbnails.setObject(
+            thumbnail,
+            forKey: songID as NSString,
+            cost: cgImage.bytesPerRow * cgImage.height
+        )
+        return thumbnail
+    }
+
+    /// Reads SOF component sampling bytes without decoding image pixels.
+    private static func hasRedundantJPEGSampling(_ data: Data) -> Bool {
+        guard data.count >= 12, data[0] == 0xFF, data[1] == 0xD8 else { return false }
+        var marker = 2
+        while marker + 3 < data.count {
+            guard data[marker] == 0xFF else {
+                marker += 1
+                continue
+            }
+            while marker < data.count, data[marker] == 0xFF { marker += 1 }
+            guard marker < data.count else { return false }
+            let code = data[marker]
+            marker += 1
+            if code == 0xD9 || code == 0xDA { return false }
+            if code == 0x01 || (0xD0...0xD7).contains(code) { continue }
+            guard marker + 1 < data.count else { return false }
+            let length = Int(data[marker]) << 8 | Int(data[marker + 1])
+            guard length >= 2, marker + length <= data.count else { return false }
+
+            if [0xC0, 0xC1, 0xC2].contains(code) {
+                let payload = marker + 2
+                guard payload + 6 <= data.count else { return false }
+                let componentCount = Int(data[payload + 5])
+                guard componentCount > 1,
+                      payload + 6 + componentCount * 3 <= marker + length else {
+                    return false
+                }
+                let samples = (0..<componentCount).map { data[payload + 7 + $0 * 3] }
+                return samples.allSatisfy { $0 == samples[0] } && samples[0] != 0x11
+            }
+            marker += length
+        }
+        return false
+    }
+
+    private static func fetchPNGVariant(from coverRef: String?) async -> Data? {
+        guard let coverRef,
+              var components = URLComponents(string: coverRef),
+              components.url?.path.localizedCaseInsensitiveContains("/Images/") == true else {
+            return nil
+        }
+        var queryItems = components.queryItems ?? []
+        queryItems.removeAll { $0.name.caseInsensitiveCompare("format") == .orderedSame }
+        queryItems.append(URLQueryItem(name: "format", value: "png"))
+        components.queryItems = queryItems
+        guard let url = components.url,
+              let (data, response) = try? await URLSession.shared.data(from: url),
+              let http = response as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode),
+              data.starts(with: [0x89, 0x50, 0x4E, 0x47]) else {
+            return nil
+        }
+        return data
+    }
+}
+
 @MainActor
 final class CarPlaySceneDelegate: UIResponder {
     private var interfaceController: CPInterfaceController?
@@ -587,7 +699,7 @@ extension CarPlaySceneDelegate {
             detailText: song.artistName ?? song.albumTitle,
             image: nil
         )
-        loadArtwork(forSongID: song.id, into: item)
+        loadArtwork(for: song, into: item)
         item.handler = { [weak self] _, completion in
             // queueProvider 不访问 @MainActor(只读捕获的 Sendable 值), 在外层调用;
             // 只把 Sendable 结果带进 hop, 避免把非 @Sendable 的 queueProvider 捕获进 Task。
@@ -700,7 +812,7 @@ extension CarPlaySceneDelegate {
 // library shows this dominating, switch to per-item Task tracking with
 // explicit cancel on item disposal.
 extension CarPlaySceneDelegate {
-    private func loadArtwork(forSongID songID: String, into item: CPListItem) {
+    private func loadArtwork(for song: Song, into item: CPListItem) {
         // Keep the non-Sendable `item` on the main actor (this Task inherits
         // @MainActor), but offload the fetch + `UIImage(data:)` decode to a
         // detached task. Previously the decode ran on the main thread for
@@ -710,7 +822,7 @@ extension CarPlaySceneDelegate {
         let id = UUID()
         let task = Task { [weak self, weak item] in
             defer { self?.artworkTasks[id] = nil }
-            let image = await Self.decodeCover(forSongID: songID)
+            let image = await Self.decodeCover(for: song)
             guard !Task.isCancelled, let image, let item else { return }
             item.setImage(image)
         }
@@ -726,21 +838,16 @@ extension CarPlaySceneDelegate {
         artworkTasks.removeAll()
     }
 
-    /// Off-main cover fetch + decode. Runs detached so neither the actor hop
-    /// nor `UIImage(data:)` touches the main thread.
-    nonisolated private static func decodeCover(forSongID songID: String) async -> UIImage? {
-        await Task.detached(priority: .utility) {
-            guard let data = await MetadataAssetStore.shared.cachedCoverData(forSongID: songID) else {
-                return nil
-            }
-            return UIImage(data: data)
-        }.value
+    /// Off-main cover fetch + serial decode. The dedicated actor keeps the
+    /// work away from the main actor and prevents concurrent ImageIO decodes.
+    nonisolated private static func decodeCover(for song: Song) async -> UIImage? {
+        await CarPlayArtworkDecoder.shared.thumbnail(forSongID: song.id, coverRef: song.coverArtFileName)
     }
 
     private func loadArtwork(forAlbumID albumID: String, into item: CPListItem) {
         let library = AppServices.shared.musicLibrary
         guard let firstSong = library.songs(forAlbum: albumID).first else { return }
-        loadArtwork(forSongID: firstSong.id, into: item)
+        loadArtwork(for: firstSong, into: item)
     }
 }
 
@@ -838,7 +945,7 @@ extension CarPlaySceneDelegate {
                 detailText: song.artistName ?? song.albumTitle,
                 image: nil
             )
-            loadArtwork(forSongID: song.id, into: item)
+            loadArtwork(for: song, into: item)
             // First row corresponds to currently-playing track — show indicator.
             if offset == 0 {
                 item.isPlaying = true

@@ -981,6 +981,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                 path: "/Items/\(albumID)/Images/Primary",
                 queryItems: [
                     URLQueryItem(name: "maxWidth", value: "480"),
+                    URLQueryItem(name: "format", value: "png"),
                     URLQueryItem(name: "tag", value: albumPrimaryImageTag),
                     URLQueryItem(name: "api_key", value: accessToken)
                 ]
@@ -992,6 +993,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                 path: "/Items/\(item.id)/Images/Primary",
                 queryItems: [
                     URLQueryItem(name: "maxWidth", value: "480"),
+                    URLQueryItem(name: "format", value: "png"),
                     URLQueryItem(name: "api_key", value: accessToken)
                 ]
             )
