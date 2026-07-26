@@ -258,6 +258,9 @@
 		5980823594F7E539787FAED3 /* SongListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B7EF9080A3A41EE3BE9D8E0 /* SongListView.swift */; };
 		5AA3AE3298DF7992046DF390 /* NowPlayingWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDC5ED08076B47DEE8ECB3AA /* NowPlayingWidget.swift */; };
 		5AC4F6C2588690B0DF1E61AC /* CloudKitSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BB00031B96FBABEE4773C15 /* CloudKitSyncService.swift */; };
+		C17A7D4E5F6A708192A3B4C6 /* CloudKitRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = C17A7D4E5F6A708192A3B4C5 /* CloudKitRuntime.swift */; };
+		C17A7D4E5F6A708192A3B4C7 /* CloudKitRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = C17A7D4E5F6A708192A3B4C5 /* CloudKitRuntime.swift */; };
+		C17A7D4E5F6A708192A3B4C8 /* CloudKitRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = C17A7D4E5F6A708192A3B4C5 /* CloudKitRuntime.swift */; };
 		5AD01C4504371E9EE47EE591 /* QueueView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D2741FA5052447F5E1B27A4 /* QueueView.swift */; };
 		5AF67F370EFCD4AA7528FEC6 /* CloudKitSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BB00031B96FBABEE4773C15 /* CloudKitSyncService.swift */; };
 		5B6CB118CEB161FBC2A9C0CF /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4D5D8BD40FCC0AA7011B551B /* Assets.xcassets */; };
@@ -986,6 +989,7 @@
 		5A2105927D98B1DF9885EB81 /* MusicLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicLibrary.swift; sourceTree = "<group>"; };
 		5A65207E9AE0A7B6C259E92C /* NowPlayingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingView.swift; sourceTree = "<group>"; };
 		5BB00031B96FBABEE4773C15 /* CloudKitSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudKitSyncService.swift; sourceTree = "<group>"; };
+		C17A7D4E5F6A708192A3B4C5 /* CloudKitRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudKitRuntime.swift; sourceTree = "<group>"; };
 		5D2741FA5052447F5E1B27A4 /* QueueView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueView.swift; sourceTree = "<group>"; };
 		5DB675457344DDF1B61FF4AF /* WidgetDesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetDesignSystem.swift; sourceTree = "<group>"; };
 		5E8868307C8B45B391847C2B /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -1501,6 +1505,7 @@
 			isa = PBXGroup;
 			children = (
 				767EFEC3E3EDDF4D07DBB168 /* CloudAccountMigrationService.swift */,
+				C17A7D4E5F6A708192A3B4C5 /* CloudKitRuntime.swift */,
 				5BB00031B96FBABEE4773C15 /* CloudKitSyncService.swift */,
 				85BEFEDCF1690FF59B23CD92 /* CloudKVSSync.swift */,
 				BD05C51C265711C2B7239F9B /* CloudSyncChannel.swift */,
@@ -2770,6 +2775,7 @@
 				31FA8CEBB3CC3844D3EE939F /* CloudDriveConnectionView.swift in Sources */,
 				B3D288FC16E9A02539CC8EFC /* CloudInputSourceObjC.m in Sources */,
 				932621D0BCAE6A3A75030041 /* CloudKVSSync.swift in Sources */,
+				C17A7D4E5F6A708192A3B4C8 /* CloudKitRuntime.swift in Sources */,
 				5AC4F6C2588690B0DF1E61AC /* CloudKitSyncService.swift in Sources */,
 				AFA4DFE14009BB0E2FA358C6 /* CloudPlaybackSource.swift in Sources */,
 				05E7BB1E8BF12EC6FF94C88D /* CloudSyncChannel.swift in Sources */,
@@ -2975,6 +2981,7 @@
 				08E777E2F1647E94EBF91766 /* FileLogger.swift in Sources */,
 				2F09AF9820B07E36BBDEDC15 /* FileMetadataReader.swift in Sources */,
 				C4B9B4B1EBCAFE4934265B69 /* LibraryDatabase.swift in Sources */,
+				C17A7D4E5F6A708192A3B4C6 /* CloudKitRuntime.swift in Sources */,
 				A6EADEB6B4EB2509DE5A8EC9 /* LibrarySnapshotSync.swift in Sources */,
 				E7C4CE2C47866DB6BAE1930B /* LyricsParser.swift in Sources */,
 				8718280BE3CBE139794FD303 /* MetadataAssetStore.swift in Sources */,
@@ -3061,6 +3068,7 @@
 				C0CD7D6E45358510AB9E6B04 /* CloudDriveConnectionView.swift in Sources */,
 				F601A246B39932913307C8CF /* CloudInputSourceObjC.m in Sources */,
 				69199230049BDAC34D444C1C /* CloudKVSSync.swift in Sources */,
+				C17A7D4E5F6A708192A3B4C7 /* CloudKitRuntime.swift in Sources */,
 				5AF67F370EFCD4AA7528FEC6 /* CloudKitSyncService.swift in Sources */,
 				EC444736CDE5CEAF3E97B453 /* CloudPlaybackSource.swift in Sources */,
 				19741E9B55DE0BA9BE5F2FDB /* CloudSyncChannel.swift in Sources */,
