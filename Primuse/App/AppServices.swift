@@ -153,6 +153,7 @@ final class AppServices {
         store.pruneSources(deletedBefore: pruneThreshold)
         ScraperConfigStore.shared.pruneConfigs(deletedBefore: pruneThreshold)
         reconcileDeletedSourceSongs()
+        reconcileSourceSongCounts()
 
         CloudKVSSync.shared.register(key: CloudKVSKey.lyricsFontScale) { }
         CloudKVSSync.shared.register(key: CloudKVSKey.recentSearches) { }
@@ -164,6 +165,7 @@ final class AppServices {
         wireIntentBridge()
         observeSpotlightReindex()
         rescanLocalImportIfNeeded()
+
         // 注意: 不在这里接线 Live Activity。PrimuseActivityExtension 的灵动岛 /
         // 锁屏布局仍是半成品(切歌不更新、杀进程后不消失),激活它比留作未启用
         // 更糟。Live Activity 作为完整功能另行实现后再接线。
@@ -337,6 +339,16 @@ final class AppServices {
         }
     }
 
+    /// Source-card counts are local derived state, not authoritative cloud
+    /// data. Rebuild them from the library both at launch and whenever a
+    /// library snapshot/replacement lands so an old scan count cannot masquerade
+    /// as the number of songs currently available on this device.
+    private func reconcileSourceSongCounts() {
+        let counts = Dictionary(grouping: musicLibrary.songs, by: \.sourceID)
+            .mapValues(\.count)
+        sourcesStore.reconcileLocalSongCounts(counts)
+    }
+
     /// Spotlight 重建索引 ── 启动时跑一次, 之后只要 library 的
     /// songReplacementToken 翻动 (新增/删除/批量替换) 就重新拉一次。
     /// Observation 自动 re-arm,跟 MacMenuBarController 的 observePlayerState
@@ -363,6 +375,7 @@ final class AppServices {
             Task { @MainActor [weak self] in
                 guard let library, let index else { return }
                 index.reindex(library: library)
+                self?.reconcileSourceSongCounts()
                 self?.observeLibraryToken(library: library, index: index)
             }
         }

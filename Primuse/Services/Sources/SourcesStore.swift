@@ -98,6 +98,23 @@ final class SourcesStore {
         persist()
     }
 
+    /// Reconcile the per-source counter with the songs that are actually
+    /// present in the local library. `songCount` is device-local derived
+    /// state, so a sources snapshot can legitimately outlive (or arrive
+    /// before) the matching library snapshot. Updating every row in one pass
+    /// prevents stale historical counts from being shown as if they were the
+    /// current visible library size.
+    func reconcileLocalSongCounts(_ countsBySourceID: [String: Int]) {
+        var changed = false
+        for index in allSources.indices where !allSources[index].isDeleted {
+            let actualCount = countsBySourceID[allSources[index].id] ?? 0
+            guard allSources[index].songCount != actualCount else { continue }
+            allSources[index].songCount = actualCount
+            changed = true
+        }
+        if changed { persist() }
+    }
+
     /// Reset scan-derived state for a batch of removed sources with one
     /// Observable mutation/persist instead of rewriting sources.json per row.
     func resetLocalScanState(for sourceIDs: Set<String>) {
