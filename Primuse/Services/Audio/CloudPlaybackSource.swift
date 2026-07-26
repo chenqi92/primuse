@@ -599,8 +599,7 @@ private final class State: @unchecked Sendable {
             fetchAttemptByChunk[chunkStart] = attempt
             lock.unlock()
             if attempt > 1 {
-                plog(String(format: "🔁 Cloud stream '%@' fetch RETRY chunkStart=%lld attempt=%d (offsetReq=%lld)",
-                            label, chunkStart, attempt, offset))
+                plog("🔁 Cloud stream '\(label)' fetch RETRY chunkStart=\(chunkStart) attempt=\(attempt) (offsetReq=\(offset))")
             }
 
             // Bridge async → sync. SFBAudioEngine's decode thread isn't
@@ -676,8 +675,8 @@ private final class State: @unchecked Sendable {
                 return nil
             }
             // 调试: 所有 fetch 都打印 chunkStart, 方便看 SFB read 模式
-            plog(String(format: "☁️ Cloud stream '%@' fetch chunkStart=%lld want=%lld got=%d in %.2fs (offsetReq=%lld)",
-                        label, chunkStart, want, data.count, elapsed, offset))
+            let fetchElapsed = String(format: "%.2fs", elapsed)
+            plog("☁️ Cloud stream '\(label)' fetch chunkStart=\(chunkStart) want=\(want) got=\(data.count) in \(fetchElapsed) (offsetReq=\(offset))")
             // 累积统计 + 每 5 次或 elapsed > 总和 3s 时打一次摘要,方便调试 cold-start 卡顿
             lock.lock()
             if firstServeAt == nil { firstServeAt = startedAt }
@@ -697,8 +696,12 @@ private final class State: @unchecked Sendable {
             let sinceFirstServe = Date().timeIntervalSince(firstServeAt!)
             lock.unlock()
             if count == 1 || count % 5 == 0 {
-                plog(String(format: "☁️ Cloud stream '%@' STATS: %d fetches, total=%.2fs, %dKB, wallclock=%.2fs",
-                            label, count, totalElapsed, totalBytes / 1024, sinceFirstServe))
+                let statsTiming = String(
+                    format: "total=%.2fs, wallclock=%.2fs",
+                    totalElapsed,
+                    sinceFirstServe
+                )
+                plog("☁️ Cloud stream '\(label)' STATS: \(count) fetches, \(statsTiming), \(totalBytes / 1024)KB")
             }
 
             // Successful fetch — re-enable prefetching (may have been
@@ -870,17 +873,26 @@ private final class State: @unchecked Sendable {
         let sinceFirst = firstServeAt.map { Date().timeIntervalSince($0) } ?? 0
         lock.unlock()
 
-        plog(String(format:
-            "📊 Cloud SUMMARY '%@' %dKB/%dKB cached, fetch=%d (%.2fs avg=%.2fs min=%.2fs max=%.2fs@%lld) retry=%d hit=%d/%dKB prefetchWait=%d/%.2fs lifetime=%.1fs",
-            label,
-            cachedKB, totalKB,
-            count, totalElapsed,
-            count > 0 ? totalElapsed / Double(count) : 0,
-            minE, maxE, slow,
-            retries,
-            hit, hitKB,
-            pwCount, pwElapsed,
-            sinceFirst))
+        // Avoid passing Swift `Int` values through NSString's C varargs. Newer
+        // Foundation runtimes validate those specifiers and report a fault when
+        // `%d` is paired with a 64-bit Swift `Int`. Interpolate integer fields
+        // and reserve String(format:) for the floating-point precision only.
+        let averageElapsed = count > 0 ? totalElapsed / Double(count) : 0
+        let timing = String(
+            format: "%.2fs avg=%.2fs min=%.2fs max=%.2fs",
+            totalElapsed,
+            averageElapsed,
+            minE,
+            maxE
+        )
+        let prefetchElapsed = String(format: "%.2fs", pwElapsed)
+        let lifetime = String(format: "%.1fs", sinceFirst)
+        plog(
+            "📊 Cloud SUMMARY '\(label)' \(cachedKB)KB/\(totalKB)KB cached, "
+                + "fetch=\(count) (\(timing)@\(slow)) retry=\(retries) "
+                + "hit=\(hit)/\(hitKB)KB prefetchWait=\(pwCount)/\(prefetchElapsed) "
+                + "lifetime=\(lifetime)"
+        )
     }
 
     /// Caller MUST hold `lock`. Returns true when `cachedRanges`
