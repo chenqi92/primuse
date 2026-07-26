@@ -140,10 +140,13 @@ struct SongListView: View {
     @State private var selectedSourceID: String? = nil
     @State private var showViewOptions = false
     @State private var showAddVisibleToPlaylist = false
-    @State private var contextSongID: String?
-    @State private var showContextAddToPlaylist = false
-    @State private var showContextSongInfo = false
-    @State private var showContextTagEditor = false
+    // Bind context-menu sheets to the selected value itself.  A separate
+    // `songID` + `isPresented` pair can publish in either order when a menu
+    // closes, letting SwiftUI create a permanently empty sheet before the ID
+    // becomes visible.
+    @State private var contextAddToPlaylistSong: Song?
+    @State private var contextSongInfoSong: Song?
+    @State private var contextTagEditorSong: Song?
     @State private var exportError: String?
     /// songID → 播放次数, 由 PlayHistory 一次性折叠而来。重建只发生在
     /// onAppear 和 PlayHistory 变更通知时, 而不是每行重算 (否则 LazyVStack
@@ -272,22 +275,16 @@ struct SongListView: View {
                 )
                 .frame(width: 420, height: 520)
             }
-            .sheet(isPresented: $showContextAddToPlaylist) {
-                if let song = selectedContextSong {
-                    AddToPlaylistSheet(song: song)
-                }
+            .sheet(item: $contextAddToPlaylistSong) { song in
+                AddToPlaylistSheet(song: library.song(id: song.id) ?? song)
             }
-            .sheet(isPresented: $showContextSongInfo) {
-                if let song = selectedContextSong {
-                    SongInfoSheet(song: song)
-                }
+            .sheet(item: $contextSongInfoSong) { song in
+                SongInfoSheet(song: library.song(id: song.id) ?? song)
             }
-            .sheet(isPresented: $showContextTagEditor) {
-                if let song = selectedContextSong {
-                    TagEditorView(song: song) { updated in
-                        player.syncSongMetadata(updated)
-                        player.forceRefreshNowPlayingArtwork()
-                    }
+            .sheet(item: $contextTagEditorSong) { song in
+                TagEditorView(song: library.song(id: song.id) ?? song) { updated in
+                    player.syncSongMetadata(updated)
+                    player.forceRefreshNowPlayingArtwork()
                 }
             }
             .alert("导出失败",
@@ -922,11 +919,6 @@ struct SongListView: View {
         .contextMenu { macSongContextMenu(for: song) }
     }
 
-    private var selectedContextSong: Song? {
-        guard let contextSongID else { return nil }
-        return library.songs.first { $0.id == contextSongID }
-    }
-
     @ViewBuilder
     private func macSongContextMenu(for song: Song) -> some View {
         Section {
@@ -993,26 +985,19 @@ struct SongListView: View {
     }
 
     private func latestSong(_ song: Song) -> Song {
-        library.songs.first { $0.id == song.id } ?? song
-    }
-
-    private func selectContextSong(_ song: Song) {
-        contextSongID = song.id
+        library.song(id: song.id) ?? song
     }
 
     private func showSongInfo(for song: Song) {
-        selectContextSong(song)
-        showContextSongInfo = true
+        contextSongInfoSong = latestSong(song)
     }
 
     private func editTags(for song: Song) {
-        selectContextSong(song)
-        showContextTagEditor = true
+        contextTagEditorSong = latestSong(song)
     }
 
     private func addToPlaylist(_ song: Song) {
-        selectContextSong(song)
-        showContextAddToPlaylist = true
+        contextAddToPlaylistSong = latestSong(song)
     }
 
     private func openScrapeWindow(for song: Song) {
