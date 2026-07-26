@@ -2427,6 +2427,13 @@ final class AudioPlayerService {
     /// (sheet 白屏 / mini player 闪一下消失)。用户再点 play 可以从头重放
     /// (resume() 检测到 isAtTrackEnd 会走 play(song:) 重新解码)。
     private func stopAtTrackEnd() {
+        // Invalidate the completed playback before stopping the node. The
+        // safety-net timer and AVAudioPlayerNode's .dataPlayedBack callback can
+        // arrive a few milliseconds apart for the same track. Without this,
+        // the second callback re-enters handleTrackEnd(); most importantly it
+        // can clear a "stop after this song" decision and advance the queue.
+        playID = UUID()
+
         // 自然播完一首歌, 触发 finalize —— 这是 .partial → final 最关键的
         // 时机, 用户期望「听完一整首」就该是完整缓存。
         if let cur = currentSong {
