@@ -23,7 +23,6 @@ final class CarPlaySceneDelegate: UIResponder {
     private var albumsTemplate: CPListTemplate?
     private var artistsTemplate: CPListTemplate?
     private var songsTemplate: CPListTemplate?
-    private var searchTemplate: CPSearchTemplate?
 
     /// Root tab bar — kept so library refreshes can rebuild only the
     /// currently-selected tab and lazily refresh the others when the user
@@ -46,17 +45,6 @@ final class CarPlaySceneDelegate: UIResponder {
     /// Currently visible queue page (if any). When the player advances, we
     /// patch its sections in place so the user sees the next track highlighted.
     private weak var openQueueTemplate: CPListTemplate?
-
-    /// Backing array for the most recent search results. CPSearchTemplate
-    /// gives us a CPListItem on selection, not the underlying model — we
-    /// store ID→Song lookup so `selectedResult` can play the right thing.
-    private var searchResults: [Song] = []
-
-    /// In-flight debounce for the current search query. Cancelled when
-    /// the user types again; completionHandler isn't fired for cancelled
-    /// runs, so CarPlay keeps showing the previous results until the
-    /// 180ms quiet period elapses on the latest query.
-    private var pendingSearchTask: Task<Void, Never>?
 
     /// In-flight artwork-load tasks, keyed so each removes itself on completion.
     /// Search / drill-down / queue paths append here but don't go through
@@ -107,15 +95,11 @@ extension CarPlaySceneDelegate: CPTemplateApplicationSceneDelegate {
             self.albumsTemplate = nil
             self.artistsTemplate = nil
             self.songsTemplate = nil
-            self.searchTemplate = nil
             self.tabBarTemplate = nil
             self.staleRootTemplates.removeAll()
             self.libraryRefreshTask?.cancel()
             self.libraryRefreshTask = nil
             self.openQueueTemplate = nil
-            self.searchResults.removeAll()
-            self.pendingSearchTask?.cancel()
-            self.pendingSearchTask = nil
             self.cancelArtworkTasks()
         }
     }
@@ -184,10 +168,10 @@ extension CarPlaySceneDelegate {
         albumsTemplate = albums
         artistsTemplate = artists
         songsTemplate = songs
-        // CPTabBarTemplate only accepts CPListTemplate / CPGridTemplate /
-        // CPInformationTemplate — putting 一个 CPSearchTemplate here throws
-        // an NSException at init. Search is exposed via a magnifying-glass
-        // bar button on every list template instead (see makeSearchBarButton).
+        // Audio-category CarPlay apps may only navigate among the template
+        // classes granted by their entitlement. Search therefore uses nested
+        // CPListTemplate screens rather than CPSearchTemplate, which is present
+        // in the SDK but rejected at runtime for this app category.
         // tab 上限随系统/车机而变 (maximumTabCount 可能是 4 而非 5), 超出会在
         // init 抛 NSException — 按车里使用频率排序后截断: 最近 / 歌单 / 专辑 /
         // 艺术家 / 歌曲
@@ -209,10 +193,66 @@ extension CarPlaySceneDelegate {
     }
 
     private func pushSearchTemplate() {
-        let template = CPSearchTemplate()
-        template.delegate = self
-        searchTemplate = template
+        let recentQueries = UserDefaults.standard
+            .stringArray(forKey: CloudKVSKey.recentSearches) ?? []
+        let items = recentQueries.prefix(12).map { query -> CPListItem in
+            let matchCount = searchMatches(query).count
+            let item = CPListItem(
+                text: query,
+                detailText: "\(matchCount) \(String(localized: "songs_count"))",
+                image: Self.symbolImage("magnifyingglass")
+            )
+            item.handler = { [weak self] _, completion in
+                Task { @MainActor in
+                    self?.pushSearchResults(for: query)
+                    completion()
+                }
+            }
+            return item
+        }
+
+        let sectionItems: [CPListItem]
+        if items.isEmpty {
+            let empty = CPListItem(
+                text: String(localized: "recent_searches"),
+                detailText: String(localized: "carplay_search_no_results"),
+                image: Self.symbolImage("iphone")
+            )
+            empty.isEnabled = false
+            sectionItems = [empty]
+        } else {
+            sectionItems = items
+        }
+
+        let template = CPListTemplate(
+            title: String(localized: "carplay_search_title"),
+            sections: [CPListSection(items: sectionItems)]
+        )
         safePush(template, label: "Search")
+    }
+
+    private func pushSearchResults(for query: String) {
+        let matches = searchMatches(query)
+        let items = matches.enumerated().map { index, song -> CPListItem in
+            let item = songItem(song, queueProvider: { (matches, index) })
+            return item
+        }
+        let template = CPListTemplate(
+            title: query,
+            sections: [CPListSection(items: items)]
+        )
+        template.emptyViewTitleVariants = [String(localized: "carplay_search_no_results")]
+        safePush(template, label: "SearchResults")
+    }
+
+    private func searchMatches(_ query: String) -> [Song] {
+        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return [] }
+        return Array(AppServices.shared.musicLibrary.visibleSongs.lazy.filter { song in
+            song.title.localizedCaseInsensitiveContains(normalized)
+                || (song.artistName?.localizedCaseInsensitiveContains(normalized) ?? false)
+                || (song.albumTitle?.localizedCaseInsensitiveContains(normalized) ?? false)
+        }.prefix(100))
     }
 
     /// Wraps `pushTemplate` so completion errors (max nav depth, duplicate
@@ -286,90 +326,29 @@ extension CarPlaySceneDelegate {
     }
 }
 
-// MARK: - Search
-
-extension CarPlaySceneDelegate: CPSearchTemplateDelegate {
-    nonisolated func searchTemplate(
-        _ searchTemplate: CPSearchTemplate,
-        updatedSearchText searchText: String,
-        completionHandler: @escaping ([CPListItem]) -> Void
-    ) {
-        // CarKit 可能在非主线程回调; 整个体 hop 到主线程再访问 @MainActor 状态
-        // (pendingSearchTask / searchResults), 否则 iOS 26 的 executor 断言会 trap。
-        // 外层 hop 处理同步段 + 取消上次, 内层仍是可取消的 debounce task。
-        let box = CarPlaySendableBox(value: completionHandler)
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            // Cancel any earlier pending query so only the most recent
-            // keystroke completes. Empty query clears immediately (no debounce
-            // needed — feels snappier).
-            self.pendingSearchTask?.cancel()
-            let q = searchText.trimmingCharacters(in: .whitespaces).lowercased()
-            guard !q.isEmpty else {
-                self.searchResults = []
-                box.value([])
-                return
-            }
-            self.pendingSearchTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .milliseconds(180))
-                guard !Task.isCancelled, let self else { return }
-                let library = AppServices.shared.musicLibrary
-                // Match against title / artist / album. Cap at 50 — CarPlay
-                // search is meant to surface a handful of best hits, not a
-                // full results page.
-                let matches = library.visibleSongs.filter { song in
-                    song.title.lowercased().contains(q) ||
-                    (song.artistName?.lowercased().contains(q) ?? false) ||
-                    (song.albumTitle?.lowercased().contains(q) ?? false)
-                }
-                self.searchResults = Array(matches.prefix(50))
-                let items = self.searchResults.map { song -> CPListItem in
-                    let item = CPListItem(
-                        text: song.title,
-                        detailText: song.artistName ?? song.albumTitle,
-                        image: nil
-                    )
-                    self.loadArtwork(forSongID: song.id, into: item)
-                    // Stash the song itself, not its index. If the user types
-                    // more before tapping, `searchResults` may have been
-                    // swapped out — a stable Song value keeps tap-to-play
-                    // pointing at the right track.
-                    item.userInfo = song
-                    return item
-                }
-                box.value(items)
-            }
-        }
-    }
-
-    nonisolated func searchTemplate(
-        _ searchTemplate: CPSearchTemplate,
-        selectedResult item: CPListItem,
-        completionHandler: @escaping () -> Void
-    ) {
-        let box = CarPlaySendableBox(value: completionHandler)
-        Task { @MainActor [weak self] in
-            guard let self else { box.value(); return }
-            guard let song = item.userInfo as? Song else {
-                box.value()
-                return
-            }
-            // Prefer the current results as the queue context (so "next" walks
-            // through the search hits). If the song was filtered out by a
-            // newer search, fall back to playing it as a single-item queue.
-            if let idx = self.searchResults.firstIndex(where: { $0.id == song.id }) {
-                self.play(queue: self.searchResults, startAt: idx)
-            } else {
-                self.play(queue: [song], startAt: 0)
-            }
-            box.value()
-        }
-    }
-}
-
 // MARK: - Section builders
 
 extension CarPlaySceneDelegate {
+    /// `CPTabBarTemplate` reserves the trailing root-list button for the
+    /// system Now Playing affordance on some head units (including Apple's
+    /// simulator), so a navigation-bar-only search button can be invisible.
+    /// Keep a real list row as the portable entry point; the bar button stays
+    /// as a convenience on head units that do render it.
+    private func searchSection() -> CPListSection {
+        let item = CPListItem(
+            text: String(localized: "carplay_search_title"),
+            detailText: nil,
+            image: Self.symbolImage("magnifyingglass")
+        )
+        item.handler = { [weak self] _, completion in
+            Task { @MainActor in
+                self?.pushSearchTemplate()
+                completion()
+            }
+        }
+        return CPListSection(items: [item])
+    }
+
     private func recentSections() -> [CPListSection] {
         let library = AppServices.shared.musicLibrary
         let recent = Array(library.visibleSongs
@@ -378,7 +357,7 @@ extension CarPlaySceneDelegate {
         let items = recent.enumerated().map { idx, song in
             songItem(song, queueProvider: { (recent, idx) })
         }
-        return [CPListSection(items: items)]
+        return [searchSection(), CPListSection(items: items)]
     }
 
     private func albumsSections() -> [CPListSection] {
@@ -386,7 +365,7 @@ extension CarPlaySceneDelegate {
         let albums = Array(library.visibleAlbums
             .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
             .prefix(500))
-        return Self.sectionedByIndexLetter(albums, titleKey: \.title) { album in
+        let sections = Self.sectionedByIndexLetter(albums, titleKey: \.title) { album in
             let item = CPListItem(text: album.title, detailText: album.artistName, image: nil)
             self.loadArtwork(forAlbumID: album.id, into: item)
             item.handler = { [weak self] _, completion in
@@ -397,6 +376,7 @@ extension CarPlaySceneDelegate {
             }
             return item
         }
+        return [searchSection()] + sections
     }
 
     private func artistsSections() -> [CPListSection] {
@@ -404,7 +384,7 @@ extension CarPlaySceneDelegate {
         let artists = Array(library.visibleArtists
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             .prefix(500))
-        return Self.sectionedByIndexLetter(artists, titleKey: \.name) { artist in
+        let sections = Self.sectionedByIndexLetter(artists, titleKey: \.name) { artist in
             let item = CPListItem(text: artist.name, detailText: nil)
             item.handler = { [weak self] _, completion in
                 Task { @MainActor in
@@ -414,6 +394,7 @@ extension CarPlaySceneDelegate {
             }
             return item
         }
+        return [searchSection()] + sections
     }
 
     private func songsSections() -> [CPListSection] {
@@ -429,9 +410,10 @@ extension CarPlaySceneDelegate {
             songs.enumerated().map { ($1.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
-        return Self.sectionedByIndexLetter(songs, titleKey: \.title) { song in
+        let sections = Self.sectionedByIndexLetter(songs, titleKey: \.title) { song in
             self.songItem(song, queueProvider: { (songs, indexByID[song.id] ?? 0) })
         }
+        return [searchSection()] + sections
     }
 
     private func playlistsSections() -> [CPListSection] {
@@ -455,7 +437,7 @@ extension CarPlaySceneDelegate {
             }
             return item
         }
-        return [CPListSection(items: items)]
+        return [searchSection(), CPListSection(items: items)]
     }
 }
 
