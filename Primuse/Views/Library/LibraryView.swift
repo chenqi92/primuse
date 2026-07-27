@@ -40,34 +40,27 @@ enum LibraryDeepLink: Equatable, Sendable {
     case playlist(Playlist)
 }
 
-enum LibraryPinKind: String, Codable {
-    case album, artist, playlist
-}
-
-struct LibraryPinReference: Codable, Hashable, Identifiable {
-    let kind: LibraryPinKind
-    let itemID: String
-
-    var id: String { "\(kind.rawValue):\(itemID)" }
-}
+typealias LibraryPinKind = QuickAccessPinKind
+typealias LibraryPinReference = QuickAccessPinReference
 
 enum LibraryPinStorage {
     static let defaultsKey = "primuse.library.quickAccess.v1"
     static let maximumCount = 5
+    static let likedSongsPin = LibraryPinReference(
+        kind: .playlist,
+        itemID: MusicLibrary.likedSongsPlaylistID
+    )
 
     static func decode(_ rawValue: String) -> [LibraryPinReference] {
-        guard let data = rawValue.data(using: .utf8),
-              let pins = try? JSONDecoder().decode([LibraryPinReference].self, from: data) else {
-            return []
-        }
-        return Array(pins.prefix(maximumCount))
+        QuickAccessPinStorageCodec.decode(
+            rawValue,
+            defaultPins: [likedSongsPin],
+            maximumCount: maximumCount
+        )
     }
 
     static func encode(_ pins: [LibraryPinReference]) -> String {
-        guard let data = try? JSONEncoder().encode(Array(pins.prefix(maximumCount))) else {
-            return ""
-        }
-        return String(decoding: data, as: UTF8.self)
+        QuickAccessPinStorageCodec.encode(pins, maximumCount: maximumCount)
     }
 }
 
@@ -164,19 +157,6 @@ struct LibraryView: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: 14) {
-                    NavigationLink(value: likedPlaylist) {
-                        quickAccessLabel(
-                            title: String(localized: "sidebar_liked_songs"),
-                            subtitle: countText(
-                                library.songs(forPlaylist: MusicLibrary.likedSongsPlaylistID).count,
-                                unitKey: "songs_count"
-                            )
-                        ) {
-                            likedArtwork
-                        }
-                    }
-                    .buttonStyle(.plain)
-
                     ForEach(visiblePins) { pin in
                         pinnedItemCard(pin)
                     }
@@ -229,9 +209,9 @@ struct LibraryView: View {
         }
     }
 
-    private var likedArtwork: some View {
+    private func likedArtwork(size: CGFloat, cornerRadius: CGFloat) -> some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .fill(
                     LinearGradient(
                         colors: [.pink, .red],
@@ -240,10 +220,10 @@ struct LibraryView: View {
                     )
                 )
             Image(systemName: "heart.fill")
-                .font(.system(size: 38, weight: .semibold))
+                .font(.system(size: size * 0.33, weight: .semibold))
                 .foregroundStyle(.white)
         }
-        .frame(width: 116, height: 116)
+        .frame(width: size, height: size)
         .shadow(color: .pink.opacity(0.18), radius: 8, y: 4)
     }
 
@@ -338,7 +318,20 @@ struct LibraryView: View {
                 .buttonStyle(.plain)
             }
         case .playlist:
-            if let playlist = regularPlaylists.first(where: { $0.id == pin.itemID }) {
+            if pin.itemID == MusicLibrary.likedSongsPlaylistID {
+                NavigationLink(value: likedPlaylist) {
+                    quickAccessLabel(
+                        title: String(localized: "sidebar_liked_songs"),
+                        subtitle: countText(
+                            library.songs(forPlaylist: MusicLibrary.likedSongsPlaylistID).count,
+                            unitKey: "songs_count"
+                        )
+                    ) {
+                        likedArtwork(size: 116, cornerRadius: 16)
+                    }
+                }
+                .buttonStyle(.plain)
+            } else if let playlist = regularPlaylists.first(where: { $0.id == pin.itemID }) {
                 NavigationLink(value: playlist) {
                     quickAccessLabel(
                         title: playlist.name,
@@ -528,6 +521,7 @@ struct LibraryView: View {
         case .artist:
             return artists.contains { $0.id == pin.itemID }
         case .playlist:
+            if pin.itemID == MusicLibrary.likedSongsPlaylistID { return true }
             return regularPlaylists.contains { $0.id == pin.itemID }
         }
     }
@@ -563,6 +557,13 @@ private struct LibraryQuickAccessEditor: View {
     private var pins: [LibraryPinReference] {
         LibraryPinStorage.decode(pinsRawValue)
     }
+    private var likedPlaylist: Playlist {
+        library.playlists.first(where: { $0.id == MusicLibrary.likedSongsPlaylistID })
+            ?? Playlist(
+                id: MusicLibrary.likedSongsPlaylistID,
+                name: String(localized: "playlist_liked_name")
+            )
+    }
     private var selectedPins: [LibraryPinReference] {
         pins.filter(pinMatchesSearch)
     }
@@ -591,8 +592,10 @@ private struct LibraryQuickAccessEditor: View {
         }
     }
     private var playlists: [Playlist] {
-        let matching = library.playlists
-            .filter { $0.id != MusicLibrary.likedSongsPlaylistID }
+        let allPlaylists = [likedPlaylist] + library.playlists.filter {
+            $0.id != MusicLibrary.likedSongsPlaylistID
+        }
+        let matching = allPlaylists
             .filter {
                 let pin = LibraryPinReference(kind: .playlist, itemID: $0.id)
                 return !pins.contains(pin)
@@ -611,6 +614,11 @@ private struct LibraryQuickAccessEditor: View {
                         if pins.isEmpty {
                             Label("library_quick_access_selected_empty", systemImage: "pin")
                                 .foregroundStyle(.secondary)
+                        } else if searchText.isEmpty {
+                            ForEach(pins) { pin in
+                                selectedPinRow(pin)
+                            }
+                            .onMove(perform: movePins)
                         } else {
                             ForEach(selectedPins) { pin in
                                 selectedPinRow(pin)
@@ -712,6 +720,9 @@ private struct LibraryQuickAccessEditor: View {
                     }
                 }
             }
+            #if os(iOS)
+            .environment(\.editMode, .constant(searchText.isEmpty ? .active : .inactive))
+            #endif
         }
     }
 
@@ -750,7 +761,9 @@ private struct LibraryQuickAccessEditor: View {
                 }
             }
         case .playlist:
-            if let playlist = library.playlists.first(where: { $0.id == pin.itemID }) {
+            if let playlist = pin.itemID == MusicLibrary.likedSongsPlaylistID
+                ? likedPlaylist
+                : library.playlists.first(where: { $0.id == pin.itemID }) {
                 pinButton(pin) {
                     editorPlaylistArtwork(playlist)
                 } title: {
@@ -780,9 +793,10 @@ private struct LibraryQuickAccessEditor: View {
             }
             return searchText.isEmpty || artist.name.localizedCaseInsensitiveContains(searchText)
         case .playlist:
-            guard let playlist = library.playlists.first(where: { $0.id == pin.itemID }) else {
-                return false
-            }
+            let playlist = pin.itemID == MusicLibrary.likedSongsPlaylistID
+                ? likedPlaylist
+                : library.playlists.first(where: { $0.id == pin.itemID })
+            guard let playlist else { return false }
             return searchText.isEmpty || playlist.name.localizedCaseInsensitiveContains(searchText)
         }
     }
@@ -828,7 +842,9 @@ private struct LibraryQuickAccessEditor: View {
 
     @ViewBuilder
     private func editorPlaylistArtwork(_ playlist: Playlist) -> some View {
-        if let song = library.songs(forPlaylist: playlist.id).first {
+        if playlist.id == MusicLibrary.likedSongsPlaylistID {
+            likedEditorArtwork
+        } else if let song = library.songs(forPlaylist: playlist.id).first {
             CachedArtworkView(
                 coverRef: song.coverArtFileName,
                 songID: song.id,
@@ -843,6 +859,23 @@ private struct LibraryQuickAccessEditor: View {
         }
     }
 
+    private var likedEditorArtwork: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [.pink, .red],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+            Image(systemName: "heart.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.white)
+        }
+        .frame(width: 42, height: 42)
+    }
+
     private func toggle(_ pin: LibraryPinReference) {
         var updated = pins
         if let index = updated.firstIndex(of: pin) {
@@ -850,6 +883,13 @@ private struct LibraryQuickAccessEditor: View {
         } else if updated.count < LibraryPinStorage.maximumCount {
             updated.append(pin)
         }
+        pinsRawValue = LibraryPinStorage.encode(updated)
+    }
+
+    private func movePins(from source: IndexSet, to destination: Int) {
+        guard searchText.isEmpty else { return }
+        var updated = pins
+        updated.move(fromOffsets: source, toOffset: destination)
         pinsRawValue = LibraryPinStorage.encode(updated)
     }
 }

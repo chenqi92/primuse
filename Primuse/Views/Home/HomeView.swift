@@ -85,6 +85,12 @@ struct HomeView: View {
             .onReceive(NotificationCenter.default.publisher(for: .primusePlaybackHistoryDidChange)) { _ in
                 refreshHomeSnapshot(force: true)
             }
+            .onChange(of: quickAccessRawValue) { _, _ in
+                // Quick access is part of the cached home snapshot. Without an
+                // explicit refresh, edits made in Library remained invisible
+                // until another library revision happened to arrive.
+                refreshHomeSnapshot(force: true)
+            }
             .onDisappear {
                 refreshCoordinator.cancelAll()
             }
@@ -174,12 +180,14 @@ struct HomeView: View {
     }
 
     private enum HomeQuickItem: Identifiable {
+        case liked(Playlist)
         case album(Album)
         case artist(Artist)
         case playlist(HomePlaylistTile)
 
         var id: String {
             switch self {
+            case .liked: "playlist:\(MusicLibrary.likedSongsPlaylistID)"
             case .album(let album): "album:\(album.id)"
             case .artist(let artist): "artist:\(artist.id)"
             case .playlist(let tile): "playlist:\(tile.id)"
@@ -231,7 +239,7 @@ struct HomeView: View {
                 continueListeningSection
             }
         case .quickAccess:
-            if showQuickAccess {
+            if showQuickAccess, !homeSnapshot.quickItems.isEmpty {
                 quickAccessSection
             }
         case .forYou:
@@ -469,7 +477,7 @@ struct HomeView: View {
         let albumsFinishedAt = Date()
         let topArtists = topArtistsForHome(history: topArtistHistory)
         let artistsFinishedAt = Date()
-        let quickItems = makeHomeQuickItems(regularPlaylists: regularPlaylists)
+        let quickItems = makeHomeQuickItems(allPlaylists: allPlaylists)
         let quickFinishedAt = Date()
 
         let snapshot = HomeSnapshot(
@@ -512,7 +520,7 @@ struct HomeView: View {
     }
 
     private func makeHomeQuickItems(
-        regularPlaylists: [Playlist]
+        allPlaylists: [Playlist]
     ) -> [HomeQuickItem] {
         let albumsByID = Dictionary(
             library.visibleAlbums.map { ($0.id, $0) },
@@ -523,7 +531,7 @@ struct HomeView: View {
             uniquingKeysWith: { first, _ in first }
         )
         let playlistsByID = Dictionary(
-            regularPlaylists.map { ($0.id, $0) },
+            allPlaylists.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
         return LibraryPinStorage.decode(quickAccessRawValue).compactMap { pin in
@@ -533,6 +541,15 @@ struct HomeView: View {
             case .artist:
                 return artistsByID[pin.itemID].map(HomeQuickItem.artist)
             case .playlist:
+                if pin.itemID == MusicLibrary.likedSongsPlaylistID {
+                    return .liked(
+                        playlistsByID[MusicLibrary.likedSongsPlaylistID]
+                            ?? Playlist(
+                                id: MusicLibrary.likedSongsPlaylistID,
+                                name: String(localized: "playlist_liked_name")
+                            )
+                    )
+                }
                 return playlistsByID[pin.itemID]
                     .map(makeHomePlaylistTile)
                     .map(HomeQuickItem.playlist)
@@ -937,15 +954,6 @@ struct HomeView: View {
                 ),
                 spacing: 14
             ) {
-                NavigationLink(value: likedPlaylist) {
-                    quickAccessDockLabel(
-                        title: String(localized: "sidebar_liked_songs")
-                    ) {
-                        likedSongsArtwork(size: 52)
-                    }
-                }
-                .buttonStyle(.plain)
-
                 ForEach(homeSnapshot.quickItems) { item in
                     homeQuickDockItem(item)
                 }
@@ -966,6 +974,13 @@ struct HomeView: View {
     @ViewBuilder
     private func homeQuickDockItem(_ item: HomeQuickItem) -> some View {
         switch item {
+        case .liked(let playlist):
+            NavigationLink(value: playlist) {
+                quickAccessDockLabel(title: String(localized: "sidebar_liked_songs")) {
+                    likedSongsArtwork(size: 52)
+                }
+            }
+            .buttonStyle(.plain)
         case .album(let album):
             NavigationLink(value: album) {
                 quickAccessDockLabel(title: album.title) {
