@@ -96,6 +96,7 @@ final class AppleMusicService {
     /// `.stopped`. AudioPlayerService uses this to advance a mixed-source queue.
     @ObservationIgnored var onPlaybackEnded: (() -> Void)?
     @ObservationIgnored private var hasObservedActivePlayback = false
+    @ObservationIgnored private var wasPausedByUser = false
     /// 上个 tick 的 queue 轻量指纹 (entry id 列表) ── 只有指纹变化才重做
     /// 全量 SHA256 + Song 结构体投影, 避免每 0.5s 对几千首 queue 烧主线程。
     private var lastQueueSignature: [String] = []
@@ -239,6 +240,7 @@ final class AppleMusicService {
          nowPlayingSong = starting
          isAppleMusicPlaying = true
          hasObservedActivePlayback = false
+         wasPausedByUser = false
          observePlaybackStatusIfNeeded()
          do {
              player.queue = ApplicationMusicPlayer.Queue(for: songs, startingAt: starting)
@@ -298,6 +300,7 @@ final class AppleMusicService {
         nowPlayingSong = song
         isAppleMusicPlaying = true
         hasObservedActivePlayback = false
+        wasPausedByUser = false
         observePlaybackStatusIfNeeded()
         do {
             player.queue = ApplicationMusicPlayer.Queue(for: [song])
@@ -327,7 +330,9 @@ final class AppleMusicService {
         if ApplicationMusicPlayer.shared.state.playbackStatus == .playing {
             ApplicationMusicPlayer.shared.pause()
             isAppleMusicPlaying = false
+            wasPausedByUser = true
         } else {
+            wasPausedByUser = false
             Task { @MainActor [weak self] in
                 // Task 内重新取 shared 引用, 避免 Swift 6 报 non-Sendable 跨边界。
                 do { try await ApplicationMusicPlayer.shared.play() } catch {
@@ -346,6 +351,7 @@ final class AppleMusicService {
         playbackStatusObservation?.cancel()
         playbackStatusObservation = nil
         hasObservedActivePlayback = false
+        wasPausedByUser = false
         ApplicationMusicPlayer.shared.stop()
         nowPlayingSong = nil
         nowPlayingRawSongID = nil
@@ -378,10 +384,18 @@ final class AppleMusicService {
      private func tickAppleMusicState() async {
          let player = ApplicationMusicPlayer.shared
          let status = player.state.playbackStatus
+         let playbackTime = player.playbackTime
          let nowPlaying = status == .playing
-         let endedAfterPlaying = status == .stopped && hasObservedActivePlayback
+         let nearEndThreshold = max(currentDuration - 0.75, currentDuration * 0.98)
+         let pausedAtNaturalEnd = status == .paused
+             && !wasPausedByUser
+             && currentDuration > 0
+             && playbackTime >= nearEndThreshold
+         let endedAfterPlaying = hasObservedActivePlayback
+             && (status == .stopped || pausedAtNaturalEnd)
          if nowPlaying {
              hasObservedActivePlayback = true
+             wasPausedByUser = false
          }
          if isAppleMusicPlaying != nowPlaying {
              isAppleMusicPlaying = nowPlaying
@@ -389,8 +403,9 @@ final class AppleMusicService {
          // player 已 stop (用户点停止 / queue 自然播完) 时, 不再从残留 queue 回填
          // nowPlayingSong ── 否则 stopAppleMusic() 清掉的值会被复活, mini player
          // 关不掉。stopped 直接收摊本 tick。
-         if status == .stopped {
+         if status == .stopped || pausedAtNaturalEnd {
              hasObservedActivePlayback = false
+             wasPausedByUser = false
              if endedAfterPlaying {
                  onPlaybackEnded?()
              }
@@ -419,7 +434,7 @@ final class AppleMusicService {
                  break
              }
          }
-         let pt = player.playbackTime
+         let pt = playbackTime
          // 浮点数微抖动也会触发 @Observable 通知, 0.05s 以内不动 cuts 掉低频闪烁。
          if abs(pt - currentPlaybackTime) > 0.05 {
              currentPlaybackTime = pt

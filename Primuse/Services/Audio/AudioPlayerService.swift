@@ -358,6 +358,12 @@ final class AudioPlayerService {
     var isSleepTimerActive: Bool { sleepTimerEndDate != nil || sleepStopAfterSongID != nil }
 
     private var displayLink: Timer?
+    /// Completion callbacks from AVAudioPlayerNode are occasionally lost after
+    /// route changes. Keep a near-end progress watchdog so a drained first
+    /// track cannot leave a non-empty queue stuck forever.
+    private var lastEngineProgressSample: TimeInterval?
+    private var nearEndStallSampleCount = 0
+    private static let trackEndStallSampleThreshold = 4
     private let nativeDecoder = NativeAudioDecoder()
 
     /// 一次性 hint: 搜索页点歌词命中结果时填入, NowPlayingView 加载好歌词后
@@ -1120,8 +1126,12 @@ final class AudioPlayerService {
         // full context and perform native gapless transitions.
         let selectedQueueEntryMatches = queueEntries.indices.contains(currentIndex)
             && queueEntries[currentIndex].song.id == song.id
+        let needsShuffleLibraryExpansion = shuffleEnabled && queueEntries.count == 1
         isPrimuseManagingAppleMusicQueue = selectedQueueEntryMatches
-            && queueEntries.contains { $0.song.sourceID != AppleMusicLibraryService.systemSourceID }
+            && (
+                queueEntries.contains { $0.song.sourceID != AppleMusicLibraryService.systemSourceID }
+                    || needsShuffleLibraryExpansion
+            )
         let appleMusic = AppServices.shared.appleMusic
         if isPrimuseManagingAppleMusicQueue {
             appleMusic.prepareForPrimuseManagedQueue()
@@ -3560,6 +3570,8 @@ final class AudioPlayerService {
 
     private func startTimeUpdater() {
         stopTimeUpdater()
+        lastEngineProgressSample = nil
+        nearEndStallSampleCount = 0
         displayLink = Timer.scheduledTimer(withTimeInterval: Self.timeUpdateInterval, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -3569,11 +3581,34 @@ final class AudioPlayerService {
                 if self.isCrossfading { return }
                 if let time = self.audioEngine.currentTime {
                     self.currentTime = time.sanitizedDuration
+                    let madeProgress = self.lastEngineProgressSample.map {
+                        self.currentTime > $0 + 0.01
+                    } ?? true
+                    self.lastEngineProgressSample = self.currentTime
 
-                    // Safety net: if currentTime exceeds duration, the completion callback
-                    // may have failed to fire — force track advancement.
-                    if self.duration > 0, self.currentTime >= self.duration + 1.0, !self.isLoading {
-                        plog("⚠️ Safety net: currentTime (\(self.currentTime)) exceeded duration (\(self.duration)), forcing track end")
+                    // AVAudioPlayerNode normally calls the final-buffer
+                    // completion, but it can be lost across route/engine
+                    // changes. The old `duration + 1s` check never fired when
+                    // the node drained exactly at duration. Detect four
+                    // consecutive stalled samples in the final 0.75s instead.
+                    let nearEndThreshold = max(
+                        self.duration - 0.75,
+                        self.duration * 0.98
+                    )
+                    if self.duration > 0,
+                       self.currentTime >= nearEndThreshold,
+                       !self.isLoading,
+                       self.isPlaying,
+                       !madeProgress {
+                        self.nearEndStallSampleCount += 1
+                    } else {
+                        self.nearEndStallSampleCount = 0
+                    }
+                    let exceededReportedEnd = self.duration > 0
+                        && self.currentTime >= self.duration + 1.0
+                    if exceededReportedEnd
+                        || self.nearEndStallSampleCount >= Self.trackEndStallSampleThreshold {
+                        plog("⚠️ Track-end watchdog: progress ended at \(self.currentTime)/\(self.duration), forcing queue advance")
                         self.stopTimeUpdater()
                         await self.handleTrackEnd()
                         return
@@ -3605,6 +3640,9 @@ final class AudioPlayerService {
             sleepStopAfterSongID = nil
             stopAtTrackEnd()  // 进 "已播完但保留 currentSong" 状态, 跟用户手动暂停一致
             return
+        }
+        if shuffleEnabled, repeatMode != .one, nextSongInQueue() == nil {
+            _ = extendExhaustedShuffleFromLibrary()
         }
         switch repeatMode {
         case .one:
@@ -3665,6 +3703,44 @@ final class AudioPlayerService {
 
     private func isDLNACast(_ song: Song?) -> Bool {
         song?.sourceID == Self.dlnaSourceID
+    }
+
+    /// Shuffle is a library-discovery mode, not a request to repeat the only
+    /// item in a one-song queue. Once the current shuffle round is exhausted,
+    /// append currently visible playable songs that are not already present
+    /// and make only those new entries the next shuffle segment.
+    @discardableResult
+    private func extendExhaustedShuffleFromLibrary() -> Bool {
+        guard shuffleEnabled,
+              repeatMode != .one,
+              nextSongInQueue() == nil,
+              let library,
+              queueEntries.indices.contains(currentIndex) else { return false }
+
+        let playable = library.visibleSongs.filteredPlayable()
+        let candidateIDs = ShuffleContinuationPolicy.candidateIDs(
+            queueIDs: queueEntries.map(\.song.id),
+            libraryIDs: playable.map(\.id),
+            currentID: currentSong?.id
+        )
+        guard !candidateIDs.isEmpty else { return false }
+
+        let songsByID = Dictionary(
+            playable.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let additions = candidateIDs.compactMap { songsByID[$0] }
+        guard !additions.isEmpty else { return false }
+
+        let firstNewIndex = queueEntries.count
+        queueGeneration += 1
+        queueEntries.append(contentsOf: additions.map { QueueEntry(song: $0) })
+        pendingNextShuffleIndices = nil
+        shuffledIndices = [currentIndex]
+            + Array(firstNewIndex..<queueEntries.count).shuffled()
+        shufflePosition = 0
+        plog("🔀 Extended exhausted shuffle queue by \(additions.count) library songs")
+        return true
     }
 
     private func nextSongInQueue() -> Song? {
