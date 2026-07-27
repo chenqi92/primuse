@@ -493,6 +493,101 @@ public enum AppleMusicQueueMirrorPolicy {
     }
 }
 
+/// Versioned persistence for the Library/Home quick-access selection.
+///
+/// Version 1 stored a bare array and rendered Liked Songs outside that array,
+/// which meant it could neither be hidden nor reordered. Version 2 stores the
+/// complete ordered selection, including Liked Songs. Decoding a legacy array
+/// prepends the supplied default pin once, preserving the old visible result.
+public enum QuickAccessPinKind: String, Codable, Sendable {
+    case album, artist, playlist
+}
+
+public struct QuickAccessPinReference: Codable, Hashable, Identifiable, Sendable {
+    public let kind: QuickAccessPinKind
+    public let itemID: String
+
+    public init(kind: QuickAccessPinKind, itemID: String) {
+        self.kind = kind
+        self.itemID = itemID
+    }
+
+    public var id: String { "\(kind.rawValue):\(itemID)" }
+}
+
+public enum QuickAccessPinStorageCodec {
+    private struct Envelope: Codable {
+        let version: Int
+        let pins: [QuickAccessPinReference]
+    }
+
+    public static func decode(
+        _ rawValue: String,
+        defaultPins: [QuickAccessPinReference],
+        maximumCount: Int
+    ) -> [QuickAccessPinReference] {
+        guard maximumCount > 0 else { return [] }
+        guard !rawValue.isEmpty, let data = rawValue.data(using: .utf8) else {
+            return normalized(defaultPins, maximumCount: maximumCount)
+        }
+
+        if let envelope = try? JSONDecoder().decode(Envelope.self, from: data),
+           envelope.version >= 2 {
+            return normalized(envelope.pins, maximumCount: maximumCount)
+        }
+
+        if let legacyPins = try? JSONDecoder().decode([QuickAccessPinReference].self, from: data) {
+            return normalized(defaultPins + legacyPins, maximumCount: maximumCount)
+        }
+
+        return normalized(defaultPins, maximumCount: maximumCount)
+    }
+
+    public static func encode(
+        _ pins: [QuickAccessPinReference],
+        maximumCount: Int
+    ) -> String {
+        let envelope = Envelope(
+            version: 2,
+            pins: normalized(pins, maximumCount: maximumCount)
+        )
+        guard let data = try? JSONEncoder().encode(envelope) else { return "" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private static func normalized(
+        _ pins: [QuickAccessPinReference],
+        maximumCount: Int
+    ) -> [QuickAccessPinReference] {
+        var seen = Set<QuickAccessPinReference>()
+        var result: [QuickAccessPinReference] = []
+        result.reserveCapacity(min(pins.count, maximumCount))
+        for pin in pins where seen.insert(pin).inserted {
+            result.append(pin)
+            if result.count == maximumCount { break }
+        }
+        return result
+    }
+}
+
+/// Picks songs that may extend an exhausted shuffle round. Existing queue IDs
+/// and duplicates in the library snapshot are excluded so an expansion never
+/// immediately replays the just-finished track or inflates the queue.
+public enum ShuffleContinuationPolicy {
+    public static func candidateIDs(
+        queueIDs: [String],
+        libraryIDs: [String],
+        currentID: String?
+    ) -> [String] {
+        var excluded = Set(queueIDs)
+        if let currentID { excluded.insert(currentID) }
+        var emitted = Set<String>()
+        return libraryIDs.filter { id in
+            !id.isEmpty && !excluded.contains(id) && emitted.insert(id).inserted
+        }
+    }
+}
+
 /// Validates the non-query portion of an OAuth callback URL.
 ///
 /// Providers that redirect straight back to the app must return the registered
