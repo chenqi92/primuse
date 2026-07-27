@@ -600,6 +600,27 @@ private struct MacSTPlaybackView: View {
     var body: some View {
         @Bindable var s = store
 
+        MacSTSection(Lz("Audio Output")) {
+            MacSTGroup {
+                MacSTRow(Lz("Output Mode"), hint: s.outputMode == .highFidelity
+                    ? Lz("Direct output · Unity gain · DSP bypass")
+                    : Lz("EQ · Spatial · ReplayGain · Crossfade"), divider: false) {
+                    MacSTPicker(
+                        selection: $s.outputMode,
+                        options: AudioOutputMode.allCases.map { ($0, $0.displayName) },
+                        width: 180
+                    )
+                }
+                MacSTRow(Lz("DSD Playback"), hint: Lz("DoP requires a compatible USB DAC")) {
+                    MacSTPicker(
+                        selection: $s.dsdPlaybackMode,
+                        options: DSDPlaybackMode.allCases.map { ($0, $0.displayName) },
+                        width: 180
+                    )
+                }
+            }
+        }
+
         MacSTSection(Lz("Playback Rate & Quality")) {
             MacSTGroup {
                 MacSTRow(Lz("Playback Rate"), hint: Lz("0.5x – 2.0x · Preserve Pitch"), divider: false) {
@@ -612,12 +633,15 @@ private struct MacSTPlaybackView: View {
                         formatter: { String(format: "%.2fx", $0 / 100) }
                     )
                 }
+                .disabled(s.outputMode == .highFidelity)
                 MacSTRow(Lz("Spatial Audio"), hint: Lz("Apple AirPods · Head Tracking")) {
                     MacSTToggle(isOn: $s.spatialAudioEnabled)
                 }
+                .disabled(s.outputMode == .highFidelity)
                 MacSTRow("ReplayGain", hint: Lz("Automatic Volume Balancing")) {
                     MacSTToggle(isOn: $s.replayGainEnabled)
                 }
+                .disabled(s.outputMode == .highFidelity)
                 if s.replayGainEnabled {
                     MacSTRow(Lz("RG Mode")) {
                         MacSTPicker(
@@ -638,6 +662,7 @@ private struct MacSTPlaybackView: View {
                 MacSTRow("Crossfade", hint: Lz("Mutually exclusive with Gapless")) {
                     MacSTToggle(isOn: $s.crossfadeEnabled)
                 }
+                .disabled(s.outputMode == .highFidelity)
                 if s.crossfadeEnabled {
                     MacSTRow(Lz("Crossfade Duration"), hint: Lz("1–12 seconds")) {
                         MacSTSlider(
@@ -656,6 +681,7 @@ private struct MacSTPlaybackView: View {
                 MacSTRow(Lz("Match Hardware Sample Rate"), hint: Lz("Works on physical iOS devices; ignored by some hardware")) {
                     MacSTToggle(isOn: $s.matchOutputSampleRate)
                 }
+                .disabled(s.outputMode == .highFidelity)
             }
         }
 
@@ -4138,7 +4164,7 @@ private struct MacLicenseComponent: Identifiable, Hashable {
 
     static let items: [MacLicenseComponent] = [
         .init(name: "SFBAudioEngine", license: "MIT", use: Lz("Audio decoding engine")),
-        .init(name: "FFmpeg", license: "LGPL 2.1", use: Lz("Additional format decoding")),
+        .init(name: "FFmpeg 8.1", license: "LGPL 2.1+", use: Lz("DTS / DTS-HD and additional format decoding")),
         .init(name: "AMSMB2", license: "BSD-3", use: Lz("SMB / CIFS connection")),
         .init(name: "Citadel", license: "MIT", use: Lz("SFTP client")),
         .init(name: "NFSKit", license: "MIT", use: Lz("NFS browsing")),

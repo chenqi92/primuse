@@ -30,6 +30,14 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
     public var replayGainTrackPeak: Double?
     public var replayGainAlbumGain: Double?
     public var replayGainAlbumPeak: Double?
+    /// Source-relative path of the CUE sheet that defines this virtual track.
+    /// Nil for ordinary one-file-per-track songs.
+    public var cueSheetPath: String?
+    /// Track boundaries inside `filePath`, expressed on the decoded PCM
+    /// timeline. INDEX 01 is used for the start; the next INDEX 01 in the same
+    /// FILE block is used for the end.
+    public var cueStartTime: TimeInterval?
+    public var cueEndTime: TimeInterval?
     /// Provider-supplied content identifier — etag, md5, content_hash,
     /// `fs_id` + `local_mtime`, etc. Used by re-scan to detect remote
     /// replacement on cloud drives that don't report a usable
@@ -77,6 +85,9 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         replayGainTrackPeak: Double? = nil,
         replayGainAlbumGain: Double? = nil,
         replayGainAlbumPeak: Double? = nil,
+        cueSheetPath: String? = nil,
+        cueStartTime: TimeInterval? = nil,
+        cueEndTime: TimeInterval? = nil,
         revision: String? = nil,
         titlePinyin: String? = nil,
         artistPinyin: String? = nil,
@@ -110,6 +121,9 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         self.replayGainTrackPeak = replayGainTrackPeak
         self.replayGainAlbumGain = replayGainAlbumGain
         self.replayGainAlbumPeak = replayGainAlbumPeak
+        self.cueSheetPath = cueSheetPath
+        self.cueStartTime = cueStartTime
+        self.cueEndTime = cueEndTime
         self.revision = revision
         self.titlePinyin = titlePinyin
         self.artistPinyin = artistPinyin
@@ -221,6 +235,15 @@ extension Song: FetchableRecord, PersistableRecord {
 }
 
 public extension Song {
+    var isCueTrack: Bool {
+        cueSheetPath?.isEmpty == false && cueStartTime != nil
+    }
+
+    var cueSegmentDuration: TimeInterval? {
+        guard let start = cueStartTime, let end = cueEndTime, end > start else { return nil }
+        return end - start
+    }
+
     /// True when the song can be handed to the player. A non-empty `filePath`
     /// means there is a location to stream/decode — the player resolves the
     /// real `duration` on play and rewrites it into the library, so cloud

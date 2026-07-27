@@ -11,13 +11,16 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
     case wav
     case aiff
     case aif
+    case au
+    case caf
 
     // Video containers — used by standalone music-video songs
     // (Song.isStandaloneMusicVideo), which play through AVPlayer.
     case m4v
     case mov
 
-    // FFmpeg-required formats
+    // SFBAudioEngine / FFmpeg formats that AVFoundation does not decode
+    // consistently across Apple platforms.
     case ape
     case dsf
     case dff
@@ -25,12 +28,29 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
     case opus
     case wma
     case wv
+    case dts
+    case ac3
+    case eac3
+    case mlp
+    case truehd
+    case amr
+    case atrac
+    case tak
+    case tta
+    case mpc
+    case shn
+    case speex
+    case qoa
 
     public var requiresFFmpeg: Bool {
+        // Kept as the historical API name. In practice this means the format
+        // needs the SFBAudioEngine/FFmpeg custom decode pipeline.
         switch self {
-        case .mp3, .aac, .m4a, .mp4, .m4v, .mov, .alac, .flac, .wav, .aiff, .aif:
+        case .mp3, .aac, .m4a, .mp4, .m4v, .mov, .alac, .flac, .wav, .aiff, .aif, .au, .caf:
             return false
-        case .ape, .dsf, .dff, .ogg, .opus, .wma, .wv:
+        case .ape, .dsf, .dff, .ogg, .opus, .wma, .wv, .dts,
+             .ac3, .eac3, .mlp, .truehd, .amr, .atrac, .tak, .tta,
+             .mpc, .shn, .speex, .qoa:
             return true
         }
     }
@@ -47,6 +67,8 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
         case .flac: return "FLAC"
         case .wav: return "WAV"
         case .aiff, .aif: return "AIFF"
+        case .au: return "AU"
+        case .caf: return "CAF"
         case .ape: return "APE"
         case .dsf: return "DSD (DSF)"
         case .dff: return "DSD (DFF)"
@@ -54,20 +76,44 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
         case .opus: return "Opus"
         case .wma: return "WMA"
         case .wv: return "WavPack"
+        case .dts: return "DTS"
+        case .ac3: return "Dolby Digital (AC-3)"
+        case .eac3: return "Dolby Digital Plus (E-AC-3)"
+        case .mlp: return "MLP"
+        case .truehd: return "Dolby TrueHD"
+        case .amr: return "AMR"
+        case .atrac: return "ATRAC"
+        case .tak: return "TAK"
+        case .tta: return "TTA"
+        case .mpc: return "Musepack"
+        case .shn: return "Shorten"
+        case .speex: return "Speex"
+        case .qoa: return "QOA"
         }
     }
 
     public var isLossless: Bool {
         switch self {
-        case .flac, .alac, .wav, .aiff, .aif, .ape, .dsf, .dff, .wv:
+        case .flac, .alac, .wav, .aiff, .aif, .au, .caf, .ape, .dsf, .dff,
+             .wv, .mlp, .truehd, .tak, .tta, .shn:
             return true
-        case .mp3, .aac, .m4a, .mp4, .m4v, .mov, .ogg, .opus, .wma:
+        case .mp3, .aac, .m4a, .mp4, .m4v, .mov, .ogg, .opus, .wma, .dts,
+             .ac3, .eac3, .amr, .atrac, .mpc, .speex, .qoa:
             return false
         }
     }
 
     public static func from(fileExtension ext: String) -> AudioFormat? {
-        AudioFormat(rawValue: ext.lowercased())
+        switch ext.lowercased() {
+        case "ec3": return .eac3
+        case "thd": return .truehd
+        case "dtshd", "dts-hd", "dtswav": return .dts
+        case "oma", "aa3", "at3": return .atrac
+        case "mpp": return .mpc
+        case "spx": return .speex
+        case "snd": return .au
+        default: return AudioFormat(rawValue: ext.lowercased())
+        }
     }
 
     /// UTI / file-type identifier for `AVAssetResourceLoadingContentInformationRequest.contentType`.
@@ -82,7 +128,11 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
         case .flac: return "org.xiph.flac"
         case .wav: return "com.microsoft.waveform-audio"
         case .aiff, .aif: return "public.aiff-audio"
-        case .ape, .dsf, .dff, .ogg, .opus, .wma, .wv: return nil
+        case .au: return "public.au-audio"
+        case .caf: return "com.apple.coreaudio-format"
+        case .ape, .dsf, .dff, .ogg, .opus, .wma, .wv, .dts,
+             .ac3, .eac3, .mlp, .truehd, .amr, .atrac, .tak, .tta,
+             .mpc, .shn, .speex, .qoa: return nil
         }
     }
 }

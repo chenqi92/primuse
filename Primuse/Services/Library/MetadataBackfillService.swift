@@ -1362,9 +1362,18 @@ final class MetadataBackfillService {
 
     private func mergeSong(bare: Song, metadata: MetadataService.SongMetadata) -> Song {
         let metadataTitle = metadata.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let mergedTitle = metadataTitle.isEmpty ? bare.title : metadata.title
-        let mergedArtist = metadata.artist ?? bare.artistName
-        let mergedAlbum = metadata.albumTitle ?? bare.albumTitle
+        // A CUE track's text belongs to the virtual track. Embedded tags in
+        // the referenced image describe the whole album and must not replace
+        // every track with the same title/track number.
+        let mergedTitle = bare.isCueTrack
+            ? bare.title
+            : (metadataTitle.isEmpty ? bare.title : metadata.title)
+        let mergedArtist = bare.isCueTrack
+            ? (bare.artistName ?? metadata.artist)
+            : (metadata.artist ?? bare.artistName)
+        let mergedAlbum = bare.isCueTrack
+            ? (bare.albumTitle ?? metadata.albumTitle)
+            : (metadata.albumTitle ?? bare.albumTitle)
         let artistID = mergedArtist.map { Self.hash($0.lowercased()) }
         let albumID: String? = if let artist = mergedArtist, let album = mergedAlbum {
             Self.hash("\(artist.lowercased()):\(album.lowercased())")
@@ -1379,6 +1388,13 @@ final class MetadataBackfillService {
         let lyricsRef = bare.lyricsFileName ?? metadata.lyricsFileName
         let mvRef = bare.mvPath ?? metadata.mvPath
 
+        let mergedDuration: TimeInterval = if bare.isCueTrack,
+                                              let start = bare.cueStartTime {
+            max(0, (bare.cueEndTime ?? metadata.duration) - start)
+        } else {
+            metadata.duration > 0 ? metadata.duration : bare.duration
+        }
+
         return Song(
             id: bare.id,
             title: mergedTitle,
@@ -1386,9 +1402,9 @@ final class MetadataBackfillService {
             artistID: artistID,
             albumTitle: mergedAlbum,
             artistName: mergedArtist,
-            trackNumber: metadata.trackNumber ?? bare.trackNumber,
+            trackNumber: bare.isCueTrack ? bare.trackNumber : (metadata.trackNumber ?? bare.trackNumber),
             discNumber: metadata.discNumber ?? bare.discNumber,
-            duration: metadata.duration > 0 ? metadata.duration : bare.duration,
+            duration: mergedDuration,
             fileFormat: bare.fileFormat,
             filePath: bare.filePath,
             sourceID: bare.sourceID,
@@ -1407,6 +1423,9 @@ final class MetadataBackfillService {
             replayGainTrackPeak: metadata.replayGainTrackPeak ?? bare.replayGainTrackPeak,
             replayGainAlbumGain: metadata.replayGainAlbumGain ?? bare.replayGainAlbumGain,
             replayGainAlbumPeak: metadata.replayGainAlbumPeak ?? bare.replayGainAlbumPeak,
+            cueSheetPath: bare.cueSheetPath,
+            cueStartTime: bare.cueStartTime,
+            cueEndTime: bare.cueEndTime,
             revision: bare.revision,
             titlePinyin: mergedTitle == bare.title ? bare.titlePinyin : nil,
             artistPinyin: mergedArtist == bare.artistName ? bare.artistPinyin : nil,

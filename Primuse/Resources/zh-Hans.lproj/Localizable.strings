@@ -2035,3 +2035,14 @@
 "material_macos_14_or_later" = "macOS 14 或更高版本";
 "material_auto_desc" = "自动选择这台 Mac 支持的最佳外观。";
 "appearance_system_blue" = "系统蓝色";
+"audio_output_section" = "音频输出";
+"audio_output_mode" = "输出模式";
+"output_mode_high_fidelity" = "高保真直通";
+"output_mode_effects" = "音效处理";
+"output_mode_high_fidelity_desc" = "以单位增益使用最短信号路径，绕过均衡器、动态处理、混响、空间音频、回放增益、变速、淡入淡出、应用音量与可视化采样，并自动匹配采样率。";
+"output_mode_effects_desc" = "使用完整处理链，支持均衡器、动态处理、混响、空间音频、回放增益、变速、淡入淡出、应用音量与可视化。";
+"dsd_playback_mode" = "DSD 播放";
+"dsd_mode_auto" = "自动";
+"dsd_mode_pcm" = "转换为 PCM";
+"dsd_mode_dop" = "优先 DoP";
+"output_sr_matching_fidelity_desc" = "高保真直通模式始终启用。操作系统或输出设备仍可能拒绝请求的采样率。";

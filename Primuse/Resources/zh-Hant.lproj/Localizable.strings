@@ -1908,3 +1908,14 @@
 "material_macos_14_or_later" = "macOS 14 或以上版本";
 "material_auto_desc" = "自動選擇這台 Mac 支援的最佳外觀。";
 "appearance_system_blue" = "系統藍色";
+"audio_output_section" = "音訊輸出";
+"audio_output_mode" = "輸出模式";
+"output_mode_high_fidelity" = "高傳真直通";
+"output_mode_effects" = "音效處理";
+"output_mode_high_fidelity_desc" = "以單位增益使用最短信號路徑，略過等化器、動態處理、殘響、空間音訊、ReplayGain、變速、淡入淡出、App 音量與視覺化取樣，並自動匹配取樣率。";
+"output_mode_effects_desc" = "使用完整處理鏈，支援等化器、動態處理、殘響、空間音訊、ReplayGain、變速、淡入淡出、App 音量與視覺化。";
+"dsd_playback_mode" = "DSD 播放";
+"dsd_mode_auto" = "自動";
+"dsd_mode_pcm" = "轉換為 PCM";
+"dsd_mode_dop" = "優先 DoP";
+"output_sr_matching_fidelity_desc" = "高傳真直通模式會固定啟用。作業系統或輸出裝置仍可能拒絕要求的取樣率。";

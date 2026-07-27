@@ -1932,3 +1932,14 @@
 "material_macos_14_or_later" = "macOS 14 oder neuer";
 "material_auto_desc" = "Wählt automatisch die beste von diesem Mac unterstützte Darstellung.";
 "appearance_system_blue" = "Systemblau";
+"audio_output_section" = "Audioausgabe";
+"audio_output_mode" = "Ausgabemodus";
+"output_mode_high_fidelity" = "Hi-Fi-Direktausgabe";
+"output_mode_effects" = "Effekte & Verarbeitung";
+"output_mode_high_fidelity_desc" = "Kuerzester Signalweg mit unveraenderter Verstaerkung; umgeht alle DSP-Effekte und passt die Abtastrate automatisch an.";
+"output_mode_effects_desc" = "Verwendet die vollstaendige Verarbeitungskette fuer EQ, Dynamik, Hall, Spatial Audio, ReplayGain, Tempo, Crossfade und Visualisierung.";
+"dsd_playback_mode" = "DSD-Wiedergabe";
+"dsd_mode_auto" = "Automatisch";
+"dsd_mode_pcm" = "In PCM umwandeln";
+"dsd_mode_dop" = "DoP bevorzugen";
+"output_sr_matching_fidelity_desc" = "Im Hi-Fi-Direktmodus immer aktiv. System oder Ausgabegeraet koennen die angeforderte Abtastrate ablehnen.";

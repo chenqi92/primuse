@@ -1,0 +1,5 @@
+framework module libavcodec {
+  umbrella header "avcodec.h"
+  export *
+  module * { export * }
+}

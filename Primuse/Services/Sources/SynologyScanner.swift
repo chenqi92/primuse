@@ -49,12 +49,18 @@ actor SynologyScanner {
                     // path → allSongs 下标。existing 条目下标全程稳定(替换原地、新增追加到
                     // 末尾), 用于 O(1) 比对/回填/替换, 避免 firstIndex 的 O(n²)。
                     let existingByPath = Dictionary(
-                        existingSongs.enumerated().map { ($0.element.filePath, $0.offset) },
+                        existingSongs.enumerated()
+                            .filter { !$0.element.isCueTrack }
+                            .map { ($0.element.filePath, $0.offset) },
+                        uniquingKeysWith: { first, _ in first }
+                    )
+                    let existingByID = Dictionary(
+                        existingSongs.enumerated().map { ($0.element.id, $0.offset) },
                         uniquingKeysWith: { first, _ in first }
                     )
                     let initialCount = max(existingSongs.count, startingCount)
                     var count = totalCount > 0 ? min(initialCount, totalCount) : initialCount
-                    var encounteredPaths: Set<String> = []
+                    var encounteredSongIDs: Set<String> = []
                     var hadDirectoryFailure = false
 
                     if !existingSongs.isEmpty {
@@ -70,7 +76,8 @@ actor SynologyScanner {
                                 path: dir, allSongs: &allSongs,
                                 count: &count, totalCount: totalCount,
                                 existingByPath: existingByPath,
-                                encounteredPaths: &encounteredPaths,
+                                existingByID: existingByID,
+                                encounteredSongIDs: &encounteredSongIDs,
                                 continuation: continuation
                             )
                         } catch is CancellationError {
@@ -84,7 +91,7 @@ actor SynologyScanner {
                     }
 
                     if !hadDirectoryFailure {
-                        allSongs.removeAll { encounteredPaths.contains($0.filePath) == false }
+                        allSongs.removeAll { encounteredSongIDs.contains($0.id) == false }
                         count = allSongs.count
                     }
 
@@ -108,6 +115,7 @@ actor SynologyScanner {
             items.filter { $0.isDirectory == false }.map { ($0.name.lowercased(), $0.name) },
             uniquingKeysWith: { first, _ in first }
         )
+        let cueTracksByAudioPath = await loadCueTracks(from: items)
         var count = 0
         for item in items {
             if Task.isCancelled { return count }
@@ -116,7 +124,7 @@ actor SynologyScanner {
             } else {
                 let ext = (item.name as NSString).pathExtension.lowercased()
                 if PrimuseConstants.supportedAudioExtensions.contains(ext) {
-                    count += 1
+                    count += cueTracksByAudioPath[item.path]?.count ?? 1
                 } else if PrimuseConstants.supportedMusicVideoExtensions.contains(ext) {
                     let baseName = (item.name as NSString).deletingPathExtension
                     if Self.hasSameNameAudio(baseName: baseName, nameByLowercase: nameByLowercase) == false {
@@ -132,7 +140,8 @@ actor SynologyScanner {
         path: String, allSongs: inout [Song], count: inout Int,
         totalCount: Int,
         existingByPath: [String: Int],
-        encounteredPaths: inout Set<String>,
+        existingByID: [String: Int],
+        encounteredSongIDs: inout Set<String>,
         continuation: AsyncThrowingStream<ScanUpdate, Error>.Continuation
     ) async throws {
         try Task.checkCancellation()
@@ -144,6 +153,7 @@ actor SynologyScanner {
             items.map { ($0.name.lowercased(), $0.name) },
             uniquingKeysWith: { first, _ in first }
         )
+        let cueTracksByAudioPath = await loadCueTracks(from: items)
         let coverNames = PrimuseConstants.folderCoverNames  // cover.jpg, folder.jpg, etc.
 
         // Detect folder-level cover sidecar (e.g., cover.jpg in this directory).
@@ -170,7 +180,8 @@ actor SynologyScanner {
                     path: item.path, allSongs: &allSongs,
                     count: &count, totalCount: totalCount,
                     existingByPath: existingByPath,
-                    encounteredPaths: &encounteredPaths,
+                    existingByID: existingByID,
+                    encounteredSongIDs: &encounteredSongIDs,
                     continuation: continuation
                 )
             } else {
@@ -182,13 +193,33 @@ actor SynologyScanner {
                         folderCoverPath: folderCoverPath,
                         allSongs: &allSongs, count: &count, totalCount: totalCount,
                         existingByPath: existingByPath,
-                        encounteredPaths: &encounteredPaths,
+                        encounteredSongIDs: &encounteredSongIDs,
                         continuation: continuation
                     )
                     continue
                 }
                 guard PrimuseConstants.supportedAudioExtensions.contains(ext) else { continue }
-                encounteredPaths.insert(item.path)
+                if let descriptors = cueTracksByAudioPath[item.path], !descriptors.isEmpty {
+                    let cueSongs = await buildCueSongs(from: item, descriptors: descriptors)
+                    for var song in cueSongs {
+                        encounteredSongIDs.insert(song.id)
+                        count += 1
+                        if let index = existingByID[song.id] {
+                            song.dateAdded = allSongs[index].dateAdded
+                            allSongs[index] = song
+                        } else {
+                            allSongs.append(song)
+                        }
+                    }
+                    continuation.yield(ScanUpdate(
+                        scannedCount: count,
+                        totalCount: totalCount,
+                        currentFile: item.name,
+                        songs: allSongs
+                    ))
+                    continue
+                }
+                encounteredSongIDs.insert(generateID(sourceID: sourceID, path: item.path))
 
                 // Detect sidecar files by name (no download needed)
                 let baseName = (item.name as NSString).deletingPathExtension
@@ -298,6 +329,113 @@ actor SynologyScanner {
         }
     }
 
+    private struct CueTrackDescriptor: Sendable {
+        let cuePath: String
+        let albumTitle: String?
+        let albumPerformer: String?
+        let genre: String?
+        let year: Int?
+        let format: AudioFormat
+        let track: CueTrack
+    }
+
+    private func loadCueTracks(
+        from items: [SynologyAPI.FileItem]
+    ) async -> [String: [CueTrackDescriptor]] {
+        var result: [String: [CueTrackDescriptor]] = [:]
+        let filesByName = Dictionary(
+            items.filter { !$0.isDirectory }.map { ($0.name.lowercased(), $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        for cueItem in items where !cueItem.isDirectory
+            && (cueItem.name as NSString).pathExtension.caseInsensitiveCompare("cue") == .orderedSame {
+            let readSize = min(max(Int(clamping: cueItem.size), 64 * 1024), 1024 * 1024)
+            guard let data = try? await api.downloadFileHead(path: cueItem.path, maxBytes: readSize),
+                  let cue = CueSheetParser.parse(data: data) else {
+                plog("⚠️ Synology CUE: unable to parse \(cueItem.name)")
+                continue
+            }
+
+            for cueFile in cue.files {
+                let referencedName = (cueFile.name.replacingOccurrences(of: "\\", with: "/") as NSString)
+                    .lastPathComponent
+                guard let audioItem = filesByName[referencedName.lowercased()] else {
+                    plog("⚠️ Synology CUE: '\(cueItem.name)' references missing file '\(cueFile.name)'")
+                    continue
+                }
+                let ext = (audioItem.name as NSString).pathExtension.lowercased()
+                guard var format = AudioFormat.from(fileExtension: ext) else { continue }
+                if ext == "dts" {
+                    format = .dts
+                } else if ext == "wav",
+                          let prefix = try? await api.downloadFileHead(
+                              path: audioItem.path,
+                              maxBytes: min(Int(clamping: audioItem.size), 256 * 1024)
+                          ),
+                          FFmpegAudioDecoder.dataContainsDTSSync(prefix) {
+                    format = .dts
+                }
+
+                for track in cueFile.tracks where track.type == "AUDIO" && track.startTime != nil {
+                    result[audioItem.path, default: []].append(
+                        CueTrackDescriptor(
+                            cuePath: cueItem.path,
+                            albumTitle: cue.title,
+                            albumPerformer: cue.performer,
+                            genre: cue.genre,
+                            year: cue.year,
+                            format: format,
+                            track: track
+                        )
+                    )
+                }
+            }
+        }
+        return result
+    }
+
+    private func buildCueSongs(
+        from item: SynologyAPI.FileItem,
+        descriptors: [CueTrackDescriptor]
+    ) async -> [Song] {
+        let physical = await extractSongMetadata(
+            item: item,
+            ext: (item.name as NSString).pathExtension.lowercased()
+        )
+        return descriptors.compactMap { descriptor in
+            guard let start = descriptor.track.startTime else { return nil }
+            let end = descriptor.track.endTime
+                ?? (physical.duration > start ? physical.duration : nil)
+            let artist = descriptor.track.performer
+                ?? descriptor.albumPerformer
+                ?? physical.artistName
+            let album = descriptor.albumTitle ?? physical.albumTitle
+            var song = physical
+            song.id = generateID(
+                sourceID: sourceID,
+                path: "\(item.path)#cue:\(descriptor.cuePath)#track:\(descriptor.track.number)"
+            )
+            song.title = descriptor.track.title
+                ?? String(format: "Track %02d", descriptor.track.number)
+            song.artistName = artist
+            song.artistID = artist.map { generateID(sourceID: "artist", path: $0.lowercased()) }
+            song.albumTitle = album
+            song.albumID = album.map {
+                generateID(sourceID: "album", path: "\(artist ?? ""):\($0.lowercased())")
+            }
+            song.trackNumber = descriptor.track.number
+            song.duration = end.map { max(0, $0 - start) } ?? 0
+            song.fileFormat = descriptor.format
+            song.genre = descriptor.genre ?? physical.genre
+            song.year = descriptor.year ?? physical.year
+            song.cueSheetPath = descriptor.cuePath
+            song.cueStartTime = start
+            song.cueEndTime = end
+            return song
+        }
+    }
+
     /// 独立 MV: 同目录没有同名音频的视频文件独立成曲, mvPath 指向自身
     /// (Song.isStandaloneMusicVideo)。不下载 header 解析 —— 视频的 moov
     /// 常在文件尾, 4MB 头不可靠; 时长由 MetadataBackfillService / 播放时
@@ -308,7 +446,7 @@ actor SynologyScanner {
         folderCoverPath: String?,
         allSongs: inout [Song], count: inout Int, totalCount: Int,
         existingByPath: [String: Int],
-        encounteredPaths: inout Set<String>,
+        encounteredSongIDs: inout Set<String>,
         continuation: AsyncThrowingStream<ScanUpdate, Error>.Continuation
     ) {
         let baseName = (item.name as NSString).deletingPathExtension
@@ -320,7 +458,7 @@ actor SynologyScanner {
             nameByLowercase: nameByLowercase
         )
         guard hasSameNameAudio == false else { return }
-        encounteredPaths.insert(item.path)
+        encounteredSongIDs.insert(generateID(sourceID: sourceID, path: item.path))
 
         var coverRef: String?
         for coverExt in ["jpg", "jpeg", "png", "webp"] {
@@ -428,7 +566,7 @@ actor SynologyScanner {
 
     /// Download file header and extract metadata using AVFoundation
     private func extractSongMetadata(item: SynologyAPI.FileItem, ext: String) async -> Song {
-        let format = AudioFormat.from(fileExtension: ext) ?? .mp3
+        var format = AudioFormat.from(fileExtension: ext) ?? .mp3
         let songID = generateID(sourceID: sourceID, path: item.path)
         let parentDir = (item.path as NSString).deletingLastPathComponent
         let albumFromPath = (parentDir as NSString).lastPathComponent
@@ -472,6 +610,9 @@ actor SynologyScanner {
             }
 
             let data = try await api.downloadFileHead(path: item.path, maxBytes: readSize)
+            if ext == "wav", FFmpegAudioDecoder.dataContainsDTSSync(data) {
+                format = .dts
+            }
 
             // Write to temp file for AVFoundation to read
             let tempFile = tempDir.appendingPathComponent("\(songID).\(ext)")

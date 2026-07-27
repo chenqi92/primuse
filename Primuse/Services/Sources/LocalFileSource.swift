@@ -6,6 +6,7 @@ actor LocalFileSource: SongScanningConnector {
     let sourceID: String
     private let basePath: URL
     private let metadataService = MetadataService()
+    private let ffmpegDecoder = FFmpegAudioDecoder()
     private static let minimumReadableAudioBytes: Int64 = 1024
     /// macOS sandbox requires holding the security scope across the lifetime
     /// of the connector — the URL we resolved from the stored bookmark
@@ -165,11 +166,17 @@ actor LocalFileSource: SongScanningConnector {
 
     func scanSongs(from path: String) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error> {
         let files = try await scanAudioFiles(from: path)
+        let cueTracksByAudioPath = loadCueTracks(from: path)
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
                     for try await item in files {
                         try Task.checkCancellation()
+                        if let descriptors = cueTracksByAudioPath[item.path], !descriptors.isEmpty {
+                            let tracks = try await self.buildCueSongs(from: item, descriptors: descriptors)
+                            for track in tracks { continuation.yield(track) }
+                            continue
+                        }
                         if let scanned = try await self.buildScannedSong(from: item) {
                             continuation.yield(scanned)
                         }
@@ -205,12 +212,20 @@ actor LocalFileSource: SongScanningConnector {
         // 才按不可读跳过。
         let ext = (item.name as NSString).pathExtension
         let isStandaloneVideo = PrimuseConstants.supportedMusicVideoExtensions.contains(ext.lowercased())
-        guard isStandaloneVideo || metadata.duration > 0 else {
+        let isDTS = ext.caseInsensitiveCompare("dts") == .orderedSame
+            || (ext.caseInsensitiveCompare("wav") == .orderedSame && ffmpegDecoder.canDecode(url: fileURL))
+        let declaredFormat = isDTS ? AudioFormat.dts : (AudioFormat.from(fileExtension: ext) ?? .mp3)
+        let needsFFmpegProbe = isDTS
+            || metadata.duration <= 0
+            || FileFormatRouter.decoder(for: declaredFormat) is FFmpegAudioDecoder
+        let ffmpegInfo = needsFFmpegProbe ? try? await ffmpegDecoder.fileInfo(for: fileURL) : nil
+        let duration = ffmpegInfo?.duration ?? metadata.duration
+        guard isStandaloneVideo || duration > 0 else {
             plog("📥 LocalFileSource: skipping unreadable local audio '\(item.name)' size=\(item.size)B")
             return nil
         }
 
-        let format = AudioFormat.from(fileExtension: ext) ?? .mp3
+        let format: AudioFormat = declaredFormat
         let song = Song(
             id: songID,
             title: metadata.title,
@@ -218,14 +233,14 @@ actor LocalFileSource: SongScanningConnector {
             artistName: metadata.artist,
             trackNumber: metadata.trackNumber,
             discNumber: metadata.discNumber,
-            duration: metadata.duration,
+            duration: duration,
             fileFormat: format,
             filePath: item.path,
             sourceID: sourceID,
             fileSize: item.size,
-            bitRate: metadata.bitRate,
-            sampleRate: metadata.sampleRate,
-            bitDepth: metadata.bitDepth,
+            bitRate: ffmpegInfo?.bitRate ?? metadata.bitRate,
+            sampleRate: ffmpegInfo.map { Int($0.sampleRate) } ?? metadata.sampleRate,
+            bitDepth: ffmpegInfo?.bitDepth ?? metadata.bitDepth,
             genre: metadata.genre,
             year: metadata.year,
             lastModified: item.modifiedDate,
@@ -240,6 +255,131 @@ actor LocalFileSource: SongScanningConnector {
             replayGainAlbumPeak: metadata.replayGainAlbumPeak
         )
         return ConnectorScannedSong(song: song, displayName: item.name)
+    }
+
+    private struct CueTrackDescriptor: Sendable {
+        let cuePath: String
+        let albumTitle: String?
+        let albumPerformer: String?
+        let genre: String?
+        let year: Int?
+        let format: AudioFormat
+        let track: CueTrack
+    }
+
+    /// Parse local CUE sheets up front so a referenced album image is emitted
+    /// as virtual tracks and never duplicated as one whole-file library row.
+    private func loadCueTracks(from path: String) -> [String: [CueTrackDescriptor]] {
+        guard let startURL = try? resolvedURL(for: path, allowRoot: true) else { return [:] }
+        var result: [String: [CueTrackDescriptor]] = [:]
+        let enumerator = FileManager.default.enumerator(
+            at: startURL,
+            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
+            options: [.skipsHiddenFiles]
+        )
+        let base = basePath.standardizedFileURL.path
+        let basePrefix = base.hasSuffix("/") ? base : base + "/"
+
+        while let cueURL = enumerator?.nextObject() as? URL {
+            guard cueURL.pathExtension.caseInsensitiveCompare("cue") == .orderedSame,
+                  let values = try? cueURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+                  values.isRegularFile == true,
+                  (values.fileSize ?? 0) <= 1024 * 1024,
+                  let data = try? Data(contentsOf: cueURL, options: .mappedIfSafe),
+                  let cue = CueSheetParser.parse(data: data) else {
+                continue
+            }
+
+            for cueFile in cue.files {
+                let referencedPath = cueFile.name.replacingOccurrences(of: "\\", with: "/")
+                let candidate = cueURL.deletingLastPathComponent()
+                    .appendingPathComponent(referencedPath)
+                    .standardizedFileURL
+                guard candidate.path.hasPrefix(basePrefix),
+                      FileManager.default.fileExists(atPath: candidate.path) else {
+                    plog("⚠️ CUE: '\(cueURL.lastPathComponent)' references missing file '\(cueFile.name)'")
+                    continue
+                }
+                let ext = candidate.pathExtension.lowercased()
+                guard var format = AudioFormat.from(fileExtension: ext) else { continue }
+                if ext == "dts" || (ext == "wav" && ffmpegDecoder.canDecode(url: candidate)) {
+                    format = .dts
+                }
+                let audioPath = relativePath(for: candidate)
+                for track in cueFile.tracks where track.type == "AUDIO" && track.startTime != nil {
+                    result[audioPath, default: []].append(
+                        CueTrackDescriptor(
+                            cuePath: relativePath(for: cueURL),
+                            albumTitle: cue.title,
+                            albumPerformer: cue.performer,
+                            genre: cue.genre,
+                            year: cue.year,
+                            format: format,
+                            track: track
+                        )
+                    )
+                }
+            }
+        }
+        return result
+    }
+
+    private func buildCueSongs(
+        from item: RemoteFileItem,
+        descriptors: [CueTrackDescriptor]
+    ) async throws -> [ConnectorScannedSong] {
+        let fileURL = try await localURL(for: item.path)
+        let physicalID = Self.generateID(sourceID: sourceID, path: item.path)
+        let fallbackTitle = ((item.name as NSString).lastPathComponent as NSString).deletingPathExtension
+        let metadata = await metadataService.loadMetadata(
+            for: fileURL,
+            cacheKey: physicalID,
+            allowOnlineFetch: false,
+            fallbackTitle: fallbackTitle
+        )
+        let needsFFmpegProbe = descriptors.contains {
+            FileFormatRouter.decoder(for: $0.format) is FFmpegAudioDecoder
+        }
+        let ffmpegInfo = needsFFmpegProbe ? try? await ffmpegDecoder.fileInfo(for: fileURL) : nil
+        let physicalDuration = ffmpegInfo?.duration ?? metadata.duration
+
+        return descriptors.compactMap { descriptor in
+            guard let start = descriptor.track.startTime else { return nil }
+            let end = descriptor.track.endTime ?? (physicalDuration > start ? physicalDuration : nil)
+            let artist = descriptor.track.performer ?? descriptor.albumPerformer ?? metadata.artist
+            let album = descriptor.albumTitle ?? metadata.albumTitle
+            let trackID = Self.generateID(
+                sourceID: sourceID,
+                path: "\(item.path)#cue:\(descriptor.cuePath)#track:\(descriptor.track.number)"
+            )
+            let song = Song(
+                id: trackID,
+                title: descriptor.track.title ?? String(format: "Track %02d", descriptor.track.number),
+                albumID: album.map { Self.generateID(sourceID: "album", path: "\(artist ?? ""):\($0)") },
+                artistID: artist.map { Self.generateID(sourceID: "artist", path: $0) },
+                albumTitle: album,
+                artistName: artist,
+                trackNumber: descriptor.track.number,
+                duration: end.map { max(0, $0 - start) } ?? 0,
+                fileFormat: descriptor.format,
+                filePath: item.path,
+                sourceID: sourceID,
+                fileSize: item.size,
+                bitRate: ffmpegInfo?.bitRate ?? metadata.bitRate,
+                sampleRate: ffmpegInfo.map { Int($0.sampleRate) } ?? metadata.sampleRate,
+                bitDepth: ffmpegInfo?.bitDepth ?? metadata.bitDepth,
+                genre: descriptor.genre ?? metadata.genre,
+                year: descriptor.year ?? metadata.year,
+                lastModified: item.modifiedDate,
+                coverArtFileName: metadata.coverArtFileName,
+                lyricsFileName: metadata.lyricsFileName,
+                mvPath: sidecarPath(nextTo: item.path, named: metadata.mvPath),
+                cueSheetPath: descriptor.cuePath,
+                cueStartTime: start,
+                cueEndTime: end
+            )
+            return ConnectorScannedSong(song: song, displayName: song.title)
+        }
     }
 
     /// 同目录存在任一同名音频文件时, 该视频是 sidecar 而非独立 MV。

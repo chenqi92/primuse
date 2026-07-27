@@ -808,6 +808,26 @@ struct PlaybackSettingsView: View {
 
         Form {
             Section {
+                Picker("audio_output_mode", selection: $settings.outputMode) {
+                    ForEach(AudioOutputMode.allCases, id: \.self) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+
+                Picker("dsd_playback_mode", selection: $settings.dsdPlaybackMode) {
+                    ForEach(DSDPlaybackMode.allCases, id: \.self) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+            } header: {
+                Text("audio_output_section")
+            } footer: {
+                Text(settings.outputMode == .highFidelity
+                     ? "output_mode_high_fidelity_desc"
+                     : "output_mode_effects_desc")
+            }
+
+            Section {
                 Toggle("gapless_playback", isOn: $settings.gaplessEnabled)
                     .onChange(of: settings.gaplessEnabled) { _, enabled in
                         if enabled { settings.crossfadeEnabled = false }
@@ -837,6 +857,7 @@ struct PlaybackSettingsView: View {
             } footer: {
                 Text("crossfade_desc")
             }
+            .disabled(settings.outputMode == .highFidelity)
 
             Section {
                 Toggle("replay_gain", isOn: $settings.replayGainEnabled)
@@ -851,6 +872,7 @@ struct PlaybackSettingsView: View {
             } footer: {
                 Text("replay_gain_desc")
             }
+            .disabled(settings.outputMode == .highFidelity)
 
             Section {
                 Toggle("spatial_audio", isOn: $settings.spatialAudioEnabled)
@@ -866,6 +888,7 @@ struct PlaybackSettingsView: View {
                     }
                 }
             }
+            .disabled(settings.outputMode == .highFidelity)
 
             Section {
                 HStack {
@@ -897,12 +920,16 @@ struct PlaybackSettingsView: View {
             } footer: {
                 Text("playback_rate_desc")
             }
+            .disabled(settings.outputMode == .highFidelity)
 
             Section {
                 Toggle("output_sr_matching", isOn: $settings.matchOutputSampleRate)
             } footer: {
-                Text("output_sr_matching_desc")
+                Text(settings.outputMode == .highFidelity
+                     ? "output_sr_matching_fidelity_desc"
+                     : "output_sr_matching_desc")
             }
+            .disabled(settings.outputMode == .highFidelity)
 
         }
         .navigationTitle("playback_settings")
@@ -1495,6 +1522,7 @@ struct LicensesView: View {
         List {
             Section("open_source") {
                 licenseRow("SFBAudioEngine", "MIT License")
+                licenseRow("FFmpeg 8.1", "LGPL 2.1+")
                 licenseRow("GRDB.swift", "MIT License")
                 licenseRow("AMSMB2", "LGPL 2.1")
                 licenseRow("FileProvider", "MIT License")

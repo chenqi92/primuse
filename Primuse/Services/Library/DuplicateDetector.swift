@@ -71,12 +71,7 @@ enum DuplicateDetector {
     }
 
     private static func isLossless(_ format: AudioFormat) -> Bool {
-        switch format {
-        case .flac, .alac, .wav, .aiff, .aif, .ape, .wv, .dsf, .dff:
-            return true
-        case .mp3, .aac, .m4a, .mp4, .m4v, .mov, .ogg, .opus, .wma:
-            return false
-        }
+        format.isLossless
     }
 
     /// 标题 / 艺术家 normalize: 去 diacritic + 大小写 + 首尾空白, 但保留

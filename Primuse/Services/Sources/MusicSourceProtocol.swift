@@ -60,6 +60,15 @@ struct ConnectorScannedSong: Sendable {
     let displayName: String
 }
 
+/// A CUE file plus the directory listing it came from. Keeping siblings here
+/// is important for cloud providers whose `RemoteFileItem.path` is an opaque
+/// item ID: FILE "album.dts" can still be resolved by name without inventing
+/// a path from the CUE text.
+struct RemoteCueSheetItem: Sendable {
+    let item: RemoteFileItem
+    let siblings: [RemoteFileItem]
+}
+
 enum SidecarHintResolver {
     /// 统一的扫描项判定: 音频文件返回带 sidecar hints 的 item; 无同名音频的
     /// 视频文件(mp4/m4v/mov)返回 mvPath 指向自身的 item —— 上层把它当曲目
@@ -205,6 +214,7 @@ protocol MusicSourceConnector: Sendable {
     func localURL(for path: String) async throws -> URL
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error>
     func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error>
+    func scanCueSheets(from path: String) async throws -> AsyncThrowingStream<RemoteCueSheetItem, Error>
 
     /// Returns a remote HTTP(S) URL that can be streamed directly by AVFoundation.
     /// Sources that support streaming (e.g. Synology) return the URL; others return nil.
@@ -275,6 +285,39 @@ extension MusicSourceConnector {
         let stream = try await scanAudioFiles(from: path)
         for try await _ in stream { count += 1 }
         return count
+    }
+
+    /// Generic recursive CUE walk built on listFiles. Media-server connectors
+    /// use their own SongScanningConnector path and never invoke this; file,
+    /// NAS and cloud connectors gain CUE discovery without duplicating it in
+    /// every protocol implementation.
+    func scanCueSheets(from path: String) async throws -> AsyncThrowingStream<RemoteCueSheetItem, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    var pendingDirectories = [path]
+                    var visited: Set<String> = []
+                    while let directory = pendingDirectories.popLast() {
+                        try Task.checkCancellation()
+                        guard visited.insert(directory).inserted else { continue }
+                        let siblings = try await listFiles(at: directory)
+                        for item in siblings {
+                            if item.isDirectory {
+                                pendingDirectories.append(item.path)
+                            } else if PrimuseConstants.supportedCueSheetExtensions.contains(
+                                (item.name as NSString).pathExtension.lowercased()
+                            ) {
+                                continuation.yield(RemoteCueSheetItem(item: item, siblings: siblings))
+                            }
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { @Sendable _ in task.cancel() }
+        }
     }
 
     func writeFile(data: Data, to path: String) async throws {

@@ -113,6 +113,7 @@ targets:
           # codesign/Simulator and leaves the real executable unsigned.
           - "Info.plist"
           - "Info-macOS.plist"
+          - "ThirdParty/**"
           - "**/AppSecrets.example.swift"
           - "**/AppSecrets.local.swift*"
     resources:
@@ -133,6 +134,14 @@ targets:
         product: NFSKit
       - package: SFBAudioEngine
         product: SFBAudioEngine
+      - framework: Frameworks/FFmpeg/libavutil.xcframework
+        embed: true
+      - framework: Frameworks/FFmpeg/libswresample.xcframework
+        embed: true
+      - framework: Frameworks/FFmpeg/libavcodec.xcframework
+        embed: true
+      - framework: Frameworks/FFmpeg/libavformat.xcframework
+        embed: true
       - sdk: AppIntents.framework
       - target: PrimuseKit
       - target: PrimuseWidgetExtension
@@ -150,6 +159,7 @@ targets:
           # (used by ScanService/MetadataBackfillService to keep working
           # while the app is suspended).
           - processing
+          - remote-notification
         BGTaskSchedulerPermittedIdentifiers:
           - com.welape.yuanyin.scan-resume
         NSSupportsLiveActivities: true
@@ -402,6 +412,7 @@ targets:
           # mac 的 INFOPLIST_FILE 已指向 Info-macOS.plist。
           - "Info.plist"
           - "Info-macOS.plist"
+          - "ThirdParty/**"
           - "**/AppSecrets.example.swift"
           - "**/AppSecrets.local.swift*"
     resources:
@@ -422,6 +433,14 @@ targets:
         product: NFSKit
       - package: SFBAudioEngine
         product: SFBAudioEngine
+      - framework: Frameworks/FFmpeg/libavutil.xcframework
+        embed: true
+      - framework: Frameworks/FFmpeg/libswresample.xcframework
+        embed: true
+      - framework: Frameworks/FFmpeg/libavcodec.xcframework
+        embed: true
+      - framework: Frameworks/FFmpeg/libavformat.xcframework
+        embed: true
       - sdk: AppIntents.framework
       - sdk: iTunesLibrary.framework
       - target: PrimuseKit

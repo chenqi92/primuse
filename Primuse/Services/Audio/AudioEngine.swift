@@ -23,8 +23,10 @@ final class AudioEngine {
     private(set) var outputFormat: AVAudioFormat?
     private(set) var spatialAudioEnabled = false
     private(set) var spatialHeadTrackingEnabled = false
+    private(set) var outputMode: AudioOutputMode = .effects
 
     private var isSetUp = false
+    private var directSourceFormat: AVAudioFormat?
     private var headphoneMotionManager: CMHeadphoneMotionManager?
 
     /// DLNA 后台保活用 ── 喂一段 -90 dB 的极小振幅 buffer 让 iOS audio
@@ -43,12 +45,92 @@ final class AudioEngine {
 
     // MARK: - Setup
 
+    /// Selects the render graph used for the next playback session.
+    ///
+    /// High-fidelity mode connects the primary player straight to the output
+    /// node and keeps volume at unity. The effects graph retains the spatial,
+    /// EQ, dynamics, reverb, rate, crossfade and visualizer chain.
+    func configure(outputMode: AudioOutputMode, directSourceFormat: AVAudioFormat? = nil) throws {
+        let normalizedDirectFormat = outputMode == .highFidelity ? directSourceFormat : nil
+        let formatChanged: Bool = {
+            switch (self.directSourceFormat, normalizedDirectFormat) {
+            case (nil, nil): false
+            case let (lhs?, rhs?): lhs != rhs
+            default: true
+            }
+        }()
+        guard self.outputMode != outputMode || formatChanged || !isSetUp else { return }
+
+        #if os(macOS)
+        let previousDevice = currentOutputDeviceID
+        let wasFollowingSystem = followsSystemOutput
+        #endif
+
+        tearDownGraph()
+        self.outputMode = outputMode
+        self.directSourceFormat = normalizedDirectFormat
+        try setUp()
+
+        #if os(macOS)
+        if !wasFollowingSystem, let previousDevice {
+            try? setOutputDevice(deviceID: previousDevice)
+        }
+        #endif
+    }
+
+    private func tearDownGraph() {
+        stopSilenceKeepAlive()
+        playerNode?.stop()
+        crossfadePlayerNode?.stop()
+        engine?.stop()
+        stopSpatialHeadTracking()
+        engine = nil
+        playerNode = nil
+        crossfadePlayerNode = nil
+        playerMixer = nil
+        environmentNode = nil
+        eqNode = nil
+        compressorNode = nil
+        reverbNode = nil
+        timePitchNode = nil
+        outputFormat = nil
+        isSetUp = false
+        isPlaying = false
+        sampleTimeOffset = 0
+    }
+
     func setUp() throws {
         guard !isSetUp else { return }
 
         let eng = AVAudioEngine()
         let playerA = AVAudioPlayerNode()
         let playerB = AVAudioPlayerNode()
+
+        if outputMode == .highFidelity {
+            eng.attach(playerA)
+            eng.attach(playerB)
+
+            var format = directSourceFormat ?? eng.outputNode.inputFormat(forBus: 0)
+            if format.sampleRate == 0 || format.channelCount == 0 {
+                format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2)!
+            }
+
+            // No mixer and no audio unit in this graph. Integer DoP buffers can
+            // also use this path when the hardware sample rate is compatible.
+            eng.connect(playerA, to: eng.outputNode, format: format)
+            playerA.volume = 1
+            playerB.volume = 0
+
+            self.engine = eng
+            self.playerNode = playerA
+            self.crossfadePlayerNode = playerB
+            self.outputFormat = format
+            self.isSetUp = true
+            spatialAudioEnabled = false
+            spatialHeadTrackingEnabled = false
+            return
+        }
+
         let mixer = AVAudioMixerNode()
         let environment = AVAudioEnvironmentNode()
         let eq = AVAudioUnitEQ(numberOfBands: PrimuseConstants.eqBandCount)
@@ -150,9 +232,91 @@ final class AudioEngine {
         isPlaying = false
     }
 
+    // MARK: - Hardware format negotiation
+
+    /// Requests a hardware sample rate and returns the rate actually reported
+    /// by the active output. Core Audio and AVAudioSession are allowed to
+    /// reject the request, so callers must compare the return value before
+    /// enabling DoP or claiming a sample-rate-matched path.
+    @discardableResult
+    func prepareHardwareSampleRate(_ targetHz: Double) -> Double {
+        guard targetHz >= 8_000, targetHz <= 384_000 else {
+            return currentHardwareSampleRate
+        }
+        #if os(iOS)
+        _ = AudioSessionManager.shared.setPreferredSampleRate(targetHz)
+        return AVAudioSession.sharedInstance().sampleRate
+        #elseif os(macOS)
+        guard let deviceID = currentOutputDeviceID ?? Self.systemDefaultOutputDeviceID() else {
+            return 0
+        }
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var settable = DarwinBoolean(false)
+        if AudioObjectIsPropertySettable(deviceID, &address, &settable) == noErr, settable.boolValue {
+            var rate = targetHz
+            let status = AudioObjectSetPropertyData(
+                deviceID, &address, 0, nil,
+                UInt32(MemoryLayout<Double>.size), &rate
+            )
+            if status != noErr {
+                plog("⚠️ Core Audio rejected sample rate \(targetHz) (status=\(status))")
+            }
+        }
+        return Self.nominalSampleRate(deviceID: deviceID)
+        #else
+        return currentHardwareSampleRate
+        #endif
+    }
+
+    var currentHardwareSampleRate: Double {
+        #if os(iOS)
+        return AVAudioSession.sharedInstance().sampleRate
+        #elseif os(macOS)
+        guard let deviceID = currentOutputDeviceID ?? Self.systemDefaultOutputDeviceID() else { return 0 }
+        return Self.nominalSampleRate(deviceID: deviceID)
+        #else
+        return outputFormat?.sampleRate ?? 0
+        #endif
+    }
+
+    func hardwareSupportsDirectFormat(_ format: AVAudioFormat) -> Bool {
+        let actual = currentHardwareSampleRate
+        return actual > 0 && abs(actual - format.sampleRate) < 1
+    }
+
     // MARK: - Output device routing (macOS only)
 
     #if os(macOS)
+    private static func systemDefaultOutputDeviceID() -> AudioDeviceID? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var id = AudioDeviceID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &id
+        )
+        return status == noErr && id != AudioDeviceID(kAudioObjectUnknown) ? id : nil
+    }
+
+    private static func nominalSampleRate(deviceID: AudioDeviceID) -> Double {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var rate: Double = 0
+        var size = UInt32(MemoryLayout<Double>.size)
+        let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &rate)
+        return status == noErr ? rate : 0
+    }
+
     /// 把这个 app 的音频输出切到指定的 Core Audio 设备。系统默认输出
     /// 不变 —— 这只影响 Primuse 自己。设备 ID 来自 AudioOutputDeviceManager,
     /// 通常对应内置扬声器、AirPlay 接收器(HomePod / Apple TV)、蓝牙
@@ -256,6 +420,8 @@ final class AudioEngine {
     /// 用交替正负避免全 0 buffer 被 iOS 静音检测当成"没在播"。
     func startSilenceKeepAlive() {
         guard keepAlivePlayerNode == nil else { return }
+        // Adding a second mixer connection would invalidate the DSP-free graph.
+        guard outputMode == .effects else { return }
         do { try setUp() } catch {
             plog("⚠️ AudioEngine keepAlive setUp failed: \(error.localizedDescription)")
             return
@@ -403,6 +569,7 @@ final class AudioEngine {
     /// 设定播放速度倍率, 0.5x ~ 2.0x。AVAudioUnitTimePitch.rate 直接生效,
     /// 不用重启 engine。1.0 是 passthrough。pitch 保持 0 (不变调)。
     func applyPlaybackRate(_ rate: Float) {
+        guard outputMode == .effects else { return }
         let clamped = max(0.5, min(2.0, rate))
         timePitchNode?.rate = clamped
     }
@@ -410,8 +577,9 @@ final class AudioEngine {
     // MARK: - Spatial Audio
 
     func configureSpatialAudio(enabled: Bool, headTrackingEnabled: Bool) {
-        spatialAudioEnabled = enabled
-        spatialHeadTrackingEnabled = enabled && headTrackingEnabled
+        let allowEffects = outputMode == .effects
+        spatialAudioEnabled = allowEffects && enabled
+        spatialHeadTrackingEnabled = allowEffects && enabled && headTrackingEnabled
         applySpatialAudioConfiguration()
     }
 
@@ -489,6 +657,7 @@ final class AudioEngine {
     /// primaryVolume: volume of current playerNode (1→0 during fade out)
     /// crossfadeVolume: volume of crossfade node (0→1 during fade in)
     func setCrossfadeVolumes(primary: Float, crossfade: Float) {
+        guard outputMode == .effects else { return }
         playerNode?.volume = primary
         crossfadePlayerNode?.volume = crossfade
     }
@@ -514,6 +683,10 @@ final class AudioEngine {
     /// gain: dB value from ReplayGain tag
     /// peak: peak sample value (0-1 range), used to prevent clipping
     func applyReplayGain(gain: Double?, peak: Double?) {
+        guard outputMode == .effects else {
+            playerNode?.volume = 1
+            return
+        }
         guard let gain else {
             playerNode?.volume = 1.0
             return
@@ -539,6 +712,7 @@ final class AudioEngine {
     /// Apply ReplayGain to the crossfade node (before crossfade starts).
     /// The crossfade volume ramp is applied on top of this base volume.
     func applyCrossfadeReplayGain(gain: Double?, peak: Double?) {
+        guard outputMode == .effects else { return }
         guard let gain else {
             // Store base volume as 1.0; crossfade ramp will modulate from 0→1
             crossfadePlayerNode?.volume = 0 // will be ramped by crossfade
@@ -581,15 +755,20 @@ final class AudioEngine {
     private static let volumeKey = "primuse_volume"
 
     var volume: Float {
-        get { engine?.mainMixerNode.outputVolume ?? 1.0 }
+        get { outputMode == .highFidelity ? 1 : (engine?.mainMixerNode.outputVolume ?? 1.0) }
         set {
-            engine?.mainMixerNode.outputVolume = newValue
             UserDefaults.standard.set(newValue, forKey: Self.volumeKey)
+            guard outputMode == .effects else { return }
+            engine?.mainMixerNode.outputVolume = newValue
         }
     }
 
     /// Restore saved volume on setup
     func restoreVolume() {
+        guard outputMode == .effects else {
+            playerNode?.volume = 1
+            return
+        }
         if let saved = UserDefaults.standard.object(forKey: Self.volumeKey) as? Float {
             engine?.mainMixerNode.outputVolume = saved
         }
@@ -599,7 +778,7 @@ final class AudioEngine {
     /// buffer 已经过 EQ / compressor / reverb / volume,跟 user 实际听到的一致。
     /// nil 表示 engine 还没 setup,visualizer 直接 stop。
     var mainMixerForVisualizer: AVAudioMixerNode? {
-        engine?.mainMixerNode
+        outputMode == .effects ? engine?.mainMixerNode : nil
     }
 
     /// 让 visualizer 拿到底层 engine 自己 install/remove tap。
@@ -615,7 +794,7 @@ final class AudioEngine {
         let crossVol = crossfadePlayerNode?.volume ?? -1
         let mainVol = engine?.mainMixerNode.outputVolume ?? -1
         let hasTime = (playerNode?.lastRenderTime) != nil
-        return "eng=\(engRunning) player=\(playerPlaying) pVol=\(playerVol) cVol=\(crossVol) mainVol=\(mainVol) hasRenderTime=\(hasTime)"
+        return "mode=\(outputMode.rawValue) eng=\(engRunning) player=\(playerPlaying) pVol=\(playerVol) cVol=\(crossVol) mainVol=\(mainVol) hasRenderTime=\(hasTime)"
     }
 
     func scheduleBufferStream(_ stream: AsyncThrowingStream<AVAudioPCMBuffer, Error>) async throws {

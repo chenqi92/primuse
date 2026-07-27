@@ -1,15 +1,14 @@
 @preconcurrency import AVFoundation
 import Foundation
-import SFBAudioEngine
 
 /// Full-download fallback for remote URLs (handles self-signed HTTPS),
-/// then decodes using SFBAudioEngine's AudioDecoder which supports:
+/// then decodes using the central format router (SFBAudioEngine or FFmpeg):
 /// FLAC, MP3, AAC, ALAC, WAV, AIFF, Ogg Vorbis, Ogg Opus, WavPack, APE, TTA,
 /// Musepack, Shorten, DSD, and all Core Audio / libsndfile formats.
 ///
 /// Architecture:
 /// 1. Download complete file via URLSession with InsecureURLSessionDelegate
-/// 2. Decode using SFBAudioEngine AudioDecoder (universal format support)
+/// 2. Decode using the routed local decoder
 /// 3. Convert to engine output format if needed (via AVAudioConverter)
 /// 4. Move downloaded file to cache directory for future instant playback
 ///
@@ -17,7 +16,6 @@ import SFBAudioEngine
 /// so audio can start from byte ranges. This class remains for URLs whose
 /// length is unknown or servers that do not cooperate with Range reads.
 final class StreamingDownloadDecoder: Sendable {
-    private let bufferFrameCount: AVAudioFrameCount = 8192
 
     func canDecode(url: URL) -> Bool {
         url.scheme == "http" || url.scheme == "https"
@@ -33,7 +31,8 @@ final class StreamingDownloadDecoder: Sendable {
         from url: URL,
         outputFormat: AVAudioFormat,
         cacheFileURL: URL? = nil,
-        fileExtension: String? = nil
+        fileExtension: String? = nil,
+        onResolveSourceLength: (@Sendable (TimeInterval) -> Void)? = nil
     ) -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
@@ -95,7 +94,8 @@ final class StreamingDownloadDecoder: Sendable {
 
                     if Task.isCancelled { throw CancellationError() }
 
-                    // Step 2: Decode using SFBAudioEngine (supports FLAC, APE, WV, TTA, DSD, etc.)
+                    // Step 2: Decode through the central router. It selects
+                    // FFmpeg for broad fallback/DTS-CD and SFBAudioEngine otherwise.
                     // Use explicit file extension (from Song.fileFormat) or fall back to URL extension
                     let ext = (fileExtension ?? url.pathExtension).lowercased()
                     let typedTempURL: URL
@@ -107,96 +107,42 @@ final class StreamingDownloadDecoder: Sendable {
                         typedTempURL = tempURL
                     }
 
-                    let decoder = try SFBAudioEngine.AudioDecoder(url: typedTempURL)
-                    try decoder.open()
-
-                    let srcFmt = decoder.processingFormat
-                    let totalFrames = decoder.length
-
-                    plog("🌊 SFBDecoder: format=sr\(srcFmt.sampleRate)/ch\(srcFmt.channelCount) length=\(totalFrames)")
-
-                    // Full equality check: sampleRate, channelCount, commonFormat, interleaving
-                    let directRead = srcFmt == outputFormat
-
-                    if directRead {
-                        // Direct read — formats fully match
-                        do {
-                            while decoder.position < totalFrames {
-                                if Task.isCancelled { break }
-                                let remaining = AVAudioFrameCount(totalFrames - decoder.position)
-                                let toRead = min(bufferFrameCount, remaining)
-                                guard let buf = AVAudioPCMBuffer(pcmFormat: srcFmt, frameCapacity: toRead) else { break }
-                                try decoder.decode(into: buf, length: toRead)
-                                guard buf.frameLength > 0 else { break }
-                                nonisolated(unsafe) let sendBuf = buf
-                                continuation.yield(sendBuf)
-                            }
-                        } catch {
-                            // Direct read failed — fallback to converter path
-                            plog("⚠️ SFBDecoder: directRead failed at position \(decoder.position)/\(totalFrames), falling back to converter: \(error.localizedDescription)")
-                            guard let converter = AVAudioConverter(from: srcFmt, to: outputFormat) else {
-                                throw AudioDecoderError.converterCreationFailed
-                            }
-                            try decoder.seek(to: decoder.position) // re-sync position
-                            while decoder.position < totalFrames {
-                                if Task.isCancelled { break }
-                                let remaining = AVAudioFrameCount(totalFrames - decoder.position)
-                                let toRead = min(bufferFrameCount, remaining)
-                                guard let inBuf = AVAudioPCMBuffer(pcmFormat: srcFmt, frameCapacity: toRead) else { break }
-                                try decoder.decode(into: inBuf, length: toRead)
-                                guard inBuf.frameLength > 0 else { break }
-
-                                let outCap = AVAudioFrameCount(
-                                    Double(inBuf.frameLength) * outputFormat.sampleRate / srcFmt.sampleRate
-                                ) + 1
-                                guard let outBuf = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: outCap) else { break }
-
-                                var convError: NSError?
-                                nonisolated(unsafe) let inputBuffer = inBuf
-                                converter.convert(to: outBuf, error: &convError) { _, outStatus in
-                                    outStatus.pointee = .haveData
-                                    return inputBuffer
-                                }
-                                if let e = convError { throw e }
-                                if outBuf.frameLength > 0 {
-                                    continuation.yield(outBuf)
-                                }
-                            }
+                    let decoder = FileFormatRouter.decoder(for: typedTempURL)
+                    guard decoder.canDecode(url: typedTempURL) else {
+                        throw AudioDecoderError.unsupportedFormat(ext)
+                    }
+                    if let info = try? await decoder.fileInfo(for: typedTempURL), info.duration > 0 {
+                        onResolveSourceLength?(info.duration)
+                    }
+                    plog("🌊 DownloadDecoder: routed .\(ext) via \(String(describing: type(of: decoder)))")
+                    var yieldedBuffers = 0
+                    do {
+                        for try await buffer in decoder.decode(from: typedTempURL, outputFormat: outputFormat) {
+                            try Task.checkCancellation()
+                            yieldedBuffers += 1
+                            nonisolated(unsafe) let sendableBuffer = buffer
+                            continuation.yield(sendableBuffer)
                         }
-                    } else {
-                        // Need format conversion (e.g., 48kHz FLAC → 44.1kHz engine)
-                        guard let converter = AVAudioConverter(from: srcFmt, to: outputFormat) else {
-                            throw AudioDecoderError.converterCreationFailed
+                    } catch {
+                        // A native decoder may recognize a container but reject
+                        // a particular profile (for example DSD128 while SFB's
+                        // DSD-to-PCM converter supports DSD64). Only retry when
+                        // nothing was emitted, otherwise restarting at frame 0
+                        // would duplicate already-played audio.
+                        let fallback = FFmpegAudioDecoder()
+                        guard yieldedBuffers == 0,
+                              !(decoder is FFmpegAudioDecoder),
+                              fallback.canDecode(url: typedTempURL) else { throw error }
+                        plog("↳ DownloadDecoder native open failed; retrying with FFmpeg")
+                        if let info = try? await fallback.fileInfo(for: typedTempURL), info.duration > 0 {
+                            onResolveSourceLength?(info.duration)
                         }
-                        plog("🌊 SFBDecoder: converting sr\(srcFmt.sampleRate)→\(outputFormat.sampleRate)")
-
-                        while decoder.position < totalFrames {
-                            if Task.isCancelled { break }
-                            let remaining = AVAudioFrameCount(totalFrames - decoder.position)
-                            let toRead = min(bufferFrameCount, remaining)
-                            guard let inBuf = AVAudioPCMBuffer(pcmFormat: srcFmt, frameCapacity: toRead) else { break }
-                            try decoder.decode(into: inBuf, length: toRead)
-                            guard inBuf.frameLength > 0 else { break }
-
-                            let outCap = AVAudioFrameCount(
-                                Double(inBuf.frameLength) * outputFormat.sampleRate / srcFmt.sampleRate
-                            ) + 1
-                            guard let outBuf = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: outCap) else { break }
-
-                            var convError: NSError?
-                            nonisolated(unsafe) let inputBuffer = inBuf
-                            converter.convert(to: outBuf, error: &convError) { _, outStatus in
-                                outStatus.pointee = .haveData
-                                return inputBuffer
-                            }
-                            if let e = convError { throw e }
-                            if outBuf.frameLength > 0 {
-                                continuation.yield(outBuf)
-                            }
+                        for try await buffer in fallback.decode(from: typedTempURL, outputFormat: outputFormat) {
+                            try Task.checkCancellation()
+                            nonisolated(unsafe) let sendableBuffer = buffer
+                            continuation.yield(sendableBuffer)
                         }
                     }
-
-                    try? decoder.close()
 
                     // Step 3: Cache the downloaded file
                     if let cacheURL = cacheFileURL {
@@ -206,7 +152,7 @@ final class StreamingDownloadDecoder: Sendable {
                         )
                         try? FileManager.default.removeItem(at: cacheURL)
                         try? FileManager.default.moveItem(at: typedTempURL, to: cacheURL)
-                        plog("🌊 SFBDecoder: cached → \(cacheURL.lastPathComponent)")
+                        plog("🌊 DownloadDecoder: cached → \(cacheURL.lastPathComponent)")
                     } else {
                         try? FileManager.default.removeItem(at: typedTempURL)
                     }
@@ -220,7 +166,7 @@ final class StreamingDownloadDecoder: Sendable {
                         try? FileManager.default.removeItem(at: URL(fileURLWithPath: tempPath + ".\(cleanupExt)"))
                     }
                     if !Task.isCancelled {
-                        plog("⚠️ SFBDecoder failed: \(error.localizedDescription)")
+                        plog("⚠️ DownloadDecoder failed: \(error.localizedDescription)")
                         await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
                         continuation.finish(throwing: error)
                     }

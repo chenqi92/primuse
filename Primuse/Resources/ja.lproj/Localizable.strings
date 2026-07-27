@@ -1933,3 +1933,14 @@
 "material_macos_14_or_later" = "macOS 14以降";
 "material_auto_desc" = "このMacが対応する最適な外観を自動的に選びます。";
 "appearance_system_blue" = "システムブルー";
+"audio_output_section" = "オーディオ出力";
+"audio_output_mode" = "出力モード";
+"output_mode_high_fidelity" = "高音質ダイレクト";
+"output_mode_effects" = "エフェクト処理";
+"output_mode_high_fidelity_desc" = "ユニティゲインの最短信号経路で、すべての DSP をバイパスし、サンプルレートを自動調整します。";
+"output_mode_effects_desc" = "EQ、ダイナミクス、リバーブ、空間オーディオ、ReplayGain、速度、クロスフェード、ビジュアライザーを使用します。";
+"dsd_playback_mode" = "DSD 再生";
+"dsd_mode_auto" = "自動";
+"dsd_mode_pcm" = "PCM に変換";
+"dsd_mode_dop" = "DoP を優先";
+"output_sr_matching_fidelity_desc" = "高音質ダイレクトでは常に有効です。システムや出力機器が要求したサンプルレートを拒否する場合があります。";

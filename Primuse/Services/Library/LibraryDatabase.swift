@@ -228,6 +228,18 @@ actor LibraryDatabase {
             }
         }
 
+        // CUE sheets expand one physical audio image into multiple virtual
+        // songs. Keep the real source path in filePath and persist the decoded
+        // timeline boundaries separately so every connector/cache continues
+        // to address the original file without synthetic path rewriting.
+        migrator.registerMigration("v7_song_cue_segment") { db in
+            try db.alter(table: "songs") { t in
+                t.add(column: "cueSheetPath", .text)
+                t.add(column: "cueStartTime", .double)
+                t.add(column: "cueEndTime", .double)
+            }
+        }
+
         // Run every registered migration, not just v1 — pinning to
         // `upTo: "v1_initial"` would silently skip later versions on
         // upgrade and reintroduce schema drift.

@@ -2977,6 +2977,12 @@ final class SourceManager {
 
     private func shouldUseRangeStreamingForPlayback(source: MusicSource, song: Song) -> Bool {
         guard source.supportsRangeStreaming, song.fileSize > 0 else { return false }
+        // FFmpeg fallback formats need a seekable complete file. Routing them
+        // through the generic SFB range InputSource would fail to open or, for
+        // a DTS-CD WAV, risk treating the compressed bitstream as PCM noise.
+        // Fall through to a direct HTTP URL (full-download decoder) or the
+        // connector's localURL download instead.
+        if FileFormatRouter.requiresCompleteLocalFile(song.fileFormat) { return false }
         // 服务端转码源: 需要服务端转码的格式(WMA)走渐进流(streamingURL 返回
         // 转码 mp3), 不能按原文件 fileSize 做 Range, 否则会读越界。
         if source.type.isSubsonicFamily, SubsonicSource.requiresServerTranscode(song.fileFormat) {

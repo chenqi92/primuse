@@ -29,9 +29,29 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
         // SFBAudioEngine supports a huge range of formats
         let ext = url.pathExtension.lowercased()
         return SFBAudioEngine.AudioDecoder.handlesPaths(withExtension: ext)
+            || SFBAudioEngine.DSDDecoder.handlesPaths(withExtension: ext)
     }
 
     func fileInfo(for url: URL) async throws -> AudioFileInfo {
+        if isDSD(url) {
+            let decoder = try SFBAudioEngine.DSDDecoder(url: url)
+            try decoder.open()
+            let format = decoder.processingFormat
+            let packetCount = decoder.count
+            // One SFBAudioEngine DSD packet carries eight 1-bit samples.
+            let duration = packetCount > 0 && format.sampleRate > 0
+                ? Double(packetCount) * 8 / format.sampleRate : 0
+            try? decoder.close()
+            return AudioFileInfo(
+                duration: duration,
+                sampleRate: format.sampleRate,
+                channelCount: Int(format.channelCount),
+                bitDepth: 1,
+                bitRate: nil,
+                format: url.pathExtension.uppercased()
+            )
+        }
+
         // Try SFBAudioEngine first for broader format support
         let decoder = try SFBAudioEngine.AudioDecoder(url: url)
         try decoder.open()
@@ -89,7 +109,7 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
     /// matches exactly and no other decoder implementation has to be
     /// modified.
     func decode(from url: URL, outputFormat: AVAudioFormat) -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
-        decode(from: url, outputFormat: outputFormat, onResolveSourceLength: nil)
+        decode(from: url, outputFormat: outputFormat, dsdMode: .pcm, onResolveSourceLength: nil)
     }
 
     func decode(
@@ -97,10 +117,32 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
         outputFormat: AVAudioFormat,
         onResolveSourceLength: (@Sendable (TimeInterval) -> Void)?
     ) -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
+        decode(from: url, outputFormat: outputFormat, dsdMode: .pcm, onResolveSourceLength: onResolveSourceLength)
+    }
+
+    func decode(
+        from url: URL,
+        outputFormat: AVAudioFormat,
+        dsdMode: DSDPlaybackMode,
+        onResolveSourceLength: (@Sendable (TimeInterval) -> Void)?
+    ) -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    let decoder = try SFBAudioEngine.AudioDecoder(url: url)
+                    let decoder: any SFBAudioEngine.PCMDecoding
+                    if self.isDSD(url) {
+                        switch dsdMode {
+                        case .dop:
+                            decoder = try SFBAudioEngine.DoPDecoder(url: url)
+                        case .automatic, .pcm:
+                            // SFBAudioEngine's native converter deliberately
+                            // supports DSD64. Higher-rate DSD falls back to the
+                            // FFmpeg PCM path in AudioPlayerService.
+                            decoder = try SFBAudioEngine.DSDPCMDecoder(url: url)
+                        }
+                    } else {
+                        decoder = try SFBAudioEngine.AudioDecoder(url: url)
+                    }
                     try decoder.open()
                     plog("🎵 SFBDecoder: file=\(url.lastPathComponent)")
                     try await self.runDecode(decoder: decoder, outputFormat: outputFormat, continuation: continuation, onResolveSourceLength: onResolveSourceLength)
@@ -115,7 +157,7 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
     /// Shared decode loop. Reads PCM from the open `decoder`, converts to
     /// `outputFormat` if needed, yields buffers via the continuation.
     private func runDecode(
-        decoder: SFBAudioEngine.AudioDecoder,
+        decoder: any SFBAudioEngine.PCMDecoding,
         outputFormat: AVAudioFormat,
         continuation: AsyncThrowingStream<AVAudioPCMBuffer, Error>.Continuation,
         onResolveSourceLength: (@Sendable (TimeInterval) -> Void)? = nil
@@ -201,6 +243,26 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
 
         try? decoder.close()
         continuation.finish()
+    }
+
+    func dsdOutputFormat(for url: URL, mode: DSDPlaybackMode) throws -> AVAudioFormat? {
+        guard isDSD(url) else { return nil }
+        let decoder: any SFBAudioEngine.PCMDecoding
+        switch mode {
+        case .dop:
+            decoder = try SFBAudioEngine.DoPDecoder(url: url)
+        case .automatic, .pcm:
+            decoder = try SFBAudioEngine.DSDPCMDecoder(url: url)
+        }
+        try decoder.open()
+        let format = decoder.processingFormat
+        try? decoder.close()
+        return format
+    }
+
+    func isDSD(_ url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        return ext == "dsf" || ext == "dff"
     }
 }
 

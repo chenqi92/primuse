@@ -1932,3 +1932,14 @@
 "material_macos_14_or_later" = "macOS 14 ou version ultérieure";
 "material_auto_desc" = "Choisit automatiquement la meilleure apparence prise en charge par ce Mac.";
 "appearance_system_blue" = "Bleu système";
+"audio_output_section" = "Sortie audio";
+"audio_output_mode" = "Mode de sortie";
+"output_mode_high_fidelity" = "Haute fidélité directe";
+"output_mode_effects" = "Effets et traitement";
+"output_mode_high_fidelity_desc" = "Chemin du signal le plus court à gain unitaire, sans effets DSP, avec adaptation automatique de la fréquence d’échantillonnage.";
+"output_mode_effects_desc" = "Utilise toute la chaîne de traitement : égaliseur, dynamique, réverbération, audio spatial, ReplayGain, vitesse, fondu et visualisation.";
+"dsd_playback_mode" = "Lecture DSD";
+"dsd_mode_auto" = "Automatique";
+"dsd_mode_pcm" = "Convertir en PCM";
+"dsd_mode_dop" = "Préférer DoP";
+"output_sr_matching_fidelity_desc" = "Toujours actif en mode haute fidélité directe. Le système ou le périphérique peut refuser la fréquence demandée.";

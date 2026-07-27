@@ -1932,3 +1932,14 @@
 "material_macos_14_or_later" = "macOS 14 이상";
 "material_auto_desc" = "이 Mac에서 지원하는 최적의 디자인을 자동으로 선택합니다.";
 "appearance_system_blue" = "시스템 블루";
+"audio_output_section" = "오디오 출력";
+"audio_output_mode" = "출력 모드";
+"output_mode_high_fidelity" = "고음질 다이렉트";
+"output_mode_effects" = "효과 및 처리";
+"output_mode_high_fidelity_desc" = "유니티 게인의 최단 신호 경로로 모든 DSP를 우회하고 샘플 레이트를 자동으로 맞춥니다.";
+"output_mode_effects_desc" = "EQ, 다이내믹, 리버브, 공간 음향, ReplayGain, 속도, 크로스페이드 및 시각화를 사용합니다.";
+"dsd_playback_mode" = "DSD 재생";
+"dsd_mode_auto" = "자동";
+"dsd_mode_pcm" = "PCM으로 변환";
+"dsd_mode_dop" = "DoP 우선";
+"output_sr_matching_fidelity_desc" = "고음질 다이렉트 모드에서 항상 켜집니다. 시스템이나 출력 장치가 요청한 샘플 레이트를 거부할 수 있습니다.";

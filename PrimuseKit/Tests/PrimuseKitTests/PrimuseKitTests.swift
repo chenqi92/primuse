@@ -58,12 +58,21 @@ import Testing
     #expect(AudioFormat.ape.requiresFFmpeg == true)
     #expect(AudioFormat.dsf.requiresFFmpeg == true)
     #expect(AudioFormat.ogg.requiresFFmpeg == true)
+    #expect(AudioFormat.truehd.isLossless)
+    #expect(AudioFormat.tak.isLossless)
+    #expect(AudioFormat.dts.isLossless == false)
+    #expect(PrimuseConstants.supportedAudioExtensions.contains("dts"))
+    #expect(PrimuseConstants.supportedAudioExtensions.contains("dsf"))
+    #expect(PrimuseConstants.supportedAudioExtensions.contains("qoa"))
 }
 
 @Test func testAudioFormatFromExtension() {
     #expect(AudioFormat.from(fileExtension: "mp3") == .mp3)
     #expect(AudioFormat.from(fileExtension: "FLAC") == .flac)
     #expect(AudioFormat.from(fileExtension: "ape") == .ape)
+    #expect(AudioFormat.from(fileExtension: "DTS-HD") == .dts)
+    #expect(AudioFormat.from(fileExtension: "ec3") == .eac3)
+    #expect(AudioFormat.from(fileExtension: "oma") == .atrac)
     #expect(AudioFormat.from(fileExtension: "xyz") == nil)
 }
 

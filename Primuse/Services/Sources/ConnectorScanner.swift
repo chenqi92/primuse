@@ -55,16 +55,16 @@ actor ConnectorScanner {
                     // on large cloud trees).
                     let totalCount = 0
                     var allSongs = existingSongs
-                    var existingByPath: [String: Song] = [:]
-                    existingByPath.reserveCapacity(existingSongs.count)
-                    for song in existingSongs { existingByPath[song.filePath] = song }
-                    var allSongIndexByPath: [String: Int] = [:]
-                    allSongIndexByPath.reserveCapacity(existingSongs.count)
-                    for (i, song) in allSongs.enumerated() { allSongIndexByPath[song.filePath] = i }
+                    var existingByID: [String: Song] = [:]
+                    existingByID.reserveCapacity(existingSongs.count)
+                    for song in existingSongs { existingByID[song.id] = song }
+                    var allSongIndexByID: [String: Int] = [:]
+                    allSongIndexByID.reserveCapacity(existingSongs.count)
+                    for (i, song) in allSongs.enumerated() { allSongIndexByID[song.id] = i }
                     let initialCount = max(existingSongs.count, startingCount)
                     var scannedCount = totalCount > 0 ? min(initialCount, totalCount) : initialCount
                     var addedCount = 0
-                    var encounteredPaths: Set<String> = []
+                    var encounteredSongIDs: Set<String> = []
                     var hadDirectoryFailure = false
                     var successfulDirectoryCount = 0
                     var firstDirectoryError: Error?
@@ -89,8 +89,8 @@ actor ConnectorScanner {
 
                                 for try await scannedSong in stream {
                                     try Task.checkCancellation()
-                                    encounteredPaths.insert(scannedSong.song.filePath)
-                                    if let existing = existingByPath[scannedSong.song.filePath] {
+                                    encounteredSongIDs.insert(scannedSong.song.id)
+                                    if let existing = existingByID[scannedSong.song.id] {
                                         // Same path can either be the same file (skip) or
                                         // a remote replacement (refresh). Decide on size
                                         // first since lastModified isn't always populated.
@@ -101,9 +101,9 @@ actor ConnectorScanner {
                                                     incoming: scannedSong.song
                                                 )
                                                 if refreshed != existing,
-                                                   let idx = allSongIndexByPath[scannedSong.song.filePath] {
+                                                   let idx = allSongIndexByID[scannedSong.song.id] {
                                                     allSongs[idx] = refreshed
-                                                    existingByPath[scannedSong.song.filePath] = refreshed
+                                                    existingByID[scannedSong.song.id] = refreshed
                                                 }
                                             }
                                             continue
@@ -112,17 +112,17 @@ actor ConnectorScanner {
                                         // allSongs so the next library flush sees the
                                         // fresh size/mtime/sidecars instead of merging
                                         // back to stale metadata.
-                                        if let idx = allSongIndexByPath[scannedSong.song.filePath] {
+                                        if let idx = allSongIndexByID[scannedSong.song.id] {
                                             allSongs[idx] = scannedSong.song
                                         }
-                                        existingByPath[scannedSong.song.filePath] = scannedSong.song
+                                        existingByID[scannedSong.song.id] = scannedSong.song
                                         continue
                                     }
 
                                     scannedCount += 1
                                     addedCount += 1
                                     allSongs.append(scannedSong.song)
-                                    allSongIndexByPath[scannedSong.song.filePath] = allSongs.count - 1
+                                    allSongIndexByID[scannedSong.song.id] = allSongs.count - 1
 
                                     // Server-side song scanners can enumerate
                                     // thousands of tracks faster than the UI can
@@ -158,7 +158,7 @@ actor ConnectorScanner {
                         }
 
                         if !hadDirectoryFailure {
-                            allSongs.removeAll { encounteredPaths.contains($0.filePath) == false }
+                            allSongs.removeAll { encounteredSongIDs.contains($0.id) == false }
                             scannedCount = allSongs.count
                         }
 
@@ -175,6 +175,17 @@ actor ConnectorScanner {
                         return
                     }
 
+                    // Parse CUE sheets before walking audio so referenced image
+                    // files can be replaced by virtual tracks instead of also
+                    // appearing as one duplicate whole-album song.
+                    var cueTracksByAudioPath: [String: [CueTrackDescriptor]] = [:]
+                    for directory in dirs {
+                        let parsed = await loadCueTracks(in: directory)
+                        for (path, tracks) in parsed {
+                            cueTracksByAudioPath[path, default: []].append(contentsOf: tracks)
+                        }
+                    }
+
                     // Phase A: walk the tree, build "bare" Songs (filename + path
                     // + size + sidecar hints from sibling listing). Skip the full
                     // file download + ID3 extraction — that work is deferred to
@@ -188,10 +199,31 @@ actor ConnectorScanner {
 
                             for try await item in stream {
                                 try Task.checkCancellation()
-                                encounteredPaths.insert(item.path)
                                 let songID = hash("\(sourceID):\(item.path)")
 
-                                if let existing = existingByPath[item.path] {
+                                if let descriptors = cueTracksByAudioPath[item.path], !descriptors.isEmpty {
+                                    for cueSong in buildCueSongs(from: item, descriptors: descriptors) {
+                                        encounteredSongIDs.insert(cueSong.id)
+                                        if let existing = existingByID[cueSong.id] {
+                                            if songContentChanged(existing: existing, incoming: cueSong),
+                                               let index = allSongIndexByID[cueSong.id] {
+                                                allSongs[index] = cueSong
+                                                existingByID[cueSong.id] = cueSong
+                                            }
+                                            continue
+                                        }
+                                        allSongs.append(cueSong)
+                                        allSongIndexByID[cueSong.id] = allSongs.count - 1
+                                        existingByID[cueSong.id] = cueSong
+                                        scannedCount += 1
+                                        addedCount += 1
+                                    }
+                                    continue
+                                }
+
+                                encounteredSongIDs.insert(songID)
+
+                                if let existing = existingByID[songID] {
                                     // Same path can either be unchanged (skip) or a
                                     // remote replacement (emit fresh bare song so
                                     // backfill re-runs against new bytes). Compare
@@ -224,16 +256,16 @@ actor ConnectorScanner {
                                     if !(sizeChanged || mtimeChanged || revisionChanged || revisionAdded || mtimeAdded || sidecarChanged) {
                                         continue
                                     }
-                                    let refreshed = buildBareSong(from: item, songID: songID)
-                                    if let idx = allSongIndexByPath[item.path] {
+                                    let refreshed = await buildBareSong(from: item, songID: songID)
+                                    if let idx = allSongIndexByID[songID] {
                                         allSongs[idx] = refreshed
                                     }
-                                    existingByPath[item.path] = refreshed
+                                    existingByID[songID] = refreshed
                                     continue
                                 }
 
-                                allSongs.append(buildBareSong(from: item, songID: songID))
-                                allSongIndexByPath[item.path] = allSongs.count - 1
+                                allSongs.append(await buildBareSong(from: item, songID: songID))
+                                allSongIndexByID[songID] = allSongs.count - 1
                                 scannedCount += 1
                                 addedCount += 1
 
@@ -270,7 +302,7 @@ actor ConnectorScanner {
                     }
 
                     if !hadDirectoryFailure {
-                        allSongs.removeAll { encounteredPaths.contains($0.filePath) == false }
+                        allSongs.removeAll { encounteredSongIDs.contains($0.id) == false }
                         scannedCount = allSongs.count
                     }
 
@@ -291,6 +323,135 @@ actor ConnectorScanner {
             continuation.onTermination = { @Sendable _ in
                 task.cancel()
             }
+        }
+    }
+
+    private struct CueTrackDescriptor: Sendable {
+        let cuePath: String
+        let albumTitle: String?
+        let albumPerformer: String?
+        let genre: String?
+        let year: Int?
+        let format: AudioFormat
+        let track: CueTrack
+    }
+
+    private func loadCueTracks(in root: String) async -> [String: [CueTrackDescriptor]] {
+        var result: [String: [CueTrackDescriptor]] = [:]
+        var dtsDetectionCache: [String: Bool] = [:]
+        do {
+            let stream = try await connector.scanCueSheets(from: root)
+            for try await remoteCue in stream {
+                try Task.checkCancellation()
+                let requestedLength = min(
+                    max(remoteCue.item.size, 64 * 1024),
+                    Int64(1024 * 1024)
+                )
+                guard let data = try? await connector.fetchRange(
+                    path: remoteCue.item.path,
+                    offset: 0,
+                    length: requestedLength
+                ),
+                let cue = CueSheetParser.parse(data: data) else {
+                    plog("⚠️ CUE: unable to parse \(remoteCue.item.name)")
+                    continue
+                }
+
+                for cueFile in cue.files {
+                    let referencedName = (cueFile.name.replacingOccurrences(of: "\\", with: "/") as NSString)
+                        .lastPathComponent
+                    guard let audioItem = remoteCue.siblings.first(where: {
+                        !$0.isDirectory && $0.name.caseInsensitiveCompare(referencedName) == .orderedSame
+                    }) else {
+                        plog("⚠️ CUE: '\(remoteCue.item.name)' references missing file '\(cueFile.name)'")
+                        continue
+                    }
+
+                    let ext = (audioItem.name as NSString).pathExtension.lowercased()
+                    guard var format = AudioFormat.from(fileExtension: ext) else { continue }
+                    if ext == "wav" {
+                        let isDTS: Bool
+                        if let cached = dtsDetectionCache[audioItem.path] {
+                            isDTS = cached
+                        } else {
+                            let prefix = try? await connector.fetchRange(
+                                path: audioItem.path,
+                                offset: 0,
+                                length: 256 * 1024
+                            )
+                            isDTS = prefix.map(FFmpegAudioDecoder.dataContainsDTSSync) ?? false
+                            dtsDetectionCache[audioItem.path] = isDTS
+                        }
+                        if isDTS { format = .dts }
+                    }
+
+                    for track in cueFile.tracks where track.type == "AUDIO" && track.startTime != nil {
+                        result[audioItem.path, default: []].append(
+                            CueTrackDescriptor(
+                                cuePath: remoteCue.item.path,
+                                albumTitle: cue.title,
+                                albumPerformer: cue.performer,
+                                genre: cue.genre,
+                                year: cue.year,
+                                format: format,
+                                track: track
+                            )
+                        )
+                    }
+                }
+            }
+        } catch is CancellationError {
+            return result
+        } catch {
+            // CUE discovery is additive. A provider that cannot list/read CUE
+            // files must not make its ordinary audio scan fail.
+            plog("⚠️ CUE discovery skipped for \(root): \(error.localizedDescription)")
+        }
+        return result
+    }
+
+    private func buildCueSongs(
+        from item: RemoteFileItem,
+        descriptors: [CueTrackDescriptor]
+    ) -> [Song] {
+        descriptors.compactMap { descriptor in
+            guard let start = descriptor.track.startTime else { return nil }
+            let end = descriptor.track.endTime
+            let artist = descriptor.track.performer ?? descriptor.albumPerformer
+            let artistID = artist.map { hash($0.lowercased()) }
+            let albumID: String? = if let artist, let album = descriptor.albumTitle {
+                hash("\(artist.lowercased()):\(album.lowercased())")
+            } else {
+                nil
+            }
+            let fallbackTitle = String(format: "Track %02d", descriptor.track.number)
+            let songID = hash(
+                "\(sourceID):\(item.path)#cue:\(descriptor.cuePath)#track:\(descriptor.track.number)"
+            )
+            return Song(
+                id: songID,
+                title: descriptor.track.title ?? fallbackTitle,
+                albumID: albumID,
+                artistID: artistID,
+                albumTitle: descriptor.albumTitle,
+                artistName: artist,
+                trackNumber: descriptor.track.number,
+                duration: end.map { max(0, $0 - start) } ?? 0,
+                fileFormat: descriptor.format,
+                filePath: item.path,
+                sourceID: sourceID,
+                fileSize: item.size,
+                genre: descriptor.genre,
+                year: descriptor.year,
+                lastModified: item.modifiedDate,
+                coverArtFileName: item.sidecarHints?.coverPath,
+                lyricsFileName: item.sidecarHints?.lyricsPath,
+                mvPath: item.sidecarHints?.mvPath,
+                cueSheetPath: descriptor.cuePath,
+                cueStartTime: start,
+                cueEndTime: end,
+                revision: item.revision
+            )
         }
     }
 
@@ -318,7 +479,16 @@ actor ConnectorScanner {
         // blind on existing rows.
         let revisionAdded = incoming.revision != nil && existing.revision == nil
         let mtimeAdded = incoming.lastModified != nil && existing.lastModified == nil
-        return sizeChanged || mtimeChanged || revisionChanged || revisionAdded || mtimeAdded || sidecarChanged
+        let cueChanged = existing.cueSheetPath != incoming.cueSheetPath
+            || existing.cueStartTime != incoming.cueStartTime
+            || existing.cueEndTime != incoming.cueEndTime
+            || existing.title != incoming.title
+            || existing.artistName != incoming.artistName
+            || existing.albumTitle != incoming.albumTitle
+            || existing.trackNumber != incoming.trackNumber
+            || existing.fileFormat != incoming.fileFormat
+        return sizeChanged || mtimeChanged || revisionChanged || revisionAdded || mtimeAdded
+            || sidecarChanged || cueChanged
     }
 
     private func refreshServerMetadata(existing: Song, incoming: Song) -> Song {
@@ -391,8 +561,21 @@ actor ConnectorScanner {
     /// metadata fields (artist, album, duration, bitRate, etc.) are nil. The
     /// MetadataBackfillService is responsible for filling these in later by
     /// reading just the file's header via HTTP Range.
-    private func buildBareSong(from item: RemoteFileItem, songID: String) -> Song {
-        let format = AudioFormat.from(fileExtension: (item.name as NSString).pathExtension) ?? .mp3
+    private func buildBareSong(from item: RemoteFileItem, songID: String) async -> Song {
+        let ext = (item.name as NSString).pathExtension.lowercased()
+        var format = AudioFormat.from(fileExtension: ext) ?? .mp3
+        // DTS-CD commonly uses a .wav container even though its payload is a
+        // DTS bitstream. Mark it before playback so remote URLs take the safe
+        // full-download DTS path instead of being rendered as PCM noise.
+        if ext == "wav",
+           let prefix = try? await connector.fetchRange(
+               path: item.path,
+               offset: 0,
+               length: 256 * 1024
+           ),
+           FFmpegAudioDecoder.dataContainsDTSSync(prefix) {
+            format = .dts
+        }
         let fileBaseName = (item.name as NSString).deletingPathExtension
         return Song(
             id: songID,

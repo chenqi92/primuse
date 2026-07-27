@@ -319,9 +319,16 @@ public enum PrimuseConstants {
     /// MP4 files should use `.m4a`. Including `.mp4` here led to mid-stream
     /// PCM decode errors that auto-skipped 25%+ of cloud-drive scans.
     public static let supportedAudioExtensions: Set<String> = [
-        "mp3", "aac", "m4a", "flac", "wav", "aiff", "aif", "alac",
-        "ape", "dsf", "dff", "ogg", "opus", "wma", "wv"
+        "mp3", "aac", "m4a", "flac", "wav", "aiff", "aif", "au", "snd", "caf", "alac",
+        "ape", "dsf", "dff", "ogg", "opus", "wma", "asf", "wv", "dts", "dtshd", "dts-hd",
+        "ac3", "eac3", "ec3", "mlp", "truehd", "thd", "amr", "awb",
+        "atrac", "oma", "aa3", "at3", "tak", "tta", "mpc", "mpp", "shn", "speex", "spx", "qoa"
     ]
+
+    /// CUE sheets are library descriptors rather than playable files. Source
+    /// scanners enumerate them separately and expand their INDEX 01 entries
+    /// into virtual Song rows that all point at the referenced audio image.
+    public static let supportedCueSheetExtensions: Set<String> = ["cue"]
 }
 
 /// Stable identifiers shared by the app targets and the Apple Music adapter.

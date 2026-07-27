@@ -1,5 +1,31 @@
 import Foundation
 
+enum AudioOutputMode: String, Codable, Sendable, CaseIterable {
+    case highFidelity
+    case effects
+
+    var displayName: String {
+        switch self {
+        case .highFidelity: String(localized: "output_mode_high_fidelity")
+        case .effects: String(localized: "output_mode_effects")
+        }
+    }
+}
+
+enum DSDPlaybackMode: String, Codable, Sendable, CaseIterable {
+    case automatic
+    case pcm
+    case dop
+
+    var displayName: String {
+        switch self {
+        case .automatic: String(localized: "dsd_mode_auto")
+        case .pcm: String(localized: "dsd_mode_pcm")
+        case .dop: String(localized: "dsd_mode_dop")
+        }
+    }
+}
+
 enum ReplayGainMode: String, Codable, Sendable, CaseIterable {
     case track
     case album
@@ -15,6 +41,11 @@ enum ReplayGainMode: String, Codable, Sendable, CaseIterable {
 struct PlaybackSettings: Codable, Sendable {
     static let defaultsKey = "primuse_playback_settings_v1"
 
+    /// New installs start on the shortest, DSP-free signal path. Existing
+    /// persisted settings without this field decode as `.effects` below so an
+    /// update never silently changes a user's configured sound.
+    var outputMode: AudioOutputMode = .highFidelity
+    var dsdPlaybackMode: DSDPlaybackMode = .automatic
     var gaplessEnabled: Bool = false
     var crossfadeEnabled: Bool = false
     var crossfadeDuration: Double = 3.0
@@ -56,6 +87,8 @@ struct PlaybackSettings: Codable, Sendable {
     // decode — existing user settings are preserved on update.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        outputMode = try c.decodeIfPresent(AudioOutputMode.self, forKey: .outputMode) ?? .effects
+        dsdPlaybackMode = try c.decodeIfPresent(DSDPlaybackMode.self, forKey: .dsdPlaybackMode) ?? .automatic
         gaplessEnabled = try c.decodeIfPresent(Bool.self, forKey: .gaplessEnabled) ?? false
         crossfadeEnabled = try c.decodeIfPresent(Bool.self, forKey: .crossfadeEnabled) ?? false
         crossfadeDuration = try c.decodeIfPresent(Double.self, forKey: .crossfadeDuration) ?? 3.0
@@ -85,6 +118,8 @@ struct PlaybackSettings: Codable, Sendable {
     }
 
     init(
+        outputMode: AudioOutputMode = .highFidelity,
+        dsdPlaybackMode: DSDPlaybackMode = .automatic,
         gaplessEnabled: Bool = false,
         crossfadeEnabled: Bool = false,
         crossfadeDuration: Double = 3.0,
@@ -112,6 +147,8 @@ struct PlaybackSettings: Codable, Sendable {
         reverbWetDryMix: Float = 20,
         reverbRoomSize: Float = 55
     ) {
+        self.outputMode = outputMode
+        self.dsdPlaybackMode = dsdPlaybackMode
         self.gaplessEnabled = gaplessEnabled
         self.crossfadeEnabled = crossfadeEnabled
         self.crossfadeDuration = crossfadeDuration
@@ -157,6 +194,8 @@ struct PlaybackSettings: Codable, Sendable {
 @MainActor
 @Observable
 final class PlaybackSettingsStore {
+    var outputMode: AudioOutputMode { didSet { persist() } }
+    var dsdPlaybackMode: DSDPlaybackMode { didSet { persist() } }
     var gaplessEnabled: Bool {
         didSet {
             if gaplessEnabled, crossfadeEnabled {
@@ -241,6 +280,8 @@ final class PlaybackSettingsStore {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         let s = PlaybackSettings.load(defaults: defaults)
+        self.outputMode = s.outputMode
+        self.dsdPlaybackMode = s.dsdPlaybackMode
         self.gaplessEnabled = s.gaplessEnabled
         self.crossfadeEnabled = s.crossfadeEnabled
         self.crossfadeDuration = s.crossfadeDuration
@@ -279,6 +320,8 @@ final class PlaybackSettingsStore {
         suppressPersist = true
         defer { suppressPersist = false }
 
+        outputMode = s.outputMode
+        dsdPlaybackMode = s.dsdPlaybackMode
         gaplessEnabled = s.gaplessEnabled
         crossfadeEnabled = s.crossfadeEnabled
         crossfadeDuration = s.crossfadeDuration
@@ -309,6 +352,8 @@ final class PlaybackSettingsStore {
 
     func snapshot() -> PlaybackSettings {
         PlaybackSettings(
+            outputMode: outputMode,
+            dsdPlaybackMode: dsdPlaybackMode,
             gaplessEnabled: gaplessEnabled,
             crossfadeEnabled: crossfadeEnabled,
             crossfadeDuration: crossfadeDuration,

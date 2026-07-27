@@ -266,6 +266,7 @@ enum LocalImportService {
         // 否则 uniqueDestination 会追加 " 2" 拷成新物理文件, 扫描后变成两首一样的歌。
         if let existing = existingImportedDuplicate(of: url, in: dir, fm: fm) {
             plog("📥 LocalImport: 跳过重复 '\(url.lastPathComponent)' (已存在 \(existing.lastPathComponent))")
+            copyCueSheets(forAudio: url, audioDest: existing, fm: fm)
             result.skipped += 1
             return
         }
@@ -345,6 +346,43 @@ enum LocalImportService {
             if !fm.fileExists(atPath: dest.path) {
                 _ = copyCoordinatedFile(from: mv, to: dest, fm: fm, options: [], label: "sidecar", fallbackReason: .copyFailed)
             }
+        }
+        copyCueSheets(forAudio: srcURL, audioDest: audioDest, fm: fm)
+    }
+
+    /// Bring along any sibling CUE sheet that references this audio image.
+    /// CUE uses the physical filename verbatim, so only copy when the import
+    /// did not have to rename the audio because of a destination collision.
+    private static func copyCueSheets(forAudio source: URL, audioDest: URL, fm: FileManager) {
+        guard source.lastPathComponent == audioDest.lastPathComponent,
+              let siblings = try? fm.contentsOfDirectory(
+                  at: source.deletingLastPathComponent(),
+                  includingPropertiesForKeys: [.fileSizeKey],
+                  options: [.skipsHiddenFiles]
+              ) else { return }
+
+        for cueURL in siblings where cueURL.pathExtension.caseInsensitiveCompare("cue") == .orderedSame {
+            guard let values = try? cueURL.resourceValues(forKeys: [.fileSizeKey]),
+                  (values.fileSize ?? 0) <= 1024 * 1024,
+                  let data = try? Data(contentsOf: cueURL, options: .mappedIfSafe),
+                  let cue = CueSheetParser.parse(data: data),
+                  cue.files.contains(where: {
+                      let name = ($0.name.replacingOccurrences(of: "\\", with: "/") as NSString)
+                          .lastPathComponent
+                      return name.caseInsensitiveCompare(source.lastPathComponent) == .orderedSame
+                  }) else { continue }
+
+            let destination = audioDest.deletingLastPathComponent()
+                .appendingPathComponent(cueURL.lastPathComponent)
+            guard !fm.fileExists(atPath: destination.path) else { continue }
+            _ = copyCoordinatedFile(
+                from: cueURL,
+                to: destination,
+                fm: fm,
+                options: [],
+                label: "cue-sidecar",
+                fallbackReason: .copyFailed
+            )
         }
     }
 

@@ -1,140 +1,177 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 import Foundation
-import PrimuseKit
 
-/// FFmpeg-based audio decoder for formats not natively supported by iOS
-/// Requires FFmpeg-iOS package: https://github.com/kewlbear/FFmpeg-iOS
-///
-/// This decoder wraps the FFmpeg C API to decode:
-/// APE, DSD (DSF/DFF), OGG Vorbis, Opus, WMA, WavPack
-///
-/// The implementation uses:
-/// - avformat_open_input / avformat_find_stream_info for container parsing
-/// - avcodec_find_decoder / avcodec_open2 for codec initialization
-/// - av_read_frame / avcodec_send_packet / avcodec_receive_frame for decoding
-/// - swr_alloc_set_opts2 / swr_convert for resampling to Float32 PCM
+private final class FFmpegBridgeBox: @unchecked Sendable {
+    let value: FFmpegDecoderBridge
+    init(_ value: FFmpegDecoderBridge) { self.value = value }
+}
+
+private final class FFmpegInputBufferBox: @unchecked Sendable {
+    let buffer: AVAudioPCMBuffer
+    var supplied = false
+    init(_ buffer: AVAudioPCMBuffer) { self.buffer = buffer }
+}
+
+/// Broad compatibility fallback built on the LGPL-only FFmpeg runtime.
+/// SFBAudioEngine remains the first choice for formats it supports; this
+/// decoder covers DTS/DTS-HD, DTS-CD WAV, Dolby, WMA/ATRAC and other formats,
+/// and also acts as the content-probing last resort for mislabeled files.
 final class FFmpegAudioDecoder: PrimuseAudioDecoder {
-    private let supportedExtensions: Set<String> = ["ape", "dsf", "dff", "ogg", "opus", "wma", "wv"]
+    static let preferredExtensions: Set<String> = [
+        "dts", "dtshd", "ac3", "eac3", "ec3", "mlp", "truehd", "thd",
+        "wma", "asf", "xma", "oma", "aa3", "at3", "atrac", "amr",
+        "awb", "tak", "tta", "wv", "ape", "mpc", "mpp", "shn", "spx",
+        "qoa", "dsf", "dff", "dtswav"
+    ]
 
     func canDecode(url: URL) -> Bool {
-        supportedExtensions.contains(url.pathExtension.lowercased())
+        guard url.isFileURL else { return false }
+        let ext = url.pathExtension.lowercased()
+        if ext == "wav" {
+            guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
+            let prefix = try? handle.read(upToCount: 256 * 1024)
+            try? handle.close()
+            return prefix.map(FFmpegDecoderBridge.dataContainsDTSSync) ?? false
+        }
+        if Self.preferredExtensions.contains(ext) { return true }
+        return FFmpegDecoderBridge.canDecode(url)
+    }
+
+    static func dataContainsDTSSync(_ data: Data) -> Bool {
+        FFmpegDecoderBridge.dataContainsDTSSync(data)
     }
 
     func fileInfo(for url: URL) async throws -> AudioFileInfo {
-        // Use FFmpeg to probe file info
-        // This requires the FFmpeg C API bridge
-        return try await probeFileInfo(url: url)
+        let info = try FFmpegDecoderBridge.probeURL(url)
+        return AudioFileInfo(
+            duration: info.duration,
+            sampleRate: info.sampleRate,
+            channelCount: info.channelCount,
+            bitDepth: info.bitDepth > 0 ? info.bitDepth : nil,
+            bitRate: info.bitRateKbps > 0 ? info.bitRateKbps : nil,
+            format: info.codecName.uppercased()
+        )
     }
 
-    func decode(from url: URL, outputFormat: AVAudioFormat) -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
+    func decode(
+        from url: URL,
+        outputFormat: AVAudioFormat
+    ) -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
+        decode(
+            from: url,
+            outputFormat: outputFormat,
+            startingAt: nil,
+            onResolveSourceLength: nil
+        )
+    }
+
+    func decode(
+        from url: URL,
+        outputFormat: AVAudioFormat,
+        onResolveSourceLength: (@Sendable (TimeInterval) -> Void)?
+    ) -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
+        decode(
+            from: url,
+            outputFormat: outputFormat,
+            startingAt: nil,
+            onResolveSourceLength: onResolveSourceLength
+        )
+    }
+
+    /// Opens one decoder session and performs a demuxer-level seek before
+    /// yielding PCM. This avoids decoding an entire album image from frame zero.
+    func decode(
+        from url: URL,
+        outputFormat: AVAudioFormat,
+        startingAt startTime: TimeInterval?,
+        onResolveSourceLength: (@Sendable (TimeInterval) -> Void)?
+    ) -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 do {
-                    try await self.decodeFile(url: url, outputFormat: outputFormat, continuation: continuation)
+                    let bridge = try FFmpegDecoderBridge(url: url)
+                    let box = FFmpegBridgeBox(bridge)
+                    let info = box.value.fileInfo
+                    if info.duration > 0 { onResolveSourceLength?(info.duration) }
+                    if let startTime, startTime > 0 {
+                        try box.value.seek(toTime: startTime)
+                    }
+
+                    var converter: AVAudioConverter?
+                    var converterSourceFormat: AVAudioFormat?
+                    while !Task.isCancelled {
+                        let result = try box.value.readNextBuffer()
+                        guard let sourceBuffer = result.buffer else { break }
+                        if sourceBuffer.frameLength == 0 { continue }
+
+                        let outputBuffer: AVAudioPCMBuffer
+                        if sourceBuffer.format == outputFormat {
+                            outputBuffer = sourceBuffer
+                        } else {
+                            if converter == nil || converterSourceFormat != sourceBuffer.format {
+                                guard let newConverter = AVAudioConverter(
+                                    from: sourceBuffer.format,
+                                    to: outputFormat
+                                ) else {
+                                    throw AudioDecoderError.converterCreationFailed
+                                }
+                                converter = newConverter
+                                converterSourceFormat = sourceBuffer.format
+                            }
+                            guard let converter else {
+                                throw AudioDecoderError.converterCreationFailed
+                            }
+                            outputBuffer = try Self.convert(
+                                sourceBuffer,
+                                to: outputFormat,
+                                using: converter
+                            )
+                        }
+                        if outputBuffer.frameLength > 0 {
+                            nonisolated(unsafe) let sendableBuffer = outputBuffer
+                            continuation.yield(sendableBuffer)
+                        }
+                    }
+                    try Task.checkCancellation()
+                    continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
                 }
             }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
-    // MARK: - FFmpeg C API Bridge
-
-    /// Probes file metadata using FFmpeg
-    /// Uses avformat_open_input + avformat_find_stream_info
-    private func probeFileInfo(url: URL) async throws -> AudioFileInfo {
-        // Bridge to FFmpeg C API
-        // In production, this would call into the FFmpeg C functions via a bridging header
-        //
-        // Pseudocode:
-        // var fmtCtx: UnsafeMutablePointer<AVFormatContext>?
-        // avformat_open_input(&fmtCtx, url.path, nil, nil)
-        // avformat_find_stream_info(fmtCtx, nil)
-        // let audioStreamIndex = av_find_best_stream(fmtCtx, AVMEDIA_TYPE_AUDIO, -1, -1, nil, 0)
-        // let codecParams = fmtCtx?.pointee.streams[audioStreamIndex]?.pointee.codecpar
-        // let duration = Double(fmtCtx?.pointee.duration ?? 0) / Double(AV_TIME_BASE)
-        // avformat_close_input(&fmtCtx)
-
-        throw AudioDecoderError.unsupportedFormat(
-            "FFmpeg bridge not yet compiled. Install FFmpeg-iOS package and add bridging header."
-        )
-    }
-
-    /// Decodes audio file using FFmpeg and yields PCM buffers
-    ///
-    /// Pipeline:
-    /// 1. avformat_open_input → open container
-    /// 2. avformat_find_stream_info → detect streams
-    /// 3. avcodec_find_decoder → find audio codec
-    /// 4. avcodec_open2 → open codec
-    /// 5. Decode loop: av_read_frame → avcodec_send_packet → avcodec_receive_frame
-    /// 6. swr_convert → resample to output format (Float32 planar)
-    /// 7. Pack into AVAudioPCMBuffer and yield
-    private func decodeFile(
-        url: URL,
-        outputFormat: AVAudioFormat,
-        continuation: AsyncThrowingStream<AVAudioPCMBuffer, Error>.Continuation
-    ) async throws {
-        // This is the FFmpeg C API decode implementation
-        // Requires a bridging header (Primuse-Bridging-Header.h) with:
-        //
-        // #include <libavformat/avformat.h>
-        // #include <libavcodec/avcodec.h>
-        // #include <libswresample/swresample.h>
-        // #include <libavutil/opt.h>
-        //
-        // Full implementation outline:
-        //
-        // 1. Open input
-        //    var fmtCtx: UnsafeMutablePointer<AVFormatContext>?
-        //    guard avformat_open_input(&fmtCtx, url.path, nil, nil) == 0 else { throw ... }
-        //    defer { avformat_close_input(&fmtCtx) }
-        //
-        // 2. Find stream info
-        //    guard avformat_find_stream_info(fmtCtx, nil) >= 0 else { throw ... }
-        //
-        // 3. Find audio stream
-        //    var codecPtr: UnsafePointer<AVCodec>?
-        //    let streamIdx = av_find_best_stream(fmtCtx, AVMEDIA_TYPE_AUDIO, -1, -1, &codecPtr, 0)
-        //    guard streamIdx >= 0, let codec = codecPtr else { throw ... }
-        //
-        // 4. Open codec
-        //    let codecCtx = avcodec_alloc_context3(codec)
-        //    defer { avcodec_free_context(&codecCtx) }
-        //    avcodec_parameters_to_context(codecCtx, fmtCtx!.pointee.streams[streamIdx]!.pointee.codecpar)
-        //    guard avcodec_open2(codecCtx, codec, nil) == 0 else { throw ... }
-        //
-        // 5. Setup resampler (SwrContext)
-        //    let swrCtx = swr_alloc()
-        //    defer { swr_free(&swrCtx) }
-        //    // Set input options from codecCtx
-        //    // Set output to Float32, outputFormat.sampleRate, outputFormat.channelCount
-        //    swr_init(swrCtx)
-        //
-        // 6. Decode loop
-        //    let packet = av_packet_alloc()
-        //    let frame = av_frame_alloc()
-        //    defer { av_packet_free(&packet); av_frame_free(&frame) }
-        //
-        //    while av_read_frame(fmtCtx, packet) >= 0 {
-        //        guard packet.pointee.stream_index == streamIdx else { av_packet_unref(packet); continue }
-        //        avcodec_send_packet(codecCtx, packet)
-        //        while avcodec_receive_frame(codecCtx, frame) == 0 {
-        //            // Resample frame to output format
-        //            let outputSamples = swr_get_out_samples(swrCtx, frame.pointee.nb_samples)
-        //            // Allocate AVAudioPCMBuffer
-        //            // swr_convert(swrCtx, outputBufferPtrs, outputSamples, frame.pointee.data, frame.pointee.nb_samples)
-        //            // Pack into AVAudioPCMBuffer and yield via continuation
-        //        }
-        //        av_packet_unref(packet)
-        //    }
-        //
-        //    // Flush decoder
-        //    avcodec_send_packet(codecCtx, nil)
-        //    while avcodec_receive_frame(codecCtx, frame) == 0 { ... }
-
-        continuation.finish(throwing: AudioDecoderError.unsupportedFormat(
-            "FFmpeg bridge requires compilation. Add FFmpeg-iOS dependency and bridging header."
-        ))
+    private static func convert(
+        _ source: AVAudioPCMBuffer,
+        to outputFormat: AVAudioFormat,
+        using converter: AVAudioConverter
+    ) throws -> AVAudioPCMBuffer {
+        let ratio = outputFormat.sampleRate / source.format.sampleRate
+        let capacity = AVAudioFrameCount(ceil(Double(source.frameLength) * ratio)) + 64
+        guard let output = AVAudioPCMBuffer(
+            pcmFormat: outputFormat,
+            frameCapacity: max(1, capacity)
+        ) else {
+            throw AudioDecoderError.bufferAllocationFailed
+        }
+        let input = FFmpegInputBufferBox(source)
+        var conversionError: NSError?
+        let status = converter.convert(to: output, error: &conversionError) { _, outStatus in
+            if input.supplied {
+                outStatus.pointee = .noDataNow
+                return nil
+            }
+            input.supplied = true
+            outStatus.pointee = .haveData
+            return input.buffer
+        }
+        if let conversionError { throw conversionError }
+        if status == .error {
+            throw AudioDecoderError.decodingFailed("FFmpeg PCM conversion failed")
+        }
+        return output
     }
 }

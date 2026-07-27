@@ -2,3 +2,4 @@
 // listed here is exposed to Swift code in this target.
 
 #import "Services/Audio/CloudInputSourceObjC.h"
+#import "Services/Audio/FFmpegDecoderBridge.h"
