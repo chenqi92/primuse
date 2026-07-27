@@ -461,7 +461,8 @@
 "apple_music_library_resync" = "再同期";
 "apple_music_lyrics_unavailable" = "この曲の歌詞はありません。Apple Music の時間同期歌詞はサードパーティアプリに公開されていないため、利用できる場合は全文のみが表示されます。";
 "apple_music_view_lyrics" = "Apple Music で歌詞を表示";
-"apple_music_lyrics_not_available" = "Apple Music の曲の歌詞はシステムによって管理されており、サードパーティアプリには公開されていません。下のボタンをタップして Apple Music で公式の歌詞を表示してください。";
+"apple_music_lyrics_not_available" = "Apple Music の公式同期歌詞はサードパーティアプリに公開されていません。Apple Music で表示するか、曲メニューのスクレイピングで外部歌詞を検索できます。";
+"apple_music_scrape_lyrics_only" = "Apple Music のメタデータと公式アートワークは変更せず、確認した外部歌詞だけを保存します。";
 "rg_mode" = "モード";
 "rg_mode_track" = "曲";
 "rg_mode_album" = "アルバム";

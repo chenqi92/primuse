@@ -460,7 +460,8 @@
 "apple_music_library_resync" = "Synchroniser à nouveau";
 "apple_music_lyrics_unavailable" = "Aucune parole pour ce morceau. Les paroles synchronisées d'Apple Music ne sont pas accessibles aux apps tierces ; seul le texte intégral est affiché lorsqu'il est disponible.";
 "apple_music_view_lyrics" = "Voir les paroles dans Apple Music";
-"apple_music_lyrics_not_available" = "Les paroles Apple Music sont gérées par le système et ne sont pas accessibles aux apps tierces. Touchez ci-dessous pour voir les paroles officielles dans Apple Music.";
+"apple_music_lyrics_not_available" = "Les paroles synchronisées officielles d’Apple Music ne sont pas accessibles aux apps tierces. Ouvrez Apple Music ou utilisez la recherche de métadonnées pour trouver des paroles externes.";
+"apple_music_scrape_lyrics_only" = "Les métadonnées et la pochette officielles Apple Music restent inchangées ; seules les paroles externes confirmées sont enregistrées.";
 "rg_mode" = "Mode";
 "rg_mode_track" = "Morceau";
 "rg_mode_album" = "Album";

@@ -460,7 +460,8 @@
 "apple_music_library_resync" = "Erneut synchronisieren";
 "apple_music_lyrics_unavailable" = "Für diesen Titel ist kein Liedtext vorhanden. Die zeitsynchronen Liedtexte von Apple Music werden Apps von Drittanbietern nicht bereitgestellt, daher wird, falls verfügbar, nur der vollständige Text angezeigt.";
 "apple_music_view_lyrics" = "Liedtext in Apple Music ansehen";
-"apple_music_lyrics_not_available" = "Liedtexte von Apple Music werden vom System verwaltet und Apps von Drittanbietern nicht bereitgestellt. Tippe unten, um den offiziellen Liedtext in Apple Music anzusehen.";
+"apple_music_lyrics_not_available" = "Die offiziellen synchronisierten Liedtexte von Apple Music sind für Drittanbieter-Apps nicht verfügbar. Öffne Apple Music oder suche über „Metadaten abrufen“ nach externen Liedtexten.";
+"apple_music_scrape_lyrics_only" = "Apple-Music-Metadaten und das offizielle Cover bleiben unverändert; gespeichert werden nur bestätigte externe Liedtexte.";
 "rg_mode" = "Modus";
 "rg_mode_track" = "Titel";
 "rg_mode_album" = "Album";

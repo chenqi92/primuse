@@ -460,7 +460,8 @@
 "apple_music_library_resync" = "다시 동기화";
 "apple_music_lyrics_unavailable" = "이 곡의 가사가 없습니다. Apple Music의 시간 동기화 가사는 타사 앱에 제공되지 않으므로 사용 가능한 경우 전체 텍스트만 표시됩니다.";
 "apple_music_view_lyrics" = "Apple Music에서 가사 보기";
-"apple_music_lyrics_not_available" = "Apple Music 가사는 시스템에서 관리되며 타사 앱에 제공되지 않습니다. 아래를 탭하여 Apple Music에서 공식 가사를 확인하세요.";
+"apple_music_lyrics_not_available" = "Apple Music의 공식 동기화 가사는 타사 앱에 제공되지 않습니다. Apple Music에서 보거나 곡 메뉴의 스크래핑 기능으로 외부 가사를 찾을 수 있습니다.";
+"apple_music_scrape_lyrics_only" = "Apple Music 메타데이터와 공식 아트워크는 유지되며, 확인한 외부 가사만 저장됩니다.";
 "rg_mode" = "모드";
 "rg_mode_track" = "트랙";
 "rg_mode_album" = "앨범";

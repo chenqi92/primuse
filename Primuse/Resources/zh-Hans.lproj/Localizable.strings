@@ -327,7 +327,8 @@
 "apple_music_library_resync" = "重新同步";
 "apple_music_lyrics_unavailable" = "这首歌没有歌词。Apple Music 的同步歌词不开放给第三方应用，本页面显示的是整段静态歌词。";
 "apple_music_view_lyrics" = "在 Apple Music 查看歌词";
-"apple_music_lyrics_not_available" = "Apple Music 歌曲的歌词由系统侧管理,猿音无法刮削或本地缓存。点下方按钮跳转到 Apple Music 查看官方歌词。";
+"apple_music_lyrics_not_available" = "Apple Music 的官方同步歌词不开放给第三方应用。你可以跳转到 Apple Music 查看官方歌词，或使用歌曲菜单中的刮削功能匹配外部歌词。";
+"apple_music_scrape_lyrics_only" = "Apple Music 的歌曲信息和官方封面会保持不变；刮削只会保存你确认的外部歌词。";
 "rg_mode" = "模式";
 "rg_mode_track" = "单曲";
 "rg_mode_album" = "专辑";

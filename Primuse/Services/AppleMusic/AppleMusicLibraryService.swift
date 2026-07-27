@@ -168,31 +168,7 @@ final class AppleMusicLibraryService {
         await ensureCachePopulated()
 
         let amID = song.filePath
-        var musicKitSong: MusicKit.Song? = songCache[amID]
-        if musicKitSong == nil {
-            // amID 以 "i." 开头的是 user library 内部 ID, 不能用
-            // MusicCatalogResourceRequest 查 (那查的是公开 catalog id)。
-            // 用 MusicLibraryRequest 才对; catalog id (纯数字) 才走 catalog
-            // 分支兜底, 兼容用户从搜索结果加入 library 又同步过来的混合情况。
-            let id = MusicItemID(rawValue: amID)
-            do {
-                if amID.hasPrefix("i.") {
-                    var req = MusicLibraryRequest<MusicKit.Song>()
-                    req.filter(matching: \.id, equalTo: id)
-                    req.limit = 1
-                    let resp = try await req.response()
-                    musicKitSong = resp.items.first
-                } else {
-                    let req = MusicCatalogResourceRequest<MusicKit.Song>(matching: \.id, equalTo: id)
-                    let resp = try await req.response()
-                    musicKitSong = resp.items.first
-                }
-                if let m = musicKitSong { songCache[amID] = m }
-            } catch {
-                plog("⚠️Apple Music lookup failed for \(amID): \(error.localizedDescription)")
-                return
-            }
-        }
+        let musicKitSong = await musicKitSong(amID: amID)
         guard let mk = musicKitSong else {
             plog("⚠️Apple Music 找不到曲目 \(amID)")
             return
@@ -264,6 +240,39 @@ final class AppleMusicLibraryService {
     /// 触发 play(primuseSong:) 后 cache 会被填上。
     func cachedMusicKitSong(amID: String) -> MusicKit.Song? {
         songCache[amID]
+    }
+
+    /// Resolves one MusicKit item without waiting for a full-library sync.
+    /// CloudKit can restore Primuse's lightweight Song rows before the in-memory
+    /// MusicKit cache exists; artwork views use this method to fill that cold
+    /// cache and render the official artwork instead of a gray placeholder.
+    func musicKitSong(amID: String) async -> MusicKit.Song? {
+        if let cached = songCache[amID] { return cached }
+        guard appleMusic.authState == .authorized else { return nil }
+
+        let id = MusicItemID(rawValue: amID)
+        do {
+            let resolved: MusicKit.Song?
+            if amID.hasPrefix("i.") {
+                var request = MusicLibraryRequest<MusicKit.Song>()
+                request.filter(matching: \.id, equalTo: id)
+                request.limit = 1
+                resolved = try await request.response().items.first
+            } else {
+                let request = MusicCatalogResourceRequest<MusicKit.Song>(matching: \.id, equalTo: id)
+                resolved = try await request.response().items.first
+            }
+            if let resolved {
+                songCache[amID] = resolved
+                if amID.hasPrefix("i.") {
+                    canonicalLibrarySongCache[amID] = resolved
+                }
+            }
+            return resolved
+        } catch {
+            plog("⚠️Apple Music lookup failed for \(amID): \(error.localizedDescription)")
+            return nil
+        }
     }
 
     /// 拿当前歌在 Apple Music app 里的 URL ── 给 NowPlayingView 提供"在

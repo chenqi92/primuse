@@ -45,6 +45,8 @@ struct CachedArtworkView: View {
 
     @Environment(SourceManager.self) private var sourceManager
     @State private var image: PlatformImage?
+    @State private var resolvedAppleMusicArtwork: MusicKit.Artwork?
+    @State private var resolvedAppleMusicArtworkID: String?
     @State private var loadedIdentity: String?
     @State private var cacheInvalidationRevision = 0
 
@@ -167,6 +169,9 @@ struct CachedArtworkView: View {
         .task(id: loadIdentity) {
             await loadImage(for: loadIdentity)
         }
+        .task(id: appleMusicArtworkIdentity) {
+            await resolveAppleMusicArtwork(for: appleMusicArtworkIdentity)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidInvalidate)) { note in
             guard shouldReload(after: note) else { return }
             Self.memoryCache.removeObject(forKey: cacheKey as NSString)
@@ -211,7 +216,37 @@ struct CachedArtworkView: View {
     private var appleMusicArtwork: MusicKit.Artwork? {
         guard sourceID == AppleMusicLibraryService.systemSourceID,
               let amID = filePath else { return nil }
+        if resolvedAppleMusicArtworkID == amID, let resolvedAppleMusicArtwork {
+            return resolvedAppleMusicArtwork
+        }
         return AppServices.shared.appleMusicLibrary.cachedMusicKitSong(amID: amID)?.artwork
+    }
+
+    private var appleMusicArtworkIdentity: String {
+        guard sourceID == AppleMusicLibraryService.systemSourceID,
+              let filePath, !filePath.isEmpty else { return "" }
+        return filePath
+    }
+
+    private func resolveAppleMusicArtwork(for identity: String) async {
+        guard !identity.isEmpty else {
+            resolvedAppleMusicArtwork = nil
+            resolvedAppleMusicArtworkID = nil
+            return
+        }
+        if let cached = AppServices.shared.appleMusicLibrary.cachedMusicKitSong(amID: identity)?.artwork {
+            resolvedAppleMusicArtwork = cached
+            resolvedAppleMusicArtworkID = identity
+            return
+        }
+        if resolvedAppleMusicArtworkID != identity {
+            resolvedAppleMusicArtwork = nil
+            resolvedAppleMusicArtworkID = nil
+        }
+        let resolved = await AppServices.shared.appleMusicLibrary.musicKitSong(amID: identity)?.artwork
+        guard !Task.isCancelled, appleMusicArtworkIdentity == identity else { return }
+        resolvedAppleMusicArtwork = resolved
+        resolvedAppleMusicArtworkID = resolved == nil ? nil : identity
     }
 
     private var placeholderView: some View {
@@ -399,8 +434,15 @@ struct CachedArtworkView: View {
             return finalize(data: data, bucket: bucket, cacheKey: cacheKey)
         }
 
-        // Song path
-        if let data = await loadFromDiskCache(songID: ignoredGenericFolderCover ? nil : songID, ref: effectiveRef) {
+        // Song path. Apple Music artwork is always owned by MusicKit. Do not
+        // reuse a legacy scraped cover cached under this Primuse song ID; the
+        // official artwork resolver above will fill cold MusicKit caches.
+        let isAppleMusic = sourceID == AppleMusicLibraryIdentity.sourceID
+        if !isAppleMusic,
+           let data = await loadFromDiskCache(
+            songID: ignoredGenericFolderCover ? nil : songID,
+            ref: effectiveRef
+           ) {
             return finalize(data: data, bucket: bucket, cacheKey: cacheKey)
         }
 
