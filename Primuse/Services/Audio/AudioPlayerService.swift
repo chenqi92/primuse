@@ -284,6 +284,10 @@ final class AudioPlayerService {
 
     var isCastingMode: Bool { castingRenderer != nil }
     private var appleMusicMirrorTask: Task<Void, Never>?
+    /// Invalidates suspended observation tasks when playback changes owner.
+    /// Cancellation alone is insufficient because a checked continuation can
+    /// still resume once after `stopAppleMusic()` mutates the observed state.
+    private var appleMusicMirrorGeneration: UInt64 = 0
     private var rescuedAppleMusicLyricsAliases: Set<String> = []
     private var musicVideoTimeObserver: Any?
     private var musicVideoEndObserver: NSObjectProtocol?
@@ -1163,15 +1167,23 @@ final class AudioPlayerService {
      /// 切回本地播放或 stop 时取消。
      private func startAppleMusicMirror() {
          appleMusicMirrorTask?.cancel()
+         appleMusicMirrorGeneration &+= 1
+         let generation = appleMusicMirrorGeneration
          let am = AppServices.shared.appleMusic
          appleMusicMirrorTask = Task { @MainActor [weak self] in
              while !Task.isCancelled {
                  await self?.awaitNextAppleMusicChange(am: am)
-                 self?.mirrorAppleMusicState()
+                 guard let self,
+                       AppleMusicQueueMirrorPolicy.isActiveSession(
+                        sessionGeneration: generation,
+                        activeGeneration: self.appleMusicMirrorGeneration,
+                        isCancelled: Task.isCancelled
+                       ) else { return }
+                 self.mirrorAppleMusicState(sessionGeneration: generation)
              }
          }
          // 首次进 Apple Music 模式时主动 mirror 一次, 不用等下一个 polling tick。
-         mirrorAppleMusicState()
+         mirrorAppleMusicState(sessionGeneration: generation)
      }
 
      /// 注意必须 @MainActor 隔离 ── withObservationTracking 的 read 阶段
@@ -1196,11 +1208,15 @@ final class AudioPlayerService {
      }
 
      private func stopAppleMusicMirror() {
+         // Bump before cancellation. `stopAppleMusic()` immediately changes
+         // observed values and may wake the old checked continuation before
+         // its cancelled task has otherwise had a chance to exit.
+         appleMusicMirrorGeneration &+= 1
          appleMusicMirrorTask?.cancel()
          appleMusicMirrorTask = nil
      }
 
-     private func mirrorAppleMusicState() {
+     private func mirrorAppleMusicState(sessionGeneration: UInt64) {
          // 用 appleMusic.nowPlayingSong 而不是 self.isAppleMusicMode 做 guard ──
          // 初次从 catalog 路径切到 Apple Music 时 currentSong 可能还是旧的本地
          // 歌, 等 mirror 第一次写入新值之后 isAppleMusicMode 才变 true。
@@ -1238,7 +1254,17 @@ final class AudioPlayerService {
          // A MusicKit queue can only describe Apple Music entries. Mirroring
          // it over a mixed queue used to discard thousands of local songs as
          // soon as shuffle landed on one Apple Music track.
-         if !isPrimuseManagingAppleMusicQueue {
+         // MusicKit briefly publishes an empty queue while stopping or while a
+         // new queue is being installed. An empty transient snapshot must not
+         // erase Primuse's canonical queue; explicit stop/clear paths already
+         // clear it intentionally.
+         if AppleMusicQueueMirrorPolicy.shouldApplySnapshot(
+            sessionGeneration: sessionGeneration,
+            activeGeneration: appleMusicMirrorGeneration,
+            isCancelled: false,
+            primuseOwnsMixedQueue: isPrimuseManagingAppleMusicQueue,
+            snapshotCount: am.queueSongs.count
+         ) {
              let newIDs = am.queueSongs.map(\.id)
              if newIDs != queueEntries.map(\.song.id) {
                  queueEntries = am.queueSongs.map { QueueEntry(song: $0) }

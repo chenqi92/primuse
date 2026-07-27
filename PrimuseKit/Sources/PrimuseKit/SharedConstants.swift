@@ -465,6 +465,34 @@ public enum AppleMusicLibraryPreferences {
     }
 }
 
+/// Pure policy for deciding whether a MusicKit queue snapshot may replace
+/// Primuse's canonical playback queue.
+public enum AppleMusicQueueMirrorPolicy {
+    public static func isActiveSession(
+        sessionGeneration: UInt64,
+        activeGeneration: UInt64,
+        isCancelled: Bool
+    ) -> Bool {
+        sessionGeneration == activeGeneration && !isCancelled
+    }
+
+    public static func shouldApplySnapshot(
+        sessionGeneration: UInt64,
+        activeGeneration: UInt64,
+        isCancelled: Bool,
+        primuseOwnsMixedQueue: Bool,
+        snapshotCount: Int
+    ) -> Bool {
+        isActiveSession(
+            sessionGeneration: sessionGeneration,
+            activeGeneration: activeGeneration,
+            isCancelled: isCancelled
+        )
+            && !primuseOwnsMixedQueue
+            && snapshotCount > 0
+    }
+}
+
 /// Validates the non-query portion of an OAuth callback URL.
 ///
 /// Providers that redirect straight back to the app must return the registered

@@ -32,8 +32,12 @@ struct NowPlayingView: View {
     @State private var showQueue = false
     @State private var lyrics: [LyricLine] = []
     @State private var isScrapingCurrentSong = false
-    @State private var scrapeAlertMessage: String?
     @State private var showScrapeOptions = false
+    /// Freeze the canonical song identity used by the scrape sheet. MusicKit
+    /// can temporarily expose a catalog ID while the library row uses an
+    /// `i.*` ID; reading `player.currentSong` again inside the sheet could then
+    /// save the chosen lyrics under a different song on each presentation.
+    @State private var scrapeTargetSong: Song?
     @State private var showAddToPlaylist = false
     @State private var showCastPicker = false
     @State private var showSongInfo = false
@@ -147,13 +151,17 @@ struct NowPlayingView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
-        .sheet(isPresented: $showScrapeOptions) {
-            if let song = player.currentSong {
+        .sheet(isPresented: $showScrapeOptions, onDismiss: {
+            scrapeTargetSong = nil
+        }) {
+            if let song = scrapeTargetSong {
                 ScrapeOptionsView(song: song) { u in
                     CachedArtworkView.invalidateCache(for: u.id)
                     if let oldRef = song.coverArtFileName {
                         CachedArtworkView.invalidateCache(for: oldRef)
                     }
+                    player.syncSongMetadata(u)
+                    player.forceRefreshNowPlayingArtwork()
                     Task { await loadLyrics() }
                 }
                 .presentationDetents([.large])
@@ -240,10 +248,6 @@ struct NowPlayingView: View {
             }
             Button(String(localized: "cancel"), role: .cancel) {}
         }
-        .alert(String(localized: "scrape_song"),
-               isPresented: Binding(get: { scrapeAlertMessage != nil }, set: { if !$0 { scrapeAlertMessage = nil } })) {
-            Button("done", role: .cancel) {}
-        } message: { Text(scrapeAlertMessage ?? "") }
         .alert(String(localized: "delete_song"), isPresented: $showDeleteConfirm) {
             Button(String(localized: "cancel"), role: .cancel) {}
             Button(String(localized: "delete"), role: .destructive) {
@@ -960,7 +964,7 @@ struct NowPlayingView: View {
             player: player,
             songID: player.currentSong?.id,
             isScrapingCurrentSong: isScrapingCurrentSong,
-            onScrape: { Task { await scrapeCurrentSong() } },
+            onScrape: { openScrapeForCurrentSong() },
             onBackgroundTap: {
                 withAnimation(.easeInOut(duration: 0.3)) { showLyrics = false }
             }
@@ -1268,55 +1272,41 @@ struct NowPlayingView: View {
 
 
 
-    /// Local/network sources keep the full candidate-based scrape sheet.
-    /// A MusicKit cloud song has no readable audio URL, so its matching top-bar
-    /// button runs the supported lyrics-only path directly. This keeps the
-    /// control in the same position for every source without routing Apple
-    /// Music through a file-based workflow that cannot succeed.
+    /// Always open the candidate/preview sheet. Apple Music used to run a
+    /// lyrics-only automatic scrape immediately here, which meant tapping the
+    /// nominally manual action silently overwrote the cached lyrics and could
+    /// choose a different provider result on every tap.
     private func openScrapeForCurrentSong() {
-        guard player.currentSong != nil, !isScrapingCurrentSong else { return }
-        if player.isAppleMusicMode {
-            Task { await scrapeCurrentSong() }
-        } else {
+        guard let displayedSong = player.currentSong else { return }
+        guard !isScrapingCurrentSong else { return }
+
+        guard displayedSong.sourceID == AppleMusicLibraryIdentity.sourceID else {
+            scrapeTargetSong = displayedSong
+            showScrapeOptions = true
+            return
+        }
+
+        // Resolve the transient MusicKit catalog identity before presenting
+        // the sheet. Await alias preservation first so an older cached lyric
+        // cannot race with the user's later Apply action.
+        isScrapingCurrentSong = true
+        Task { @MainActor in
+            defer { isScrapingCurrentSong = false }
+            let canonical = AppServices.shared.appleMusicLibrary.canonicalLibrarySong(for: displayedSong)
+            if canonical.id != displayedSong.id {
+                _ = await MetadataAssetStore.shared.preserveLyricsAlias(
+                    fromSongID: displayedSong.id,
+                    toSongID: canonical.id
+                )
+                guard player.currentSong?.id == displayedSong.id
+                        || player.currentSong?.id == canonical.id else { return }
+                player.adoptCanonicalAppleMusicSong(canonical, replacing: displayedSong.id)
+            } else {
+                guard player.currentSong?.id == canonical.id else { return }
+            }
+            scrapeTargetSong = canonical
             showScrapeOptions = true
         }
-    }
-
-    private func scrapeCurrentSong() async {
-        guard let displayedSong = player.currentSong else { return }
-        isScrapingCurrentSong = true; defer { isScrapingCurrentSong = false }
-        do {
-            let song: Song
-            if displayedSong.sourceID == AppleMusicLibraryIdentity.sourceID {
-                song = AppServices.shared.appleMusicLibrary.canonicalLibrarySong(for: displayedSong)
-                if song.id != displayedSong.id {
-                    _ = await MetadataAssetStore.shared.preserveLyricsAlias(
-                        fromSongID: displayedSong.id,
-                        toSongID: song.id
-                    )
-                    player.adoptCanonicalAppleMusicSong(song, replacing: displayedSong.id)
-                }
-            } else {
-                song = displayedSong
-            }
-            let u: Song
-            if song.sourceID == AppleMusicLibraryIdentity.sourceID {
-                // Keep iOS and macOS consistent: a MusicKit cloud song has no
-                // source URL even when it is playable by ApplicationMusicPlayer.
-                u = await scraperService.scrapeOnlineLyricsOnly(song: song, in: library).song
-            } else {
-                let scrapeResult = try await scraperService.scrapeSingle(song: song, in: library)
-                u = scrapeResult.0
-            }
-            CachedArtworkView.invalidateCache(for: u.id)
-            if let oldRef = song.coverArtFileName { CachedArtworkView.invalidateCache(for: oldRef) }
-            player.syncSongMetadata(u); player.forceRefreshNowPlayingArtwork(); await loadLyrics()
-            guard player.currentSong?.id == u.id else { return }
-            if !lyrics.isEmpty { showLyrics = true }
-            scrapeAlertMessage = String(localized: lyrics.isEmpty
-                ? "scrape_lyrics_not_found"
-                : "scrape_song_success")
-        } catch { scrapeAlertMessage = String(localized: "scrape_song_failed") }
     }
 
     private func fmt(_ t: TimeInterval) -> String {

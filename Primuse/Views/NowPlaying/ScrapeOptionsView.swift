@@ -1170,7 +1170,29 @@ struct ScrapeOptionsView: View {
         errorMessage = nil
 
         do {
-            let (updated, coverData, lyricsLines) = try await scraperService.scrapeSingle(song: song, in: library, dryRun: true)
+            let updated: Song
+            let coverData: Data?
+            let lyricsLines: [LyricLine]?
+            if song.sourceID == AppleMusicLibraryIdentity.sourceID {
+                // A MusicKit library item has no readable source URL. Preview
+                // the supported online-lyrics result without persisting it;
+                // only the explicit Apply action below is allowed to replace
+                // the song's cached lyrics.
+                updated = song
+                coverData = nil
+                lyricsLines = await scraperService.fetchOnlineLyrics(
+                    title: song.title,
+                    artist: song.artistName,
+                    album: song.albumTitle,
+                    duration: song.duration > 0 ? song.duration : nil
+                )
+            } else {
+                (updated, coverData, lyricsLines) = try await scraperService.scrapeSingle(
+                    song: song,
+                    in: library,
+                    dryRun: true
+                )
+            }
             isScraping = false
 
             let lyricsCount = lyricsLines?.count ?? 0
@@ -1519,7 +1541,8 @@ struct ScrapeOptionsView: View {
             //
             // withTimeout 兜底: 30 秒后强制取消, 即使 NAS 端有 bug 也不会无限期
             // 占用 connector actor。
-            if !usesMediaServerWriteback && (needsCover || needsLyrics) {
+            let supportsSidecarWriteback = final.sourceID != AppleMusicLibraryIdentity.sourceID
+            if supportsSidecarWriteback && !usesMediaServerWriteback && (needsCover || needsLyrics) {
                 let titleSnapshot = final.title
                 let finalSnapshot = final
                 Task.detached(priority: .utility) {
