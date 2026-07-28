@@ -83,6 +83,16 @@ final class MetadataBackfillService {
     /// automatically until next launch.
     private var cellularPromptDismissedThisSession = false
 
+    /// Publish prompt visibility only on a real state transition. During a
+    /// connector scan `musicLibrary.songs.count` changes repeatedly and each
+    /// change calls `refreshQueue()` → `start()`. Assigning observable `true`
+    /// again for every batch makes SwiftUI treat one cellular pause as many
+    /// alert presentation events even though there is only one source.
+    private func setCellularPromptPresented(_ presented: Bool) {
+        guard pausedForCellular != presented else { return }
+        pausedForCellular = presented
+    }
+
     private let library: MusicLibrary
     private let sourceManager: SourceManager
     private let backfillableSourceIDs: () -> Set<String>
@@ -391,11 +401,13 @@ final class MetadataBackfillService {
         // deferring, surface a prompt (pausedForCellular) when there's actually
         // work to do, so the user can opt into 5G/4G if they need it.
         if shouldBlockForCellular() {
-            pausedForCellular = hasPendingWork && !cellularPromptDismissedThisSession
+            setCellularPromptPresented(
+                hasPendingWork && !cellularPromptDismissedThisSession
+            )
             plog("📥 Backfill: deferred (cellular + Wi-Fi-only); pendingWork=\(hasPendingWork) prompt=\(pausedForCellular)")
             return
         }
-        pausedForCellular = false
+        setCellularPromptPresented(false)
 
         let needsBackfill = pickNextBatch()
         guard !needsBackfill.isEmpty else {
@@ -925,14 +937,14 @@ final class MetadataBackfillService {
         if persist {
             UserDefaults.standard.set(false, forKey: Self.wifiOnlyDefaultsKey)
         }
-        pausedForCellular = false
+        setCellularPromptPresented(false)
         start()
     }
 
     /// 用户选择「仅 WiFi / 暂不」。本会话不再自动弹蜂窝提示。
     func dismissCellularPrompt() {
         cellularPromptDismissedThisSession = true
-        pausedForCellular = false
+        setCellularPromptPresented(false)
     }
 
     /// 回填读取失败是否属于「瞬时、可重试」错误(连接/鉴权/超时/限流/网络/取消),

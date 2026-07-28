@@ -31,6 +31,12 @@ final class UserNotificationService {
 
     private var permissionRequested = false
     private var permissionGranted = false
+    /// Re-adding a request with the same identifier replaces the Notification
+    /// Center entry, but iOS still presents a fresh banner and sound every time.
+    /// Suppress identical content posted repeatedly by scan/backfill lifecycle
+    /// callbacks while preserving distinct errors from other sources.
+    private var lastPostAtBySignature: [String: Date] = [:]
+    private static let duplicatePostCooldown: TimeInterval = 5 * 60
 
     private init() {}
 
@@ -59,7 +65,26 @@ final class UserNotificationService {
     // MARK: - Internals
 
     private func post(category: Category, title: String, body: String) async {
-        guard await ensureAuthorized() else { return }
+        let signature = "\(category.rawValue)\u{0}\(title)\u{0}\(body)"
+        let now = Date()
+        lastPostAtBySignature = lastPostAtBySignature.filter {
+            now.timeIntervalSince($0.value) < Self.duplicatePostCooldown
+        }
+        if let lastPostAt = lastPostAtBySignature[signature],
+           now.timeIntervalSince(lastPostAt) < Self.duplicatePostCooldown {
+            return
+        }
+        // Reserve before the authorization/add awaits. MainActor methods are
+        // re-entrant, so another identical post could otherwise pass this check
+        // while the first one is suspended in UserNotifications.
+        lastPostAtBySignature[signature] = now
+
+        guard await ensureAuthorized() else {
+            if lastPostAtBySignature[signature] == now {
+                lastPostAtBySignature[signature] = nil
+            }
+            return
+        }
 
         let content = UNMutableNotificationContent()
         content.title = title
@@ -75,7 +100,13 @@ final class UserNotificationService {
             content: content,
             trigger: nil
         )
-        try? await UNUserNotificationCenter.current().add(request)
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+        } catch {
+            if lastPostAtBySignature[signature] == now {
+                lastPostAtBySignature[signature] = nil
+            }
+        }
     }
 
     private func ensureAuthorized() async -> Bool {
