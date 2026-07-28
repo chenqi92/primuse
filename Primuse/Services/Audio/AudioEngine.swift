@@ -772,7 +772,13 @@ final class AudioEngine {
         // all. Migrate legacy app-volume values back to unity gain.
         UserDefaults.standard.removeObject(forKey: Self.volumeKey)
         playerNode?.volume = 1
-        engine?.mainMixerNode.outputVolume = 1
+        // The high-fidelity graph deliberately connects the player directly
+        // to the output node. Asking AVAudioEngine for mainMixerNode in that
+        // mode makes it try to attach a second output path and can trip an
+        // internal Core Audio assertion. Never materialize the mixer there.
+        if outputMode == .effects {
+            engine?.mainMixerNode.outputVolume = 1
+        }
         #else
         guard outputMode == .effects else {
             playerNode?.volume = 1
@@ -802,7 +808,12 @@ final class AudioEngine {
         let playerPlaying = playerNode?.isPlaying ?? false
         let playerVol = playerNode?.volume ?? -1
         let crossVol = crossfadePlayerNode?.volume ?? -1
-        let mainVol = engine?.mainMixerNode.outputVolume ?? -1
+        // mainMixerNode does not exist in the direct high-fidelity graph.
+        // Merely accessing the property asks AVAudioEngine to create/connect
+        // it, which conflicts with the player's existing output connection.
+        let mainVol: Float = outputMode == .effects
+            ? (engine?.mainMixerNode.outputVolume ?? -1)
+            : 1
         let hasTime = (playerNode?.lastRenderTime) != nil
         return "mode=\(outputMode.rawValue) eng=\(engRunning) player=\(playerPlaying) pVol=\(playerVol) cVol=\(crossVol) mainVol=\(mainVol) hasRenderTime=\(hasTime)"
     }

@@ -16,6 +16,9 @@ trap cleanup EXIT
   -f lavfi -i "sine=frequency=997:duration=1.5:sample_rate=48000" \
   -ac 2 -c:a dca -strict -2 "$SMOKE_DIR/tone.dts"
 "$FFMPEG_BIN" -hide_banner -loglevel error \
+  -f lavfi -i "sine=frequency=997:duration=1.5:sample_rate=48000" \
+  -ac 6 -channel_layout "5.1(side)" -c:a dca -strict -2 "$SMOKE_DIR/tone-5.1.dts"
+"$FFMPEG_BIN" -hide_banner -loglevel error \
   -i "$SMOKE_DIR/tone.dts" -c:a copy -f wav "$SMOKE_DIR/tone-dts.wav"
 "$FFMPEG_BIN" -hide_banner -loglevel error \
   -f lavfi -i "sine=frequency=997:duration=1.5:sample_rate=44100" \
@@ -23,6 +26,15 @@ trap cleanup EXIT
 "$FFMPEG_BIN" -hide_banner -loglevel error \
   -f lavfi -i "sine=frequency=997:duration=1.5:sample_rate=96000" \
   -ac 2 -c:a flac "$SMOKE_DIR/tone.flac"
+"$FFMPEG_BIN" -hide_banner -loglevel error \
+  -f lavfi -i "sine=frequency=997:duration=1.5:sample_rate=48000" \
+  -ac 2 -c:a aac -f adts "$SMOKE_DIR/tone.aac"
+"$FFMPEG_BIN" -hide_banner -loglevel error \
+  -f lavfi -i "sine=frequency=997:duration=1.5:sample_rate=48000" \
+  -ac 2 -c:a mlp -strict -2 "$SMOKE_DIR/tone.mlp"
+"$FFMPEG_BIN" -hide_banner -loglevel error \
+  -f lavfi -i "sine=frequency=997:duration=1.5:sample_rate=48000" \
+  -ac 2 -c:a truehd -strict -2 -f truehd "$SMOKE_DIR/tone.truehd"
 
 FRAMEWORK_ROOT="$ROOT_DIR/Frameworks/FFmpeg"
 RUNTIME_DIR="$SMOKE_DIR/Frameworks"
@@ -43,6 +55,11 @@ xcrun clang -fobjc-arc \
 
 "$SMOKE_DIR/ffmpeg-bridge-smoke" \
   "$SMOKE_DIR/tone.dts" \
+  "$SMOKE_DIR/tone-5.1.dts" \
   "$SMOKE_DIR/tone-dts.wav" \
   "$SMOKE_DIR/tone.wma" \
-  "$SMOKE_DIR/tone.flac"
+  "$SMOKE_DIR/tone.flac" \
+  "$SMOKE_DIR/tone.aac" \
+  "$SMOKE_DIR/tone.mlp" \
+  "$SMOKE_DIR/tone.truehd" \
+  "$@"

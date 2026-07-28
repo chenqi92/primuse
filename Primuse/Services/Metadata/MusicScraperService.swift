@@ -145,40 +145,10 @@ final class MusicScraperService {
 
         // NEVER overwrite existing cover or lyrics with nil
         if updatedSong.coverArtFileName == nil && song.coverArtFileName != nil {
-            updatedSong = Song(
-                id: updatedSong.id, title: updatedSong.title,
-                albumID: updatedSong.albumID, artistID: updatedSong.artistID,
-                albumTitle: updatedSong.albumTitle, artistName: updatedSong.artistName,
-                trackNumber: updatedSong.trackNumber, discNumber: updatedSong.discNumber,
-                duration: updatedSong.duration, fileFormat: updatedSong.fileFormat,
-                filePath: updatedSong.filePath, sourceID: updatedSong.sourceID,
-                fileSize: updatedSong.fileSize, bitRate: updatedSong.bitRate,
-                sampleRate: updatedSong.sampleRate, bitDepth: updatedSong.bitDepth,
-                genre: updatedSong.genre, year: updatedSong.year,
-                dateAdded: updatedSong.dateAdded,
-                coverArtFileName: song.coverArtFileName,
-                lyricsFileName: updatedSong.lyricsFileName ?? song.lyricsFileName,
-                mvPath: updatedSong.mvPath ?? song.mvPath,
-                revision: updatedSong.revision ?? song.revision
-            )
+            updatedSong.coverArtFileName = song.coverArtFileName
         }
         if updatedSong.lyricsFileName == nil && song.lyricsFileName != nil {
-            updatedSong = Song(
-                id: updatedSong.id, title: updatedSong.title,
-                albumID: updatedSong.albumID, artistID: updatedSong.artistID,
-                albumTitle: updatedSong.albumTitle, artistName: updatedSong.artistName,
-                trackNumber: updatedSong.trackNumber, discNumber: updatedSong.discNumber,
-                duration: updatedSong.duration, fileFormat: updatedSong.fileFormat,
-                filePath: updatedSong.filePath, sourceID: updatedSong.sourceID,
-                fileSize: updatedSong.fileSize, bitRate: updatedSong.bitRate,
-                sampleRate: updatedSong.sampleRate, bitDepth: updatedSong.bitDepth,
-                genre: updatedSong.genre, year: updatedSong.year,
-                dateAdded: updatedSong.dateAdded,
-                coverArtFileName: updatedSong.coverArtFileName,
-                lyricsFileName: song.lyricsFileName,
-                mvPath: updatedSong.mvPath ?? song.mvPath,
-                revision: updatedSong.revision ?? song.revision
-            )
+            updatedSong.lyricsFileName = song.lyricsFileName
         }
 
         // 重新刮削已有 hash ref 的歌曲时, mergedSong 生成的占位 ref 与现存 ref 完全
@@ -1426,32 +1396,50 @@ final class MusicScraperService {
             ? song.title
             : candidateTitle
 
-        return Song(
-            id: song.id,
-            title: resolvedTitle,
-            albumID: song.albumID,
-            artistID: song.artistID,
-            albumTitle: onlyFillMissing ? (albumNeedsUpdate ? metadata.albumTitle ?? song.albumTitle : song.albumTitle) : (metadata.albumTitle ?? song.albumTitle),
-            artistName: onlyFillMissing ? (artistNeedsUpdate ? metadata.artist ?? song.artistName : song.artistName) : (metadata.artist ?? song.artistName),
-            trackNumber: song.trackNumber ?? metadata.trackNumber,
-            discNumber: song.discNumber ?? metadata.discNumber,
-            duration: metadata.duration > 0 ? metadata.duration : song.duration,
-            fileFormat: song.fileFormat,
-            filePath: song.filePath,
-            sourceID: song.sourceID,
-            fileSize: song.fileSize,
-            bitRate: metadata.bitRate ?? song.bitRate,
-            sampleRate: metadata.sampleRate ?? song.sampleRate,
-            bitDepth: metadata.bitDepth ?? song.bitDepth,
-            genre: onlyFillMissing ? (genreNeedsUpdate ? metadata.genre ?? song.genre : song.genre) : (metadata.genre ?? song.genre),
-            year: onlyFillMissing ? (yearNeedsUpdate ? metadata.year ?? song.year : song.year) : (metadata.year ?? song.year),
-            lastModified: song.lastModified,
-            dateAdded: song.dateAdded,
-            coverArtFileName: coverNeedsUpdate ? (metadata.coverArtFileName ?? song.coverArtFileName) : song.coverArtFileName,
-            lyricsFileName: lyricsNeedsUpdate ? (metadata.lyricsFileName ?? song.lyricsFileName) : song.lyricsFileName,
-            mvPath: metadata.mvPath ?? song.mvPath,
-            revision: song.revision
-        )
+        // Mutate the original value instead of reconstructing Song. Besides
+        // being safer when the model gains fields, this preserves CUE virtual
+        // track boundaries and ReplayGain/search metadata during scraping.
+        var merged = song
+        merged.title = resolvedTitle
+        merged.albumTitle = onlyFillMissing
+            ? (albumNeedsUpdate ? metadata.albumTitle ?? song.albumTitle : song.albumTitle)
+            : (metadata.albumTitle ?? song.albumTitle)
+        merged.artistName = onlyFillMissing
+            ? (artistNeedsUpdate ? metadata.artist ?? song.artistName : song.artistName)
+            : (metadata.artist ?? song.artistName)
+        merged.trackNumber = song.trackNumber ?? metadata.trackNumber
+        merged.discNumber = song.discNumber ?? metadata.discNumber
+        // File metadata describes the physical image. It must never replace a
+        // CUE virtual track's segment duration with the whole album duration.
+        if !song.isCueTrack, metadata.duration > 0 {
+            merged.duration = metadata.duration
+        }
+        // Some container readers express an unknown numeric field as zero
+        // instead of nil (notably ALAC bit depth). Never let an online/file
+        // scrape erase a valid value obtained from the FFmpeg scan.
+        if let bitRate = metadata.bitRate, bitRate > 0 {
+            merged.bitRate = bitRate
+        }
+        if let sampleRate = metadata.sampleRate, sampleRate > 0 {
+            merged.sampleRate = sampleRate
+        }
+        if let bitDepth = metadata.bitDepth, bitDepth > 0 {
+            merged.bitDepth = bitDepth
+        }
+        merged.genre = onlyFillMissing
+            ? (genreNeedsUpdate ? metadata.genre ?? song.genre : song.genre)
+            : (metadata.genre ?? song.genre)
+        merged.year = onlyFillMissing
+            ? (yearNeedsUpdate ? metadata.year ?? song.year : song.year)
+            : (metadata.year ?? song.year)
+        merged.coverArtFileName = coverNeedsUpdate
+            ? (metadata.coverArtFileName ?? song.coverArtFileName)
+            : song.coverArtFileName
+        merged.lyricsFileName = lyricsNeedsUpdate
+            ? (metadata.lyricsFileName ?? song.lyricsFileName)
+            : song.lyricsFileName
+        merged.mvPath = metadata.mvPath ?? song.mvPath
+        return merged
     }
 
     private nonisolated static func writeSidecarWithTimeout(

@@ -33,6 +33,12 @@ int main(int argc, const char *argv[]) {
                 allPassed = NO;
                 continue;
             }
+            if (!isfinite(probe.duration) || probe.duration <= 0) {
+                fprintf(stderr, "FAIL metadata %s: codec=%s duration=%.6f\n",
+                        argv[index], probe.codecName.UTF8String, probe.duration);
+                allPassed = NO;
+                continue;
+            }
 
             FFmpegDecoderBridge *decoder = [[FFmpegDecoderBridge alloc] initWithURL:url error:&error];
             BOOL foundSignal = NO;
@@ -53,12 +59,14 @@ int main(int argc, const char *argv[]) {
                 continue;
             }
 
-            printf("PASS %s codec=%s container=%s sr=%.0f ch=%ld frames=%ld\n",
+            printf("PASS %s codec=%s container=%s duration=%.6f sr=%.0f ch=%ld depth=%ld frames=%ld\n",
                    url.lastPathComponent.UTF8String,
                    probe.codecName.UTF8String,
                    probe.formatName.UTF8String,
+                   probe.duration,
                    probe.sampleRate,
                    (long)probe.channelCount,
+                   (long)probe.bitDepth,
                    (long)decodedFrames);
         }
         return allPassed ? 0 : 1;

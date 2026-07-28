@@ -1320,25 +1320,13 @@ struct ScrapeOptionsView: View {
 
             var updated = song
             if let detail {
-                updated = Song(
-                    id: song.id, title: detail.title,
-                    albumID: song.albumID, artistID: song.artistID,
-                    albumTitle: detail.album ?? song.albumTitle,
-                    artistName: detail.artist ?? song.artistName,
-                    trackNumber: detail.trackNumber ?? song.trackNumber,
-                    discNumber: detail.discNumber ?? song.discNumber,
-                    duration: song.duration, fileFormat: song.fileFormat,
-                    filePath: song.filePath, sourceID: song.sourceID,
-                    fileSize: song.fileSize, bitRate: song.bitRate,
-                    sampleRate: song.sampleRate, bitDepth: song.bitDepth,
-                    genre: detail.genres?.prefix(3).joined(separator: ", ") ?? song.genre,
-                    year: detail.year ?? song.year,
-                    dateAdded: song.dateAdded,
-                    coverArtFileName: song.coverArtFileName,
-                    lyricsFileName: song.lyricsFileName,
-                    mvPath: song.mvPath,
-                    revision: song.revision
-                )
+                updated.title = detail.title
+                updated.albumTitle = detail.album ?? song.albumTitle
+                updated.artistName = detail.artist ?? song.artistName
+                updated.trackNumber = detail.trackNumber ?? song.trackNumber
+                updated.discNumber = detail.discNumber ?? song.discNumber
+                updated.genre = detail.genres?.prefix(3).joined(separator: ", ") ?? song.genre
+                updated.year = detail.year ?? song.year
             }
 
             // Download cover art if available (keep in memory, don't store to disk yet)
@@ -1435,39 +1423,24 @@ struct ScrapeOptionsView: View {
             ? MetadataAssetStore.shared.expectedLyricsFileName(for: song.id)
             : song.lyricsFileName
 
-        // Build final song with only selected changes applied
-        let final = Song(
-            id: song.id,
-            title: (titleChanged && applyTitle) ? u.title : song.title,
-            albumID: song.albumID, artistID: song.artistID,
-            albumTitle: (albumChanged && applyAlbum) ? u.albumTitle : song.albumTitle,
-            artistName: (artistChanged && applyArtist) ? u.artistName : song.artistName,
-            trackNumber: (trackChanged && applyTrack) ? u.trackNumber : song.trackNumber,
-            discNumber: allowsMetadataAndCover ? (u.discNumber ?? song.discNumber) : song.discNumber,
-            duration: allowsMetadataAndCover && u.duration > 0 ? u.duration : song.duration,
-            fileFormat: song.fileFormat,
-            filePath: song.filePath, sourceID: song.sourceID,
-            fileSize: song.fileSize,
-            bitRate: u.bitRate ?? song.bitRate,
-            sampleRate: u.sampleRate ?? song.sampleRate,
-            bitDepth: u.bitDepth ?? song.bitDepth,
-            genre: (genreChanged && applyGenre) ? u.genre : song.genre,
-            year: (yearChanged && applyYear) ? u.year : song.year,
-            lastModified: song.lastModified,
-            dateAdded: song.dateAdded,
-            coverArtFileName: coverFileName,
-            lyricsFileName: lyricsFileName,
-            mvPath: song.mvPath,
-            replayGainTrackGain: song.replayGainTrackGain,
-            replayGainTrackPeak: song.replayGainTrackPeak,
-            replayGainAlbumGain: song.replayGainAlbumGain,
-            replayGainAlbumPeak: song.replayGainAlbumPeak,
-            revision: song.revision,
-            titlePinyin: song.titlePinyin,
-            artistPinyin: song.artistPinyin,
-            albumPinyin: song.albumPinyin,
-            lyricsText: song.lyricsText
-        )
+        // Preserve source-specific fields (especially CUE boundaries) while
+        // applying only the options the user selected.
+        var final = song
+        final.title = (titleChanged && applyTitle) ? u.title : song.title
+        final.albumTitle = (albumChanged && applyAlbum) ? u.albumTitle : song.albumTitle
+        final.artistName = (artistChanged && applyArtist) ? u.artistName : song.artistName
+        final.trackNumber = (trackChanged && applyTrack) ? u.trackNumber : song.trackNumber
+        final.discNumber = allowsMetadataAndCover ? (u.discNumber ?? song.discNumber) : song.discNumber
+        if !song.isCueTrack, allowsMetadataAndCover, u.duration > 0 {
+            final.duration = u.duration
+        }
+        final.bitRate = u.bitRate ?? song.bitRate
+        final.sampleRate = u.sampleRate ?? song.sampleRate
+        final.bitDepth = u.bitDepth ?? song.bitDepth
+        final.genre = (genreChanged && applyGenre) ? u.genre : song.genre
+        final.year = (yearChanged && applyYear) ? u.year : song.year
+        final.coverArtFileName = coverFileName
+        final.lyricsFileName = lyricsFileName
 
         // 先 dismiss, 把 replaceSong (rebuildIndex/persistSnapshot/...)
         // 和 sidecar 网络写都挪到 sheet 关闭之后, 避免主线程阻塞导致用户

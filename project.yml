@@ -526,6 +526,7 @@ targets:
       - path: Primuse/Services/Metadata/MetadataAssetStore.swift
       - path: Primuse/Services/Metadata/FileMetadataReader.swift
       - path: Primuse/Services/Metadata/LyricsParser.swift
+      - path: Primuse/Services/Cloud/CloudKitRuntime.swift
       - path: Primuse/Services/Cloud/LibrarySnapshotSync.swift
       # 内网自动发现(Bonjour/NWBrowser 找 NAS),与 iOS/macOS 同一份实现
       - path: Primuse/Services/Sources/NetworkDiscoveryService.swift

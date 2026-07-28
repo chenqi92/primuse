@@ -7,6 +7,12 @@ actor LocalFileSource: SongScanningConnector {
     private let basePath: URL
     private let metadataService = MetadataService()
     private let ffmpegDecoder = FFmpegAudioDecoder()
+    /// Native metadata readers are fast and remain the default for large
+    /// libraries. These formats need FFmpeg's stream-level values to avoid
+    /// known duration/bit-depth mistakes (raw AAC and 24-bit lossless), while
+    /// FFmpeg-preferred formats already require its compatibility decoder.
+    private static let ffmpegMetadataProbeExtensions =
+        FFmpegAudioDecoder.preferredExtensions.union(["aac", "flac", "m4a", "mp4"])
     private static let minimumReadableAudioBytes: Int64 = 1024
     /// macOS sandbox requires holding the security scope across the lifetime
     /// of the connector — the URL we resolved from the stored bookmark
@@ -218,8 +224,9 @@ actor LocalFileSource: SongScanningConnector {
         let needsFFmpegProbe = isDTS
             || metadata.duration <= 0
             || FileFormatRouter.decoder(for: declaredFormat) is FFmpegAudioDecoder
+            || Self.ffmpegMetadataProbeExtensions.contains(ext.lowercased())
         let ffmpegInfo = needsFFmpegProbe ? try? await ffmpegDecoder.fileInfo(for: fileURL) : nil
-        let duration = ffmpegInfo?.duration ?? metadata.duration
+        let duration = Self.preferredPositive(ffmpegInfo?.duration, fallback: metadata.duration)
         guard isStandaloneVideo || duration > 0 else {
             plog("📥 LocalFileSource: skipping unreadable local audio '\(item.name)' size=\(item.size)B")
             return nil
@@ -239,8 +246,14 @@ actor LocalFileSource: SongScanningConnector {
             sourceID: sourceID,
             fileSize: item.size,
             bitRate: ffmpegInfo?.bitRate ?? metadata.bitRate,
-            sampleRate: ffmpegInfo.map { Int($0.sampleRate) } ?? metadata.sampleRate,
-            bitDepth: ffmpegInfo?.bitDepth ?? metadata.bitDepth,
+            sampleRate: Self.preferredPositiveInt(
+                ffmpegInfo.map { Int($0.sampleRate) },
+                fallback: metadata.sampleRate
+            ),
+            bitDepth: Self.preferredPositiveInt(
+                ffmpegInfo?.bitDepth,
+                fallback: metadata.bitDepth
+            ),
             genre: metadata.genre,
             year: metadata.year,
             lastModified: item.modifiedDate,
@@ -337,11 +350,12 @@ actor LocalFileSource: SongScanningConnector {
             allowOnlineFetch: false,
             fallbackTitle: fallbackTitle
         )
-        let needsFFmpegProbe = descriptors.contains {
+        let ext = fileURL.pathExtension.lowercased()
+        let needsFFmpegProbe = Self.ffmpegMetadataProbeExtensions.contains(ext) || descriptors.contains {
             FileFormatRouter.decoder(for: $0.format) is FFmpegAudioDecoder
         }
         let ffmpegInfo = needsFFmpegProbe ? try? await ffmpegDecoder.fileInfo(for: fileURL) : nil
-        let physicalDuration = ffmpegInfo?.duration ?? metadata.duration
+        let physicalDuration = Self.preferredPositive(ffmpegInfo?.duration, fallback: metadata.duration)
 
         return descriptors.compactMap { descriptor in
             guard let start = descriptor.track.startTime else { return nil }
@@ -366,8 +380,14 @@ actor LocalFileSource: SongScanningConnector {
                 sourceID: sourceID,
                 fileSize: item.size,
                 bitRate: ffmpegInfo?.bitRate ?? metadata.bitRate,
-                sampleRate: ffmpegInfo.map { Int($0.sampleRate) } ?? metadata.sampleRate,
-                bitDepth: ffmpegInfo?.bitDepth ?? metadata.bitDepth,
+                sampleRate: Self.preferredPositiveInt(
+                    ffmpegInfo.map { Int($0.sampleRate) },
+                    fallback: metadata.sampleRate
+                ),
+                bitDepth: Self.preferredPositiveInt(
+                    ffmpegInfo?.bitDepth,
+                    fallback: metadata.bitDepth
+                ),
                 genre: descriptor.genre ?? metadata.genre,
                 year: descriptor.year ?? metadata.year,
                 lastModified: item.modifiedDate,
@@ -434,6 +454,22 @@ actor LocalFileSource: SongScanningConnector {
         guard path.hasPrefix(base) else { return "/" + url.lastPathComponent }
         let suffix = path.dropFirst(base.count)
         return suffix.hasPrefix("/") ? String(suffix) : "/" + suffix
+    }
+
+    private nonisolated static func preferredPositive(
+        _ candidate: TimeInterval?,
+        fallback: TimeInterval
+    ) -> TimeInterval {
+        guard let candidate, candidate.isFinite, candidate > 0 else { return fallback }
+        return candidate
+    }
+
+    private nonisolated static func preferredPositiveInt(
+        _ candidate: Int?,
+        fallback: Int?
+    ) -> Int? {
+        guard let candidate, candidate > 0 else { return fallback }
+        return candidate
     }
 
     private nonisolated static func generateID(sourceID: String, path: String) -> String {

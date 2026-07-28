@@ -18,7 +18,7 @@ private final class FFmpegInputBufferBox: @unchecked Sendable {
 /// and also acts as the content-probing last resort for mislabeled files.
 final class FFmpegAudioDecoder: PrimuseAudioDecoder {
     static let preferredExtensions: Set<String> = [
-        "dts", "dtshd", "ac3", "eac3", "ec3", "mlp", "truehd", "thd",
+        "aac", "dts", "dtshd", "ac3", "eac3", "ec3", "mlp", "truehd", "thd",
         "wma", "asf", "xma", "oma", "aa3", "at3", "atrac", "amr",
         "awb", "tak", "tta", "wv", "ape", "mpc", "mpp", "shn", "spx",
         "qoa", "dsf", "dff", "dtswav"

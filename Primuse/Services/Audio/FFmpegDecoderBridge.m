@@ -8,6 +8,7 @@
 #include <libavutil/mem.h>
 #include <libavutil/samplefmt.h>
 #include <libswresample/swresample.h>
+#include <stdint.h>
 #include <math.h>
 #include <string.h>
 
@@ -27,6 +28,25 @@ static NSError *FFmpegError(int code, NSString *operation) {
                                [NSString stringWithFormat:@"%@: %@", operation, FFmpegErrorMessage(code)]}];
 }
 
+static AVAudioChannelLayout *FFmpegAudioChannelLayout(int channels) {
+    AudioChannelLayoutTag tag;
+    switch (channels) {
+        case 1: tag = kAudioChannelLayoutTag_Mono; break;
+        case 2: tag = kAudioChannelLayoutTag_Stereo; break;
+        case 3: tag = kAudioChannelLayoutTag_MPEG_3_0_A; break;
+        case 4: tag = kAudioChannelLayoutTag_Quadraphonic; break;
+        case 5: tag = kAudioChannelLayoutTag_MPEG_5_0_A; break;
+        case 6: tag = kAudioChannelLayoutTag_MPEG_5_1_A; break;
+        case 7: tag = kAudioChannelLayoutTag_MPEG_6_1_A; break;
+        case 8: tag = kAudioChannelLayoutTag_MPEG_7_1_C; break;
+        default:
+            if (channels <= 0 || channels > UINT16_MAX) return nil;
+            tag = kAudioChannelLayoutTag_DiscreteInOrder | (AudioChannelLayoutTag)channels;
+            break;
+    }
+    return [[AVAudioChannelLayout alloc] initWithLayoutTag:tag];
+}
+
 static BOOL FFmpegCodecIsDSD(enum AVCodecID codecID) {
     switch (codecID) {
         case AV_CODEC_ID_DSD_LSBF:
@@ -38,6 +58,76 @@ static BOOL FFmpegCodecIsDSD(enum AVCodecID codecID) {
         default:
             return NO;
     }
+}
+
+/// Raw elementary streams such as MLP/TrueHD often omit both stream and
+/// container duration. Their demuxers still expose packet timestamps and
+/// durations, so scan packet headers (without decoding PCM) as an authoritative
+/// fallback. A separate format context keeps the real decoder positioned at
+/// the beginning of the file.
+static NSTimeInterval FFmpegPacketDuration(NSURL *url,
+                                           const AVInputFormat *forcedInputFormat) {
+    AVFormatContext *context = NULL;
+    if (avformat_open_input(&context, url.fileSystemRepresentation,
+                            forcedInputFormat, NULL) < 0) {
+        return 0;
+    }
+    if (avformat_find_stream_info(context, NULL) < 0) {
+        avformat_close_input(&context);
+        return 0;
+    }
+
+    int streamIndex = av_find_best_stream(context, AVMEDIA_TYPE_AUDIO,
+                                          -1, -1, NULL, 0);
+    if (streamIndex < 0) {
+        avformat_close_input(&context);
+        return 0;
+    }
+
+    AVStream *stream = context->streams[streamIndex];
+    AVRational timeBase = stream->time_base;
+    AVPacket *packet = av_packet_alloc();
+    if (!packet) {
+        avformat_close_input(&context);
+        return 0;
+    }
+
+    int64_t earliestTimestamp = INT64_MAX;
+    int64_t latestEndTimestamp = INT64_MIN;
+    int64_t accumulatedDuration = 0;
+    while (av_read_frame(context, packet) >= 0) {
+        if (packet->stream_index == streamIndex) {
+            int64_t timestamp = packet->pts != AV_NOPTS_VALUE
+                ? packet->pts : packet->dts;
+            if (timestamp != AV_NOPTS_VALUE) {
+                earliestTimestamp = MIN(earliestTimestamp, timestamp);
+                int64_t endTimestamp = timestamp;
+                if (packet->duration > 0 &&
+                    timestamp <= INT64_MAX - packet->duration) {
+                    endTimestamp += packet->duration;
+                }
+                latestEndTimestamp = MAX(latestEndTimestamp, endTimestamp);
+            }
+            if (packet->duration > 0 &&
+                accumulatedDuration <= INT64_MAX - packet->duration) {
+                accumulatedDuration += packet->duration;
+            }
+        }
+        av_packet_unref(packet);
+    }
+
+    av_packet_free(&packet);
+    avformat_close_input(&context);
+
+    int64_t durationTicks = 0;
+    if (earliestTimestamp != INT64_MAX && latestEndTimestamp != INT64_MIN &&
+        latestEndTimestamp > earliestTimestamp) {
+        durationTicks = latestEndTimestamp - earliestTimestamp;
+    } else if (accumulatedDuration > 0) {
+        durationTicks = accumulatedDuration;
+    }
+    NSTimeInterval duration = durationTicks * av_q2d(timeBase);
+    return isfinite(duration) && duration > 0 ? duration : 0;
 }
 
 @implementation FFmpegAudioFileInfo
@@ -180,6 +270,11 @@ static BOOL FFmpegCodecIsDSD(enum AVCodecID codecID) {
         ? _codecContext->ch_layout.nb_channels : stream->codecpar->ch_layout.nb_channels;
     int bitDepth = _codecContext->bits_per_raw_sample;
     if (bitDepth <= 0) bitDepth = _codecContext->bits_per_coded_sample;
+    // Several lossless decoders output into a 32-bit sample container even
+    // when the source is 24-bit. The codec parameters retain the encoded bit
+    // depth, whereas the decoder context may leave it unset.
+    if (bitDepth <= 0) bitDepth = stream->codecpar->bits_per_raw_sample;
+    if (bitDepth <= 0) bitDepth = stream->codecpar->bits_per_coded_sample;
     if (FFmpegCodecIsDSD(_codecContext->codec_id)) bitDepth = 1;
     _fileInfo.bitDepth = MAX(0, bitDepth);
     int64_t bitRate = _codecContext->bit_rate > 0
@@ -205,6 +300,9 @@ static BOOL FFmpegCodecIsDSD(enum AVCodecID codecID) {
             _fileInfo.duration = (NSTimeInterval)fileSize.longLongValue * 8.0 /
                 ((NSTimeInterval)_fileInfo.bitRateKbps * 1000.0);
         }
+    }
+    if (!isfinite(_fileInfo.duration) || _fileInfo.duration <= 0) {
+        _fileInfo.duration = FFmpegPacketDuration(url, forcedInputFormat);
     }
     return self;
 }
@@ -309,9 +407,17 @@ static BOOL FFmpegCodecIsDSD(enum AVCodecID codecID) {
     int channels = inputLayout.nb_channels;
     int capacity = swr_get_out_samples(_resampler, frame->nb_samples);
     if (capacity < frame->nb_samples) capacity = frame->nb_samples;
-    AVAudioFormat *format = [[AVAudioFormat alloc]
-        initStandardFormatWithSampleRate:sampleRate
-                                channels:(AVAudioChannelCount)channels];
+    AVAudioChannelLayout *channelLayout = FFmpegAudioChannelLayout(channels);
+    AVAudioFormat *format = channelLayout ? [[AVAudioFormat alloc]
+        initWithCommonFormat:AVAudioPCMFormatFloat32
+                  sampleRate:sampleRate
+                 interleaved:NO
+                channelLayout:channelLayout] : nil;
+    if (!format) {
+        av_channel_layout_uninit(&fallbackLayout);
+        if (error) *error = FFmpegError(AVERROR(EINVAL), @"Unsupported PCM channel layout");
+        return nil;
+    }
     AVAudioPCMBuffer *buffer = [[AVAudioPCMBuffer alloc]
         initWithPCMFormat:format frameCapacity:(AVAudioFrameCount)capacity];
     if (!buffer || !buffer.floatChannelData) {
