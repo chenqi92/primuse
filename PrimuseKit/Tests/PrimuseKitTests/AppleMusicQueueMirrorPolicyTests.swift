@@ -19,14 +19,14 @@ struct AppleMusicQueueMirrorPolicyTests {
             sessionGeneration: 4,
             activeGeneration: 5,
             isCancelled: false,
-            primuseOwnsMixedQueue: false,
+            primuseOwnsCanonicalQueue: false,
             snapshotCount: 12
         ))
         #expect(!AppleMusicQueueMirrorPolicy.shouldApplySnapshot(
             sessionGeneration: 5,
             activeGeneration: 5,
             isCancelled: true,
-            primuseOwnsMixedQueue: false,
+            primuseOwnsCanonicalQueue: false,
             snapshotCount: 12
         ))
     }
@@ -37,14 +37,14 @@ struct AppleMusicQueueMirrorPolicyTests {
             sessionGeneration: 5,
             activeGeneration: 5,
             isCancelled: false,
-            primuseOwnsMixedQueue: true,
+            primuseOwnsCanonicalQueue: true,
             snapshotCount: 12
         ))
         #expect(!AppleMusicQueueMirrorPolicy.shouldApplySnapshot(
             sessionGeneration: 5,
             activeGeneration: 5,
             isCancelled: false,
-            primuseOwnsMixedQueue: false,
+            primuseOwnsCanonicalQueue: false,
             snapshotCount: 0
         ))
     }
@@ -55,8 +55,91 @@ struct AppleMusicQueueMirrorPolicyTests {
             sessionGeneration: 5,
             activeGeneration: 5,
             isCancelled: false,
-            primuseOwnsMixedQueue: false,
+            primuseOwnsCanonicalQueue: false,
             snapshotCount: 12
+        ))
+    }
+}
+
+@Suite("Apple Music queue ownership policy")
+struct AppleMusicQueueOwnershipPolicyTests {
+    @Test("Every explicit Primuse queue remains canonical")
+    func keepsPureAndMixedQueuesPrimuseManaged() {
+        #expect(AppleMusicQueueOwnershipPolicy.shouldUsePrimuseQueue(
+            selectedQueueEntryMatches: true
+        ))
+        #expect(!AppleMusicQueueOwnershipPolicy.shouldUsePrimuseQueue(
+            selectedQueueEntryMatches: false
+        ))
+    }
+}
+
+@Suite("Apple Music playback-end policy")
+struct AppleMusicPlaybackEndPolicyTests {
+    @Test("A paused track still ends when MusicKit resets its current time")
+    func recognizesPausedEndAfterTimeReset() {
+        let nearEnd = AppleMusicPlaybackEndPolicy.isNearEnd(
+            duration: 240,
+            playbackTime: 0,
+            furthestObservedTime: 238.5
+        )
+
+        #expect(nearEnd)
+        #expect(AppleMusicPlaybackEndPolicy.shouldAdvance(
+            hasObservedActivePlayback: true,
+            isStopped: false,
+            isPaused: true,
+            wasPausedByUser: false,
+            isNearEnd: nearEnd,
+            stalledNearEndSampleCount: 0,
+            stallSampleThreshold: 6
+        ))
+    }
+
+    @Test("A frozen playing clock eventually advances")
+    func recognizesFrozenPlayingEnd() {
+        let nearEnd = AppleMusicPlaybackEndPolicy.isNearEnd(
+            duration: 180,
+            playbackTime: 178,
+            furthestObservedTime: 178
+        )
+
+        #expect(nearEnd)
+        #expect(!AppleMusicPlaybackEndPolicy.shouldAdvance(
+            hasObservedActivePlayback: true,
+            isStopped: false,
+            isPaused: false,
+            wasPausedByUser: false,
+            isNearEnd: nearEnd,
+            stalledNearEndSampleCount: 5,
+            stallSampleThreshold: 6
+        ))
+        #expect(AppleMusicPlaybackEndPolicy.shouldAdvance(
+            hasObservedActivePlayback: true,
+            isStopped: false,
+            isPaused: false,
+            wasPausedByUser: false,
+            isNearEnd: nearEnd,
+            stalledNearEndSampleCount: 6,
+            stallSampleThreshold: 6
+        ))
+    }
+
+    @Test("User pauses and non-terminal stalls never advance")
+    func rejectsManualPauseAndEarlyStall() {
+        #expect(!AppleMusicPlaybackEndPolicy.shouldAdvance(
+            hasObservedActivePlayback: true,
+            isStopped: false,
+            isPaused: true,
+            wasPausedByUser: true,
+            isNearEnd: true,
+            stalledNearEndSampleCount: 0,
+            stallSampleThreshold: 6
+        ))
+        #expect(!AppleMusicPlaybackEndPolicy.isNearEnd(
+            duration: 180,
+            playbackTime: 120,
+            furthestObservedTime: 120
         ))
     }
 }

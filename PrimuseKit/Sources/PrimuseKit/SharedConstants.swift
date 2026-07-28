@@ -487,7 +487,7 @@ public enum AppleMusicQueueMirrorPolicy {
         sessionGeneration: UInt64,
         activeGeneration: UInt64,
         isCancelled: Bool,
-        primuseOwnsMixedQueue: Bool,
+        primuseOwnsCanonicalQueue: Bool,
         snapshotCount: Int
     ) -> Bool {
         isActiveSession(
@@ -495,8 +495,55 @@ public enum AppleMusicQueueMirrorPolicy {
             activeGeneration: activeGeneration,
             isCancelled: isCancelled
         )
-            && !primuseOwnsMixedQueue
+            && !primuseOwnsCanonicalQueue
             && snapshotCount > 0
+    }
+}
+
+/// Decides whether MusicKit or Primuse owns the ordering for an Apple Music
+/// item. Any item selected from Primuse's visible queue must remain
+/// Primuse-managed, including queues made entirely of Apple Music songs.
+public enum AppleMusicQueueOwnershipPolicy {
+    public static func shouldUsePrimuseQueue(
+        selectedQueueEntryMatches: Bool
+    ) -> Bool {
+        selectedQueueEntryMatches
+    }
+}
+
+/// Pure policy for recognizing the end of a MusicKit track.
+///
+/// `ApplicationMusicPlayer` does not consistently settle on `.stopped`: some
+/// OS versions pause and reset `playbackTime`, while others remain `.playing`
+/// with a frozen clock. Callers therefore retain the furthest observed time and
+/// use a short stall watchdog near the reported duration.
+public enum AppleMusicPlaybackEndPolicy {
+    public static func isNearEnd(
+        duration: TimeInterval,
+        playbackTime: TimeInterval,
+        furthestObservedTime: TimeInterval
+    ) -> Bool {
+        guard duration.isFinite, duration > 0 else { return false }
+        let tolerance = min(5, max(1.5, duration * 0.02))
+        let observedTime = max(playbackTime, furthestObservedTime)
+        return observedTime >= max(0, duration - tolerance)
+    }
+
+    public static func shouldAdvance(
+        hasObservedActivePlayback: Bool,
+        isStopped: Bool,
+        isPaused: Bool,
+        wasPausedByUser: Bool,
+        isNearEnd: Bool,
+        stalledNearEndSampleCount: Int,
+        stallSampleThreshold: Int
+    ) -> Bool {
+        guard hasObservedActivePlayback else { return false }
+        if isStopped { return true }
+        if isPaused && !wasPausedByUser && isNearEnd { return true }
+        return isNearEnd
+            && stallSampleThreshold > 0
+            && stalledNearEndSampleCount >= stallSampleThreshold
     }
 }
 

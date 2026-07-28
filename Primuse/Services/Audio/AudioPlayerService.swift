@@ -263,10 +263,9 @@ final class AudioPlayerService {
     /// 的副作用, 避免 mirror → setRepeat/setShuffle → polling → mirror 的回环。
     private var isMirroringFromAppleMusic = false
 
-    /// `true` when Primuse owns a queue containing both Apple Music and
-    /// non-Apple-Music songs. ApplicationMusicPlayer cannot contain our local /
-    /// NAS entries, so in this mode it only plays the current DRM track while
-    /// Primuse keeps the canonical queue and advances across providers.
+    /// `true` when playback came from Primuse's canonical queue. MusicKit only
+    /// receives the current DRM track; Primuse retains ordering, repeat and
+    /// shuffle so every Apple Music boundary advances the same visible queue.
     private var isPrimuseManagingAppleMusicQueue = false
 
     // MARK: - DLNA Casting (推到外部 Renderer)
@@ -1200,20 +1199,18 @@ final class AudioPlayerService {
         isPlaying = false
         isAtTrackEnd = false
 
-        // A mixed Primuse queue cannot be represented by
-        // ApplicationMusicPlayer. Keep that queue here and give MusicKit only
-        // the current DRM song; next/previous and track-end then advance the
-        // original queue instead of silently switching to the Apple Music
-        // library. For an Apple-Music-only queue, MusicKit can still own the
-        // full context and perform native gapless transitions.
+        // Primuse's visible queue remains the only ordering authority. Giving
+        // MusicKit a separate multi-song context lets it diverge whenever the
+        // user appends/reorders songs or mixes providers. MusicKit therefore
+        // receives only the current DRM item for every Primuse queue.
         let selectedQueueEntryMatches = queueEntries.indices.contains(currentIndex)
-            && queueEntries[currentIndex].song.id == song.id
-        let needsShuffleLibraryExpansion = shuffleEnabled && queueEntries.count == 1
-        isPrimuseManagingAppleMusicQueue = selectedQueueEntryMatches
             && (
-                queueEntries.contains { $0.song.sourceID != AppleMusicLibraryService.systemSourceID }
-                    || needsShuffleLibraryExpansion
+                queueEntries[currentIndex].song.id == song.id
+                    || queueEntries[currentIndex].song.filePath == song.filePath
             )
+        isPrimuseManagingAppleMusicQueue = AppleMusicQueueOwnershipPolicy.shouldUsePrimuseQueue(
+            selectedQueueEntryMatches: selectedQueueEntryMatches
+        )
         let appleMusic = AppServices.shared.appleMusic
         if isPrimuseManagingAppleMusicQueue {
             appleMusic.prepareForPrimuseManagedQueue()
@@ -1317,9 +1314,9 @@ final class AudioPlayerService {
          isMirroringFromAppleMusic = true
          defer { isMirroringFromAppleMusic = false }
 
-         // MusicKit owns the current song only for Apple-Music-only queues.
-         // In a mixed queue Primuse deliberately gives MusicKit one item and
-         // keeps the original Song identity / currentIndex itself.
+         // MusicKit owns the current song only for direct plays that did not
+         // originate from Primuse's queue. Queued playback keeps the original
+         // Song identity and currentIndex here.
          let pSong = AppServices.shared.appleMusicLibrary.canonicalPrimuseSong(for: nps)
          if let rawSongID = am.nowPlayingRawSongID, rawSongID != pSong.id {
              let aliasKey = "\(rawSongID)→\(pSong.id)"
@@ -1354,7 +1351,7 @@ final class AudioPlayerService {
             sessionGeneration: sessionGeneration,
             activeGeneration: appleMusicMirrorGeneration,
             isCancelled: false,
-            primuseOwnsMixedQueue: isPrimuseManagingAppleMusicQueue,
+            primuseOwnsCanonicalQueue: isPrimuseManagingAppleMusicQueue,
             snapshotCount: am.queueSongs.count
          ) {
              let newIDs = am.queueSongs.map(\.id)
@@ -1370,9 +1367,9 @@ final class AudioPlayerService {
          }
      }
 
-    /// Called by `AppleMusicService` when a one-item MusicKit queue reaches
-    /// `.stopped`. Only mixed queues use Primuse track-end handling; pure Apple
-    /// Music queues remain system-managed.
+    /// Called when the one-item MusicKit queue reaches a terminal boundary.
+    /// Primuse then advances its canonical queue, regardless of the next
+    /// song's provider.
     func handleAppleMusicPlaybackEnded() {
         guard isPrimuseManagingAppleMusicQueue, isAppleMusicMode else { return }
         Task { @MainActor [weak self] in
@@ -3068,11 +3065,9 @@ final class AudioPlayerService {
         queueGeneration += 1
         queueEntries = songs.map { QueueEntry(song: $0) }
         currentIndex = max(0, min(index, songs.count - 1))
-        // Protect a newly-installed local/mixed queue from an existing Apple
+        // Protect any newly-installed canonical queue from an existing Apple
         // Music mirror during the short interval before `play(song:)` runs.
-        isPrimuseManagingAppleMusicQueue = songs.contains {
-            $0.sourceID != AppleMusicLibraryService.systemSourceID
-        }
+        isPrimuseManagingAppleMusicQueue = true
         let currentTitle = queueEntries[currentIndex].song.title
         let firstTitle = queueEntries.first?.song.title ?? "-"
         let lastTitle = queueEntries.last?.song.title ?? "-"
@@ -3091,6 +3086,10 @@ final class AudioPlayerService {
         guard !playable.isEmpty else { return }
         queueGeneration += 1
         queueEntries.append(contentsOf: playable.map { QueueEntry(song: $0) })
+        if isAppleMusicMode {
+            isPrimuseManagingAppleMusicQueue = true
+            AppServices.shared.appleMusic.prepareForPrimuseManagedQueue()
+        }
         pendingNextShuffleIndices = nil
         if shuffleEnabled { rebuildShuffleOrder() }
     }
@@ -3107,6 +3106,10 @@ final class AudioPlayerService {
         let insertionIndex = min(currentIndex + 1, queueEntries.count)
         queueGeneration += 1
         queueEntries.insert(contentsOf: playable.map { QueueEntry(song: $0) }, at: insertionIndex)
+        if isAppleMusicMode {
+            isPrimuseManagingAppleMusicQueue = true
+            AppServices.shared.appleMusic.prepareForPrimuseManagedQueue()
+        }
         pendingNextShuffleIndices = nil
         if shuffleEnabled { rebuildShuffleOrder() }
     }

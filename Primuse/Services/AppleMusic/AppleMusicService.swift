@@ -92,11 +92,15 @@ final class AppleMusicService {
 
     private var searchTask: Task<Void, Never>?
     private var playbackStatusObservation: Task<Void, Never>?
-    /// Fired once when an Apple Music queue that was observed playing reaches
-    /// `.stopped`. AudioPlayerService uses this to advance a mixed-source queue.
+    /// Fired once when an Apple Music track that was observed playing reaches
+    /// a terminal boundary. AudioPlayerService uses this to advance its queue.
     @ObservationIgnored var onPlaybackEnded: (() -> Void)?
     @ObservationIgnored private var hasObservedActivePlayback = false
     @ObservationIgnored private var wasPausedByUser = false
+    @ObservationIgnored private var lastObservedPlaybackTime: TimeInterval?
+    @ObservationIgnored private var furthestObservedPlaybackTime: TimeInterval = 0
+    @ObservationIgnored private var nearEndStallSampleCount = 0
+    private static let playbackEndStallSampleThreshold = 6
     /// 上个 tick 的 queue 轻量指纹 (entry id 列表) ── 只有指纹变化才重做
     /// 全量 SHA256 + Song 结构体投影, 避免每 0.5s 对几千首 queue 烧主线程。
     private var lastQueueSignature: [String] = []
@@ -239,8 +243,7 @@ final class AppleMusicService {
          let player = ApplicationMusicPlayer.shared
          nowPlayingSong = starting
          isAppleMusicPlaying = true
-         hasObservedActivePlayback = false
-         wasPausedByUser = false
+         resetPlaybackEndObservation()
          observePlaybackStatusIfNeeded()
          do {
              player.queue = ApplicationMusicPlayer.Queue(for: songs, startingAt: starting)
@@ -254,7 +257,7 @@ final class AppleMusicService {
                  plog("⚠️Apple Music play(queue) failed: \(error.localizedDescription)")
                  lastPlaybackError = error.localizedDescription
                  isAppleMusicPlaying = false
-                 hasObservedActivePlayback = false
+                 resetPlaybackEndObservation()
              }
          }
      }
@@ -299,8 +302,7 @@ final class AppleMusicService {
         // 不能等 try 成功才设, 否则 UI 永远不显示 mini player。
         nowPlayingSong = song
         isAppleMusicPlaying = true
-        hasObservedActivePlayback = false
-        wasPausedByUser = false
+        resetPlaybackEndObservation()
         observePlaybackStatusIfNeeded()
         do {
             player.queue = ApplicationMusicPlayer.Queue(for: [song])
@@ -320,7 +322,7 @@ final class AppleMusicService {
                 // 哪首歌, 并通过 lastPlaybackError UI 看到错误原因。否则用户
                 // 体验是 "点了没反应" + 没 mini player + 看不到任何错误。
                 isAppleMusicPlaying = false
-                hasObservedActivePlayback = false
+                resetPlaybackEndObservation()
             }
         }
     }
@@ -350,8 +352,7 @@ final class AppleMusicService {
         // queue.currentEntry 把 nowPlayingSong 复活, mini player 关不掉。
         playbackStatusObservation?.cancel()
         playbackStatusObservation = nil
-        hasObservedActivePlayback = false
-        wasPausedByUser = false
+        resetPlaybackEndObservation()
         ApplicationMusicPlayer.shared.stop()
         nowPlayingSong = nil
         nowPlayingRawSongID = nil
@@ -386,29 +387,74 @@ final class AppleMusicService {
          let status = player.state.playbackStatus
          let playbackTime = player.playbackTime
          let nowPlaying = status == .playing
-         let nearEndThreshold = max(currentDuration - 0.75, currentDuration * 0.98)
-         let pausedAtNaturalEnd = status == .paused
-             && !wasPausedByUser
-             && currentDuration > 0
-             && playbackTime >= nearEndThreshold
-         let endedAfterPlaying = hasObservedActivePlayback
-             && (status == .stopped || pausedAtNaturalEnd)
+
+         // Refresh duration before evaluating the end state. MusicKit can
+         // publish the first useful duration and the terminal status in
+         // adjacent polling ticks.
+         if status != .stopped,
+            let entry = player.queue.currentEntry,
+            case .song(let song) = entry.item {
+             let canonical = AppServices.shared.appleMusicLibrary.canonicalForNowPlaying(song)
+             currentDuration = canonical.duration ?? song.duration ?? currentDuration
+         }
+
          if nowPlaying {
              hasObservedActivePlayback = true
              wasPausedByUser = false
+             // A real backwards jump while still playing is a seek/restart,
+             // not a natural-end time reset. Start the watchdog window over.
+             if let previous = lastObservedPlaybackTime,
+                playbackTime < previous - 1 {
+                 furthestObservedPlaybackTime = playbackTime
+                 nearEndStallSampleCount = 0
+             } else {
+                 furthestObservedPlaybackTime = max(furthestObservedPlaybackTime, playbackTime)
+             }
+
+             let madeProgress = lastObservedPlaybackTime.map {
+                 playbackTime > $0 + 0.05
+             } ?? true
+             let nearEnd = AppleMusicPlaybackEndPolicy.isNearEnd(
+                 duration: currentDuration,
+                 playbackTime: playbackTime,
+                 furthestObservedTime: furthestObservedPlaybackTime
+             )
+             if nearEnd && !madeProgress {
+                 nearEndStallSampleCount += 1
+             } else {
+                 nearEndStallSampleCount = 0
+             }
          }
+         lastObservedPlaybackTime = playbackTime
+
+         let nearEnd = AppleMusicPlaybackEndPolicy.isNearEnd(
+             duration: currentDuration,
+             playbackTime: playbackTime,
+             furthestObservedTime: furthestObservedPlaybackTime
+         )
+         let endedAfterPlaying = AppleMusicPlaybackEndPolicy.shouldAdvance(
+             hasObservedActivePlayback: hasObservedActivePlayback,
+             isStopped: status == .stopped,
+             isPaused: status == .paused,
+             wasPausedByUser: wasPausedByUser,
+             isNearEnd: nearEnd,
+             stalledNearEndSampleCount: nearEndStallSampleCount,
+             stallSampleThreshold: Self.playbackEndStallSampleThreshold
+         )
          if isAppleMusicPlaying != nowPlaying {
              isAppleMusicPlaying = nowPlaying
          }
          // player 已 stop (用户点停止 / queue 自然播完) 时, 不再从残留 queue 回填
          // nowPlayingSong ── 否则 stopAppleMusic() 清掉的值会被复活, mini player
          // 关不掉。stopped 直接收摊本 tick。
-         if status == .stopped || pausedAtNaturalEnd {
-             hasObservedActivePlayback = false
-             wasPausedByUser = false
-             if endedAfterPlaying {
-                 onPlaybackEnded?()
-             }
+         if endedAfterPlaying {
+             plog("⏭️ Apple Music track end detected status=\(String(describing: status)) time=\(playbackTime) furthest=\(furthestObservedPlaybackTime) duration=\(currentDuration) stalledSamples=\(nearEndStallSampleCount)")
+             resetPlaybackEndObservation()
+             onPlaybackEnded?()
+             return
+         }
+         if status == .stopped {
+             resetPlaybackEndObservation()
              return
          }
          // queue.currentEntry 反映用户在 queue 里走到哪 — 不限于初次 play, 也包括
@@ -478,6 +524,14 @@ final class AppleMusicService {
          ApplicationMusicPlayer.shared.state.shuffleMode = .off
          repeatModeMirror = .off
          shuffleEnabledMirror = false
+     }
+
+     private func resetPlaybackEndObservation() {
+         hasObservedActivePlayback = false
+         wasPausedByUser = false
+         lastObservedPlaybackTime = nil
+         furthestObservedPlaybackTime = 0
+         nearEndStallSampleCount = 0
      }
 
      func setAppleMusicRepeat(_ mode: PrimuseKit.RepeatMode) {
