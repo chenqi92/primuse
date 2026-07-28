@@ -765,6 +765,15 @@ final class AudioEngine {
 
     /// Restore saved volume on setup
     func restoreVolume() {
+        #if os(iOS)
+        // The Now Playing control is the system `MPVolumeView`. Keeping a
+        // second persisted mixer gain would make the visible system value and
+        // actual loudness diverge, and it cannot affect MusicKit playback at
+        // all. Migrate legacy app-volume values back to unity gain.
+        UserDefaults.standard.removeObject(forKey: Self.volumeKey)
+        playerNode?.volume = 1
+        engine?.mainMixerNode.outputVolume = 1
+        #else
         guard outputMode == .effects else {
             playerNode?.volume = 1
             return
@@ -772,6 +781,7 @@ final class AudioEngine {
         if let saved = UserDefaults.standard.object(forKey: Self.volumeKey) as? Float {
             engine?.mainMixerNode.outputVolume = saved
         }
+        #endif
     }
 
     /// 给 visualizer 用的 ── mainMixerNode 是输出前最后一站,挂 tap 拿到的

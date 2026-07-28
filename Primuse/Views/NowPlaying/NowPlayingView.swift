@@ -4,6 +4,7 @@ import Translation
 import PrimuseKit
 #if os(iOS)
 import UIKit
+import MediaPlayer
 #elseif os(macOS)
 import AppKit
 #endif
@@ -453,10 +454,14 @@ struct NowPlayingView: View {
 
             HStack(spacing: 8) {
                 Image(systemName: "speaker.fill").font(.caption2).foregroundStyle(.white.opacity(0.4))
+                #if os(iOS)
+                SystemVolumeSlider()
+                #else
                 VolumeSlider(value: Binding(
                     get: { Double(player.audioEngine.volume) },
                     set: { player.audioEngine.volume = Float($0) }
                 ))
+                #endif
                 Image(systemName: "speaker.wave.3.fill").font(.caption2).foregroundStyle(.white.opacity(0.4))
             }
             .padding(.horizontal, 36).padding(.top, 12)
@@ -715,10 +720,14 @@ struct NowPlayingView: View {
                     // Volume
                     HStack(spacing: 8) {
                         Image(systemName: "speaker.fill").font(.caption2).foregroundStyle(.white.opacity(0.4))
+                        #if os(iOS)
+                        SystemVolumeSlider()
+                        #else
                         VolumeSlider(value: Binding(
                             get: { Double(player.audioEngine.volume) },
                             set: { player.audioEngine.volume = Float($0) }
                         ))
+                        #endif
                         Image(systemName: "speaker.wave.3.fill").font(.caption2).foregroundStyle(.white.opacity(0.4))
                     }
                     .padding(.horizontal, 26).padding(.top, 10)
@@ -1586,6 +1595,41 @@ struct ProgressSlider: View {
 }
 
 // MARK: - Volume Slider (thin, matching ProgressSlider style)
+
+#if os(iOS)
+/// iOS exposes output volume as read-only on `AVAudioSession`; `MPVolumeView`
+/// is the supported interactive control. Its slider observes hardware-button,
+/// Control Center, Bluetooth and AirPlay volume changes, so the value rendered
+/// here always describes the route that is actually producing sound. This also
+/// works for MusicKit playback, which bypasses Primuse's `AVAudioEngine`.
+struct SystemVolumeSlider: UIViewRepresentable {
+    func makeUIView(context: Context) -> MPVolumeView {
+        let view = MPVolumeView(frame: .zero)
+        view.showsVolumeSlider = true
+        styleSlider(in: view)
+        return view
+    }
+
+    func updateUIView(_ uiView: MPVolumeView, context: Context) {
+        styleSlider(in: uiView)
+    }
+
+    private func styleSlider(in volumeView: MPVolumeView) {
+        volumeView.backgroundColor = .clear
+        volumeView.subviews
+            .compactMap { $0 as? UIButton }
+            .forEach { $0.isHidden = true }
+
+        guard let slider = volumeView.subviews.compactMap({ $0 as? UISlider }).first else {
+            return
+        }
+        slider.minimumTrackTintColor = .white
+        slider.maximumTrackTintColor = UIColor.white.withAlphaComponent(0.2)
+        slider.thumbTintColor = .white
+        slider.accessibilityLabel = String(localized: "volume")
+    }
+}
+#endif
 
 struct VolumeSlider: View {
     @Binding var value: Double
