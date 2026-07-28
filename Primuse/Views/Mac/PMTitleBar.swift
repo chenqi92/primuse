@@ -22,7 +22,7 @@ struct PMTitleBar: View {
         HStack(spacing: 8) {
             PMWindowTrafficLights()
 
-            Spacer(minLength: 12)
+            windowDragSpacer
 
             // 设计稿对比: 搜索框比当前版本更窄 + 更高 (高/宽比约 30/25 = 1.2x)。
             // idealWidth 收到 320, maxWidth 380, 高度提到 36 让上下 padding 更松,
@@ -31,7 +31,7 @@ struct PMTitleBar: View {
                 .frame(minWidth: 240, idealWidth: 320, maxWidth: 380)
                 .frame(height: 36)
 
-            Spacer(minLength: 12)
+            windowDragSpacer
 
             PMRoundBtn(
                 icon: sidebarCollapsed ? "sidebar.right" : "sidebar.left",
@@ -56,10 +56,17 @@ struct PMTitleBar: View {
         .padding(.horizontal, 14)
         .frame(height: PMSize.titlebar)
         .background(titlebarBackground.ignoresSafeArea(edges: .top))
-        .pmWindowDragRegion()
         .overlay(alignment: .bottom) {
             Rectangle().fill(PMColor.divider).frame(height: 0.5)
         }
+    }
+
+    /// Use concrete AppKit views for the flexible title-bar gaps. Keeping the
+    /// drag bridge in `.background` left it behind SwiftUI's hosting view, so
+    /// clicks in those gaps could be swallowed before AppKit saw a double-click.
+    private var windowDragSpacer: some View {
+        PMWindowDragRegion()
+            .frame(minWidth: 12, maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Search box

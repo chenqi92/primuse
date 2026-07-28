@@ -200,7 +200,10 @@ struct PlaylistDetailView: View {
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
-                .disabled(songs.isEmpty)
+                // Do not disable the whole menu for an empty playlist. Actions
+                // that require tracks already carry their own disabled state,
+                // while exporting or deleting the playlist must remain usable.
+                .accessibilityLabel(Text("a11y_more_actions"))
             }
         }
         .sheet(item: $exportShareItem) { item in

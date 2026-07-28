@@ -559,7 +559,67 @@ private final class PMWindowDragRegionView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        window?.performDrag(with: event)
+        guard let window else { return }
+
+        // `performDrag(with:)` consumes the mouse-down sequence.  In a normal
+        // AppKit title bar the second click is intercepted first and toggles
+        // the window's zoomed state, but our custom drag region previously
+        // sent both clicks straight into dragging.  Restore the native
+        // double-click behaviour explicitly.
+        if event.clickCount == 2 {
+            PMWindowZoomController.toggle(window)
+        } else {
+            window.performDrag(with: event)
+        }
+    }
+}
+
+/// Deterministic fill/restore handling for hidden-titlebar windows.
+///
+/// AppKit's `performZoom(_:)` depends on the hidden standard zoom button and
+/// `zoom(_:)` can decide that the current content size is already ideal, both
+/// of which make a title-bar double-click appear to do nothing. Keep the last
+/// regular frame per live window and toggle against the screen's visible frame
+/// directly instead.
+@MainActor
+private enum PMWindowZoomController {
+    private static let regularFrames = NSMapTable<NSWindow, NSValue>.weakToStrongObjects()
+
+    static func toggle(_ window: NSWindow) {
+        guard let screen = window.screen ?? NSScreen.main else {
+            window.zoom(nil)
+            return
+        }
+
+        let visibleFrame = screen.visibleFrame
+        if approximatelyEqual(window.frame, visibleFrame) {
+            let regularFrame = regularFrames.object(forKey: window)?.rectValue
+                ?? defaultRegularFrame(for: window, in: visibleFrame)
+            regularFrames.setObject(NSValue(rect: regularFrame), forKey: window)
+            window.setFrame(window.constrainFrameRect(regularFrame, to: screen),
+                            display: true, animate: true)
+        } else {
+            regularFrames.setObject(NSValue(rect: window.frame), forKey: window)
+            window.setFrame(visibleFrame, display: true, animate: true)
+        }
+    }
+
+    private static func approximatelyEqual(_ lhs: NSRect, _ rhs: NSRect) -> Bool {
+        abs(lhs.minX - rhs.minX) <= 2
+            && abs(lhs.minY - rhs.minY) <= 2
+            && abs(lhs.width - rhs.width) <= 2
+            && abs(lhs.height - rhs.height) <= 2
+    }
+
+    private static func defaultRegularFrame(for window: NSWindow, in visibleFrame: NSRect) -> NSRect {
+        let width = max(window.minSize.width, min(1280, visibleFrame.width * 0.85))
+        let height = max(window.minSize.height, min(820, visibleFrame.height * 0.85))
+        return NSRect(
+            x: visibleFrame.midX - width / 2,
+            y: visibleFrame.midY - height / 2,
+            width: width,
+            height: height
+        )
     }
 }
 
@@ -861,7 +921,7 @@ struct PMWindowTrafficLights: View {
         case .minimize:
             window.miniaturize(nil)
         case .zoom:
-            window.zoom(nil)
+            PMWindowZoomController.toggle(window)
         }
     }
 }
