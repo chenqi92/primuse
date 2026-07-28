@@ -37,7 +37,14 @@ struct MacSourcesView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .sheet(isPresented: $showAddSource) {
-            SourceTypeSelectionView { source in sourceStore.add(source) }
+            SourceTypeSelectionView { source in
+                sourceStore.add(source)
+                // Local 已通过 basePath 限定扫描范围，不需要再次选择目录；
+                // 保存后立即扫描，和 iOS 的新增来源流程保持一致。
+                if source.type == .local {
+                    runScan(source)
+                }
+            }
         }
         .sheet(item: $editingSource) { source in
             // 不要再套外层 .frame —— AddSourceView 自己已经定了 560/620/660 的尺寸,
@@ -376,8 +383,9 @@ struct MacSourcesView: View {
     @ViewBuilder
     private func actionsRow(_ source: MusicSource, scanning: ScanService.ScanState?, dirs: [String]) -> some View {
         HStack(spacing: 6) {
-            // 服务端整库源(媒体服务器 / Subsonic) / Apple Music 资料库:全库自动扫描,无需「连接 + 选目录」。
-            if source.type.isServerLibrary || source.type == .appleMusicLibrary {
+            // 整库来源（含已由 basePath 限定范围的 Local）直接扫描，
+            // 不再进入没有意义的「连接 + 选目录」流程。
+            if source.type.scansEntireLibrary {
                 scanPill(source, scanning: scanning)
                 pill("settings_title", systemImage: "slider.horizontal.3") { editingSource = source }
             } else if dirs.isEmpty {

@@ -458,8 +458,9 @@ struct SourcesContentView: View {
                             scraperService: scraperService
                         )
                     }
-                } else if source.type.isServerLibrary {
-                    // 服务端整库源(媒体服务器 / Subsonic)直接全库扫描 — 无需选目录
+                } else if source.type.scansEntireLibrary {
+                    // 整库来源直接扫描，无需再选目录。macOS Local 的范围已由
+                    // 用户选定的 basePath 确定。
                     sourceActionButton(
                         cacheButtonTitle,
                         systemImage: "arrow.down.circle",

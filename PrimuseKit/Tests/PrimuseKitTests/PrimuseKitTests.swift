@@ -103,6 +103,18 @@ import Testing
     }
 }
 
+@Test func entireLibraryScanPolicyIncludesLocalFolderSources() {
+    let entireLibraryTypes: Set<MusicSourceType> = [
+        .local, .appleMusicLibrary,
+        .jellyfin, .emby, .plex,
+        .subsonic, .navidrome, .airsonic, .gonic,
+    ]
+
+    for sourceType in MusicSourceType.allCases {
+        #expect(sourceType.scansEntireLibrary == entireLibraryTypes.contains(sourceType))
+    }
+}
+
 @Test func testVideoFormatRouting() {
     #expect(VideoFormat.from(fileExtension: "MP4") == .mp4)
     #expect(VideoFormat.mov.isNativelyPlayable == true)

@@ -682,7 +682,7 @@ final class SourceManager {
         checks.append(contentsOf: credentialChecks(for: source))
 
         let selectedDirectories = explicitDirectories ?? source.scannedDirectories
-        if source.type.isServerLibrary == false, selectedDirectories.isEmpty {
+        if source.type.scansEntireLibrary == false, selectedDirectories.isEmpty {
             checks.append(SourceDiagnosticCheck(
                 status: .warning,
                 title: String(localized: "source_diag_directory_title"),

@@ -97,12 +97,12 @@ final class ScanService {
             return
         }
 
-        // Media servers / Apple Music Library 都是自动全库扫描,没有"用户选
-        // 目录"这一步,用 "/" 哨兵触发 connector.scanSongs(from: "/") 走全
-        // 量列举。其余 NAS / Cloud / Protocol / Local 都依赖 extraConfig
-        // 里持久化的目录列表。
+        // 整库来源没有额外的目录选择步骤。Local 已由用户选择的 basePath
+        // 确定范围；媒体服务器与 Apple Music Library 也天然是完整资料库。
+        // 统一用 "/" 哨兵触发 connector.scanSongs(from: "/")，避免 Local
+        // 因 extraConfig 没有目录数组而在保存后静默跳过扫描。
         let dirs: [String]
-        if source.type.isServerLibrary || source.type == .appleMusicLibrary {
+        if source.type.scansEntireLibrary {
             dirs = ["/"]
         } else {
             dirs = source.scannedDirectories
