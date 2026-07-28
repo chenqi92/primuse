@@ -171,6 +171,10 @@ xcodebuild -scheme Primuse \
   build
 
 # 真机构建（需要签名）
+# 先实际试签一个临时 Mach-O，提前发现钥匙串锁定、身份缺失或
+# Apple Development 私钥未授权给 /usr/bin/codesign。
+scripts/check-apple-signing.sh
+
 xcodebuild -scheme Primuse \
   -destination 'id=你的设备UDID' \
   build
@@ -187,7 +191,7 @@ xcrun devicectl device install app \
 # 启动
 xcrun devicectl device process launch \
   --device 你的设备UDID \
-  com.welape.primuse
+  com.welape.yuanyin
 ```
 
 ## 自定义刮削源

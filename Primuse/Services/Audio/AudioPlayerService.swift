@@ -46,50 +46,79 @@ private final class BufferIteratorBox: @unchecked Sendable {
     }
 }
 
-/// Async backpressure gate bounding the number of decoded PCM buffers that are
-/// scheduled-but-not-yet-consumed on an `AVAudioPlayerNode`.
+/// Async backpressure gate bounding the duration and count of decoded PCM
+/// buffers that are scheduled-but-not-yet-consumed on an `AVAudioPlayerNode`.
 ///
 /// Without this, `NativeAudioDecoder` yields buffers far faster than realtime
 /// playback and the whole track (plus the gapless next track) ends up resident
 /// in the node's unbounded queue — hundreds of MB for hi-res long tracks, which
 /// trips iOS jetsam during background playback.
 ///
-/// `acquire()` suspends the decoder when `limit` buffers are in flight;
+/// `acquire()` suspends the decoder when the duration or hard count limit is reached;
 /// `release()` (called from the node's `.dataConsumed` completion handler, which
 /// also fires on `reset()`/`stop()`) wakes the next waiter so decoding paces to
 /// playback.
 private actor AsyncBufferGate {
-    private let limit: Int
-    private var inFlight = 0
-    private var waiters: [CheckedContinuation<Void, Never>] = []
-
-    init(limit: Int) {
-        self.limit = max(1, limit)
+    private struct Waiter {
+        let duration: TimeInterval
+        let continuation: CheckedContinuation<Void, Never>
     }
 
-    func acquire() async {
-        if inFlight < limit {
-            inFlight += 1
+    private let maxBufferedDuration: TimeInterval
+    private let maxBufferCount: Int
+    private var inFlightDuration: TimeInterval = 0
+    private var inFlightCount = 0
+    private var waiters: [Waiter] = []
+
+    init(maxBufferedDuration: TimeInterval, maxBufferCount: Int) {
+        self.maxBufferedDuration = max(0.1, maxBufferedDuration)
+        self.maxBufferCount = max(1, maxBufferCount)
+    }
+
+    func acquire(duration: TimeInterval) async {
+        let normalizedDuration = Self.normalized(duration)
+        if canAdmit(duration: normalizedDuration) {
+            reserve(duration: normalizedDuration)
             return
         }
         await withCheckedContinuation { continuation in
-            waiters.append(continuation)
+            waiters.append(Waiter(duration: normalizedDuration, continuation: continuation))
         }
     }
 
     /// Non-suspending counterpart to `acquire()`, callable from `@Sendable`
     /// completion handlers without awaiting.
-    nonisolated func release() {
-        Task { await self.signal() }
+    nonisolated func release(duration: TimeInterval) {
+        Task { await self.signal(releasing: Self.normalized(duration)) }
     }
 
-    private func signal() {
-        if !waiters.isEmpty {
-            // Hand the in-flight slot directly to the next waiter.
-            let continuation = waiters.removeFirst()
-            continuation.resume()
-        } else if inFlight > 0 {
-            inFlight -= 1
+    private nonisolated static func normalized(_ duration: TimeInterval) -> TimeInterval {
+        guard duration.isFinite, duration > 0 else { return 0 }
+        return duration
+    }
+
+    private func canAdmit(duration: TimeInterval) -> Bool {
+        guard inFlightCount < maxBufferCount else { return false }
+        // A single unusually large buffer must still be admitted or the gate
+        // would deadlock before scheduling it.
+        return inFlightCount == 0 || inFlightDuration + duration <= maxBufferedDuration
+    }
+
+    private func reserve(duration: TimeInterval) {
+        inFlightCount += 1
+        inFlightDuration += duration
+    }
+
+    private func signal(releasing duration: TimeInterval) {
+        if inFlightCount > 0 {
+            inFlightCount -= 1
+            inFlightDuration = max(0, inFlightDuration - duration)
+        }
+
+        while let waiter = waiters.first, canAdmit(duration: waiter.duration) {
+            waiters.removeFirst()
+            reserve(duration: waiter.duration)
+            waiter.continuation.resume()
         }
     }
 
@@ -98,9 +127,10 @@ private actor AsyncBufferGate {
     func drain() {
         let pending = waiters
         waiters.removeAll()
-        inFlight = 0
-        for continuation in pending {
-            continuation.resume()
+        inFlightCount = 0
+        inFlightDuration = 0
+        for waiter in pending {
+            waiter.continuation.resume()
         }
     }
 }
@@ -420,12 +450,25 @@ final class AudioPlayerService {
     /// back to). 3s is enough that the user hears "this song stuttered"
     /// rather than a sudden cut, but short enough to feel responsive.
     private static let midStreamErrorGrace: TimeInterval = 3
-    /// Max decoded PCM buffers scheduled-but-not-yet-consumed on the player
-    /// node before the decoder is throttled. NativeAudioDecoder emits ~0.2s
-    /// buffers, so 16 ≈ 3s of lookahead — enough to never starve playback,
-    /// while keeping resident PCM bounded (vs. the whole track + gapless next
-    /// track resident at once, which trips background jetsam on hi-res files).
-    private static let maxInFlightDecodedBuffers = 16
+    /// Target decoded PCM duration scheduled-but-not-yet-consumed on the player
+    /// node. Counting buffers alone is unsafe: NativeAudioDecoder usually emits
+    /// ~0.2s chunks, while FFmpeg DTS frames can be only ~10ms. Three seconds of
+    /// duration-based lookahead keeps realtime playback resilient when metadata
+    /// scraping or artwork decoding briefly loads the cooperative executor.
+    private static let decodedAudioLookahead: TimeInterval = 3
+    /// Hard cap for pathological tiny/invalid buffers. Duration remains the
+    /// primary bound, so normal PCM residency stays around the lookahead window.
+    private static let maxInFlightDecodedBufferCount = 384
+
+    private static func decodedBufferDuration(_ buffer: AVAudioPCMBuffer) -> TimeInterval {
+        let sampleRate = buffer.format.sampleRate
+        guard sampleRate.isFinite, sampleRate > 0, buffer.frameLength > 0 else {
+            // Preserve the old 16-buffer behavior when a decoder reports an
+            // unusable format rather than letting hundreds of buffers queue.
+            return decodedAudioLookahead / 16
+        }
+        return Double(buffer.frameLength) / sampleRate
+    }
     private static let firstBufferTimeoutSeconds = 35
     private static let remoteFallbackFirstBufferTimeoutSeconds = 60
     private static let dlnaSourceID = "dlna"
@@ -1700,7 +1743,10 @@ final class AudioPlayerService {
             prefetchNextSong()
 
             // Decode remaining buffers in background task (hold-last for completion callback)
-            let gate = AsyncBufferGate(limit: Self.maxInFlightDecodedBuffers)
+            let gate = AsyncBufferGate(
+                maxBufferedDuration: Self.decodedAudioLookahead,
+                maxBufferCount: Self.maxInFlightDecodedBufferCount
+            )
             decodingTask = Task { [id, iteratorBox, gate] in
                 var lastBuffer: AVAudioPCMBuffer?
                 var scheduledCount = 0
@@ -1712,16 +1758,16 @@ final class AudioPlayerService {
                         guard !Task.isCancelled, self.playID == id else { return }
 
                         if let prev = lastBuffer {
-                            // Backpressure: block the decoder once `limit`
-                            // buffers are scheduled-but-not-yet-consumed so the
-                            // resident PCM tracks playback instead of the whole
-                            // track piling into the node's unbounded queue.
-                            await gate.acquire()
+                            // Backpressure: block once the duration/count window
+                            // is full so resident PCM tracks playback instead of
+                            // the whole track piling into the node's unbounded queue.
+                            let bufferedDuration = Self.decodedBufferDuration(prev)
+                            await gate.acquire(duration: bufferedDuration)
                             guard !Task.isCancelled, self.playID == id else { return }
                             self.audioEngine.scheduleBuffer(
                                 prev,
                                 completionCallbackType: .dataConsumed
-                            ) { _ in gate.release() }
+                            ) { _ in gate.release(duration: bufferedDuration) }
                             scheduledCount += 1
                         }
                         lastBuffer = buffer
@@ -1856,7 +1902,10 @@ final class AudioPlayerService {
             prefetchNextSong()
 
             // Decode remaining buffers
-            let gate = AsyncBufferGate(limit: Self.maxInFlightDecodedBuffers)
+            let gate = AsyncBufferGate(
+                maxBufferedDuration: Self.decodedAudioLookahead,
+                maxBufferCount: Self.maxInFlightDecodedBufferCount
+            )
             decodingTask = Task { [id, iteratorBox, gate] in
                 var lastBuffer: AVAudioPCMBuffer?
                 var scheduledCount = 0
@@ -1865,12 +1914,13 @@ final class AudioPlayerService {
                     while let buffer = try await iteratorBox.next() {
                         guard !Task.isCancelled, self.playID == id else { return }
                         if let prev = lastBuffer {
-                            await gate.acquire()
+                            let bufferedDuration = Self.decodedBufferDuration(prev)
+                            await gate.acquire(duration: bufferedDuration)
                             guard !Task.isCancelled, self.playID == id else { return }
                             self.audioEngine.scheduleBuffer(
                                 prev,
                                 completionCallbackType: .dataConsumed
-                            ) { _ in gate.release() }
+                            ) { _ in gate.release(duration: bufferedDuration) }
                             scheduledCount += 1
                         }
                         lastBuffer = buffer
@@ -2359,7 +2409,10 @@ final class AudioPlayerService {
             }
 
             // Decode remaining buffers with track-end detection
-            let gate = AsyncBufferGate(limit: Self.maxInFlightDecodedBuffers)
+            let gate = AsyncBufferGate(
+                maxBufferedDuration: Self.decodedAudioLookahead,
+                maxBufferCount: Self.maxInFlightDecodedBufferCount
+            )
             decodingTask = Task { [id, iteratorBox, gate] in
                 var lastBuffer: AVAudioPCMBuffer?
                 defer { Task { await gate.drain() } }
@@ -2369,12 +2422,13 @@ final class AudioPlayerService {
                         guard !Task.isCancelled, self.playID == id else { return }
 
                         if let prev = lastBuffer {
-                            await gate.acquire()
+                            let bufferedDuration = Self.decodedBufferDuration(prev)
+                            await gate.acquire(duration: bufferedDuration)
                             guard !Task.isCancelled, self.playID == id else { return }
                             self.audioEngine.scheduleBuffer(
                                 prev,
                                 completionCallbackType: .dataConsumed
-                            ) { _ in gate.release() }
+                            ) { _ in gate.release(duration: bufferedDuration) }
                         }
                         lastBuffer = buffer
                     }
@@ -3157,7 +3211,10 @@ final class AudioPlayerService {
                 updatePlaybackState()
 
                 // Decode remaining buffers with track-end detection
-                let gate = AsyncBufferGate(limit: Self.maxInFlightDecodedBuffers)
+                let gate = AsyncBufferGate(
+                    maxBufferedDuration: Self.decodedAudioLookahead,
+                    maxBufferCount: Self.maxInFlightDecodedBufferCount
+                )
                 decodingTask = Task { [id, iteratorBox, gate] in
                     var lastBuffer: AVAudioPCMBuffer?
                     defer { Task { await gate.drain() } }
@@ -3167,12 +3224,13 @@ final class AudioPlayerService {
                             guard !Task.isCancelled, self.playID == id else { return }
 
                             if let prev = lastBuffer {
-                                await gate.acquire()
+                                let bufferedDuration = Self.decodedBufferDuration(prev)
+                                await gate.acquire(duration: bufferedDuration)
                                 guard !Task.isCancelled, self.playID == id else { return }
                                 self.audioEngine.scheduleBuffer(
                                     prev,
                                     completionCallbackType: .dataConsumed
-                                ) { _ in gate.release() }
+                                ) { _ in gate.release(duration: bufferedDuration) }
                             }
                             lastBuffer = buffer
                         }
@@ -3626,7 +3684,10 @@ final class AudioPlayerService {
         // Pace the next track's buffers to consumption of the *current* track's
         // buffers (same player node) so a fully prepared gapless track doesn't
         // double the resident PCM alongside the song that's still playing.
-        let gate = AsyncBufferGate(limit: Self.maxInFlightDecodedBuffers)
+        let gate = AsyncBufferGate(
+            maxBufferedDuration: Self.decodedAudioLookahead,
+            maxBufferCount: Self.maxInFlightDecodedBufferCount
+        )
         defer { Task { await gate.drain() } }
 
         func markPreparedIfNeeded() {
@@ -3649,7 +3710,8 @@ final class AudioPlayerService {
                       !transition.shouldCancelPreparation else { return }
 
                 if let prev = lastBuffer {
-                    await gate.acquire()
+                    let bufferedDuration = Self.decodedBufferDuration(prev)
+                    await gate.acquire(duration: bufferedDuration)
                     guard !Task.isCancelled,
                           playID == id,
                           queueGeneration == transition.queueGeneration,
@@ -3657,7 +3719,7 @@ final class AudioPlayerService {
                     audioEngine.scheduleBuffer(
                         prev,
                         completionCallbackType: .dataConsumed
-                    ) { _ in gate.release() }
+                    ) { _ in gate.release(duration: bufferedDuration) }
                     markPreparedIfNeeded()
                 }
                 lastBuffer = buffer
@@ -3800,13 +3862,17 @@ final class AudioPlayerService {
             audioEngine.scheduleCrossfadeBuffer(firstBuffer)
             audioEngine.playCrossfadeNode()
 
-            let gate = AsyncBufferGate(limit: Self.maxInFlightDecodedBuffers)
+            let gate = AsyncBufferGate(
+                maxBufferedDuration: Self.decodedAudioLookahead,
+                maxBufferCount: Self.maxInFlightDecodedBufferCount
+            )
             crossfadeDecodingTask = Task { [iteratorBox, gate] in
                 defer { Task { await gate.drain() } }
                 do {
                     while let buffer = try await iteratorBox.next() {
                         guard !Task.isCancelled else { return }
-                        await gate.acquire()
+                        let bufferedDuration = Self.decodedBufferDuration(buffer)
+                        await gate.acquire(duration: bufferedDuration)
                         guard !Task.isCancelled else { return }
                         // swap 之后, 这个解码任务投递的物理节点已经变成
                         // primary。继续用 scheduleCrossfadeBuffer 会把 buffer
@@ -3817,12 +3883,12 @@ final class AudioPlayerService {
                             self.audioEngine.scheduleBuffer(
                                 buffer,
                                 completionCallbackType: .dataConsumed
-                            ) { _ in gate.release() }
+                            ) { _ in gate.release(duration: bufferedDuration) }
                         } else {
                             self.audioEngine.scheduleCrossfadeBuffer(
                                 buffer,
                                 completionCallbackType: .dataConsumed
-                            ) { _ in gate.release() }
+                            ) { _ in gate.release(duration: bufferedDuration) }
                         }
                     }
                 } catch {

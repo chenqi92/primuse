@@ -1,4 +1,5 @@
 import SwiftUI
+import ImageIO
 import PrimuseKit
 #if os(iOS)
 import UIKit
@@ -1709,6 +1710,10 @@ struct ScrapeOptionsView: View {
 
 /// Loads cover thumbnails through the same config-aware request path as manual scraping.
 private struct ScraperCoverThumbnail: View {
+    private struct SendableCGImage: @unchecked Sendable {
+        let value: CGImage?
+    }
+
     let urlString: String?
     let externalId: String
     let sourceConfig: ScraperSourceConfig
@@ -1730,38 +1735,149 @@ private struct ScraperCoverThumbnail: View {
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .task(id: "\(sourceConfig.id)|\(urlString ?? "")") {
             image = nil
-            let resolvedURL = await resolveThumbnailURL()
-            guard let resolvedURL, !resolvedURL.isEmpty else { return }
+            guard let data = await ScraperThumbnailLoader.shared.load(
+                urlString: urlString,
+                externalId: externalId,
+                sourceConfig: sourceConfig
+            ), !Task.isCancelled else { return }
 
-            if let data = try? await ConfigurableScraper.downloadResource(
-                from: resolvedURL,
-                sourceConfig: sourceConfig,
-                timeout: 10
-            ),
-               let loaded = PlatformImage(data: data) {
-                image = loaded
+            let decoded = await Task.detached(priority: .utility) {
+                SendableCGImage(value: Self.makeThumbnail(from: data))
+            }.value
+            guard !Task.isCancelled else { return }
+            if let cgImage = decoded.value {
+                image = PlatformImage.fromCGImage(cgImage)
+            } else {
+                image = PlatformImage(data: data)
             }
         }
     }
 
-    private func resolveThumbnailURL() async -> String? {
-        if let urlString, !urlString.isEmpty {
-            return urlString
+    private nonisolated static func makeThumbnail(from data: Data) -> CGImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: 160
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+    }
+}
+
+/// Shared thumbnail pipeline for scrape search results. A result list can contain
+/// dozens of rows from several providers; loading every row independently creates
+/// a burst of TLS sessions, JSON fallbacks and full-size image decodes that can
+/// starve realtime audio. Keep only a few requests active, share duplicate work,
+/// reuse provider scraper instances and retain a bounded compressed-data cache.
+private actor ScraperThumbnailLoader {
+    static let shared = ScraperThumbnailLoader()
+
+    private let maxConcurrentRequests = 4
+    private let dataCache: NSCache<NSString, NSData> = {
+        let cache = NSCache<NSString, NSData>()
+        cache.countLimit = 240
+        cache.totalCostLimit = 24 * 1024 * 1024
+        return cache
+    }()
+    private var inFlight: [String: Task<Data?, Never>] = [:]
+    private var scrapers: [String: any MusicScraper] = [:]
+    private var activeRequests = 0
+    private var permitWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func load(
+        urlString: String?,
+        externalId: String,
+        sourceConfig: ScraperSourceConfig
+    ) async -> Data? {
+        let key = "\(sourceConfig.id)|\(externalId)|\(urlString ?? "")"
+        if let cached = dataCache.object(forKey: key as NSString) {
+            return cached as Data
+        }
+        if let existing = inFlight[key] {
+            return await existing.value
         }
 
-        let scraper = MusicScraperFactory.create(for: sourceConfig)
-        if let cover = try? await scraper.getCoverArt(externalId: externalId).first {
-            let fallbackURL = cover.thumbnailUrl ?? cover.coverUrl
-            plog("🖼️ Thumbnail fallback via getCoverArt for \(sourceConfig.type.rawValue): \(fallbackURL)")
-            return fallbackURL
+        let task = Task<Data?, Never>(priority: .utility) {
+            await self.acquirePermit()
+            let scraper: (any MusicScraper)?
+            if urlString?.isEmpty == false {
+                scraper = nil
+            } else {
+                scraper = await self.scraper(for: sourceConfig)
+            }
+            let data = await Self.fetch(
+                urlString: urlString,
+                externalId: externalId,
+                sourceConfig: sourceConfig,
+                scraper: scraper
+            )
+            await self.releasePermit()
+            return data
+        }
+        inFlight[key] = task
+
+        let data = await task.value
+        inFlight[key] = nil
+        if let data {
+            dataCache.setObject(data as NSData, forKey: key as NSString, cost: data.count)
+        }
+        return data
+    }
+
+    private func scraper(for config: ScraperSourceConfig) -> any MusicScraper {
+        if let cached = scrapers[config.id] { return cached }
+        let created = MusicScraperFactory.create(for: config)
+        scrapers[config.id] = created
+        return created
+    }
+
+    private func acquirePermit() async {
+        if activeRequests < maxConcurrentRequests {
+            activeRequests += 1
+            return
+        }
+        await withCheckedContinuation { continuation in
+            permitWaiters.append(continuation)
+        }
+    }
+
+    private func releasePermit() {
+        if permitWaiters.isEmpty {
+            activeRequests = max(0, activeRequests - 1)
+        } else {
+            // Transfer the existing permit directly to the oldest waiter.
+            permitWaiters.removeFirst().resume()
+        }
+    }
+
+    private nonisolated static func fetch(
+        urlString: String?,
+        externalId: String,
+        sourceConfig: ScraperSourceConfig,
+        scraper: (any MusicScraper)?
+    ) async -> Data? {
+        var resolvedURL = urlString?.isEmpty == false ? urlString : nil
+        if resolvedURL == nil, let scraper {
+            if let cover = try? await scraper.getCoverArt(externalId: externalId).first {
+                resolvedURL = cover.thumbnailUrl ?? cover.coverUrl
+                if let resolvedURL {
+                    plog("🖼️ Thumbnail fallback via getCoverArt for \(sourceConfig.type.rawValue): \(resolvedURL)")
+                }
+            }
+            if resolvedURL == nil,
+               let detail = try? await scraper.getDetail(externalId: externalId),
+               let fallbackURL = detail.coverUrl {
+                resolvedURL = fallbackURL
+                plog("🖼️ Thumbnail fallback via getDetail for \(sourceConfig.type.rawValue): \(fallbackURL)")
+            }
         }
 
-        if let detail = try? await scraper.getDetail(externalId: externalId),
-           let fallbackURL = detail.coverUrl {
-            plog("🖼️ Thumbnail fallback via getDetail for \(sourceConfig.type.rawValue): \(fallbackURL)")
-            return fallbackURL
-        }
-
-        return nil
+        guard let resolvedURL, !resolvedURL.isEmpty, !Task.isCancelled else { return nil }
+        return try? await ConfigurableScraper.downloadResource(
+            from: resolvedURL,
+            sourceConfig: sourceConfig,
+            timeout: 10
+        )
     }
 }
