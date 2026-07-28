@@ -2,9 +2,9 @@
 import Foundation
 
 private final class AudioSegmentIteratorBox: @unchecked Sendable {
-    private var iterator: AsyncThrowingStream<AVAudioPCMBuffer, Error>.AsyncIterator
+    private var iterator: AudioBufferStream.AsyncIterator
 
-    init(_ iterator: AsyncThrowingStream<AVAudioPCMBuffer, Error>.AsyncIterator) {
+    init(_ iterator: AudioBufferStream.AsyncIterator) {
         self.iterator = iterator
     }
 
@@ -17,16 +17,16 @@ private final class AudioSegmentIteratorBox: @unchecked Sendable {
 /// reads the physical image while the audio engine sees a zero-based track.
 enum AudioSegmentStream {
     static func trim(
-        _ source: AsyncThrowingStream<AVAudioPCMBuffer, Error>,
+        _ source: AudioBufferStream,
         startTime: TimeInterval?,
         endTime: TimeInterval?
-    ) -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
+    ) -> AudioBufferStream {
         let start = max(0, startTime ?? 0)
         let end = endTime.flatMap { $0 > start ? $0 : nil }
         guard start > 0 || end != nil else { return source }
         let iteratorBox = AudioSegmentIteratorBox(source.makeAsyncIterator())
 
-        return AsyncThrowingStream { continuation in
+        return AudioBufferStreamFactory.make { continuation in
             let task = Task {
                 do {
                     var sourceFramePosition: Int64 = 0
@@ -51,12 +51,16 @@ enum AudioSegmentStream {
                         let count = AVAudioFrameCount(keepEnd - keepStart)
 
                         if skip == 0, count == buffer.frameLength {
-                            nonisolated(unsafe) let sendableBuffer = buffer
-                            continuation.yield(sendableBuffer)
+                            try await AudioBufferStreamFactory.yieldWithBackpressure(
+                                buffer,
+                                to: continuation
+                            )
                         } else {
                             let sliced = try slice(buffer, skipping: skip, count: count)
-                            nonisolated(unsafe) let sendableSlice = sliced
-                            continuation.yield(sendableSlice)
+                            try await AudioBufferStreamFactory.yieldWithBackpressure(
+                                sliced,
+                                to: continuation
+                            )
                         }
                         if let segmentEndFrame, keepEnd >= segmentEndFrame { break }
                     }

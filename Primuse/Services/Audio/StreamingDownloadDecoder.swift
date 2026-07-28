@@ -33,8 +33,8 @@ final class StreamingDownloadDecoder: Sendable {
         cacheFileURL: URL? = nil,
         fileExtension: String? = nil,
         onResolveSourceLength: (@Sendable (TimeInterval) -> Void)? = nil
-    ) -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
-        AsyncThrowingStream { continuation in
+    ) -> AudioBufferStream {
+        AudioBufferStreamFactory.make { continuation in
             let task = Task {
                 let tempPath = NSTemporaryDirectory() + "primuse_dl_\(UUID().uuidString)"
                 let tempURL = URL(fileURLWithPath: tempPath)
@@ -120,8 +120,10 @@ final class StreamingDownloadDecoder: Sendable {
                         for try await buffer in decoder.decode(from: typedTempURL, outputFormat: outputFormat) {
                             try Task.checkCancellation()
                             yieldedBuffers += 1
-                            nonisolated(unsafe) let sendableBuffer = buffer
-                            continuation.yield(sendableBuffer)
+                            try await AudioBufferStreamFactory.yieldWithBackpressure(
+                                buffer,
+                                to: continuation
+                            )
                         }
                     } catch {
                         // A native decoder may recognize a container but reject
@@ -139,8 +141,10 @@ final class StreamingDownloadDecoder: Sendable {
                         }
                         for try await buffer in fallback.decode(from: typedTempURL, outputFormat: outputFormat) {
                             try Task.checkCancellation()
-                            nonisolated(unsafe) let sendableBuffer = buffer
-                            continuation.yield(sendableBuffer)
+                            try await AudioBufferStreamFactory.yieldWithBackpressure(
+                                buffer,
+                                to: continuation
+                            )
                         }
                     }
 

@@ -8,11 +8,12 @@ actor LocalFileSource: SongScanningConnector {
     private let metadataService = MetadataService()
     private let ffmpegDecoder = FFmpegAudioDecoder()
     /// Native metadata readers are fast and remain the default for large
-    /// libraries. These formats need FFmpeg's stream-level values to avoid
-    /// known duration/bit-depth mistakes (raw AAC and 24-bit lossless), while
-    /// FFmpeg-preferred formats already require its compatibility decoder.
+    /// libraries, including folders backed by a network-mounted volume.
+    /// Probe only formats that actually use the FFmpeg compatibility path;
+    /// ordinary FLAC/M4A/MP4 rows keep their native metadata unless it is
+    /// missing, avoiding a second file open for every scan item.
     private static let ffmpegMetadataProbeExtensions =
-        FFmpegAudioDecoder.preferredExtensions.union(["aac", "flac", "m4a", "mp4"])
+        FFmpegAudioDecoder.preferredExtensions
     private static let minimumReadableAudioBytes: Int64 = 1024
     /// macOS sandbox requires holding the security scope across the lifetime
     /// of the connector — the URL we resolved from the stored bookmark

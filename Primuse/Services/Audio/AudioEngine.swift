@@ -35,6 +35,10 @@ final class AudioEngine {
     /// 开启时挂上去。开关由 DLNARendererService 调度。
     private var keepAlivePlayerNode: AVAudioPlayerNode?
     private var keepAliveBuffer: AVAudioPCMBuffer?
+    /// A separate minimal graph keeps DLNA control sockets alive while the
+    /// selected playback graph is DSP-free. It never changes or connects a
+    /// mixer into the high-fidelity playback engine.
+    private var standaloneKeepAliveEngine: AVAudioEngine?
 
     /// Sample time offset for gapless track transitions.
     /// When gapless transitions happen without stopping the playerNode,
@@ -283,6 +287,20 @@ final class AudioEngine {
         #endif
     }
 
+    /// Builds the PCM format used by the DSP-free graph for a source sample
+    /// rate. The channel count follows the active output route; unlike the
+    /// sample rate it is not persisted on `Song`.
+    func directPCMFormat(sampleRate: Double) -> AVAudioFormat? {
+        guard sampleRate >= 8_000, sampleRate <= 384_000 else { return nil }
+        let routeChannels = engine?.outputNode.inputFormat(forBus: 0).channelCount
+            ?? outputFormat?.channelCount
+            ?? 2
+        return AVAudioFormat(
+            standardFormatWithSampleRate: sampleRate,
+            channels: max(1, routeChannels)
+        )
+    }
+
     func hardwareSupportsDirectFormat(_ format: AVAudioFormat) -> Bool {
         let actual = currentHardwareSampleRate
         return actual > 0 && abs(actual - format.sampleRate) < 1
@@ -420,13 +438,24 @@ final class AudioEngine {
     /// 用交替正负避免全 0 buffer 被 iOS 静音检测当成"没在播"。
     func startSilenceKeepAlive() {
         guard keepAlivePlayerNode == nil else { return }
-        // Adding a second mixer connection would invalidate the DSP-free graph.
-        guard outputMode == .effects else { return }
-        do { try setUp() } catch {
-            plog("⚠️ AudioEngine keepAlive setUp failed: \(error.localizedDescription)")
-            return
+        let keepAliveEngine: AVAudioEngine
+        let mainMixer: AVAudioMixerNode
+        if outputMode == .effects {
+            do { try setUp() } catch {
+                plog("⚠️ AudioEngine keepAlive setUp failed: \(error.localizedDescription)")
+                return
+            }
+            guard let engine else { return }
+            keepAliveEngine = engine
+            mainMixer = engine.mainMixerNode
+        } else {
+            // Do not materialize mainMixerNode in the direct playback graph.
+            // A tiny independent engine owns the silent loop instead.
+            let engine = AVAudioEngine()
+            keepAliveEngine = engine
+            mainMixer = engine.mainMixerNode
+            standaloneKeepAliveEngine = engine
         }
-        guard let engine, let mainMixer = engine.mainMixerNode as AVAudioMixerNode? else { return }
 
         let format = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2)
             ?? mainMixer.outputFormat(forBus: 0)
@@ -444,14 +473,15 @@ final class AudioEngine {
         }
 
         let node = AVAudioPlayerNode()
-        engine.attach(node)
-        engine.connect(node, to: mainMixer, format: format)
+        keepAliveEngine.attach(node)
+        keepAliveEngine.connect(node, to: mainMixer, format: format)
         node.volume = 0.001
 
-        if !engine.isRunning {
-            do { try engine.start() } catch {
+        if !keepAliveEngine.isRunning {
+            do { try keepAliveEngine.start() } catch {
                 plog("⚠️ AudioEngine keepAlive engine.start failed: \(error.localizedDescription)")
-                engine.detach(node)
+                keepAliveEngine.detach(node)
+                standaloneKeepAliveEngine = nil
                 return
             }
         }
@@ -466,7 +496,13 @@ final class AudioEngine {
     func stopSilenceKeepAlive() {
         guard let node = keepAlivePlayerNode else { return }
         node.stop()
-        engine?.detach(node)
+        if let standaloneKeepAliveEngine {
+            standaloneKeepAliveEngine.stop()
+            standaloneKeepAliveEngine.detach(node)
+            self.standaloneKeepAliveEngine = nil
+        } else {
+            engine?.detach(node)
+        }
         keepAlivePlayerNode = nil
         keepAliveBuffer = nil
         plog("🛡 AudioEngine silence keepAlive OFF")
@@ -491,6 +527,18 @@ final class AudioEngine {
 
     func scheduleCrossfadeBuffer(_ buffer: AVAudioPCMBuffer) {
         crossfadePlayerNode?.scheduleBuffer(buffer)
+    }
+
+    func scheduleCrossfadeBuffer(
+        _ buffer: AVAudioPCMBuffer,
+        completionCallbackType: AVAudioPlayerNodeCompletionCallbackType,
+        completionHandler: @escaping @Sendable (AVAudioPlayerNodeCompletionCallbackType) -> Void
+    ) {
+        crossfadePlayerNode?.scheduleBuffer(
+            buffer,
+            completionCallbackType: completionCallbackType,
+            completionHandler: completionHandler
+        )
     }
 
     func playCrossfadeNode() {
@@ -818,7 +866,7 @@ final class AudioEngine {
         return "mode=\(outputMode.rawValue) eng=\(engRunning) player=\(playerPlaying) pVol=\(playerVol) cVol=\(crossVol) mainVol=\(mainVol) hasRenderTime=\(hasTime)"
     }
 
-    func scheduleBufferStream(_ stream: AsyncThrowingStream<AVAudioPCMBuffer, Error>) async throws {
+    func scheduleBufferStream(_ stream: AudioBufferStream) async throws {
         guard let playerNode else { return }
         for try await buffer in stream {
             await playerNode.scheduleBuffer(buffer)

@@ -205,6 +205,11 @@ enum SidecarHintResolver {
     }
 }
 
+enum RangeFetchPriority: Sendable {
+    case userInitiated
+    case background
+}
+
 protocol MusicSourceConnector: Sendable {
     var sourceID: String { get }
     var supportsSidecarWriting: Bool { get }
@@ -252,6 +257,12 @@ protocol MusicSourceConnector: Sendable {
     /// Default implementation falls back to a full download via `localURL`,
     /// which is correct but slow — cloud connectors should override.
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data
+    func fetchRange(
+        path: String,
+        offset: Int64,
+        length: Int64,
+        priority: RangeFetchPriority
+    ) async throws -> Data
 
     /// 批量预热下载链接 / 元数据。给定一组 path, connector 提前 batch 拿
     /// (并 cache) 后续 fetchRange 需要的 dlink / CDN URL / 鉴权信息。
@@ -353,6 +364,15 @@ extension MusicSourceConnector {
         }
         try handle.seek(toOffset: actualOffset)
         return handle.readData(ofLength: Int(length))
+    }
+
+    func fetchRange(
+        path: String,
+        offset: Int64,
+        length: Int64,
+        priority: RangeFetchPriority
+    ) async throws -> Data {
+        try await fetchRange(path: path, offset: offset, length: length)
     }
 }
 

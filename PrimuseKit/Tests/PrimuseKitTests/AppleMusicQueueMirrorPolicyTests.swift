@@ -90,6 +90,7 @@ struct AppleMusicPlaybackEndPolicyTests {
             isStopped: false,
             isPaused: true,
             wasPausedByUser: false,
+            isPlaybackInterrupted: false,
             isNearEnd: nearEnd,
             stalledNearEndSampleCount: 0,
             stallSampleThreshold: 6
@@ -110,6 +111,7 @@ struct AppleMusicPlaybackEndPolicyTests {
             isStopped: false,
             isPaused: false,
             wasPausedByUser: false,
+            isPlaybackInterrupted: false,
             isNearEnd: nearEnd,
             stalledNearEndSampleCount: 5,
             stallSampleThreshold: 6
@@ -119,6 +121,7 @@ struct AppleMusicPlaybackEndPolicyTests {
             isStopped: false,
             isPaused: false,
             wasPausedByUser: false,
+            isPlaybackInterrupted: false,
             isNearEnd: nearEnd,
             stalledNearEndSampleCount: 6,
             stallSampleThreshold: 6
@@ -132,6 +135,7 @@ struct AppleMusicPlaybackEndPolicyTests {
             isStopped: false,
             isPaused: true,
             wasPausedByUser: true,
+            isPlaybackInterrupted: false,
             isNearEnd: true,
             stalledNearEndSampleCount: 0,
             stallSampleThreshold: 6
@@ -140,6 +144,30 @@ struct AppleMusicPlaybackEndPolicyTests {
             duration: 180,
             playbackTime: 120,
             furthestObservedTime: 120
+        ))
+    }
+
+    @Test("An audio-session interruption never advances near the end")
+    func rejectsInterruptedPauseOrFrozenClock() {
+        #expect(!AppleMusicPlaybackEndPolicy.shouldAdvance(
+            hasObservedActivePlayback: true,
+            isStopped: false,
+            isPaused: true,
+            wasPausedByUser: false,
+            isPlaybackInterrupted: true,
+            isNearEnd: true,
+            stalledNearEndSampleCount: 12,
+            stallSampleThreshold: 6
+        ))
+        #expect(!AppleMusicPlaybackEndPolicy.shouldAdvance(
+            hasObservedActivePlayback: true,
+            isStopped: true,
+            isPaused: false,
+            wasPausedByUser: false,
+            isPlaybackInterrupted: true,
+            isNearEnd: true,
+            stalledNearEndSampleCount: 12,
+            stallSampleThreshold: 6
         ))
     }
 }

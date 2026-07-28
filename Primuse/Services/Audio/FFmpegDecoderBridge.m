@@ -136,6 +136,12 @@ static NSTimeInterval FFmpegPacketDuration(NSURL *url,
 @implementation FFmpegAudioReadResult
 @end
 
+@interface FFmpegDecoderBridge ()
+- (nullable instancetype)initWithURL:(NSURL *)url
+                  scanPacketDuration:(BOOL)scanPacketDuration
+                               error:(NSError **)error;
+@end
+
 @implementation FFmpegDecoderBridge {
     AVFormatContext *_formatContext;
     AVCodecContext *_codecContext;
@@ -149,6 +155,7 @@ static NSTimeInterval FFmpegPacketDuration(NSURL *url,
     BOOL _inputEnded;
     BOOL _flushSent;
     BOOL _decoderEnded;
+    BOOL _packetPending;
     FFmpegAudioFileInfo *_fileInfo;
 }
 
@@ -191,11 +198,20 @@ static NSTimeInterval FFmpegPacketDuration(NSURL *url,
 }
 
 + (FFmpegAudioFileInfo *)probeURL:(NSURL *)url error:(NSError **)error {
-    FFmpegDecoderBridge *decoder = [[FFmpegDecoderBridge alloc] initWithURL:url error:error];
+    FFmpegDecoderBridge *decoder = [[FFmpegDecoderBridge alloc]
+        initWithURL:url
+        scanPacketDuration:YES
+        error:error];
     return decoder.fileInfo;
 }
 
 - (instancetype)initWithURL:(NSURL *)url error:(NSError **)error {
+    return [self initWithURL:url scanPacketDuration:NO error:error];
+}
+
+- (instancetype)initWithURL:(NSURL *)url
+          scanPacketDuration:(BOOL)scanPacketDuration
+                       error:(NSError **)error {
     self = [super init];
     if (!self) return nil;
 
@@ -301,7 +317,8 @@ static NSTimeInterval FFmpegPacketDuration(NSURL *url,
                 ((NSTimeInterval)_fileInfo.bitRateKbps * 1000.0);
         }
     }
-    if (!isfinite(_fileInfo.duration) || _fileInfo.duration <= 0) {
+    if (scanPacketDuration &&
+        (!isfinite(_fileInfo.duration) || _fileInfo.duration <= 0)) {
         _fileInfo.duration = FFmpegPacketDuration(url, forcedInputFormat);
     }
     return self;
@@ -348,14 +365,35 @@ static NSTimeInterval FFmpegPacketDuration(NSURL *url,
             return ended;
         }
 
+        if (_packetPending) {
+            result = avcodec_send_packet(_codecContext, _packet);
+            if (result == AVERROR(EAGAIN)) {
+                // The decoder still has output to drain. Keep ownership of
+                // this packet and retry it after the next receive call.
+                continue;
+            }
+            av_packet_unref(_packet);
+            _packetPending = NO;
+            if (result == 0) continue;
+            if (result == AVERROR(ENOMEM) || result == AVERROR(EINVAL)) {
+                if (error) *error = FFmpegError(result, @"Unable to submit audio packet");
+                return nil;
+            }
+            // A corrupt packet is skipped; continue reading the stream.
+        }
+
         while ((result = av_read_frame(_formatContext, _packet)) >= 0) {
             if (_packet->stream_index != _audioStreamIndex) {
                 av_packet_unref(_packet);
                 continue;
             }
             result = avcodec_send_packet(_codecContext, _packet);
+            if (result == AVERROR(EAGAIN)) {
+                _packetPending = YES;
+                break;
+            }
             av_packet_unref(_packet);
-            if (result == 0 || result == AVERROR(EAGAIN)) break;
+            if (result == 0) break;
             // Corrupt packets are skipped so a damaged frame doesn't abort a
             // whole album image. Fatal allocator/configuration failures escape.
             if (result == AVERROR(ENOMEM) || result == AVERROR(EINVAL)) {
@@ -452,6 +490,7 @@ static NSTimeInterval FFmpegPacketDuration(NSURL *url,
     if (timestamp != AV_NOPTS_VALUE) {
         result.presentationTime = timestamp *
             av_q2d(_formatContext->streams[_audioStreamIndex]->time_base);
+        result.hasPresentationTime = YES;
     }
     return result;
 }
@@ -474,6 +513,8 @@ static NSTimeInterval FFmpegPacketDuration(NSURL *url,
     _inputEnded = NO;
     _flushSent = NO;
     _decoderEnded = NO;
+    if (_packetPending) av_packet_unref(_packet);
+    _packetPending = NO;
     return YES;
 }
 

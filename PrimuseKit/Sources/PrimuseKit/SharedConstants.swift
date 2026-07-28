@@ -534,11 +534,13 @@ public enum AppleMusicPlaybackEndPolicy {
         isStopped: Bool,
         isPaused: Bool,
         wasPausedByUser: Bool,
+        isPlaybackInterrupted: Bool,
         isNearEnd: Bool,
         stalledNearEndSampleCount: Int,
         stallSampleThreshold: Int
     ) -> Bool {
         guard hasObservedActivePlayback else { return false }
+        if isPlaybackInterrupted { return false }
         if isStopped { return true }
         if isPaused && !wasPausedByUser && isNearEnd { return true }
         return isNearEnd

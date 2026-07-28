@@ -7,9 +7,19 @@ private final class FFmpegBridgeBox: @unchecked Sendable {
 }
 
 private final class FFmpegInputBufferBox: @unchecked Sendable {
-    let buffer: AVAudioPCMBuffer
-    var supplied = false
-    init(_ buffer: AVAudioPCMBuffer) { self.buffer = buffer }
+    private let lock = NSLock()
+    private var buffer: AVAudioPCMBuffer?
+
+    init(_ buffer: AVAudioPCMBuffer) {
+        self.buffer = buffer
+    }
+
+    func take() -> AVAudioPCMBuffer? {
+        lock.lock()
+        defer { lock.unlock() }
+        defer { buffer = nil }
+        return buffer
+    }
 }
 
 /// Broad compatibility fallback built on the LGPL-only FFmpeg runtime.
@@ -56,7 +66,7 @@ final class FFmpegAudioDecoder: PrimuseAudioDecoder {
     func decode(
         from url: URL,
         outputFormat: AVAudioFormat
-    ) -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
+    ) -> AudioBufferStream {
         decode(
             from: url,
             outputFormat: outputFormat,
@@ -69,7 +79,7 @@ final class FFmpegAudioDecoder: PrimuseAudioDecoder {
         from url: URL,
         outputFormat: AVAudioFormat,
         onResolveSourceLength: (@Sendable (TimeInterval) -> Void)?
-    ) -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
+    ) -> AudioBufferStream {
         decode(
             from: url,
             outputFormat: outputFormat,
@@ -85,8 +95,8 @@ final class FFmpegAudioDecoder: PrimuseAudioDecoder {
         outputFormat: AVAudioFormat,
         startingAt startTime: TimeInterval?,
         onResolveSourceLength: (@Sendable (TimeInterval) -> Void)?
-    ) -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
-        AsyncThrowingStream { continuation in
+    ) -> AudioBufferStream {
+        AudioBufferStreamFactory.make { continuation in
             let task = Task {
                 do {
                     let bridge = try FFmpegDecoderBridge(url: url)
@@ -99,10 +109,53 @@ final class FFmpegAudioDecoder: PrimuseAudioDecoder {
 
                     var converter: AVAudioConverter?
                     var converterSourceFormat: AVAudioFormat?
+                    var exactSeekTarget = startTime.flatMap { $0 > 0 ? $0 : nil }
                     while !Task.isCancelled {
                         let result = try box.value.readNextBuffer()
-                        guard let sourceBuffer = result.buffer else { break }
+                        guard var sourceBuffer = result.buffer else { break }
                         if sourceBuffer.frameLength == 0 { continue }
+                        if let target = exactSeekTarget,
+                           result.hasPresentationTime,
+                           sourceBuffer.format.sampleRate > 0 {
+                            let bufferStart = result.presentationTime
+                            let bufferEnd = bufferStart
+                                + Double(sourceBuffer.frameLength) / sourceBuffer.format.sampleRate
+                            if bufferEnd <= target {
+                                continue
+                            }
+                            if bufferStart < target {
+                                let skip = AVAudioFrameCount(
+                                    ((target - bufferStart) * sourceBuffer.format.sampleRate)
+                                        .rounded(.down)
+                                )
+                                if skip < sourceBuffer.frameLength {
+                                    sourceBuffer = try Self.slice(
+                                        sourceBuffer,
+                                        skipping: skip
+                                    )
+                                }
+                            }
+                            exactSeekTarget = nil
+                        } else if exactSeekTarget != nil {
+                            // A demuxer without timestamps can still perform
+                            // its native seek; it just cannot be sample-trimmed.
+                            exactSeekTarget = nil
+                        }
+
+                        if let existingConverter = converter,
+                           converterSourceFormat != sourceBuffer.format {
+                            for output in try Self.drain(
+                                converter: existingConverter,
+                                outputFormat: outputFormat
+                            ) {
+                                try await AudioBufferStreamFactory.yieldWithBackpressure(
+                                    output,
+                                    to: continuation
+                                )
+                            }
+                            converter = nil
+                            converterSourceFormat = nil
+                        }
 
                         let outputBuffer: AVAudioPCMBuffer
                         if sourceBuffer.format == outputFormat {
@@ -128,8 +181,21 @@ final class FFmpegAudioDecoder: PrimuseAudioDecoder {
                             )
                         }
                         if outputBuffer.frameLength > 0 {
-                            nonisolated(unsafe) let sendableBuffer = outputBuffer
-                            continuation.yield(sendableBuffer)
+                            try await AudioBufferStreamFactory.yieldWithBackpressure(
+                                outputBuffer,
+                                to: continuation
+                            )
+                        }
+                    }
+                    if let converter {
+                        for output in try Self.drain(
+                            converter: converter,
+                            outputFormat: outputFormat
+                        ) {
+                            try await AudioBufferStreamFactory.yieldWithBackpressure(
+                                output,
+                                to: continuation
+                            )
                         }
                     }
                     try Task.checkCancellation()
@@ -160,18 +226,92 @@ final class FFmpegAudioDecoder: PrimuseAudioDecoder {
         let input = FFmpegInputBufferBox(source)
         var conversionError: NSError?
         let status = converter.convert(to: output, error: &conversionError) { _, outStatus in
-            if input.supplied {
-                outStatus.pointee = .noDataNow
-                return nil
+            if let buffer = input.take() {
+                outStatus.pointee = .haveData
+                return buffer
             }
-            input.supplied = true
-            outStatus.pointee = .haveData
-            return input.buffer
+            outStatus.pointee = .noDataNow
+            return nil
         }
         if let conversionError { throw conversionError }
         if status == .error {
             throw AudioDecoderError.decodingFailed("FFmpeg PCM conversion failed")
         }
         return output
+    }
+
+    private static func drain(
+        converter: AVAudioConverter,
+        outputFormat: AVAudioFormat
+    ) throws -> [AVAudioPCMBuffer] {
+        var drained: [AVAudioPCMBuffer] = []
+        while true {
+            guard let output = AVAudioPCMBuffer(
+                pcmFormat: outputFormat,
+                frameCapacity: 8192
+            ) else {
+                throw AudioDecoderError.bufferAllocationFailed
+            }
+            var conversionError: NSError?
+            let status = converter.convert(
+                to: output,
+                error: &conversionError
+            ) { _, outStatus in
+                outStatus.pointee = .endOfStream
+                return nil
+            }
+            if let conversionError { throw conversionError }
+            if status == .error {
+                throw AudioDecoderError.decodingFailed("FFmpeg PCM converter drain failed")
+            }
+            if output.frameLength > 0 { drained.append(output) }
+            if status == .endOfStream || output.frameLength == 0 { return drained }
+        }
+    }
+
+    private static func slice(
+        _ source: AVAudioPCMBuffer,
+        skipping: AVAudioFrameCount
+    ) throws -> AVAudioPCMBuffer {
+        let count = source.frameLength - skipping
+        guard count > 0,
+              let destination = AVAudioPCMBuffer(
+                  pcmFormat: source.format,
+                  frameCapacity: count
+              ) else {
+            throw AudioDecoderError.bufferAllocationFailed
+        }
+        destination.frameLength = count
+        let bytesPerFrame = Int(
+            source.format.streamDescription.pointee.mBytesPerFrame
+        )
+        guard bytesPerFrame > 0 else {
+            throw AudioDecoderError.bufferAllocationFailed
+        }
+        let sourceBuffers = UnsafeMutableAudioBufferListPointer(
+            source.mutableAudioBufferList
+        )
+        let destinationBuffers = UnsafeMutableAudioBufferListPointer(
+            destination.mutableAudioBufferList
+        )
+        guard sourceBuffers.count == destinationBuffers.count else {
+            throw AudioDecoderError.bufferAllocationFailed
+        }
+        let sourceOffset = Int(skipping) * bytesPerFrame
+        let byteCount = Int(count) * bytesPerFrame
+        for index in sourceBuffers.indices {
+            guard let sourceData = sourceBuffers[index].mData,
+                  let destinationData = destinationBuffers[index].mData,
+                  sourceOffset + byteCount
+                    <= Int(sourceBuffers[index].mDataByteSize) else {
+                throw AudioDecoderError.bufferAllocationFailed
+            }
+            memcpy(
+                destinationData,
+                sourceData.advanced(by: sourceOffset),
+                byteCount
+            )
+        }
+        return destination
     }
 }

@@ -1,11 +1,6 @@
 import AVFoundation
 import Foundation
 
-private final class AudioBufferBox: @unchecked Sendable {
-    let buffer: AVAudioPCMBuffer
-    init(_ buffer: AVAudioPCMBuffer) { self.buffer = buffer }
-}
-
 /// Fallback decoder using AVAssetReader — handles more MP3 variants and formats
 /// that AVAudioFile rejects (VBR, non-standard headers, etc.)
 final class AssetReaderDecoder: Sendable {
@@ -49,8 +44,16 @@ final class AssetReaderDecoder: Sendable {
         )
     }
 
-    func decode(from url: URL, outputFormat: AVAudioFormat) -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
-        AsyncThrowingStream { continuation in
+    func decode(from url: URL, outputFormat: AVAudioFormat) -> AudioBufferStream {
+        decode(from: url, outputFormat: outputFormat, startingAt: nil)
+    }
+
+    func decode(
+        from url: URL,
+        outputFormat: AVAudioFormat,
+        startingAt startTime: TimeInterval?
+    ) -> AudioBufferStream {
+        AudioBufferStreamFactory.make { continuation in
             Task {
                 do {
                     let asset = AVURLAsset(url: url)
@@ -61,6 +64,26 @@ final class AssetReaderDecoder: Sendable {
                     }
 
                     let reader = try AVAssetReader(asset: asset)
+                    if let startTime,
+                       startTime.isFinite,
+                       startTime > 0 {
+                        let assetDuration = try await asset.load(.duration)
+                        let durationSeconds = CMTimeGetSeconds(assetDuration)
+                        if durationSeconds.isFinite, durationSeconds > 0 {
+                            let clampedStart = min(startTime, durationSeconds)
+                            let timescale = max(assetDuration.timescale, 600)
+                            reader.timeRange = CMTimeRange(
+                                start: CMTime(
+                                    seconds: clampedStart,
+                                    preferredTimescale: timescale
+                                ),
+                                duration: CMTime(
+                                    seconds: durationSeconds - clampedStart,
+                                    preferredTimescale: timescale
+                                )
+                            )
+                        }
+                    }
 
                     let outputSettings: [String: Any] = [
                         AVFormatIDKey: kAudioFormatLinearPCM,
@@ -104,10 +127,13 @@ final class AssetReaderDecoder: Sendable {
                             break
                         }
 
-                        if let pcmBuffer = createPCMBuffer(from: sampleBuffer, format: outputFormat) {
+                        if let pcmBuffer = self.createPCMBuffer(from: sampleBuffer, format: outputFormat) {
                             bufferCount += 1
                             totalFrames += Int64(pcmBuffer.frameLength)
-                            continuation.yield(AudioBufferBox(pcmBuffer).buffer)
+                            try await AudioBufferStreamFactory.yieldWithBackpressure(
+                                pcmBuffer,
+                                to: continuation
+                            )
                         }
                     }
                     plog("📖 AssetReader done: status=\(reader.status.rawValue) buffers=\(bufferCount) totalFrames=\(totalFrames)")

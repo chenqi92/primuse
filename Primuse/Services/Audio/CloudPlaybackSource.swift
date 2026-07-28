@@ -111,8 +111,13 @@ enum CloudPlaybackSource {
         prefetchAhead: Int = Self.prefetchAhead
     ) -> InputSource? {
         let path = song.filePath
-        let connectorFetch: @Sendable (Int64, Int64) async throws -> Data = { off, len in
-            try await connector.fetchRange(path: path, offset: off, length: len)
+        let connectorFetch: @Sendable (Int64, Int64, RangeFetchPriority) async throws -> Data = { off, len, priority in
+            try await connector.fetchRange(
+                path: path,
+                offset: off,
+                length: len,
+                priority: priority
+            )
         }
 
         return makeInputSource(
@@ -144,7 +149,7 @@ enum CloudPlaybackSource {
               url.scheme == "http" || url.scheme == "https" else { return nil }
 
         let fetcher = HTTPRangeFetcher(url: url, totalLength: totalLength)
-        let fetch: @Sendable (Int64, Int64) async throws -> Data = { off, len in
+        let fetch: @Sendable (Int64, Int64, RangeFetchPriority) async throws -> Data = { off, len, _ in
             try await fetcher.fetch(offset: off, length: len)
         }
 
@@ -168,7 +173,7 @@ enum CloudPlaybackSource {
         persistOnComplete: Bool,
         cacheRelativePath: String?,
         prefetchAhead: Int,
-        connectorFetch: @escaping @Sendable (Int64, Int64) async throws -> Data
+        connectorFetch: @escaping @Sendable (Int64, Int64, RangeFetchPriority) async throws -> Data
     ) -> InputSource? {
         let partialURL = URL(fileURLWithPath: cacheURL.path + ".partial")
         let markerURL = URL(fileURLWithPath: partialURL.path + prewarmMarkerSuffix)
@@ -390,7 +395,7 @@ private final class State: @unchecked Sendable {
     /// after each write.
     private var cachedRanges: [Range<Int64>] = []
     /// Stored so background prefetch can run without an active SFB call.
-    private let connectorFetch: @Sendable (Int64, Int64) async throws -> Data
+    private let connectorFetch: @Sendable (Int64, Int64, RangeFetchPriority) async throws -> Data
     /// Number of future chunks to fetch in the background after a served read.
     /// OneDrive keeps a single serialized TCP Range connection, so it uses 0
     /// to keep that connection reserved for foreground decoder reads.
@@ -464,7 +469,7 @@ private final class State: @unchecked Sendable {
         persistOnComplete: Bool = true,
         cacheRelativePath: String? = nil,
         prefetchAhead: Int = CloudPlaybackSource.prefetchAhead,
-        connectorFetch: @escaping @Sendable (Int64, Int64) async throws -> Data
+        connectorFetch: @escaping @Sendable (Int64, Int64, RangeFetchPriority) async throws -> Data
     ) {
         self.label = label
         self.partialURL = partialURL
@@ -620,7 +625,11 @@ private final class State: @unchecked Sendable {
                         result.error = CancellationError()
                         return
                     }
-                    result.data = try await connectorFetch(chunkStart, want)
+                    result.data = try await connectorFetch(
+                        chunkStart,
+                        want,
+                        .userInitiated
+                    )
                 } catch {
                     result.error = error
                 }
@@ -766,7 +775,11 @@ private final class State: @unchecked Sendable {
                 guard let self else { return }
                 defer { self.releasePrefetch(offset: nextChunkStart) }
                 do {
-                    let data = try await connectorFetch(nextChunkStart, want)
+                    let data = try await connectorFetch(
+                        nextChunkStart,
+                        want,
+                        .background
+                    )
                     guard !data.isEmpty else { return }
                     guard !self.isClosed() else { return }
                     self.writeToCache(offset: nextChunkStart, data: data)
@@ -1002,7 +1015,11 @@ private final class State: @unchecked Sendable {
             Task { [weak self, connectorFetch, label] in
                 guard let self else { return }
                 do {
-                    let data = try await connectorFetch(req.offset, req.length)
+                    let data = try await connectorFetch(
+                        req.offset,
+                        req.length,
+                        .background
+                    )
                     if !data.isEmpty {
                         self.writeToCache(offset: req.offset, data: data)
                     }
@@ -1074,7 +1091,11 @@ private final class State: @unchecked Sendable {
         Task { [weak self, connectorFetch, label] in
             guard let self else { return }
             do {
-                let data = try await connectorFetch(req.offset, req.length)
+                let data = try await connectorFetch(
+                    req.offset,
+                    req.length,
+                    .background
+                )
                 if !data.isEmpty {
                     // finalizeSession deliberately closes decoder reads before
                     // this background fill finishes. This write is still the

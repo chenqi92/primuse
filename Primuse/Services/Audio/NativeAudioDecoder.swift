@@ -3,11 +3,19 @@ import Foundation
 import PrimuseKit
 import SFBAudioEngine
 
-private final class AudioBufferBox: @unchecked Sendable {
-    let buffer: AVAudioPCMBuffer
+private final class ConverterInputBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var buffer: AVAudioPCMBuffer?
 
     init(_ buffer: AVAudioPCMBuffer) {
         self.buffer = buffer
+    }
+
+    func take() -> AVAudioPCMBuffer? {
+        lock.lock()
+        defer { lock.unlock() }
+        defer { buffer = nil }
+        return buffer
     }
 }
 
@@ -82,17 +90,19 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
     func decode(
         from inputSource: InputSource,
         outputFormat: AVAudioFormat,
+        startingAt startTime: TimeInterval? = nil,
         onResolveSourceLength: (@Sendable (TimeInterval) -> Void)? = nil
-    ) -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
+    ) -> AudioBufferStream {
         // SFBAudioEngine's InputSource isn't formally Sendable but it's
         // safe to hand off across one Task boundary — the decoder owns
         // it from then on. Box it to silence the strict-concurrency check.
         let inputBox = InputSourceBox(inputSource)
-        return AsyncThrowingStream { continuation in
+        return AudioBufferStreamFactory.make { continuation in
             let task = Task {
                 do {
                     let decoder = try SFBAudioEngine.AudioDecoder(inputSource: inputBox.value)
                     try decoder.open()
+                    try self.seek(decoder: decoder, to: startTime)
                     try await self.runDecode(decoder: decoder, outputFormat: outputFormat, continuation: continuation, onResolveSourceLength: onResolveSourceLength)
                 } catch {
                     continuation.finish(throwing: error)
@@ -108,7 +118,7 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
     /// separate method (not just a default arg) so the protocol witness
     /// matches exactly and no other decoder implementation has to be
     /// modified.
-    func decode(from url: URL, outputFormat: AVAudioFormat) -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
+    func decode(from url: URL, outputFormat: AVAudioFormat) -> AudioBufferStream {
         decode(from: url, outputFormat: outputFormat, dsdMode: .pcm, onResolveSourceLength: nil)
     }
 
@@ -116,17 +126,33 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
         from url: URL,
         outputFormat: AVAudioFormat,
         onResolveSourceLength: (@Sendable (TimeInterval) -> Void)?
-    ) -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
+    ) -> AudioBufferStream {
         decode(from: url, outputFormat: outputFormat, dsdMode: .pcm, onResolveSourceLength: onResolveSourceLength)
     }
 
     func decode(
         from url: URL,
         outputFormat: AVAudioFormat,
-        dsdMode: DSDPlaybackMode,
+        startingAt startTime: TimeInterval?,
         onResolveSourceLength: (@Sendable (TimeInterval) -> Void)?
-    ) -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
-        AsyncThrowingStream { continuation in
+    ) -> AudioBufferStream {
+        decode(
+            from: url,
+            outputFormat: outputFormat,
+            dsdMode: .pcm,
+            startingAt: startTime,
+            onResolveSourceLength: onResolveSourceLength
+        )
+    }
+
+    func decode(
+        from url: URL,
+        outputFormat: AVAudioFormat,
+        dsdMode: DSDPlaybackMode,
+        startingAt startTime: TimeInterval? = nil,
+        onResolveSourceLength: (@Sendable (TimeInterval) -> Void)?
+    ) -> AudioBufferStream {
+        AudioBufferStreamFactory.make { continuation in
             let task = Task {
                 do {
                     let decoder: any SFBAudioEngine.PCMDecoding
@@ -144,6 +170,7 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
                         decoder = try SFBAudioEngine.AudioDecoder(url: url)
                     }
                     try decoder.open()
+                    try self.seek(decoder: decoder, to: startTime)
                     plog("🎵 SFBDecoder: file=\(url.lastPathComponent)")
                     try await self.runDecode(decoder: decoder, outputFormat: outputFormat, continuation: continuation, onResolveSourceLength: onResolveSourceLength)
                 } catch {
@@ -159,7 +186,7 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
     private func runDecode(
         decoder: any SFBAudioEngine.PCMDecoding,
         outputFormat: AVAudioFormat,
-        continuation: AsyncThrowingStream<AVAudioPCMBuffer, Error>.Continuation,
+        continuation: AudioBufferStream.Continuation,
         onResolveSourceLength: (@Sendable (TimeInterval) -> Void)? = nil
     ) async throws {
         let sourceFormat = decoder.processingFormat
@@ -191,8 +218,10 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
                 try decoder.decode(into: buffer, length: framesToRead)
                 if buffer.frameLength > 0 {
                     stallNanos = 0
-                    nonisolated(unsafe) let sendBuf = buffer
-                    continuation.yield(sendBuf)
+                    try await AudioBufferStreamFactory.yieldWithBackpressure(
+                        buffer,
+                        to: continuation
+                    )
                 } else if decoder.position <= positionBefore {
                     // 0 帧且 position 没前进: 要么是 HTTP 流式源在等下一段 Range
                     // 数据(瞬时, 数据到了就恢复), 要么是截断/损坏文件卡死(永不前进)。
@@ -217,32 +246,92 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
                 }
                 try decoder.decode(into: inputBuffer, length: framesToRead)
                 guard inputBuffer.frameLength > 0 else { break }
-                let inputBufferBox = AudioBufferBox(inputBuffer)
+                let converterInput = ConverterInputBuffer(inputBuffer)
 
                 let outputFrameCapacity = AVAudioFrameCount(
                     Double(inputBuffer.frameLength) * outputFormat.sampleRate / sourceFormat.sampleRate
-                ) + 1
+                ) + 64
                 guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: outputFrameCapacity) else {
                     continuation.finish(throwing: AudioDecoderError.bufferAllocationFailed)
                     return
                 }
                 var error: NSError?
                 converter.convert(to: outputBuffer, error: &error) { _, outStatus in
-                    outStatus.pointee = .haveData
-                    return inputBufferBox.buffer
+                    if let input = converterInput.take() {
+                        outStatus.pointee = .haveData
+                        return input
+                    }
+                    outStatus.pointee = .noDataNow
+                    return nil
                 }
                 if let error {
                     continuation.finish(throwing: error)
                     return
                 }
                 if outputBuffer.frameLength > 0 {
-                    continuation.yield(outputBuffer)
+                    try await AudioBufferStreamFactory.yieldWithBackpressure(
+                        outputBuffer,
+                        to: continuation
+                    )
                 }
             }
+            try await drain(
+                converter: converter,
+                outputFormat: outputFormat,
+                continuation: continuation
+            )
         }
 
         try? decoder.close()
         continuation.finish()
+    }
+
+    private func seek(
+        decoder: any SFBAudioEngine.PCMDecoding,
+        to startTime: TimeInterval?
+    ) throws {
+        guard let startTime,
+              startTime.isFinite,
+              startTime > 0,
+              decoder.processingFormat.sampleRate > 0 else { return }
+        let requested = AVAudioFramePosition(
+            (startTime * decoder.processingFormat.sampleRate).rounded(.down)
+        )
+        let target = decoder.length > 0
+            ? min(max(0, requested), decoder.length - 1)
+            : max(0, requested)
+        try decoder.seek(to: target)
+    }
+
+    private func drain(
+        converter: AVAudioConverter,
+        outputFormat: AVAudioFormat,
+        continuation: AudioBufferStream.Continuation
+    ) async throws {
+        while !Task.isCancelled {
+            guard let output = AVAudioPCMBuffer(
+                pcmFormat: outputFormat,
+                frameCapacity: bufferFrameCount
+            ) else {
+                throw AudioDecoderError.bufferAllocationFailed
+            }
+            var error: NSError?
+            let status = converter.convert(to: output, error: &error) { _, outStatus in
+                outStatus.pointee = .endOfStream
+                return nil
+            }
+            if let error { throw error }
+            if output.frameLength > 0 {
+                try await AudioBufferStreamFactory.yieldWithBackpressure(
+                    output,
+                    to: continuation
+                )
+            }
+            if status == .endOfStream || output.frameLength == 0 { return }
+            if status == .error {
+                throw AudioDecoderError.decodingFailed("Native PCM converter drain failed")
+            }
+        }
     }
 
     func dsdOutputFormat(for url: URL, mode: DSDPlaybackMode) throws -> AVAudioFormat? {

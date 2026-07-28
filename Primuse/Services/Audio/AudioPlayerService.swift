@@ -35,9 +35,9 @@ private final class StepCounter: @unchecked Sendable {
 /// If this invariant changes (e.g. multiple consumers), replace `@unchecked Sendable`
 /// with an actor wrapper or protect `iterator` with `os_unfair_lock`.
 private final class BufferIteratorBox: @unchecked Sendable {
-    private var iterator: AsyncThrowingStream<AVAudioPCMBuffer, Error>.AsyncIterator
+    private var iterator: AudioBufferStream.AsyncIterator
 
-    init(_ iterator: AsyncThrowingStream<AVAudioPCMBuffer, Error>.AsyncIterator) {
+    init(_ iterator: AudioBufferStream.AsyncIterator) {
         self.iterator = iterator
     }
 
@@ -105,10 +105,7 @@ private actor AsyncBufferGate {
     }
 }
 
-/// Sendable carrier for AVAudioPCMBuffer across task boundaries.
-/// AVAudioPCMBuffer is a reference type marked non-Sendable by AVFoundation,
-/// but we only ever read it after the producing task completes, so the box is
-/// safe in practice.
+/// Result carrier used by the first-buffer timeout task group.
 private struct PCMBufferBox: @unchecked Sendable {
     let value: AVAudioPCMBuffer?
 }
@@ -543,7 +540,7 @@ final class AudioPlayerService {
     /// Negotiates the render graph before decoder creation. DoP is only used
     /// when a DSP-free graph is selected and the output reports the exact DoP
     /// carrier sample rate. Unsupported routes safely fall back to PCM.
-    private func configureOutputPipeline(for song: Song, url: URL) throws -> DSDPlaybackMode {
+    private func configureOutputPipeline(for song: Song, url: URL) async throws -> DSDPlaybackMode {
         let settings = playbackSettings.snapshot()
         let isLocalDSD = url.isFileURL && nativeDecoder.isDSD(url)
 
@@ -561,26 +558,70 @@ final class AudioPlayerService {
             plog("ℹ️ DoP carrier \(dopFormat.sampleRate) Hz unavailable; falling back to PCM")
         }
 
+        var directPCMFormat: AVAudioFormat?
         if isLocalDSD,
            let pcmFormat = try? nativeDecoder.dsdOutputFormat(for: url, mode: .pcm) {
             _ = audioEngine.prepareHardwareSampleRate(pcmFormat.sampleRate)
+            if settings.outputMode == .highFidelity {
+                directPCMFormat = pcmFormat
+            }
         } else {
-            applyOutputSampleRateMatching(for: song)
+            var sourceSampleRate = song.sampleRate.map(Double.init)
+            if sourceSampleRate == nil, url.isFileURL {
+                let decoder: any PrimuseAudioDecoder = await usesFFmpegDecoder(
+                    for: song,
+                    url: url
+                ) ? ffmpegDecoder : nativeDecoder
+                sourceSampleRate = try? await decoder.fileInfo(for: url).sampleRate
+            }
+            if (settings.matchOutputSampleRate || settings.outputMode == .highFidelity),
+               let sourceSampleRate,
+               sourceSampleRate > 0 {
+                _ = audioEngine.prepareHardwareSampleRate(sourceSampleRate)
+            }
+            if settings.outputMode == .highFidelity,
+               let sourceSampleRate,
+               sourceSampleRate > 0 {
+                directPCMFormat = audioEngine.directPCMFormat(
+                    sampleRate: sourceSampleRate
+                )
+            }
         }
 
         _ = AudioSessionManager.shared.activatePlaybackSession()
-        try audioEngine.configure(outputMode: settings.outputMode)
+        try audioEngine.configure(
+            outputMode: settings.outputMode,
+            directSourceFormat: directPCMFormat
+        )
         return .pcm
     }
 
     /// A failed DoP decoder must never feed ordinary PCM into a DoP carrier
     /// graph. Rebuild the normal direct path before trying FFmpeg/AVFoundation.
-    private func preparePCMOutputAfterDoPFailure(song: Song, wasUsingDoP: Bool) -> AVAudioFormat? {
+    private func preparePCMOutputAfterDoPFailure(
+        song: Song,
+        url: URL,
+        wasUsingDoP: Bool
+    ) -> AVAudioFormat? {
         guard wasUsingDoP else { return audioEngine.outputFormat }
         audioEngine.stopPlayback()
-        applyOutputSampleRateMatching(for: song)
+        let decodedPCMFormat = try? nativeDecoder.dsdOutputFormat(
+            for: url,
+            mode: .pcm
+        )
+        if let decodedPCMFormat {
+            _ = audioEngine.prepareHardwareSampleRate(decodedPCMFormat.sampleRate)
+        } else {
+            applyOutputSampleRateMatching(for: song)
+        }
         do {
-            try audioEngine.configure(outputMode: playbackSettings.outputMode)
+            let directFormat = playbackSettings.outputMode == .highFidelity
+                ? decodedPCMFormat
+                : nil
+            try audioEngine.configure(
+                outputMode: playbackSettings.outputMode,
+                directSourceFormat: directFormat
+            )
             try audioEngine.start()
             return audioEngine.outputFormat
         } catch {
@@ -643,6 +684,9 @@ final class AudioPlayerService {
 
         manager.onInterruptionBegan = { [weak self] in
             guard let self, self.currentSong != nil else { return }
+            if self.isAppleMusicMode {
+                AppServices.shared.appleMusic.markPlaybackInterrupted()
+            }
             let wasPlaying = self.isPlaying
             self.syncPlaybackProgressFromEngine()
             self.pendingRecoveryTime = self.currentTime
@@ -1418,7 +1462,13 @@ final class AudioPlayerService {
         let isRemoteURL = url.scheme == "http" || url.scheme == "https"
         let isCloudStream = url.scheme == SourceManager.cloudStreamingScheme
 
-        guard isRemoteURL || isCloudStream || nativeDecoder.canDecode(url: url) || ffmpegDecoder.canDecode(url: url) else {
+        let decoderAvailable: Bool
+        if isRemoteURL || isCloudStream || nativeDecoder.canDecode(url: url) {
+            decoderAvailable = true
+        } else {
+            decoderAvailable = await ffmpegCanDecodeOffMain(url)
+        }
+        guard decoderAvailable else {
             plog("Unsupported format: \(url.pathExtension)")
             isLoading = false
             await autoAdvanceAfterFailure()
@@ -1426,7 +1476,7 @@ final class AudioPlayerService {
         }
 
         do {
-            activeDSDMode = try configureOutputPipeline(for: song, url: url)
+            activeDSDMode = try await configureOutputPipeline(for: song, url: url)
             activeDSDPlaybackMode = activeDSDMode
             applySpatialAudioSettings()
             applyPlaybackRate()
@@ -1445,7 +1495,7 @@ final class AudioPlayerService {
             // an SFBInputSource whose reads go through HTTP Range +
             // sparse-on-disk cache. SFBAudioEngine reads from it like any
             // file and we get instant playback.
-            let stream: AsyncThrowingStream<AVAudioPCMBuffer, Error>
+            let stream: AudioBufferStream
             if isRemoteURL {
                 if FileFormatRouter.requiresCompleteLocalFile(song.fileFormat) {
                     plog("▶️ Decoder: FFmpeg full-download (custom formats require a local seekable stream)")
@@ -1502,7 +1552,7 @@ final class AudioPlayerService {
                 let reason = isCloudStream
                     ? "primuse-stream URL but inputSource setup failed, fallback to file path"
                     : "local file path (file:// scheme)"
-                if usesFFmpegDecoder(for: song, url: url) {
+                if await usesFFmpegDecoder(for: song, url: url) {
                     activeDecoderKind = .ffmpeg
                     plog("▶️ Decoder: FFmpeg (reason: \(reason)) outputFormat: sr=\(outputFormat.sampleRate) ch=\(outputFormat.channelCount)")
                     stream = ffmpegDecoder.decode(
@@ -1573,6 +1623,7 @@ final class AudioPlayerService {
                 } else if !isCloudStream {
                     let safeOutputFormat = preparePCMOutputAfterDoPFailure(
                         song: song,
+                        url: url,
                         wasUsingDoP: activeDSDMode == .dop
                     ) ?? outputFormat
                     activeDSDPlaybackMode = .pcm
@@ -1780,7 +1831,7 @@ final class AudioPlayerService {
             // 远程流的 duration 由 streamingDownloadDecoder 自己解出来,这里跳过。
             if duration <= 0 && !song.isCueTrack && url.isFileURL {
                 Task {
-                    let decoder: any PrimuseAudioDecoder = self.usesFFmpegDecoder(for: song, url: url)
+                    let decoder: any PrimuseAudioDecoder = await self.usesFFmpegDecoder(for: song, url: url)
                         ? self.ffmpegDecoder : self.nativeDecoder
                     if let info = try? await decoder.fileInfo(for: url) {
                         guard self.playID == id else { return }
@@ -1805,14 +1856,21 @@ final class AudioPlayerService {
             prefetchNextSong()
 
             // Decode remaining buffers
-            decodingTask = Task { [id, iteratorBox] in
+            let gate = AsyncBufferGate(limit: Self.maxInFlightDecodedBuffers)
+            decodingTask = Task { [id, iteratorBox, gate] in
                 var lastBuffer: AVAudioPCMBuffer?
                 var scheduledCount = 0
+                defer { Task { await gate.drain() } }
                 do {
                     while let buffer = try await iteratorBox.next() {
                         guard !Task.isCancelled, self.playID == id else { return }
                         if let prev = lastBuffer {
-                            self.audioEngine.scheduleBuffer(prev)
+                            await gate.acquire()
+                            guard !Task.isCancelled, self.playID == id else { return }
+                            self.audioEngine.scheduleBuffer(
+                                prev,
+                                completionCallbackType: .dataConsumed
+                            ) { _ in gate.release() }
                             scheduledCount += 1
                         }
                         lastBuffer = buffer
@@ -1946,16 +2004,26 @@ final class AudioPlayerService {
         for song: Song,
         url: URL,
         outputFormat: AVAudioFormat
-    ) async -> AsyncThrowingStream<AVAudioPCMBuffer, Error>? {
+    ) async -> AudioBufferStream? {
         let onResolveLength = makeResolveLengthCallback(for: song)
 
-        let rawStream: AsyncThrowingStream<AVAudioPCMBuffer, Error>?
+        let rawStream: AudioBufferStream?
         if url.scheme == SourceManager.cloudStreamingScheme {
             // Prefer fully-cached file if available (skips streaming overhead).
             if let cached = sourceManager?.cachedURL(for: song) {
-                rawStream = usesFFmpegDecoder(for: song, url: cached)
-                    ? ffmpegDecoder.decode(from: cached, outputFormat: outputFormat, onResolveSourceLength: onResolveLength)
-                    : nativeDecoder.decode(from: cached, outputFormat: outputFormat, onResolveSourceLength: onResolveLength)
+                if await usesFFmpegDecoder(for: song, url: cached) {
+                    rawStream = ffmpegDecoder.decode(
+                        from: cached,
+                        outputFormat: outputFormat,
+                        onResolveSourceLength: onResolveLength
+                    )
+                } else {
+                    rawStream = nativeDecoder.decode(
+                        from: cached,
+                        outputFormat: outputFormat,
+                        onResolveSourceLength: onResolveLength
+                    )
+                }
                 return rawStream.map { segmented($0, for: song) }
             }
             if FileFormatRouter.requiresCompleteLocalFile(song.fileFormat) { return nil }
@@ -1971,9 +2039,19 @@ final class AudioPlayerService {
         }
         if url.scheme == "http" || url.scheme == "https" {
             if let cached = sourceManager?.cachedURL(for: song) {
-                rawStream = usesFFmpegDecoder(for: song, url: cached)
-                    ? ffmpegDecoder.decode(from: cached, outputFormat: outputFormat, onResolveSourceLength: onResolveLength)
-                    : nativeDecoder.decode(from: cached, outputFormat: outputFormat, onResolveSourceLength: onResolveLength)
+                if await usesFFmpegDecoder(for: song, url: cached) {
+                    rawStream = ffmpegDecoder.decode(
+                        from: cached,
+                        outputFormat: outputFormat,
+                        onResolveSourceLength: onResolveLength
+                    )
+                } else {
+                    rawStream = nativeDecoder.decode(
+                        from: cached,
+                        outputFormat: outputFormat,
+                        onResolveSourceLength: onResolveLength
+                    )
+                }
                 return rawStream.map { segmented($0, for: song) }
             }
             if FileFormatRouter.requiresCompleteLocalFile(song.fileFormat) { return nil }
@@ -1995,20 +2073,31 @@ final class AudioPlayerService {
             )
             return rawStream.map { segmented($0, for: song) }
         }
-        rawStream = usesFFmpegDecoder(for: song, url: url)
-            ? ffmpegDecoder.decode(from: url, outputFormat: outputFormat, onResolveSourceLength: onResolveLength)
-            : nativeDecoder.decode(from: url, outputFormat: outputFormat, onResolveSourceLength: onResolveLength)
+        if await usesFFmpegDecoder(for: song, url: url) {
+            rawStream = ffmpegDecoder.decode(
+                from: url,
+                outputFormat: outputFormat,
+                onResolveSourceLength: onResolveLength
+            )
+        } else {
+            rawStream = nativeDecoder.decode(
+                from: url,
+                outputFormat: outputFormat,
+                onResolveSourceLength: onResolveLength
+            )
+        }
         return rawStream.map { segmented($0, for: song) }
     }
 
     private func segmented(
-        _ stream: AsyncThrowingStream<AVAudioPCMBuffer, Error>,
-        for song: Song
-    ) -> AsyncThrowingStream<AVAudioPCMBuffer, Error> {
+        _ stream: AudioBufferStream,
+        for song: Song,
+        sourceStartTime: TimeInterval = 0
+    ) -> AudioBufferStream {
         AudioSegmentStream.trim(
             stream,
-            startTime: song.cueStartTime,
-            endTime: song.cueEndTime
+            startTime: song.cueStartTime.map { max(0, $0 - sourceStartTime) },
+            endTime: song.cueEndTime.map { max(0, $0 - sourceStartTime) }
         )
     }
 
@@ -2074,21 +2163,31 @@ final class AudioPlayerService {
         plog(String(format: "🎞️ MV resolved real duration for '%@': %.1fs (was %.1fs)", song.title, sanitized, stored))
     }
 
-    private func decoderKind(for song: Song, url: URL) -> DecoderKind {
+    private func decoderKind(for song: Song, url: URL) async -> DecoderKind {
         if url.scheme == SourceManager.cloudStreamingScheme { return .cloudStream }
         if url.scheme == "http" || url.scheme == "https" {
             if SourceManager.isTranscodedStreamURL(url) { return .assetReader }
             return song.fileSize > 0 ? .httpStream : .streaming
         }
-        return usesFFmpegDecoder(for: song, url: url) ? .ffmpeg : .native
+        return await usesFFmpegDecoder(for: song, url: url) ? .ffmpeg : .native
     }
 
-    private func usesFFmpegDecoder(for song: Song, url: URL) -> Bool {
+    private func usesFFmpegDecoder(for song: Song, url: URL) async -> Bool {
         if url.isFileURL, url.pathExtension.caseInsensitiveCompare("wav") == .orderedSame {
-            return ffmpegDecoder.canDecode(url: url)
+            return await ffmpegCanDecodeOffMain(url)
         }
-        return FileFormatRouter.decoder(for: song.fileFormat) is FFmpegAudioDecoder
-            || (!nativeDecoder.canDecode(url: url) && ffmpegDecoder.canDecode(url: url))
+        if FileFormatRouter.decoder(for: song.fileFormat) is FFmpegAudioDecoder {
+            return true
+        }
+        if nativeDecoder.canDecode(url: url) { return false }
+        return await ffmpegCanDecodeOffMain(url)
+    }
+
+    private func ffmpegCanDecodeOffMain(_ url: URL) async -> Bool {
+        let decoder = ffmpegDecoder
+        return await Task.detached(priority: .userInitiated) {
+            decoder.canDecode(url: url)
+        }.value
     }
 
     private func prefetchNextSong() {
@@ -2166,7 +2265,12 @@ final class AudioPlayerService {
     /// only on complete, seekable files in this architecture.
     private func playWithFallbackDecoder(song: Song, url: URL, outputFormat: AVAudioFormat, playID id: UUID) async {
         guard playID == id else { return }
-        let useFFmpeg = url.isFileURL && ffmpegDecoder.canDecode(url: url)
+        let useFFmpeg: Bool
+        if url.isFileURL {
+            useFFmpeg = await ffmpegCanDecodeOffMain(url)
+        } else {
+            useFFmpeg = false
+        }
         guard useFFmpeg || assetReaderDecoder.canDecode(url: url) else {
             plog("⚠️ No decoder available for '\(song.title)'")
             showPlaybackError(String(localized: "playback_error_format"))
@@ -2255,15 +2359,22 @@ final class AudioPlayerService {
             }
 
             // Decode remaining buffers with track-end detection
-            decodingTask = Task { [id, iteratorBox] in
+            let gate = AsyncBufferGate(limit: Self.maxInFlightDecodedBuffers)
+            decodingTask = Task { [id, iteratorBox, gate] in
                 var lastBuffer: AVAudioPCMBuffer?
+                defer { Task { await gate.drain() } }
 
                 do {
                     while let buffer = try await iteratorBox.next() {
                         guard !Task.isCancelled, self.playID == id else { return }
 
                         if let prev = lastBuffer {
-                            self.audioEngine.scheduleBuffer(prev)
+                            await gate.acquire()
+                            guard !Task.isCancelled, self.playID == id else { return }
+                            self.audioEngine.scheduleBuffer(
+                                prev,
+                                completionCallbackType: .dataConsumed
+                            ) { _ in gate.release() }
                         }
                         lastBuffer = buffer
                     }
@@ -2839,7 +2950,7 @@ final class AudioPlayerService {
             do {
                 let url = try await resolvedURL(for: song)
                 guard playID == id else { return }
-                activeDSDPlaybackMode = try configureOutputPipeline(for: song, url: url)
+                activeDSDPlaybackMode = try await configureOutputPipeline(for: song, url: url)
                 applySpatialAudioSettings()
                 applyPlaybackRate()
                 guard let outputFormat = audioEngine.outputFormat else { return }
@@ -2872,56 +2983,76 @@ final class AudioPlayerService {
                 } else {
                     seekURL = url
                 }
-                let rawStream: AsyncThrowingStream<AVAudioPCMBuffer, Error>
+                let rawStream: AudioBufferStream
                 let onResolveLength = makeResolveLengthCallback(for: song)
                 var decoderPerformedSeek = false
+                var decoderSourceStartTime: TimeInterval = 0
+                let physicalSeekTime = max(
+                    0,
+                    (song.cueStartTime ?? 0) + targetTime
+                )
                 switch activeDecoderKind {
                 case .native:
+                    decoderPerformedSeek = true
+                    decoderSourceStartTime = physicalSeekTime
                     rawStream = nativeDecoder.decode(
                         from: seekURL,
                         outputFormat: outputFormat,
                         dsdMode: activeDSDPlaybackMode,
+                        startingAt: physicalSeekTime,
                         onResolveSourceLength: onResolveLength
                     )
                 case .streaming:
                     // Custom formats enter through the full-download fallback.
                     // Once cached, FFmpeg can seek at the demuxer level.
-                    if usesFFmpegDecoder(for: song, url: seekURL), !song.isCueTrack {
+                    if await usesFFmpegDecoder(for: song, url: seekURL) {
                         decoderPerformedSeek = true
+                        decoderSourceStartTime = physicalSeekTime
                         rawStream = ffmpegDecoder.decode(
                             from: seekURL,
                             outputFormat: outputFormat,
-                            startingAt: targetTime,
+                            startingAt: physicalSeekTime,
                             onResolveSourceLength: onResolveLength
                         )
                     } else {
+                        decoderPerformedSeek = true
+                        decoderSourceStartTime = physicalSeekTime
                         rawStream = nativeDecoder.decode(
                             from: seekURL,
                             outputFormat: outputFormat,
+                            startingAt: physicalSeekTime,
                             onResolveSourceLength: onResolveLength
                         )
                     }
                 case .ffmpeg:
-                    if song.isCueTrack {
-                        rawStream = ffmpegDecoder.decode(
-                            from: seekURL,
-                            outputFormat: outputFormat,
-                            onResolveSourceLength: onResolveLength
-                        )
-                    } else {
-                        decoderPerformedSeek = true
-                        rawStream = ffmpegDecoder.decode(
-                            from: seekURL,
-                            outputFormat: outputFormat,
-                            startingAt: targetTime,
-                            onResolveSourceLength: onResolveLength
-                        )
-                    }
+                    decoderPerformedSeek = true
+                    decoderSourceStartTime = physicalSeekTime
+                    rawStream = ffmpegDecoder.decode(
+                        from: seekURL,
+                        outputFormat: outputFormat,
+                        startingAt: physicalSeekTime,
+                        onResolveSourceLength: onResolveLength
+                    )
                 case .httpStream:
                     if let cached = sourceManager?.cachedURL(for: song) {
-                        rawStream = nativeDecoder.decode(from: cached, outputFormat: outputFormat, onResolveSourceLength: onResolveLength)
+                        decoderPerformedSeek = true
+                        decoderSourceStartTime = physicalSeekTime
+                        rawStream = nativeDecoder.decode(
+                            from: cached,
+                            outputFormat: outputFormat,
+                            dsdMode: .pcm,
+                            startingAt: physicalSeekTime,
+                            onResolveSourceLength: onResolveLength
+                        )
                     } else if let inputSource = await makeHTTPStreamingInputSource(for: song, url: url) {
-                        rawStream = nativeDecoder.decode(from: inputSource, outputFormat: outputFormat, onResolveSourceLength: onResolveLength)
+                        decoderPerformedSeek = true
+                        decoderSourceStartTime = physicalSeekTime
+                        rawStream = nativeDecoder.decode(
+                            from: inputSource,
+                            outputFormat: outputFormat,
+                            startingAt: physicalSeekTime,
+                            onResolveSourceLength: onResolveLength
+                        )
                     } else {
                         plog("⚠️ Seek: failed to build HTTP streaming InputSource")
                         isLoading = false
@@ -2935,22 +3066,47 @@ final class AudioPlayerService {
                     // rest). If the song has since been fully downloaded
                     // and renamed to the canonical path, prefer that.
                     if let cached = sourceManager?.cachedURL(for: song) {
-                        rawStream = nativeDecoder.decode(from: cached, outputFormat: outputFormat, onResolveSourceLength: onResolveLength)
+                        decoderPerformedSeek = true
+                        decoderSourceStartTime = physicalSeekTime
+                        rawStream = nativeDecoder.decode(
+                            from: cached,
+                            outputFormat: outputFormat,
+                            dsdMode: .pcm,
+                            startingAt: physicalSeekTime,
+                            onResolveSourceLength: onResolveLength
+                        )
                     } else if let manager = sourceManager,
                               let inputSource = try? await manager.makeStreamingInputSource(
                                   for: song,
                                   cacheEnabled: playbackSettings.audioCacheEnabled
                               ) {
-                        rawStream = nativeDecoder.decode(from: inputSource, outputFormat: outputFormat, onResolveSourceLength: onResolveLength)
+                        decoderPerformedSeek = true
+                        decoderSourceStartTime = physicalSeekTime
+                        rawStream = nativeDecoder.decode(
+                            from: inputSource,
+                            outputFormat: outputFormat,
+                            startingAt: physicalSeekTime,
+                            onResolveSourceLength: onResolveLength
+                        )
                     } else {
                         plog("⚠️ Seek: failed to build cloud streaming InputSource")
                         isLoading = false
                         return
                     }
                 case .assetReader:
-                    rawStream = assetReaderDecoder.decode(from: seekURL, outputFormat: outputFormat)
+                    decoderPerformedSeek = true
+                    decoderSourceStartTime = physicalSeekTime
+                    rawStream = assetReaderDecoder.decode(
+                        from: seekURL,
+                        outputFormat: outputFormat,
+                        startingAt: physicalSeekTime
+                    )
                 }
-                let stream = segmented(rawStream, for: song)
+                let stream = segmented(
+                    rawStream,
+                    for: song,
+                    sourceStartTime: decoderSourceStartTime
+                )
                 let seekSamplePosition = targetTime * outputFormat.sampleRate
                 guard seekSamplePosition.isFinite else {
                     self.isLoading = false
@@ -3001,15 +3157,22 @@ final class AudioPlayerService {
                 updatePlaybackState()
 
                 // Decode remaining buffers with track-end detection
-                decodingTask = Task { [id, iteratorBox] in
+                let gate = AsyncBufferGate(limit: Self.maxInFlightDecodedBuffers)
+                decodingTask = Task { [id, iteratorBox, gate] in
                     var lastBuffer: AVAudioPCMBuffer?
+                    defer { Task { await gate.drain() } }
 
                     do {
                         while let buffer = try await iteratorBox.next() {
                             guard !Task.isCancelled, self.playID == id else { return }
 
                             if let prev = lastBuffer {
-                                self.audioEngine.scheduleBuffer(prev)
+                                await gate.acquire()
+                                guard !Task.isCancelled, self.playID == id else { return }
+                                self.audioEngine.scheduleBuffer(
+                                    prev,
+                                    completionCallbackType: .dataConsumed
+                                ) { _ in gate.release() }
                             }
                             lastBuffer = buffer
                         }
@@ -3440,7 +3603,7 @@ final class AudioPlayerService {
         var nextDecoderKind: DecoderKind
         do {
             nextURL = try await resolvedURL(for: nextSong)
-            nextDecoderKind = decoderKind(for: nextSong, url: nextURL)
+            nextDecoderKind = await decoderKind(for: nextSong, url: nextURL)
         } catch {
             plog("Gapless prepare URL error: \(error.localizedDescription)")
             return
@@ -3451,7 +3614,6 @@ final class AudioPlayerService {
               !transition.shouldCancelPreparation,
               nextDecoderKind == .native || nextDecoderKind == .ffmpeg || nextDecoderKind == .httpStream || nextDecoderKind == .cloudStream,
               nextDecoderKind != .native || nativeDecoder.canDecode(url: nextURL),
-              nextDecoderKind != .ffmpeg || ffmpegDecoder.canDecode(url: nextURL),
               let outputFormat = audioEngine.outputFormat else { return }
 
         guard let stream = await decodeStream(for: nextSong, url: nextURL, outputFormat: outputFormat) else {
@@ -3581,10 +3743,13 @@ final class AudioPlayerService {
 
         do {
             let nextURL = try await resolvedURL(for: nextSong)
-            let nextDecoderKind = decoderKind(for: nextSong, url: nextURL)
-            guard (nextDecoderKind == .ffmpeg
-                    ? ffmpegDecoder.canDecode(url: nextURL)
-                    : nativeDecoder.canDecode(url: nextURL)),
+            let nextDecoderKind = await decoderKind(for: nextSong, url: nextURL)
+            guard nextDecoderKind == .native
+                    || nextDecoderKind == .ffmpeg
+                    || nextDecoderKind == .httpStream
+                    || nextDecoderKind == .cloudStream,
+                  nextDecoderKind != .native
+                    || nativeDecoder.canDecode(url: nextURL),
                   let outputFormat = audioEngine.outputFormat else {
                 crossfadeTriggered = false; isCrossfading = false
                 return
@@ -3635,9 +3800,13 @@ final class AudioPlayerService {
             audioEngine.scheduleCrossfadeBuffer(firstBuffer)
             audioEngine.playCrossfadeNode()
 
-            crossfadeDecodingTask = Task { [iteratorBox] in
+            let gate = AsyncBufferGate(limit: Self.maxInFlightDecodedBuffers)
+            crossfadeDecodingTask = Task { [iteratorBox, gate] in
+                defer { Task { await gate.drain() } }
                 do {
                     while let buffer = try await iteratorBox.next() {
+                        guard !Task.isCancelled else { return }
+                        await gate.acquire()
                         guard !Task.isCancelled else { return }
                         // swap 之后, 这个解码任务投递的物理节点已经变成
                         // primary。继续用 scheduleCrossfadeBuffer 会把 buffer
@@ -3645,9 +3814,15 @@ final class AudioPlayerService {
                         // 两边都在 MainActor, 此判断与 completeCrossfade 的
                         // 置位不会交错。
                         if self.crossfadeSwapDone {
-                            self.audioEngine.scheduleBuffer(buffer)
+                            self.audioEngine.scheduleBuffer(
+                                buffer,
+                                completionCallbackType: .dataConsumed
+                            ) { _ in gate.release() }
                         } else {
-                            self.audioEngine.scheduleCrossfadeBuffer(buffer)
+                            self.audioEngine.scheduleCrossfadeBuffer(
+                                buffer,
+                                completionCallbackType: .dataConsumed
+                            ) { _ in gate.release() }
                         }
                     }
                 } catch {
@@ -3687,6 +3862,9 @@ final class AudioPlayerService {
                     self?.crossfadeTimer = nil
                     return
                 }
+                // AudioEngine pauses both physical nodes. Freeze the ramp too;
+                // otherwise a user pause completes the swap in silence.
+                guard self.isPlaying else { return }
                 stepCounter.value += 1
                 let progress = Float(stepCounter.value) / Float(totalSteps)
 

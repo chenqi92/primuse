@@ -40,6 +40,12 @@ actor SMBSource: MusicSourceConnector {
     private var client: SMB2Manager?
     private var connectedShareName: String?
     private let operationGate = SMBOperationGate()
+    /// Playback prefetch uses a separate libsmb2 context/TCP session. AMSMB2
+    /// serializes each context, so sharing the foreground context made a slow
+    /// 1 MB prefetch block decoder reads long enough to underrun.
+    private var backgroundClient: SMB2Manager?
+    private var backgroundConnectedShareName: String?
+    private let backgroundOperationGate = SMBOperationGate()
     private let cacheDirectory: URL
 
     private enum ResolvedPath {
@@ -76,11 +82,18 @@ actor SMBSource: MusicSourceConnector {
 
     func disconnect() async {
         await operationGate.acquire()
+        await backgroundOperationGate.acquire()
         if let client, connectedShareName != nil {
             try? await client.disconnectShare()
         }
+        if let backgroundClient, backgroundConnectedShareName != nil {
+            try? await backgroundClient.disconnectShare()
+        }
         connectedShareName = nil
         client = nil
+        backgroundConnectedShareName = nil
+        backgroundClient = nil
+        await backgroundOperationGate.release()
         await operationGate.release()
     }
 
@@ -169,6 +182,20 @@ actor SMBSource: MusicSourceConnector {
      /// 的 SMB2 READ (8-byte offset), 协议级支持 byte range, 让 CloudPlaybackSource
      /// 边下边播替代整文件下载。
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+        try await fetchRange(
+            path: path,
+            offset: offset,
+            length: length,
+            priority: .userInitiated
+        )
+    }
+
+    func fetchRange(
+        path: String,
+        offset: Int64,
+        length: Int64,
+        priority: RangeFetchPriority
+    ) async throws -> Data {
         guard length > 0 else { return Data() }
         let normalizedPath = Self.normalizeRemotePath(path)
         let resolvedPath = try resolve(path: normalizedPath)
@@ -176,34 +203,70 @@ actor SMBSource: MusicSourceConnector {
             throw SourceError.connectionFailed("SMB share not selected")
         }
 
-        return try await runWithRetry {
-            let client = try await self.ensureConnectedShare(named: shareName)
-            // offset < 0 表示从文件末尾倒数 (suffix range), AMSMB2 的 RangeExpression
-            // 接受 UInt64 所以负 offset 需要先拿 fileSize 转换。
-            if offset < 0 {
-                let attrs = try await client.attributesOfItem(atPath: relativePath)
-                // 区分"大小拿不到"与"文件确为 0 字节": 前者无法换算 suffix range,
-                // 返回空会被回填误判为"无尾部标签"而静默丢 moov/ID3v1 标签, 应抛错。
-                guard let total = (attrs[.fileSizeKey] as? Int64)
-                        ?? (attrs[.fileSizeKey] as? Int).map({ Int64($0) }) else {
-                    throw SourceError.fileNotFound(relativePath)
-                }
-                let start = max(0, total + offset)
-                guard let requestedEnd = SafeByteRange.exclusiveEnd(offset: start, length: length) else {
-                    return Data()
-                }
-                let end = min(total, requestedEnd)
-                guard start < end else { return Data() }
-                return try await client.contents(atPath: relativePath, range: UInt64(start)..<UInt64(end))
+        switch priority {
+        case .userInitiated:
+            return try await runWithRetry {
+                let client = try await self.ensureConnectedShare(named: shareName)
+                return try await self.readRange(
+                    client: client,
+                    relativePath: relativePath,
+                    offset: offset,
+                    length: length
+                )
             }
-            guard let end = SafeByteRange.exclusiveEnd(offset: offset, length: length) else {
+        case .background:
+            return try await runBackgroundWithRetry {
+                let client = try await self.ensureBackgroundConnectedShare(
+                    named: shareName
+                )
+                return try await self.readRange(
+                    client: client,
+                    relativePath: relativePath,
+                    offset: offset,
+                    length: length
+                )
+            }
+        }
+    }
+
+    private func readRange(
+        client: SMB2Manager,
+        relativePath: String,
+        offset: Int64,
+        length: Int64
+    ) async throws -> Data {
+        // offset < 0 表示从文件末尾倒数 (suffix range), AMSMB2 的
+        // RangeExpression 接受 UInt64 所以负 offset 需要先拿 fileSize 转换。
+        if offset < 0 {
+            let attrs = try await client.attributesOfItem(atPath: relativePath)
+            guard let total = (attrs[.fileSizeKey] as? Int64)
+                    ?? (attrs[.fileSizeKey] as? Int).map({ Int64($0) }) else {
+                throw SourceError.fileNotFound(relativePath)
+            }
+            let start = max(0, total + offset)
+            guard let requestedEnd = SafeByteRange.exclusiveEnd(
+                offset: start,
+                length: length
+            ) else {
                 return Data()
             }
+            let end = min(total, requestedEnd)
+            guard start < end else { return Data() }
             return try await client.contents(
                 atPath: relativePath,
-                range: UInt64(offset)..<UInt64(end)
+                range: UInt64(start)..<UInt64(end)
             )
         }
+        guard let end = SafeByteRange.exclusiveEnd(
+            offset: offset,
+            length: length
+        ) else {
+            return Data()
+        }
+        return try await client.contents(
+            atPath: relativePath,
+            range: UInt64(offset)..<UInt64(end)
+        )
     }
 
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
@@ -293,9 +356,25 @@ actor SMBSource: MusicSourceConnector {
             return client
         }
 
+        let client = try makeClient(lane: "foreground")
+        self.client = client
+        return client
+    }
+
+    private func ensureBackgroundServerConnection() async throws -> SMB2Manager {
+        if let backgroundClient {
+            return backgroundClient
+        }
+
+        let client = try makeClient(lane: "background")
+        self.backgroundClient = client
+        return client
+    }
+
+    private func makeClient(lane: String) throws -> SMB2Manager {
         let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
         let serverURL = try Self.buildSMBUrl(host: trimmedHost, port: port)
-        plog("ℹ️ SMB connecting to \(serverURL.absoluteString) (original host: \(trimmedHost))")
+        plog("ℹ️ SMB \(lane) connecting to \(serverURL.absoluteString) (original host: \(trimmedHost))")
 
         // 凭证里若混入首尾空白 / 换行 / 粘贴带入的不可见字符, SMB 会直接判定认证失败。
         // 用户名与密码统一去除首尾空白(NAS 账号密码极少以空格首尾)。
@@ -317,7 +396,6 @@ actor SMBSource: MusicSourceConnector {
         guard let client = SMB2Manager(url: serverURL, credential: credential) else {
             throw SourceError.connectionFailed("Invalid SMB server configuration")
         }
-        self.client = client
         return client
     }
 
@@ -348,6 +426,31 @@ actor SMBSource: MusicSourceConnector {
         return client
     }
 
+    private func ensureBackgroundConnectedShare(
+        named shareName: String
+    ) async throws -> SMB2Manager {
+        let normalizedShareName = Self.normalizeShareName(shareName)
+        guard normalizedShareName.isEmpty == false else {
+            throw SourceError.connectionFailed("SMB share not selected")
+        }
+
+        let client = try await ensureBackgroundServerConnection()
+        if backgroundConnectedShareName == normalizedShareName {
+            return client
+        }
+        if backgroundConnectedShareName != nil {
+            try? await client.disconnectShare()
+            backgroundConnectedShareName = nil
+        }
+        do {
+            try await client.connectShare(name: normalizedShareName)
+        } catch {
+            throw mapSMBError(error)
+        }
+        backgroundConnectedShareName = normalizedShareName
+        return client
+    }
+
     private func rawListShares() async throws -> [(name: String, comment: String)] {
         let client = try await ensureServerConnection()
         do {
@@ -367,6 +470,14 @@ actor SMBSource: MusicSourceConnector {
         client = nil
     }
 
+    private func invalidateBackgroundConnection() async {
+        if let backgroundClient, backgroundConnectedShareName != nil {
+            try? await backgroundClient.disconnectShare()
+        }
+        backgroundConnectedShareName = nil
+        backgroundClient = nil
+    }
+
     /// Run an SMB request, retrying once if the first attempt fails with a
     /// transient connection error. AMSMB2 sessions die silently after Wi-Fi
     /// changes / device sleep and surface as `ECONNRESET` / `EBADF`; reconnecting
@@ -376,6 +487,27 @@ actor SMBSource: MusicSourceConnector {
     ) async throws -> T {
         try await withSerializedOperation {
             try await self.runWithRetryWhileLocked(block)
+        }
+    }
+
+    private func runBackgroundWithRetry<T: Sendable>(
+        _ block: () async throws -> T
+    ) async throws -> T {
+        try await withSerializedBackgroundOperation {
+            do {
+                return try await block()
+            } catch {
+                guard Self.isTransientConnectionError(error) else {
+                    throw mapSMBError(error)
+                }
+                plog("⚠️ SMB background transient error, reconnecting: \(error)")
+                await invalidateBackgroundConnection()
+                do {
+                    return try await block()
+                } catch {
+                    throw mapSMBError(error)
+                }
+            }
         }
     }
 
@@ -408,6 +540,20 @@ actor SMBSource: MusicSourceConnector {
             return result
         } catch {
             await operationGate.release()
+            throw error
+        }
+    }
+
+    private func withSerializedBackgroundOperation<T: Sendable>(
+        _ operation: () async throws -> T
+    ) async throws -> T {
+        await backgroundOperationGate.acquire()
+        do {
+            let result = try await operation()
+            await backgroundOperationGate.release()
+            return result
+        } catch {
+            await backgroundOperationGate.release()
             throw error
         }
     }

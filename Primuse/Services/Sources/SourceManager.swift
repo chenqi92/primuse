@@ -2778,9 +2778,19 @@ final class SourceManager {
             // 不预热 tail 就会触发 1-2s 的 user-facing fetch 卡顿。
             // 短文件 (head + tail overlap) 时 tail 直接为空。
             let tailSize = min(Self.prewarmTailSize, max(0, fileSize - Self.prewarmHeadSize))
-            async let headData = connector.fetchRange(path: song.filePath, offset: 0, length: Self.prewarmHeadSize)
+            async let headData = connector.fetchRange(
+                path: song.filePath,
+                offset: 0,
+                length: Self.prewarmHeadSize,
+                priority: .background
+            )
             async let tailData: Data = tailSize > 0
-                ? connector.fetchRange(path: song.filePath, offset: fileSize - tailSize, length: tailSize)
+                ? connector.fetchRange(
+                    path: song.filePath,
+                    offset: fileSize - tailSize,
+                    length: tailSize,
+                    priority: .background
+                )
                 : Data()
             let (head, tail) = try await (headData, tailData)
             seedPrewarmCache(song: song, head: head, tail: tail, fileSize: fileSize)

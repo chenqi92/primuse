@@ -18,6 +18,7 @@ NS_ASSUME_NONNULL_BEGIN
 @interface FFmpegAudioReadResult : NSObject
 @property(nonatomic, nullable) AVAudioPCMBuffer *buffer;
 @property(nonatomic) NSTimeInterval presentationTime;
+@property(nonatomic) BOOL hasPresentationTime;
 @end
 
 /// Objective-C ownership layer over FFmpeg. The bridge exposes only Foundation

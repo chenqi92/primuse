@@ -189,6 +189,7 @@ final class AppleMusicLibraryService {
             queue = orderedQueueFromCache()
         }
         let startIndex = queue.firstIndex(where: { $0.id == mk.id }) ?? 0
+        appleMusic.prepareExpectedPlaybackDuration(song.duration)
         if queue.isEmpty {
             await appleMusic.play(mk)
         } else {
