@@ -573,6 +573,7 @@
 "dup_mac_continue_background" = "在背景繼續";
 "dup_mac_copies_format" = "%d 個副本";
 "dup_mac_keep" = "保留";
+"dup_mac_keep_read_only" = "保留（唯讀）";
 "dup_mac_delete" = "刪除";
 "Unknown Source" = "未知來源";
 "carplay_recent_title" = "最近加入";
@@ -1914,6 +1915,7 @@
 "output_mode_effects" = "音效處理";
 "output_mode_high_fidelity_desc" = "以單位增益使用最短信號路徑，略過等化器、動態處理、殘響、空間音訊、ReplayGain、變速、淡入淡出、App 音量與視覺化取樣，並自動匹配取樣率。";
 "output_mode_effects_desc" = "使用完整處理鏈，支援等化器、動態處理、殘響、空間音訊、ReplayGain、變速、淡入淡出、App 音量與視覺化。";
+"volume_high_fidelity_system_hint" = "高傳真直通使用單位增益，請使用系統音量調整。";
 "dsd_playback_mode" = "DSD 播放";
 "dsd_mode_auto" = "自動";
 "dsd_mode_pcm" = "轉換為 PCM";

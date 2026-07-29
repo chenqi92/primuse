@@ -450,6 +450,10 @@ struct DuplicateSongsView: View {
 
     private func macGroupRow(_ group: DuplicateGroup) -> some View {
         let keepID = preferredSong(in: group).id
+        let deletableSourceIDs = deletableSourceIDsSnapshot
+        let containsReadOnlySong = group.songs.contains {
+            !deletableSourceIDs.contains($0.sourceID)
+        }
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
                 CachedArtworkView(
@@ -486,7 +490,12 @@ struct DuplicateSongsView: View {
 
             VStack(spacing: 0) {
                 ForEach(Array(group.songs.enumerated()), id: \.element.id) { index, song in
-                    macSongRow(song: song, isBest: song.id == keepID)
+                    let isReadOnly = !deletableSourceIDs.contains(song.sourceID)
+                    // Cleanup always keeps read-only catalogue entries. When a
+                    // group mixes read-only and writable sources, every writable
+                    // copy is removable; otherwise preserve the selected winner.
+                    let isKept = isReadOnly || (!containsReadOnlySong && song.id == keepID)
+                    macSongRow(song: song, isKept: isKept, isReadOnly: isReadOnly)
                     if index < group.songs.count - 1 {
                         Rectangle().fill(PMColor.divider).frame(height: 0.5)
                     }
@@ -501,15 +510,18 @@ struct DuplicateSongsView: View {
         }
     }
 
-    private func macSongRow(song: Song, isBest: Bool) -> some View {
-        HStack(spacing: 12) {
+    private func macSongRow(song: Song, isKept: Bool, isReadOnly: Bool) -> some View {
+        let action = isReadOnly
+            ? String(localized: "dup_mac_keep_read_only")
+            : String(localized: isKept ? "dup_mac_keep" : "dup_mac_delete")
+        return HStack(spacing: 12) {
             ZStack {
                 Circle()
-                    .strokeBorder(isBest ? Color.clear : PMColor.dividerStrong, lineWidth: 1.5)
+                    .strokeBorder(isKept ? Color.clear : PMColor.dividerStrong, lineWidth: 1.5)
                     .background {
-                        Circle().fill(isBest ? PMColor.brand : Color.clear)
+                        Circle().fill(isKept ? PMColor.brand : Color.clear)
                     }
-                if isBest {
+                if isKept {
                     Image(systemName: "checkmark")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(.white)
@@ -518,9 +530,9 @@ struct DuplicateSongsView: View {
             .frame(width: 16, height: 16)
             .frame(width: 22, alignment: .leading)
 
-            Text(verbatim: "\(isBest ? String(localized: "dup_mac_keep") : String(localized: "dup_mac_delete")) · \(duplicateSourceName(song))")
-                .font(.system(size: 12, weight: isBest ? .semibold : .regular))
-                .foregroundStyle(isBest ? PMColor.text : PMColor.textMuted)
+            Text(verbatim: "\(action) · \(duplicateSourceName(song))")
+                .font(.system(size: 12, weight: isKept ? .semibold : .regular))
+                .foregroundStyle(isKept ? PMColor.text : PMColor.textMuted)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -544,7 +556,7 @@ struct DuplicateSongsView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
-        .background(isBest ? PMColor.brand.opacity(0.12) : Color.clear)
+        .background(isKept ? PMColor.brand.opacity(0.12) : Color.clear)
     }
 
     private func macFormatLabel(_ song: Song) -> some View {

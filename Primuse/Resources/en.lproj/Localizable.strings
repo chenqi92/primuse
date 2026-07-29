@@ -636,6 +636,7 @@
 "dup_mac_continue_background" = "Continue in Background";
 "dup_mac_copies_format" = "%d copies";
 "dup_mac_keep" = "Keep";
+"dup_mac_keep_read_only" = "Keep (Read Only)";
 "dup_mac_delete" = "Delete";
 "Unknown Source" = "Unknown Source";
 "carplay_recent_title" = "Recently Added";
@@ -1766,6 +1767,7 @@
 "output_mode_effects" = "Effects & Processing";
 "output_mode_high_fidelity_desc" = "Shortest signal path at unity gain. Bypasses EQ, dynamics, reverb, spatial processing, ReplayGain, speed changes, crossfade, app volume, and visualizer taps; sample-rate matching is automatic.";
 "output_mode_effects_desc" = "Uses the full processing graph for EQ, dynamics, reverb, spatial audio, ReplayGain, playback speed, crossfade, app volume, and visualization.";
+"volume_high_fidelity_system_hint" = "High Fidelity Direct uses unity gain. Adjust volume with the system controls.";
 "dsd_playback_mode" = "DSD Playback";
 "dsd_mode_auto" = "Automatic";
 "dsd_mode_pcm" = "Convert to PCM";

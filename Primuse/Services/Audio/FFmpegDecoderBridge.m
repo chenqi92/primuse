@@ -216,11 +216,18 @@ static BOOL FFmpegWAVEContainsDTSSync(const uint8_t *bytes, NSUInteger length) {
             bitDepth = FFmpegReadLittleEndian16(bytes + payloadStart + 14);
             hasFormat = YES;
         } else if (memcmp(chunk, "data", 4) == 0) {
+            // 0x0008 (WAVE_FORMAT_DTS) and 0x2001 (WAVE_FORMAT_DTS2) are
+            // explicit DTS-in-WAVE tags emitted by common muxers. DTS-CD
+            // images may instead claim to be ordinary stereo PCM (0x0001)
+            // or extensible PCM (0xfffe), so keep the tighter carrier guard
+            // for those ambiguous formats.
+            BOOL isExplicitDTS = audioFormat == 0x0008 || audioFormat == 0x2001;
             BOOL isPCMCarrier = audioFormat == 1 || audioFormat == 0xfffe;
-            BOOL plausibleDTSCD = hasFormat
-                && isPCMCarrier
+            BOOL plausiblePCMCarrier = isPCMCarrier
                 && channelCount == 2
-                && bitDepth == 16
+                && bitDepth == 16;
+            BOOL plausibleDTSCD = hasFormat
+                && (isExplicitDTS || plausiblePCMCarrier)
                 && sampleRate >= 32000
                 && sampleRate <= 96000;
             return plausibleDTSCD

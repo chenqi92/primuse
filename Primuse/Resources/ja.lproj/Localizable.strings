@@ -720,6 +720,7 @@
 "dup_mac_continue_background" = "バックグラウンドで続行";
 "dup_mac_copies_format" = "%d 個のコピー";
 "dup_mac_keep" = "残す";
+"dup_mac_keep_read_only" = "残す（読み取り専用）";
 "dup_mac_delete" = "削除";
 "Unknown Source" = "不明なソース";
 "carplay_recent_title" = "最近追加";
@@ -1939,6 +1940,7 @@
 "output_mode_effects" = "エフェクト処理";
 "output_mode_high_fidelity_desc" = "ユニティゲインの最短信号経路で、すべての DSP をバイパスし、サンプルレートを自動調整します。";
 "output_mode_effects_desc" = "EQ、ダイナミクス、リバーブ、空間オーディオ、ReplayGain、速度、クロスフェード、ビジュアライザーを使用します。";
+"volume_high_fidelity_system_hint" = "高音質ダイレクトではユニティゲインを使用します。音量はシステム側で調整してください。";
 "dsd_playback_mode" = "DSD 再生";
 "dsd_mode_auto" = "自動";
 "dsd_mode_pcm" = "PCM に変換";

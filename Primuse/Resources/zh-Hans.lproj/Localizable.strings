@@ -635,6 +635,7 @@
 "dup_mac_continue_background" = "在后台继续";
 "dup_mac_copies_format" = "%d 个副本";
 "dup_mac_keep" = "保留";
+"dup_mac_keep_read_only" = "保留（只读）";
 "dup_mac_delete" = "删除";
 "Unknown Source" = "未知来源";
 "carplay_recent_title" = "最近添加";
@@ -2041,6 +2042,7 @@
 "output_mode_effects" = "音效处理";
 "output_mode_high_fidelity_desc" = "以单位增益使用最短信号路径，绕过均衡器、动态处理、混响、空间音频、回放增益、变速、淡入淡出、应用音量与可视化采样，并自动匹配采样率。";
 "output_mode_effects_desc" = "使用完整处理链，支持均衡器、动态处理、混响、空间音频、回放增益、变速、淡入淡出、应用音量与可视化。";
+"volume_high_fidelity_system_hint" = "高保真直通使用单位增益，请使用系统音量调节。";
 "dsd_playback_mode" = "DSD 播放";
 "dsd_mode_auto" = "自动";
 "dsd_mode_pcm" = "转换为 PCM";

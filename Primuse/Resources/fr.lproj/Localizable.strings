@@ -719,6 +719,7 @@
 "dup_mac_continue_background" = "Continuer en arrière-plan";
 "dup_mac_copies_format" = "%d copies";
 "dup_mac_keep" = "Conserver";
+"dup_mac_keep_read_only" = "Conserver (lecture seule)";
 "dup_mac_delete" = "Supprimer";
 "Unknown Source" = "Source inconnue";
 "carplay_recent_title" = "Ajoutés récemment";
@@ -1938,6 +1939,7 @@
 "output_mode_effects" = "Effets et traitement";
 "output_mode_high_fidelity_desc" = "Chemin du signal le plus court à gain unitaire, sans effets DSP, avec adaptation automatique de la fréquence d’échantillonnage.";
 "output_mode_effects_desc" = "Utilise toute la chaîne de traitement : égaliseur, dynamique, réverbération, audio spatial, ReplayGain, vitesse, fondu et visualisation.";
+"volume_high_fidelity_system_hint" = "Le mode Haute fidélité directe utilise un gain unitaire. Réglez le volume avec les commandes système.";
 "dsd_playback_mode" = "Lecture DSD";
 "dsd_mode_auto" = "Automatique";
 "dsd_mode_pcm" = "Convertir en PCM";

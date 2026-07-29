@@ -727,7 +727,11 @@ struct MacNowPlayingView: View {
             PMVolumeSlider(value: Binding(
                 get: { Double(engine.volume) },
                 set: { engine.volume = Float($0) }
-            ), accessibilityLabel: String(localized: "volume"))
+            ), isEnabled: player.playbackSettings.outputMode == .effects,
+               accessibilityLabel: String(localized: "volume"),
+               accessibilityHelp: player.playbackSettings.outputMode == .highFidelity
+                   ? String(localized: "volume_high_fidelity_system_hint")
+                   : nil)
             .frame(width: 118)
 
             Text(verbatim: "\((engine.volume * 100).rounded().finiteInt())")
@@ -743,7 +747,9 @@ struct MacNowPlayingView: View {
             Capsule().strokeBorder(playerGlassBorder, lineWidth: 0.5)
         }
         .glassEffect(.regular.interactive(), in: .capsule)
-        .help(Text("volume"))
+        .help(player.playbackSettings.outputMode == .highFidelity
+            ? Text("volume_high_fidelity_system_hint")
+            : Text("volume"))
     }
 
     private var volumeSymbol: String {

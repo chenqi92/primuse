@@ -2433,6 +2433,7 @@ final class MusicLibrary {
         for (i, s) in mergedSongs.enumerated() { existingIndexByID[s.id] = i }
 
         var contentChanged: [Song] = []
+        var replacementIDs: Set<String> = []
 
         for newSong in filteredNewSongs {
             if let idx = existingIndexByID[newSong.id] {
@@ -2459,6 +2460,7 @@ final class MusicLibrary {
                 if sizeChanged || mtimeChanged || revisionChanged {
                     mergedSongs[idx] = newSong
                     contentChanged.append(newSong)
+                    replacementIDs.insert(newSong.id)
                     continue
                 }
                 // "Bare incoming" matches `MetadataBackfillService.isBareSong` —
@@ -2493,8 +2495,14 @@ final class MusicLibrary {
                     if let lyrics = newSong.lyricsFileName { merged.lyricsFileName = lyrics }
                     if let mvPath = newSong.mvPath { merged.mvPath = mvPath }
                     mergedSongs[idx] = merged
+                    if Self.songPresentationChanged(from: existing, to: merged) {
+                        replacementIDs.insert(newSong.id)
+                    }
                 } else {
                     mergedSongs[idx] = newSong
+                    if Self.songPresentationChanged(from: existing, to: newSong) {
+                        replacementIDs.insert(newSong.id)
+                    }
                 }
             } else {
                 mergedSongs.append(newSong)
@@ -2513,6 +2521,19 @@ final class MusicLibrary {
         rebuildIndex()
         persistSnapshot()
 
+        // A full re-scan can update metadata while preserving the exact same
+        // ordered song IDs (for example correcting a PCM WAV that an older
+        // build labelled as DTS). `visibleSongCollectionRevision` intentionally
+        // does not change in that case, so publish the lightweight replacement
+        // token used by SongListCache to patch only the affected rows.
+        if !replacementIDs.isEmpty {
+            lastReplacedSongIDs = replacementIDs
+            lastReplacedSong = replacementIDs.count == 1
+                ? replacementIDs.first.flatMap { song(id: $0) }
+                : nil
+            songReplacementToken = UUID()
+        }
+
         if !contentChanged.isEmpty {
             NotificationCenter.default.post(
                 name: .primuseSongContentChanged,
@@ -2527,6 +2548,42 @@ final class MusicLibrary {
                 userInfo: ["songs": removedSongs]
             )
         }
+    }
+
+    /// Compare fields consumed by song rows, Now Playing, and technical-info
+    /// views without invoking Song's synthesized equality. The latter also
+    /// walks the potentially large `lyricsText` payload for every track in a
+    /// multi-thousand-song rescan.
+    private nonisolated static func songPresentationChanged(from old: Song, to new: Song) -> Bool {
+        old.title != new.title
+            || old.albumID != new.albumID
+            || old.artistID != new.artistID
+            || old.albumTitle != new.albumTitle
+            || old.artistName != new.artistName
+            || old.trackNumber != new.trackNumber
+            || old.discNumber != new.discNumber
+            || old.duration != new.duration
+            || old.fileFormat != new.fileFormat
+            || old.filePath != new.filePath
+            || old.sourceID != new.sourceID
+            || old.fileSize != new.fileSize
+            || old.bitRate != new.bitRate
+            || old.sampleRate != new.sampleRate
+            || old.bitDepth != new.bitDepth
+            || old.genre != new.genre
+            || old.year != new.year
+            || old.lastModified != new.lastModified
+            || old.coverArtFileName != new.coverArtFileName
+            || old.lyricsFileName != new.lyricsFileName
+            || old.mvPath != new.mvPath
+            || old.replayGainTrackGain != new.replayGainTrackGain
+            || old.replayGainTrackPeak != new.replayGainTrackPeak
+            || old.replayGainAlbumGain != new.replayGainAlbumGain
+            || old.replayGainAlbumPeak != new.replayGainAlbumPeak
+            || old.cueSheetPath != new.cueSheetPath
+            || old.cueStartTime != new.cueStartTime
+            || old.cueEndTime != new.cueEndTime
+            || old.revision != new.revision
     }
 
     /// Delete a single song and rebuild index

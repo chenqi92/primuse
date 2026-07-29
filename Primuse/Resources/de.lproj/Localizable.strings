@@ -719,6 +719,7 @@
 "dup_mac_continue_background" = "Im Hintergrund fortsetzen";
 "dup_mac_copies_format" = "%d Kopien";
 "dup_mac_keep" = "Behalten";
+"dup_mac_keep_read_only" = "Behalten (schreibgeschützt)";
 "dup_mac_delete" = "Löschen";
 "Unknown Source" = "Unbekannte Quelle";
 "carplay_recent_title" = "Zuletzt hinzugefügt";
@@ -1938,6 +1939,7 @@
 "output_mode_effects" = "Effekte & Verarbeitung";
 "output_mode_high_fidelity_desc" = "Kuerzester Signalweg mit unveraenderter Verstaerkung; umgeht alle DSP-Effekte und passt die Abtastrate automatisch an.";
 "output_mode_effects_desc" = "Verwendet die vollstaendige Verarbeitungskette fuer EQ, Dynamik, Hall, Spatial Audio, ReplayGain, Tempo, Crossfade und Visualisierung.";
+"volume_high_fidelity_system_hint" = "Die Hi-Fi-Direktausgabe verwendet unveraenderte Verstaerkung. Regeln Sie die Lautstaerke ueber das System.";
 "dsd_playback_mode" = "DSD-Wiedergabe";
 "dsd_mode_auto" = "Automatisch";
 "dsd_mode_pcm" = "In PCM umwandeln";

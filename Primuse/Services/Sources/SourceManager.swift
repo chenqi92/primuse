@@ -331,7 +331,7 @@ final class SourceManager {
             let sourceIDs = Set((note.userInfo?["sourceIDs"] as? [String]) ?? [])
             MainActor.assumeIsolated {
                 if sourceIDs.isEmpty {
-                    self.deleteLocalCaches(for: songs)
+                    self.deleteLocalCaches(for: songs, preserveFreshMetadataAssets: true)
                 } else {
                     self.deleteLocalCachesForRemovedSources(sourceIDs, songs: songs)
                 }
@@ -2456,7 +2456,10 @@ final class SourceManager {
         deleteLocalCaches(for: [song])
     }
 
-    func deleteLocalCaches(for songs: [Song]) {
+    func deleteLocalCaches(
+        for songs: [Song],
+        preserveFreshMetadataAssets: Bool = false
+    ) {
         guard songs.isEmpty == false else { return }
 
         let cachesRoot = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
@@ -2536,7 +2539,11 @@ final class SourceManager {
         }
         let songIDs = songs.map(\.id)
         Task {
-            await MetadataAssetStore.shared.invalidateCaches(forSongIDs: songIDs)
+            if preserveFreshMetadataAssets {
+                await MetadataAssetStore.shared.invalidateMissingCaches(for: songs)
+            } else {
+                await MetadataAssetStore.shared.invalidateCaches(forSongIDs: songIDs)
+            }
         }
     }
 

@@ -2006,7 +2006,7 @@ final class AudioPlayerService {
             }
 
             // Schedule first buffer BEFORE play — playerNode has data ready
-            plog("▶️ NativeDecoder firstBuffer: frames=\(firstBuffer.frameLength) format=sr\(firstBuffer.format.sampleRate)/ch\(firstBuffer.format.channelCount)")
+            plog("▶️ Decoder firstBuffer: kind=\(activeDecoderKind) frames=\(firstBuffer.frameLength) format=sr\(firstBuffer.format.sampleRate)/ch\(firstBuffer.format.channelCount)")
             plog("▶️ Engine state: outputFormat=sr\(outputFormat.sampleRate)/ch\(outputFormat.channelCount) mainVol=\(audioEngine.volume)")
             plog("▶️ Engine diagnostics: \(audioEngine.diagnosticInfo())")
             audioEngine.scheduleBuffer(firstBuffer)

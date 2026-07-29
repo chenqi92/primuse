@@ -277,8 +277,14 @@ struct MacMiniPlayerView: View {
             PMVolumeSlider(value: Binding(
                 get: { Double(engine.volume) },
                 set: { engine.volume = Float($0) }
-            ))
+            ), isEnabled: player.playbackSettings.outputMode == .effects,
+               accessibilityHelp: player.playbackSettings.outputMode == .highFidelity
+                   ? String(localized: "volume_high_fidelity_system_hint")
+                   : nil)
             .frame(width: 64)
+            .help(player.playbackSettings.outputMode == .highFidelity
+                ? Text("volume_high_fidelity_system_hint")
+                : Text("volume"))
 
             PlayerMoreMenu {
                 miniIcon("ellipsis", tint: .secondary)

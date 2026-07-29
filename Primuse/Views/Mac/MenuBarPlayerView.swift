@@ -194,12 +194,16 @@ struct MenuBarPlayerView: View {
             )
             .controlSize(.mini)
             .tint(PMColor.text.opacity(0.7))
+            .disabled(player.playbackSettings.outputMode == .highFidelity)
             Text(String(format: "%d", Double(engine.volume * 100).finiteInt()))
                 .font(.system(size: 10, design: .monospaced))
                 .monospacedDigit()
                 .foregroundStyle(PMColor.textFaint)
                 .frame(width: 24, alignment: .trailing)
         }
+        .help(player.playbackSettings.outputMode == .highFidelity
+            ? Text("volume_high_fidelity_system_hint")
+            : Text("volume"))
     }
 
     private var volumeSymbol: String {

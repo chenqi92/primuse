@@ -632,7 +632,9 @@ struct PMVolumeSlider: NSViewRepresentable {
     @Binding var value: Double
     var range: ClosedRange<Double> = 0...1
     var controlSize: NSControl.ControlSize = .mini
+    var isEnabled = true
     var accessibilityLabel: String = "Volume"
+    var accessibilityHelp: String?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(value: $value)
@@ -670,7 +672,9 @@ struct PMVolumeSlider: NSViewRepresentable {
         slider.minValue = range.lowerBound
         slider.maxValue = range.upperBound
         slider.controlSize = controlSize
+        slider.isEnabled = isEnabled
         slider.setAccessibilityLabel(accessibilityLabel)
+        slider.setAccessibilityHelp(accessibilityHelp)
         if abs(slider.doubleValue - clampedValue) > 0.0005 {
             slider.doubleValue = clampedValue
         }

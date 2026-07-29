@@ -368,6 +368,23 @@ actor MetadataAssetStore {
         }
     }
 
+    /// A content-change scan may already have written fresh embedded/sidecar
+    /// assets under the deterministic song ID before it publishes the change
+    /// notification. Preserve those fresh files and invalidate only asset
+    /// kinds that the new authoritative Song explicitly does not reference.
+    func invalidateMissingCaches(for songs: [Song]) {
+        for song in songs {
+            if song.coverArtFileName == nil {
+                let cover = hashedFileName(for: song.id, pathExtension: "jpg")
+                try? FileManager.default.removeItem(at: artworkDirectory.appendingPathComponent(cover))
+            }
+            if song.lyricsFileName == nil {
+                let lyrics = hashedFileName(for: song.id, pathExtension: "json")
+                try? FileManager.default.removeItem(at: lyricsDirectory.appendingPathComponent(lyrics))
+            }
+        }
+    }
+
     /// Check if a reference is an old-style local hashed filename (for migration).
     nonisolated func isLegacyLocalRef(_ ref: String) -> Bool {
         !ref.contains("/") && !ref.contains("://")
