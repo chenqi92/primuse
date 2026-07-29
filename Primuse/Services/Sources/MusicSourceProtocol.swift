@@ -231,6 +231,11 @@ protocol MusicSourceConnector: Sendable {
 
     /// Write data to a remote path. Used by sidecar file writing (cover art, lyrics).
     func writeFile(data: Data, to path: String) async throws
+    func writeFile(
+        data: Data,
+        to path: String,
+        priority: RangeFetchPriority
+    ) async throws
 
     /// Delete a remote file. Used by song deletion to remove the source audio
     /// file and safe same-name sidecars.
@@ -333,6 +338,17 @@ extension MusicSourceConnector {
 
     func writeFile(data: Data, to path: String) async throws {
         throw SourceError.connectionFailed("This source does not support file writing")
+    }
+
+    /// Connectors without independent I/O lanes preserve their existing write
+    /// behaviour. Stateful connectors such as SMB override this overload so a
+    /// sidecar upload cannot queue behind playback reads on the foreground lane.
+    func writeFile(
+        data: Data,
+        to path: String,
+        priority: RangeFetchPriority
+    ) async throws {
+        try await writeFile(data: data, to: path)
     }
 
     func deleteFile(at path: String) async throws {

@@ -331,6 +331,39 @@ final class MetadataBackfillService {
             UserDefaults.standard.set(true, forKey: partialID3FixKey)
         }
 
+        // Seventh one-time migration. AVFoundation reports the duration of a
+        // truncated WAV Range temp file from the bytes physically present,
+        // commonly 0.495 s for our 256 KB head. WAVEHeaderParser now uses the
+        // complete byte count advertised by the RIFF `data` chunk. Reset only
+        // the unmistakable old signature on backfillable remote sources so a
+        // genuinely short local sound effect is never touched.
+        let waveDurationFixKey = "primuse.backfillReset.v2026_07_waveRangeDuration"
+        if !UserDefaults.standard.bool(forKey: waveDurationFixKey) {
+            let sourceIDs = backfillableSourceIDs()
+            var resetSongs: [Song] = []
+            for song in library.songs {
+                guard sourceIDs.contains(song.sourceID),
+                      song.fileFormat == .wav,
+                      song.fileSize > Self.headBytes * 2,
+                      song.duration > 0,
+                      song.duration < 1.5 else { continue }
+                var copy = song
+                copy.duration = 0
+                resetSongs.append(copy)
+                failedSongIDs.remove(song.id)
+                sessionGivenUpIDs.remove(song.id)
+                titleCheckedIDs.remove(song.id)
+                transientFailureCounts[song.id] = nil
+            }
+            if !resetSongs.isEmpty {
+                plog("📥 Backfill: resetting \(resetSongs.count) remote WAV rows with truncated Range duration")
+                library.replaceSongs(resetSongs)
+                saveFailed()
+                saveTitleChecked()
+            }
+            UserDefaults.standard.set(true, forKey: waveDurationFixKey)
+        }
+
         // A re-scan that found a path with new bytes wipes the failed
         // mark so backfill re-attempts the song with the fresh file. The
         // song's metadata in the library is already reset to bare by

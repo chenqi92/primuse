@@ -16,8 +16,8 @@ trap cleanup EXIT
   -f lavfi -i "sine=frequency=997:duration=1.5:sample_rate=48000" \
   -ac 2 -c:a dca -strict -2 "$SMOKE_DIR/tone.dts"
 "$FFMPEG_BIN" -hide_banner -loglevel error \
-  -f lavfi -i "sine=frequency=997:duration=1.5:sample_rate=48000" \
-  -ac 6 -channel_layout "5.1(side)" -c:a dca -strict -2 "$SMOKE_DIR/tone-5.1.dts"
+  -f lavfi -i "aevalsrc=0|0|sin(2*PI*997*t)|0|0|0:s=48000:d=1.5:c=5.1(side)" \
+  -c:a dca -strict -2 "$SMOKE_DIR/tone-5.1-center-only.dts"
 "$FFMPEG_BIN" -hide_banner -loglevel error \
   -i "$SMOKE_DIR/tone.dts" -c:a copy -f wav "$SMOKE_DIR/tone-dts.wav"
 "$FFMPEG_BIN" -hide_banner -loglevel error \
@@ -55,7 +55,7 @@ xcrun clang -fobjc-arc \
 
 "$SMOKE_DIR/ffmpeg-bridge-smoke" \
   "$SMOKE_DIR/tone.dts" \
-  "$SMOKE_DIR/tone-5.1.dts" \
+  "$SMOKE_DIR/tone-5.1-center-only.dts" \
   "$SMOKE_DIR/tone-dts.wav" \
   "$SMOKE_DIR/tone.wma" \
   "$SMOKE_DIR/tone.flac" \

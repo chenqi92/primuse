@@ -3081,18 +3081,20 @@ final class SourceManager {
         return name?.isEmpty == false ? name : nil
     }
 
-    /// Lyrics / cover / scrape 都直接复用 playback connector(cached pool)。
-    /// 之前用独立 instance"避免 actor blocking",但实测 connector 内 fetchRange
-    /// 全是 await 点(让出 actor), 多个调用交错执行不会真 serial block。
-    /// 复用 main connector 的最大好处: prewarm 阶段已经 connect 过, lyrics
-    /// Tier3 第一首歌的 connect() 直接走 isLoggedIn 短路,免去 SSL+login 2-3s。
+    /// Lyrics / cover / scrape 复用 playback connector(cached pool)。SMB 例外:
+    /// sidecar 读取会显式走 `.background`, 由 fetchRange 懒连第二条
+    /// libsmb2 会话;这里不先调前台 connect(), 否则仅为检查连接也会
+    /// 排在正在播放的 foreground gate 后面。其他来源仍复用已登录
+    /// connector, 避免重复 SSL/login。
     func auxiliaryConnector(for song: Song) async throws -> any MusicSourceConnector {
         let sources = try await sourcesProvider()
         guard let source = sources.first(where: { $0.id == song.sourceID }) else {
             throw SourceError.fileNotFound("Source not found for song: \(song.title)")
         }
         let conn = connector(for: source)  // cache: true, 复用
-        try await conn.connect()  // idempotent on isLoggedIn
+        if !(conn is SMBSource) {
+            try await conn.connect()  // idempotent on isLoggedIn
+        }
         return conn
     }
 
@@ -3105,7 +3107,9 @@ final class SourceManager {
             throw SourceError.fileNotFound("Source not found for song: \(song.title)")
         }
         if let existing = sidecarConnectors[source.id] {
-            try await existing.connect()
+            if !(existing is SMBSource) {
+                try await existing.connect()
+            }
             return existing
         }
         let conn = connector(for: source, cache: false)
@@ -3113,7 +3117,9 @@ final class SourceManager {
         // object must not immediately deinitialize its possibly-invalid C
         // context while the failure is unwinding.
         sidecarConnectors[source.id] = conn
-        try await conn.connect()
+        if !(conn is SMBSource) {
+            try await conn.connect()
+        }
         return conn
     }
 
@@ -3208,6 +3214,37 @@ final class SourceManager {
               let source = sources.first(where: { $0.id == sourceID }) else { return nil }
         let conn = connector(for: source)
         return try? await conn.imageURL(for: path)
+    }
+
+    /// Download a small source-side artwork/lyrics object without entering the
+    /// playback lane. SMB maps `.background` to its independent libsmb2
+    /// context; stateless HTTP/cloud connectors preserve their normal request
+    /// implementation through the protocol default.
+    func sidecarData(
+        for path: String,
+        sourceID: String,
+        maximumBytes: Int64
+    ) async -> Data? {
+        guard maximumBytes > 0,
+              let sources = try? await sourcesProvider(),
+              let source = sources.first(where: { $0.id == sourceID }) else {
+            return nil
+        }
+        let conn = connector(for: source)
+        do {
+            if !(conn is SMBSource) {
+                try await conn.connect()
+            }
+            let data = try await conn.fetchRange(
+                path: path,
+                offset: 0,
+                length: maximumBytes,
+                priority: .background
+            )
+            return data.isEmpty ? nil : data
+        } catch {
+            return nil
+        }
     }
 
     func refreshConnector(for sourceID: String) async {

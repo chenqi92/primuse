@@ -72,8 +72,16 @@ enum LyricsLoader {
             } else {
                 lrcPath = (songDir as NSString).appendingPathComponent("\(baseName).lrc")
             }
-            let lrcLocalURL = try await connector.localURL(for: lrcPath)
-            let parsed = try LyricsParser.parse(from: lrcLocalURL)
+            let lrcData = try await connector.fetchRange(
+                path: lrcPath,
+                offset: 0,
+                length: 256 * 1024,
+                priority: .background
+            )
+            guard let lrcContent = String(data: lrcData, encoding: .utf8) else {
+                return []
+            }
+            let parsed = LyricsParser.parse(lrcContent)
             if !parsed.isEmpty {
                 await MetadataAssetStore.shared.cacheLyrics(parsed, forSongID: song.id)
                 logLoaded(parsed, song: song, tier: "Tier3")

@@ -33,7 +33,6 @@ struct NowPlayingView: View {
     @State private var showQueue = false
     @State private var lyrics: [LyricLine] = []
     @State private var isScrapingCurrentSong = false
-    @State private var showScrapeOptions = false
     /// Freeze the canonical song identity used by the scrape sheet. MusicKit
     /// can temporarily expose a catalog ID while the library row uses an
     /// `i.*` ID; reading `player.currentSong` again inside the sheet could then
@@ -152,21 +151,17 @@ struct NowPlayingView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
-        .sheet(isPresented: $showScrapeOptions, onDismiss: {
-            scrapeTargetSong = nil
-        }) {
-            if let song = scrapeTargetSong {
-                ScrapeOptionsView(song: song) { u in
-                    CachedArtworkView.invalidateCache(for: u.id)
-                    if let oldRef = song.coverArtFileName {
-                        CachedArtworkView.invalidateCache(for: oldRef)
-                    }
-                    player.syncSongMetadata(u)
-                    player.forceRefreshNowPlayingArtwork()
-                    Task { await loadLyrics() }
+        .sheet(item: $scrapeTargetSong) { song in
+            ScrapeOptionsView(song: song) { u in
+                CachedArtworkView.invalidateCache(for: u.id)
+                if let oldRef = song.coverArtFileName {
+                    CachedArtworkView.invalidateCache(for: oldRef)
                 }
-                .presentationDetents([.large])
+                player.syncSongMetadata(u)
+                player.forceRefreshNowPlayingArtwork()
+                Task { await loadLyrics() }
             }
+            .presentationDetents([.large])
         }
         .sheet(isPresented: $showAddToPlaylist) {
             if let song = player.currentSong {
@@ -454,7 +449,7 @@ struct NowPlayingView: View {
 
             HStack(spacing: 8) {
                 Image(systemName: "speaker.fill").font(.caption2).foregroundStyle(.white.opacity(0.4))
-                #if os(iOS)
+                #if os(iOS) && !targetEnvironment(simulator)
                 SystemVolumeSlider()
                     .frame(maxWidth: .infinity)
                     .frame(height: SystemVolumeSlider.compactHeight)
@@ -722,7 +717,7 @@ struct NowPlayingView: View {
                     // Volume
                     HStack(spacing: 8) {
                         Image(systemName: "speaker.fill").font(.caption2).foregroundStyle(.white.opacity(0.4))
-                        #if os(iOS)
+                        #if os(iOS) && !targetEnvironment(simulator)
                         SystemVolumeSlider()
                             .frame(maxWidth: .infinity)
                             .frame(height: SystemVolumeSlider.compactHeight)
@@ -1187,7 +1182,12 @@ struct NowPlayingView: View {
                 }
 
                 let fetchStart = Date()
-                let lrcData = try await connector.fetchRange(path: lrcPath, offset: 0, length: 256 * 1024)
+                let lrcData = try await connector.fetchRange(
+                    path: lrcPath,
+                    offset: 0,
+                    length: 256 * 1024,
+                    priority: .background
+                )
                 let fetchMs = Date().timeIntervalSince(fetchStart) * 1000
                 guard let lrcContent = String(data: lrcData, encoding: .utf8) else {
                     plog(String(format: "📜 loadLyrics '%@' Tier3 .lrc not utf8 (connect=%.0fms fetch=%.0fms)", songTitle, connectMs, fetchMs))
@@ -1295,7 +1295,6 @@ struct NowPlayingView: View {
 
         guard displayedSong.sourceID == AppleMusicLibraryIdentity.sourceID else {
             scrapeTargetSong = displayedSong
-            showScrapeOptions = true
             return
         }
 
@@ -1318,7 +1317,6 @@ struct NowPlayingView: View {
                 guard player.currentSong?.id == canonical.id else { return }
             }
             scrapeTargetSong = canonical
-            showScrapeOptions = true
         }
     }
 
@@ -1609,46 +1607,34 @@ struct ProgressSlider: View {
 struct SystemVolumeSlider: UIViewRepresentable {
     static let compactHeight: CGFloat = 28
 
-    final class CompactVolumeView: MPVolumeView {
-        override var intrinsicContentSize: CGSize {
-            CGSize(width: UIView.noIntrinsicMetric, height: SystemVolumeSlider.compactHeight)
-        }
-
-        override func sizeThatFits(_ size: CGSize) -> CGSize {
-            CGSize(width: size.width, height: SystemVolumeSlider.compactHeight)
-        }
-
-        override func layoutSubviews() {
-            super.layoutSubviews()
-            guard let slider = subviews.compactMap({ $0 as? UISlider }).first else { return }
-            // MPVolumeView reserves vertical padding for its route button and
-            // gives the UISlider a taller UIKit-native frame. In the compact
-            // Now Playing row that shifts the track away from the two speaker
-            // glyphs and inflates the whole footer. Pin the slider to this
-            // view's compact bounds so all three controls share one centerline.
-            slider.frame = bounds
-        }
-    }
-
-    func makeUIView(context: Context) -> CompactVolumeView {
-        let view = CompactVolumeView(frame: .zero)
+    func makeUIView(context: Context) -> MPVolumeView {
+        let view = MPVolumeView(frame: .zero)
         view.showsVolumeSlider = true
+        // The row owns the compact height, while MPVolumeView remains free to
+        // lay out its private slider hierarchy. Forcing the internal UISlider's
+        // frame can make the track disappear on newer iOS versions.
+        view.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         styleSlider(in: view)
         return view
     }
 
-    func updateUIView(_ uiView: CompactVolumeView, context: Context) {
+    func updateUIView(_ uiView: MPVolumeView, context: Context) {
         styleSlider(in: uiView)
-        uiView.invalidateIntrinsicContentSize()
         uiView.setNeedsLayout()
     }
 
     func sizeThatFits(
         _ proposal: ProposedViewSize,
-        uiView: CompactVolumeView,
+        uiView: MPVolumeView,
         context: Context
     ) -> CGSize? {
-        guard let width = proposal.width else { return nil }
+        // SwiftUI first asks an HStack child for an unspecified ideal width.
+        // Returning no intrinsic width here collapsed the actual UIKit view to
+        // zero even though the outer `.frame(maxWidth: .infinity)` still filled
+        // the row, leaving only the speaker icons visible.
+        let intrinsicWidth = uiView.intrinsicContentSize.width
+        let width = proposal.width ?? max(intrinsicWidth, 1)
         return CGSize(width: width, height: Self.compactHeight)
     }
 
@@ -1658,13 +1644,25 @@ struct SystemVolumeSlider: UIViewRepresentable {
             .compactMap { $0 as? UIButton }
             .forEach { $0.isHidden = true }
 
-        guard let slider = volumeView.subviews.compactMap({ $0 as? UISlider }).first else {
+        guard let slider = findSlider(in: volumeView) else {
             return
         }
         slider.minimumTrackTintColor = .white
         slider.maximumTrackTintColor = UIColor.white.withAlphaComponent(0.2)
         slider.thumbTintColor = .white
         slider.accessibilityLabel = String(localized: "volume")
+    }
+
+    private func findSlider(in view: UIView) -> UISlider? {
+        if let slider = view as? UISlider {
+            return slider
+        }
+        for subview in view.subviews {
+            if let slider = findSlider(in: subview) {
+                return slider
+            }
+        }
+        return nil
     }
 }
 #endif

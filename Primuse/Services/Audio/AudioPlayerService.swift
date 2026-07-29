@@ -9,6 +9,8 @@ import UIKit
 import WidgetKit
 #elseif os(macOS)
 import AppKit
+import ImageIO
+import UniformTypeIdentifiers
 import WidgetKit
 #endif
 
@@ -178,6 +180,310 @@ struct QueueEntry: Sendable, Identifiable {
         self.song = song
     }
 }
+
+#if os(macOS)
+/// Immutable snapshot handed off by `AudioPlayerService` whenever playback
+/// changes. App Group and image I/O must never run on the main actor: a stalled
+/// shared-container write would otherwise freeze the complete macOS UI while
+/// audio continues in the background.
+private struct MacWidgetPlaybackPublishRequest: Sendable {
+    let currentSong: Song?
+    let isPlaying: Bool
+    let currentTime: TimeInterval
+    let duration: TimeInterval
+    let queueSongIDs: [String]
+}
+
+/// Serial, latest-wins widget publisher for macOS.
+///
+/// The detached worker owns every potentially blocking App Group operation.
+/// While it is running, new progress events replace `pending` instead of
+/// spawning more writers. If macOS stalls one filesystem call, the player UI
+/// remains responsive and the pending memory footprint stays bounded to one
+/// snapshot.
+private actor MacWidgetPlaybackPublisher {
+    static let shared = MacWidgetPlaybackPublisher()
+
+    private struct PublicationContext: Sendable {
+        let lastCoverSongID: String?
+        let lastTimelineSignature: String?
+    }
+
+    private struct PublicationResult: Sendable {
+        let lastCoverSongID: String?
+        let lastTimelineSignature: String?
+    }
+
+    private var pending: MacWidgetPlaybackPublishRequest?
+    private var workerTask: Task<Void, Never>?
+    private var lastCoverSongID: String?
+    private var lastTimelineSignature: String?
+
+    func enqueue(_ request: MacWidgetPlaybackPublishRequest) {
+        pending = request
+        guard workerTask == nil else { return }
+        workerTask = Task { [weak self] in
+            await self?.drain()
+        }
+    }
+
+    private func drain() async {
+        while let request = pending {
+            pending = nil
+            let context = PublicationContext(
+                lastCoverSongID: lastCoverSongID,
+                lastTimelineSignature: lastTimelineSignature
+            )
+            let result = await Task.detached(priority: .utility) {
+                Self.publish(request, context: context)
+            }.value
+            lastCoverSongID = result.lastCoverSongID
+            lastTimelineSignature = result.lastTimelineSignature
+        }
+        workerTask = nil
+    }
+
+    private nonisolated static func publish(
+        _ request: MacWidgetPlaybackPublishRequest,
+        context: PublicationContext
+    ) -> PublicationResult {
+        guard WidgetSettings.syncEnabled(),
+              WidgetSettings.widgetEnabled(PrimuseConstants.widgetNowPlayingEnabledKey) else {
+            PlaybackState.clear()
+            WidgetCenter.shared.reloadAllTimelines()
+            return PublicationResult(lastCoverSongID: nil, lastTimelineSignature: nil)
+        }
+
+        let scope = WidgetSettings.sharedDataScope()
+        let recentAlbumsEnabled = scope.includesCover
+            && WidgetSettings.widgetEnabled(PrimuseConstants.widgetRecentAlbumsEnabledKey)
+        var coverName: String?
+        var recentAlbumsChanged = false
+        var nextCoverSongID = context.lastCoverSongID
+
+        if !scope.includesCover {
+            clearSharedCovers()
+            nextCoverSongID = nil
+            if WidgetSettings.widgetEnabled(PrimuseConstants.widgetRecentAlbumsEnabledKey),
+               !RecentAlbumsStore.load().isEmpty {
+                RecentAlbumsStore.clear()
+                recentAlbumsChanged = true
+            }
+        } else if let song = request.currentSong {
+            let sharedCoverName = "widget_cover.png"
+            let needsRefresh = song.id != context.lastCoverSongID
+                || !sharedCoverExists(named: sharedCoverName)
+
+            if needsRefresh {
+                if writeCover(song: song, fileName: sharedCoverName) {
+                    coverName = sharedCoverName
+                    nextCoverSongID = song.id
+                } else {
+                    removeSharedCover(named: sharedCoverName)
+                    nextCoverSongID = nil
+                }
+
+                if recentAlbumsEnabled, let albumEntry = makeRecentAlbumEntry(for: song) {
+                    if let albumCoverName = albumEntry.coverImageName,
+                       !sharedCoverExists(named: albumCoverName) {
+                        _ = writeCover(song: song, fileName: albumCoverName, size: 200)
+                    }
+                    RecentAlbumsStore.record(albumEntry)
+                    recentAlbumsChanged = true
+                }
+            } else {
+                coverName = sharedCoverName
+            }
+
+            if !recentAlbumsEnabled {
+                RecentAlbumsStore.clear()
+                recentAlbumsChanged = true
+            }
+        } else {
+            nextCoverSongID = nil
+        }
+
+        let state = PlaybackState(
+            currentSongID: request.currentSong?.id,
+            songTitle: request.currentSong?.title,
+            artistName: request.currentSong?.artistName,
+            albumTitle: request.currentSong?.albumTitle,
+            fileFormat: request.currentSong.map { $0.fileFormat.displayName },
+            coverImageName: coverName,
+            isPlaying: request.isPlaying,
+            currentTime: scope.includesProgress ? request.currentTime : 0,
+            duration: scope.includesProgress ? request.duration : 0,
+            queueSongIDs: request.queueSongIDs
+        )
+        state.save()
+
+        let signature = timelineSignature(for: state)
+        if recentAlbumsChanged || signature != context.lastTimelineSignature {
+            WidgetCenter.shared.reloadAllTimelines()
+        }
+        return PublicationResult(
+            lastCoverSongID: nextCoverSongID,
+            lastTimelineSignature: signature
+        )
+    }
+
+    private nonisolated static func writeCover(
+        song: Song,
+        fileName: String,
+        size: Int = 300
+    ) -> Bool {
+        guard let containerURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier
+        ) else { return false }
+
+        let store = MetadataAssetStore.shared
+        var coverData = store.readCoverData(named: store.expectedCoverFileName(for: song.id))
+        if coverData == nil, let ref = song.coverArtFileName, !ref.isEmpty,
+           !ref.contains("/"), !ref.contains("://") {
+            coverData = store.readCoverData(named: ref)
+        }
+        guard let coverData, let jpeg = squareJPEG(from: coverData, size: size) else {
+            return false
+        }
+
+        do {
+            try jpeg.write(
+                to: containerURL.appendingPathComponent(fileName),
+                options: .atomic
+            )
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// ImageIO/CoreGraphics are safe for background thumbnail work; using
+    /// NSImage drawing here would bring AppKit's main-thread assumptions back
+    /// into the detached publisher.
+    private nonisolated static func squareJPEG(from data: Data, size: Int) -> Data? {
+        autoreleasepool {
+            guard size > 0,
+                  !ArtworkImageCompatibility.hasRedundantJPEGSampling(data),
+                  let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+                return nil
+            }
+            let options = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceShouldCacheImmediately: true,
+                kCGImageSourceThumbnailMaxPixelSize: max(size * 2, size),
+            ] as CFDictionary
+            guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else {
+                return nil
+            }
+
+            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            guard let context = CGContext(
+                data: nil,
+                width: size,
+                height: size,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return nil }
+
+            context.setFillColor(CGColor(gray: 0, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: size, height: size))
+            context.interpolationQuality = .high
+            let scale = max(
+                CGFloat(size) / CGFloat(image.width),
+                CGFloat(size) / CGFloat(image.height)
+            )
+            let drawWidth = CGFloat(image.width) * scale
+            let drawHeight = CGFloat(image.height) * scale
+            context.draw(
+                image,
+                in: CGRect(
+                    x: (CGFloat(size) - drawWidth) / 2,
+                    y: (CGFloat(size) - drawHeight) / 2,
+                    width: drawWidth,
+                    height: drawHeight
+                )
+            )
+            guard let outputImage = context.makeImage() else { return nil }
+
+            let output = NSMutableData()
+            guard let destination = CGImageDestinationCreateWithData(
+                output,
+                UTType.jpeg.identifier as CFString,
+                1,
+                nil
+            ) else { return nil }
+            let destinationOptions = [
+                kCGImageDestinationLossyCompressionQuality: 0.8,
+            ] as CFDictionary
+            CGImageDestinationAddImage(destination, outputImage, destinationOptions)
+            guard CGImageDestinationFinalize(destination) else { return nil }
+            return output as Data
+        }
+    }
+
+    private nonisolated static func sharedCoverExists(named fileName: String) -> Bool {
+        guard let containerURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier
+        ) else { return false }
+        return FileManager.default.fileExists(
+            atPath: containerURL.appendingPathComponent(fileName).path
+        )
+    }
+
+    private nonisolated static func removeSharedCover(named fileName: String) {
+        guard let containerURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier
+        ) else { return }
+        try? FileManager.default.removeItem(at: containerURL.appendingPathComponent(fileName))
+    }
+
+    private nonisolated static func clearSharedCovers() {
+        guard let containerURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier
+        ) else { return }
+        let fileManager = FileManager.default
+        try? fileManager.removeItem(at: containerURL.appendingPathComponent("widget_cover.png"))
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: containerURL,
+            includingPropertiesForKeys: nil
+        ) else { return }
+        for url in entries where url.lastPathComponent.hasPrefix("widget_album_") {
+            try? fileManager.removeItem(at: url)
+        }
+    }
+
+    private nonisolated static func makeRecentAlbumEntry(for song: Song) -> RecentAlbumEntry? {
+        guard let title = song.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !title.isEmpty else { return nil }
+        let artist = song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let baseKey = song.albumID ?? "\(song.sourceID)|\(title.lowercased())|\(artist.lowercased())"
+        let digest = SHA256.hash(data: Data(baseKey.utf8))
+        let key = digest.prefix(16).map { String(format: "%02x", $0) }.joined()
+        return RecentAlbumEntry(
+            id: key,
+            title: title,
+            artistName: artist,
+            coverImageName: "widget_album_\(key).jpg"
+        )
+    }
+
+    private nonisolated static func timelineSignature(for state: PlaybackState) -> String {
+        [
+            state.currentSongID ?? "",
+            state.songTitle ?? "",
+            state.artistName ?? "",
+            state.albumTitle ?? "",
+            state.coverImageName ?? "",
+            state.isPlaying ? "1" : "0",
+            String(state.currentTime.rounded().finiteInt()),
+            String(state.duration.rounded().finiteInt()),
+        ].joined(separator: "|")
+    }
+}
+#endif
 
 @MainActor
 @Observable
@@ -441,6 +747,13 @@ final class AudioPlayerService {
     private var recentBoundaryTimes: [Date] = []
     private static let boundaryStormWindow: TimeInterval = 10
     private static let boundaryStormThreshold = 4
+
+    /// A queue whose source is unavailable can otherwise recurse through every
+    /// item in a few milliseconds. Keep ordinary corrupt-file skipping useful,
+    /// but bound one continuous failure chain so UI/log/CPU remain responsive.
+    private var isFailureAdvanceChainActive = false
+    private var consecutiveFailureAdvanceCount = 0
+    private static let maxConsecutiveFailureAdvances = 8
 
     /// Seconds of buffered audio we let drain before forcibly advancing
     /// after a mid-stream decode error. Without this cap, the ~100 buffers
@@ -1262,6 +1575,10 @@ final class AudioPlayerService {
             plog("Playback URL resolution error: \(error)")
             showPlaybackError(String(localized: "playback_error_connection"))
             isLoading = false
+            if isSourceWideResolutionFailure(error) {
+                plog("⏹️ Source-wide playback failure; keeping queue position instead of auto-advancing")
+                return
+            }
             await autoAdvanceAfterFailure()
         }
     }
@@ -4202,11 +4519,50 @@ final class AudioPlayerService {
             stop()
             return
         }
+
+        let startsChain = !isFailureAdvanceChainActive
+        if startsChain {
+            isFailureAdvanceChainActive = true
+            consecutiveFailureAdvanceCount = 0
+        }
+        defer {
+            if startsChain {
+                isFailureAdvanceChainActive = false
+                consecutiveFailureAdvanceCount = 0
+            }
+        }
+
+        consecutiveFailureAdvanceCount += 1
+        guard consecutiveFailureAdvanceCount <= Self.maxConsecutiveFailureAdvances else {
+            plog("⏹️ Stopped after \(Self.maxConsecutiveFailureAdvances) consecutive playback failures")
+            stop()
+            return
+        }
         if nextSongInQueue() != nil {
+            await Task.yield()
             await next()
         } else {
             stop()
         }
+    }
+
+    /// Authentication, connection and timeout failures normally affect every
+    /// track from the same remote source. Advancing to the next item only creates
+    /// an error storm and can unexpectedly fall through into another provider.
+    private func isSourceWideResolutionFailure(_ error: Error) -> Bool {
+        if let sourceError = error as? SourceError {
+            switch sourceError {
+            case .authenticationFailed, .connectionFailed, .timeout:
+                return true
+            case .pathNotFound, .fileNotFound:
+                return false
+            }
+        }
+        let nsError = error as NSError
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? Error {
+            return isSourceWideResolutionFailure(underlying)
+        }
+        return false
     }
 
     private func isDLNACast(_ song: Song?) -> Bool {
@@ -4624,6 +4980,19 @@ final class AudioPlayerService {
     }
 
     private func updatePlaybackState() {
+        #if os(macOS)
+        let request = MacWidgetPlaybackPublishRequest(
+            currentSong: currentSong,
+            isPlaying: isPlaying,
+            currentTime: currentTime,
+            duration: duration,
+            queueSongIDs: queue.map(\.id)
+        )
+        Task {
+            await MacWidgetPlaybackPublisher.shared.enqueue(request)
+        }
+        return
+        #else
         guard WidgetSettings.syncEnabled(),
               WidgetSettings.widgetEnabled(PrimuseConstants.widgetNowPlayingEnabledKey) else {
             PlaybackState.clear()
@@ -4714,6 +5083,7 @@ final class AudioPlayerService {
             lastWidgetTimelineSignature = timelineSignature
             WidgetCenter.shared.reloadAllTimelines()
         }
+        #endif
     }
 
     /// Writes a cover image to the App Group shared container for Widget rendering.

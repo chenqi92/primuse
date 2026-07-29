@@ -137,6 +137,7 @@ enum FileMetadataReader {
 
         applyID3Fallback(to: &metadata, url: url)
         applyFLACFallback(to: &metadata, url: url)
+        applyWAVEFallback(to: &metadata, url: url)
 
         // 注意: 不在这里用 url filename 兜底 title。
         // 调用方 (MetadataService) 自己决定 fallback 名 (走原始 NAS 文件名),
@@ -149,6 +150,25 @@ enum FileMetadataReader {
 
     private static let id3MetadataReadLimit = 4 * 1024 * 1024
     private static let flacMetadataReadLimit = 1024 * 1024
+    private static let waveHeaderReadLimit = 1024 * 1024
+
+    private static func applyWAVEFallback(to metadata: inout Metadata, url: URL) {
+        guard ["wav", "wave"].contains(url.pathExtension.lowercased()),
+              let info = WAVEHeaderParser.parse(
+                readPrefix(from: url, byteCount: waveHeaderReadLimit)
+              ) else {
+            return
+        }
+
+        // AVFoundation bases the duration on the bytes physically present in
+        // a truncated Range temp file (about 0.5 s for a 256 KB PCM prefix).
+        // RIFF's data-chunk byte count describes the complete remote payload,
+        // so it is authoritative for both full local files and partial reads.
+        metadata.duration = info.duration
+        metadata.sampleRate = info.sampleRate
+        metadata.bitRate = info.bitRateKbps
+        metadata.bitDepth = info.bitDepth
+    }
 
     private static func applyID3Fallback(to metadata: inout Metadata, url: URL) {
         let tagData = readID3TagData(from: url)

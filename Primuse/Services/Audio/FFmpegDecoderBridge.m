@@ -413,11 +413,31 @@ static NSTimeInterval FFmpegPacketDuration(NSURL *url,
     int sampleRate = frame->sample_rate > 0 ? frame->sample_rate : _codecContext->sample_rate;
     AVChannelLayout inputLayout = frame->ch_layout;
     AVChannelLayout fallbackLayout = {0};
-    if (inputLayout.nb_channels <= 0) {
+    if (inputLayout.nb_channels <= 0 || inputLayout.order == AV_CHANNEL_ORDER_UNSPEC) {
         int channels = _codecContext->ch_layout.nb_channels > 0
             ? _codecContext->ch_layout.nb_channels : 2;
         av_channel_layout_default(&fallbackLayout, channels);
         inputLayout = fallbackLayout;
+    }
+
+    // Primuse's playback graph is stereo. Converting multichannel PCM to a
+    // stereo layout here lets libswresample apply one explicit, deterministic
+    // matrix instead of handing 5.1/7.1 to AVAudioConverter's platform-default
+    // mapping (which has dropped center/dialogue on some routes).
+    const BOOL downmixToStereo = inputLayout.nb_channels > 2;
+    AVChannelLayout outputLayout = {0};
+    int layoutResult = 0;
+    if (downmixToStereo) {
+        av_channel_layout_default(&outputLayout, 2);
+    } else {
+        layoutResult = av_channel_layout_copy(&outputLayout, &inputLayout);
+    }
+    if (layoutResult < 0 || outputLayout.nb_channels <= 0) {
+        av_channel_layout_uninit(&fallbackLayout);
+        av_channel_layout_uninit(&outputLayout);
+        if (error) *error = FFmpegError(layoutResult < 0 ? layoutResult : AVERROR(EINVAL),
+                                        @"Unable to configure PCM output layout");
+        return nil;
     }
 
     enum AVSampleFormat inputFormat = (enum AVSampleFormat)frame->format;
@@ -429,12 +449,19 @@ static NSTimeInterval FFmpegPacketDuration(NSURL *url,
         av_channel_layout_uninit(&_resamplerInputLayout);
         av_channel_layout_copy(&_resamplerInputLayout, &inputLayout);
         int result = swr_alloc_set_opts2(&_resampler,
-                                         &inputLayout, AV_SAMPLE_FMT_FLTP, sampleRate,
+                                         &outputLayout, AV_SAMPLE_FMT_FLTP, sampleRate,
                                          &inputLayout, inputFormat, sampleRate,
                                          0, NULL);
+        // `swr_alloc_set_opts2` builds FFmpeg's standard, normalized matrix for
+        // this explicit input/output layout. Do not install a second manual
+        // matrix here: the simulator FFmpeg slice corrupted long 5.1 DTS frame
+        // ownership after repeated conversions, later crashing in
+        // `av_frame_unref`. The standard matrix still folds centre/surround
+        // channels into stereo; the centre-only smoke fixture guards that.
         if (result >= 0) result = swr_init(_resampler);
         if (result < 0) {
             av_channel_layout_uninit(&fallbackLayout);
+            av_channel_layout_uninit(&outputLayout);
             if (error) *error = FFmpegError(result, @"Unable to configure PCM converter");
             return nil;
         }
@@ -442,7 +469,7 @@ static NSTimeInterval FFmpegPacketDuration(NSURL *url,
         _resamplerInputRate = sampleRate;
     }
 
-    int channels = inputLayout.nb_channels;
+    int channels = outputLayout.nb_channels;
     int capacity = swr_get_out_samples(_resampler, frame->nb_samples);
     if (capacity < frame->nb_samples) capacity = frame->nb_samples;
     AVAudioChannelLayout *channelLayout = FFmpegAudioChannelLayout(channels);
@@ -453,6 +480,7 @@ static NSTimeInterval FFmpegPacketDuration(NSURL *url,
                 channelLayout:channelLayout] : nil;
     if (!format) {
         av_channel_layout_uninit(&fallbackLayout);
+        av_channel_layout_uninit(&outputLayout);
         if (error) *error = FFmpegError(AVERROR(EINVAL), @"Unsupported PCM channel layout");
         return nil;
     }
@@ -460,6 +488,7 @@ static NSTimeInterval FFmpegPacketDuration(NSURL *url,
         initWithPCMFormat:format frameCapacity:(AVAudioFrameCount)capacity];
     if (!buffer || !buffer.floatChannelData) {
         av_channel_layout_uninit(&fallbackLayout);
+        av_channel_layout_uninit(&outputLayout);
         if (error) *error = FFmpegError(AVERROR(ENOMEM), @"Unable to allocate PCM buffer");
         return nil;
     }
@@ -467,6 +496,7 @@ static NSTimeInterval FFmpegPacketDuration(NSURL *url,
     uint8_t **outputData = av_calloc((size_t)channels, sizeof(*outputData));
     if (!outputData) {
         av_channel_layout_uninit(&fallbackLayout);
+        av_channel_layout_uninit(&outputLayout);
         if (error) *error = FFmpegError(AVERROR(ENOMEM), @"Unable to allocate PCM planes");
         return nil;
     }
@@ -478,6 +508,7 @@ static NSTimeInterval FFmpegPacketDuration(NSURL *url,
                                 inputData, frame->nb_samples);
     av_free(outputData);
     av_channel_layout_uninit(&fallbackLayout);
+    av_channel_layout_uninit(&outputLayout);
     if (converted < 0) {
         if (error) *error = FFmpegError(converted, @"Unable to convert decoded PCM");
         return nil;

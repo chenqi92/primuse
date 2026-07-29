@@ -41,7 +41,7 @@ private actor CarPlayArtworkDecoder {
         // that header without invoking ImageIO and ask the media server for a
         // PNG representation. If the server is unavailable, leave this one row
         // on its placeholder instead of repeatedly feeding bad data to ImageIO.
-        if Self.hasRedundantJPEGSampling(data) {
+        if ArtworkImageCompatibility.hasRedundantJPEGSampling(data) {
             guard let repaired = await Self.fetchPNGVariant(from: coverRef) else {
                 return nil
             }
@@ -68,41 +68,6 @@ private actor CarPlayArtworkDecoder {
             cost: cgImage.bytesPerRow * cgImage.height
         )
         return thumbnail
-    }
-
-    /// Reads SOF component sampling bytes without decoding image pixels.
-    private static func hasRedundantJPEGSampling(_ data: Data) -> Bool {
-        guard data.count >= 12, data[0] == 0xFF, data[1] == 0xD8 else { return false }
-        var marker = 2
-        while marker + 3 < data.count {
-            guard data[marker] == 0xFF else {
-                marker += 1
-                continue
-            }
-            while marker < data.count, data[marker] == 0xFF { marker += 1 }
-            guard marker < data.count else { return false }
-            let code = data[marker]
-            marker += 1
-            if code == 0xD9 || code == 0xDA { return false }
-            if code == 0x01 || (0xD0...0xD7).contains(code) { continue }
-            guard marker + 1 < data.count else { return false }
-            let length = Int(data[marker]) << 8 | Int(data[marker + 1])
-            guard length >= 2, marker + length <= data.count else { return false }
-
-            if [0xC0, 0xC1, 0xC2].contains(code) {
-                let payload = marker + 2
-                guard payload + 6 <= data.count else { return false }
-                let componentCount = Int(data[payload + 5])
-                guard componentCount > 1,
-                      payload + 6 + componentCount * 3 <= marker + length else {
-                    return false
-                }
-                let samples = (0..<componentCount).map { data[payload + 7 + $0 * 3] }
-                return samples.allSatisfy { $0 == samples[0] } && samples[0] != 0x11
-            }
-            marker += length
-        }
-        return false
     }
 
     private static func fetchPNGVariant(from coverRef: String?) async -> Data? {

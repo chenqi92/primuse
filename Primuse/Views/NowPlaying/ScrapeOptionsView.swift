@@ -1754,7 +1754,8 @@ private struct ScraperCoverThumbnail: View {
     }
 
     private nonisolated static func makeThumbnail(from data: Data) -> CGImage? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        guard !ArtworkImageCompatibility.hasRedundantJPEGSampling(data),
+              let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,

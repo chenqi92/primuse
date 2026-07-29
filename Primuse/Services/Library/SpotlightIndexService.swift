@@ -248,6 +248,7 @@ final class SpotlightIndexService {
         guard let coverArtFileName, !coverArtFileName.isEmpty else { return nil }
         guard let raw = MetadataAssetStore.shared.readCoverData(named: coverArtFileName) else { return nil }
         #if os(iOS)
+        guard !ArtworkImageCompatibility.hasRedundantJPEGSampling(raw) else { return nil }
         return autoreleasepool {
             let sourceOptions = [
                 kCGImageSourceShouldCache: false,

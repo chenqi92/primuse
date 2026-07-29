@@ -42,30 +42,43 @@ int main(int argc, const char *argv[]) {
 
             FFmpegDecoderBridge *decoder = [[FFmpegDecoderBridge alloc] initWithURL:url error:&error];
             BOOL foundSignal = NO;
+            BOOL reachedEnd = NO;
             NSInteger decodedFrames = 0;
-            for (NSInteger attempt = 0; decoder && attempt < 64; attempt++) {
+            AVAudioChannelCount decodedChannels = 0;
+            for (NSInteger attempt = 0; decoder && attempt < 500000; attempt++) {
                 FFmpegAudioReadResult *result = [decoder readNextBufferWithError:&error];
-                if (!result || !result.buffer) break;
+                if (!result || !result.buffer) {
+                    reachedEnd = result != nil && error == nil;
+                    break;
+                }
+                if (decodedChannels == 0) decodedChannels = result.buffer.format.channelCount;
                 decodedFrames += result.buffer.frameLength;
                 foundSignal = foundSignal || BufferContainsSignal(result.buffer);
-                if (foundSignal && decodedFrames >= 4096) break;
             }
 
-            if (!decoder || error || decodedFrames == 0 || !foundSignal) {
-                fprintf(stderr, "FAIL decode %s: codec=%s frames=%ld error=%s\n",
+            if (!decoder || error || !reachedEnd || decodedFrames == 0 || !foundSignal) {
+                fprintf(stderr, "FAIL decode %s: codec=%s frames=%ld eof=%s error=%s\n",
                         argv[index], probe.codecName.UTF8String, (long)decodedFrames,
+                        reachedEnd ? "yes" : "no",
                         error.localizedDescription.UTF8String ?: "none");
                 allPassed = NO;
                 continue;
             }
+            if (probe.channelCount > 2 && decodedChannels != 2) {
+                fprintf(stderr, "FAIL downmix %s: sourceChannels=%ld decodedChannels=%u\n",
+                        argv[index], (long)probe.channelCount, decodedChannels);
+                allPassed = NO;
+                continue;
+            }
 
-            printf("PASS %s codec=%s container=%s duration=%.6f sr=%.0f ch=%ld depth=%ld frames=%ld\n",
+            printf("PASS %s codec=%s container=%s duration=%.6f sr=%.0f srcCh=%ld outCh=%u depth=%ld frames=%ld\n",
                    url.lastPathComponent.UTF8String,
                    probe.codecName.UTF8String,
                    probe.formatName.UTF8String,
                    probe.duration,
                    probe.sampleRate,
                    (long)probe.channelCount,
+                   decodedChannels,
                    (long)probe.bitDepth,
                    (long)decodedFrames);
         }

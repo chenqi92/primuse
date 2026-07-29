@@ -644,6 +644,190 @@ public enum ShuffleContinuationPolicy {
     }
 }
 
+/// Protects the identity supplied by a CUE sheet when metadata is scraped from
+/// the shared physical audio file. A forced scrape may replace ordinary-track
+/// text, but it must not collapse every virtual segment to one file-level name.
+public enum ScrapeCueIdentityPolicy {
+    public static func resolvedTitle(
+        original: String,
+        scraped: String,
+        isCueTrack: Bool
+    ) -> String {
+        guard isCueTrack, !original.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return scraped
+        }
+        return original
+    }
+
+    public static func resolvedOptionalText(
+        original: String?,
+        scraped: String?,
+        isCueTrack: Bool
+    ) -> String? {
+        guard isCueTrack,
+              let original,
+              !original.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return scraped
+        }
+        return original
+    }
+}
+
+/// Prevents metadata scraping from materializing an entire remote audio file
+/// merely to establish a search identity. Range-capable sources already feed
+/// embedded tags through metadata backfill; formats that require a complete
+/// local file should only download that file when the user actually plays or
+/// explicitly caches it.
+public enum ScrapeAudioMaterializationPolicy {
+    public static func shouldResolvePlaybackURL(
+        sourceSupportsRangeStreaming: Bool,
+        formatRequiresCompleteLocalFile: Bool
+    ) -> Bool {
+        !(sourceSupportsRangeStreaming && formatRequiresCompleteLocalFile)
+    }
+}
+
+/// Reads the fixed-size RIFF/WAVE headers that are available in a remote
+/// file's initial byte range. The `data` chunk advertises its complete byte
+/// count even when the provided `Data` contains only a small prefix, so this
+/// avoids treating a 256 KB metadata Range response as the whole song.
+public enum WAVEHeaderParser {
+    public struct AudioInfo: Equatable, Sendable {
+        public let duration: TimeInterval
+        public let sampleRate: Int
+        public let bitRateKbps: Int
+        public let bitDepth: Int
+        public let channelCount: Int
+
+        public init(
+            duration: TimeInterval,
+            sampleRate: Int,
+            bitRateKbps: Int,
+            bitDepth: Int,
+            channelCount: Int
+        ) {
+            self.duration = duration
+            self.sampleRate = sampleRate
+            self.bitRateKbps = bitRateKbps
+            self.bitDepth = bitDepth
+            self.channelCount = channelCount
+        }
+    }
+
+    public static func parse(_ data: Data) -> AudioInfo? {
+        guard data.count >= 12,
+              ascii(data, at: 0) == "RIFF",
+              ascii(data, at: 8) == "WAVE" else {
+            return nil
+        }
+
+        var cursor = 12
+        var sampleRate: UInt32?
+        var byteRate: UInt32?
+        var bitDepth: UInt16?
+        var channelCount: UInt16?
+        var audioByteCount: UInt32?
+
+        while cursor <= data.count - 8 {
+            guard let chunkSize = littleEndianUInt32(data, at: cursor + 4) else { break }
+            let chunkID = ascii(data, at: cursor)
+            let payloadStart = cursor + 8
+
+            if chunkID == "fmt ", chunkSize >= 16, payloadStart <= data.count - 16 {
+                channelCount = littleEndianUInt16(data, at: payloadStart + 2)
+                sampleRate = littleEndianUInt32(data, at: payloadStart + 4)
+                byteRate = littleEndianUInt32(data, at: payloadStart + 8)
+                bitDepth = littleEndianUInt16(data, at: payloadStart + 14)
+            } else if chunkID == "data" {
+                audioByteCount = chunkSize
+                break
+            }
+
+            let paddedSize = UInt64(chunkSize) + UInt64(chunkSize & 1)
+            let next = UInt64(payloadStart) + paddedSize
+            guard next <= UInt64(data.count), next <= UInt64(Int.max) else { break }
+            cursor = Int(next)
+        }
+
+        guard let sampleRate, sampleRate > 0,
+              let byteRate, byteRate > 0,
+              let bitDepth, bitDepth > 0,
+              let channelCount, channelCount > 0,
+              let audioByteCount, audioByteCount > 0 else {
+            return nil
+        }
+
+        let duration = Double(audioByteCount) / Double(byteRate)
+        guard duration.isFinite, duration > 0 else { return nil }
+
+        return AudioInfo(
+            duration: duration,
+            sampleRate: Int(sampleRate),
+            bitRateKbps: (Double(byteRate) * 8.0 / 1000.0).rounded().finiteInt(),
+            bitDepth: Int(bitDepth),
+            channelCount: Int(channelCount)
+        )
+    }
+
+    private static func ascii(_ data: Data, at offset: Int) -> String? {
+        guard offset >= 0, offset <= data.count - 4 else { return nil }
+        return String(data: data.subdata(in: offset..<(offset + 4)), encoding: .ascii)
+    }
+
+    private static func littleEndianUInt16(_ data: Data, at offset: Int) -> UInt16? {
+        guard offset >= 0, offset <= data.count - 2 else { return nil }
+        return UInt16(data[offset]) | (UInt16(data[offset + 1]) << 8)
+    }
+
+    private static func littleEndianUInt32(_ data: Data, at offset: Int) -> UInt32? {
+        guard offset >= 0, offset <= data.count - 4 else { return nil }
+        return UInt32(data[offset])
+            | (UInt32(data[offset + 1]) << 8)
+            | (UInt32(data[offset + 2]) << 16)
+            | (UInt32(data[offset + 3]) << 24)
+    }
+}
+
+/// Detects a JPEG sampling layout that some FFmpeg encoders emit and Apple
+/// ImageIO cannot decode reliably (`decodeImageImp failed - NULL _blockArray`).
+/// The check parses only JPEG marker headers, so callers can reject or replace
+/// the data without first triggering ImageIO's decoder.
+public enum ArtworkImageCompatibility {
+    public static func hasRedundantJPEGSampling(_ data: Data) -> Bool {
+        guard data.count >= 12, data[0] == 0xFF, data[1] == 0xD8 else { return false }
+        var marker = 2
+        while marker + 3 < data.count {
+            guard data[marker] == 0xFF else {
+                marker += 1
+                continue
+            }
+            while marker < data.count, data[marker] == 0xFF { marker += 1 }
+            guard marker < data.count else { return false }
+            let code = data[marker]
+            marker += 1
+            if code == 0xD9 || code == 0xDA { return false }
+            if code == 0x01 || (0xD0...0xD7).contains(code) { continue }
+            guard marker + 1 < data.count else { return false }
+            let length = Int(data[marker]) << 8 | Int(data[marker + 1])
+            guard length >= 2, marker + length <= data.count else { return false }
+
+            if [0xC0, 0xC1, 0xC2].contains(code) {
+                let payload = marker + 2
+                guard payload + 6 <= data.count else { return false }
+                let componentCount = Int(data[payload + 5])
+                guard componentCount > 1,
+                      payload + 6 + componentCount * 3 <= marker + length else {
+                    return false
+                }
+                let samples = (0..<componentCount).map { data[payload + 7 + $0 * 3] }
+                return samples.allSatisfy { $0 == samples[0] } && samples[0] != 0x11
+            }
+            marker += length
+        }
+        return false
+    }
+}
+
 /// Validates the non-query portion of an OAuth callback URL.
 ///
 /// Providers that redirect straight back to the app must return the registered

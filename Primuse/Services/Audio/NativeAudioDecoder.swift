@@ -100,10 +100,19 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
         return AudioBufferStreamFactory.make { continuation in
             let task = Task {
                 do {
-                    let decoder = try SFBAudioEngine.AudioDecoder(inputSource: inputBox.value)
-                    try decoder.open()
-                    try self.seek(decoder: decoder, to: startTime)
-                    try await self.runDecode(decoder: decoder, outputFormat: outputFormat, continuation: continuation, onResolveSourceLength: onResolveSourceLength)
+                    let prepared = try self.prepareDecoder(
+                        startingAt: startTime,
+                        reopenAfterFailedSeek: false
+                    ) {
+                        try SFBAudioEngine.AudioDecoder(inputSource: inputBox.value)
+                    }
+                    try await self.runDecode(
+                        decoder: prepared.decoder,
+                        outputFormat: outputFormat,
+                        framesToDiscard: prepared.framesToDiscard,
+                        continuation: continuation,
+                        onResolveSourceLength: onResolveSourceLength
+                    )
                 } catch {
                     continuation.finish(throwing: error)
                 }
@@ -155,24 +164,31 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
         AudioBufferStreamFactory.make { continuation in
             let task = Task {
                 do {
-                    let decoder: any SFBAudioEngine.PCMDecoding
-                    if self.isDSD(url) {
-                        switch dsdMode {
-                        case .dop:
-                            decoder = try SFBAudioEngine.DoPDecoder(url: url)
-                        case .automatic, .pcm:
-                            // SFBAudioEngine's native converter deliberately
-                            // supports DSD64. Higher-rate DSD falls back to the
-                            // FFmpeg PCM path in AudioPlayerService.
-                            decoder = try SFBAudioEngine.DSDPCMDecoder(url: url)
+                    let prepared = try self.prepareDecoder(
+                        startingAt: startTime,
+                        reopenAfterFailedSeek: true
+                    ) {
+                        if self.isDSD(url) {
+                            switch dsdMode {
+                            case .dop:
+                                return try SFBAudioEngine.DoPDecoder(url: url)
+                            case .automatic, .pcm:
+                                // SFBAudioEngine's native converter deliberately
+                                // supports DSD64. Higher-rate DSD falls back to the
+                                // FFmpeg PCM path in AudioPlayerService.
+                                return try SFBAudioEngine.DSDPCMDecoder(url: url)
+                            }
                         }
-                    } else {
-                        decoder = try SFBAudioEngine.AudioDecoder(url: url)
+                        return try SFBAudioEngine.AudioDecoder(url: url)
                     }
-                    try decoder.open()
-                    try self.seek(decoder: decoder, to: startTime)
                     plog("🎵 SFBDecoder: file=\(url.lastPathComponent)")
-                    try await self.runDecode(decoder: decoder, outputFormat: outputFormat, continuation: continuation, onResolveSourceLength: onResolveSourceLength)
+                    try await self.runDecode(
+                        decoder: prepared.decoder,
+                        outputFormat: outputFormat,
+                        framesToDiscard: prepared.framesToDiscard,
+                        continuation: continuation,
+                        onResolveSourceLength: onResolveSourceLength
+                    )
                 } catch {
                     continuation.finish(throwing: error)
                 }
@@ -186,11 +202,13 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
     private func runDecode(
         decoder: any SFBAudioEngine.PCMDecoding,
         outputFormat: AVAudioFormat,
+        framesToDiscard initialFramesToDiscard: AVAudioFramePosition = 0,
         continuation: AudioBufferStream.Continuation,
         onResolveSourceLength: (@Sendable (TimeInterval) -> Void)? = nil
     ) async throws {
         let sourceFormat = decoder.processingFormat
         let totalFrames = decoder.length
+        var framesToDiscard = max(0, initialFramesToDiscard)
 
         plog("🎵 SFBDecoder: sourceFormat=sr\(sourceFormat.sampleRate)/ch\(sourceFormat.channelCount) length=\(totalFrames) outputFormat=sr\(outputFormat.sampleRate)/ch\(outputFormat.channelCount)")
 
@@ -210,7 +228,7 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
             while !Task.isCancelled, decoder.position < totalFrames {
                 let remainingFrames = AVAudioFrameCount(totalFrames - decoder.position)
                 let framesToRead = min(bufferFrameCount, remainingFrames)
-                guard let buffer = AVAudioPCMBuffer(pcmFormat: sourceFormat, frameCapacity: framesToRead) else {
+                guard var buffer = AVAudioPCMBuffer(pcmFormat: sourceFormat, frameCapacity: framesToRead) else {
                     continuation.finish(throwing: AudioDecoderError.bufferAllocationFailed)
                     return
                 }
@@ -218,6 +236,20 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
                 try decoder.decode(into: buffer, length: framesToRead)
                 if buffer.frameLength > 0 {
                     stallNanos = 0
+                    if framesToDiscard > 0 {
+                        let discarded = min(
+                            framesToDiscard,
+                            AVAudioFramePosition(buffer.frameLength)
+                        )
+                        framesToDiscard -= discarded
+                        if discarded == AVAudioFramePosition(buffer.frameLength) {
+                            continue
+                        }
+                        buffer = try Self.slice(
+                            buffer,
+                            skipping: AVAudioFrameCount(discarded)
+                        )
+                    }
                     try await AudioBufferStreamFactory.yieldWithBackpressure(
                         buffer,
                         to: continuation
@@ -240,12 +272,26 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
             while !Task.isCancelled, decoder.position < totalFrames {
                 let remainingFrames = AVAudioFrameCount(totalFrames - decoder.position)
                 let framesToRead = min(bufferFrameCount, remainingFrames)
-                guard let inputBuffer = AVAudioPCMBuffer(pcmFormat: sourceFormat, frameCapacity: framesToRead) else {
+                guard var inputBuffer = AVAudioPCMBuffer(pcmFormat: sourceFormat, frameCapacity: framesToRead) else {
                     continuation.finish(throwing: AudioDecoderError.bufferAllocationFailed)
                     return
                 }
                 try decoder.decode(into: inputBuffer, length: framesToRead)
                 guard inputBuffer.frameLength > 0 else { break }
+                if framesToDiscard > 0 {
+                    let discarded = min(
+                        framesToDiscard,
+                        AVAudioFramePosition(inputBuffer.frameLength)
+                    )
+                    framesToDiscard -= discarded
+                    if discarded == AVAudioFramePosition(inputBuffer.frameLength) {
+                        continue
+                    }
+                    inputBuffer = try Self.slice(
+                        inputBuffer,
+                        skipping: AVAudioFrameCount(discarded)
+                    )
+                }
                 let converterInput = ConverterInputBuffer(inputBuffer)
 
                 let outputFrameCapacity = AVAudioFrameCount(
@@ -286,21 +332,118 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
         continuation.finish()
     }
 
-    private func seek(
+    private struct PreparedDecoder {
+        let decoder: any SFBAudioEngine.PCMDecoding
+        let framesToDiscard: AVAudioFramePosition
+    }
+
+    /// Prefer the decoder's native seek, but preserve the old always-works
+    /// behaviour for formats or custom InputSources that cannot seek. A failed
+    /// URL-backed seek is reopened from frame zero before falling back. Custom
+    /// InputSources are kept open because closing `CloudInputSourceObjC`
+    /// intentionally releases its fetch closure; SFB seek failures leave their
+    /// frame position unchanged in the unsupported-seek case.
+    private func prepareDecoder(
+        startingAt startTime: TimeInterval?,
+        reopenAfterFailedSeek: Bool,
+        makeDecoder: () throws -> any SFBAudioEngine.PCMDecoding
+    ) throws -> PreparedDecoder {
+        var decoder = try makeDecoder()
+        try decoder.open()
+        guard let target = seekTarget(decoder: decoder, startTime: startTime) else {
+            return PreparedDecoder(decoder: decoder, framesToDiscard: 0)
+        }
+
+        guard decoder.supportsSeeking else {
+            plog("⚠️ SFBDecoder: decoder is not seekable; falling back to decode-and-discard through frame \(target)")
+            return PreparedDecoder(
+                decoder: decoder,
+                framesToDiscard: max(0, target - max(0, decoder.position))
+            )
+        }
+
+        do {
+            try decoder.seek(to: target)
+            return PreparedDecoder(decoder: decoder, framesToDiscard: 0)
+        } catch {
+            let seekError = error
+            if reopenAfterFailedSeek {
+                try? decoder.close()
+                decoder = try makeDecoder()
+                try decoder.open()
+            }
+
+            let currentPosition = max(0, decoder.position)
+            guard currentPosition <= target else { throw seekError }
+            plog("⚠️ SFBDecoder: native seek failed (\(seekError.localizedDescription)); falling back to decode-and-discard through frame \(target)")
+            return PreparedDecoder(
+                decoder: decoder,
+                framesToDiscard: target - currentPosition
+            )
+        }
+    }
+
+    private func seekTarget(
         decoder: any SFBAudioEngine.PCMDecoding,
-        to startTime: TimeInterval?
-    ) throws {
+        startTime: TimeInterval?
+    ) -> AVAudioFramePosition? {
         guard let startTime,
               startTime.isFinite,
               startTime > 0,
-              decoder.processingFormat.sampleRate > 0 else { return }
+              decoder.processingFormat.sampleRate > 0 else { return nil }
         let requested = AVAudioFramePosition(
             (startTime * decoder.processingFormat.sampleRate).rounded(.down)
         )
-        let target = decoder.length > 0
+        return decoder.length > 0
             ? min(max(0, requested), decoder.length - 1)
             : max(0, requested)
-        try decoder.seek(to: target)
+    }
+
+    private static func slice(
+        _ source: AVAudioPCMBuffer,
+        skipping: AVAudioFrameCount
+    ) throws -> AVAudioPCMBuffer {
+        guard skipping < source.frameLength else {
+            throw AudioDecoderError.bufferAllocationFailed
+        }
+        let frameCount = source.frameLength - skipping
+        guard let destination = AVAudioPCMBuffer(
+            pcmFormat: source.format,
+            frameCapacity: frameCount
+        ) else {
+            throw AudioDecoderError.bufferAllocationFailed
+        }
+        destination.frameLength = frameCount
+
+        let bytesPerFrame = Int(
+            source.format.streamDescription.pointee.mBytesPerFrame
+        )
+        guard bytesPerFrame > 0 else {
+            throw AudioDecoderError.bufferAllocationFailed
+        }
+        let sourceBuffers = UnsafeMutableAudioBufferListPointer(
+            source.mutableAudioBufferList
+        )
+        let destinationBuffers = UnsafeMutableAudioBufferListPointer(
+            destination.mutableAudioBufferList
+        )
+        guard sourceBuffers.count == destinationBuffers.count else {
+            throw AudioDecoderError.bufferAllocationFailed
+        }
+
+        let sourceOffset = Int(skipping) * bytesPerFrame
+        let byteCount = Int(frameCount) * bytesPerFrame
+        for index in sourceBuffers.indices {
+            guard let sourceData = sourceBuffers[index].mData,
+                  let destinationData = destinationBuffers[index].mData,
+                  sourceOffset + byteCount <= Int(sourceBuffers[index].mDataByteSize),
+                  byteCount <= Int(destinationBuffers[index].mDataByteSize) else {
+                throw AudioDecoderError.bufferAllocationFailed
+            }
+            memcpy(destinationData, sourceData.advanced(by: sourceOffset), byteCount)
+            destinationBuffers[index].mDataByteSize = UInt32(byteCount)
+        }
+        return destination
     }
 
     private func drain(

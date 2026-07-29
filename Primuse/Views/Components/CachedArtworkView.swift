@@ -538,6 +538,16 @@ struct CachedArtworkView: View {
             if let imageURL = await sourceManager.imageURL(for: ref, sourceID: sourceID) {
                 return try? await sharedArtworkSession.data(from: imageURL).0
             }
+            // SMB has no direct image URL. Fetch the small sidecar through its
+            // background libsmb2 lane so cover loading cannot block decoder
+            // range reads on the foreground playback connection.
+            if let data = await sourceManager.sidecarData(
+                for: ref,
+                sourceID: sourceID,
+                maximumBytes: 8 * 1024 * 1024
+            ) {
+                return data
+            }
         }
 
         // Case 3: No ref — try embedded extraction from locally cached audio file only
@@ -563,6 +573,9 @@ struct CachedArtworkView: View {
     /// downsamples and force-decodes the bitmap so SwiftUI never re-decodes
     /// at draw time.
     private static func decode(_ data: Data, bucket: Bucket) -> PlatformImage? {
+        guard !ArtworkImageCompatibility.hasRedundantJPEGSampling(data) else {
+            return nil
+        }
         guard let src = CGImageSourceCreateWithData(data as CFData, nil) else {
             // Fallback for formats ImageIO can't open (rare): PlatformImage(data:)
             // still defers decode to first draw, but this is a graceful path.

@@ -304,6 +304,14 @@ actor SMBSource: MusicSourceConnector {
     }
 
     func writeFile(data: Data, to path: String) async throws {
+        try await writeFile(data: data, to: path, priority: .userInitiated)
+    }
+
+    func writeFile(
+        data: Data,
+        to path: String,
+        priority: RangeFetchPriority
+    ) async throws {
         let normalizedPath = Self.normalizeRemotePath(path)
         let resolvedPath = try resolve(path: normalizedPath)
 
@@ -316,9 +324,55 @@ actor SMBSource: MusicSourceConnector {
         try data.write(to: tempURL)
         defer { try? FileManager.default.removeItem(at: tempURL) }
 
-        try await runWithRetry {
-            let client = try await self.ensureConnectedShare(named: shareName)
-            try await client.uploadItem(at: tempURL, toPath: relativePath) { _ in true }
+        switch priority {
+        case .userInitiated:
+            try await runWithRetry {
+                let client = try await self.ensureConnectedShare(named: shareName)
+                try await self.uploadOrOverwrite(
+                    client: client,
+                    localURL: tempURL,
+                    data: data,
+                    relativePath: relativePath
+                )
+            }
+        case .background:
+            try await runBackgroundWithRetry {
+                let client = try await self.ensureBackgroundConnectedShare(named: shareName)
+                try await self.uploadOrOverwrite(
+                    client: client,
+                    localURL: tempURL,
+                    data: data,
+                    relativePath: relativePath
+                )
+            }
+        }
+    }
+
+    /// AMSMB2's `uploadItem` intentionally uses create-exclusive semantics,
+    /// so writing a scraped sidecar for a second time fails with EEXIST /
+    /// STATUS_OBJECT_NAME_COLLISION. Create first to keep the normal path
+    /// efficient, then use the library's offset-zero write API to truncate and
+    /// replace an existing file on that same serialized SMB connection.
+    private func uploadOrOverwrite(
+        client: SMB2Manager,
+        localURL: URL,
+        data: Data,
+        relativePath: String
+    ) async throws {
+        do {
+            try await client.uploadItem(at: localURL, toPath: relativePath) { _ in true }
+        } catch {
+            let nsError = error as NSError
+            guard nsError.domain == NSPOSIXErrorDomain,
+                  nsError.code == Int(EEXIST) else {
+                throw error
+            }
+            try await client.append(
+                data: data,
+                toPath: relativePath,
+                offset: 0,
+                progress: { _ in true }
+            )
         }
     }
 

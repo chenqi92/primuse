@@ -53,7 +53,11 @@ actor SidecarWriteService {
             let coverFileName = "\(baseNameNoExt)-cover.jpg"
             let coverPath = (songDir as NSString).appendingPathComponent(coverFileName)
             do {
-                try await connector.writeFile(data: jpegData, to: coverPath)
+                try await connector.writeFile(
+                    data: jpegData,
+                    to: coverPath,
+                    priority: .background
+                )
                 result.coverWritten = true
                 plog("📁 Sidecar: \(coverFileName) written to \(songDir)")
             } catch {
@@ -72,7 +76,11 @@ actor SidecarWriteService {
             if let lrcData = lrcContent.data(using: .utf8) {
                 let lrcPath = (songDir as NSString).appendingPathComponent("\(baseNameNoExt).lrc")
                 do {
-                    try await connector.writeFile(data: lrcData, to: lrcPath)
+                    try await connector.writeFile(
+                        data: lrcData,
+                        to: lrcPath,
+                        priority: .background
+                    )
                     result.lyricsWritten = true
                     plog("📁 Sidecar: \(baseNameNoExt).lrc written to \(songDir)")
                 } catch {

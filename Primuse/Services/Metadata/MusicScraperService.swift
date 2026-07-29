@@ -1040,8 +1040,21 @@ final class MusicScraperService {
             return ProcessedResult(song: merged, coverData: nil, lyricsLines: nil)
         }
 
-        let fileURL = try await sourceManager.resolveURL(for: song)
-        let placeholderTitle = fileURL.deletingPathExtension().lastPathComponent
+        let fallbackTitle = await resolvedScrapeFallbackTitle(for: song)
+        let sourceSupportsRangeStreaming = await sourceManager.songSupportsRangeStreaming(song)
+        let shouldResolvePlaybackURL = ScrapeAudioMaterializationPolicy.shouldResolvePlaybackURL(
+            sourceSupportsRangeStreaming: sourceSupportsRangeStreaming,
+            formatRequiresCompleteLocalFile: FileFormatRouter.requiresCompleteLocalFile(song.fileFormat)
+        )
+        // For a Range-capable remote source, resolving a DTS/DSD/FFmpeg-only
+        // playback URL falls through to connector.localURL and downloads the
+        // complete file. Background enrichment used to do that for every song
+        // in a freshly scanned SMB library (several GiB for a 99-song folder)
+        // even though scraping only needs the scanned/backfilled identity.
+        let fileURL = shouldResolvePlaybackURL
+            ? try await sourceManager.resolveURL(for: song)
+            : nil
+        let placeholderTitle = fileURL?.deletingPathExtension().lastPathComponent ?? fallbackTitle
 
         guard forceRescrape || needsScrape(song: song, placeholderTitle: placeholderTitle) else {
             return nil
@@ -1054,9 +1067,8 @@ final class MusicScraperService {
         // 适合取 basename; OneDrive / Google Drive / Aliyun 等云盘的 filePath
         // 是 opaque item id, 必须回退到 scan 阶段保存的 song.title(真实文件名),
         // 否则会拿 uuid/id 搜歌词和封面导致错配。
-        let fallbackTitle = await resolvedScrapeFallbackTitle(for: song)
         let metadata: MetadataService.SongMetadata
-        if fileURL.isFileURL {
+        if let fileURL, fileURL.isFileURL {
             metadata = await metadataService.loadMetadata(
                 for: fileURL,
                 cacheKey: storeAssets ? song.id : nil,
@@ -1392,21 +1404,41 @@ final class MusicScraperService {
         let candidateTitle = onlyFillMissing
             ? (titleNeedsUpdate ? metadata.title : song.title)
             : metadata.title
-        let resolvedTitle = candidateTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let scrapedTitle = candidateTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? song.title
             : candidateTitle
+        // A CUE row is a virtual track inside a shared physical audio file.
+        // File/online metadata describes that physical image and must not turn
+        // every segment into the same basename during a forced library scrape.
+        // Keep the CUE sheet's non-empty title/artist/album identity while still
+        // allowing missing optional values and artwork/lyrics to be filled.
+        let resolvedTitle = ScrapeCueIdentityPolicy.resolvedTitle(
+            original: song.title,
+            scraped: scrapedTitle,
+            isCueTrack: song.isCueTrack
+        )
 
         // Mutate the original value instead of reconstructing Song. Besides
         // being safer when the model gains fields, this preserves CUE virtual
         // track boundaries and ReplayGain/search metadata during scraping.
         var merged = song
         merged.title = resolvedTitle
-        merged.albumTitle = onlyFillMissing
+        let scrapedAlbum = onlyFillMissing
             ? (albumNeedsUpdate ? metadata.albumTitle ?? song.albumTitle : song.albumTitle)
             : (metadata.albumTitle ?? song.albumTitle)
-        merged.artistName = onlyFillMissing
+        merged.albumTitle = ScrapeCueIdentityPolicy.resolvedOptionalText(
+            original: song.albumTitle,
+            scraped: scrapedAlbum,
+            isCueTrack: song.isCueTrack
+        )
+        let scrapedArtist = onlyFillMissing
             ? (artistNeedsUpdate ? metadata.artist ?? song.artistName : song.artistName)
             : (metadata.artist ?? song.artistName)
+        merged.artistName = ScrapeCueIdentityPolicy.resolvedOptionalText(
+            original: song.artistName,
+            scraped: scrapedArtist,
+            isCueTrack: song.isCueTrack
+        )
         merged.trackNumber = song.trackNumber ?? metadata.trackNumber
         merged.discNumber = song.discNumber ?? metadata.discNumber
         // File metadata describes the physical image. It must never replace a
