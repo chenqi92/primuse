@@ -723,17 +723,23 @@ actor SynologyScanner {
                 duration = Double(item.size) * 8.0 / Double(br * 1000)
             }
 
-            // Last resort: estimate from file size assuming common bitrate
+            // Last resort: estimate from file size using a format-aware
+            // bitrate. Raw DTS is commonly 1,536 kbps; treating it like the
+            // generic 192 kbps fallback inflates its duration by exactly 8x.
             if duration == 0 && item.size > 0 {
-                let assumedBitrate: Double = ext == "flac" ? 900_000 : 192_000 // bps
-                duration = Double(item.size) * 8.0 / assumedBitrate
+                duration = AudioDurationPolicy.fallbackEstimate(
+                    fileSize: item.size,
+                    format: format
+                )
             }
 
         } catch {
             // Metadata extraction failed — still estimate duration from file size
             if duration == 0 && item.size > 0 {
-                let assumedBitrate: Double = ext == "flac" ? 900_000 : 192_000
-                duration = Double(item.size) * 8.0 / assumedBitrate
+                duration = AudioDurationPolicy.fallbackEstimate(
+                    fileSize: item.size,
+                    format: format
+                )
             }
         }
 

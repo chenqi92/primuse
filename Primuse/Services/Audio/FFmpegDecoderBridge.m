@@ -136,6 +136,105 @@ static NSTimeInterval FFmpegPacketDuration(NSURL *url,
 @implementation FFmpegAudioReadResult
 @end
 
+static uint16_t FFmpegReadLittleEndian16(const uint8_t *bytes) {
+    return (uint16_t)bytes[0] | ((uint16_t)bytes[1] << 8);
+}
+
+static uint32_t FFmpegReadLittleEndian32(const uint8_t *bytes) {
+    return (uint32_t)bytes[0]
+        | ((uint32_t)bytes[1] << 8)
+        | ((uint32_t)bytes[2] << 16)
+        | ((uint32_t)bytes[3] << 24);
+}
+
+/// DTS frames repeat the same four-byte sync word at frame boundaries. Requiring
+/// two nearby instances of the same byte order avoids treating arbitrary image
+/// or PCM bytes as a DTS stream merely because two unrelated variants happen to
+/// appear somewhere in a large metadata prefix.
+static BOOL FFmpegPayloadContainsDTSSync(const uint8_t *bytes, NSUInteger length) {
+    if (!bytes || length < 8) return NO;
+    static const uint8_t syncWords[][4] = {
+        {0x7f, 0xfe, 0x80, 0x01},
+        {0xfe, 0x7f, 0x01, 0x80},
+        {0x1f, 0xff, 0xe8, 0x00},
+        {0xff, 0x1f, 0x00, 0xe8},
+    };
+    static const NSUInteger minimumFrameSpacing = 64;
+    static const NSUInteger maximumFrameSpacing = 32 * 1024;
+    NSUInteger previousOffsets[sizeof(syncWords) / sizeof(syncWords[0])];
+    for (NSUInteger index = 0; index < sizeof(previousOffsets) / sizeof(previousOffsets[0]); index++) {
+        previousOffsets[index] = NSNotFound;
+    }
+
+    for (NSUInteger offset = 0; offset + 4 <= length; offset++) {
+        for (NSUInteger word = 0; word < sizeof(syncWords) / sizeof(syncWords[0]); word++) {
+            if (memcmp(bytes + offset, syncWords[word], 4) != 0) continue;
+            NSUInteger previous = previousOffsets[word];
+            if (previous != NSNotFound) {
+                NSUInteger distance = offset - previous;
+                if (distance >= minimumFrameSpacing && distance <= maximumFrameSpacing) {
+                    return YES;
+                }
+            }
+            previousOffsets[word] = offset;
+            offset += 3;
+            break;
+        }
+    }
+    return NO;
+}
+
+/// Returns whether a RIFF/WAVE prefix is a plausible DTS-CD image. DTS-CD is
+/// stored as a stereo 16-bit PCM carrier; scanning the whole file prefix used to
+/// find false sync words in cover-art/metadata and even classified ordinary
+/// multichannel PCM WAV files as DTS. Only the declared audio `data` chunk is
+/// inspected now.
+static BOOL FFmpegWAVEContainsDTSSync(const uint8_t *bytes, NSUInteger length) {
+    if (!bytes || length < 12
+        || memcmp(bytes, "RIFF", 4) != 0
+        || memcmp(bytes + 8, "WAVE", 4) != 0) {
+        return NO;
+    }
+
+    BOOL hasFormat = NO;
+    uint16_t audioFormat = 0;
+    uint16_t channelCount = 0;
+    uint32_t sampleRate = 0;
+    uint16_t bitDepth = 0;
+    NSUInteger cursor = 12;
+    while (cursor <= length - 8) {
+        const uint8_t *chunk = bytes + cursor;
+        uint32_t declaredSize = FFmpegReadLittleEndian32(chunk + 4);
+        NSUInteger payloadStart = cursor + 8;
+        NSUInteger available = length - payloadStart;
+        NSUInteger payloadLength = MIN((NSUInteger)declaredSize, available);
+
+        if (memcmp(chunk, "fmt ", 4) == 0 && payloadLength >= 16) {
+            audioFormat = FFmpegReadLittleEndian16(bytes + payloadStart);
+            channelCount = FFmpegReadLittleEndian16(bytes + payloadStart + 2);
+            sampleRate = FFmpegReadLittleEndian32(bytes + payloadStart + 4);
+            bitDepth = FFmpegReadLittleEndian16(bytes + payloadStart + 14);
+            hasFormat = YES;
+        } else if (memcmp(chunk, "data", 4) == 0) {
+            BOOL isPCMCarrier = audioFormat == 1 || audioFormat == 0xfffe;
+            BOOL plausibleDTSCD = hasFormat
+                && isPCMCarrier
+                && channelCount == 2
+                && bitDepth == 16
+                && sampleRate >= 32000
+                && sampleRate <= 96000;
+            return plausibleDTSCD
+                && FFmpegPayloadContainsDTSSync(bytes + payloadStart, payloadLength);
+        }
+
+        uint64_t paddedSize = (uint64_t)declaredSize + (declaredSize & 1u);
+        uint64_t next = (uint64_t)payloadStart + paddedSize;
+        if (next > length || next > NSUIntegerMax) break;
+        cursor = (NSUInteger)next;
+    }
+    return NO;
+}
+
 @interface FFmpegDecoderBridge ()
 - (nullable instancetype)initWithURL:(NSURL *)url
                   scanPacketDuration:(BOOL)scanPacketDuration
@@ -160,25 +259,15 @@ static NSTimeInterval FFmpegPacketDuration(NSURL *url,
 }
 
 + (BOOL)dataContainsDTSSync:(NSData *)data {
-    if (data.length < 4) return NO;
-    static const uint8_t syncWords[][4] = {
-        {0x7f, 0xfe, 0x80, 0x01},
-        {0xfe, 0x7f, 0x01, 0x80},
-        {0x1f, 0xff, 0xe8, 0x00},
-        {0xff, 0x1f, 0x00, 0xe8},
-    };
+    if (data.length < 8) return NO;
     const uint8_t *bytes = data.bytes;
-    NSUInteger matches = 0;
-    for (NSUInteger offset = 0; offset + 4 <= data.length; offset++) {
-        for (NSUInteger word = 0; word < sizeof(syncWords) / sizeof(syncWords[0]); word++) {
-            if (memcmp(bytes + offset, syncWords[word], 4) == 0) {
-                if (++matches >= 2) return YES;
-                offset += 3;
-                break;
-            }
-        }
+    if (data.length >= 12
+        && memcmp(bytes, "RIFF", 4) == 0
+        && memcmp(bytes + 8, "WAVE", 4) == 0) {
+        return FFmpegWAVEContainsDTSSync(bytes, data.length);
     }
-    return NO;
+    // Preserve support for raw/mislabeled DTS payloads without a WAVE header.
+    return FFmpegPayloadContainsDTSSync(bytes, data.length);
 }
 
 + (BOOL)URLContainsDTSSync:(NSURL *)url {

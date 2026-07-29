@@ -1502,6 +1502,15 @@ final class AudioPlayerService {
         let callerFile = (caller as NSString).lastPathComponent
         plog("▶️ play(song: \(song.title)) playID=\(id.uuidString.prefix(8)) FROM=\(callerFile):\(callerLine)")
 
+        // "Stop at end of current track" is tied to the track that was
+        // current when the user enabled it. If the user explicitly skips or
+        // selects another song, cancel that stale lock. Natural completion is
+        // handled before next() by handleTrackEnd / the gapless boundary.
+        if let lockedID = sleepStopAfterSongID, lockedID != song.id {
+            plog("🌙 Sleep-at-track-end cancelled by explicit track change")
+            sleepStopAfterSongID = nil
+        }
+
         // 切歌即取消上一首遗留的 MV 后台下载(保留 .partial 可续传),
         // 避免连续切歌积累多个全量下载并发抢带宽。
         sourceManager?.cancelMusicVideoDownloads(keeping: song)
@@ -2301,16 +2310,18 @@ final class AudioPlayerService {
         let fileSize = song.fileSize
         let bitRate = song.bitRate
         let fileFormat = song.fileFormat
+        let formatRequiresCompleteLocalFile = FileFormatRouter.requiresCompleteLocalFile(fileFormat)
         let cueStart = song.cueStartTime
         let cueEnd = song.cueEndTime
         return { [weak self] resolved in
             guard resolved > 0 else { return }
-            if cueStart == nil, Self.isLikelyTruncatedCloudDuration(
+            if cueStart == nil, AudioDurationPolicy.shouldIgnoreResolvedDuration(
                 resolved: resolved,
                 stored: storedDuration,
                 fileSize: fileSize,
                 bitRateKbps: bitRate,
-                format: fileFormat
+                format: fileFormat,
+                formatRequiresCompleteLocalFile: formatRequiresCompleteLocalFile
             ) {
                 plog(String(format: "⚠️ Ignoring implausible SFB duration for '%@': %.1fs (stored %.1fs, size=%lldKB) — likely partial cloud read",
                             songTitle, resolved, storedDuration, fileSize / 1024))
@@ -2346,25 +2357,6 @@ final class AudioPlayerService {
                 plog(String(format: "🎵 Decoder resolved duration for '%@': %.1fs (was %.1fs) — rewrote library", songTitle, effectiveDuration, storedDuration))
             }
         }
-    }
-
-    nonisolated private static func isLikelyTruncatedCloudDuration(
-        resolved: TimeInterval,
-        stored: TimeInterval,
-        fileSize: Int64,
-        bitRateKbps: Int?,
-        format: AudioFormat
-    ) -> Bool {
-        if stored > 30, resolved < stored * 0.5 {
-            return true
-        }
-
-        guard format == .mp3, fileSize > 512 * 1024 else {
-            return false
-        }
-        let effectiveBitRate = max(bitRateKbps ?? 0, 192)
-        let estimatedFromFileSize = Double(fileSize) / (Double(effectiveBitRate) * 125.0)
-        return estimatedFromFileSize > 30 && resolved < estimatedFromFileSize * 0.5
     }
 
     private func decodeStream(
@@ -3255,6 +3247,18 @@ final class AudioPlayerService {
             }
             return
         }
+        // A full-download streaming decoder can only seek after its completed
+        // file has entered the playback cache. Reject early while the current
+        // node is still running; the old path optimistically changed
+        // `currentTime`, stopped audio, then returned with a fake progress
+        // position when no cache file existed.
+        if activeDecoderKind == .streaming,
+           let song = currentSong,
+           sourceManager?.cachedURL(for: song) == nil {
+            plog("⚠️ Seek: streaming song not cached yet, leaving playback unchanged")
+            return
+        }
+        let previousTime = currentTime
         let requestedTime = TimeInterval.sanitized(time)
         let safeDuration = duration.sanitizedDuration
         let targetTime = safeDuration > 0 ? min(requestedTime, safeDuration) : requestedTime
@@ -3339,7 +3343,8 @@ final class AudioPlayerService {
 
                 // Use the same decoder that was used for initial playback.
                 // For streaming, require the cached local file — can't seek in remote streams.
-                let seekURL: URL
+                var seekURL: URL
+                var seekDecoderKind = activeDecoderKind
                 if activeDecoderKind == .streaming {
                     guard let cached = sourceManager?.cachedURL(for: song) else {
                         plog("⚠️ Seek: streaming song not cached yet, seek not available")
@@ -3354,6 +3359,22 @@ final class AudioPlayerService {
                 } else {
                     seekURL = url
                 }
+
+                // Range-backed cloud/HTTP InputSources can expose byte seeking
+                // while a format decoder still rejects PCM seeking. Never fall
+                // back to decoding millions of frames just to reach a large
+                // target. Complete the normal LRU cache once, then seek the
+                // local file with FFmpeg/native random access.
+                if (activeDecoderKind == .cloudStream || activeDecoderKind == .httpStream),
+                   sourceManager?.cachedURL(for: song) == nil,
+                   playbackSettings.audioCacheEnabled,
+                   let cached = await sourceManager?.materializeCachedURLForSeeking(for: song) {
+                    guard playID == id else { return }
+                    seekURL = cached
+                    seekDecoderKind = await ffmpegCanDecodeOffMain(cached) ? .ffmpeg : .native
+                    activeDecoderKind = seekDecoderKind
+                    plog("📍 Seek materialized remote audio to local cache; decoder=\(seekDecoderKind)")
+                }
                 let rawStream: AudioBufferStream
                 let onResolveLength = makeResolveLengthCallback(for: song)
                 var decoderPerformedSeek = false
@@ -3362,7 +3383,7 @@ final class AudioPlayerService {
                     0,
                     (song.cueStartTime ?? 0) + targetTime
                 )
-                switch activeDecoderKind {
+                switch seekDecoderKind {
                 case .native:
                     decoderPerformedSeek = true
                     decoderSourceStartTime = physicalSeekTime
@@ -3562,9 +3583,19 @@ final class AudioPlayerService {
                 }
             } catch {
                 plog("Seek error: \(error)")
+                guard playID == id else { return }
                 isLoading = false
+                isPlaying = false
+                currentTime = previousTime
+                showPlaybackError(String(localized: "playback_error_decode"))
                 updateNowPlayingInfo()
                 updatePlaybackState()
+                if shouldStartPlaying {
+                    // The seek pipeline has already stopped the node. Restart
+                    // predictably from the track beginning instead of leaving
+                    // a play icon/progress position that does not match audio.
+                    await play(song: song)
+                }
             }
         }
     }
@@ -4942,8 +4973,8 @@ final class AudioPlayerService {
         }
     }
 
-    /// 曲终停止 ── 锁定当前曲目, 等它播完 (currentSong 变化或变 nil) 时
-    /// 自动暂停。如果 currentSong 是空的就什么也不做。
+    /// 曲终停止 ── 锁定当前曲目, 等它自然播完时自动暂停。如果用户手动
+    /// 切歌, `play(song:)` 会取消这个旧锁；currentSong 为空则不激活。
     func scheduleSleepAtTrackEnd() {
         cancelSleep()
         sleepStopAfterSongID = currentSong?.id
@@ -4953,15 +4984,6 @@ final class AudioPlayerService {
         sleepTimerTask?.cancel()
         sleepTimerTask = nil
         sleepTimerEndDate = nil
-        sleepStopAfterSongID = nil
-    }
-
-    /// 在 player 切歌路径里 (next / 队列自动推进) 调一次 ── 如果"曲终停止"
-    /// 已激活并且当前曲目就是 sleep 锁定的那首, 暂停播放并清除 sleep state。
-    /// 不在 sleep 模式时是 no-op。
-    func handleSongTransitionForSleep(previousSongID: String?) {
-        guard let lockedID = sleepStopAfterSongID, previousSongID == lockedID else { return }
-        pause()
         sleepStopAfterSongID = nil
     }
 

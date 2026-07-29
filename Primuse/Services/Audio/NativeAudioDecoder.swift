@@ -102,7 +102,8 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
                 do {
                     let prepared = try self.prepareDecoder(
                         startingAt: startTime,
-                        reopenAfterFailedSeek: false
+                        reopenAfterFailedSeek: false,
+                        allowDecodeAndDiscardFallback: false
                     ) {
                         try SFBAudioEngine.AudioDecoder(inputSource: inputBox.value)
                     }
@@ -166,7 +167,8 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
                 do {
                     let prepared = try self.prepareDecoder(
                         startingAt: startTime,
-                        reopenAfterFailedSeek: true
+                        reopenAfterFailedSeek: true,
+                        allowDecodeAndDiscardFallback: true
                     ) {
                         if self.isDSD(url) {
                             switch dsdMode {
@@ -346,6 +348,7 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
     private func prepareDecoder(
         startingAt startTime: TimeInterval?,
         reopenAfterFailedSeek: Bool,
+        allowDecodeAndDiscardFallback: Bool,
         makeDecoder: () throws -> any SFBAudioEngine.PCMDecoding
     ) throws -> PreparedDecoder {
         var decoder = try makeDecoder()
@@ -355,6 +358,9 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
         }
 
         guard decoder.supportsSeeking else {
+            guard allowDecodeAndDiscardFallback else {
+                throw AudioDecoderError.seekUnavailable
+            }
             plog("⚠️ SFBDecoder: decoder is not seekable; falling back to decode-and-discard through frame \(target)")
             return PreparedDecoder(
                 decoder: decoder,
@@ -375,6 +381,10 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
 
             let currentPosition = max(0, decoder.position)
             guard currentPosition <= target else { throw seekError }
+            guard allowDecodeAndDiscardFallback else {
+                plog("⚠️ SFBDecoder: remote native seek failed; refusing unbounded decode-and-discard through frame \(target)")
+                throw AudioDecoderError.seekUnavailable
+            }
             plog("⚠️ SFBDecoder: native seek failed (\(seekError.localizedDescription)); falling back to decode-and-discard through frame \(target)")
             return PreparedDecoder(
                 decoder: decoder,
@@ -503,6 +513,7 @@ enum AudioDecoderError: Error, LocalizedError {
     case converterCreationFailed
     case unsupportedFormat(String)
     case decodingFailed(String)
+    case seekUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -510,6 +521,7 @@ enum AudioDecoderError: Error, LocalizedError {
         case .converterCreationFailed: return "Failed to create audio converter"
         case .unsupportedFormat(let fmt): return "Unsupported audio format: \(fmt)"
         case .decodingFailed(let msg): return "Decoding failed: \(msg)"
+        case .seekUnavailable: return "Random access requires a complete local audio file"
         }
     }
 }

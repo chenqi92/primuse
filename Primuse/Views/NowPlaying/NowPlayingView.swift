@@ -33,6 +33,7 @@ struct NowPlayingView: View {
     @State private var showQueue = false
     @State private var lyrics: [LyricLine] = []
     @State private var isScrapingCurrentSong = false
+    @State private var scrapeAlertMessage: String?
     /// Freeze the canonical song identity used by the scrape sheet. MusicKit
     /// can temporarily expose a catalog ID while the library row uses an
     /// `i.*` ID; reading `player.currentSong` again inside the sheet could then
@@ -244,6 +245,15 @@ struct NowPlayingView: View {
             }
             Button(String(localized: "cancel"), role: .cancel) {}
         }
+        .alert(String(localized: "scrape_song"),
+               isPresented: Binding(
+                   get: { scrapeAlertMessage != nil },
+                   set: { if !$0 { scrapeAlertMessage = nil } }
+               )) {
+            Button("done", role: .cancel) {}
+        } message: {
+            Text(scrapeAlertMessage ?? "")
+        }
         .alert(String(localized: "delete_song"), isPresented: $showDeleteConfirm) {
             Button(String(localized: "cancel"), role: .cancel) {}
             Button(String(localized: "delete"), role: .destructive) {
@@ -453,6 +463,7 @@ struct NowPlayingView: View {
                 SystemVolumeSlider()
                     .frame(maxWidth: .infinity)
                     .frame(height: SystemVolumeSlider.compactHeight)
+                    .offset(y: SystemVolumeSlider.verticalOffset)
                 #else
                 VolumeSlider(value: Binding(
                     get: { Double(player.audioEngine.volume) },
@@ -721,6 +732,7 @@ struct NowPlayingView: View {
                         SystemVolumeSlider()
                             .frame(maxWidth: .infinity)
                             .frame(height: SystemVolumeSlider.compactHeight)
+                            .offset(y: SystemVolumeSlider.verticalOffset)
                         #else
                         VolumeSlider(value: Binding(
                             get: { Double(player.audioEngine.volume) },
@@ -972,7 +984,7 @@ struct NowPlayingView: View {
             player: player,
             songID: player.currentSong?.id,
             isScrapingCurrentSong: isScrapingCurrentSong,
-            onScrape: { openScrapeForCurrentSong() },
+            onAutomaticScrape: { startAutomaticLyricsScrape() },
             onBackgroundTap: {
                 withAnimation(.easeInOut(duration: 0.3)) { showLyrics = false }
             }
@@ -1320,6 +1332,66 @@ struct NowPlayingView: View {
         }
     }
 
+    /// The empty lyrics state is an explicit one-tap automatic action. Keep it
+    /// separate from the scrape icons, whose contract is to present the
+    /// automatic/manual candidate sheet.
+    private func startAutomaticLyricsScrape() {
+        guard let displayedSong = player.currentSong,
+              !isScrapingCurrentSong else { return }
+
+        isScrapingCurrentSong = true
+        Task { @MainActor in
+            defer { isScrapingCurrentSong = false }
+
+            do {
+                let song: Song
+                if displayedSong.sourceID == AppleMusicLibraryIdentity.sourceID {
+                    song = AppServices.shared.appleMusicLibrary.canonicalLibrarySong(for: displayedSong)
+                    if song.id != displayedSong.id {
+                        _ = await MetadataAssetStore.shared.preserveLyricsAlias(
+                            fromSongID: displayedSong.id,
+                            toSongID: song.id
+                        )
+                        if player.currentSong?.id == displayedSong.id
+                            || player.currentSong?.id == song.id {
+                            player.adoptCanonicalAppleMusicSong(song, replacing: displayedSong.id)
+                        }
+                    }
+                } else {
+                    song = displayedSong
+                }
+
+                let updatedSong: Song
+                let scrapedLyrics: [LyricLine]?
+                if song.sourceID == AppleMusicLibraryIdentity.sourceID {
+                    let result = await scraperService.scrapeOnlineLyricsOnly(song: song, in: library)
+                    updatedSong = result.song
+                    scrapedLyrics = result.lyrics
+                } else {
+                    let result = try await scraperService.scrapeSingle(song: song, in: library)
+                    updatedSong = result.0
+                    scrapedLyrics = result.2
+                }
+
+                CachedArtworkView.invalidateCache(for: updatedSong.id)
+                if let oldRef = song.coverArtFileName {
+                    CachedArtworkView.invalidateCache(for: oldRef)
+                }
+                player.syncSongMetadata(updatedSong)
+                player.forceRefreshNowPlayingArtwork()
+
+                if player.currentSong?.id == updatedSong.id {
+                    await loadLyrics()
+                }
+                scrapeAlertMessage = String(localized: scrapedLyrics?.isEmpty == false
+                    ? "scrape_song_success"
+                    : "scrape_lyrics_not_found")
+            } catch {
+                scrapeAlertMessage = String(localized: "scrape_song_failed")
+            }
+        }
+    }
+
     private func fmt(_ t: TimeInterval) -> String {
         t.formattedDuration
     }
@@ -1605,7 +1677,8 @@ struct ProgressSlider: View {
 /// here always describes the route that is actually producing sound. This also
 /// works for MusicKit playback, which bypasses Primuse's `AVAudioEngine`.
 struct SystemVolumeSlider: UIViewRepresentable {
-    static let compactHeight: CGFloat = 28
+    static let compactHeight: CGFloat = 24
+    static let verticalOffset: CGFloat = 1.5
 
     func makeUIView(context: Context) -> MPVolumeView {
         let view = MPVolumeView(frame: .zero)
@@ -1650,7 +1723,17 @@ struct SystemVolumeSlider: UIViewRepresentable {
         slider.minimumTrackTintColor = .white
         slider.maximumTrackTintColor = UIColor.white.withAlphaComponent(0.2)
         slider.thumbTintColor = .white
+        slider.setThumbImage(thumbImage(diameter: 12), for: .normal)
+        slider.setThumbImage(thumbImage(diameter: 14), for: .highlighted)
         slider.accessibilityLabel = String(localized: "volume")
+    }
+
+    private func thumbImage(diameter: CGFloat) -> UIImage {
+        let size = CGSize(width: diameter, height: diameter)
+        return UIGraphicsImageRenderer(size: size).image { context in
+            UIColor.white.setFill()
+            context.cgContext.fillEllipse(in: CGRect(origin: .zero, size: size))
+        }
     }
 
     private func findSlider(in view: UIView) -> UISlider? {
@@ -2407,7 +2490,7 @@ struct LyricsScrollView: View {
     let player: AudioPlayerService
     let songID: String?
     let isScrapingCurrentSong: Bool
-    let onScrape: () -> Void
+    let onAutomaticScrape: () -> Void
     let onBackgroundTap: () -> Void
 
     @AppStorage("lyricsFontScale") private var lyricsFontScale: Double = 1.0
@@ -2521,7 +2604,7 @@ struct LyricsScrollView: View {
             Text("no_lyrics")
                 .font(.title3)
                 .foregroundStyle(.white.opacity(0.3))
-            Button { onScrape() } label: {
+            Button { onAutomaticScrape() } label: {
                 HStack(spacing: 7) {
                     if isScrapingCurrentSong {
                         ProgressView()

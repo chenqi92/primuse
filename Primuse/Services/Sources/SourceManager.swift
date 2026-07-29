@@ -1447,6 +1447,40 @@ final class SourceManager {
         return fileURL
     }
 
+    /// A sparse range cache is excellent for linear playback, but some
+    /// decoders (notably multi-channel FLAC) cannot seek reliably through a
+    /// custom InputSource. Materialize one complete cache file on explicit
+    /// user seek so the decoder can use true random access without decoding
+    /// and discarding minutes of PCM at 100% CPU.
+    func materializeCachedURLForSeeking(for song: Song) async -> URL? {
+        if let cached = cachedURL(for: song) { return cached }
+
+        let wasPinned = offlineAudioSnapshot(for: song).state == .pinned
+        let target = cacheURL(for: song)
+        let partialPath = target.path + ".partial"
+        CloudPlaybackSource.cancelSessionForMaterialization(partialPath: partialPath)
+        try? FileManager.default.removeItem(atPath: partialPath)
+        try? FileManager.default.removeItem(atPath: partialPath + CloudPlaybackSource.prewarmMarkerSuffix)
+
+        let result = await downloadForOfflineBatch(songs: [song])
+        guard result.succeeded, let cached = cachedURL(for: song) else { return nil }
+
+        // Seeking is normal playback cache behavior, not an explicit offline
+        // pin. Preserve a user's pre-existing pin, otherwise return the file
+        // to the ordinary LRU-managed cache after the shared downloader exits.
+        if !wasPinned {
+            let relativePath = audioCacheRelativePath(for: song)
+            await AudioCacheManager.shared.unpin(path: relativePath)
+            setOfflineAudioSnapshot(OfflineAudioCacheSnapshot(
+                state: .cached,
+                progress: nil,
+                byteCount: song.fileSize > 0 ? song.fileSize : nil,
+                errorMessage: nil
+            ), for: song.id)
+        }
+        return cached
+    }
+
     func cacheURL(for song: Song) -> URL {
         return audioCacheDirectory(for: song.sourceID).appendingPathComponent(cacheFileName(for: song))
     }
