@@ -40,7 +40,8 @@ actor MetadataService {
         cacheKey: String? = nil,
         allowOnlineFetch: Bool = true,
         trustedSource: Bool = true,
-        fallbackTitle: String? = nil
+        fallbackTitle: String? = nil,
+        forceOnlineRefresh: Bool = false
     ) async -> SongMetadata {
         // 1. Read embedded metadata
         let embedded = await FileMetadataReader.read(from: url)
@@ -108,16 +109,24 @@ actor MetadataService {
         }
 
         // 3. Try online sources as fallback
-        let needsMetadata = result.artist == nil || result.albumTitle == nil || result.year == nil
-        let needsCover = result.coverArtData == nil
-        let needsLyrics = result.lyrics == nil
+        let fieldsAreMissing = result.artist?.isEmpty != false
+            || result.albumTitle?.isEmpty != false
+            || result.year == nil
+            || result.genre?.isEmpty != false
+        let needsMetadata = ScrapeMetadataApplicationPolicy.shouldRequestMetadata(
+            fieldsAreMissing: fieldsAreMissing,
+            forceRefresh: forceOnlineRefresh
+        )
+        let needsCover = forceOnlineRefresh || result.coverArtData == nil
+        let needsLyrics = forceOnlineRefresh || result.lyrics == nil
 
         if allowOnlineFetch && (needsMetadata || needsCover || needsLyrics) {
             await fetchOnlineMetadata(
                 for: &result,
                 needsMetadata: needsMetadata,
                 needsCover: needsCover,
-                needsLyrics: needsLyrics
+                needsLyrics: needsLyrics,
+                overwriteMetadata: forceOnlineRefresh
             )
         }
 
@@ -156,7 +165,9 @@ actor MetadataService {
         genre: String?,
         duration: TimeInterval,
         needsCover: Bool = false,
-        needsLyrics: Bool = false
+        needsLyrics: Bool = false,
+        forceMetadataRefresh: Bool = false,
+        overwriteMetadata: Bool = false
     ) async -> SongMetadata {
         var result = SongMetadata(
             title: title,
@@ -166,16 +177,21 @@ actor MetadataService {
             genre: genre,
             duration: duration
         )
-        let needsMetadata = (artist?.isEmpty ?? true)
+        let fieldsAreMissing = (artist?.isEmpty ?? true)
             || (album?.isEmpty ?? true)
             || year == nil
             || (genre?.isEmpty ?? true)
+        let needsMetadata = ScrapeMetadataApplicationPolicy.shouldRequestMetadata(
+            fieldsAreMissing: fieldsAreMissing,
+            forceRefresh: forceMetadataRefresh
+        )
         guard needsMetadata || needsCover || needsLyrics else { return result }
         await fetchOnlineMetadata(
             for: &result,
             needsMetadata: needsMetadata,
             needsCover: needsCover,
-            needsLyrics: needsLyrics
+            needsLyrics: needsLyrics,
+            overwriteMetadata: overwriteMetadata
         )
         return result
     }
@@ -213,7 +229,8 @@ actor MetadataService {
         for result: inout SongMetadata,
         needsMetadata: Bool,
         needsCover: Bool,
-        needsLyrics: Bool
+        needsLyrics: Bool,
+        overwriteMetadata: Bool = false
     ) async {
         let settings = ScraperSettings.load()
 
@@ -232,14 +249,41 @@ actor MetadataService {
 
         // Apply metadata from detail
         if let detail = scrapeResult.detail {
-            if result.artist == nil { result.artist = detail.artist }
-            if result.albumTitle == nil { result.albumTitle = detail.album }
-            if result.year == nil { result.year = detail.year }
-            if result.genre == nil || result.genre?.isEmpty == true {
-                result.genre = detail.genres?.prefix(3).joined(separator: ", ")
-            }
-            if result.trackNumber == nil { result.trackNumber = detail.trackNumber }
-            if result.discNumber == nil { result.discNumber = detail.discNumber }
+            result.title = ScrapeMetadataApplicationPolicy.resolvedText(
+                original: result.title,
+                scraped: detail.title,
+                overwrite: overwriteMetadata
+            ) ?? result.title
+            result.artist = ScrapeMetadataApplicationPolicy.resolvedText(
+                original: result.artist,
+                scraped: detail.artist,
+                overwrite: overwriteMetadata
+            )
+            result.albumTitle = ScrapeMetadataApplicationPolicy.resolvedText(
+                original: result.albumTitle,
+                scraped: detail.album,
+                overwrite: overwriteMetadata
+            )
+            result.year = ScrapeMetadataApplicationPolicy.resolvedValue(
+                original: result.year,
+                scraped: detail.year,
+                overwrite: overwriteMetadata
+            )
+            result.genre = ScrapeMetadataApplicationPolicy.resolvedText(
+                original: result.genre,
+                scraped: detail.genres?.prefix(3).joined(separator: ", "),
+                overwrite: overwriteMetadata
+            )
+            result.trackNumber = ScrapeMetadataApplicationPolicy.resolvedValue(
+                original: result.trackNumber,
+                scraped: detail.trackNumber,
+                overwrite: overwriteMetadata
+            )
+            result.discNumber = ScrapeMetadataApplicationPolicy.resolvedValue(
+                original: result.discNumber,
+                scraped: detail.discNumber,
+                overwrite: overwriteMetadata
+            )
         }
 
         // Apply cover data

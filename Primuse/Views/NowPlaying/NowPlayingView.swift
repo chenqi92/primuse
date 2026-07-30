@@ -1362,14 +1362,17 @@ struct NowPlayingView: View {
                 }
 
                 let updatedSong: Song
+                let scrapedCoverData: Data?
                 let scrapedLyrics: [LyricLine]?
                 if song.sourceID == AppleMusicLibraryIdentity.sourceID {
                     let result = await scraperService.scrapeOnlineLyricsOnly(song: song, in: library)
                     updatedSong = result.song
+                    scrapedCoverData = nil
                     scrapedLyrics = result.lyrics
                 } else {
                     let result = try await scraperService.scrapeSingle(song: song, in: library)
                     updatedSong = result.0
+                    scrapedCoverData = result.1
                     scrapedLyrics = result.2
                 }
 
@@ -1383,13 +1386,67 @@ struct NowPlayingView: View {
                 if player.currentSong?.id == updatedSong.id {
                     await loadLyrics()
                 }
-                scrapeAlertMessage = String(localized: scrapedLyrics?.isEmpty == false
-                    ? "scrape_song_success"
-                    : "scrape_lyrics_not_found")
+                scrapeAlertMessage = automaticScrapeSummary(
+                    original: song,
+                    updated: updatedSong,
+                    coverFound: scrapedCoverData != nil,
+                    lyricsFound: scrapedLyrics?.isEmpty == false,
+                    lyricsOnly: song.sourceID == AppleMusicLibraryIdentity.sourceID
+                )
             } catch {
                 scrapeAlertMessage = String(localized: "scrape_song_failed")
             }
         }
+    }
+
+    /// The empty-lyrics button applies results immediately, so its completion
+    /// alert must describe every tier instead of treating lyrics as the sole
+    /// success signal. The regular scrape sheet already provides a detailed
+    /// before/after preview; this is the compact equivalent for one-tap use.
+    private func automaticScrapeSummary(
+        original: Song,
+        updated: Song,
+        coverFound: Bool,
+        lyricsFound: Bool,
+        lyricsOnly: Bool
+    ) -> String {
+        let lyricsStatus = lyricsFound
+            ? String(localized: "lyrics_found")
+            : String(localized: "no_results")
+        if lyricsOnly {
+            return "\(String(localized: "lyrics_word")): \(lyricsStatus)"
+        }
+
+        var metadataChanges: [String] = []
+        if original.title != updated.title {
+            metadataChanges.append(String(localized: "title_changed"))
+        }
+        if original.artistName != updated.artistName {
+            metadataChanges.append(String(localized: "artist_changed"))
+        }
+        if original.albumTitle != updated.albumTitle {
+            metadataChanges.append(String(localized: "album_changed"))
+        }
+        let otherMetadataChanged = original.year != updated.year
+            || original.genre != updated.genre
+            || original.trackNumber != updated.trackNumber
+            || original.discNumber != updated.discNumber
+        if metadataChanges.isEmpty, otherMetadataChanged {
+            metadataChanges.append(String(localized: "scrape_metadata_updated"))
+        }
+
+        let metadataStatus = metadataChanges.isEmpty
+            ? String(localized: "unchanged")
+            : metadataChanges.joined(separator: " · ")
+        let coverStatus = coverFound
+            ? String(localized: "cover_found")
+            : String(localized: "no_results")
+
+        return [
+            "\(String(localized: "metadata")): \(metadataStatus)",
+            "\(String(localized: "cover")): \(coverStatus)",
+            "\(String(localized: "lyrics_word")): \(lyricsStatus)",
+        ].joined(separator: "\n")
     }
 
     private func fmt(_ t: TimeInterval) -> String {

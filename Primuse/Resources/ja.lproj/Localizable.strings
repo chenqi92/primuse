@@ -360,6 +360,7 @@
 "for_you" = "あなたへのおすすめ";
 "played" = "再生済み";
 "scrape_song_success" = "現在の曲のメタデータを更新しました。";
+"scrape_metadata_updated" = "更新済み";
 "scrape_song_failed" = "この曲のメタデータを更新できませんでした。";
 "scrape_lyrics_not_found" = "歌詞が見つかりませんでした。別の検索語または歌詞ソースをお試しください。";
 "scrape_options" = "取得する内容";

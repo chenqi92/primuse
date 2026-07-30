@@ -1073,17 +1073,19 @@ final class MusicScraperService {
                 for: fileURL,
                 cacheKey: storeAssets ? song.id : nil,
                 trustedSource: false,
-                fallbackTitle: fallbackTitle
+                fallbackTitle: fallbackTitle,
+                forceOnlineRefresh: forceRescrape
             )
         } else {
             // Range/HTTP-backed sources resolve to a streaming URL, not a
             // readable local audio file. Feeding primuse-stream:// (or a
             // remote HTTP URL) into FileMetadataReader returns empty tags and
             // made batch scraping fall back to a weak first search result.
-            // Keep the scanned/backfilled library metadata as the identity
-            // seed instead; online providers may fill gaps and assets but may
-            // not erase a known title/artist/album merely because the file is
-            // remote. This also keeps identical NAS copies deterministic.
+            // Keep the scanned/backfilled library metadata as the search seed
+            // instead. Background enrichment remains fill-only; an explicit
+            // rescrape may apply the confidence-checked online title/artist/
+            // album and assets. This also keeps identical NAS copies
+            // deterministic without downloading the complete audio file.
             let identitySeed = remoteIdentitySeed ?? song
             var seededMetadata = await metadataService.fillMissingOnline(
                 title: identitySeed.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -1095,7 +1097,9 @@ final class MusicScraperService {
                 genre: identitySeed.genre,
                 duration: identitySeed.duration,
                 needsCover: forceRescrape || song.coverArtFileName == nil,
-                needsLyrics: forceRescrape || song.lyricsFileName == nil
+                needsLyrics: forceRescrape || song.lyricsFileName == nil,
+                forceMetadataRefresh: forceRescrape,
+                overwriteMetadata: forceRescrape
             )
             seededMetadata.duration = identitySeed.duration
             seededMetadata.sampleRate = identitySeed.sampleRate

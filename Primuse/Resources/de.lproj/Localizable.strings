@@ -359,6 +359,7 @@
 "for_you" = "Für dich";
 "played" = "Gespielt";
 "scrape_song_success" = "Metadaten für den aktuellen Titel wurden aktualisiert.";
+"scrape_metadata_updated" = "Aktualisiert";
 "scrape_song_failed" = "Die Metadaten dieses Titels konnten nicht aktualisiert werden.";
 "scrape_lyrics_not_found" = "Keine Liedtexte gefunden. Versuche eine andere Suche oder Liedtextquelle.";
 "scrape_options" = "Was abrufen";

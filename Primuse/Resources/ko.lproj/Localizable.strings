@@ -359,6 +359,7 @@
 "for_you" = "추천";
 "played" = "재생됨";
 "scrape_song_success" = "현재 곡의 메타데이터를 새로고침했습니다.";
+"scrape_metadata_updated" = "업데이트됨";
 "scrape_song_failed" = "이 곡의 메타데이터를 새로고침할 수 없습니다.";
 "scrape_lyrics_not_found" = "가사를 찾을 수 없습니다. 다른 검색어나 가사 소스를 사용해 보세요.";
 "scrape_options" = "가져올 항목";

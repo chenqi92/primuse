@@ -359,6 +359,7 @@
 "for_you" = "Pour vous";
 "played" = "Écouté";
 "scrape_song_success" = "Métadonnées actualisées pour le morceau en cours.";
+"scrape_metadata_updated" = "Mises à jour";
 "scrape_song_failed" = "Impossible d'actualiser les métadonnées de ce morceau.";
 "scrape_lyrics_not_found" = "Aucune parole trouvée. Essayez une autre recherche ou source de paroles.";
 "scrape_options" = "Contenu à récupérer";
