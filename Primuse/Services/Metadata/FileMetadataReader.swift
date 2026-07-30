@@ -22,6 +22,29 @@ enum FileMetadataReader {
         var replayGainAlbumGain: Double?
         var replayGainAlbumPeak: Double?
         var lyricsText: String?
+
+        mutating func fillMissing(from fallback: Metadata) {
+            title = title ?? fallback.title
+            artist = artist ?? fallback.artist
+            albumTitle = albumTitle ?? fallback.albumTitle
+            albumArtist = albumArtist ?? fallback.albumArtist
+            trackNumber = trackNumber ?? fallback.trackNumber
+            discNumber = discNumber ?? fallback.discNumber
+            year = year ?? fallback.year
+            genre = genre ?? fallback.genre
+            if !(duration?.isFinite == true && (duration ?? 0) > 0) {
+                duration = fallback.duration
+            }
+            coverArtData = coverArtData ?? fallback.coverArtData
+            if (sampleRate ?? 0) <= 0 { sampleRate = fallback.sampleRate }
+            if (bitRate ?? 0) <= 0 { bitRate = fallback.bitRate }
+            if (bitDepth ?? 0) <= 0 { bitDepth = fallback.bitDepth }
+            replayGainTrackGain = replayGainTrackGain ?? fallback.replayGainTrackGain
+            replayGainTrackPeak = replayGainTrackPeak ?? fallback.replayGainTrackPeak
+            replayGainAlbumGain = replayGainAlbumGain ?? fallback.replayGainAlbumGain
+            replayGainAlbumPeak = replayGainAlbumPeak ?? fallback.replayGainAlbumPeak
+            lyricsText = lyricsText ?? fallback.lyricsText
+        }
     }
 
     /// Reads metadata from an audio file using AVFoundation.
@@ -81,6 +104,26 @@ enum FileMetadataReader {
         // at the per-song boundary.
         withExtendedLifetime(loader) {}
         return metadata
+    }
+
+    /// Parses a complete trailing `moov` without pretending arbitrary
+    /// head/tail bytes are adjacent in the original file. The slice builder
+    /// retains only `ftyp` + `moov`, which is a valid metadata-only container
+    /// and therefore preserves AVFoundation's format-specific tag handling.
+    static func readISOBaseMediaMetadata(
+        head: Data,
+        tail: Data,
+        fileExtension: String
+    ) async -> Metadata? {
+        let supported = ["m4a", "m4b", "mp4", "m4v", "mov", "alac", "aac"]
+        guard supported.contains(fileExtension.lowercased()),
+              let metadataFile = ISOBaseMediaMetadataSliceBuilder.makeMetadataFile(
+                head: head,
+                tail: tail
+              ) else {
+            return nil
+        }
+        return await read(from: metadataFile, fileExtension: fileExtension)
     }
 
     private static func read(from asset: AVAsset) async -> Metadata {
@@ -247,8 +290,12 @@ enum FileMetadataReader {
     ) {
         guard fileExtension.lowercased() == "mp3" else { return }
         guard let info = MPEGFrameHeaderParser.parse(data) else { return }
-        metadata.sampleRate = metadata.sampleRate ?? info.sampleRate
-        metadata.bitRate = metadata.bitRate ?? info.bitRateKbps
+        if (metadata.sampleRate ?? 0) <= 0 {
+            metadata.sampleRate = info.sampleRate
+        }
+        if (metadata.bitRate ?? 0) <= 0 {
+            metadata.bitRate = info.bitRateKbps
+        }
     }
 
     static func id3TagByteCount(in data: Data) -> Int? {

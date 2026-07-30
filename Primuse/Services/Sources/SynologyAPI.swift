@@ -256,8 +256,56 @@ actor SynologyAPI {
         request.setValue("bytes=0-\(maxBytes - 1)", forHTTPHeaderField: "Range")
         request.timeoutInterval = 30
 
-        let (data, _) = try await sharedSession.data(for: request)
-        return data
+        let (data, response) = try await sharedSession.data(for: request)
+        if let http = response as? HTTPURLResponse,
+           !(200...299).contains(http.statusCode) {
+            throw SynologyError.httpError(http.statusCode)
+        }
+        // Some reverse proxies strip Range and return the whole file. Keep the
+        // scanner's memory contract even in that configuration.
+        return data.count > maxBytes ? Data(data.prefix(maxBytes)) : data
+    }
+
+    func downloadFileRange(path: String, offset: Int64, length: Int) async throws -> Data {
+        guard let sid else { throw SynologyError.notLoggedIn }
+        guard offset >= 0, length > 0 else { throw SynologyError.invalidResponse }
+
+        var components = URLComponents(string: "\(baseURL)/webapi/entry.cgi")!
+        components.queryItems = [
+            URLQueryItem(name: "api", value: "SYNO.FileStation.Download"),
+            URLQueryItem(name: "version", value: "2"),
+            URLQueryItem(name: "method", value: "download"),
+            URLQueryItem(name: "path", value: path),
+            URLQueryItem(name: "mode", value: "download"),
+            URLQueryItem(name: "_sid", value: sid),
+        ]
+        guard let url = components.url else { throw SynologyError.invalidURL }
+
+        var request = URLRequest(url: url)
+        let end = offset.addingReportingOverflow(Int64(length - 1))
+        guard !end.overflow else { throw SynologyError.invalidResponse }
+        request.setValue("bytes=\(offset)-\(end.partialValue)", forHTTPHeaderField: "Range")
+        request.timeoutInterval = 30
+
+        let (data, response) = try await sharedSession.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw SynologyError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            throw SynologyError.httpError(http.statusCode)
+        }
+
+        if http.statusCode == 206 {
+            return data.count > length ? Data(data.prefix(length)) : data
+        }
+        // Range was ignored. A full-body response is already in memory, but
+        // never pass it onward; select the requested window when possible.
+        let start = Int(clamping: offset)
+        if start < data.count {
+            let end = min(data.count, start + length)
+            return data.subdata(in: start..<end)
+        }
+        return data.count > length ? Data(data.suffix(length)) : data
     }
 
     /// Get thumbnail URL for a file

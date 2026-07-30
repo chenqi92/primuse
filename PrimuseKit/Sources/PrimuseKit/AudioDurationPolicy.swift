@@ -56,6 +56,120 @@ public enum AudioDurationPolicy {
     }
 }
 
+
+/// Builds a small, structurally valid ISO Base Media metadata file from
+/// bounded head and tail ranges. A trailing `moov` cannot be parsed reliably
+/// by concatenating arbitrary head/tail bytes because that leaves a partial
+/// `mdat` atom between them. Keeping only `ftyp` and a complete `moov` gives
+/// AVFoundation the container description it needs without materializing the
+/// remote media payload.
+public enum ISOBaseMediaMetadataSliceBuilder {
+    public static func makeMetadataFile(head: Data, tail: Data) -> Data? {
+        guard let ftyp = completeAtom(named: "ftyp", in: head),
+              let moov = completeAtom(named: "moov", in: tail, requiredChild: "mvhd") else {
+            return nil
+        }
+        return ftyp + moov
+    }
+
+    private struct AtomRange {
+        let full: Range<Int>
+        let payload: Range<Int>
+    }
+
+    private static func completeAtom(
+        named name: String,
+        in data: Data,
+        requiredChild: String? = nil
+    ) -> Data? {
+        let type = Data(name.utf8)
+        guard type.count == 4, data.count >= 8 else { return nil }
+
+        var searchStart = data.startIndex + 4
+        while searchStart <= data.endIndex - 4,
+              let match = data.range(of: type, in: searchStart..<data.endIndex) {
+            let atomStart = match.lowerBound - 4
+            if let atom = atomRange(in: data, startingAt: atomStart),
+               atom.full.lowerBound == atomStart,
+               requiredChild.map({ containsDirectChild(named: $0, in: data, payload: atom.payload) }) ?? true {
+                return data.subdata(in: atom.full)
+            }
+            searchStart = match.lowerBound + 1
+        }
+        return nil
+    }
+
+    private static func containsDirectChild(
+        named name: String,
+        in data: Data,
+        payload: Range<Int>
+    ) -> Bool {
+        var cursor = payload.lowerBound
+        while cursor <= payload.upperBound - 8 {
+            guard let child = atomRange(in: data, startingAt: cursor),
+                  child.full.upperBound <= payload.upperBound else {
+                return false
+            }
+            if atomType(in: data, startingAt: cursor) == name {
+                return true
+            }
+            guard child.full.upperBound > cursor else { return false }
+            cursor = child.full.upperBound
+        }
+        return false
+    }
+
+    private static func atomRange(in data: Data, startingAt start: Int) -> AtomRange? {
+        guard start >= data.startIndex, start <= data.endIndex - 8 else { return nil }
+        let size32 = readUInt32BE(data, at: start)
+        let headerLength: Int
+        let totalLength: UInt64
+
+        switch size32 {
+        case 0:
+            headerLength = 8
+            totalLength = UInt64(data.endIndex - start)
+        case 1:
+            guard start <= data.endIndex - 16 else { return nil }
+            headerLength = 16
+            totalLength = readUInt64BE(data, at: start + 8)
+        default:
+            headerLength = 8
+            totalLength = UInt64(size32)
+        }
+
+        guard totalLength >= UInt64(headerLength),
+              totalLength <= UInt64(data.endIndex - start) else {
+            return nil
+        }
+        let end = start + Int(totalLength)
+        return AtomRange(full: start..<end, payload: (start + headerLength)..<end)
+    }
+
+    private static func atomType(in data: Data, startingAt start: Int) -> String? {
+        guard start >= data.startIndex, start <= data.endIndex - 8 else { return nil }
+        return String(data: data.subdata(in: (start + 4)..<(start + 8)), encoding: .isoLatin1)
+    }
+
+    private static func readUInt32BE(_ data: Data, at offset: Int) -> UInt32 {
+        guard offset >= data.startIndex, offset <= data.endIndex - 4 else { return 0 }
+        return (UInt32(data[offset]) << 24)
+            | (UInt32(data[offset + 1]) << 16)
+            | (UInt32(data[offset + 2]) << 8)
+            | UInt32(data[offset + 3])
+    }
+
+    private static func readUInt64BE(_ data: Data, at offset: Int) -> UInt64 {
+        guard offset >= data.startIndex, offset <= data.endIndex - 8 else { return 0 }
+        var value: UInt64 = 0
+        for index in offset..<(offset + 8) {
+            value = (value << 8) | UInt64(data[index])
+        }
+        return value
+    }
+}
+
+
 /// Bounds remote metadata reads independently of library size. MP3 exposes
 /// its complete tag size in the ID3 header, so it starts at 256 KB and expands
 /// only when necessary. Other containers retain the scanner's historical 4 MB
@@ -65,6 +179,8 @@ public enum AudioDurationPolicy {
 public enum RemoteMetadataReadPolicy {
     public static let initialHeadByteCount = 256 * 1024
     public static let maximumHeadByteCount = 4 * 1024 * 1024
+    public static let mp3FrameProbeByteCount = 64 * 1024
+    public static let initialContainerTailByteCount = 256 * 1024
     public static let defaultMP3BitRateKbps = 192
 
     public static func initialReadSize(fileSize: Int64) -> Int {
@@ -90,7 +206,15 @@ public enum RemoteMetadataReadPolicy {
 
         var requested = currentByteCount
         if let declaredID3ByteCount, declaredID3ByteCount > currentByteCount {
-            requested = max(requested, declaredID3ByteCount)
+            // The exact ID3 boundary contains no MPEG audio bytes. Include a
+            // small post-tag probe so the frame-header fallback can recover
+            // bitrate/sample rate even when APIC occupies the entire initial
+            // 256 KB prefix.
+            let probeEnd = declaredID3ByteCount.addingReportingOverflow(mp3FrameProbeByteCount)
+            requested = max(
+                requested,
+                probeEnd.overflow ? maximumHeadByteCount : probeEnd.partialValue
+            )
         }
         if metadataInsufficient {
             requested = maximumHeadByteCount
@@ -108,7 +232,8 @@ public enum RemoteMetadataReadPolicy {
         parsed: TimeInterval,
         fileSize: Int64,
         bitRateKbps: Int?,
-        providedByteCount: Int
+        providedByteCount: Int,
+        leadingMetadataByteCount: Int = 0
     ) -> TimeInterval {
         guard fileSize > 0,
               providedByteCount > 0,
@@ -122,13 +247,40 @@ public enum RemoteMetadataReadPolicy {
         } else {
             effectiveBitRate = defaultMP3BitRateKbps
         }
-        let estimated = Double(fileSize) / (Double(effectiveBitRate) * 125.0)
+        // ID3v2 artwork can be several hundred KB. It is not audio payload and
+        // must not inflate the bytes/bitrate estimate for large-cover files.
+        let boundedLeadingMetadata = min(
+            max(Int64(leadingMetadataByteCount), 0),
+            max(fileSize - 1, 0)
+        )
+        let audioByteCount = fileSize - boundedLeadingMetadata
+        let estimated = Double(audioByteCount) / (Double(effectiveBitRate) * 125.0)
         guard estimated.isFinite,
               estimated > 0,
               !parsed.isFinite || parsed <= 0 || parsed < estimated * 0.5 else {
             return parsed
         }
         return estimated
+    }
+
+    /// Progressive tail reads recover the common small `moov` cheaply while
+    /// still supporting large embedded artwork. Each returned size is unique,
+    /// file-size bounded, and never exceeds the same 4 MB metadata ceiling.
+    public static func containerTailReadSizes(fileSize: Int64) -> [Int] {
+        guard fileSize > 0 else { return [] }
+        let candidates = [
+            initialContainerTailByteCount,
+            1024 * 1024,
+            maximumHeadByteCount,
+        ]
+        var result: [Int] = []
+        for candidate in candidates {
+            let bounded = min(Int(clamping: fileSize), candidate)
+            if bounded > 0, result.last != bounded {
+                result.append(bounded)
+            }
+        }
+        return result
     }
 }
 

@@ -158,14 +158,23 @@ actor MetadataService {
     /// temporary-file write that previously ran once per backfill song.
     func loadEmbeddedMetadata(
         from data: Data,
+        containerTailData: Data? = nil,
         fileExtension: String,
         cacheKey: String? = nil,
         fallbackTitle: String
     ) async -> SongMetadata {
-        let embedded = await FileMetadataReader.read(
+        var embedded = await FileMetadataReader.read(
             from: data,
             fileExtension: fileExtension
         )
+        if let containerTailData,
+           let tailMetadata = await FileMetadataReader.readISOBaseMediaMetadata(
+            head: data,
+            tail: containerTailData,
+            fileExtension: fileExtension
+           ) {
+            embedded.fillMissing(from: tailMetadata)
+        }
         let repairedFallback = FileMetadataReader.repairLegacyChineseMojibake(fallbackTitle)
         let embeddedTitle = embedded.title?.trimmingCharacters(in: .whitespacesAndNewlines)
 

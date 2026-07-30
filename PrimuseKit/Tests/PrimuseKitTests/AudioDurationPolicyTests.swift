@@ -54,14 +54,14 @@ struct RemoteMetadataReadPolicyTests {
         ) == 4 * 1024 * 1024)
     }
 
-    @Test("An ID3 declaration expands exactly but never beyond 4 MB")
+    @Test("An ID3 declaration includes MPEG probe bytes but never exceeds 4 MB")
     func id3ExpansionIsBounded() {
         #expect(RemoteMetadataReadPolicy.expandedReadSize(
             fileSize: 20_000_000,
             currentByteCount: 256 * 1024,
             declaredID3ByteCount: 700_000,
             metadataInsufficient: false
-        ) == 700_000)
+        ) == 700_000 + RemoteMetadataReadPolicy.mp3FrameProbeByteCount)
         #expect(RemoteMetadataReadPolicy.expandedReadSize(
             fileSize: 20_000_000,
             currentByteCount: 256 * 1024,
@@ -102,6 +102,32 @@ struct RemoteMetadataReadPolicyTests {
             bitRateKbps: 192,
             providedByteCount: 256 * 1024
         ) == 8)
+    }
+
+    @Test("Large ID3 artwork is excluded from the MP3 duration estimate")
+    func durationExcludesLeadingID3Bytes() {
+        let audioBytes: Int64 = 7_200_000
+        let id3Bytes = 360_000
+        #expect(RemoteMetadataReadPolicy.correctedMP3Duration(
+            parsed: 8,
+            fileSize: audioBytes + Int64(id3Bytes),
+            bitRateKbps: 192,
+            providedByteCount: 256 * 1024,
+            leadingMetadataByteCount: id3Bytes
+        ) == Double(audioBytes) / (192 * 125))
+    }
+
+    @Test("Container tail probes grow progressively and stay file bounded")
+    func containerTailReadsAreBounded() {
+        #expect(RemoteMetadataReadPolicy.containerTailReadSizes(fileSize: 8_000_000) == [
+            256 * 1024,
+            1024 * 1024,
+            4 * 1024 * 1024,
+        ])
+        #expect(RemoteMetadataReadPolicy.containerTailReadSizes(fileSize: 500_000) == [
+            256 * 1024,
+            500_000,
+        ])
     }
 }
 

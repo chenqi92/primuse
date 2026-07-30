@@ -32,10 +32,11 @@ final class MetadataBackfillService {
     /// If an MP3's ID3 tag says the APIC frame extends beyond `headBytes`,
     /// fetch a larger head once for artwork. Keeps the normal duration
     /// backfill cheap while still recovering common 300-800KB covers.
-    private static let maxID3ArtworkHeadBytes: Int = 2 * 1024 * 1024
+    private static let maxID3ArtworkHeadBytes = RemoteMetadataReadPolicy.maximumHeadByteCount
+    private static let defaultMP3Bitrate = RemoteMetadataReadPolicy.defaultMP3BitRateKbps
 
-    /// Tail-Range fetch size for M4A files where moov is at the end.
-    private static let tailBytes: Int64 = 256 * 1024
+    private static let fallbackTailBytes: Int64 = 256 * 1024
+    private static let isoBaseMediaExtensions: Set<String> = ["m4a", "m4b", "mp4", "m4v", "mov", "alac"]
 
     /// Persisted set of song IDs that previously failed metadata extraction.
     /// Skipped on subsequent runs so we don't burn API quota retrying them
@@ -1193,6 +1194,7 @@ final class MetadataBackfillService {
         // browsing. Playback already prewarms the current song and queue on
         // demand through SourceManager.
 
+        var metadataInputData = headData
         var metadata = await extractMetadata(
             from: headData,
             song: song,
@@ -1202,13 +1204,19 @@ final class MetadataBackfillService {
            metadata.coverArtFileName == nil,
            let id3ByteCount = FileMetadataReader.id3TagByteCount(in: headData),
            id3ByteCount > headData.count {
-            let expandedByteCount = min(id3ByteCount, Self.maxID3ArtworkHeadBytes)
+            let expandedByteCount = RemoteMetadataReadPolicy.expandedReadSize(
+                fileSize: song.fileSize,
+                currentByteCount: headData.count,
+                declaredID3ByteCount: id3ByteCount,
+                metadataInsufficient: false
+            ).map { min($0, Self.maxID3ArtworkHeadBytes) } ?? headData.count
             if expandedByteCount > headData.count,
                let expandedHead = try? await connector.fetchRange(
                 path: song.filePath,
                 offset: 0,
                 length: Int64(expandedByteCount)
                ) {
+                metadataInputData = expandedHead
                 metadata = await extractMetadata(
                     from: expandedHead,
                     song: song,
@@ -1217,12 +1225,30 @@ final class MetadataBackfillService {
             }
         }
         if metadataLooksMissing(metadata) {
-            if let tailData = try? await connector.fetchRange(
+            let ext = song.fileFormat.rawValue.lowercased()
+            if Self.isoBaseMediaExtensions.contains(ext) {
+                for tailSize in RemoteMetadataReadPolicy.containerTailReadSizes(fileSize: song.fileSize) {
+                    guard let tailData = try? await connector.fetchRange(
+                        path: song.filePath,
+                        offset: -Int64(tailSize),
+                        length: Int64(tailSize)
+                    ), !tailData.isEmpty else {
+                        continue
+                    }
+                    metadata = await extractMetadata(
+                        from: metadataInputData,
+                        containerTailData: tailData,
+                        song: song,
+                        cacheKey: song.id
+                    )
+                    if !metadataLooksMissing(metadata) { break }
+                }
+            } else if let tailData = try? await connector.fetchRange(
                 path: song.filePath,
-                offset: -Self.tailBytes,
-                length: Self.tailBytes
+                offset: -Self.fallbackTailBytes,
+                length: Self.fallbackTailBytes
             ) {
-                let combined = headData + tailData
+                let combined = metadataInputData + tailData
                 metadata = await extractMetadata(from: combined, song: song, cacheKey: song.id)
             }
         }
@@ -1258,7 +1284,17 @@ final class MetadataBackfillService {
         // from the real 177s to a bogus 562s.
         let ext = song.fileFormat.rawValue
         if ext == "mp3" {
-            metadata.duration = correctedDuration(parsed: metadata.duration, bitRateKbps: metadata.bitRate, fileSize: song.fileSize, title: song.title)
+            let originalDuration = metadata.duration
+            metadata.duration = RemoteMetadataReadPolicy.correctedMP3Duration(
+                parsed: metadata.duration,
+                fileSize: song.fileSize,
+                bitRateKbps: metadata.bitRate,
+                providedByteCount: metadataInputData.count,
+                leadingMetadataByteCount: FileMetadataReader.id3TagByteCount(in: metadataInputData) ?? 0
+            )
+            if metadata.duration != originalDuration {
+                plog(String(format: "📥 Backfill: '%@' duration estimate %.1fs → %.1fs", song.title, originalDuration, metadata.duration))
+            }
         } else if ext == "flac",
                   (metadata.bitRate ?? 0) <= 0,
                   metadata.duration > 0,
@@ -1293,60 +1329,18 @@ final class MetadataBackfillService {
     /// at this per-song boundary instead of being copied into a temp file.
     private func extractMetadata(
         from data: Data,
+        containerTailData: Data? = nil,
         song: Song,
         cacheKey: String
     ) async -> MetadataService.SongMetadata {
         let ext = song.fileFormat.rawValue
         return await metadataService.loadEmbeddedMetadata(
             from: data,
+            containerTailData: containerTailData,
             fileExtension: ext,
             cacheKey: cacheKey,
             fallbackTitle: song.title
         )
-    }
-
-    /// Reverse-compute duration from `(fileSize × 8) / bitRate` when
-    /// SFB's parsed value is implausibly short. Backfill feeds the
-    /// parser only the first 256 KB of the audio file, so for raw MP3s
-    /// without an XING/LAME header the parser estimates duration as
-    /// `truncated_file_size / bitrate` and reports 6–12 seconds for
-    /// what's really a 2–4 minute song. The real `song.fileSize`
-    /// (from the source listing) plus the parsed `bitRate` give us
-    /// the actual duration directly. Only kicks in when:
-    /// - we have a usable bitrate (parser tells us this from frame
-    ///   header — present in head bytes for any sane MP3)
-    /// - the file is materially larger than the head we sent (otherwise
-    ///   the parser saw the whole thing and its number is trustworthy)
-    /// - the parser's value is < half the bytes-based estimate (the
-    ///   unambiguous "truncated input" signal — avoids stomping on a
-    ///   correctly-parsed XING/LAME duration that genuinely matches)
-    /// Default MP3 bitrate when SFB couldn't extract one from the
-    /// truncated 256KB head. 192kbps is the population median across
-    /// modern MP3 libraries (audiobooks lean lower, high-quality music
-    /// lean 256/320). Estimate accuracy: ±25% of true duration —
-    /// good enough to show a recognizable time on the row instead of
-    /// "0:08", and the player rewrites it to the real value after
-    /// the user plays the song once.
-    private static let defaultMP3Bitrate = 192
-
-    private func correctedDuration(parsed: TimeInterval, bitRateKbps: Int?, fileSize: Int64, title: String) -> TimeInterval {
-        guard fileSize > Self.headBytes * 2 else { return parsed }
-        // Use parsed bitRate when available, otherwise fall back to
-        // population median. SFB often returns 0 for raw MP3 without
-        // XING/LAME (it estimates frames from the truncated head and
-        // gives up), which is exactly when we need this most.
-        let effectiveBitRate = (bitRateKbps ?? 0) > 0 ? bitRateKbps! : Self.defaultMP3Bitrate
-        let bytesPerSecond = Double(effectiveBitRate) * 125.0
-        let estimatedFromFileSize = Double(fileSize) / bytesPerSecond
-        // Keep parsed value when it's already in the same ballpark
-        // (parser found the LAME/XING header → trustable). Override
-        // only when parsed is implausibly short — the truncated-head
-        // signature.
-        guard parsed < estimatedFromFileSize * 0.5 else { return parsed }
-        let bitRateLabel = (bitRateKbps ?? 0) > 0 ? "\(bitRateKbps!)kbps parsed" : "\(Self.defaultMP3Bitrate)kbps fallback"
-        plog(String(format: "📥 Backfill: '%@' duration estimate %.1fs → %.1fs (size=%lldKB %@ — real value will land when user plays once)",
-                    title, parsed, estimatedFromFileSize, fileSize / 1024, bitRateLabel))
-        return estimatedFromFileSize
     }
 
     private func metadataLooksMissing(_ m: MetadataService.SongMetadata) -> Bool {

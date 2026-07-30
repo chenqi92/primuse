@@ -5,15 +5,13 @@ import PrimuseKit
 /// 给 TV 本机扫出来的「路径骨架」Song 补真实元数据 —— 时长 / 专辑 / 封面 / 歌词。
 ///
 /// 复用手机端同一套读 tag 的代码(`FileMetadataReader` 已编进 PrimuseTV target),
-/// 经 `SMBByteReader` 按 byte-range 只读文件头(不整文件下载),写临时文件再交给
+/// 经 `SMBByteReader` 按 byte-range 只读文件头(不整文件下载),直接在内存中交给
 /// `FileMetadataReader.read`。MP3 截断头时长不准时,用目录列举已知的真实 fileSize
 /// 反推(抄手机端 `MetadataBackfillService.correctedDuration` 同款逻辑)。封面写进
 /// `MetadataAssetStore` 的 album 缓存,歌词(嵌入 USLT / 同目录 .lrc)写进 song 缓存。
 enum TVMetadataEnricher {
     static let headBytes: Int64 = 1 << 20          // 1MB:足够 FLAC STREAMINFO+注释、ID3、给 MP3 估码率
     static let maxArtworkHeadBytes: Int64 = 4 << 20 // ID3 大封面再扩到 4MB
-    static let tailBytes: Int64 = 256 * 1024        // m4a 的 moov 可能在尾部
-    static let defaultMP3Bitrate = 192
 
     /// 容器格式的元数据(尤其 duration)可能在文件尾部,需 head+tail 拼读。
     private static let tailFormats: Set<String> = ["m4a", "mp4", "m4b", "alac", "aac", "m4v", "mov"]
@@ -50,23 +48,44 @@ enum TVMetadataEnricher {
             return await attachSidecarLyrics(song: song, source: source, credential: credential,
                                              siblings: siblings, embedded: nil)
         }
-        var meta = await readMetadata(head, ext: ext, id: song.id)
+        var meta = await readMetadata(head, ext: ext)
 
         // ID3 内嵌封面比 1MB 头还大 → 按 tag 声明的长度扩读再解。
         if meta.coverArtData == nil,
            let declared = FileMetadataReader.id3TagByteCount(in: head),
            declared > head.count {
-            let want = min(Int64(declared), maxArtworkHeadBytes)
+            let expanded = RemoteMetadataReadPolicy.expandedReadSize(
+                fileSize: song.fileSize,
+                currentByteCount: head.count,
+                declaredID3ByteCount: declared,
+                metadataInsufficient: false
+            ) ?? head.count
+            let want = min(Int64(expanded), maxArtworkHeadBytes)
             if want > Int64(head.count), let bigger = try? await reader.read(offset: 0, length: want), !bigger.isEmpty {
                 head = bigger
-                meta = await readMetadata(head, ext: ext, id: song.id)
+                meta = await readMetadata(head, ext: ext)
             }
         }
-        // m4a/mp4:moov 在尾部时头里没时长,补读尾部拼起来再解。
+        // m4a/mp4:moov 在尾部时逐步扩读,只提取完整 ftyp+moov 再交给
+        // AVFoundation。任意 head+tail 直接拼接会留下截断 mdat,不是有效容器。
         if (meta.duration ?? 0) <= 0, tailFormats.contains(ext),
-           let total = try? await reader.contentLength(), total > headBytes,
-           let tail = try? await reader.read(offset: max(0, total - tailBytes), length: tailBytes) {
-            meta = await readMetadata(head + tail, ext: ext, id: song.id)
+           let total = try? await reader.contentLength(), total > headBytes {
+            for tailSize in RemoteMetadataReadPolicy.containerTailReadSizes(fileSize: total) {
+                guard let tail = try? await reader.read(
+                    offset: max(0, total - Int64(tailSize)),
+                    length: Int64(tailSize)
+                ), !tail.isEmpty else {
+                    continue
+                }
+                if let tailMetadata = await FileMetadataReader.readISOBaseMediaMetadata(
+                    head: head,
+                    tail: tail,
+                    fileExtension: ext
+                ) {
+                    meta.fillMissing(from: tailMetadata)
+                    if (meta.duration ?? 0) > 0 { break }
+                }
+            }
         }
 
         var out = song
@@ -87,7 +106,13 @@ enum TVMetadataEnricher {
 
         var duration = meta.duration ?? 0
         if ext == "mp3" {
-            duration = correctedMP3Duration(parsed: duration, bitRateKbps: meta.bitRate, fileSize: song.fileSize)
+            duration = RemoteMetadataReadPolicy.correctedMP3Duration(
+                parsed: duration,
+                fileSize: song.fileSize,
+                bitRateKbps: meta.bitRate,
+                providedByteCount: head.count,
+                leadingMetadataByteCount: FileMetadataReader.id3TagByteCount(in: head) ?? 0
+            )
         }
         if duration > 0 { out.duration = duration }
 
@@ -146,22 +171,8 @@ enum TVMetadataEnricher {
 
     // MARK: 工具
 
-    private static func readMetadata(_ data: Data, ext: String, id: String) async -> FileMetadataReader.Metadata {
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("tvenrich-\(id).\(ext.isEmpty ? "bin" : ext)")
-        try? data.write(to: tmp)
-        defer { try? FileManager.default.removeItem(at: tmp) }
-        return await FileMetadataReader.read(from: tmp)
-    }
-
-    /// 截断头解出的 MP3 时长往往偏短(按截断后的字节数估)。用真实 fileSize ÷ 码率反推。
-    static func correctedMP3Duration(parsed: TimeInterval, bitRateKbps: Int?, fileSize: Int64) -> TimeInterval {
-        guard fileSize > headBytes * 2 else { return parsed }
-        let effective = (bitRateKbps ?? 0) > 0 ? bitRateKbps! : defaultMP3Bitrate
-        let estimate = Double(fileSize) / (Double(effective) * 125.0)
-        // 解析值 < 估计值一半 = 明确的「输入被截断」信号;否则相信解析值(命中 XING/LAME 帧头)。
-        if parsed <= 0 || parsed < estimate * 0.5 { return estimate }
-        return parsed
+    private static func readMetadata(_ data: Data, ext: String) async -> FileMetadataReader.Metadata {
+        await FileMetadataReader.read(from: data, fileExtension: ext)
     }
 }
 

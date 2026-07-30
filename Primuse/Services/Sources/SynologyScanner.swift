@@ -6,6 +6,7 @@ import PrimuseKit
 actor SynologyScanner {
     private let api: SynologyAPI
     private let sourceID: String
+    private static let isoBaseMediaExtensions: Set<String> = ["m4a", "m4b", "mp4", "m4v", "mov", "alac"]
 
     init(api: SynologyAPI, sourceID: String) {
         self.api = api
@@ -634,6 +635,32 @@ actor SynologyScanner {
                 embedded = await FileMetadataReader.read(from: data, fileExtension: ext)
             }
 
+            let needsContainerTail = !(embedded.duration?.isFinite == true && (embedded.duration ?? 0) > 0)
+                && Self.isoBaseMediaExtensions.contains(ext.lowercased())
+                && item.size > Int64(data.count)
+            if needsContainerTail {
+                for tailSize in RemoteMetadataReadPolicy.containerTailReadSizes(fileSize: item.size) {
+                    let offset = max(0, item.size - Int64(tailSize))
+                    guard let tail = try? await api.downloadFileRange(
+                        path: item.path,
+                        offset: offset,
+                        length: tailSize
+                    ), !tail.isEmpty else {
+                        continue
+                    }
+                    if let tailMetadata = await FileMetadataReader.readISOBaseMediaMetadata(
+                        head: data,
+                        tail: tail,
+                        fileExtension: ext
+                    ) {
+                        embedded.fillMissing(from: tailMetadata)
+                        if embedded.duration?.isFinite == true, (embedded.duration ?? 0) > 0 {
+                            break
+                        }
+                    }
+                }
+            }
+
             if let value = embedded.artist?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
                 artist = embedded.artist
             }
@@ -662,7 +689,8 @@ actor SynologyScanner {
                     parsed: duration,
                     fileSize: item.size,
                     bitRateKbps: bitRate,
-                    providedByteCount: data.count
+                    providedByteCount: data.count,
+                    leadingMetadataByteCount: FileMetadataReader.id3TagByteCount(in: data) ?? 0
                 )
             }
 
