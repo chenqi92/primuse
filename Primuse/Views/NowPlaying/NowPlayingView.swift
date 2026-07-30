@@ -2592,9 +2592,9 @@ struct LyricsScrollView: View {
 
     private static let lyricsMinScale: Double = 0.7
     private static let lyricsMaxScale: Double = 1.8
-    private static let lyricsActiveBaseSize: CGFloat = 28
-    private static let lyricsInactiveBaseSize: CGFloat = 22
-    private static let lyricsWordLevelBaseSize: CGFloat = 26
+    /// Keep every row on one stable layout size. Current-line emphasis is a
+    /// render-layer scale, so a takeover does not reflow the surrounding rows.
+    private static let lyricsLayoutBaseSize: CGFloat = 26
     private static let lyricsHorizontalPadding: CGFloat = 24
 
     private var effectiveLyricsScale: Double {
@@ -2702,8 +2702,23 @@ struct LyricsScrollView: View {
                         Spacer().frame(height: geo.size.height * Self.lyricsVisualAnchor)
 
                         ForEach(Array(lyrics.enumerated()), id: \.element.id) { index, line in
-                            lyricsRow(line: line, index: index, availableWidth: contentWidth)
+                            let activity = lineLevelRowVisualActivity(index: index)
+                            lyricsRow(
+                                line: line,
+                                index: index,
+                                dimmedByAmbient: true,
+                                availableWidth: contentWidth,
+                                visualScale: CGFloat(activity.scale)
+                            )
                                 .id(line.id)
+                                .opacity(activity.opacity)
+                                // Match the word-level path: highlight, scale,
+                                // and scroll all travel on one curve instead of
+                                // snapping the row style before scrolling it.
+                                .animation(
+                                    .smooth(duration: Self.lyricsTransitionDuration, extraBounce: 0),
+                                    value: currentLineIndex
+                                )
                                 .padding(.vertical, 2)
                         }
 
@@ -2812,7 +2827,7 @@ struct LyricsScrollView: View {
                         // active 行边长大边滑到中央, 上一句边缩小变暗边滑走 ──
                         // 不是大小先到位、位置后到位的割裂感。上一句的缩小因此是
                         // 一段短暂渐变, 而非瞬间还原。
-                        .animation(.smooth(duration: Self.wordLevelScrollDuration, extraBounce: 0), value: currentLineIndex)
+                        .animation(.smooth(duration: Self.lyricsTransitionDuration, extraBounce: 0), value: currentLineIndex)
                         .padding(.vertical, 2)
                         .background(rowFrameReader(id: line.id))
                 }
@@ -2923,7 +2938,7 @@ struct LyricsScrollView: View {
             guard !Task.isCancelled else { return }
             guard Date().timeIntervalSince(lastUserScrollTime) >= Self.manualScrollGracePeriod else { return }
             wordDragStartOffset = wordAutoOffset
-            withAnimation(.smooth(duration: Self.wordLevelScrollDuration, extraBounce: 0)) {
+            withAnimation(.smooth(duration: Self.lyricsTransitionDuration, extraBounce: 0)) {
                 manualWordOffset = nil
             }
         }
@@ -2970,7 +2985,7 @@ struct LyricsScrollView: View {
             )
         }
         if animated {
-            withAnimation(.smooth(duration: 0.34, extraBounce: 0), update)
+            withAnimation(.smooth(duration: Self.lyricsTransitionDuration, extraBounce: 0), update)
         } else {
             var transaction = Transaction()
             transaction.disablesAnimations = true
@@ -3018,12 +3033,12 @@ struct LyricsScrollView: View {
             withTransaction(transaction, update)
             return
         }
-        withAnimation(.smooth(duration: Self.wordLevelScrollDuration, extraBounce: 0), update)
+        withAnimation(.smooth(duration: Self.lyricsTransitionDuration, extraBounce: 0), update)
     }
 
-    /// dimmedByAmbient: 字级模式调用时传 true ── 表明行整体明暗由外层 opacity
-    /// 接管, row 内部不要再按 isActive 离散切换颜色,
-    /// 否则跟外层 .opacity multiply 会双重叠加 + 跳变。
+    /// dimmedByAmbient: 统一动效模式调用时传 true ── 表明行整体明暗由外层
+    /// opacity 接管, row 内部不要再按 isActive 离散切换颜色,否则跟外层
+    /// .opacity multiply 会双重叠加 + 跳变。
     @ViewBuilder
     private func lyricsRow(
         line: LyricLine,
@@ -3034,12 +3049,9 @@ struct LyricsScrollView: View {
         visualScale: CGFloat = 1
     ) -> some View {
         let isActive = index == currentLineIndex
-        let baseSize = hasWordLevelLyrics
-            ? Self.lyricsWordLevelBaseSize
-            : isActive ? Self.lyricsActiveBaseSize : Self.lyricsInactiveBaseSize
-        let fontSize = baseSize * CGFloat(effectiveLyricsScale)
-        // weight 在 dimmedByAmbient 模式下也固定 .semibold ── 字级模式 active 行
-        // 已经有 syllable 扫光 + scale bounce 强调, weight 跳变只会增加视觉颗粒感。
+        let fontSize = Self.lyricsLayoutBaseSize * CGFloat(effectiveLyricsScale)
+        // weight 在统一动效模式下固定 .semibold。active 行已有 scale + opacity
+        // 强调, weight 瞬时跳变只会让切句增加视觉颗粒感。
         let weight: Font.Weight = dimmedByAmbient ? .semibold : (isActive ? .bold : .semibold)
         let alignment: HorizontalAlignment = line.voice == .secondary ? .trailing : .leading
         let frameAlignment: Alignment = line.voice == .secondary ? .trailing : .leading
@@ -3146,7 +3158,7 @@ struct LyricsScrollView: View {
         var scale: Double
     }
 
-    /// 字级模式专用。scale 只在 active 切换时离散变化 (1.0 ↔ wordLevelActiveScale),
+    /// 字级模式专用。scale 只在 active 切换时离散变化 (1.0 ↔ lyricsActiveVisualScale),
     /// 且由 lyricsRow 用 scaleEffect (渲染层) 应用 ── 不改字号/布局, 不会引发
     /// 行宽行高重排, 因此既不会每秒重排 60 次, 也不会和自动滚动反馈打满主线程。
     /// 实际明暗 + 大小过渡都由外层 .animation(value: currentLineIndex) 平滑插值。
@@ -3156,7 +3168,21 @@ struct LyricsScrollView: View {
         }
         return RowActivity(
             opacity: index == currentLineIndex ? 1.0 : 0.4,
-            scale: index == currentLineIndex ? Self.wordLevelActiveScale : 1.0
+            scale: index == currentLineIndex ? Self.lyricsActiveVisualScale : 1.0
+        )
+    }
+
+    /// 行级歌词保留原有的过去/未来明暗层次，只把离散字号切换改成与
+    /// 逐字歌词一致的渲染层缩放。这样不改变布局，也能让切句三种动效同步。
+    private func lineLevelRowVisualActivity(index: Int) -> RowActivity {
+        guard index >= 0, index < lyrics.count else {
+            return RowActivity(opacity: 0.4, scale: 1.0)
+        }
+        let isActive = index == currentLineIndex
+        let opacity = isActive ? 1.0 : (index < currentLineIndex ? 0.25 : 0.4)
+        return RowActivity(
+            opacity: opacity,
+            scale: isActive ? Self.lyricsActiveVisualScale : 1.0
         )
     }
 
@@ -3194,14 +3220,16 @@ struct LyricsScrollView: View {
     /// 否则下一行会在第一个字开唱时才从普通行切成逐字 Timeline,跨行会显得顿。
     private static let lineLevelLookahead: TimeInterval = 0.25
     private static let wordLevelLineLookahead: TimeInterval = 0.10
-    private static let wordLevelScrollDuration: TimeInterval = 0.54
+    /// Line-level and word-level takeovers share one curve so scrolling,
+    /// highlight, and scale read as a single continuous gesture.
+    private static let lyricsTransitionDuration: TimeInterval = 0.54
     /// Keep the active line in the upper-middle of the compact phone viewport.
     /// 42% left too little room for upcoming lyrics once the header and bottom
     /// controls were present, which made a missed follow update more obvious.
     private static let lyricsVisualAnchor: CGFloat = 0.36
     /// active 行放大倍数。1.08 时一行满宽 (≈viewport-48) 向右长出约 7%,
     /// 仍落在 24pt 水平 padding 内, 不会被外层 .clipped() 切到。再大就要防裁切。
-    private static let wordLevelActiveScale: CGFloat = 1.08
+    private static let lyricsActiveVisualScale: CGFloat = 1.08
 
     private func updateCurrentLine() {
         guard !lyrics.isEmpty else { return }

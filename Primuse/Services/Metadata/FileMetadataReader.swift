@@ -24,11 +24,67 @@ enum FileMetadataReader {
         var lyricsText: String?
     }
 
-    /// Reads metadata from an audio file using AVFoundation
+    /// Reads metadata from an audio file using AVFoundation.
     static func read(from url: URL) async -> Metadata {
-        var metadata = Metadata()
-
         let asset = AVURLAsset(url: url)
+        var metadata = await read(from: asset)
+
+        applyID3Fallback(to: &metadata, data: readID3TagData(from: url))
+        applyFLACFallback(
+            to: &metadata,
+            data: readPrefix(from: url, byteCount: flacMetadataReadLimit),
+            fileExtension: url.pathExtension
+        )
+        applyWAVEFallback(
+            to: &metadata,
+            data: readPrefix(from: url, byteCount: waveHeaderReadLimit),
+            fileExtension: url.pathExtension
+        )
+        applyMPEGFrameFallback(
+            to: &metadata,
+            data: readPrefix(from: url, byteCount: mpegHeaderReadLimit),
+            fileExtension: url.pathExtension
+        )
+
+        // 注意: 不在这里用 url filename 兜底 title。
+        // 调用方 (MetadataService) 自己决定 fallback 名 (走原始 NAS 文件名),
+        // 这里要保持 metadata.title == nil 真实反映「文件里没有 TIT2」。
+        // 否则 cache 内 sanitized 文件名 (如 "_music_xxx") 会被当成嵌入标题,
+        // 污染 scrape 查询和 UI 预览。
+        return metadata
+    }
+
+    /// Reads a bounded remote-file prefix directly from memory. The previous
+    /// implementation wrote every prefix to a temporary file solely because
+    /// `AVURLAsset` needs a URL. A custom resource loader gives AVFoundation
+    /// the same random-access view without generating whole-library disk I/O.
+    /// `Data` is copy-on-write, so the loader borrows the caller's storage;
+    /// only individual AVFoundation byte-range responses are materialized.
+    static func read(from data: Data, fileExtension: String) async -> Metadata {
+        guard !data.isEmpty else { return Metadata() }
+
+        let loader = InMemoryAudioAssetLoader(
+            data: data,
+            contentType: AudioFormat.from(fileExtension: fileExtension)?.avPlayerContentType
+        )
+        let asset = loader.makeAsset(fileExtension: fileExtension)
+        var metadata = await read(from: asset)
+
+        applyID3Fallback(to: &metadata, data: data)
+        applyFLACFallback(to: &metadata, data: data, fileExtension: fileExtension)
+        applyWAVEFallback(to: &metadata, data: data, fileExtension: fileExtension)
+        applyMPEGFrameFallback(to: &metadata, data: data, fileExtension: fileExtension)
+
+        // AVAssetResourceLoader's delegate is not retained strongly by the
+        // resource loader. Keep the in-memory provider alive through every
+        // asynchronous AVFoundation load above, then release it immediately
+        // at the per-song boundary.
+        withExtendedLifetime(loader) {}
+        return metadata
+    }
+
+    private static func read(from asset: AVAsset) async -> Metadata {
+        var metadata = Metadata()
 
         // Get duration
         if let duration = try? await asset.load(.duration) {
@@ -135,28 +191,21 @@ enum FileMetadataReader {
             }
         }
 
-        applyID3Fallback(to: &metadata, url: url)
-        applyFLACFallback(to: &metadata, url: url)
-        applyWAVEFallback(to: &metadata, url: url)
-
-        // 注意: 不在这里用 url filename 兜底 title。
-        // 调用方 (MetadataService) 自己决定 fallback 名 (走原始 NAS 文件名),
-        // 这里要保持 metadata.title == nil 真实反映「文件里没有 TIT2」。
-        // 否则 cache 内 sanitized 文件名 (如 "_music_xxx") 会被当成嵌入标题,
-        // 污染 scrape 查询和 UI 预览。
-
         return metadata
     }
 
     private static let id3MetadataReadLimit = 4 * 1024 * 1024
     private static let flacMetadataReadLimit = 1024 * 1024
     private static let waveHeaderReadLimit = 1024 * 1024
+    private static let mpegHeaderReadLimit = 512 * 1024
 
-    private static func applyWAVEFallback(to metadata: inout Metadata, url: URL) {
-        guard ["wav", "wave"].contains(url.pathExtension.lowercased()),
-              let info = WAVEHeaderParser.parse(
-                readPrefix(from: url, byteCount: waveHeaderReadLimit)
-              ) else {
+    private static func applyWAVEFallback(
+        to metadata: inout Metadata,
+        data: Data,
+        fileExtension: String
+    ) {
+        guard ["wav", "wave"].contains(fileExtension.lowercased()),
+              let info = WAVEHeaderParser.parse(data) else {
             return
         }
 
@@ -170,8 +219,7 @@ enum FileMetadataReader {
         metadata.bitDepth = info.bitDepth
     }
 
-    private static func applyID3Fallback(to metadata: inout Metadata, url: URL) {
-        let tagData = readID3TagData(from: url)
+    private static func applyID3Fallback(to metadata: inout Metadata, data tagData: Data) {
         let text = ID3TextMetadataParser.parse(tagData)
         let artwork = parseID3Metadata(from: tagData)
         guard text != nil || artwork != nil else { return }
@@ -190,6 +238,17 @@ enum FileMetadataReader {
         metadata.year = metadata.year ?? text?.year
         metadata.genre = metadata.genre ?? text?.genre
         metadata.coverArtData = metadata.coverArtData ?? artwork?.coverArtData
+    }
+
+    private static func applyMPEGFrameFallback(
+        to metadata: inout Metadata,
+        data: Data,
+        fileExtension: String
+    ) {
+        guard fileExtension.lowercased() == "mp3" else { return }
+        guard let info = MPEGFrameHeaderParser.parse(data) else { return }
+        metadata.sampleRate = metadata.sampleRate ?? info.sampleRate
+        metadata.bitRate = metadata.bitRate ?? info.bitRateKbps
     }
 
     static func id3TagByteCount(in data: Data) -> Int? {
@@ -406,9 +465,13 @@ enum FileMetadataReader {
         return result
     }
 
-    private static func applyFLACFallback(to metadata: inout Metadata, url: URL) {
-        guard url.pathExtension.lowercased() == "flac",
-              let flac = parseFLACMetadata(from: readPrefix(from: url, byteCount: flacMetadataReadLimit)) else {
+    private static func applyFLACFallback(
+        to metadata: inout Metadata,
+        data: Data,
+        fileExtension: String
+    ) {
+        guard fileExtension.lowercased() == "flac",
+              let flac = parseFLACMetadata(from: data) else {
             return
         }
 
@@ -841,6 +904,66 @@ enum FileMetadataReader {
             || (0x2A700...0x2B73F).contains(value)
             || (0x2B740...0x2B81F).contains(value)
             || (0x2B820...0x2CEAF).contains(value)
+    }
+}
+
+/// Supplies one bounded remote metadata slice to AVFoundation without a
+/// temporary file. The delegate queue is deliberately shared and serial: the
+/// backfill service keeps its established three network workers, but range
+/// copies requested by AVFoundation are materialized one at a time so several
+/// simultaneous songs cannot multiply short-lived allocation peaks.
+private final class InMemoryAudioAssetLoader: NSObject, AVAssetResourceLoaderDelegate, @unchecked Sendable {
+    private static let delegateQueue = DispatchQueue(
+        label: "com.welape.primuse.metadata-memory-loader",
+        qos: .utility
+    )
+
+    private let data: Data
+    private let contentType: String?
+
+    init(data: Data, contentType: String?) {
+        self.data = data
+        self.contentType = contentType
+        super.init()
+    }
+
+    func makeAsset(fileExtension: String) -> AVURLAsset {
+        let sanitizedExtension = fileExtension.lowercased().filter { $0.isLetter || $0.isNumber }
+        let suffix = sanitizedExtension.isEmpty ? "bin" : sanitizedExtension
+        let url = URL(string: "primuse-metadata://memory/\(UUID().uuidString).\(suffix)")!
+        let asset = AVURLAsset(url: url)
+        asset.resourceLoader.setDelegate(self, queue: Self.delegateQueue)
+        return asset
+    }
+
+    func resourceLoader(
+        _ resourceLoader: AVAssetResourceLoader,
+        shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest
+    ) -> Bool {
+        if let information = loadingRequest.contentInformationRequest {
+            if let contentType {
+                information.contentType = contentType
+            }
+            information.contentLength = Int64(data.count)
+            information.isByteRangeAccessSupported = true
+        }
+
+        if let request = loadingRequest.dataRequest {
+            let requestedOffset = max(request.currentOffset, request.requestedOffset)
+            if requestedOffset >= 0, requestedOffset < Int64(data.count) {
+                let start = Int(requestedOffset)
+                let available = data.count - start
+                let length = request.requestsAllDataToEndOfResource
+                    ? available
+                    : min(available, max(0, request.requestedLength))
+                if length > 0 {
+                    request.respond(with: data.subdata(in: start..<(start + length)))
+                }
+            }
+        }
+
+        loadingRequest.finishLoading()
+        return true
     }
 }
 

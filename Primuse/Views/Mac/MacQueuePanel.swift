@@ -42,7 +42,13 @@ struct MacQueuePanel: View {
             )
         } else {
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 12) {
+                // A large library can put thousands of songs in the queue.
+                // Eager stacks instantiate every row (including its artwork)
+                // as soon as the panel opens, which made a 2K-song queue add
+                // roughly 600 MB of resident memory. Keep both the section
+                // list and each section's rows lazy so only visible artwork is
+                // decoded and retained.
+                LazyVStack(alignment: .leading, spacing: 12) {
                     // currentIndex 在切歌/换队列瞬间可能越界, 钳到合法区间,
                     // 否则下面构造 Range 时 lowerBound > upperBound 会 trap。
                     let count = player.queue.count
@@ -107,7 +113,7 @@ struct MacQueuePanel: View {
         accent: Bool = false,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
+        LazyVStack(alignment: .leading, spacing: 0) {
             Text(title)
                 .font(.system(size: 10.5, weight: .semibold))
                 .tracking(0.6)

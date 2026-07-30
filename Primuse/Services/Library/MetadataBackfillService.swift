@@ -1287,36 +1287,22 @@ final class MetadataBackfillService {
         return BackfillOutcome(song: merged, markFailed: false, artworkGivenUp: artworkStillMissing)
     }
 
-    /// Write the partial bytes to a temp file and run the standard metadata
-    /// reader against it. SFBAudio's parser is happy with truncated files
-    /// for most formats (mp3/flac); m4a needs the moov atom which may be
-    /// at the tail (handled by the caller).
+    /// Parse the bounded Range bytes directly from memory. Backfill keeps its
+    /// established three-worker cap, while FileMetadataReader serializes the
+    /// small AVFoundation range responses; the caller-owned Data is released
+    /// at this per-song boundary instead of being copied into a temp file.
     private func extractMetadata(
         from data: Data,
         song: Song,
         cacheKey: String
     ) async -> MetadataService.SongMetadata {
         let ext = song.fileFormat.rawValue
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("backfill-\(cacheKey).\(ext)")
-        // Data.write and removeItem are synchronous. Keep both away from the
-        // main actor; the metadata actor can read the completed temp file.
-        await Task.detached(priority: .utility) {
-            try? data.write(to: tempURL)
-        }.value
-        // tempURL 是 backfill-<hash>.<ext> 形式, 没意义。caller 传 song 原始
-        // 文件名当 fallbackTitle, 嵌入 title 缺失时显示得正常。
-        let originalFileBaseName = song.title
-        let metadata = await metadataService.loadMetadata(
-            for: tempURL,
+        return await metadataService.loadEmbeddedMetadata(
+            from: data,
+            fileExtension: ext,
             cacheKey: cacheKey,
-            allowOnlineFetch: false,
-            fallbackTitle: originalFileBaseName
+            fallbackTitle: song.title
         )
-        Task.detached(priority: .utility) {
-            try? FileManager.default.removeItem(at: tempURL)
-        }
-        return metadata
     }
 
     /// Reverse-compute duration from `(fileSize × 8) / bitRate` when

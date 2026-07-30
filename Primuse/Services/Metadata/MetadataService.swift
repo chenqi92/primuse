@@ -152,6 +152,60 @@ actor MetadataService {
         return result
     }
 
+    /// Loads embedded metadata from an already-bounded remote byte slice.
+    /// Remote sidecars are represented by the source scanner and therefore do
+    /// not need a local URL here. Keeping the `Data` in memory removes the
+    /// temporary-file write that previously ran once per backfill song.
+    func loadEmbeddedMetadata(
+        from data: Data,
+        fileExtension: String,
+        cacheKey: String? = nil,
+        fallbackTitle: String
+    ) async -> SongMetadata {
+        let embedded = await FileMetadataReader.read(
+            from: data,
+            fileExtension: fileExtension
+        )
+        let repairedFallback = FileMetadataReader.repairLegacyChineseMojibake(fallbackTitle)
+        let embeddedTitle = embedded.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var result = SongMetadata(
+            title: embeddedTitle.flatMap { $0.isEmpty ? nil : $0 } ?? repairedFallback,
+            artist: embedded.artist,
+            albumTitle: embedded.albumTitle,
+            trackNumber: embedded.trackNumber,
+            discNumber: embedded.discNumber,
+            year: embedded.year,
+            genre: embedded.genre,
+            duration: TimeInterval.sanitized(embedded.duration),
+            sampleRate: embedded.sampleRate,
+            bitRate: embedded.bitRate,
+            bitDepth: embedded.bitDepth,
+            coverArtData: embedded.coverArtData,
+            replayGainTrackGain: embedded.replayGainTrackGain,
+            replayGainTrackPeak: embedded.replayGainTrackPeak,
+            replayGainAlbumGain: embedded.replayGainAlbumGain,
+            replayGainAlbumPeak: embedded.replayGainAlbumPeak
+        )
+
+        if let lyricsText = embedded.lyricsText {
+            let lyrics = LyricsParser.parseText(lyricsText)
+            if !lyrics.isEmpty {
+                result.lyrics = lyrics
+            }
+        }
+
+        if let cacheKey {
+            if let coverArtData = result.coverArtData {
+                result.coverArtFileName = await assetStore.storeCover(coverArtData, for: cacheKey)
+            }
+            if let lyrics = result.lyrics {
+                result.lyricsFileName = await assetStore.storeLyrics(lyrics, for: cacheKey)
+            }
+        }
+        return result
+    }
+
     /// 只用已知元数据查在线源补缺,**不读音频文件**。给服务端曲库源
     /// (Subsonic/Navidrome 等)用 —— 它们 title/artist/album 由服务端权威提供,
     /// 既不该为读 embedded tag 去拉(可能转码的)音频流, 也只补空缺字段。

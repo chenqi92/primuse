@@ -1,4 +1,3 @@
-import AVFoundation
 import CryptoKit
 import Foundation
 import PrimuseKit
@@ -7,14 +6,10 @@ import PrimuseKit
 actor SynologyScanner {
     private let api: SynologyAPI
     private let sourceID: String
-    private let tempDir: URL
 
     init(api: SynologyAPI, sourceID: String) {
         self.api = api
         self.sourceID = sourceID
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("primuse_scan_\(sourceID)")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        self.tempDir = dir
     }
 
     struct ScanUpdate: Sendable {
@@ -29,11 +24,13 @@ actor SynologyScanner {
         existingSongs: [Song] = [],
         startingCount: Int = 0
     ) -> AsyncThrowingStream<ScanUpdate, Error> {
-        AsyncThrowingStream { continuation in
+        // Every update contains the complete accumulated Song array. Match the
+        // bounded ConnectorScanner behavior introduced for large libraries:
+        // if persistence/UI is slower than the NAS walk, retain only the most
+        // recent snapshot instead of an unbounded chain of copy-on-write arrays.
+        AsyncThrowingStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let task = Task {
                 do {
-                    defer { cleanup() }
-
                     // Remove redundant child directories when a parent is already selected
                     let dirs = Self.deduplicateDirectories(directories)
 
@@ -564,7 +561,11 @@ actor SynologyScanner {
             && PrimuseConstants.supportedMusicVideoExtensions.contains(existingExt)
     }
 
-    /// Download file header and extract metadata using AVFoundation
+    /// Download a bounded file prefix and extract metadata without creating a
+    /// per-song temporary file. MP3 starts at 256 KB and expands for a declared
+    /// large ID3 tag; other containers retain the historical 4 MB read because
+    /// their cover art/container atoms may occur later. Every format remains
+    /// hard-bounded at 4 MB.
     private func extractSongMetadata(item: SynologyAPI.FileItem, ext: String) async -> Song {
         var format = AudioFormat.from(fileExtension: ext) ?? .mp3
         let songID = generateID(sourceID: sourceID, path: item.path)
@@ -597,10 +598,14 @@ actor SynologyScanner {
         var replayGainAlbumGain: Double?
         var replayGainAlbumPeak: Double?
 
-        // Try to download file header and parse with AVFoundation
+        // Download and parse one song at a time. SynologyScanner is an actor;
+        // this await chain deliberately stays serial even when several source
+        // scans or the three-worker metadata backfill are active elsewhere.
         do {
-            // Download first 4MB (enough for ID3/FLAC/MP4 metadata + cover art)
-            let readSize = min(Int(clamping: item.size), 4 * 1024 * 1024)
+            let readSize = RemoteMetadataReadPolicy.initialReadSize(
+                fileSize: item.size,
+                fileExtension: ext
+            )
             guard readSize > 0 else {
                 return makeSong(id: songID, title: title, artist: artist, album: album,
                                trackNumber: trackNumber, duration: duration, format: format,
@@ -609,118 +614,65 @@ actor SynologyScanner {
                                coverArtFileName: nil)
             }
 
-            let data = try await api.downloadFileHead(path: item.path, maxBytes: readSize)
+            var data = try await api.downloadFileHead(path: item.path, maxBytes: readSize)
             if ext == "wav", FFmpegAudioDecoder.dataContainsDTSSync(data) {
                 format = .dts
             }
 
-            // Write to temp file for AVFoundation to read
-            let tempFile = tempDir.appendingPathComponent("\(songID).\(ext)")
-            try data.write(to: tempFile)
-            defer { try? FileManager.default.removeItem(at: tempFile) }
-
-            // Parse with AVFoundation
-            let asset = AVURLAsset(url: tempFile)
-
-            // Duration
-            if let dur = try? await asset.load(.duration) {
-                let secs = CMTimeGetSeconds(dur)
-                if secs.isFinite && secs > 0 {
-                    duration = secs
+            var embedded = await FileMetadataReader.read(from: data, fileExtension: ext)
+            let metadataInsufficient = Self.metadataNeedsLargerPrefix(embedded, fileExtension: ext)
+            if let expandedSize = RemoteMetadataReadPolicy.expandedReadSize(
+                fileSize: item.size,
+                currentByteCount: data.count,
+                declaredID3ByteCount: FileMetadataReader.id3TagByteCount(in: data),
+                metadataInsufficient: metadataInsufficient
+            ) {
+                data = try await api.downloadFileHead(path: item.path, maxBytes: expandedSize)
+                if ext == "wav", FFmpegAudioDecoder.dataContainsDTSSync(data) {
+                    format = .dts
                 }
+                embedded = await FileMetadataReader.read(from: data, fileExtension: ext)
             }
 
-            // Metadata tags
-            if let items = try? await asset.load(.metadata) {
-                plog("📋 Metadata items count: \(items.count) for \(item.name), keys: \(items.compactMap { $0.commonKey?.rawValue })")
-                for meta in items {
-                    guard let key = meta.commonKey?.rawValue else { continue }
-                    let value = try? await meta.load(.value)
-
-                    switch key {
-                    case AVMetadataKey.commonKeyTitle.rawValue:
-                        break // Title always from filename
-                    case AVMetadataKey.commonKeyArtist.rawValue:
-                        if let v = value as? String, !v.isEmpty { artist = v }
-                    case AVMetadataKey.commonKeyAlbumName.rawValue:
-                        if let v = value as? String, !v.isEmpty { album = v }
-                    case AVMetadataKey.commonKeyArtwork.rawValue:
-                        if let data = value as? Data {
-                            embeddedCoverData = data
-                            plog("🎨 Embedded cover art found: \(data.count) bytes for \(item.name)")
-                        } else {
-                            plog("🎨 Artwork key exists but value is not Data: \(type(of: value as Any)) for \(item.name)")
-                        }
-                    default: break
-                    }
-                }
-
-                // Format-specific metadata
-                for meta in items {
-                    guard let identifier = meta.identifier else { continue }
-                    let value = try? await meta.load(.value)
-
-                    switch identifier {
-                    case .id3MetadataTrackNumber, .iTunesMetadataTrackNumber:
-                        if let s = value as? String {
-                            trackNumber = Int(s.split(separator: "/").first.map(String.init) ?? "")
-                        } else if let n = value as? Int { trackNumber = n }
-                    case .id3MetadataYear, .id3MetadataRecordingTime:
-                        if let s = value as? String { year = Int(String(s.prefix(4))) }
-                    case .id3MetadataContentType:
-                        genre = value as? String
-                    case .id3MetadataUnsynchronizedLyric:
-                        if let text = value as? String, !text.isEmpty {
-                            embeddedLyricsText = text
-                            plog("📝 Embedded USLT lyrics found: \(text.prefix(50))... for \(item.name)")
-                        }
-                    case .iTunesMetadataLyrics:
-                        if let text = value as? String, !text.isEmpty, embeddedLyricsText == nil {
-                            embeddedLyricsText = text
-                            plog("📝 Embedded iTunes lyrics found: \(text.prefix(50))... for \(item.name)")
-                        }
-                    case .id3MetadataUserText:
-                        if let extras = try? await meta.load(.extraAttributes),
-                           let desc = extras[.info] as? String {
-                            let stringValue = try? await meta.load(.stringValue)
-                            switch desc.lowercased() {
-                            case "replaygain_track_gain":
-                                replayGainTrackGain = parseReplayGainDB(stringValue)
-                            case "replaygain_track_peak":
-                                replayGainTrackPeak = Double(stringValue ?? "")
-                            case "replaygain_album_gain":
-                                replayGainAlbumGain = parseReplayGainDB(stringValue)
-                            case "replaygain_album_peak":
-                                replayGainAlbumPeak = Double(stringValue ?? "")
-                            default:
-                                break
-                            }
-                        }
-                    default: break
-                    }
-                }
+            if let value = embedded.artist?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
+                artist = embedded.artist
+            }
+            if let value = embedded.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
+                album = embedded.albumTitle
+            }
+            trackNumber = embedded.trackNumber
+            year = embedded.year
+            genre = embedded.genre
+            sampleRate = embedded.sampleRate
+            bitRate = embedded.bitRate
+            bitDepth = embedded.bitDepth
+            embeddedCoverData = embedded.coverArtData
+            embeddedLyricsText = embedded.lyricsText
+            replayGainTrackGain = embedded.replayGainTrackGain
+            replayGainTrackPeak = embedded.replayGainTrackPeak
+            replayGainAlbumGain = embedded.replayGainAlbumGain
+            replayGainAlbumPeak = embedded.replayGainAlbumPeak
+            if let parsedDuration = embedded.duration,
+               parsedDuration.isFinite, parsedDuration > 0 {
+                duration = parsedDuration
             }
 
-            // Audio track details
-            if let tracks = try? await asset.load(.tracks) {
-                for track in tracks where track.mediaType == .audio {
-                    if let descs = try? await track.load(.formatDescriptions) {
-                        for desc in descs {
-                            if let basic = CMAudioFormatDescriptionGetStreamBasicDescription(desc)?.pointee {
-                                if basic.mSampleRate > 0 { sampleRate = Int(basic.mSampleRate) }
-                                if basic.mBitsPerChannel > 0 { bitDepth = Int(basic.mBitsPerChannel) }
-                            }
-                        }
-                    }
-                    if let rate = try? await track.load(.estimatedDataRate), rate > 0 {
-                        bitRate = Int(rate / 1000)
-                    }
-                }
+            if format == .mp3 {
+                duration = RemoteMetadataReadPolicy.correctedMP3Duration(
+                    parsed: duration,
+                    fileSize: item.size,
+                    bitRateKbps: bitRate,
+                    providedByteCount: data.count
+                )
             }
 
             // Estimate duration from file size and bitrate
             if duration == 0, let br = bitRate, br > 0 {
                 duration = Double(item.size) * 8.0 / Double(br * 1000)
+            }
+
+            if format == .flac, bitRate == nil, duration > 0, item.size > 0 {
+                bitRate = Int((Double(item.size) * 8.0 / duration / 1000.0).rounded())
             }
 
             // Last resort: estimate from file size using a format-aware
@@ -801,13 +753,23 @@ actor SynologyScanner {
         )
     }
 
-    private func parseReplayGainDB(_ value: String?) -> Double? {
-        guard let value else { return nil }
-        let cleaned = value
-            .replacingOccurrences(of: " dB", with: "", options: .caseInsensitive)
-            .replacingOccurrences(of: "dB", with: "", options: .caseInsensitive)
-            .trimmingCharacters(in: .whitespaces)
-        return Double(cleaned)
+    private static func metadataNeedsLargerPrefix(
+        _ metadata: FileMetadataReader.Metadata,
+        fileExtension: String
+    ) -> Bool {
+        let durationMissing = !(metadata.duration?.isFinite == true && (metadata.duration ?? 0) > 0)
+        let containerMayNeedMoreHeader = ["m4a", "alac", "mp4", "m4v", "mov"]
+            .contains(fileExtension.lowercased())
+            && durationMissing
+        let hasAnyMetadata = !durationMissing
+            || metadata.sampleRate != nil
+            || metadata.bitRate != nil
+            || metadata.title?.isEmpty == false
+            || metadata.artist?.isEmpty == false
+            || metadata.albumTitle?.isEmpty == false
+            || metadata.coverArtData != nil
+            || metadata.lyricsText?.isEmpty == false
+        return containerMayNeedMoreHeader || !hasAnyMetadata
     }
 
     /// Download .lrc file from NAS, parse it, store to MetadataAssetStore
@@ -889,10 +851,6 @@ actor SynologyScanner {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
         return ["music", "音乐", "songs", "audio", "media", "downloads"].contains(name)
-    }
-
-    private func cleanup() {
-        try? FileManager.default.removeItem(at: tempDir)
     }
 
     /// Remove child directories when a parent directory is already in the list.
