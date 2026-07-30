@@ -644,7 +644,11 @@ struct MacNowPlayingView: View {
                 .disabled(player.isLoading)
             }
 
-            Button {} label: {
+            // This filled icon represents the lyrics view that is already
+            // active. A second click toggles it off, just like the down button.
+            Button {
+                onClose()
+            } label: {
                 circleIcon("text.bubble.fill",
                            tint: Color.white,
                            fill: theme.accentColor.opacity(0.9))
