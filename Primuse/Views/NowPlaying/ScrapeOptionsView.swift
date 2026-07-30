@@ -59,6 +59,7 @@ struct ScrapeOptionsView: View {
     @State private var isSearching = false
     @State private var errorMessage: String?
     @State private var manualSearchQuery = ""
+    @State private var manualMatchTitle = ""
     /// 手动刮削时每个源单次返回的搜索结果上限,持久化保存,默认 20。
     /// 在选项页"手动刮削"按钮上方可调,避免搜出来不够看 / 拉太多浪费。
     /// 自动刮削不用这个参数(每个源固定取 first item, 拉 15 候选写死, limit
@@ -138,8 +139,11 @@ struct ScrapeOptionsView: View {
         let coverUrl: String?
         let externalId: String
         let sourceConfig: ScraperSourceConfig
-        /// 0...1 匹配度 (时长 + 标题 + 艺术家 归一化打分), 用于候选行右侧的 % 显示与排序。
-        var confidence: Double = 0
+        let matchRank: ScrapeCandidateRank
+        let searchOrder: Int
+        /// 0...1 匹配度，用于候选行右侧的百分比显示。候选缺失时长时仍保留
+        /// 时长权重，不会再因为缩小分母而得到虚高的 100%。
+        var confidence: Double { matchRank.confidence }
 
         var source: String { sourceConfig.displayName }
 
@@ -1257,6 +1261,7 @@ struct ScrapeOptionsView: View {
         macSidecarBaseNameOverride = sidecarBaseName
         macUsesMediaServerWriteback = usesMediaServerWriteback
         #endif
+        manualMatchTitle = title
         manualSearchQuery = MusicScraperService.searchQuery(title: title, artist: song.artistName)
         mode = .manual
         await performManualSearch()
@@ -1280,6 +1285,17 @@ struct ScrapeOptionsView: View {
                 )
                 for item in result.items {
                     plog("🔍 Search result: \(config.type.rawValue) '\(item.title)' coverUrl=\(item.coverUrl ?? "nil")")
+                    let targetDurationMs = song.duration.sanitizedDuration > 0
+                        ? (song.duration.sanitizedDuration * 1000).rounded().finiteInt()
+                        : nil
+                    let matchRank = ScrapeCandidateRankingPolicy.rank(
+                        requestedTitle: manualMatchTitle.isEmpty ? song.title : manualMatchTitle,
+                        requestedArtist: song.artistName,
+                        targetDurationMs: targetDurationMs,
+                        candidateTitle: item.title,
+                        candidateArtist: item.artist,
+                        candidateDurationMs: item.durationMs
+                    )
                     aggregatedResults.append(SearchResultItem(
                         id: "\(config.type.rawValue)_\(item.externalId)",
                         title: item.title,
@@ -1290,7 +1306,8 @@ struct ScrapeOptionsView: View {
                         coverUrl: item.coverUrl,
                         externalId: item.externalId,
                         sourceConfig: config,
-                        confidence: scrapeConfidence(title: item.title, artist: item.artist, durationMs: item.durationMs)
+                        matchRank: matchRank,
+                        searchOrder: aggregatedResults.count
                     ))
                 }
             } catch {
@@ -1298,9 +1315,18 @@ struct ScrapeOptionsView: View {
             }
         }
 
-        // 按匹配度 (时长 + 标题 + 艺术家 综合分) 降序, 高的排前面 —— 候选优先单页
-        // 默认自动选中第一个, 所以排序直接决定首选候选。
-        aggregatedResults.sort { $0.confidence > $1.confidence }
+        // 标题先做身份兼容门槛；标题兼容的候选再按时长分层：10 秒内且
+        // 越接近越优先、无时长其次、明显不符最后。相同层级才比较歌手与
+        // 综合置信度。默认自动选中第一项，因此这里必须保持确定性。
+        aggregatedResults.sort { lhs, rhs in
+            if ScrapeCandidateRankingPolicy.isPreferred(lhs.matchRank, over: rhs.matchRank) {
+                return true
+            }
+            if ScrapeCandidateRankingPolicy.isPreferred(rhs.matchRank, over: lhs.matchRank) {
+                return false
+            }
+            return lhs.searchOrder < rhs.searchOrder
+        }
 
         searchResults = aggregatedResults
         isSearching = false
@@ -1623,53 +1649,6 @@ struct ScrapeOptionsView: View {
 
     private func formatDuration(_ t: TimeInterval) -> String {
         t.formattedDuration
-    }
-
-    /// 候选匹配度 0...1。镜像 ScraperManager.score 的权重 (时长 50 / 标题 30 /
-    /// 艺术家 20), 按"当前可用的信号维度"归一化 —— 没时长 / 没艺术家信息时不会
-    /// 因为拿不到那部分分而被压低百分比。仅用于显示与排序, 不参与实际写回。
-    private func scrapeConfidence(title: String, artist: String?, durationMs: Int?) -> Double {
-        var score = 0.0
-        var maxScore = 0.0
-
-        let targetMs = song.duration.sanitizedDuration > 0
-            ? (song.duration.sanitizedDuration * 1000).rounded().finiteInt()
-            : nil
-        if let target = targetMs, let ms = durationMs {
-            maxScore += 50
-            let diff = abs(ms - target)
-            if diff < 2000 { score += 50 }
-            else if diff < 5000 { score += 30 }
-            else if diff < 10000 { score += 10 }
-            else { score -= 20 }
-        }
-
-        maxScore += 30
-        let normTitle = Self.normalizedForMatch(song.title)
-        let itemTitle = Self.normalizedForMatch(title)
-        if !itemTitle.isEmpty && itemTitle == normTitle { score += 30 }
-        else if !itemTitle.isEmpty && !normTitle.isEmpty &&
-                    (itemTitle.contains(normTitle) || normTitle.contains(itemTitle)) { score += 15 }
-
-        let normArtist = Self.normalizedForMatch(song.artistName ?? "")
-        if !normArtist.isEmpty, let artist {
-            let itemArtist = Self.normalizedForMatch(artist)
-            if !itemArtist.isEmpty {
-                maxScore += 20
-                if itemArtist == normArtist { score += 20 }
-                else if itemArtist.contains(normArtist) || normArtist.contains(itemArtist) { score += 10 }
-            }
-        }
-
-        guard maxScore > 0 else { return 0 }
-        return max(0, min(1, score / maxScore))
-    }
-
-    private static func normalizedForMatch(_ s: String) -> String {
-        s.lowercased()
-            .folding(options: .diacriticInsensitive, locale: nil)
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .joined()
     }
 
     /// 解码封面字节流的真实像素尺寸 (NSBitmapImageRep / CGImage), 用于

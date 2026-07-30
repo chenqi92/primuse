@@ -742,11 +742,11 @@ struct DuplicateSongsView: View {
             deletableSourceIDs: deletableSourceIDsSnapshot
         )
         guard !toRemove.isEmpty else { return }
-        cleaner.cleanup(toRemove)
+        startCleanup(toRemove)
     }
 
     private func deleteSingle(song: Song) {
-        cleaner.cleanup([song])
+        startCleanup([song])
     }
 
     private func cleanAll() {
@@ -754,7 +754,21 @@ struct DuplicateSongsView: View {
         let toRemove = groups.flatMap {
             removableSongs(in: $0, deletableSourceIDs: writableSourceIDs)
         }
-        cleaner.cleanup(toRemove)
+        startCleanup(toRemove)
+    }
+
+    /// Keep the completion-revision observer for cleanups that outlive this
+    /// view, but also await a cleanup started by the visible view and rescan
+    /// directly. In practice SwiftUI can coalesce the observable revision with
+    /// the large library mutation, leaving the already-rendered duplicate
+    /// groups on screen until the user navigates away and back even though the
+    /// files and library rows were deleted successfully.
+    private func startCleanup(_ songs: [Song]) {
+        guard let cleanupTask = cleaner.cleanup(songs) else { return }
+        Task {
+            await cleanupTask.value
+            await rescan()
+        }
     }
 
     private func showCleanupResult() {

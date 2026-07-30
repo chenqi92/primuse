@@ -361,6 +361,7 @@
 "played" = "再生済み";
 "scrape_song_success" = "現在の曲のメタデータを更新しました。";
 "scrape_metadata_updated" = "更新済み";
+"scrape_accuracy_notice" = "自動取得の結果は正確でない場合があります。一致しない場合は、手動検索で曲の長さを比較して選択してください。";
 "scrape_song_failed" = "この曲のメタデータを更新できませんでした。";
 "scrape_lyrics_not_found" = "歌詞が見つかりませんでした。別の検索語または歌詞ソースをお試しください。";
 "scrape_options" = "取得する内容";

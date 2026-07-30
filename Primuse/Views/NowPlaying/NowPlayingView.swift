@@ -1413,8 +1413,12 @@ struct NowPlayingView: View {
         let lyricsStatus = lyricsFound
             ? String(localized: "lyrics_found")
             : String(localized: "no_results")
+        let accuracyNotice = String(localized: "scrape_accuracy_notice")
         if lyricsOnly {
-            return "\(String(localized: "lyrics_word")): \(lyricsStatus)"
+            return [
+                "\(String(localized: "lyrics_word")): \(lyricsStatus)",
+                accuracyNotice,
+            ].joined(separator: "\n\n")
         }
 
         var metadataChanges: [String] = []
@@ -1446,6 +1450,8 @@ struct NowPlayingView: View {
             "\(String(localized: "metadata")): \(metadataStatus)",
             "\(String(localized: "cover")): \(coverStatus)",
             "\(String(localized: "lyrics_word")): \(lyricsStatus)",
+            "",
+            accuracyNotice,
         ].joined(separator: "\n")
     }
 

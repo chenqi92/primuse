@@ -726,6 +726,150 @@ public enum ScrapeMetadataApplicationPolicy {
     }
 }
 
+/// A deterministic rank for manual scrape candidates. Title compatibility is
+/// the identity gate; when the library song has a reliable duration, close
+/// known durations come next, unknown durations follow, and clearly mismatched
+/// durations are last. This prevents a provider that omits duration from
+/// receiving an artificially perfect score by shrinking the score denominator.
+public struct ScrapeCandidateRank: Sendable, Equatable {
+    public enum DurationTier: Int, Sendable, Equatable {
+        case close = 0
+        case unknown = 1
+        case mismatch = 2
+        case unavailable = 3
+    }
+
+    public let confidence: Double
+    public let titleMatchLevel: Int
+    public let artistMatchLevel: Int
+    public let durationTier: DurationTier
+    public let durationDeltaMs: Int?
+}
+
+public enum ScrapeCandidateRankingPolicy {
+    public static func rank(
+        requestedTitle: String,
+        requestedArtist: String?,
+        targetDurationMs: Int?,
+        candidateTitle: String,
+        candidateArtist: String?,
+        candidateDurationMs: Int?
+    ) -> ScrapeCandidateRank {
+        let titleMatchLevel = textMatchLevel(
+            requested: requestedTitle,
+            candidate: candidateTitle
+        )
+        let artistMatchLevel = textMatchLevel(
+            requested: requestedArtist,
+            candidate: candidateArtist
+        )
+
+        var score = 0.0
+        var maximumScore = 30.0
+        score += titleMatchLevel == 2 ? 30 : (titleMatchLevel == 1 ? 15 : 0)
+
+        let normalizedRequestedArtist = normalized(requestedArtist)
+        if !normalizedRequestedArtist.isEmpty {
+            maximumScore += 20
+            score += artistMatchLevel == 2 ? 20 : (artistMatchLevel == 1 ? 10 : 0)
+        }
+
+        let validTargetMs = targetDurationMs.flatMap { $0 > 0 ? $0 : nil }
+        let validCandidateMs = candidateDurationMs.flatMap { $0 > 0 ? $0 : nil }
+        let durationTier: ScrapeCandidateRank.DurationTier
+        let durationDeltaMs: Int?
+        if let targetMs = validTargetMs {
+            maximumScore += 50
+            if let candidateMs = validCandidateMs {
+                let delta = abs(candidateMs - targetMs)
+                durationDeltaMs = delta
+                if delta < 2_000 {
+                    score += 50
+                } else if delta < 5_000 {
+                    score += 30
+                } else if delta < 10_000 {
+                    score += 10
+                } else {
+                    score -= 20
+                }
+                durationTier = delta < 10_000 ? .close : .mismatch
+            } else {
+                durationDeltaMs = nil
+                durationTier = .unknown
+            }
+        } else {
+            durationDeltaMs = nil
+            durationTier = .unavailable
+        }
+
+        let confidence = maximumScore > 0
+            ? max(0, min(1, score / maximumScore))
+            : 0
+        return ScrapeCandidateRank(
+            confidence: confidence,
+            titleMatchLevel: titleMatchLevel,
+            artistMatchLevel: artistMatchLevel,
+            durationTier: durationTier,
+            durationDeltaMs: durationDeltaMs
+        )
+    }
+
+    public static func isPreferred(
+        _ lhs: ScrapeCandidateRank,
+        over rhs: ScrapeCandidateRank
+    ) -> Bool {
+        let lhsTitleCompatible = lhs.titleMatchLevel > 0
+        let rhsTitleCompatible = rhs.titleMatchLevel > 0
+        if lhsTitleCompatible != rhsTitleCompatible {
+            return lhsTitleCompatible
+        }
+
+        if lhsTitleCompatible {
+            if lhs.durationTier != rhs.durationTier {
+                return lhs.durationTier.rawValue < rhs.durationTier.rawValue
+            }
+            if let lhsDelta = lhs.durationDeltaMs,
+               let rhsDelta = rhs.durationDeltaMs,
+               lhsDelta != rhsDelta {
+                return lhsDelta < rhsDelta
+            }
+            if lhs.artistMatchLevel != rhs.artistMatchLevel {
+                return lhs.artistMatchLevel > rhs.artistMatchLevel
+            }
+            if lhs.titleMatchLevel != rhs.titleMatchLevel {
+                return lhs.titleMatchLevel > rhs.titleMatchLevel
+            }
+        }
+
+        if lhs.confidence != rhs.confidence {
+            return lhs.confidence > rhs.confidence
+        }
+        return false
+    }
+
+    private static func textMatchLevel(
+        requested: String?,
+        candidate: String?
+    ) -> Int {
+        let requestedText = normalized(requested)
+        let candidateText = normalized(candidate)
+        guard !requestedText.isEmpty, !candidateText.isEmpty else { return 0 }
+        if requestedText == candidateText { return 2 }
+        if requestedText.contains(candidateText) || candidateText.contains(requestedText) {
+            return 1
+        }
+        return 0
+    }
+
+    private static func normalized(_ value: String?) -> String {
+        (value ?? "")
+            .lowercased()
+            .folding(options: .diacriticInsensitive, locale: nil)
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .joined()
+    }
+}
+
 /// Reads the fixed-size RIFF/WAVE headers that are available in a remote
 /// file's initial byte range. The `data` chunk advertises its complete byte
 /// count even when the provided `Data` contains only a small prefix, so this

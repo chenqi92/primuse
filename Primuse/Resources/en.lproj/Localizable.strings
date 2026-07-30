@@ -225,6 +225,7 @@
 "played" = "Played";
 "scrape_song_success" = "Metadata refreshed for the current song.";
 "scrape_metadata_updated" = "Updated";
+"scrape_accuracy_notice" = "Automatic results may be inaccurate. If they do not match, use Manual Search and compare track durations.";
 "scrape_song_failed" = "Unable to refresh metadata for this song.";
 "scrape_lyrics_not_found" = "No lyrics were found. Try another query or lyrics source.";
 "scrape_options" = "What to Scrape";

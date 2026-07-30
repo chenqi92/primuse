@@ -212,6 +212,7 @@
 "played" = "已播放";
 "scrape_song_success" = "目前歌曲的中繼資料已重新整理。";
 "scrape_metadata_updated" = "已更新";
+"scrape_accuracy_notice" = "自動刮取結果可能不準確。如資訊不符，請使用手動搜尋並配合歌曲時長選擇。";
 "scrape_song_failed" = "目前歌曲的中繼資料重新整理失敗。";
 "scrape_lyrics_not_found" = "找不到可用歌詞，請嘗試其他關鍵字或歌詞來源。";
 "scrape_options" = "刮取內容";

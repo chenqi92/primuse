@@ -225,6 +225,7 @@
 "played" = "已播放";
 "scrape_song_success" = "当前歌曲元数据已刷新。";
 "scrape_metadata_updated" = "已更新";
+"scrape_accuracy_notice" = "自动刮削结果可能不准确。如信息不符，请使用手动搜索并结合歌曲时长选择。";
 "scrape_song_failed" = "当前歌曲元数据刷新失败。";
 "scrape_lyrics_not_found" = "未找到可用歌词，请尝试其他关键词或歌词源。";
 "scrape_options" = "刮削内容";
