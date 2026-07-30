@@ -52,6 +52,12 @@ import Testing
     #expect(SafeByteRange.httpHeader(offset: 0, length: 0) == nil)
 }
 
+@Test func nfsVersionKeepsExplicitSelectionAndAutoFallbackOrder() {
+    #expect(NFSVersion.v3.connectionAttemptOrder == [.v3])
+    #expect(NFSVersion.v4.connectionAttemptOrder == [.v4])
+    #expect(NFSVersion.auto.connectionAttemptOrder == [.v3, .v4])
+}
+
 @Test func testAudioFormatRouting() {
     #expect(AudioFormat.mp3.requiresFFmpeg == false)
     #expect(AudioFormat.flac.requiresFFmpeg == false)

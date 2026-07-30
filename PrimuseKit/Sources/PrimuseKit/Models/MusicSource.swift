@@ -402,6 +402,16 @@ public enum NFSVersion: String, Codable, Sendable, CaseIterable {
         case .v4: return "NFSv4"
         }
     }
+
+    /// Ordered protocol attempts used by the connector. Auto deliberately
+    /// prefers v3 for broad NAS compatibility, then falls back to v4.
+    public var connectionAttemptOrder: [NFSVersion] {
+        switch self {
+        case .auto: return [.v3, .v4]
+        case .v3: return [.v3]
+        case .v4: return [.v4]
+        }
+    }
 }
 
 // MARK: - Music Source Entity

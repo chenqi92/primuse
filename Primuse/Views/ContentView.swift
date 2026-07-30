@@ -138,16 +138,12 @@ struct ContentView: View {
                     NowPlayingAccessory(onTap: { showNowPlaying = true })
                 }
         } else if #available(iOS 26.0, *) {
-            // 26.0 has no `isEnabled:` overload. Keeping the modifier attached
-            // is still safer than replacing the whole TabView during search;
-            // its empty accessory may reserve a small transparent strip.
+            // 26.0 has no `isEnabled:` overload and an empty system accessory
+            // still reserves transparent space. Keep the TabView identity
+            // stable for Search, disable minimization, and render the player
+            // as the outer legacy overlay below instead.
             tabRoot
-                .tabBarMinimizeBehavior(miniPlayerActive ? .onScrollDown : .never)
-                .tabViewBottomAccessory {
-                    if miniPlayerActive {
-                        NowPlayingAccessory(onTap: { showNowPlaying = true })
-                    }
-                }
+                .tabBarMinimizeBehavior(.never)
         } else {
             tabRoot
         }
@@ -239,7 +235,7 @@ struct ContentView: View {
                 playerAwareTabRoot
             }
 
-            if player.currentSong != nil {
+            if miniPlayerActive {
                 if sizeClass == .regular {
                     // iPad split view 没有底部 tab bar, 直接钉一个紧凑的
                     // mini player 到 detail pane 底部。padding 给 16 留出
@@ -248,7 +244,7 @@ struct ContentView: View {
                         .padding(.bottom, 16)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                         .zIndex(1)
-                } else if #available(iOS 26.0, *) {
+                } else if #available(iOS 26.1, *) {
                     EmptyView()
                 } else {
                     LegacyNowPlayingAccessory(onTap: { showNowPlaying = true })

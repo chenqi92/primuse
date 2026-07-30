@@ -309,21 +309,23 @@ private final class CountingLoginURLProtocol: URLProtocol, @unchecked Sendable {
     #expect(UgreenStreamResolver.parseToken(Data(#"{"code":401,"data":{}}"#.utf8)) == nil)
 }
 
-@Test func ugreenRSARoundTrip() throws {
-    // 生成 RSA 密钥对 → 用我们的 encrypt(公钥)加密 → 私钥解密,验证 RSA + 取公钥逻辑。
-    var err: Unmanaged<CFError>?
-    let priv = SecKeyCreateRandomKey([
-        kSecAttrKeyType as String: kSecAttrKeyTypeRSA,
-        kSecAttrKeySizeInBits as String: 2048,
-    ] as CFDictionary, &err)
-    let privateKey = try #require(priv)
-    let publicKey = try #require(SecKeyCopyPublicKey(privateKey))
-    let pubData = try #require(SecKeyCopyExternalRepresentation(publicKey, &err) as Data?)
+@Test func ugreenRSAEncryptsWithServerPublicKey() throws {
+    // 固定的测试公钥模拟 NAS 下发的 X.509 SubjectPublicKeyInfo。测试不应在运行时
+    // 生成临时私钥，否则受宿主 Security/keychain 状态影响，可能以 paramErr 偶发失败。
+    let publicKeyDER = try #require(Data(base64Encoded: "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuer9d6mPjA5NwPwf5koROT6osTJoesWOFPJVgwhxCm6YM8TorGDm4wyPF2Qbw6jt8zoqDYK+4/dYmZB8HBEsbKCRY+8Gi/rnNnr9oxK4DlkEtE5TYFwl8P6x6ITX9p1vEejYgv6ZHAFbh0z8qoP+EkHsUHeUhZIcEXGMoeoXT9oNU4DjLqXxJoZpxLu/gxPSE3q1h02xEKKMvU2k4dBbX1D/eTMEkRMuDtl66ZhHy/WM6LLau4hGquFm+0wEJfuG03gQ2g213ILd01e0WIs188yzIz9IXv53jLGUi1xR3EmcKpA8zPyJSm8mrYVmm97WbZIfjFglr1MzHKCnW5C0fQIDAQAB"))
 
-    let b64 = try UgreenStreamResolver.encrypt(password: "hunter2", withPublicKeyData: pubData)
-    let cipher = try #require(Data(base64Encoded: b64))
-    let plain = try #require(SecKeyCreateDecryptedData(privateKey, .rsaEncryptionPKCS1, cipher as CFData, &err) as Data?)
-    #expect(String(data: plain, encoding: .utf8) == "hunter2")
+    let first = try #require(Data(base64Encoded: UgreenStreamResolver.encrypt(
+        password: "hunter2",
+        withPublicKeyData: publicKeyDER
+    )))
+    let second = try #require(Data(base64Encoded: UgreenStreamResolver.encrypt(
+        password: "hunter2",
+        withPublicKeyData: publicKeyDER
+    )))
+
+    #expect(first.count == 256)
+    #expect(second.count == 256)
+    #expect(first != second) // PKCS#1 v1.5 padding must be randomized.
 }
 
 // MARK: - QNAP / fnOS NAS

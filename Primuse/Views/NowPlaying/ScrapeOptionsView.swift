@@ -1805,7 +1805,7 @@ private actor ScraperThumbnailLoader {
             if urlString?.isEmpty == false {
                 scraper = nil
             } else {
-                scraper = await self.scraper(for: sourceConfig)
+                scraper = self.scraper(for: sourceConfig)
             }
             let data = await Self.fetch(
                 urlString: urlString,
@@ -1813,7 +1813,7 @@ private actor ScraperThumbnailLoader {
                 sourceConfig: sourceConfig,
                 scraper: scraper
             )
-            await self.releasePermit()
+            self.releasePermit()
             return data
         }
         inFlight[key] = task

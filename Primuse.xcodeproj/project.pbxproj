@@ -547,6 +547,7 @@
 		C5DA9BC12C2530019948D296 /* SharedNowPlayingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 136E43CE662D6E0E06C21E26 /* SharedNowPlayingState.swift */; };
 		C68B578CB1EAC6C7B84BC318 /* ScrobbleProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74A342EFF9101DE4480355B9 /* ScrobbleProvider.swift */; };
 		C6E282334931C63D5C91CB7B /* NFSSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A86E05F2143FF7A15E29948C /* NFSSource.swift */; };
+		C3E6A5B8F0D123456789ABCD /* NFSClientBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C4E3F6D8B09123456789AB /* NFSClientBackend.swift */; };
 		C701DD82C4CAA9E2C0B01302 /* RevealableSecureField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23CA6DF05BAC0E0F38218C88 /* RevealableSecureField.swift */; };
 		C704ABB3376C76160612D0D6 /* TagEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F7380ABF7CFF416B08F01F2 /* TagEditorView.swift */; };
 		C7EC780823A0FE47FF71BFFE /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 60849A3BA068DBB563EFA62E /* InfoPlist.strings */; };
@@ -593,6 +594,7 @@
 		DB9E5F2628D4E445C822E8D3 /* LyricsTranslationCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8CBD34CDDF944EDE45F0D28 /* LyricsTranslationCache.swift */; };
 		DBEB1006A1C6D8EE8BC47135 /* FileLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9F569D02D3E6102A0C0E1CF /* FileLogger.swift */; };
 		DDB06ADDF4431E958BF177F7 /* NFSSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A86E05F2143FF7A15E29948C /* NFSSource.swift */; };
+		B2D5F4A7E9C1023456789ABC /* NFSClientBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C4E3F6D8B09123456789AB /* NFSClientBackend.swift */; };
 		DE0561DB9A15B686C84CEE8C /* CloudAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8C714C150FC7495AF3988FB /* CloudAccount.swift */; };
 		DF207060532441F426923D9E /* UPnPSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A7C2D0F07C125A333AC1046 /* UPnPSource.swift */; };
 		DFFE0575061D74F00FCB2BD3 /* AMSMB2 in Embed Frameworks */ = {isa = PBXBuildFile; productRef = D27B8A9F7EB545A6FD182BB9 /* AMSMB2 */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -1152,6 +1154,7 @@
 		A838C1C1D523CAD6E766726A /* TVRoot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVRoot.swift; sourceTree = "<group>"; };
 		A8607E666A6AB28E00D1C257 /* FileMetadataReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileMetadataReader.swift; sourceTree = "<group>"; };
 		A86E05F2143FF7A15E29948C /* NFSSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NFSSource.swift; sourceTree = "<group>"; };
+		A1C4E3F6D8B09123456789AB /* NFSClientBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NFSClientBackend.swift; sourceTree = "<group>"; };
 		AAA12C906FD443EE450488F7 /* ScrobbleSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrobbleSettings.swift; sourceTree = "<group>"; };
 		AAE593077B230AED26E36FAF /* ScrapeWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrapeWindowController.swift; sourceTree = "<group>"; };
 		AC2D3494E7475F44773698F9 /* DropboxSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DropboxSource.swift; sourceTree = "<group>"; };
@@ -1506,6 +1509,7 @@
 				899FC409D467BC67F47C75C2 /* MusicSourceProtocol.swift */,
 				491A850F03AC46FECF60ADFD /* NetworkDiscoveryService.swift */,
 				A86E05F2143FF7A15E29948C /* NFSSource.swift */,
+				A1C4E3F6D8B09123456789AB /* NFSClientBackend.swift */,
 				7D86538AD37BA59C267F1B20 /* QnapAPI.swift */,
 				CA179334735B8A7FCFC9F055 /* QnapSource.swift */,
 				2FD2BBC1EC1BECCE0D1EEF17 /* S3Source.swift */,
@@ -2941,6 +2945,7 @@
 				F541FEEE24E4E7AA015EF638 /* MusicVideoStreamingLoader.swift in Sources */,
 				CBF80DCFF81D6AD88D25A143 /* NFSBrowserView.swift in Sources */,
 				C6E282334931C63D5C91CB7B /* NFSSource.swift in Sources */,
+				C3E6A5B8F0D123456789ABCD /* NFSClientBackend.swift in Sources */,
 				97FDC1287DB3CE7142AD3890 /* NativeAudioDecoder.swift in Sources */,
 				55C2E602C6DB14FC308CC3CD /* NetworkDiscoveryService.swift in Sources */,
 				F0B155CA7AAE17AF632C7AE2 /* NetworkMonitor.swift in Sources */,
@@ -3236,6 +3241,7 @@
 				ECEDFBC81578D3110BFAC3B9 /* MusicVideoStreamingLoader.swift in Sources */,
 				10487AC0C5FAFDAFC022D23A /* NFSBrowserView.swift in Sources */,
 				DDB06ADDF4431E958BF177F7 /* NFSSource.swift in Sources */,
+				B2D5F4A7E9C1023456789ABC /* NFSClientBackend.swift in Sources */,
 				36E0CFC3794360116070FDE6 /* NativeAudioDecoder.swift in Sources */,
 				87D3B3265A7CBAA9C3AB046B /* NetworkDiscoveryService.swift in Sources */,
 				1EE5E389A8FE771DA64B8810 /* NetworkMonitor.swift in Sources */,

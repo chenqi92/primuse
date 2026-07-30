@@ -1,6 +1,5 @@
 import CryptoKit
 import Foundation
-import NFSKit
 import PrimuseKit
 
 enum NFSSelectionPathCodec {
@@ -105,7 +104,9 @@ actor NFSSource: MusicSourceConnector {
     private let host: String
     private let port: Int?
     private let configuredExportPath: String?
-    private var client: NFSClient?
+    private let nfsVersion: NFSVersion
+    private var client: (any NFSClientBackend)?
+    private var activeVersion: NFSVersion?
     private var connectedExportPath: String?
     private var cachedExports: [String]?
     private let cacheDirectory: URL
@@ -120,6 +121,7 @@ actor NFSSource: MusicSourceConnector {
         self.sourceID = sourceID
         self.host = host
         self.port = port
+        self.nfsVersion = nfsVersion
         let normalizedExport = exportPath?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.configuredExportPath = normalizedExport?.isEmpty == false
             ? NFSSelectionPathCodec.normalizedExportPath(normalizedExport!)
@@ -131,13 +133,12 @@ actor NFSSource: MusicSourceConnector {
         try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
         self.cacheDirectory = cacheDirectory
 
-        _ = nfsVersion
     }
 
     func connect() async throws {
         _ = try resolveClient()
         if let configuredExportPath {
-            try await ensureConnected(to: configuredExportPath)
+            _ = try await ensureConnected(to: configuredExportPath)
         }
     }
 
@@ -146,11 +147,10 @@ actor NFSSource: MusicSourceConnector {
             return
         }
 
-        if let connectedExportPath {
-            await disconnect(client: client, exportPath: connectedExportPath)
-        }
+        await client.disconnect()
 
         self.client = nil
+        self.activeVersion = nil
         self.connectedExportPath = nil
         self.cachedExports = nil
     }
@@ -190,8 +190,7 @@ actor NFSSource: MusicSourceConnector {
 
     func localURL(for path: String) async throws -> URL {
         let selection = try resolveSelectionPath(for: path)
-        let client = try resolveClient()
-        try await ensureConnected(to: selection.exportPath)
+        let client = try await ensureConnected(to: selection.exportPath)
 
         let localURL = cacheDirectory.appendingPathComponent(cacheFileName(for: selection))
         if FileManager.default.fileExists(atPath: localURL.path) {
@@ -199,11 +198,7 @@ actor NFSSource: MusicSourceConnector {
         }
 
         do {
-            try await download(
-                client: client,
-                remotePath: selection.relativePath,
-                to: localURL
-            )
+            try await client.download(path: selection.relativePath, to: localURL)
             return localURL
         } catch {
             try? FileManager.default.removeItem(at: localURL)
@@ -213,51 +208,24 @@ actor NFSSource: MusicSourceConnector {
 
     func deleteFile(at path: String) async throws {
         let selection = try resolveSelectionPath(for: path)
-        let client = try resolveClient()
-        try await ensureConnected(to: selection.exportPath)
+        let client = try await ensureConnected(to: selection.exportPath)
 
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            client.removeFile(atPath: selection.relativePath) { error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: ())
-                }
-            }
-        }
+        try await client.remove(path: selection.relativePath)
     }
 
-    /// NFS3/4 READ via NFSKit's `contents(atPath:range:progress:)`。底层是 libnfs
-    /// 的 NFS_READ RPC (offset + count), 协议级支持任意 offset 读, 让
-    /// CloudPlaybackSource 边下边播替代整文件下载。
+    /// NFSv3/v4 都通过 libnfs 执行 NFS_READ (offset + count)，协议级支持
+    /// 任意 offset 读取，让 CloudPlaybackSource 边下边播替代整文件下载。
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
         guard length > 0 else { return Data() }
         let selection = try resolveSelectionPath(for: path)
-        let client = try resolveClient()
-        try await ensureConnected(to: selection.exportPath)
+        let client = try await ensureConnected(to: selection.exportPath)
 
-        // offset < 0 表示从末尾倒数, 先 stat 拿 size 转正。用 callback 版本
-        // 包 continuation, 避免直接 await NFSClient async 方法触发
-        // Swift 6 actor isolation 警告 (NFSClient 不是 Sendable)。
+        // offset < 0 表示从末尾倒数，先 stat 拿 size 转正。
         let actualRange: Range<Int64>
         if offset < 0 {
-            let total: Int64 = try await withCheckedThrowingContinuation { continuation in
-                client.attributesOfItem(atPath: selection.relativePath) { result in
-                    switch result {
-                    case .success(let attrs):
-                        // 区分"大小拿不到"与"0 字节文件": 前者无法换算 suffix range,
-                        // 返回空会被回填误判为"无尾部标签"而静默丢标签, 应抛错。
-                        if let total = (attrs[.fileSizeKey] as? Int64)
-                            ?? (attrs[.fileSizeKey] as? Int).map({ Int64($0) }) {
-                            continuation.resume(returning: total)
-                        } else {
-                            continuation.resume(throwing: SourceError.fileNotFound(selection.relativePath))
-                        }
-                    case .failure(let error):
-                        continuation.resume(throwing: error)
-                    }
-                }
-            }
+            // 区分"大小拿不到"与"0 字节文件": 前者无法换算 suffix range,
+            // 返回空会被回填误判为"无尾部标签"而静默丢标签, 应抛错。
+            let total = try await client.fileSize(path: selection.relativePath)
             let start = max(0, total + offset)
             guard let requestedEnd = SafeByteRange.exclusiveEnd(offset: start, length: length) else {
                 return Data()
@@ -272,16 +240,11 @@ actor NFSSource: MusicSourceConnector {
             actualRange = offset..<end
         }
 
-        return try await withCheckedThrowingContinuation { continuation in
-            client.contents(atPath: selection.relativePath, range: actualRange, progress: nil) { result in
-                switch result {
-                case .success(let data):
-                    continuation.resume(returning: data)
-                case .failure(let error):
-                    continuation.resume(throwing: error)
-                }
-            }
-        }
+        return try await client.read(
+            path: selection.relativePath,
+            offset: actualRange.lowerBound,
+            length: actualRange.upperBound - actualRange.lowerBound
+        )
     }
 
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
@@ -339,17 +302,23 @@ actor NFSSource: MusicSourceConnector {
         }
     }
 
-    private func resolveClient() throws -> NFSClient {
+    private func resolveClient() throws -> any NFSClientBackend {
         if let client {
             return client
         }
 
-        let client = try makeClient()
+        let version = nfsVersion.connectionAttemptOrder[0]
+        let client = try makeClient(version: version)
         self.client = client
+        self.activeVersion = version
         return client
     }
 
-    private func makeClient() throws -> NFSClient {
+    private func makeClient(version: NFSVersion) throws -> any NFSClientBackend {
+        if version == .v4 {
+            return NFSv4ClientBackend(host: host, port: port, sourceID: sourceID)
+        }
+
         // IPv6 addresses must be wrapped in brackets for URL construction
         let urlHost = host.contains(":") && !host.hasPrefix("[")
             ? "[\(host)]"
@@ -362,12 +331,11 @@ actor NFSSource: MusicSourceConnector {
             components.port = port
         }
 
-        guard let url = components.url,
-              let client = try NFSClient(url: url) else {
+        guard let url = components.url else {
             throw SourceError.connectionFailed("Invalid NFS host")
         }
 
-        return client
+        return try NFSKitClientBackend(url: url)
     }
 
     private func loadExports(forceRefresh: Bool = false) async throws -> [String] {
@@ -375,55 +343,73 @@ actor NFSSource: MusicSourceConnector {
             return cachedExports
         }
 
-        let client = try resolveClient()
-        let exports = try await withCheckedThrowingContinuation { continuation in
-            client.listExports { result in
-                continuation.resume(with: result)
+        var client = try resolveClient()
+        let exports: [String]
+        do {
+            let loaded = try await client.listExports()
+            guard loaded.isEmpty == false else {
+                throw SourceError.connectionFailed("No NFS exports found")
             }
+            exports = loaded
+        } catch {
+            client = try await switchToV4ForAuto(after: error)
+            exports = try await client.listExports()
         }
-        .map(NFSSelectionPathCodec.normalizedExportPath)
-        .sorted { $0.localizedCompare($1) == .orderedAscending }
 
-        if exports.isEmpty {
+        let normalizedExports = exports
+            .map(NFSSelectionPathCodec.normalizedExportPath)
+            .sorted { $0.localizedCompare($1) == .orderedAscending }
+
+        if normalizedExports.isEmpty {
             throw SourceError.connectionFailed("No NFS exports found")
         }
 
-        cachedExports = exports
-        return exports
+        cachedExports = normalizedExports
+        return normalizedExports
     }
 
-    private func ensureConnected(to exportPath: String) async throws {
-        let client = try resolveClient()
+    private func ensureConnected(to exportPath: String) async throws -> any NFSClientBackend {
+        var activeClient = try resolveClient()
         let normalizedExportPath = NFSSelectionPathCodec.normalizedExportPath(exportPath)
 
         if connectedExportPath == normalizedExportPath {
-            return
+            return activeClient
         }
 
-        if let connectedExportPath {
-            await disconnect(client: client, exportPath: connectedExportPath)
+        if connectedExportPath != nil {
+            await activeClient.disconnect()
             self.connectedExportPath = nil
         }
 
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            client.connect(export: normalizedExportPath) { error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: ())
-                }
-            }
+        do {
+            try await activeClient.connect(exportPath: normalizedExportPath)
+        } catch {
+            let fallback = try await switchToV4ForAuto(after: error)
+            try await fallback.connect(exportPath: normalizedExportPath)
+            activeClient = fallback
         }
 
         connectedExportPath = normalizedExportPath
+        return activeClient
     }
 
-    private func disconnect(client: NFSClient, exportPath: String) async {
-        await withCheckedContinuation { continuation in
-            client.disconnect(export: exportPath, gracefully: true) { _ in
-                continuation.resume()
-            }
+    private func switchToV4ForAuto(after originalError: any Error) async throws -> any NFSClientBackend {
+        guard nfsVersion.connectionAttemptOrder.count > 1,
+              nfsVersion.connectionAttemptOrder.contains(.v4),
+              activeVersion != .v4 else {
+            throw originalError
         }
+
+        if let client {
+            await client.disconnect()
+        }
+
+        let fallback = try makeClient(version: .v4)
+        client = fallback
+        activeVersion = .v4
+        connectedExportPath = nil
+        cachedExports = nil
+        return fallback
     }
 
     private func resolveSelectionPath(for path: String) throws -> NFSSelectionPathCodec.SelectionPath {
@@ -445,58 +431,23 @@ actor NFSSource: MusicSourceConnector {
         exportPath: String,
         relativePath: String
     ) async throws -> [RemoteFileItem] {
-        let client = try resolveClient()
-        try await ensureConnected(to: exportPath)
+        let client = try await ensureConnected(to: exportPath)
 
-        return try await withCheckedThrowingContinuation { continuation in
-            client.contentsOfDirectory(atPath: relativePath) { result in
-                switch result {
-                case .success(let entries):
-                    let items = entries.compactMap { entry -> RemoteFileItem? in
-                        guard let name = entry.name, name != ".", name != "..",
-                              let remotePath = entry.path else {
-                            return nil
-                        }
-
-                        let normalizedPath = NFSSelectionPathCodec.normalizedRelativePath(remotePath)
-                        let isDirectory = entry.isDirectory || entry.fileResourceType == .directory
-
-                        return RemoteFileItem(
-                            name: name,
-                            path: NFSSelectionPathCodec.makeSelectionPath(
-                                exportPath: exportPath,
-                                relativePath: normalizedPath
-                            ),
-                            isDirectory: isDirectory,
-                            size: entry.fileSize ?? 0,
-                            modifiedDate: entry.contentModificationDate
-                                ?? entry.attributeModificationDate
-                                ?? entry.creationDate
-                        )
-                    }
-                    .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
-                    continuation.resume(returning: items)
-                case .failure(let error):
-                    continuation.resume(throwing: error)
-                }
+        return try await client.listDirectory(path: relativePath)
+            .map { entry in
+                let normalizedPath = NFSSelectionPathCodec.normalizedRelativePath(entry.path)
+                return RemoteFileItem(
+                    name: entry.name,
+                    path: NFSSelectionPathCodec.makeSelectionPath(
+                        exportPath: exportPath,
+                        relativePath: normalizedPath
+                    ),
+                    isDirectory: entry.isDirectory,
+                    size: entry.size,
+                    modifiedDate: entry.modifiedDate
+                )
             }
-        }
-    }
-
-    private func download(
-        client: NFSClient,
-        remotePath: String,
-        to localURL: URL
-    ) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            client.downloadItem(atPath: remotePath, to: localURL, progress: { _, _ in true }) { error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: ())
-                }
-            }
-        }
+            .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
     }
 
     private func cacheFileName(for selection: NFSSelectionPathCodec.SelectionPath) -> String {
