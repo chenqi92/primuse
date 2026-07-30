@@ -3248,15 +3248,27 @@ final class AudioPlayerService {
             return
         }
         // A full-download streaming decoder can only seek after its completed
-        // file has entered the playback cache. Reject early while the current
-        // node is still running; the old path optimistically changed
-        // `currentTime`, stopped audio, then returned with a fake progress
-        // position when no cache file existed.
-        if activeDecoderKind == .streaming,
-           let song = currentSong,
-           sourceManager?.cachedURL(for: song) == nil {
-            plog("⚠️ Seek: streaming song not cached yet, leaving playback unchanged")
-            return
+        // file has entered the playback cache. A user scrub must leave the
+        // still-running node untouched, but interruption recovery cannot be
+        // rejected the same way: the system has already stopped that node and
+        // every later play command would otherwise return through this guard.
+        if activeDecoderKind == .streaming, let song = currentSong {
+            let decision = FullDownloadSeekPolicy.decision(
+                hasSeekableFile: sourceManager?.cachedURL(for: song) != nil,
+                isInterruptionRecovery: isRecovery
+            )
+            switch decision {
+            case .proceed:
+                break
+            case .keepCurrentPlayback:
+                plog("⚠️ Seek: streaming song not cached yet, leaving playback unchanged")
+                return
+            case .restartCurrentSong:
+                plog("🔄 Recovery: streaming song has no seekable cache; restarting current song")
+                clearPendingPlaybackRecovery()
+                Task { await play(song: song) }
+                return
+            }
         }
         let previousTime = currentTime
         let requestedTime = TimeInterval.sanitized(time)

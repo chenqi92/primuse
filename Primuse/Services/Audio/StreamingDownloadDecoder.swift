@@ -111,13 +111,42 @@ final class StreamingDownloadDecoder: Sendable {
                     guard decoder.canDecode(url: typedTempURL) else {
                         throw AudioDecoderError.unsupportedFormat(ext)
                     }
-                    if let info = try? await decoder.fileInfo(for: typedTempURL), info.duration > 0 {
+
+                    // The network download is already complete here. Persist it
+                    // before paced PCM decoding starts so interruption recovery
+                    // can reopen this exact file and seek with FFmpeg. Waiting
+                    // until the decoder reaches EOF used to leave `cachedURL`
+                    // unavailable for almost the entire track because bounded
+                    // PCM backpressure intentionally runs near playback speed.
+                    let decodingURL: URL
+                    if let cacheURL = cacheFileURL {
+                        do {
+                            try FileManager.default.createDirectory(
+                                at: cacheURL.deletingLastPathComponent(),
+                                withIntermediateDirectories: true
+                            )
+                            try? FileManager.default.removeItem(at: cacheURL)
+                            try FileManager.default.moveItem(at: typedTempURL, to: cacheURL)
+                            decodingURL = cacheURL
+                            plog("🌊 DownloadDecoder: materialized cache before decode → \(cacheURL.lastPathComponent)")
+                        } catch {
+                            // Cache persistence is optional. Keep playback alive
+                            // from the complete temp file and retry the move after
+                            // decoding, matching the previous best-effort behavior.
+                            decodingURL = typedTempURL
+                            plog("⚠️ DownloadDecoder early cache move failed; using temp file: \(error.localizedDescription)")
+                        }
+                    } else {
+                        decodingURL = typedTempURL
+                    }
+
+                    if let info = try? await decoder.fileInfo(for: decodingURL), info.duration > 0 {
                         onResolveSourceLength?(info.duration)
                     }
                     plog("🌊 DownloadDecoder: routed .\(ext) via \(String(describing: type(of: decoder)))")
                     var yieldedBuffers = 0
                     do {
-                        for try await buffer in decoder.decode(from: typedTempURL, outputFormat: outputFormat) {
+                        for try await buffer in decoder.decode(from: decodingURL, outputFormat: outputFormat) {
                             try Task.checkCancellation()
                             yieldedBuffers += 1
                             try await AudioBufferStreamFactory.yieldWithBackpressure(
@@ -134,12 +163,12 @@ final class StreamingDownloadDecoder: Sendable {
                         let fallback = FFmpegAudioDecoder()
                         guard yieldedBuffers == 0,
                               !(decoder is FFmpegAudioDecoder),
-                              fallback.canDecode(url: typedTempURL) else { throw error }
+                              fallback.canDecode(url: decodingURL) else { throw error }
                         plog("↳ DownloadDecoder native open failed; retrying with FFmpeg")
-                        if let info = try? await fallback.fileInfo(for: typedTempURL), info.duration > 0 {
+                        if let info = try? await fallback.fileInfo(for: decodingURL), info.duration > 0 {
                             onResolveSourceLength?(info.duration)
                         }
-                        for try await buffer in fallback.decode(from: typedTempURL, outputFormat: outputFormat) {
+                        for try await buffer in fallback.decode(from: decodingURL, outputFormat: outputFormat) {
                             try Task.checkCancellation()
                             try await AudioBufferStreamFactory.yieldWithBackpressure(
                                 buffer,
@@ -148,17 +177,22 @@ final class StreamingDownloadDecoder: Sendable {
                         }
                     }
 
-                    // Step 3: Cache the downloaded file
+                    // Step 3: Clean up or retry a cache move that failed before
+                    // decoding. A file already materialized at `cacheFileURL` is
+                    // intentionally retained even if playback was interrupted.
                     if let cacheURL = cacheFileURL {
-                        try? FileManager.default.createDirectory(
-                            at: cacheURL.deletingLastPathComponent(),
-                            withIntermediateDirectories: true
-                        )
-                        try? FileManager.default.removeItem(at: cacheURL)
-                        try? FileManager.default.moveItem(at: typedTempURL, to: cacheURL)
-                        plog("🌊 DownloadDecoder: cached → \(cacheURL.lastPathComponent)")
+                        if decodingURL.standardizedFileURL != cacheURL.standardizedFileURL {
+                            try? FileManager.default.createDirectory(
+                                at: cacheURL.deletingLastPathComponent(),
+                                withIntermediateDirectories: true
+                            )
+                            try? FileManager.default.removeItem(at: cacheURL)
+                            if (try? FileManager.default.moveItem(at: decodingURL, to: cacheURL)) != nil {
+                                plog("🌊 DownloadDecoder: cached after decode → \(cacheURL.lastPathComponent)")
+                            }
+                        }
                     } else {
-                        try? FileManager.default.removeItem(at: typedTempURL)
+                        try? FileManager.default.removeItem(at: decodingURL)
                     }
 
                     continuation.finish()
