@@ -7,6 +7,10 @@ actor SynologyScanner {
     private let api: SynologyAPI
     private let sourceID: String
     private static let isoBaseMediaExtensions: Set<String> = ["m4a", "m4b", "mp4", "m4v", "mov", "alac"]
+    /// Song IDs whose metadata/title source was actually inspected by this
+    /// scanner run. ScanService drains this set before publishing each batch
+    /// so MetadataBackfillService does not issue the same remote Range reads.
+    private var pendingMetadataInspectedSongIDs: Set<String> = []
 
     init(api: SynologyAPI, sourceID: String) {
         self.api = api
@@ -20,16 +24,23 @@ actor SynologyScanner {
         var songs: [Song]
     }
 
+    func takeMetadataInspectedSongIDs() -> Set<String> {
+        let ids = pendingMetadataInspectedSongIDs
+        pendingMetadataInspectedSongIDs.removeAll(keepingCapacity: true)
+        return ids
+    }
+
     func scan(
         directories: [String],
         existingSongs: [Song] = [],
         startingCount: Int = 0
     ) -> AsyncThrowingStream<ScanUpdate, Error> {
+        pendingMetadataInspectedSongIDs.removeAll(keepingCapacity: true)
         // Every update contains the complete accumulated Song array. Match the
         // bounded ConnectorScanner behavior introduced for large libraries:
         // if persistence/UI is slower than the NAS walk, retain only the most
         // recent snapshot instead of an unbounded chain of copy-on-write arrays.
-        AsyncThrowingStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+        return AsyncThrowingStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let task = Task {
                 do {
                     // Remove redundant child directories when a parent is already selected
@@ -200,6 +211,7 @@ actor SynologyScanner {
                 if let descriptors = cueTracksByAudioPath[item.path], !descriptors.isEmpty {
                     let cueSongs = await buildCueSongs(from: item, descriptors: descriptors)
                     for var song in cueSongs {
+                        pendingMetadataInspectedSongIDs.insert(song.id)
                         encounteredSongIDs.insert(song.id)
                         count += 1
                         if let index = existingByID[song.id] {
@@ -284,6 +296,21 @@ actor SynologyScanner {
                         } else if Self.isSameNameMusicVideoSidecar(existing.mvPath, baseName: baseName, in: parentDir) {
                             allSongs[idx].mvPath = nil
                         }
+                        // Structured NAS filenames are authoritative even for
+                        // an unchanged legacy row. Reparse them without a
+                        // network read so an upgrade fixes the old full-name
+                        // title and can close its title-check migration.
+                        if baseName.contains(" _ ") {
+                            let parsedTitle = MediaMetadataTextRepair.fileNameTitle(from: item.name) ?? baseName
+                            let parsedArtist = MediaMetadataTextRepair.fileNameArtist(from: item.name)
+                            if allSongs[idx].title == baseName || MediaMetadataTextRepair.isSuspicious(allSongs[idx].title) {
+                                allSongs[idx].title = parsedTitle
+                            }
+                            if allSongs[idx].artistName == nil || MediaMetadataTextRepair.isSuspicious(allSongs[idx].artistName) {
+                                allSongs[idx].artistName = parsedArtist
+                            }
+                            pendingMetadataInspectedSongIDs.insert(allSongs[idx].id)
+                        }
                         continue
                     }
                 }
@@ -294,6 +321,7 @@ actor SynologyScanner {
                 ))
 
                 var song = await extractSongMetadata(item: item, ext: ext)
+                pendingMetadataInspectedSongIDs.insert(song.id)
 
                 // Priority: sidecar path > embedded/cached > nil。原地覆盖这两个
                 // 字段即可, 不要用部分 init 重建 —— 那会把 lastModified/revision/
@@ -504,10 +532,11 @@ actor SynologyScanner {
             scannedCount: count, totalCount: totalCount, currentFile: item.name, songs: allSongs
         ))
 
-        let (_, parsedArtist) = parseFilename(baseName)
+        let parsedTitle = MediaMetadataTextRepair.fileNameTitle(from: item.name) ?? baseName
+        let parsedArtist = MediaMetadataTextRepair.fileNameArtist(from: item.name)
         var song = Song(
             id: generateID(sourceID: sourceID, path: item.path),
-            title: baseName,
+            title: parsedTitle,
             artistName: parsedArtist,
             duration: 0,
             fileFormat: AudioFormat.from(fileExtension: ext) ?? .mp4,
@@ -525,6 +554,7 @@ actor SynologyScanner {
         } else {
             allSongs.append(song)
         }
+        pendingMetadataInspectedSongIDs.insert(song.id)
     }
 
     private static func hasSameNameAudio(
@@ -573,14 +603,17 @@ actor SynologyScanner {
         let parentDir = (item.path as NSString).deletingLastPathComponent
         let albumFromPath = (parentDir as NSString).lastPathComponent
 
-        // Title always comes from filename (more reliable than embedded metadata)
+        // Start with the shared filename policy, then prefer a valid embedded
+        // title when present. This matches MetadataBackfillService's migration
+        // rule and lets this full-metadata scan acknowledge the title check.
         let fileBaseName = (item.name as NSString).deletingPathExtension
-        let (_, parsedArtist) = parseFilename(fileBaseName)
+        let parsedTitle = MediaMetadataTextRepair.fileNameTitle(from: item.name) ?? fileBaseName
+        let parsedArtist = MediaMetadataTextRepair.fileNameArtist(from: item.name)
 
         // Don't use generic folder names as album title
         let genericFolders: Set<String> = ["music", "音乐", "Music", "songs", "Songs", "audio", "Audio", "media", "Media", "downloads", "Downloads"]
 
-        let title = fileBaseName
+        var title = parsedTitle
         var artist = parsedArtist
         var album: String? = genericFolders.contains(albumFromPath) ? nil : albumFromPath
         var trackNumber: Int?
@@ -663,6 +696,9 @@ actor SynologyScanner {
 
             if let value = embedded.artist?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
                 artist = embedded.artist
+            }
+            if let embeddedTitle = MediaMetadataTextRepair.repaired(embedded.title) {
+                title = embeddedTitle
             }
             if let value = embedded.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
                 album = embedded.albumTitle
@@ -851,22 +887,6 @@ actor SynologyScanner {
         } catch {
             return nil
         }
-    }
-
-    private func parseFilename(_ name: String) -> (title: String, artist: String?) {
-        if let range = name.range(of: " - ") {
-            let before = String(name[name.startIndex..<range.lowerBound]).trimmingCharacters(in: .whitespaces)
-            let after = String(name[range.upperBound...]).trimmingCharacters(in: .whitespaces)
-            if before.allSatisfy(\.isNumber) { return (after, nil) }
-            return (after, before)
-        }
-        if let dot = name.range(of: ". ") {
-            let before = String(name[name.startIndex..<dot.lowerBound])
-            if before.allSatisfy(\.isNumber) {
-                return (String(name[dot.upperBound...]).trimmingCharacters(in: .whitespaces), nil)
-            }
-        }
-        return (name, nil)
     }
 
     private func generateID(sourceID: String, path: String) -> String {

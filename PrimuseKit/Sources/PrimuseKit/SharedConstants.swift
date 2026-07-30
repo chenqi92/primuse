@@ -644,6 +644,39 @@ public enum ShuffleContinuationPolicy {
     }
 }
 
+/// Decides whether a manual "next" command is allowed to start another
+/// decode. A one-song, repeat-off queue has no successor; treating modulo 1
+/// as an advance only downloads and restarts the same remote file.
+public enum ManualQueueAdvancePolicy {
+    public static func shouldAdvance(
+        queueCount: Int,
+        repeatMode: RepeatMode,
+        shuffleEnabled: Bool,
+        hasSuccessor: Bool
+    ) -> Bool {
+        guard queueCount > 0 else { return false }
+        guard queueCount == 1, repeatMode == .off else { return true }
+        return shuffleEnabled && hasSuccessor
+    }
+}
+
+/// Shared predicate for the background metadata pipeline. A scanner can mark
+/// only the title inspection as complete while still leaving duration or MP3
+/// artwork work eligible for backfill.
+public enum MetadataBackfillEligibilityPolicy {
+    public static func needsBackfill(
+        duration: TimeInterval,
+        format: AudioFormat,
+        hasCoverArt: Bool,
+        artworkGivenUp: Bool,
+        titleChecked: Bool
+    ) -> Bool {
+        duration <= 0
+            || (format == .mp3 && !hasCoverArt && !artworkGivenUp)
+            || !titleChecked
+    }
+}
+
 /// Protects the identity supplied by a CUE sheet when metadata is scraped from
 /// the shared physical audio file. A forced scrape may replace ordinary-track
 /// text, but it must not collapse every virtual segment to one file-level name.

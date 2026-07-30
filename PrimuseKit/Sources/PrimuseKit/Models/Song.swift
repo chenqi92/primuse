@@ -156,12 +156,15 @@ public enum MediaMetadataTextRepair {
 
     public static func fileNameTitle(from path: String?) -> String? {
         guard let baseName = fileBaseName(from: path) else { return nil }
+        if let numberedTitle = numberedTrackTitle(baseName) { return numberedTitle }
         return splitArtistAndTitle(baseName)?.title ?? baseName
     }
 
     public static func fileNameArtist(from path: String?) -> String? {
         guard let baseName = fileBaseName(from: path) else { return nil }
-        return splitArtistAndTitle(baseName)?.artist
+        if numberedTrackTitle(baseName) != nil { return nil }
+        guard let parsed = splitArtistAndTitle(baseName) else { return nil }
+        return parsed.artist.allSatisfy(\.isNumber) ? nil : parsed.artist
     }
 
     private static func fileBaseName(from path: String?) -> String? {
@@ -174,6 +177,22 @@ public enum MediaMetadataTextRepair {
     }
 
     private static func splitArtistAndTitle(_ value: String) -> (artist: String, title: String)? {
+        // A number of NAS music collections use a spaced underscore as a
+        // field separator, for example:
+        //   Artist _ Title _ 20140101 _ [edition] _ source
+        // Only split the explicitly-spaced form. A bare underscore is common
+        // inside legitimate artist/title names and must remain untouched.
+        let underscoreParts = value
+            .components(separatedBy: " _ ")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        if underscoreParts.count >= 2,
+           let artist = underscoreParts.first,
+           let title = underscoreParts.dropFirst().first,
+           !artist.isEmpty,
+           !title.isEmpty {
+            return (artist, title)
+        }
+
         guard let range = value.range(of: "\\s+[–—-]\\s+", options: .regularExpression) else {
             return nil
         }
@@ -181,6 +200,20 @@ public enum MediaMetadataTextRepair {
         let title = String(value[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !artist.isEmpty, !title.isEmpty else { return nil }
         return (artist, title)
+    }
+
+    private static func numberedTrackTitle(_ value: String) -> String? {
+        if let dot = value.range(of: ". ") {
+            let prefix = value[..<dot.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+            let title = value[dot.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !prefix.isEmpty, prefix.allSatisfy(\.isNumber), !title.isEmpty {
+                return title
+            }
+        }
+        if let parsed = splitArtistAndTitle(value), parsed.artist.allSatisfy(\.isNumber) {
+            return parsed.title
+        }
+        return nil
     }
 
     private static func legacyChineseCandidate(for value: String) -> String? {

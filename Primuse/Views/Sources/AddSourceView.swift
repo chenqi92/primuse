@@ -133,12 +133,6 @@ struct AddSourceView: View {
                         .disabled(canSave == false)
                         .fontWeight(.semibold)
                 }
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button { focusedField = nil } label: {
-                        Image(systemName: "keyboard.chevron.compact.down")
-                    }
-                }
             }
             .onAppear { initializeFields() }
         }

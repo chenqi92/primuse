@@ -12,6 +12,9 @@ import UIKit
 @MainActor
 @Observable
 final class ScanService {
+    /// Full-metadata scanners report only IDs they actually inspected. AppServices
+    /// wires this to MetadataBackfillService after both services are initialized.
+    @ObservationIgnored var metadataInspectionHandler: ((Set<String>) -> Void)?
     struct ScanState: Equatable {
         var isScanning: Bool = false
         var currentFile: String = ""
@@ -507,6 +510,7 @@ final class ScanService {
             for try await update in stream {
                 try Task.checkCancellation()
                 try checkSourceStillEnabled(source.id, sourceStore: sourceStore)
+                metadataInspectionHandler?(await scanner.takeMetadataInspectedSongIDs())
                 publishScanProgress(
                     sourceID: source.id,
                     scannedCount: update.scannedCount,
@@ -541,6 +545,7 @@ final class ScanService {
 
             try Task.checkCancellation()
             try checkSourceStillEnabled(source.id, sourceStore: sourceStore)
+            metadataInspectionHandler?(await scanner.takeMetadataInspectedSongIDs())
             // Synology doesn't go through CloudPlaybackSource — skip prewarm sweep.
             completeScan(
                 sourceID: source.id,

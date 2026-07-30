@@ -70,3 +70,89 @@ struct ShuffleContinuationPolicyTests {
         ) == ["c", "d"])
     }
 }
+
+@Suite("Manual queue advance")
+struct ManualQueueAdvancePolicyTests {
+    @Test("Repeat-off single song does not restart itself")
+    func singleSongNoOp() {
+        #expect(!ManualQueueAdvancePolicy.shouldAdvance(
+            queueCount: 1,
+            repeatMode: .off,
+            shuffleEnabled: false,
+            hasSuccessor: false
+        ))
+    }
+
+    @Test("Shuffle single song advances after library extension")
+    func shuffledSingleSongCanExtend() {
+        #expect(ManualQueueAdvancePolicy.shouldAdvance(
+            queueCount: 1,
+            repeatMode: .off,
+            shuffleEnabled: true,
+            hasSuccessor: true
+        ))
+    }
+
+    @Test("Repeat modes may intentionally replay a single song")
+    func repeatModesReplay() {
+        #expect(ManualQueueAdvancePolicy.shouldAdvance(
+            queueCount: 1,
+            repeatMode: .all,
+            shuffleEnabled: false,
+            hasSuccessor: true
+        ))
+        #expect(ManualQueueAdvancePolicy.shouldAdvance(
+            queueCount: 1,
+            repeatMode: .one,
+            shuffleEnabled: false,
+            hasSuccessor: true
+        ))
+    }
+}
+
+@Suite("Metadata backfill eligibility")
+struct MetadataBackfillEligibilityPolicyTests {
+    @Test("Inspected DTS with duration does not re-fetch metadata")
+    func inspectedDTSIsComplete() {
+        #expect(!MetadataBackfillEligibilityPolicy.needsBackfill(
+            duration: 245,
+            format: .dts,
+            hasCoverArt: false,
+            artworkGivenUp: false,
+            titleChecked: true
+        ))
+    }
+
+    @Test("Scanner acknowledgement does not hide missing duration")
+    func bareSongStillBackfills() {
+        #expect(MetadataBackfillEligibilityPolicy.needsBackfill(
+            duration: 0,
+            format: .dts,
+            hasCoverArt: false,
+            artworkGivenUp: false,
+            titleChecked: true
+        ))
+    }
+
+    @Test("Inspected MP3 still gets one artwork attempt")
+    func mp3ArtworkStillBackfills() {
+        #expect(MetadataBackfillEligibilityPolicy.needsBackfill(
+            duration: 180,
+            format: .mp3,
+            hasCoverArt: false,
+            artworkGivenUp: false,
+            titleChecked: true
+        ))
+    }
+
+    @Test("Legacy uninspected songs retain title migration")
+    func legacyTitleStillBackfills() {
+        #expect(MetadataBackfillEligibilityPolicy.needsBackfill(
+            duration: 180,
+            format: .flac,
+            hasCoverArt: true,
+            artworkGivenUp: false,
+            titleChecked: false
+        ))
+    }
+}

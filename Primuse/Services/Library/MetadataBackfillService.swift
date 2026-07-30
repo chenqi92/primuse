@@ -613,6 +613,18 @@ final class MetadataBackfillService {
         if worker == nil { start() }
     }
 
+    /// Called by full-metadata scanners for IDs whose title source was already
+    /// inspected in this scan. This only closes the title-migration leg:
+    /// missing duration and MP3 artwork remain eligible through needsBackfill.
+    func acknowledgeScannerMetadataInspection(songIDs: Set<String>) {
+        guard !songIDs.isEmpty else { return }
+        let previousCount = titleCheckedIDs.count
+        titleCheckedIDs.formUnion(songIDs)
+        guard titleCheckedIDs.count != previousCount else { return }
+        saveTitleChecked()
+        refreshRemainingCounts(force: true)
+    }
+
     /// Block until the worker finishes draining the current queue. Used by
     /// the BGProcessingTask handler so iOS doesn't yank us mid-work.
     func waitUntilIdle() async {
@@ -1511,9 +1523,13 @@ final class MetadataBackfillService {
     /// artwork-give-up check keeps a duration-complete song from being re-picked
     /// forever just because its file has no embedded cover.
     private func needsBackfill(_ song: Song) -> Bool {
-        Self.isBareSong(song)
-            || (Self.needsEmbeddedArtworkBackfill(song) && !artworkGivenUpIDs.contains(song.id))
-            || !titleCheckedIDs.contains(song.id)
+        MetadataBackfillEligibilityPolicy.needsBackfill(
+            duration: song.duration,
+            format: song.fileFormat,
+            hasCoverArt: !(song.coverArtFileName?.isEmpty ?? true),
+            artworkGivenUp: artworkGivenUpIDs.contains(song.id),
+            titleChecked: titleCheckedIDs.contains(song.id)
+        )
     }
 
     private static func needsEmbeddedArtworkBackfill(_ song: Song) -> Bool {

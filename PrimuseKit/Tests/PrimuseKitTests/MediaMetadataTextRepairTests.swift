@@ -21,3 +21,21 @@ import Testing
     #expect(MediaMetadataTextRepair.fileNameArtist(from: path) == "等什么君")
     #expect(MediaMetadataTextRepair.fileNameTitle(from: path) == "慕夏")
 }
+
+@Test func extractsSpacedUnderscoreNASFilenameFields() {
+    let path = "/music/谭艳 _ 伤了心的女人怎么了 _ 20140101 _ 【贝壳音乐 环绕5.1声道】 _ PeY.dts"
+    #expect(MediaMetadataTextRepair.fileNameArtist(from: path) == "谭艳")
+    #expect(MediaMetadataTextRepair.fileNameTitle(from: path) == "伤了心的女人怎么了")
+}
+
+@Test func preservesBareUnderscoresInsideFilename() {
+    let path = "/music/AC_DC_Live.flac"
+    #expect(MediaMetadataTextRepair.fileNameArtist(from: path) == nil)
+    #expect(MediaMetadataTextRepair.fileNameTitle(from: path) == "AC_DC_Live")
+}
+
+@Test func preservesNumericTrackPrefixBehavior() {
+    #expect(MediaMetadataTextRepair.fileNameArtist(from: "/music/01 - Opening.flac") == nil)
+    #expect(MediaMetadataTextRepair.fileNameTitle(from: "/music/01 - Opening.flac") == "Opening")
+    #expect(MediaMetadataTextRepair.fileNameTitle(from: "/music/02. Finale.flac") == "Finale")
+}

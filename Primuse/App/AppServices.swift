@@ -85,10 +85,15 @@ final class AppServices {
         theme.setBaseAccent(MacUIPreferences.shared.brandColor)
         #endif
         self.themeService = theme
-        self.scanService = ScanService()
-        self.metadataBackfill = MetadataBackfillService(library: library, sourceManager: manager) {
+        let scanService = ScanService()
+        let metadataBackfill = MetadataBackfillService(library: library, sourceManager: manager) {
             Set(store.sources.filter { $0.isEnabled && $0.supportsRangeStreaming }.map(\.id))
         }
+        scanService.metadataInspectionHandler = { [weak metadataBackfill] songIDs in
+            metadataBackfill?.acknowledgeScannerMetadataInspection(songIDs: songIDs)
+        }
+        self.scanService = scanService
+        self.metadataBackfill = metadataBackfill
         self.lyricsTextBackfill = LyricsTextBackfillService(library: library)
         self.similarTracks = SimilarTracksService()
         self.updateChecker = AppUpdateChecker()

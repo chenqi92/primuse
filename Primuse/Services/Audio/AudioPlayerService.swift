@@ -3183,6 +3183,18 @@ final class AudioPlayerService {
         guard !queue.isEmpty else { return }
         let callerFile = (caller as NSString).lastPathComponent
         plog("⏭️ next() called FROM=\(callerFile):\(callerLine) currentIndex=\(currentIndex) queueCount=\(queue.count)")
+        if queue.count == 1, shuffleEnabled, repeatMode == .off {
+            _ = extendExhaustedShuffleFromLibrary()
+        }
+        guard ManualQueueAdvancePolicy.shouldAdvance(
+            queueCount: queue.count,
+            repeatMode: repeatMode,
+            shuffleEnabled: shuffleEnabled,
+            hasSuccessor: nextSongInQueue() != nil
+        ) else {
+            plog("⏭️ next: no successor in repeat-off single-song queue; keeping current playback")
+            return
+        }
         advanceToNextIndex()
         // 跳过相邻同 title+artist 的"重复歌曲" —— NAS 上同一首歌有多个版本
         // (mp3 + flac, 不同目录) scan 后是不同 song.id, 但用户看就是同一首,
