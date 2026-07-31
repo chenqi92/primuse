@@ -35,9 +35,13 @@ final class TVConfigServer: @unchecked Sendable {
 
     func stop() {
         queue.async { [weak self] in
-            self?.listener?.cancel()
-            self?.listener = nil
-            self?.boundPort = nil
+            guard let self else { return }
+            self.listener?.cancel()
+            self.listener = nil
+            self.boundPort = nil
+            self.activeConnections = 0
+            self.rotatePairingSecret()
+            self.onEndpointReady?(nil)
         }
     }
 

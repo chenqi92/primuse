@@ -7,6 +7,7 @@ import Security
 actor CloudTokenManager {
     private let sourceID: String
     private static let serviceName = "com.welape.primuse.cloud"
+    private var volatileTokens: Tokens?
 
     init(sourceID: String) {
         self.sourceID = sourceID
@@ -28,6 +29,7 @@ actor CloudTokenManager {
     // MARK: - Public API
 
     func getTokens() -> Tokens? {
+        if let volatileTokens { return volatileTokens }
         guard let data = keychainRead(key: "cloud_tokens_\(sourceID)"),
               let tokens = try? JSONDecoder().decode(Tokens.self, from: data) else {
             plog("☁️ Keychain getTokens MISS sourceID=\(sourceID.prefix(8))…")
@@ -37,20 +39,28 @@ actor CloudTokenManager {
         return tokens
     }
 
-    func saveTokens(_ tokens: Tokens) {
-        guard let data = try? JSONEncoder().encode(tokens) else { return }
+    @discardableResult
+    func saveTokens(_ tokens: Tokens) -> Bool {
+        guard let data = try? JSONEncoder().encode(tokens) else { return false }
         let ok = keychainWrite(key: "cloud_tokens_\(sourceID)", data: data)
         plog("☁️ Keychain saveTokens sourceID=\(sourceID.prefix(8))… ok=\(ok)")
-        if !ok {
+        let persisted: Bool
+        if ok {
+            persisted = true
+        } else {
             // Fallback: try writing as a local-only (non-synchronizable) item.
             // Sandboxed macOS apps without an explicit keychain-access-group
             // can fail on synchronizable adds with errSecMissingEntitlement.
             let okLocal = keychainWriteLocal(key: "cloud_tokens_\(sourceID)", data: data)
             plog("☁️ Keychain saveTokens FALLBACK local-only sourceID=\(sourceID.prefix(8))… ok=\(okLocal)")
+            persisted = okLocal
         }
+        volatileTokens = persisted ? nil : tokens
+        return persisted
     }
 
     func deleteTokens() {
+        volatileTokens = nil
         keychainDelete(key: "cloud_tokens_\(sourceID)")
     }
 
@@ -98,7 +108,11 @@ actor CloudTokenManager {
         refreshTask = task
         defer { refreshTask = nil }
         let refreshed = try await task.value
-        saveTokens(refreshed)
+        guard saveTokens(refreshed) else {
+            // Keep the rotated token in memory so later requests in this
+            // process do not fall back to the now-invalid previous token.
+            throw CloudDriveError.tokenPersistenceFailed
+        }
         return refreshed
     }
 
@@ -134,6 +148,15 @@ actor CloudTokenManager {
     // MARK: - Keychain helpers
 
     private func keychainRead(key: String) -> Data? {
+        let synchronizable = CloudSyncChannel.usesSynchronizableKeychain()
+            && Self.supportsSynchronizableKeychainAttributes
+        if synchronizable, let data = keychainRead(key: key, synchronizable: true) {
+            return data
+        }
+        return keychainRead(key: key, synchronizable: false)
+    }
+
+    private func keychainRead(key: String, synchronizable: Bool) -> Data? {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: key,
@@ -142,7 +165,9 @@ actor CloudTokenManager {
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
         if Self.supportsSynchronizableKeychainAttributes {
-            query[kSecAttrSynchronizable as String] = Self.synchronizableLookupValue
+            query[kSecAttrSynchronizable as String] = synchronizable
+                ? kCFBooleanTrue as Any
+                : kCFBooleanFalse as Any
         }
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
@@ -150,44 +175,24 @@ actor CloudTokenManager {
         return result as? Data
     }
 
-    /// Returns true on success, false otherwise. Logs the underlying
-    /// `OSStatus` so failures (most often `errSecMissingEntitlement` /
-    /// -34018 on a sandboxed macOS app trying to write a synchronizable
-    /// item) are visible during diagnosis.
     @discardableResult
     private func keychainWrite(key: String, data: Data) -> Bool {
-        keychainDelete(key: key) // Remove existing (both sync and non-sync variants)
         let synchronizable = CloudSyncChannel.usesSynchronizableKeychain()
             && Self.supportsSynchronizableKeychainAttributes
-        var query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrAccount as String: key,
-            kSecAttrService as String: Self.serviceName,
-            kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
-        ]
-        if Self.supportsSynchronizableKeychainAttributes {
-            query[kSecAttrSynchronizable as String] = synchronizable
-                ? kCFBooleanTrue as Any
-                : kCFBooleanFalse as Any
+        let success = Self.upsertKeychainItem(key: key, data: data, synchronizable: synchronizable)
+        if success, Self.supportsSynchronizableKeychainAttributes {
+            Self.deleteKeychainItem(key: key, synchronizable: !synchronizable)
         }
-        return Self.addKeychainItem(query, synchronizable: synchronizable, key: key)
+        return success
     }
 
     @discardableResult
     private func keychainWriteLocal(key: String, data: Data) -> Bool {
-        keychainDelete(key: key)
-        var query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrAccount as String: key,
-            kSecAttrService as String: Self.serviceName,
-            kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
-        ]
-        if Self.supportsSynchronizableKeychainAttributes {
-            query[kSecAttrSynchronizable as String] = kCFBooleanFalse as Any
+        let success = Self.upsertKeychainItem(key: key, data: data, synchronizable: false)
+        if success, Self.supportsSynchronizableKeychainAttributes {
+            Self.deleteKeychainItem(key: key, synchronizable: true)
         }
-        return Self.addKeychainItem(query, synchronizable: false, key: key)
+        return success
     }
 
     private func keychainDelete(key: String) {
@@ -224,46 +229,82 @@ actor CloudTokenManager {
             guard let account = item[kSecAttrAccount as String] as? String,
                   let data = item[kSecValueData as String] as? Data else { continue }
 
-            let deleteQuery: [String: Any] = [
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrAccount as String: account,
-                kSecAttrService as String: serviceName,
-                kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
-            ]
-            SecItemDelete(deleteQuery as CFDictionary)
-
-            let addQuery: [String: Any] = [
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrAccount as String: account,
-                kSecAttrService as String: serviceName,
-                kSecValueData as String: data,
-                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
-                kSecAttrSynchronizable as String: kCFBooleanTrue as Any,
-            ]
-            _ = addKeychainItem(addQuery, synchronizable: true, key: account)
+            guard upsertKeychainItem(key: account, data: data, synchronizable: true),
+                  readKeychainItem(key: account, synchronizable: true) == data else {
+                plog("⚠️ Cloud token migration retained local item after sync write failure key=\(account.prefix(24))…")
+                continue
+            }
+            deleteKeychainItem(key: account, synchronizable: false)
         }
         #endif
     }
 
     @discardableResult
-    private nonisolated static func addKeychainItem(_ query: [String: Any], synchronizable: Bool, key: String) -> Bool {
-        let status = SecItemAdd(query as CFDictionary, nil)
-        if status == errSecSuccess { return true }
-
-        if synchronizable {
-            var localQuery = query
-            localQuery[kSecAttrSynchronizable as String] = kCFBooleanFalse as Any
-            let fallbackStatus = SecItemAdd(localQuery as CFDictionary, nil)
-            if fallbackStatus == errSecSuccess {
-                plog("🔐 Cloud token sync write failed (\(status)) for key=\(key.prefix(24))…; saved local-only fallback")
-            } else {
-                plog("⚠️ Cloud token write failed for key=\(key.prefix(24))… syncStatus=\(status) localStatus=\(fallbackStatus)")
-            }
-            return fallbackStatus == errSecSuccess
-        } else {
-            plog("⚠️ Cloud token local write failed for key=\(key.prefix(24))… status=\(status)")
+    private nonisolated static func upsertKeychainItem(
+        key: String,
+        data: Data,
+        synchronizable: Bool
+    ) -> Bool {
+        var lookup: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: key,
+            kSecAttrService as String: serviceName,
+        ]
+        if supportsSynchronizableKeychainAttributes {
+            lookup[kSecAttrSynchronizable as String] = synchronizable
+                ? kCFBooleanTrue as Any
+                : kCFBooleanFalse as Any
+        }
+        let updates: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+        ]
+        let updateStatus = SecItemUpdate(lookup as CFDictionary, updates as CFDictionary)
+        if updateStatus == errSecSuccess { return true }
+        guard updateStatus == errSecItemNotFound else {
+            plog("⚠️ Cloud token update failed key=\(key.prefix(24))… sync=\(synchronizable) status=\(updateStatus)")
             return false
         }
+
+        var add = lookup
+        add[kSecValueData as String] = data
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        let addStatus = SecItemAdd(add as CFDictionary, nil)
+        if addStatus == errSecSuccess { return true }
+        plog("⚠️ Cloud token add failed key=\(key.prefix(24))… sync=\(synchronizable) status=\(addStatus)")
+        return false
+    }
+
+    private nonisolated static func readKeychainItem(key: String, synchronizable: Bool) -> Data? {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: key,
+            kSecAttrService as String: serviceName,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        if supportsSynchronizableKeychainAttributes {
+            query[kSecAttrSynchronizable as String] = synchronizable
+                ? kCFBooleanTrue as Any
+                : kCFBooleanFalse as Any
+        }
+        var result: AnyObject?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess else { return nil }
+        return result as? Data
+    }
+
+    private nonisolated static func deleteKeychainItem(key: String, synchronizable: Bool) {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: key,
+            kSecAttrService as String: serviceName,
+        ]
+        if supportsSynchronizableKeychainAttributes {
+            query[kSecAttrSynchronizable as String] = synchronizable
+                ? kCFBooleanTrue as Any
+                : kCFBooleanFalse as Any
+        }
+        SecItemDelete(query as CFDictionary)
     }
 
     private nonisolated static var synchronizableLookupValue: Any {

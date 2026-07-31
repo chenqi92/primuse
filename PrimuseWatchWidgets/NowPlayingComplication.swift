@@ -50,10 +50,22 @@ struct NowPlayingProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<NowPlayingEntry>) -> Void) {
-        // 单条 entry, policy=.never ── Watch app 在每次状态变化时主动调
-        // WidgetCenter.reloadAllTimelines(), 不需要 widget 自己排时间线。
-        let entry = NowPlayingEntry(date: Date(), snapshot: SharedNowPlayingState.read())
-        completion(Timeline(entries: [entry], policy: .never))
+        let now = Date()
+        let snapshot = SharedNowPlayingState.read()
+        let staleAfter: TimeInterval = 15 * 60
+        if snapshot.hasSong, now.timeIntervalSince(snapshot.updatedAt) < staleAfter {
+            let expiry = max(now.addingTimeInterval(1), snapshot.updatedAt.addingTimeInterval(staleAfter))
+            let entries = [
+                NowPlayingEntry(date: now, snapshot: snapshot),
+                NowPlayingEntry(date: expiry, snapshot: .empty)
+            ]
+            completion(Timeline(entries: entries, policy: .after(expiry)))
+        } else {
+            completion(Timeline(
+                entries: [NowPlayingEntry(date: now, snapshot: .empty)],
+                policy: .after(now.addingTimeInterval(staleAfter))
+            ))
+        }
     }
 }
 

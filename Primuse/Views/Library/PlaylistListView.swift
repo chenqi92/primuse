@@ -122,7 +122,8 @@ struct PlaylistListView: View {
         // 跟着变。playlist.coverArtPath 字段保留 (replacePlaylistSongs 内部
         // 仍写它, 不破坏 schema / sync), 但 UI 渲染不再读, 避免老的 path 跟
         // 实际歌曲不同步。
-        let firstSong = library.songs(forPlaylist: playlist.id).first
+        let summary = library.songSummary(forPlaylist: playlist.id)
+        let firstSong = summary.first
         return HStack(spacing: 12) {
             Group {
                 if let song = firstSong {
@@ -143,7 +144,10 @@ struct PlaylistListView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(playlist.name).font(.body)
                 HStack(spacing: 4) {
-                    Text("\(library.songs(forPlaylist: playlist.id).count) \(String(localized: "songs_count"))")
+                    Text(String(
+                        format: String(localized: "carplay_playlist_song_count_format"),
+                        summary.count
+                    ))
                     Text("·")
                     Text(playlist.updatedAt, style: .date)
                 }
@@ -339,7 +343,7 @@ struct PlaylistListView: View {
 
     private var totalPlaylistSongs: Int {
         playlists.reduce(0) { partialResult, playlist in
-            partialResult + library.songs(forPlaylist: playlist.id).count
+            partialResult + library.songCount(forPlaylist: playlist.id)
         }
     }
 
@@ -397,7 +401,7 @@ struct PlaylistListView: View {
     }
 
     private func playlistCard(_ playlist: Playlist) -> some View {
-        let count = library.songs(forPlaylist: playlist.id).count
+        let count = library.songCount(forPlaylist: playlist.id)
         return HStack(spacing: 14) {
             StoredCoverArtView(fileName: playlist.coverArtPath, size: 58, cornerRadius: 8)
 

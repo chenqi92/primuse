@@ -33,7 +33,8 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource {
 
     private var downloadURLCache: [String: (url: URL, expiresAt: Date)] = [:]
     private static let downloadURLTTL: TimeInterval = 20 * 60
-    private var cachedUploadDomain: String?
+    private var cachedUploadDomain: (value: String, expiresAt: Date)?
+    private static let uploadDomainTTL: TimeInterval = 30 * 60
 
     init(sourceID: String) {
         self.sourceID = sourceID
@@ -83,11 +84,7 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource {
     func localURL(for path: String) async throws -> URL {
         if helper.hasCached(path: path) { return helper.cachedURL(for: path) }
         let url = try await getDownloadURL(for: path)
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 300
-        let (fileData, _) = try await URLSession(configuration: config).data(from: url)
-        try helper.cacheData(fileData, for: path)
-        return helper.cachedURL(for: path)
+        return try await helper.downloadToCache(request: URLRequest(url: url), for: path)
     }
 
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
@@ -129,7 +126,21 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource {
 
         // 2. 单步上传(multipart 一次完成),duplicate=2 覆盖原 sidecar
         let domain = try await uploadDomain()
-        try await singleStepUpload(domain: domain, parentFileID: parentID, filename: sidecarName, data: data)
+        do {
+            try await singleStepUpload(domain: domain, parentFileID: parentID, filename: sidecarName, data: data)
+        } catch {
+            // Upload hosts are assigned dynamically and may be retired before
+            // this actor is recreated. Refresh once; duplicate=2 makes retrying
+            // the same sidecar idempotent if the first response was lost.
+            cachedUploadDomain = nil
+            let refreshedDomain = try await uploadDomain()
+            try await singleStepUpload(
+                domain: refreshedDomain,
+                parentFileID: parentID,
+                filename: sidecarName,
+                data: data
+            )
+        }
         invalidateDownloadURL(for: fileID)
         plog("📁 123 sidecar uploaded: \(sidecarName)")
     }
@@ -152,13 +163,21 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource {
 
     // MARK: - 上传辅助
 
-    /// 获取上传域名(GET /upload/v2/file/domain → data:[域名]),缓存到本次会话。
+    /// 获取上传域名(GET /upload/v2/file/domain → data:[域名]),短期缓存并在失败时刷新。
     private func uploadDomain() async throws -> String {
-        if let d = cachedUploadDomain { return d }
+        if let cachedUploadDomain, cachedUploadDomain.expiresAt > Date() {
+            return cachedUploadDomain.value
+        }
         let json = try await authedRequest("/upload/v2/file/domain")
         let arr = json["data"] as? [String] ?? []
-        let domain = arr.first ?? Self.fallbackUploadDomain
-        cachedUploadDomain = domain
+        let domain = (arr.first ?? Self.fallbackUploadDomain)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard let components = URLComponents(string: domain),
+              components.scheme?.lowercased() == "https",
+              components.host?.isEmpty == false else {
+            throw CloudDriveError.invalidResponse
+        }
+        cachedUploadDomain = (domain, Date().addingTimeInterval(Self.uploadDomainTTL))
         return domain
     }
 
@@ -166,7 +185,9 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource {
     /// 适合 ≤1GB 小文件(封面/歌词),一次 HTTP 完成。etag 为文件 MD5(小写 hex)。
     private func singleStepUpload(domain: String, parentFileID: Int, filename: String, data: Data) async throws {
         let md5 = Insecure.MD5.hash(data: data).map { String(format: "%02x", $0) }.joined()
-        let url = URL(string: "\(domain)/upload/v2/file/single/create")!
+        guard let url = URL(string: "\(domain)/upload/v2/file/single/create") else {
+            throw CloudDriveError.invalidResponse
+        }
         let token = try await getToken()
         try await helper.withTokenRetry(initialToken: token, refresh: refreshToken, isTokenRejection: Self.isAuthError) { @Sendable tok in
             let boundary = "----PrimuseBoundary\(UUID().uuidString)"
@@ -274,11 +295,16 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource {
         var req = URLRequest(url: comps.url!)
         req.httpMethod = "POST"
         req.setValue("open_platform", forHTTPHeaderField: "Platform")
-        let (data, _) = try await URLSession.shared.data(for: req)
-        var json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
-        if let inner = json["data"] as? [String: Any] { json = inner }   // 兼容 {code,data:{…}} 包裹
+        let (data, response) = try await URLSession.shared.data(for: req)
+        let envelope = try CloudDriveHelper.tokenRefreshJSON(data: data, response: response)
+        var json = envelope
+        if let inner = envelope["data"] as? [String: Any] { json = inner }   // 兼容 {code,data:{…}} 包裹
         guard let at = json["access_token"] as? String else {
-            throw CloudDriveError.tokenRefreshFailed(json["message"] as? String ?? String(data: data, encoding: .utf8) ?? "")
+            let code = envelope["code"] as? Int
+            throw CloudDriveHelper.tokenRefreshFailure(
+                statusCode: code == 0 ? (response as? HTTPURLResponse)?.statusCode : code,
+                providerErrorCode: envelope["error"] as? String
+            )
         }
         let expiresIn = (json["expires_in"] as? TimeInterval) ?? 30 * 24 * 3600
         return .init(accessToken: at,

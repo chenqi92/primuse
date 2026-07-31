@@ -323,7 +323,7 @@ struct LibraryView: View {
                     quickAccessLabel(
                         title: String(localized: "sidebar_liked_songs"),
                         subtitle: countText(
-                            library.songs(forPlaylist: MusicLibrary.likedSongsPlaylistID).count,
+                            library.songCount(forPlaylist: MusicLibrary.likedSongsPlaylistID),
                             unitKey: "songs_count"
                         )
                     ) {
@@ -336,7 +336,7 @@ struct LibraryView: View {
                     quickAccessLabel(
                         title: playlist.name,
                         subtitle: countText(
-                            library.songs(forPlaylist: playlist.id).count,
+                            library.songCount(forPlaylist: playlist.id),
                             unitKey: "songs_count"
                         )
                     ) {
@@ -689,10 +689,10 @@ private struct LibraryQuickAccessEditor: View {
                             } title: {
                                 Text(playlist.name)
                             } subtitle: {
-                                Text(
-                                    "\(library.songs(forPlaylist: playlist.id).count) "
-                                        + String(localized: "songs_count")
-                                )
+                                Text(String(
+                                    format: String(localized: "carplay_playlist_song_count_format"),
+                                    library.songCount(forPlaylist: playlist.id)
+                                ))
                             }
                         }
                     }
@@ -769,10 +769,10 @@ private struct LibraryQuickAccessEditor: View {
                 } title: {
                     Text(playlist.name)
                 } subtitle: {
-                    Text(
-                        "\(library.songs(forPlaylist: playlist.id).count) "
-                            + String(localized: "songs_count")
-                    )
+                    Text(String(
+                        format: String(localized: "carplay_playlist_song_count_format"),
+                        library.songCount(forPlaylist: playlist.id)
+                    ))
                 }
             }
         }

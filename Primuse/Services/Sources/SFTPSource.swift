@@ -17,6 +17,7 @@ actor SFTPSource: MusicSourceConnector {
 
     private var client: SSHClient?
     private var sftp: SFTPClient?
+    private var connectTask: Task<Void, Error>?
     private var rootPath: String = "/"
     private let cacheDirectory: URL
 
@@ -48,6 +49,20 @@ actor SFTPSource: MusicSourceConnector {
         if sftp != nil {
             return
         }
+        if let connectTask {
+            try await connectTask.value
+            return
+        }
+        let task = Task { [weak self] in
+            guard let self else { throw CancellationError() }
+            try await self.establishConnection()
+        }
+        connectTask = task
+        defer { connectTask = nil }
+        try await task.value
+    }
+
+    private func establishConnection() async throws {
 
         // 提前算好 auth method 再传给 SSHClientSettings 闭包,避免之前
         // `try! Self.authenticationMethod(...)` 那种"非确定性场景下崩 app"
@@ -66,17 +81,24 @@ actor SFTPSource: MusicSourceConnector {
             hostKeyValidator: .custom(SFTPHostKeyValidator(host: host, port: port))
         )
 
-        let client = try await SSHClient.connect(to: settings)
-        let sftp = try await client.openSFTP()
-
-        self.client = client
-        self.sftp = sftp
-        self.rootPath = try await resolveRootPath(using: sftp)
-
-        _ = try await listFiles(at: "/")
+        let newClient = try await SSHClient.connect(to: settings)
+        do {
+            let newSFTP = try await newClient.openSFTP()
+            let resolvedRoot = try await resolveRootPath(using: newSFTP)
+            _ = try await newSFTP.listDirectory(atPath: resolvedRoot)
+            try Task.checkCancellation()
+            client = newClient
+            sftp = newSFTP
+            rootPath = resolvedRoot
+        } catch {
+            try? await newClient.close()
+            throw error
+        }
     }
 
     func disconnect() async {
+        connectTask?.cancel()
+        connectTask = nil
         if let sftp {
             try? await sftp.close()
         }
@@ -331,7 +353,7 @@ actor SFTPSource: MusicSourceConnector {
     }
 
     private func safeCacheFileName(for path: String) -> String {
-        path.replacingOccurrences(of: "/", with: "_")
+        CacheFileNamePolicy.make(path: path)
     }
 
     private nonisolated static func authenticationMethod(

@@ -80,6 +80,12 @@ final class LibrarySnapshotSync: Sendable {
     private var recordID: CKRecord.ID { CKRecord.ID(recordName: recordName) }
     private var credRecordID: CKRecord.ID { CKRecord.ID(recordName: credRecordName) }
 
+    private enum RecordSaveOutcome {
+        case success
+        case conflict(CKRecord)
+        case failure(Error?)
+    }
+
     private var directory: URL {
         // tvOS 只允许写 Caches / tmp,Application Support 不可创建/写入,会导致
         // 快照写盘失败("No such file or directory")。tvOS 改用 Caches。
@@ -170,20 +176,27 @@ final class LibrarySnapshotSync: Sendable {
         record["modifiedAt"] = Date() as CKRecordValue
         guard !Task.isCancelled else { return false }
 
-        var ok = false
-        do {
-            let (saveResults, _) = try await database.modifyRecords(saving: [record], deleting: [], savePolicy: .changedKeys)
-            switch saveResults[recordID] {
-            case .success:
-                plog("LibrarySnapshotSync: uploaded snapshot [\(libInfo); \(srcInfo)]")
-                ok = true
-            case .failure(let err):
-                plog("LibrarySnapshotSync: upload per-record FAILED — \(err)")
-            case .none:
-                plog("LibrarySnapshotSync: upload returned no result for record")
+        var outcome = await saveChangedRecord(record, in: database)
+        if case .conflict(let serverRecord) = outcome {
+            // Another device changed the singleton after our fetch. Rebase the
+            // complete local snapshot fields onto its current change tag and
+            // retry once, preserving any future/unknown server fields.
+            for key in ["libraryGz", "library", "sourcesGz", "sources", "lyricsGz", "modifiedAt"] {
+                serverRecord[key] = record[key]
             }
-        } catch {
-            plog("LibrarySnapshotSync: upload failed — \(error)")
+            outcome = await saveChangedRecord(serverRecord, in: database)
+        }
+        let ok: Bool
+        switch outcome {
+        case .success:
+            plog("LibrarySnapshotSync: uploaded snapshot [\(libInfo); \(srcInfo)]")
+            ok = true
+        case .conflict:
+            plog("LibrarySnapshotSync: upload conflict persisted after retry")
+            ok = false
+        case .failure(let error):
+            plog("LibrarySnapshotSync: upload failed — \(error?.localizedDescription ?? "no per-record result")")
+            ok = false
         }
         #if !os(tvOS)
         if !Task.isCancelled {
@@ -225,34 +238,76 @@ final class LibrarySnapshotSync: Sendable {
             plog("LibrarySnapshotSync: no existing snapshot for sources-only — creating sources-only record (\(error))")
             record = CKRecord(recordType: recordType, recordID: recordID)
         }
-        // 先把服务器上现有 sources 与本地 sources 做逐源合并,避免 TV 用启动时
-        // 下载到的旧文件把手机/电脑上刚做的删除或编辑整包覆盖掉。
-        if let merged = mergeSourcesForUpload(with: record, fm: fm) {
-            try? merged.data.write(to: sourcesURL, options: .atomic)
-            plog("LibrarySnapshotSync: merged sources before upload local=\(merged.localCount) remote=\(merged.incomingCount) total=\(merged.totalCount)")
+        var srcInfo = prepareSourcesRecord(record, fm: fm)
+        var outcome = await saveChangedRecord(record, in: database)
+        if case .conflict(let serverRecord) = outcome {
+            // Re-merge against the actual winner before retrying; simply
+            // reusing our first payload would discard the concurrent edit.
+            srcInfo = prepareSourcesRecord(serverRecord, fm: fm)
+            outcome = await saveChangedRecord(serverRecord, in: database)
         }
+        switch outcome {
+        case .success:
+            plog("LibrarySnapshotSync: uploaded sources-only [\(srcInfo)]")
+            return true
+        case .conflict:
+            plog("LibrarySnapshotSync: sources-only conflict persisted after retry")
+            return false
+        case .failure(let error):
+            plog("LibrarySnapshotSync: sources-only upload failed — \(error?.localizedDescription ?? "no per-record result")")
+            return false
+        }
+    }
 
-        // 先清掉两种旧的 sources 表示,再按当前文件大小择一写入,避免内联/资产并存。
+    private func prepareSourcesRecord(_ record: CKRecord, fm: FileManager) -> String {
+        // Merge the server fields with the latest local file every time this is
+        // called, including conflict retry.
+        if let merged = mergeSourcesForUpload(with: record, fm: fm) {
+            do {
+                try merged.data.write(to: sourcesURL, options: .atomic)
+                plog("LibrarySnapshotSync: merged sources before upload local=\(merged.localCount) remote=\(merged.incomingCount) total=\(merged.totalCount)")
+            } catch {
+                plog("LibrarySnapshotSync: merged sources write failed — \(error)")
+            }
+        }
         record["sourcesGz"] = nil
         record["sources"] = nil
-        let srcInfo = attachSourcesSnapshot(record, gzKey: "sourcesGz", assetKey: "sources")
+        let info = attachSourcesSnapshot(record, gzKey: "sourcesGz", assetKey: "sources")
         record["modifiedAt"] = Date() as CKRecordValue
-        var ok = false
+        return info
+    }
+
+    private func saveChangedRecord(_ record: CKRecord, in database: CKDatabase) async -> RecordSaveOutcome {
         do {
-            let (saveResults, _) = try await database.modifyRecords(saving: [record], deleting: [], savePolicy: .changedKeys)
-            switch saveResults[recordID] {
+            let (saveResults, _) = try await database.modifyRecords(
+                saving: [record],
+                deleting: [],
+                savePolicy: .changedKeys
+            )
+            switch saveResults[record.recordID] {
             case .success:
-                plog("LibrarySnapshotSync: uploaded sources-only [\(srcInfo)]")
-                ok = true
-            case .failure(let err):
-                plog("LibrarySnapshotSync: sources-only upload per-record FAILED — \(err)")
+                return .success
+            case .failure(let error):
+                if let server = Self.serverRecordChangedRecord(from: error) {
+                    return .conflict(server)
+                }
+                return .failure(error)
             case .none:
-                plog("LibrarySnapshotSync: sources-only upload returned no result for record")
+                return .failure(nil)
             }
         } catch {
-            plog("LibrarySnapshotSync: sources-only upload failed — \(error)")
+            if let server = Self.serverRecordChangedRecord(from: error) {
+                return .conflict(server)
+            }
+            return .failure(error)
         }
-        return ok
+    }
+
+    private static func serverRecordChangedRecord(from error: Error) -> CKRecord? {
+        guard let cloudError = error as? CKError, cloudError.code == .serverRecordChanged else {
+            return nil
+        }
+        return (cloudError as NSError).userInfo[CKRecordChangedErrorServerRecordKey] as? CKRecord
     }
 
     private func withCloudMutationLock(

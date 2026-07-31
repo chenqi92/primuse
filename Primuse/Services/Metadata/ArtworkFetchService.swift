@@ -21,6 +21,11 @@ actor ArtworkFetchService {
     /// limiting (lastRequestTime/minInterval lives on the scraper instance) is
     /// shared across requests instead of being reset on every fetch.
     private var scraperCache: [String: any MusicScraper] = [:]
+    private struct SourceFailureState {
+        var consecutiveFailures = 0
+        var retryAfter: ContinuousClock.Instant?
+    }
+    private var sourceFailures: [String: SourceFailureState] = [:]
 
     // MARK: - Album Cover
 
@@ -83,16 +88,27 @@ actor ArtworkFetchService {
         let query = [artistName, albumTitle].compactMap { $0 }.joined(separator: " ")
 
         for config in settings.enabledSources where config.type.supportsCover {
+            guard !isBackedOff(config.id) else { continue }
             do {
                 let scraper = scraper(for: config)
                 let searchResult = try await scraper.search(query: query, artist: artistName, album: albumTitle, limit: 5)
-                if let best = searchResult.items.first,
-                   let coverUrl = try await resolveCoverURL(for: best, with: scraper) {
-                    if let data = try? await downloadImage(url: coverUrl, sourceConfig: config) {
-                        return compressJPEG(data)
-                    }
+                guard let best = searchResult.items.first(where: {
+                    Self.isConfidentAlbumMatch($0, albumTitle: albumTitle, artistName: artistName)
+                }) else {
+                    clearFailure(config.id)
+                    continue
                 }
+                if
+                   let coverUrl = try await resolveCoverURL(for: best, with: scraper) {
+                    guard let data = try await downloadImage(url: coverUrl, sourceConfig: config) else {
+                        throw ScraperError.networkError("Artwork download failed")
+                    }
+                    clearFailure(config.id)
+                    return compressJPEG(data)
+                }
+                clearFailure(config.id)
             } catch {
+                registerFailure(config.id, error: error)
                 plog("⚠️ ArtworkFetch: album cover search failed for '\(query)' via \(config.type.displayName): \(error.localizedDescription)")
                 continue
             }
@@ -104,16 +120,27 @@ actor ArtworkFetchService {
         // Search via enabled scrapers, use cover from best match as artist image
         let settings = ScraperSettings.load()
         for config in settings.enabledSources where config.type.supportsCover {
+            guard !isBackedOff(config.id) else { continue }
             do {
                 let scraper = scraper(for: config)
                 let searchResult = try await scraper.search(query: artistName, artist: artistName, album: nil, limit: 3)
-                if let best = searchResult.items.first,
-                   let coverUrl = try await resolveCoverURL(for: best, with: scraper) {
-                    if let data = try? await downloadImage(url: coverUrl, sourceConfig: config) {
-                        return compressJPEG(data)
-                    }
+                guard let best = searchResult.items.first(where: {
+                    Self.isConfidentArtistMatch($0, artistName: artistName)
+                }) else {
+                    clearFailure(config.id)
+                    continue
                 }
+                if
+                   let coverUrl = try await resolveCoverURL(for: best, with: scraper) {
+                    guard let data = try await downloadImage(url: coverUrl, sourceConfig: config) else {
+                        throw ScraperError.networkError("Artwork download failed")
+                    }
+                    clearFailure(config.id)
+                    return compressJPEG(data)
+                }
+                clearFailure(config.id)
             } catch {
+                registerFailure(config.id, error: error)
                 plog("⚠️ ArtworkFetch: artist image search failed for '\(artistName)' via \(config.type.displayName): \(error.localizedDescription)")
                 continue
             }
@@ -134,6 +161,69 @@ actor ArtworkFetchService {
         let scraper = MusicScraperFactory.create(for: config)
         scraperCache[config.id] = scraper
         return scraper
+    }
+
+    private func isBackedOff(_ configID: String) -> Bool {
+        guard let retryAfter = sourceFailures[configID]?.retryAfter else { return false }
+        if retryAfter > ContinuousClock.now { return true }
+        sourceFailures[configID]?.retryAfter = nil
+        return false
+    }
+
+    private func clearFailure(_ configID: String) {
+        sourceFailures.removeValue(forKey: configID)
+    }
+
+    private func registerFailure(_ configID: String, error: Error) {
+        var state = sourceFailures[configID] ?? SourceFailureState()
+        state.consecutiveFailures += 1
+
+        let delaySeconds: Int
+        if case .rateLimited(let retryAfter) = error as? ScraperError {
+            delaySeconds = max(5, min(300, retryAfter ?? 60))
+        } else {
+            let exponent = min(state.consecutiveFailures - 1, 5)
+            delaySeconds = min(120, 5 * (1 << exponent))
+        }
+        state.retryAfter = ContinuousClock.now + .seconds(delaySeconds)
+        sourceFailures[configID] = state
+    }
+
+    private nonisolated static func isConfidentAlbumMatch(
+        _ item: ScraperSearchItem,
+        albumTitle: String,
+        artistName: String?
+    ) -> Bool {
+        let requestedAlbum = normalized(albumTitle)
+        let candidateAlbum = normalized(item.album ?? item.title)
+        guard textMatches(requestedAlbum, candidateAlbum) else { return false }
+
+        let requestedArtist = normalized(artistName)
+        guard !requestedArtist.isEmpty else { return true }
+        return textMatches(requestedArtist, normalized(item.artist))
+    }
+
+    private nonisolated static func isConfidentArtistMatch(
+        _ item: ScraperSearchItem,
+        artistName: String
+    ) -> Bool {
+        let requested = normalized(artistName)
+        guard !requested.isEmpty else { return false }
+        return textMatches(requested, normalized(item.artist))
+            || textMatches(requested, normalized(item.title))
+    }
+
+    private nonisolated static func textMatches(_ lhs: String, _ rhs: String) -> Bool {
+        guard !lhs.isEmpty, !rhs.isEmpty else { return false }
+        return lhs == rhs || lhs.contains(rhs) || rhs.contains(lhs)
+    }
+
+    private nonisolated static func normalized(_ value: String?) -> String {
+        (value ?? "")
+            .lowercased()
+            .folding(options: .diacriticInsensitive, locale: nil)
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .joined()
     }
 
     private func downloadImage(url: String, sourceConfig: ScraperSourceConfig) async throws -> Data? {

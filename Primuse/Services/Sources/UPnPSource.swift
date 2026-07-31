@@ -548,10 +548,10 @@ actor UPnPSource: SongScanningConnector {
     }
 
     private func cacheFileName(for url: URL) -> String {
-        let digest = SHA256.hash(data: Data(url.absoluteString.utf8))
-        let hash = digest.prefix(16).map { String(format: "%02x", $0) }.joined()
-        let ext = url.pathExtension.isEmpty ? "bin" : url.pathExtension
-        return "\(hash).\(ext)"
+        CacheFileNamePolicy.make(
+            path: url.absoluteString,
+            preferredExtension: url.pathExtension.isEmpty ? "bin" : url.pathExtension
+        )
     }
 
     private func hash(_ input: String) -> String {

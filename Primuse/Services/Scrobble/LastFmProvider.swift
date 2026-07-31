@@ -32,7 +32,8 @@ struct LastFmProvider: ScrobbleProvider {
             "format": "json"
         ]
         do {
-            let (_, response) = try await call(method: "GET", params: params, signed: false)
+            // Keep the session key out of URLs, proxy logs and browser history.
+            let (_, response) = try await call(method: "POST", params: params, signed: false)
             return response.statusCode == 200
         } catch {
             return nil
@@ -98,7 +99,7 @@ struct LastFmProvider: ScrobbleProvider {
         ]
         let signed = sign(params: params, secret: apiSecret)
         let provider = LastFmProvider(apiKey: apiKey, apiSecret: apiSecret, sessionKey: "")
-        let (data, response) = try await provider.call(method: "GET", params: signed, signed: false)
+        let (data, response) = try await provider.call(method: "POST", params: signed, signed: false)
         guard response.statusCode == 200 else {
             throw ScrobbleError.http(response.statusCode, String(data: data, encoding: .utf8))
         }

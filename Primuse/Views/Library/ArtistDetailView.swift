@@ -270,7 +270,10 @@ struct ArtistDetailView: View {
                 .font(.system(size: 12.5, weight: .semibold))
                 .foregroundStyle(PMColor.text)
                 .lineLimit(1)
-            Text(album.year.map(String.init) ?? "\(library.songs(forAlbum: album.id).count) \(String(localized: "songs_count"))")
+            Text(album.year.map(String.init) ?? String(
+                format: String(localized: "carplay_playlist_song_count_format"),
+                library.songs(forAlbum: album.id).count
+            ))
                 .font(.system(size: 10.5))
                 .foregroundStyle(PMColor.textFaint)
                 .lineLimit(1)

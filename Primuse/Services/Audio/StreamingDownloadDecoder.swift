@@ -49,6 +49,7 @@ final class StreamingDownloadDecoder: Sendable {
                         delegate: SmartSSLDelegate(),
                         delegateQueue: nil
                     )
+                    defer { session.finishTasksAndInvalidate() }
 
                     plog("🌊 StreamingDecoder: downloading from \(url.host ?? "?")")
                     let startTime = CFAbsoluteTimeGetCurrent()
@@ -107,8 +108,8 @@ final class StreamingDownloadDecoder: Sendable {
                         typedTempURL = tempURL
                     }
 
-                    let decoder = FileFormatRouter.decoder(for: typedTempURL)
-                    guard decoder.canDecode(url: typedTempURL) else {
+                    let decoder = await FileFormatRouter.decoder(for: typedTempURL)
+                    guard decoder is FFmpegAudioDecoder || decoder.canDecode(url: typedTempURL) else {
                         throw AudioDecoderError.unsupportedFormat(ext)
                     }
 
@@ -161,9 +162,17 @@ final class StreamingDownloadDecoder: Sendable {
                         // nothing was emitted, otherwise restarting at frame 0
                         // would duplicate already-played audio.
                         let fallback = FFmpegAudioDecoder()
+                        let fallbackCanDecode: Bool
+                        do {
+                            fallbackCanDecode = try await fallback.canDecodeAsync(url: decodingURL)
+                        } catch {
+                            // The actual decode path is independently bounded
+                            // and will preserve the original typed error.
+                            fallbackCanDecode = true
+                        }
                         guard yieldedBuffers == 0,
                               !(decoder is FFmpegAudioDecoder),
-                              fallback.canDecode(url: decodingURL) else { throw error }
+                              fallbackCanDecode else { throw error }
                         plog("↳ DownloadDecoder native open failed; retrying with FFmpeg")
                         if let info = try? await fallback.fileInfo(for: decodingURL), info.duration > 0 {
                             onResolveSourceLength?(info.duration)

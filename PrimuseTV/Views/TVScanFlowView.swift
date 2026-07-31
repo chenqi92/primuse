@@ -15,17 +15,28 @@ struct TVScanFlowView: View {
     @State private var selected: Set<String> = []
     @State private var loading = false
     @State private var started = false
+    @State private var browseError: String?
+    @State private var loadTask: Task<Void, Never>?
+    @State private var scanTask: Task<Void, Never>?
 
     var body: some View {
         ZStack {
             TVAmbientBackdrop(tint: TVColor.brand, tint2: Color(hex: "#1f3a5b"), strength: started ? 0.5 : 0.4)
             Color.black.opacity(0.5).ignoresSafeArea()
             if started {
-                TVScanningView(source: source, onDone: { dismiss() })
+                TVScanningView(
+                    source: source,
+                    onDone: { dismiss() },
+                    onCancel: {
+                        scanTask?.cancel()
+                        dismiss()
+                    }
+                )
             } else {
                 pickView
             }
         }
+        .onDisappear { loadTask?.cancel() }
         .onAppear {
             if lister == nil {
                 lister = store.makeLister(for: source)
@@ -40,22 +51,25 @@ struct TVScanFlowView: View {
     private var pickView: some View {
         HStack(alignment: .top, spacing: 80) {
             VStack(alignment: .leading, spacing: 0) {
-                TVEyebrow(text: "添加新源 · 第 3 步").padding(.bottom, 6)
-                Text("选择要扫描的目录").font(.system(size: 40, weight: .bold)).foregroundStyle(.white).padding(.bottom, 6)
+                TVEyebrow(text: PMString("ext.tv.scan.step3")).padding(.bottom, 6)
+                Text(PMString("ext.tv.scan.chooseFolders")).font(.system(size: 40, weight: .bold)).foregroundStyle(.white).padding(.bottom, 6)
                 Text(breadcrumb).font(.system(size: 18, design: .monospaced)).foregroundStyle(TVColor.textFaint).padding(.bottom, 22)
 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 8) {
                         if path != "/" {
-                            folderRow(name: "返回上一级", isUp: true, selectable: false, checked: false) {
+                            folderRow(name: PMString("ext.tv.scan.up"), isUp: true, selectable: false, checked: false) {
                                 load(Self.parent(of: path))
                             }
                         }
                         if loading {
-                            HStack { ProgressView().tint(.white); Text("加载中…").foregroundStyle(TVColor.textFaint) }
+                            HStack { ProgressView().tint(.white); Text(PMString("ext.tv.scan.loading")).foregroundStyle(TVColor.textFaint) }
                                 .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 20)
+                        } else if let browseError {
+                            Text(browseError)
+                                .font(.system(size: 17)).foregroundStyle(TVColor.bad).padding(.vertical, 16)
                         } else if entries.filter(\.isDir).isEmpty {
-                            Text("该目录下没有子文件夹。可勾选当前目录直接扫描。")
+                            Text(PMString("ext.tv.scan.noSubfolders"))
                                 .font(.system(size: 17)).foregroundStyle(TVColor.textGhost).padding(.vertical, 16)
                         }
                         ForEach(entries.filter(\.isDir)) { e in
@@ -94,7 +108,7 @@ struct TVScanFlowView: View {
                 Text(name).font(.system(size: 22, weight: checked ? .semibold : .regular)).foregroundStyle(checked ? .white : .white.opacity(0.85)).lineLimit(1)
                 Spacer(minLength: 0)
                 if selectable {
-                    Text("打开 ▸").font(.system(size: 15)).foregroundStyle(focused ? .white : TVColor.textGhost)
+                    Text(PMString("ext.tv.scan.open")).font(.system(size: 15)).foregroundStyle(focused ? .white : TVColor.textGhost)
                 }
             }
             .padding(.horizontal, 20).padding(.vertical, 14).frame(maxWidth: .infinity)
@@ -102,8 +116,8 @@ struct TVScanFlowView: View {
         }
         .contextMenu {
             if selectable {
-                Button { onOpen() } label: { Label("打开此文件夹", systemImage: "folder") }
-                Button { onSelect() } label: { Label(checked ? "取消勾选" : "勾选扫描", systemImage: checked ? "square" : "checkmark.square") }
+                Button { onOpen() } label: { Label(PMString("ext.tv.scan.openFolder"), systemImage: "folder") }
+                Button { onSelect() } label: { Label(checked ? PMString("ext.tv.scan.uncheck") : PMString("ext.tv.scan.check"), systemImage: checked ? "square" : "checkmark.square") }
             }
         }
     }
@@ -111,23 +125,23 @@ struct TVScanFlowView: View {
     private var summaryPanel: some View {
         VStack(spacing: 24) {
             VStack(alignment: .leading, spacing: 0) {
-                TVEyebrow(text: "即将扫描").padding(.bottom, 14)
-                summaryRow("已选目录", selected.isEmpty ? "当前目录" : "\(selected.count) 个")
-                summaryRow("元数据", "路径快扫 · 标签靠同步补")
-                summaryRow("可播放", "FLAC · MP3 · AAC · DSD…")
+                TVEyebrow(text: PMString("ext.tv.scan.summary")).padding(.bottom, 14)
+                summaryRow(PMString("ext.tv.scan.selected"), selected.isEmpty ? PMString("ext.tv.scan.currentFolder") : PMString("ext.tv.scan.folderCount", selected.count))
+                summaryRow(PMString("ext.tv.scan.metadata"), PMString("ext.tv.scan.metadataValue"))
+                summaryRow(PMString("ext.tv.scan.playable"), PMString("ext.tv.scan.formats"))
             }
             .padding(26).frame(maxWidth: .infinity)
             .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             .overlay { RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(.white.opacity(0.12), lineWidth: 0.5) }
 
             TVFocusButton(radius: 16, accent: TVColor.brand, scale: 1.05, lift: 4, action: startScan) { f in
-                Label("开始扫描", systemImage: "arrow.triangle.2.circlepath")
+                Label(PMString("ext.tv.scan.start"), systemImage: "arrow.triangle.2.circlepath")
                     .font(.system(size: 24, weight: .bold)).foregroundStyle(Color(hex: "#1f1c19"))
                     .frame(maxWidth: .infinity).padding(.vertical, 20)
                     .background(Color.white.opacity(f ? 1 : 0.9), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
             TVFocusButton(radius: 16, scale: 1.04, lift: 0, action: { dismiss() }) { f in
-                Text("取消").font(.system(size: 20, weight: .medium)).foregroundStyle(.white)
+                Text(PMString("ext.tv.sources.cancel")).font(.system(size: 20, weight: .medium)).foregroundStyle(.white)
                     .frame(maxWidth: .infinity).padding(.vertical, 14)
                     .background(Color.white.opacity(f ? 0.14 : 0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
@@ -150,10 +164,23 @@ struct TVScanFlowView: View {
 
     private func load(_ p: String) {
         guard let lister else { return }
-        path = p; loading = true
-        Task {
-            entries = await store.scanner.browse(lister: lister, path: p)
-            loading = false
+        loadTask?.cancel()
+        path = p
+        loading = true
+        browseError = nil
+        loadTask = Task {
+            do {
+                let loaded = try await store.scanner.browse(lister: lister, path: p)
+                guard !Task.isCancelled, path == p else { return }
+                entries = loaded
+            } catch is CancellationError {
+                return
+            } catch {
+                guard path == p else { return }
+                entries = []
+                browseError = PMString("ext.tv.scan.browseFailed", error.localizedDescription)
+            }
+            if path == p { loading = false }
         }
     }
 
@@ -164,8 +191,9 @@ struct TVScanFlowView: View {
     private func startScan() {
         guard let lister else { return }
         let dirs = selected.isEmpty ? [path] : Array(selected)
+        loadTask?.cancel()
         started = true
-        Task { await store.runScan(source: source, lister: lister, dirs: dirs) }
+        scanTask = Task { await store.runScan(source: source, lister: lister, dirs: dirs) }
     }
 
     private static func parent(of path: String) -> String {
@@ -180,6 +208,7 @@ private struct TVScanningView: View {
     @Environment(TVStore.self) private var store
     let source: MusicSource
     var onDone: () -> Void = {}
+    var onCancel: () -> Void = {}
 
     private var phase: TVSourceScanner.Phase { store.scanner.phase }
     private var done: Bool { phase == .done }
@@ -187,27 +216,36 @@ private struct TVScanningView: View {
     var body: some View {
         VStack(spacing: 0) {
             ring.padding(.bottom, 40)
-            Text(done ? "扫描完成 · \(source.name)" : "正在扫描 \(source.name)")
+            Text(done ? PMString("ext.tv.scan.completedSource", source.name) : PMString("ext.tv.scan.scanningSource", source.name))
                 .font(.system(size: 40, weight: .bold)).foregroundStyle(.white).padding(.bottom, 10)
             Text(currentLine).font(.system(size: 18, design: .monospaced)).foregroundStyle(TVColor.textFaint)
                 .lineLimit(1).truncationMode(.middle).frame(maxWidth: 900).padding(.bottom, 36)
 
             HStack(spacing: 56) {
-                stat("\(store.scanner.indexed)", "已索引")
-                stat(done ? "完成" : "进行中", "状态")
+                stat("\(store.scanner.indexed)", PMString("ext.tv.scan.indexed"))
+                stat(done ? PMString("ext.tv.scan.complete") : PMString("ext.tv.scan.inProgress"), PMString("ext.tv.scan.status"))
             }
             .padding(.bottom, 40)
 
             TVFocusButton(radius: 14, accent: TVColor.brand, scale: 1.05, lift: 5, action: onDone) { f in
-                Text(done ? "开始听歌 →" : "后台继续")
+                Text(done ? PMString("ext.tv.scan.listen") : PMString("ext.tv.scan.continueBackground"))
                     .font(.system(size: 22, weight: .bold)).foregroundStyle(Color(hex: "#1f1c19"))
                     .padding(.horizontal, 44).padding(.vertical, 18)
                     .background(Color.white.opacity(f ? 1 : 0.9), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
+            if !done {
+                TVFocusButton(radius: 14, scale: 1.03, lift: 0, action: onCancel) { focused in
+                    Text(PMString("ext.tv.scan.cancelScan"))
+                        .font(.system(size: 19, weight: .medium)).foregroundStyle(.white)
+                        .padding(.horizontal, 38).padding(.vertical, 14)
+                        .background(Color.white.opacity(focused ? 0.16 : 0.07), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .padding(.top, 14)
+            }
             if case .failed(let msg) = phase {
                 Text(msg).font(.system(size: 17)).foregroundStyle(TVColor.bad).padding(.top, 24)
             } else {
-                Text("路径快扫:从文件夹结构建库 · 真实标签/封面/歌词随手机同步补全")
+                Text(PMString("ext.tv.scan.syncHint"))
                     .font(.system(size: 15)).foregroundStyle(TVColor.textGhost).padding(.top, 24)
             }
         }
@@ -225,15 +263,17 @@ private struct TVScanningView: View {
                 SpinnerArc().frame(width: 232, height: 232)
                 VStack(spacing: 4) {
                     Text("\(store.scanner.indexed)").font(.system(size: 56, weight: .bold, design: .monospaced)).foregroundStyle(.white)
-                    Text("已索引").font(.system(size: 16)).foregroundStyle(TVColor.textFaint)
+                    Text(PMString("ext.tv.scan.indexed")).font(.system(size: 16)).foregroundStyle(TVColor.textFaint)
                 }
             }
         }
     }
 
     private var currentLine: String {
-        if case .failed = phase { return "扫描中断" }
-        return done ? "共索引 \(store.scanner.indexed) 首" : (store.scanner.currentFile.isEmpty ? "正在遍历目录…" : store.scanner.currentFile)
+        if case .failed = phase { return PMString("ext.tv.scan.interrupted") }
+        return done
+            ? PMString("ext.tv.scan.totalIndexed", store.scanner.indexed)
+            : (store.scanner.currentFile.isEmpty ? PMString("ext.tv.scan.walking") : store.scanner.currentFile)
     }
 
     private func stat(_ v: String, _ k: String) -> some View {

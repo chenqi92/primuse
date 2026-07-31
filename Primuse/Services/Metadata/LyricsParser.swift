@@ -3,11 +3,11 @@ import PrimuseKit
 
 enum LyricsParser {
     /// 行首时间戳（含行级 LRC 头）。Regex 字面量只读、纯函数，多线程读取安全。
-    nonisolated(unsafe) private static let lineHeadPattern = /\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\]/
+    nonisolated(unsafe) private static let lineHeadPattern = /\[(\d+):(\d{2})(?:[.:](\d{1,3}))?\]/
     /// KRC/QRC 风格行头: `[lineStartMs,lineDurationMs]`
     nonisolated(unsafe) private static let relativeLineHeadPattern = /^\[(\d+),(\d+)\]/
     /// A2 扩展字级标记 `<mm:ss.xx>`
-    nonisolated(unsafe) private static let inlineWordPattern = /<(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?>/
+    nonisolated(unsafe) private static let inlineWordPattern = /<(\d+):(\d{2})(?:[.:](\d{1,3}))?>/
     /// KRC/QRC 风格字级标记 `<offsetMs,durationMs,0>`
     nonisolated(unsafe) private static let relativeWordPattern = /<(\d+),(\d+)(?:,\d+)?>/
 
@@ -38,7 +38,7 @@ enum LyricsParser {
             let body = String(raw[bodyStart...])
 
             for head in heads {
-                let lineStart = parseTimestamp(min: head.1, sec: head.2, frac: head.3)
+                guard let lineStart = parseTimestamp(min: head.1, sec: head.2, frac: head.3) else { continue }
                 if let parsed = parseWordLevelLine(body: body, lineStart: lineStart) {
                     lines.append(parsed)
                 } else {
@@ -61,7 +61,7 @@ enum LyricsParser {
 
         var syllables: [LyricSyllable] = []
         for (i, mark) in marks.enumerated() {
-            let start = parseTimestamp(min: mark.1, sec: mark.2, frac: mark.3)
+            guard let start = parseTimestamp(min: mark.1, sec: mark.2, frac: mark.3) else { continue }
             let textStart = mark.range.upperBound
             let textEnd = (i + 1 < marks.count) ? marks[i + 1].range.lowerBound : body.endIndex
             let chunk = String(body[textStart..<textEnd])
@@ -142,12 +142,14 @@ enum LyricsParser {
         return LyricLine(timestamp: lineStart, text: plain, syllables: syllables)
     }
 
-    private static func parseTimestamp(min: Substring, sec: Substring, frac: Substring?) -> TimeInterval {
-        let m = Double(min) ?? 0
-        let s = Double(sec) ?? 0
-        let f = Double(frac ?? "0") ?? 0
+    private static func parseTimestamp(min: Substring, sec: Substring, frac: Substring?) -> TimeInterval? {
+        guard let m = Double(min), m.isFinite, m >= 0,
+              let s = Double(sec), s.isFinite, (0..<60).contains(s),
+              let f = Double(frac ?? "0"), f.isFinite else { return nil }
         let divisor = pow(10, Double(frac?.count ?? 2))
-        return m * 60 + s + f / divisor
+        let result = m * 60 + s + f / divisor
+        guard result.isFinite, result <= 7 * 24 * 3600 else { return nil }
+        return result
     }
 
     /// Parses LRC file from URL

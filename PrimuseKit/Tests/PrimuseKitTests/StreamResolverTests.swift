@@ -36,6 +36,23 @@ import Testing
     #expect(S3StreamResolver.host(from: "s3.amazonaws.com", port: 443) == "s3.amazonaws.com")
 }
 
+@Test func s3ClockSkewUsesBoundedServerDateAdjustment() {
+    let localDate = Date(timeIntervalSince1970: 0)
+    let adjustment = S3ClockSkewPolicy.adjustment(
+        serverDateHeader: "Thu, 01 Jan 1970 00:10:00 GMT",
+        localDate: localDate
+    )
+    #expect(adjustment == 600)
+    #expect(S3ClockSkewPolicy.adjustment(
+        serverDateHeader: "Thu, 01 Jan 1970 00:00:10 GMT",
+        localDate: localDate
+    ) == 10)
+    #expect(S3ClockSkewPolicy.adjustment(
+        serverDateHeader: "Fri, 02 Jan 1970 01:00:00 GMT",
+        localDate: localDate
+    ) == nil)
+}
+
 @Test func s3EndToEnd() async throws {
     let song = Song(id: "s", title: "T", fileFormat: .flac,
                     filePath: "artists/song.flac", sourceID: "src")
@@ -377,6 +394,18 @@ private final class CountingLoginURLProtocol: URLProtocol, @unchecked Sendable {
             == "https://115cdn/x.mp3")
     #expect(CloudDriveStreamResolver.parse115AccessToken(Data(#"{"data":{"access_token":"AT115"}}"#.utf8)) == "AT115")
     #expect(CloudDriveStreamResolver.parse115AccessToken(Data(#"{"access_token":"T2"}"#.utf8)) == "T2")
+}
+
+@Test func cloudBodyAuthenticationErrorsAreTyped() {
+    #expect(throws: StreamResolveError.authFailed) {
+        try CloudDriveStreamResolver.checkBodyAuthenticationFailure(Data(#"{"code":401,"message":"expired"}"#.utf8))
+    }
+    #expect(throws: StreamResolveError.authFailed) {
+        try CloudDriveStreamResolver.checkBodyAuthenticationFailure(Data(#"{"error":"invalid_token"}"#.utf8))
+    }
+    #expect(throws: Never.self) {
+        try CloudDriveStreamResolver.checkBodyAuthenticationFailure(Data(#"{"code":5001,"message":"file unavailable"}"#.utf8))
+    }
 }
 
 @Test func googleDriveResolveAddsBearer() async throws {

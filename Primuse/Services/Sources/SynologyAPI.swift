@@ -17,6 +17,13 @@ actor SynologyAPI {
 
     var isLoggedIn: Bool { sid != nil }
 
+    /// Clears a rejected session locally without sending a logout request that
+    /// could race with and invalidate a newer session.
+    func invalidateSession(ifMatches rejectedSID: String?) {
+        guard rejectedSID == nil || sid == rejectedSID else { return }
+        sid = nil
+    }
+
     init(host: String, port: Int, useSsl: Bool) {
         self.host = host
         self.port = port
@@ -234,7 +241,8 @@ actor SynologyAPI {
         ]
         guard let url = components.url else { throw SynologyError.invalidURL }
 
-        let (data, _) = try await sharedSession.data(from: url)
+        let (data, response) = try await sharedSession.data(from: url)
+        try validateDownloadResponse(data: data, response: response)
         return data
     }
 
@@ -257,10 +265,7 @@ actor SynologyAPI {
         request.timeoutInterval = 30
 
         let (data, response) = try await sharedSession.data(for: request)
-        if let http = response as? HTTPURLResponse,
-           !(200...299).contains(http.statusCode) {
-            throw SynologyError.httpError(http.statusCode)
-        }
+        try validateDownloadResponse(data: data, response: response)
         // Some reverse proxies strip Range and return the whole file. Keep the
         // scanner's memory contract even in that configuration.
         return data.count > maxBytes ? Data(data.prefix(maxBytes)) : data
@@ -288,12 +293,8 @@ actor SynologyAPI {
         request.timeoutInterval = 30
 
         let (data, response) = try await sharedSession.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw SynologyError.invalidResponse
-        }
-        guard (200...299).contains(http.statusCode) else {
-            throw SynologyError.httpError(http.statusCode)
-        }
+        try validateDownloadResponse(data: data, response: response)
+        guard let http = response as? HTTPURLResponse else { throw SynologyError.invalidResponse }
 
         if http.statusCode == 206 {
             return data.count > length ? Data(data.prefix(length)) : data
@@ -306,6 +307,31 @@ actor SynologyAPI {
             return data.subdata(in: start..<end)
         }
         return data.count > length ? Data(data.suffix(length)) : data
+    }
+
+    private func validateDownloadResponse(data: Data, response: URLResponse) throws {
+        guard let http = response as? HTTPURLResponse else {
+            throw SynologyError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 || http.statusCode == 403 {
+                sid = nil
+                throw SynologyError.notLoggedIn
+            }
+            throw SynologyError.httpError(http.statusCode)
+        }
+
+        let contentType = (http.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased()
+        guard contentType.contains("json") || data.first == UInt8(ascii: "{") else { return }
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              json["success"] as? Bool == false else { return }
+        let error = json["error"] as? [String: Any]
+        let code = intValue(error?["code"])
+        if code == 100 || code == 105 || code == 106 || code == 107 || code == 119 {
+            sid = nil
+            throw SynologyError.notLoggedIn
+        }
+        throw SynologyError.apiError(synologyErrorMessage(code: code))
     }
 
     /// Get thumbnail URL for a file

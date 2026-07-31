@@ -70,8 +70,20 @@ final class CloudKVSSync {
     /// parameter so callers don't have to think about types.
     func markChanged(key: String) {
         guard CloudSyncChannel.isEnabled(.settings) else { return }
-        let timestamp = Date().timeIntervalSince1970
+        // Keep the existing timestamp field for on-disk compatibility, but use
+        // it as a Lamport-style revision. A device whose wall clock is ahead can
+        // no longer permanently dominate other devices: every edit advances
+        // beyond both the local and currently visible remote revision.
+        let timestamp = max(
+            Date().timeIntervalSince1970,
+            max(
+                defaults.double(forKey: timestampKey(for: key)),
+                kvs.double(forKey: timestampKey(for: key))
+            )
+        ) + 1
+        let writer = localWriterID
         defaults.set(timestamp, forKey: timestampKey(for: key))
+        defaults.set(writer, forKey: writerKey(for: key))
 
         // Copy whatever is at `key` in defaults up to KVS. Order matters: a
         // Bool stored in UserDefaults round-trips as an NSNumber whose Swift
@@ -100,24 +112,53 @@ final class CloudKVSSync {
         }
 
         kvs.set(timestamp, forKey: timestampKey(for: key))
+        kvs.set(writer, forKey: writerKey(for: key))
         kvs.synchronize()
     }
 
     // MARK: - Internal
 
     private func timestampKey(for key: String) -> String { "\(key)__updatedAt" }
+    private func writerKey(for key: String) -> String { "\(key)__writerID" }
 
-    private func pullIfNewer(key: String) {
-        let remoteTimestamp = kvs.double(forKey: timestampKey(for: key))
-        let localTimestamp = defaults.double(forKey: timestampKey(for: key))
-        guard remoteTimestamp > 0, remoteTimestamp > localTimestamp else { return }
-        applyRemoteValue(forKey: key, remoteTimestamp: remoteTimestamp)
+    private var localWriterID: String {
+        let key = "primuse_cloud_kvs_writer_id"
+        if let existing = defaults.string(forKey: key), !existing.isEmpty { return existing }
+        let created = UUID().uuidString.lowercased()
+        defaults.set(created, forKey: key)
+        return created
     }
 
-    private func applyRemoteValue(forKey key: String, remoteTimestamp: Double) {
+    private func remoteVersion(for key: String) -> (revision: Double, writer: String) {
+        (kvs.double(forKey: timestampKey(for: key)), kvs.string(forKey: writerKey(for: key)) ?? "")
+    }
+
+    private func localVersion(for key: String) -> (revision: Double, writer: String) {
+        (defaults.double(forKey: timestampKey(for: key)), defaults.string(forKey: writerKey(for: key)) ?? "")
+    }
+
+    private func isNewer(
+        _ candidate: (revision: Double, writer: String),
+        than current: (revision: Double, writer: String)
+    ) -> Bool {
+        candidate.revision > current.revision
+            || (candidate.revision == current.revision && candidate.writer > current.writer)
+    }
+
+    private func pullIfNewer(key: String) {
+        let remote = remoteVersion(for: key)
+        guard remote.revision > 0, isNewer(remote, than: localVersion(for: key)) else { return }
+        applyRemoteValue(forKey: key, remoteVersion: remote)
+    }
+
+    private func applyRemoteValue(
+        forKey key: String,
+        remoteVersion: (revision: Double, writer: String)
+    ) {
         guard let value = kvs.object(forKey: key) else {
             defaults.removeObject(forKey: key)
-            defaults.set(remoteTimestamp, forKey: timestampKey(for: key))
+            defaults.set(remoteVersion.revision, forKey: timestampKey(for: key))
+            defaults.set(remoteVersion.writer, forKey: writerKey(for: key))
             return
         }
         if let data = value as? Data {
@@ -131,21 +172,33 @@ final class CloudKVSSync {
         } else {
             defaults.set(value, forKey: key)
         }
-        defaults.set(remoteTimestamp, forKey: timestampKey(for: key))
+        defaults.set(remoteVersion.revision, forKey: timestampKey(for: key))
+        defaults.set(remoteVersion.writer, forKey: writerKey(for: key))
     }
 
     private func handleExternalChange(changedKeys: [String]) {
         guard !changedKeys.isEmpty else { return }
         guard CloudSyncChannel.isEnabled(.settings) else { return }
 
-        // KVS notifies on both the value key and the timestamp key. We only care
-        // about the value keys we registered.
+        // KVS can notify each sibling key separately. Normalize timestamp/writer
+        // changes back to their registered value key so deletions are not lost.
         var keysToReload = Set<String>()
-        for key in changedKeys where registrations.keys.contains(key) {
-            let remoteTimestamp = kvs.double(forKey: timestampKey(for: key))
-            let localTimestamp = defaults.double(forKey: timestampKey(for: key))
-            guard remoteTimestamp > localTimestamp else { continue }
-            applyRemoteValue(forKey: key, remoteTimestamp: remoteTimestamp)
+        let relevantKeys = Set(changedKeys.compactMap { changed -> String? in
+            if registrations[changed] != nil { return changed }
+            if changed.hasSuffix("__updatedAt") {
+                let base = String(changed.dropLast("__updatedAt".count))
+                return registrations[base] == nil ? nil : base
+            }
+            if changed.hasSuffix("__writerID") {
+                let base = String(changed.dropLast("__writerID".count))
+                return registrations[base] == nil ? nil : base
+            }
+            return nil
+        })
+        for key in relevantKeys {
+            let remote = remoteVersion(for: key)
+            guard remote.revision > 0, isNewer(remote, than: localVersion(for: key)) else { continue }
+            applyRemoteValue(forKey: key, remoteVersion: remote)
             keysToReload.insert(key)
         }
 
@@ -173,4 +226,3 @@ enum CloudKVSKey {
     // SSLTrustStore persists these in UserDefaults under
     // "primuse_trusted_ssl_domains" and stays device-local.
 }
-

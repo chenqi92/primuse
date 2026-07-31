@@ -118,13 +118,9 @@ actor U115Source: MusicSourceConnector, OAuthCloudSource {
     func localURL(for path: String) async throws -> URL {
         if helper.hasCached(path: path) { return helper.cachedURL(for: path) }
         let url = try await getDownloadURL(for: path)
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 300
         var req = URLRequest(url: url)
         req.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
-        let (fileData, _) = try await URLSession(configuration: config).data(for: req)
-        try helper.cacheData(fileData, for: path)
-        return helper.cachedURL(for: path)
+        return try await helper.downloadToCache(request: req, for: path)
     }
 
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
@@ -262,11 +258,15 @@ actor U115Source: MusicSourceConnector, OAuthCloudSource {
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
-        let (data, _) = try await URLSession.shared.data(for: request)
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let json = try CloudDriveHelper.tokenRefreshJSON(data: data, response: response)
         let payload = json["data"] as? [String: Any] ?? json
         guard let at = payload["access_token"] as? String else {
-            throw CloudDriveError.tokenRefreshFailed(String(data: data, encoding: .utf8) ?? "")
+            let code = json["code"] as? Int
+            throw CloudDriveHelper.tokenRefreshFailure(
+                statusCode: code == 0 ? (response as? HTTPURLResponse)?.statusCode : code,
+                providerErrorCode: json["error"] as? String
+            )
         }
         let expiresIn = payload["expires_in"] as? TimeInterval ?? 7200
         return .init(accessToken: at,

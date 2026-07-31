@@ -173,7 +173,7 @@ actor LocalFileSource: SongScanningConnector {
 
     func scanSongs(from path: String) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error> {
         let files = try await scanAudioFiles(from: path)
-        let cueTracksByAudioPath = loadCueTracks(from: path)
+        let cueTracksByAudioPath = try await loadCueTracks(from: path)
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
@@ -219,8 +219,10 @@ actor LocalFileSource: SongScanningConnector {
         // 才按不可读跳过。
         let ext = (item.name as NSString).pathExtension
         let isStandaloneVideo = PrimuseConstants.supportedMusicVideoExtensions.contains(ext.lowercased())
-        let isDTS = ext.caseInsensitiveCompare("dts") == .orderedSame
-            || (ext.caseInsensitiveCompare("wav") == .orderedSame && ffmpegDecoder.canDecode(url: fileURL))
+        let isDTSWAV = ext.caseInsensitiveCompare("wav") == .orderedSame
+            ? try await ffmpegDecoder.canDecodeAsync(url: fileURL)
+            : false
+        let isDTS = ext.caseInsensitiveCompare("dts") == .orderedSame || isDTSWAV
         let declaredFormat = isDTS ? AudioFormat.dts : (AudioFormat.from(fileExtension: ext) ?? .mp3)
         let needsFFmpegProbe = isDTS
             || metadata.duration <= 0
@@ -283,7 +285,7 @@ actor LocalFileSource: SongScanningConnector {
 
     /// Parse local CUE sheets up front so a referenced album image is emitted
     /// as virtual tracks and never duplicated as one whole-file library row.
-    private func loadCueTracks(from path: String) -> [String: [CueTrackDescriptor]] {
+    private func loadCueTracks(from path: String) async throws -> [String: [CueTrackDescriptor]] {
         guard let startURL = try? resolvedURL(for: path, allowRoot: true) else { return [:] }
         var result: [String: [CueTrackDescriptor]] = [:]
         let enumerator = FileManager.default.enumerator(
@@ -295,6 +297,7 @@ actor LocalFileSource: SongScanningConnector {
         let basePrefix = base.hasSuffix("/") ? base : base + "/"
 
         while let cueURL = enumerator?.nextObject() as? URL {
+            try Task.checkCancellation()
             guard cueURL.pathExtension.caseInsensitiveCompare("cue") == .orderedSame,
                   let values = try? cueURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
                   values.isRegularFile == true,
@@ -316,7 +319,10 @@ actor LocalFileSource: SongScanningConnector {
                 }
                 let ext = candidate.pathExtension.lowercased()
                 guard var format = AudioFormat.from(fileExtension: ext) else { continue }
-                if ext == "dts" || (ext == "wav" && ffmpegDecoder.canDecode(url: candidate)) {
+                let isDTSWAV = ext == "wav"
+                    ? try await ffmpegDecoder.canDecodeAsync(url: candidate)
+                    : false
+                if ext == "dts" || isDTSWAV {
                     format = .dts
                 }
                 let audioPath = relativePath(for: candidate)

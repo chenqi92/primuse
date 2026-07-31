@@ -16,6 +16,7 @@ actor SynologySource: MusicSourceConnector {
     /// 会让 N 路并发各自打一发 login,触发 DSM 的「自动封禁」(实测短时
     /// 60+ 次登录被 407 拒, 之后即便密码对也被回 400 用户名/密码错误)。
     private var loginTask: Task<Void, Error>?
+    private var reconnectTask: Task<Void, Error>?
 
     /// 长生命周期 session, 让 fetchRange 复用 HTTP keep-alive 连接。
     /// 一首 5MB 歌按 256KB chunk 拉 20 次, 不复用就要 20 次 TLS 握手 ——
@@ -54,14 +55,22 @@ actor SynologySource: MusicSourceConnector {
         try await connect(forceReconnect: false)
     }
 
-    /// 强制重建会话: 先清掉过期 sid 再重新登录。
-    /// 普通 connect() 在 isLoggedIn 时短路返回, DSM 会话过期 / NAS 重启后
-    /// sid 仍非 nil, 重连永远不会发生 —— fetchRange 拿到 401 抛 notLoggedIn,
-    /// 任何重试再进 connect() 又被短路。这里跳过短路, 调 logout() 清 sid
-    /// (best-effort, 同时设 sid=nil), 再走正常登录, 让会话真正续上。
+    /// 强制重建会话。并发的 401 共享同一次本地 session invalidation 和登录，
+    /// 且不会用网络 logout 误注销另一请求刚建立的新 sid。
     func reconnect() async throws {
-        await api.logout()
-        try await connect(forceReconnect: true)
+        if let reconnectTask {
+            try await reconnectTask.value
+            return
+        }
+        let rejectedSID = await api.sid
+        let task = Task { [api, weak self] in
+            await api.invalidateSession(ifMatches: rejectedSID)
+            guard let self else { throw CancellationError() }
+            try await self.connect(forceReconnect: true)
+        }
+        reconnectTask = task
+        defer { reconnectTask = nil }
+        try await task.value
     }
 
     private func connect(forceReconnect: Bool) async throws {
@@ -134,8 +143,8 @@ actor SynologySource: MusicSourceConnector {
 
     /// Download full file to cache for playback. Supports offline playback after first download.
     func localURL(for path: String) async throws -> URL {
-        let sanitized = path.replacingOccurrences(of: "/", with: "_")
-        let fileURL = cacheDirectory.appendingPathComponent(sanitized)
+        let cacheName = CacheFileNamePolicy.make(path: path)
+        let fileURL = cacheDirectory.appendingPathComponent(cacheName)
 
         // Already cached — return immediately (works offline)
         if FileManager.default.fileExists(atPath: fileURL.path) {
@@ -269,16 +278,16 @@ actor SynologySource: MusicSourceConnector {
 
     /// Returns the local cache URL if the file is already cached, nil otherwise.
     nonisolated func cachedURL(for path: String) -> URL? {
-        let sanitized = path.replacingOccurrences(of: "/", with: "_")
-        let fileURL = cacheDirectory.appendingPathComponent(sanitized)
+        let cacheName = CacheFileNamePolicy.make(path: path)
+        let fileURL = cacheDirectory.appendingPathComponent(cacheName)
         return FileManager.default.fileExists(atPath: fileURL.path) ? fileURL : nil
     }
 
     /// Download file to cache in background (for offline support).
     func cacheFile(for path: String) async throws {
         // Skip if already cached
-        let sanitized = path.replacingOccurrences(of: "/", with: "_")
-        let fileURL = cacheDirectory.appendingPathComponent(sanitized)
+        let cacheName = CacheFileNamePolicy.make(path: path)
+        let fileURL = cacheDirectory.appendingPathComponent(cacheName)
         guard !FileManager.default.fileExists(atPath: fileURL.path) else { return }
 
         guard let url = try await streamingURL(for: path) else { return }
@@ -318,14 +327,15 @@ actor SynologySource: MusicSourceConnector {
 
     func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            let producer = Task {
                 do {
                     try await scanDirectory(path: path, continuation: continuation)
                     continuation.finish()
                 } catch {
-                    continuation.finish(throwing: error)
+                    Task.isCancelled ? continuation.finish() : continuation.finish(throwing: error)
                 }
             }
+            continuation.onTermination = { @Sendable _ in producer.cancel() }
         }
     }
 
@@ -333,8 +343,10 @@ actor SynologySource: MusicSourceConnector {
         path: String,
         continuation: AsyncThrowingStream<RemoteFileItem, Error>.Continuation
     ) async throws {
+        try Task.checkCancellation()
         let items = try await listFiles(at: path)
         for item in items {
+            try Task.checkCancellation()
             if item.isDirectory {
                 try await scanDirectory(path: item.path, continuation: continuation)
             } else if let scannable = SidecarHintResolver.scannableItem(item, siblings: items) {

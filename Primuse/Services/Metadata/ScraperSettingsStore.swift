@@ -13,11 +13,21 @@ struct ScraperSettings: Codable, Sendable {
     }
 
     static func load(defaults: UserDefaults = .standard) -> ScraperSettings {
+        load(defaults: defaults, persistReconciliation: false)
+    }
+
+    /// Loads and reconciles settings without mutating UserDefaults. Background
+    /// scraper tasks call `load()` concurrently, so persistence is deliberately
+    /// confined to the main-actor settings store.
+    private static func load(
+        defaults: UserDefaults,
+        persistReconciliation: Bool
+    ) -> ScraperSettings {
         // Try v3 first
         if let data = defaults.data(forKey: defaultsKey),
            let settings = try? JSONDecoder().decode(ScraperSettings.self, from: data) {
             let (reconciled, didChange) = reconcileLoadedSettings(settings)
-            if didChange {
+            if persistReconciliation, didChange {
                 reconciled.save(defaults: defaults)
             }
             return reconciled
@@ -47,17 +57,25 @@ struct ScraperSettings: Codable, Sendable {
                     ))
                 }
             }
-            defaults.removeObject(forKey: v2Key)
             let (reconciled, _) = reconcileLoadedSettings(migrated)
-            reconciled.save(defaults: defaults)
+            if persistReconciliation {
+                reconciled.save(defaults: defaults)
+                defaults.removeObject(forKey: v2Key)
+            }
             return reconciled
         }
 
         let (reconciled, didChange) = reconcileLoadedSettings(ScraperSettings())
-        if didChange {
+        if persistReconciliation, didChange {
             reconciled.save(defaults: defaults)
         }
         return reconciled
+    }
+
+    fileprivate static func loadPersistingReconciliation(
+        defaults: UserDefaults = .standard
+    ) -> ScraperSettings {
+        load(defaults: defaults, persistReconciliation: true)
     }
 
     func save(defaults: UserDefaults = .standard) {
@@ -160,7 +178,7 @@ final class ScraperSettingsStore {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        let settings = ScraperSettings.load(defaults: defaults)
+        let settings = ScraperSettings.loadPersistingReconciliation(defaults: defaults)
         self.sources = settings.sources.sorted { $0.priority < $1.priority }
         self.onlyFillMissingFields = settings.onlyFillMissingFields
 
@@ -170,7 +188,7 @@ final class ScraperSettingsStore {
     }
 
     private func reloadFromDefaults() {
-        let settings = ScraperSettings.load(defaults: defaults)
+        let settings = ScraperSettings.loadPersistingReconciliation(defaults: defaults)
         suppressPersist = true
         defer { suppressPersist = false }
         sources = settings.sources.sorted { $0.priority < $1.priority }

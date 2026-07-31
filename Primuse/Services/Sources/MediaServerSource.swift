@@ -22,6 +22,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
 
     private var accessToken: String?
     private var userID: String?
+    private var loginTask: Task<Void, Error>?
     private var plexItems: [String: PlexAudioItem] = [:]
     private var plexAPIVersion: String?
     private var plexSigninState: String?
@@ -66,6 +67,20 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         if accessToken != nil, userID != nil {
             return
         }
+        if let loginTask {
+            try await loginTask.value
+            return
+        }
+        let task = Task { [weak self] in
+            guard let self else { throw CancellationError() }
+            try await self.establishConnection()
+        }
+        loginTask = task
+        defer { loginTask = nil }
+        try await task.value
+    }
+
+    private func establishConnection() async throws {
 
         if kind == .plex {
             guard secret.isEmpty == false else {
@@ -112,6 +127,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     }
 
     func disconnect() async {
+        loginTask?.cancel()
+        loginTask = nil
         accessToken = nil
         userID = nil
         plexItems.removeAll()
@@ -155,9 +172,18 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
 
         let remoteURL = try await playbackURL(for: itemID)
 
-        let (data, response) = try await session.data(from: remoteURL)
-        try validate(response)
-        try data.write(to: fileURL, options: .atomic)
+        let (temporaryURL, response) = try await session.download(from: remoteURL)
+        do {
+            try validate(response)
+            if FileManager.default.fileExists(atPath: fileURL.path) {
+                try? FileManager.default.removeItem(at: temporaryURL)
+            } else {
+                try FileManager.default.moveItem(at: temporaryURL, to: fileURL)
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: temporaryURL)
+            throw error
+        }
         return fileURL
     }
 
@@ -512,7 +538,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         body: Data? = nil,
         contentType: String = "application/json",
         accept: String = "application/json",
-        requiresAuth: Bool = true
+        requiresAuth: Bool = true,
+        allowPasswordReauthentication: Bool = true
     ) async throws -> Data {
         var request = URLRequest(url: buildURL(path: path, queryItems: queryItems))
         request.httpMethod = method
@@ -525,6 +552,27 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         }
 
         let (data, response) = try await session.data(for: request)
+        if requiresAuth,
+           method == "GET",
+           allowPasswordReauthentication,
+           kind != .plex,
+           authType != .apiKey,
+           let http = response as? HTTPURLResponse,
+           http.statusCode == 401 || http.statusCode == 403 {
+            accessToken = nil
+            userID = nil
+            try await connect()
+            return try await performRequest(
+                path: path,
+                method: method,
+                queryItems: queryItems,
+                body: body,
+                contentType: contentType,
+                accept: accept,
+                requiresAuth: requiresAuth,
+                allowPasswordReauthentication: false
+            )
+        }
         try validate(response)
         return data
     }

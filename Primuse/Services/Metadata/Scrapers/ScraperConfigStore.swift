@@ -331,9 +331,15 @@ final class ScraperConfigStore: @unchecked Sendable {
         config.isDeleted = true
         config.deletedAt = Date()
         config.modifiedAt = Date()
-        cache[id] = config
+        do {
+            try writeToDiskUnlocked(config)
+            cache[id] = config
+        } catch {
+            lock.unlock()
+            plog("ScraperConfigStore delete failed id=\(id): \(error.localizedDescription)")
+            return
+        }
         lock.unlock()
-        writeToDisk(config)
         NotificationCenter.default.post(
             name: .primuseScraperConfigDidChange,
             object: nil,
@@ -348,9 +354,15 @@ final class ScraperConfigStore: @unchecked Sendable {
         config.isDeleted = false
         config.deletedAt = nil
         config.modifiedAt = Date()
-        cache[id] = config
+        do {
+            try writeToDiskUnlocked(config)
+            cache[id] = config
+        } catch {
+            lock.unlock()
+            plog("ScraperConfigStore restore failed id=\(id): \(error.localizedDescription)")
+            return
+        }
         lock.unlock()
-        writeToDisk(config)
         NotificationCenter.default.post(
             name: .primuseScraperConfigDidChange,
             object: nil,
@@ -363,14 +375,22 @@ final class ScraperConfigStore: @unchecked Sendable {
     /// `<id>.secrets.json` if present.
     func permanentlyDelete(id: String) {
         lock.lock()
-        cache.removeValue(forKey: id)
+        do {
+            let fileURL = try configFileURL(for: id)
+            let secretsURL = try secretsFileURL(for: id)
+            if FileManager.default.fileExists(atPath: fileURL.path) {
+                try FileManager.default.removeItem(at: fileURL)
+            }
+            if FileManager.default.fileExists(atPath: secretsURL.path) {
+                try FileManager.default.removeItem(at: secretsURL)
+            }
+            cache.removeValue(forKey: id)
+        } catch {
+            lock.unlock()
+            plog("ScraperConfigStore permanent delete failed id=\(id): \(error.localizedDescription)")
+            return
+        }
         lock.unlock()
-        if let fileURL = try? configFileURL(for: id) {
-            try? FileManager.default.removeItem(at: fileURL)
-        }
-        if let secretsURL = try? secretsFileURL(for: id) {
-            try? FileManager.default.removeItem(at: secretsURL)
-        }
         NotificationCenter.default.post(
             name: .primuseScraperConfigDidDelete,
             object: nil,
@@ -393,12 +413,14 @@ final class ScraperConfigStore: @unchecked Sendable {
         }
     }
 
-    private func writeToDisk(_ config: ScraperConfig) {
+    /// Caller holds `lock`, keeping disk and cache ordering consistent across
+    /// imports, local edits, CloudKit applies, and deletions.
+    private func writeToDiskUnlocked(_ config: ScraperConfig) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? encoder.encode(config),
-              let fileURL = try? configFileURL(for: config.id) else { return }
-        try? data.write(to: fileURL, options: .atomic)
+        let data = try encoder.encode(config)
+        let fileURL = try configFileURL(for: config.id)
+        try data.write(to: fileURL, options: .atomic)
     }
 
     /// Apply a config pulled from CloudKit. Skips notification — caller is the
@@ -412,41 +434,43 @@ final class ScraperConfigStore: @unchecked Sendable {
             return
         }
 
-        lock.lock()
-        if let existing = cache[config.id],
-           let localTS = existing.modifiedAt,
-           let remoteTS = config.modifiedAt,
-           localTS > remoteTS {
-            lock.unlock()
-            return
-        }
-        lock.unlock()
-
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? encoder.encode(config),
-              let fileURL = try? configFileURL(for: config.id) else { return }
-        try? data.write(to: fileURL, options: .atomic)
-
-        // CloudKit 拉回的 config 因 encode 剥离必然 secrets == nil，写入 cache 前
-        // 旁路补回 secrets（磁盘文件或内置 fallback），否则加密歌词源在本会话内
-        // 会因 secrets 缺失而静默失效，要等 App 重启才恢复。
         var resolved = config
         injectSecrets(into: &resolved, context: "applyRemoteConfig")
 
         lock.lock()
-        cache[config.id] = resolved
+        if let existing = cache[resolved.id],
+           let localTS = existing.modifiedAt,
+           let remoteTS = resolved.modifiedAt,
+           localTS > remoteTS {
+            lock.unlock()
+            return
+        }
+        do {
+            try writeToDiskUnlocked(resolved)
+            cache[resolved.id] = resolved
+        } catch {
+            lock.unlock()
+            plog("ScraperConfigStore remote apply failed id=\(resolved.id): \(error.localizedDescription)")
+            return
+        }
         lock.unlock()
     }
 
     /// Delete a config in response to a remote deletion. Skips notification.
     func deleteFromRemote(id: String) {
         lock.lock()
-        cache.removeValue(forKey: id)
-        lock.unlock()
-        if let fileURL = try? configFileURL(for: id) {
-            try? FileManager.default.removeItem(at: fileURL)
+        do {
+            let fileURL = try configFileURL(for: id)
+            if FileManager.default.fileExists(atPath: fileURL.path) {
+                try FileManager.default.removeItem(at: fileURL)
+            }
+            cache.removeValue(forKey: id)
+        } catch {
+            lock.unlock()
+            plog("ScraperConfigStore remote delete failed id=\(id): \(error.localizedDescription)")
+            return
         }
+        lock.unlock()
     }
 
     /// Check if a config exists
@@ -516,11 +540,6 @@ final class ScraperConfigStore: @unchecked Sendable {
         }
     }
 
-    private func save(_ config: ScraperConfig, data: Data) throws {
-        let fileURL = try configFileURL(for: config.id)
-        try data.write(to: fileURL, options: .atomic)
-    }
-
     private func validate(_ config: ScraperConfig) throws {
         guard Self.isSafeConfigID(config.id) else {
             throw ScraperConfigError.validationFailed("Config ID must be 1-64 chars: letters, numbers, '.', '_' or '-'")
@@ -546,26 +565,41 @@ final class ScraperConfigStore: @unchecked Sendable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let now = Date()
-        var stamped: [ScraperConfig] = []
+        var prepared: [(config: ScraperConfig, data: Data, secretsData: Data?)] = []
         for var config in configs {
             // Stamp with import time so conflict resolution can compare wall-clock
             // edit times across devices.
             config.modifiedAt = now
             // 主 config encode 时 secrets 自动剥离（见 ScraperConfig.encode(to:)）
             let data = try encoder.encode(config)
-            try save(config, data: data)
-            // secrets 单独写 <id>.secrets.json — 不进 CloudKit、不参与 encode 导出
+            let secretsData: Data?
             if let secrets = config.secrets, !secrets.isEmpty {
-                if let secretsData = try? encoder.encode(secrets) {
-                    let secretsURL = try secretsFileURL(for: config.id)
-                    try? secretsData.write(to: secretsURL, options: .atomic)
+                secretsData = try encoder.encode(secrets)
+            } else {
+                secretsData = nil
+            }
+            prepared.append((config, data, secretsData))
+        }
+
+        // Serialize the complete disk+cache mutation. Without this, two imports
+        // or a CloudKit apply can persist an older snapshot after a newer one.
+        lock.lock()
+        do {
+            for item in prepared {
+                try item.data.write(to: configFileURL(for: item.config.id), options: .atomic)
+                if let secretsData = item.secretsData {
+                    try secretsData.write(to: secretsFileURL(for: item.config.id), options: .atomic)
                 }
             }
-            lock.lock()
-            cache[config.id] = config
+            for item in prepared {
+                cache[item.config.id] = item.config
+            }
+        } catch {
             lock.unlock()
-            stamped.append(config)
+            throw error
         }
+        lock.unlock()
+        let stamped = prepared.map(\.config)
         NotificationCenter.default.post(
             name: .primuseScraperConfigDidChange,
             object: nil,

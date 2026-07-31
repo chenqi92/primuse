@@ -117,8 +117,12 @@ struct YearlyReportView: View {
                     else if value.translation.width > 60 { macBack() }
                 }
         )
-        .onReceive(Timer.publish(every: 0.2, on: .main, in: .common).autoconnect()) { _ in
-            tick()
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(200))
+                guard !Task.isCancelled else { break }
+                tick()
+            }
         }
         .sheet(item: $shareImageItem) { item in
             ShareSheet(items: item.images)
@@ -483,8 +487,12 @@ struct YearlyReportView: View {
                     else if dy > 50 { back() }
                 }
         )
-        .onReceive(Timer.publish(every: 0.2, on: .main, in: .common).autoconnect()) { _ in
-            tick()
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(200))
+                guard !Task.isCancelled else { break }
+                tick()
+            }
         }
         .sheet(item: $shareImageItem) { item in
             ShareSheet(items: item.images)

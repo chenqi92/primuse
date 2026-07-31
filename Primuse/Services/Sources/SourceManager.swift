@@ -295,6 +295,7 @@ final class SourceManager {
     /// active connector per source.
     private var retiredSMBSidecarConnectors: [any MusicSourceConnector] = []
     private let sourcesProvider: @Sendable () async throws -> [MusicSource]
+    private let songsProvider: @MainActor () -> [Song]
     @ObservationIgnored private var offlineAudioSnapshots: [String: OfflineAudioCacheSnapshot] = [:]
     @ObservationIgnored private var offlineAudioSnapshotEntries: [String: OfflineAudioSnapshotEntry] = [:]
     /// Lightweight aggregate used by the source cards. Download progress does
@@ -308,11 +309,16 @@ final class SourceManager {
         self.sourcesProvider = {
             try await database.allSources()
         }
+        self.songsProvider = { [] }
         observeLibraryInvalidations()
     }
 
-    init(sourcesProvider: @escaping @Sendable () async throws -> [MusicSource]) {
+    init(
+        sourcesProvider: @escaping @Sendable () async throws -> [MusicSource],
+        songsProvider: @escaping @MainActor () -> [Song] = { [] }
+    ) {
         self.sourcesProvider = sourcesProvider
+        self.songsProvider = songsProvider
         observeLibraryInvalidations()
     }
 
@@ -780,7 +786,7 @@ final class SourceManager {
     private static func advice(for error: Error, source: MusicSource) -> SourceDiagnosticAdvice {
         if let cloudError = error as? CloudDriveError {
             switch cloudError {
-            case .notAuthenticated, .tokenExpired, .tokenRefreshFailed(_):
+            case .notAuthenticated, .tokenExpired, .tokenRefreshFailed(_), .tokenPersistenceFailed:
                 return SourceDiagnosticAdvice(
                     title: String(localized: "source_diag_advice_oauth_title"),
                     message: String(localized: "source_diag_advice_oauth_message"),
@@ -1408,23 +1414,58 @@ final class SourceManager {
         return dir
     }
 
-    /// 缓存文件名:sanitize 后的 filePath 末尾补音频格式扩展名。OneDrive 等的 filePath
+    /// 缓存文件名使用 filePath 的稳定哈希，并补音频格式扩展名。OneDrive 等的 filePath
     /// 是无扩展名的 item id,缓存文件没扩展名时命中后 file:// 播放会因 pathExtension 为空
     /// 被判 "Unsupported format" 而秒退(表现为"播放后瞬间消失")。
     private func cacheFileName(for song: Song) -> String {
-        let sanitized = song.filePath.replacingOccurrences(of: "/", with: "_")
-        let ext = song.fileFormat.rawValue.lowercased()
-        if ext.isEmpty || sanitized.lowercased().hasSuffix(".\(ext)") { return sanitized }
-        return "\(sanitized).\(ext)"
+        CacheFileNamePolicy.make(
+            path: song.filePath,
+            preferredExtension: song.fileFormat.rawValue
+        )
     }
 
     private func audioCacheRelativePath(for song: Song) -> String {
         "\(song.sourceID)/\(cacheFileName(for: song))"
     }
 
+    private func legacyAudioCacheFileName(for song: Song) -> String {
+        let sanitized = CacheFileNamePolicy.legacySanitized(path: song.filePath)
+        let ext = song.fileFormat.rawValue.lowercased()
+        if ext.isEmpty || sanitized.lowercased().hasSuffix(".\(ext)") { return sanitized }
+        return "\(sanitized).\(ext)"
+    }
+
+    private func migrateLegacyAudioCacheIfUnambiguous(for song: Song, destination: URL) {
+        guard !FileManager.default.fileExists(atPath: destination.path) else { return }
+        let legacyName = legacyAudioCacheFileName(for: song)
+        let legacyURL = audioCacheDirectory(for: song.sourceID).appendingPathComponent(legacyName)
+        guard FileManager.default.fileExists(atPath: legacyURL.path) else { return }
+        let matchingSongs = songsProvider().lazy.filter {
+            $0.sourceID == song.sourceID && self.legacyAudioCacheFileName(for: $0) == legacyName
+        }.prefix(2)
+        guard matchingSongs.count == 1 else { return }
+
+        let attributes = try? FileManager.default.attributesOfItem(atPath: legacyURL.path)
+        let byteCount = (attributes?[.size] as? NSNumber)?.int64Value
+            ?? attributes?[.size] as? Int64
+        if song.fileSize > 0, let byteCount {
+            let tolerance = max(Int64(4 * 1024), song.fileSize / 100)
+            guard abs(byteCount - song.fileSize) <= tolerance else { return }
+        }
+        do {
+            try FileManager.default.moveItem(at: legacyURL, to: destination)
+            let oldPath = "\(song.sourceID)/\(legacyName)"
+            let newPath = audioCacheRelativePath(for: song)
+            Task { await AudioCacheManager.shared.migrateEntry(from: oldPath, to: newPath, byteCount: byteCount) }
+        } catch {
+            plog("⚠️ Legacy audio cache migration failed for '\(song.title)': \(error.localizedDescription)")
+        }
+    }
+
     func cachedURL(for song: Song) -> URL? {
         let sanitized = cacheFileName(for: song)
         let fileURL = audioCacheDirectory(for: song.sourceID).appendingPathComponent(sanitized)
+        migrateLegacyAudioCacheIfUnambiguous(for: song, destination: fileURL)
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return nil }
         // 完整性校验: 云盘断流 / 用户中途切歌时会留下 partial 文件
         // (比如 1MB 但实际应该 9MB)。命中后 SFBDecoder 只能解码前面那段,
@@ -1482,7 +1523,9 @@ final class SourceManager {
     }
 
     func cacheURL(for song: Song) -> URL {
-        return audioCacheDirectory(for: song.sourceID).appendingPathComponent(cacheFileName(for: song))
+        let url = audioCacheDirectory(for: song.sourceID).appendingPathComponent(cacheFileName(for: song))
+        migrateLegacyAudioCacheIfUnambiguous(for: song, destination: url)
+        return url
     }
 
     func offlineAudioSnapshot(for song: Song) -> OfflineAudioCacheSnapshot {
@@ -2244,9 +2287,11 @@ final class SourceManager {
             caches.appendingPathComponent(audioCacheDirName).appendingPathComponent(sourceID),
             caches.appendingPathComponent(videoCacheDirName).appendingPathComponent(sourceID),
             caches.appendingPathComponent("primuse_cloud_cache").appendingPathComponent(sourceID),
+            caches.appendingPathComponent("primuse_s3_cache").appendingPathComponent(sourceID),
             temp.appendingPathComponent("primuse_smb_cache").appendingPathComponent(sourceID),
             temp.appendingPathComponent("primuse_sftp_cache").appendingPathComponent(sourceID),
             temp.appendingPathComponent("primuse_ftp_cache").appendingPathComponent(sourceID),
+            temp.appendingPathComponent("primuse_webdav_cache").appendingPathComponent(sourceID),
             temp.appendingPathComponent("primuse_nfs_cache").appendingPathComponent(sourceID),
             temp.appendingPathComponent("primuse_upnp_cache").appendingPathComponent(sourceID),
             temp.appendingPathComponent("primuse_scan_\(sourceID)"),
@@ -2479,23 +2524,51 @@ final class SourceManager {
             )
             audioRelativePaths.append("\(song.sourceID)/\(audioName)")
 
-            let sanitized = song.filePath.replacingOccurrences(of: "/", with: "_")
+            let cacheName = CacheFileNamePolicy.make(path: song.filePath)
+            let legacyName = CacheFileNamePolicy.legacySanitized(path: song.filePath)
             cacheTargets.append(
                 tempRoot.appendingPathComponent("primuse_smb_cache")
-                    .appendingPathComponent(song.sourceID).appendingPathComponent(sanitized)
+                    .appendingPathComponent(song.sourceID).appendingPathComponent(cacheName)
+            )
+            cacheTargets.append(
+                tempRoot.appendingPathComponent("primuse_smb_cache")
+                    .appendingPathComponent(song.sourceID).appendingPathComponent(legacyName)
             )
             cacheTargets.append(
                 tempRoot.appendingPathComponent("primuse_ftp_cache")
-                    .appendingPathComponent(song.sourceID).appendingPathComponent(sanitized)
+                    .appendingPathComponent(song.sourceID).appendingPathComponent(legacyName)
             )
             cacheTargets.append(
                 tempRoot.appendingPathComponent("primuse_sftp_cache")
-                    .appendingPathComponent(song.sourceID).appendingPathComponent(sanitized)
+                    .appendingPathComponent(song.sourceID).appendingPathComponent(cacheName)
             )
             cacheTargets.append(
                 tempRoot.appendingPathComponent("primuse_webdav_cache")
-                    .appendingPathComponent(sanitized)
+                    .appendingPathComponent(song.sourceID).appendingPathComponent(cacheName)
             )
+            cacheTargets.append(
+                FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+                    .appendingPathComponent("primuse_s3_cache")
+                    .appendingPathComponent(song.sourceID).appendingPathComponent(cacheName)
+            )
+            if let nfsName = NFSSelectionPathCodec.cacheFileName(for: song.filePath) {
+                cacheTargets.append(
+                    tempRoot.appendingPathComponent("primuse_nfs_cache")
+                        .appendingPathComponent(song.sourceID).appendingPathComponent(nfsName)
+                )
+            }
+            if let upnpURL = URL(string: song.filePath),
+               let scheme = upnpURL.scheme?.lowercased(),
+               scheme == "http" || scheme == "https" {
+                let upnpName = CacheFileNamePolicy.make(
+                    path: upnpURL.absoluteString,
+                    preferredExtension: upnpURL.pathExtension.isEmpty ? "bin" : upnpURL.pathExtension
+                )
+                cacheTargets.append(
+                    tempRoot.appendingPathComponent("primuse_upnp_cache")
+                        .appendingPathComponent(song.sourceID).appendingPathComponent(upnpName)
+                )
+            }
 
             if let mvPath = normalizedMusicVideoPath(for: song),
                URL(string: mvPath)?.scheme == nil {
@@ -2567,7 +2640,7 @@ final class SourceManager {
             .appendingPathComponent("primuse_webdav_cache")
         let legacyTargets = songs.map {
             legacyWebDAVRoot.appendingPathComponent(
-                $0.filePath.replacingOccurrences(of: "/", with: "_")
+                CacheFileNamePolicy.legacySanitized(path: $0.filePath)
             )
         }
         Task.detached(priority: .utility) { [legacyTargets] in
@@ -2585,13 +2658,19 @@ final class SourceManager {
     }
 
     private func deleteConnectorTempCaches(for song: Song) {
-        let sanitized = song.filePath.replacingOccurrences(of: "/", with: "_")
+        let cacheName = CacheFileNamePolicy.make(path: song.filePath)
+        let legacyName = CacheFileNamePolicy.legacySanitized(path: song.filePath)
         let temp = FileManager.default.temporaryDirectory
         let candidates = [
-            temp.appendingPathComponent("primuse_smb_cache").appendingPathComponent(song.sourceID).appendingPathComponent(sanitized),
-            temp.appendingPathComponent("primuse_ftp_cache").appendingPathComponent(song.sourceID).appendingPathComponent(sanitized),
-            temp.appendingPathComponent("primuse_sftp_cache").appendingPathComponent(song.sourceID).appendingPathComponent(sanitized),
-            temp.appendingPathComponent("primuse_webdav_cache").appendingPathComponent(sanitized),
+            temp.appendingPathComponent("primuse_smb_cache").appendingPathComponent(song.sourceID).appendingPathComponent(cacheName),
+            temp.appendingPathComponent("primuse_smb_cache").appendingPathComponent(song.sourceID).appendingPathComponent(legacyName),
+            temp.appendingPathComponent("primuse_ftp_cache").appendingPathComponent(song.sourceID).appendingPathComponent(legacyName),
+            temp.appendingPathComponent("primuse_sftp_cache").appendingPathComponent(song.sourceID).appendingPathComponent(cacheName),
+            temp.appendingPathComponent("primuse_sftp_cache").appendingPathComponent(song.sourceID).appendingPathComponent(legacyName),
+            temp.appendingPathComponent("primuse_webdav_cache").appendingPathComponent(song.sourceID).appendingPathComponent(cacheName),
+            temp.appendingPathComponent("primuse_webdav_cache").appendingPathComponent(legacyName),
+            FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+                .appendingPathComponent("primuse_s3_cache").appendingPathComponent(song.sourceID).appendingPathComponent(cacheName),
         ]
         for url in candidates {
             Self.removeCacheFileFamily(at: url)
@@ -2793,8 +2872,7 @@ final class SourceManager {
                 await AudioCacheManager.shared.evictIfNeeded(reserveBytes: song.fileSize)
                 try? FileManager.default.removeItem(at: target)
                 try FileManager.default.moveItem(at: tempURL, to: target)
-                let sanitized = song.filePath.replacingOccurrences(of: "/", with: "_")
-                await AudioCacheManager.shared.recordAccess(path: "\(song.sourceID)/\(sanitized)")
+                await AudioCacheManager.shared.recordAccess(path: audioCacheRelativePath(for: song))
                 plog("✅ Cache: '\(song.title)' cached successfully")
             } catch {
                 plog("⚠️ Cache failed for '\(song.title)': \(error.localizedDescription)")

@@ -90,14 +90,20 @@ enum LastFmAuthService {
     }
 
     private static func fetchUsername(apiKey: String, sessionKey: String) async throws -> String {
-        var components = URLComponents(string: "https://ws.audioscrobbler.com/2.0/")!
-        components.queryItems = [
-            URLQueryItem(name: "method", value: "user.getInfo"),
-            URLQueryItem(name: "api_key", value: apiKey),
-            URLQueryItem(name: "sk", value: sessionKey),
-            URLQueryItem(name: "format", value: "json")
+        let params = [
+            "method": "user.getInfo",
+            "api_key": apiKey,
+            "sk": sessionKey,
+            "format": "json"
         ]
-        var request = URLRequest(url: components.url!)
+        let body = params
+            .sorted { $0.key < $1.key }
+            .map { "\(LastFmProvider.formEncode($0.key))=\(LastFmProvider.formEncode($0.value))" }
+            .joined(separator: "&")
+        var request = URLRequest(url: URL(string: "https://ws.audioscrobbler.com/2.0/")!)
+        request.httpMethod = "POST"
+        request.httpBody = Data(body.utf8)
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 30
         let (data, _) = try await URLSession.shared.data(for: request)
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]

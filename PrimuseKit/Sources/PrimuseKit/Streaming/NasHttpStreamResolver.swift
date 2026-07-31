@@ -93,17 +93,46 @@ public actor NasHttpStreamResolver: StreamResolver {
             ("api/auth/login", ["username": username, "password": password]),
             ("user/login", ["user": username, "passwd": password]),
         ]
+        var lastTransportError: Error?
+        var lastServerStatus: Int?
+        var sawAuthenticationRejection = false
+        var sawSuccessfulButInvalidResponse = false
         for (path, body) in attempts {
             var req = URLRequest(url: base.appendingPathComponent(path))
             req.httpMethod = "POST"
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             req.httpBody = try? SafeJSONSerialization.data(withJSONObject: body)
-            guard let (data, response) = try? await session.data(for: req),
-                  let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode),
-                  let token = Self.parseFnosToken(data) else { continue }
+            let data: Data
+            let response: URLResponse
+            do {
+                (data, response) = try await session.data(for: req)
+            } catch {
+                lastTransportError = error
+                continue
+            }
+            guard let http = response as? HTTPURLResponse else {
+                sawSuccessfulButInvalidResponse = true
+                continue
+            }
+            if http.statusCode == 401 || http.statusCode == 403 {
+                sawAuthenticationRejection = true
+                continue
+            }
+            guard (200...299).contains(http.statusCode) else {
+                lastServerStatus = http.statusCode
+                continue
+            }
+            guard let token = Self.parseFnosToken(data) else {
+                sawSuccessfulButInvalidResponse = true
+                continue
+            }
             return token
         }
-        throw StreamResolveError.authFailed
+        if sawAuthenticationRejection { throw StreamResolveError.authFailed }
+        if let lastServerStatus { throw StreamResolveError.badServerResponse(lastServerStatus) }
+        if let lastTransportError { throw lastTransportError }
+        if sawSuccessfulButInvalidResponse { throw StreamResolveError.badServerResponse(200) }
+        throw StreamResolveError.cannotBuildURL
     }
 
     // MARK: - 纯函数(可单测)

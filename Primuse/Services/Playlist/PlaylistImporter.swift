@@ -207,7 +207,12 @@ enum PlaylistImporter {
     private static func parseExtInf(_ extInf: String?, fallbackPath: String) -> (title: String, artist: String?) {
         guard let extInf else {
             // 没 EXTINF, 用路径 basename 当标题
-            let base = (fallbackPath as NSString).lastPathComponent
+            let decodedPath = fallbackPath.removingPercentEncoding ?? fallbackPath
+            let base = if let url = URL(string: fallbackPath), url.isFileURL {
+                url.lastPathComponent
+            } else {
+                (decodedPath as NSString).lastPathComponent
+            }
             let withoutExt = (base as NSString).deletingPathExtension
             return (withoutExt, nil)
         }
@@ -256,8 +261,12 @@ enum PlaylistImporter {
         }
 
         func matchByBasename(_ path: String) -> Song? {
-            let needle = (path as NSString).lastPathComponent.lowercased()
-            return PlaylistImporter.chooseBest(from: byBasename[needle] ?? [])
+            for needle in PlaylistImporter.basenameCandidates(for: path) {
+                if let match = PlaylistImporter.chooseBest(from: byBasename[needle] ?? []) {
+                    return match
+                }
+            }
+            return nil
         }
 
         func matchByTitleArtist(title: String, artist: String?) -> Song? {
@@ -284,6 +293,24 @@ enum PlaylistImporter {
     nonisolated private static func normalize(_ s: String) -> String {
         s.trimmingCharacters(in: .whitespacesAndNewlines)
             .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+    }
+
+    nonisolated private static func basenameCandidates(for rawPath: String) -> [String] {
+        var candidates: [String] = []
+        func append(_ value: String) {
+            let basename = (value as NSString).lastPathComponent.lowercased()
+            if !basename.isEmpty, !candidates.contains(basename) { candidates.append(basename) }
+        }
+        // Preserve literal percent signs first so a real file named `%20.mp3`
+        // wins over the decoded-space fallback.
+        append(rawPath)
+        if let url = URL(string: rawPath), url.isFileURL {
+            append(url.path)
+        }
+        if let decoded = rawPath.removingPercentEncoding {
+            append(decoded)
+        }
+        return candidates
     }
 
     // MARK: - Apply

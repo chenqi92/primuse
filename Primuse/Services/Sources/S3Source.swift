@@ -14,6 +14,7 @@ actor S3Source: MusicSourceConnector {
     private let secretKey: String
     private let useSsl: Bool
     private let cacheDirectory: URL
+    private var clockOffset: TimeInterval
 
     /// 长生命周期 session, fetchRange / localURL 复用 HTTP keep-alive。
     /// S3 协议天然支持 Range header (GetObject with Range), 不需要签名。
@@ -42,6 +43,7 @@ actor S3Source: MusicSourceConnector {
         self.accessKey = accessKey
         self.secretKey = secretKey
         self.useSsl = useSsl
+        self.clockOffset = S3ClockSkewPolicy.storedOffset(for: sourceID)
 
         let cacheDir = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
             .appendingPathComponent("primuse_s3_cache/\(sourceID)")
@@ -86,10 +88,9 @@ actor S3Source: MusicSourceConnector {
             components.queryItems = queryItems
             guard let url = components.url else { throw SourceError.connectionFailed("Invalid URL") }
 
-            let request = try signedRequest(url: url, method: "GET")
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-                throw SourceError.connectionFailed("S3 list failed: \((response as? HTTPURLResponse)?.statusCode ?? 0)")
+            let (data, http) = try await performDataRequest(url: url, method: "GET")
+            guard http.statusCode == 200 else {
+                throw SourceError.connectionFailed("S3 list failed: \(http.statusCode)")
             }
 
             let page = parseListResponse(data: data, prefix: prefix)
@@ -101,20 +102,15 @@ actor S3Source: MusicSourceConnector {
     }
 
     func localURL(for path: String) async throws -> URL {
-        let sanitized = path.replacingOccurrences(of: "/", with: "_")
-        let cachedURL = cacheDirectory.appendingPathComponent(sanitized)
+        let cacheName = CacheFileNamePolicy.make(path: path)
+        let cachedURL = cacheDirectory.appendingPathComponent(cacheName)
         if FileManager.default.fileExists(atPath: cachedURL.path) {
             return cachedURL
         }
 
         let url = try objectURL(for: path)
-        var request = try signedRequest(url: url, method: "GET")
-        // 整文件下载放宽超时 (大文件), 复用长生命周期 rangeSession 避免
-        // 每首歌新建 session 泄漏。per-request timeout 覆盖 session 默认值。
-        request.timeoutInterval = 300
-
-        let (tempURL, response) = try await rangeSession.download(for: request)
-        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+        let (tempURL, http) = try await performDownloadRequest(url: url, method: "GET", timeout: 300)
+        guard (200...299).contains(http.statusCode) else {
             throw SourceError.fileNotFound(path)
         }
 
@@ -128,17 +124,15 @@ actor S3Source: MusicSourceConnector {
     /// 边下边播替代整文件下载。
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
         let url = try objectURL(for: path)
-        var request = try signedRequest(url: url, method: "GET")
         guard let rangeHeader = SafeByteRange.httpHeader(offset: offset, length: length) else {
             return Data()
         }
-        request.setValue(rangeHeader, forHTTPHeaderField: "Range")
-        request.timeoutInterval = 60
-
-        let (data, response) = try await rangeSession.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw SourceError.connectionFailed("Invalid S3 range response")
-        }
+        let (data, http) = try await performDataRequest(
+            url: url,
+            method: "GET",
+            rangeHeader: rangeHeader,
+            timeout: 60
+        )
         switch http.statusCode {
         case 206:
             return data
@@ -160,17 +154,15 @@ actor S3Source: MusicSourceConnector {
     /// buckets remove the object. In both cases the live key is really gone.
     func deleteFile(at path: String) async throws {
         guard !path.isEmpty else { throw SourceError.fileNotFound(path) }
-        let request = try signedRequest(url: objectURL(for: path), method: "DELETE")
-        let (data, response) = try await rangeSession.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw SourceError.connectionFailed("Invalid S3 delete response")
-        }
+        let (data, http) = try await performDataRequest(url: objectURL(for: path), method: "DELETE")
         guard (200...299).contains(http.statusCode) else {
             let detail = String(data: data, encoding: .utf8) ?? ""
             throw SourceError.connectionFailed("S3 delete failed: HTTP \(http.statusCode) \(detail)")
         }
-        let sanitized = path.replacingOccurrences(of: "/", with: "_")
-        try? FileManager.default.removeItem(at: cacheDirectory.appendingPathComponent(sanitized))
+        let cacheName = CacheFileNamePolicy.make(path: path)
+        try? FileManager.default.removeItem(at: cacheDirectory.appendingPathComponent(cacheName))
+        let legacyName = CacheFileNamePolicy.legacySanitized(path: path)
+        try? FileManager.default.removeItem(at: cacheDirectory.appendingPathComponent(legacyName))
         plog("🗑️ S3 object deleted: \(path)")
     }
 
@@ -215,25 +207,105 @@ actor S3Source: MusicSourceConnector {
 
     func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            let producer = Task {
                 do {
                     try await scanDirectory(path: path, continuation: continuation)
                     continuation.finish()
                 } catch {
-                    continuation.finish(throwing: error)
+                    Task.isCancelled ? continuation.finish() : continuation.finish(throwing: error)
                 }
             }
+            continuation.onTermination = { @Sendable _ in producer.cancel() }
         }
     }
 
     // MARK: - S3 Signature V4
+
+    private func performDataRequest(
+        url: URL,
+        method: String,
+        rangeHeader: String? = nil,
+        timeout: TimeInterval = 30
+    ) async throws -> (Data, HTTPURLResponse) {
+        for attempt in 0..<2 {
+            var request = try signedRequest(url: url, method: method)
+            request.timeoutInterval = timeout
+            if let rangeHeader {
+                request.setValue(rangeHeader, forHTTPHeaderField: "Range")
+            }
+
+            let (data, response) = try await rangeSession.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw SourceError.connectionFailed("Invalid S3 response")
+            }
+            if attempt == 0, updateClockOffsetIfNeeded(from: http, body: data) {
+                continue
+            }
+            synchronizeClockOffset(from: http)
+            return (data, http)
+        }
+        throw SourceError.connectionFailed("S3 clock correction retry failed")
+    }
+
+    private func performDownloadRequest(
+        url: URL,
+        method: String,
+        timeout: TimeInterval
+    ) async throws -> (URL, HTTPURLResponse) {
+        for attempt in 0..<2 {
+            var request = try signedRequest(url: url, method: method)
+            request.timeoutInterval = timeout
+            let (temporaryURL, response) = try await rangeSession.download(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                try? FileManager.default.removeItem(at: temporaryURL)
+                throw SourceError.connectionFailed("Invalid S3 download response")
+            }
+            if attempt == 0, updateClockOffsetIfNeeded(from: http, body: nil) {
+                try? FileManager.default.removeItem(at: temporaryURL)
+                continue
+            }
+            synchronizeClockOffset(from: http)
+            return (temporaryURL, http)
+        }
+        throw SourceError.connectionFailed("S3 clock correction retry failed")
+    }
+
+    private func updateClockOffsetIfNeeded(from response: HTTPURLResponse, body: Data?) -> Bool {
+        guard response.statusCode == 400 || response.statusCode == 403,
+              let serverDate = response.value(forHTTPHeaderField: "Date") else { return false }
+
+        if let body, !body.isEmpty {
+            let text = String(data: body, encoding: .utf8)?.lowercased() ?? ""
+            let isClockRelated = text.contains("requesttimetoo")
+                || text.contains("requestexpired")
+                || text.contains("signaturedoesnotmatch")
+            guard isClockRelated else { return false }
+        }
+
+        guard let offset = S3ClockSkewPolicy.adjustment(serverDateHeader: serverDate) else {
+            return false
+        }
+        clockOffset = offset
+        S3ClockSkewPolicy.store(offset: offset, for: sourceID)
+        plog("🕒 S3 clock adjusted by \(offset.finiteInt())s for source \(sourceID)")
+        return true
+    }
+
+    private func synchronizeClockOffset(from response: HTTPURLResponse) {
+        guard (200...299).contains(response.statusCode),
+              let serverDate = response.value(forHTTPHeaderField: "Date"),
+              let offset = S3ClockSkewPolicy.adjustment(serverDateHeader: serverDate),
+              abs(offset - clockOffset) >= 1 else { return }
+        clockOffset = offset
+        S3ClockSkewPolicy.store(offset: offset, for: sourceID)
+    }
 
     private func signedRequest(url: URL, method: String) throws -> URLRequest {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = 30
 
-        let now = Date()
+        let now = Date().addingTimeInterval(clockOffset)
         let dateFormatter = DateFormatter()
         dateFormatter.timeZone = TimeZone(identifier: "UTC")
         dateFormatter.dateFormat = "yyyyMMdd'T'HHmmss'Z'"
@@ -354,8 +426,10 @@ actor S3Source: MusicSourceConnector {
         path: String,
         continuation: AsyncThrowingStream<RemoteFileItem, Error>.Continuation
     ) async throws {
+        try Task.checkCancellation()
         let items = try await listFiles(at: path)
         for item in items {
+            try Task.checkCancellation()
             if item.isDirectory {
                 try await scanDirectory(path: item.path, continuation: continuation)
             } else if let scannable = SidecarHintResolver.scannableItem(item, siblings: items) {
@@ -377,6 +451,7 @@ private class S3ListParser: NSObject, XMLParserDelegate {
     private var currentKey = ""
     private var currentSize: Int64 = 0
     private var currentPrefix = ""
+    private var currentScalar = ""
     private var inContents = false
     private var inCommonPrefix = false
 
@@ -386,29 +461,33 @@ private class S3ListParser: NSObject, XMLParserDelegate {
 
     func parser(_ parser: XMLParser, didStartElement element: String, namespaceURI: String?, qualifiedName: String?, attributes: [String: String] = [:]) {
         currentElement = element
+        currentScalar = ""
         if element == "Contents" { inContents = true; currentKey = ""; currentSize = 0 }
         if element == "CommonPrefixes" { inCommonPrefix = true; currentPrefix = "" }
     }
 
     func parser(_ parser: XMLParser, foundCharacters string: String) {
-        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
         if inContents {
-            if currentElement == "Key" { currentKey += trimmed }
-            if currentElement == "Size" { currentSize = Int64(trimmed) ?? 0 }
+            if currentElement == "Key" { currentKey += string }
+            if currentElement == "Size" { currentScalar += string }
         }
         if inCommonPrefix && currentElement == "Prefix" {
-            currentPrefix += trimmed
+            currentPrefix += string
         }
         // Top-level pagination markers (children of ListBucketResult, not inside
         // Contents/CommonPrefixes) — drive continuation-token paging.
         if !inContents && !inCommonPrefix {
-            if currentElement == "IsTruncated" { isTruncated = (trimmed.lowercased() == "true") }
-            if currentElement == "NextContinuationToken" { nextContinuationToken = (nextContinuationToken ?? "") + trimmed }
+            if currentElement == "IsTruncated" || currentElement == "NextContinuationToken" {
+                currentScalar += string
+            }
         }
     }
 
     func parser(_ parser: XMLParser, didEndElement element: String, namespaceURI: String?, qualifiedName: String?) {
+        let scalar = currentScalar.trimmingCharacters(in: .whitespacesAndNewlines)
+        if element == "Size" { currentSize = Int64(scalar) ?? 0 }
+        if element == "IsTruncated" { isTruncated = scalar.lowercased() == "true" }
+        if element == "NextContinuationToken" { nextContinuationToken = scalar.isEmpty ? nil : scalar }
         if element == "Contents" && !currentKey.isEmpty {
             let name = (currentKey as NSString).lastPathComponent
             items.append(RemoteFileItem(name: name, path: currentKey, isDirectory: false, size: currentSize, modifiedDate: nil))

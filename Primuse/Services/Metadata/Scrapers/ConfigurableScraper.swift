@@ -11,6 +11,7 @@ actor ConfigurableScraper: MusicScraper {
     let config: ScraperConfig
 
     private let sessionManager: ScraperSessionManager
+    private let scriptExecutionKey: String
     private var lastRequestTime: ContinuousClock.Instant?
     private let minInterval: Duration
     nonisolated static let maxEndpointResponseBytes = 5 * 1024 * 1024
@@ -20,6 +21,7 @@ actor ConfigurableScraper: MusicScraper {
     /// (JSContextGroupSetExecutionTimeLimit 是私有符号, 上架会被静态扫描拒),
     /// 因此把执行放到独立线程并在此时限后放弃, 避免 while(true) 挂死 actor。
     nonisolated static let maxScriptExecutionSeconds: TimeInterval = 4
+    private static let scriptExecutionGate = ScriptExecutionGate()
 
     /// RFC-reserved example domains are commonly used by scraper manifests to
     /// mark an unsupported optional endpoint. Treat them as absent instead of
@@ -35,6 +37,7 @@ actor ConfigurableScraper: MusicScraper {
         self.config = config
         self.type = .custom(config.id)
         self.minInterval = .milliseconds(config.rateLimit ?? 300)
+        self.scriptExecutionKey = "\(config.id)#\(config.version)#\(config.modifiedAt?.timeIntervalSince1970 ?? 0)"
 
         var headers = config.headers ?? [:]
         if let cookie = cookie ?? config.cookie, !cookie.isEmpty {
@@ -246,10 +249,10 @@ actor ConfigurableScraper: MusicScraper {
             return nil
         }
 
-        var urlString = template
-        for (k, v) in vars {
-            urlString = urlString.replacingOccurrences(of: "{{\(k)}}", with: "\(v)")
+        let stringVars = vars.reduce(into: [String: String]()) { result, item in
+            result[item.key] = String(describing: item.value)
         }
+        let urlString = Self.applyURLTemplate(template, vars: stringVars)
         let safe = Self.enforceHTTPPolicy(urlString, trustDomains: config.sslTrustDomains ?? [])
         guard let url = URL(string: safe) else { return nil }
         var request = URLRequest(url: url)
@@ -261,7 +264,7 @@ actor ConfigurableScraper: MusicScraper {
                 plog("⚠️ Encrypted lyrics: response too large (\(data.count)B)")
                 return nil
             }
-            plog("🔐 Encrypted lyrics: fetched \(data.count) bytes from \(safe.prefix(80))")
+            plog("🔐 Encrypted lyrics: fetched \(data.count) bytes from \(Self.redactedURLDescription(url))")
             guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 plog("⚠️ Encrypted lyrics: response not JSON, head=\(String(data: data.prefix(200), encoding: .utf8) ?? "?")")
                 return nil
@@ -306,7 +309,7 @@ actor ConfigurableScraper: MusicScraper {
 
         // Build URL with variable substitution
         var urlString = endpoint.url
-        urlString = Self.applyTemplate(urlString, vars: vars)
+        urlString = Self.applyURLTemplate(urlString, vars: vars)
 
         // Enforce HTTPS unless domain is in sslTrustDomains or is a local network address
         urlString = Self.enforceHTTPPolicy(urlString, trustDomains: config.sslTrustDomains ?? [])
@@ -316,7 +319,7 @@ actor ConfigurableScraper: MusicScraper {
         if method == "POST" {
             // POST: params or bodyTemplate as JSON body
             guard let url = URL(string: urlString) else {
-                throw ScraperError.networkError("Invalid URL: \(urlString)")
+                throw ScraperError.networkError("Invalid scraper URL")
             }
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
@@ -329,7 +332,7 @@ actor ConfigurableScraper: MusicScraper {
 
             if let bodyTemplate = endpoint.bodyTemplate {
                 // Use body template with variable substitution
-                let body = Self.applyTemplate(bodyTemplate, vars: vars)
+                let body = Self.applyJSONTemplate(bodyTemplate, vars: vars)
                 request.httpBody = body.data(using: .utf8)
                 if request.value(forHTTPHeaderField: "Content-Type") == nil {
                     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -359,7 +362,7 @@ actor ConfigurableScraper: MusicScraper {
             }
 
             guard let url = components?.url else {
-                throw ScraperError.networkError("Invalid URL: \(urlString)")
+                throw ScraperError.networkError("Invalid scraper URL")
             }
 
             var request = URLRequest(url: url)
@@ -393,7 +396,7 @@ actor ConfigurableScraper: MusicScraper {
             plog("⛔️ \(config.id) HTTP \(http.statusCode) rate limited, retryAfter=\(retryAfter.map(String.init) ?? "?")")
             throw ScraperError.rateLimited(retryAfter: retryAfter)
         }
-        plog("⛔️ \(config.id) HTTP \(http.statusCode) for \(request.url?.absoluteString ?? "?")")
+        plog("⛔️ \(config.id) HTTP \(http.statusCode) for \(Self.redactedURLDescription(request.url))")
         throw ScraperError.networkError("HTTP \(http.statusCode)")
     }
 
@@ -406,6 +409,36 @@ actor ConfigurableScraper: MusicScraper {
     /// `hash|albumId|songname|singer|duration|cover` 格式) 里精确取字段,
     /// 而不是把整串当 keyword 传给服务端。
     nonisolated static func applyTemplate(_ template: String, vars: [String: String]) -> String {
+        applyingTemplate(template, vars: vars) { $0 }
+    }
+
+    /// Template substitution for placeholders embedded in a URL path/query.
+    /// Only RFC 3986 unreserved bytes remain literal, preventing a value from
+    /// injecting a second query item or fragment.
+    nonisolated static func applyURLTemplate(_ template: String, vars: [String: String]) -> String {
+        applyingTemplate(template, vars: vars) { value in
+            var allowed = CharacterSet.alphanumerics
+            allowed.insert(charactersIn: "-._~")
+            return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+        }
+    }
+
+    /// Escapes substituted values as JSON string contents. The manifest owns
+    /// the surrounding JSON syntax (normally `"{{query}}"`).
+    nonisolated static func applyJSONTemplate(_ template: String, vars: [String: String]) -> String {
+        applyingTemplate(template, vars: vars) { value in
+            guard let data = try? JSONEncoder().encode(value),
+                  let encoded = String(data: data, encoding: .utf8),
+                  encoded.count >= 2 else { return "" }
+            return String(encoded.dropFirst().dropLast())
+        }
+    }
+
+    nonisolated private static func applyingTemplate(
+        _ template: String,
+        vars: [String: String],
+        transform: (String) -> String
+    ) -> String {
         var result = template
         // 先处理带索引的：`{{key[N]}}`
         let indexedPattern = #"\{\{(\w+)\[(\d+)\]\}\}"#
@@ -425,12 +458,12 @@ actor ConfigurableScraper: MusicScraper {
                 let raw = vars[key] ?? ""
                 let parts = raw.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
                 let value = (idx >= 0 && idx < parts.count) ? parts[idx] : ""
-                result = nsResult.replacingCharacters(in: match.range, with: value)
+                result = nsResult.replacingCharacters(in: match.range, with: transform(value))
             }
         }
         // 再处理整体 `{{key}}`
         for (key, value) in vars {
-            result = result.replacingOccurrences(of: "{{\(key)}}", with: value)
+            result = result.replacingOccurrences(of: "{{\(key)}}", with: transform(value))
         }
         return result
     }
@@ -444,18 +477,34 @@ actor ConfigurableScraper: MusicScraper {
         guard data.count <= Self.maxEndpointResponseBytes else {
             throw ScraperError.parseError("Response too large")
         }
-        // 在独立线程上执行 JS, 与墙钟超时竞速。evaluateScript 同步阻塞,
-        // 放在 actor 上会被 while(true) 永久挂死整个源; 移出 actor 后即便
-        // 脚本死循环, 也只是泄漏一个线程 + 该 JSContext, actor 仍可继续服务。
-        let box = try await Self.evaluateScriptOffActor(
-            configID: config.id,
-            secrets: config.secrets,
-            script: script,
-            data: data,
-            externalId: externalId,
-            timeout: Self.maxScriptExecutionSeconds
-        )
-        return box.value
+        // JSCore 没有可用于 App Store 的公开中断 API。每个配置最多允许一个
+        // 专用执行线程；若脚本超时则隔离该配置并让等待者快速失败，避免后续
+        // 请求不断制造永久阻塞的线程/JSContext。
+        do {
+            try await Self.scriptExecutionGate.acquire(scriptExecutionKey)
+        } catch {
+            throw ScraperError.parseError("Script disabled after an earlier timeout")
+        }
+
+        do {
+            let box = try await Self.evaluateScriptOffActor(
+                configID: config.id,
+                secrets: config.secrets,
+                script: script,
+                data: data,
+                externalId: externalId,
+                timeout: Self.maxScriptExecutionSeconds
+            )
+            await Self.scriptExecutionGate.release(scriptExecutionKey, quarantine: false)
+            return box.value
+        } catch {
+            let timedOut = error is ScriptExecutionTimeout
+            await Self.scriptExecutionGate.release(scriptExecutionKey, quarantine: timedOut)
+            if timedOut {
+                throw ScraperError.parseError("Script execution timed out")
+            }
+            throw error
+        }
     }
 
     /// JS 求值结果跨越 actor / 线程边界。JSValue.toObject() 返回的是
@@ -463,6 +512,58 @@ actor ConfigurableScraper: MusicScraper {
     /// 即被丢弃, 不再共享; 用 @unchecked Sendable 盒子安全地穿过隔离边界。
     private struct ResultBox: @unchecked Sendable {
         let value: Any?
+    }
+
+    private struct ScriptExecutionTimeout: Error, Sendable {}
+    private struct ScriptExecutionUnavailable: Error, Sendable {}
+
+    private actor ScriptExecutionGate {
+        private struct State {
+            var isRunning = false
+            var isQuarantined = false
+            var waiters: [CheckedContinuation<Void, Error>] = []
+        }
+
+        private var states: [String: State] = [:]
+
+        func acquire(_ key: String) async throws {
+            var state = states[key] ?? State()
+            guard !state.isQuarantined else { throw ScriptExecutionUnavailable() }
+            guard state.isRunning else {
+                state.isRunning = true
+                states[key] = state
+                return
+            }
+
+            try await withCheckedThrowingContinuation { continuation in
+                state.waiters.append(continuation)
+                states[key] = state
+            }
+        }
+
+        func release(_ key: String, quarantine: Bool) {
+            guard var state = states[key] else { return }
+            if quarantine {
+                state.isRunning = false
+                state.isQuarantined = true
+                let waiters = state.waiters
+                state.waiters.removeAll(keepingCapacity: false)
+                states[key] = state
+                for waiter in waiters {
+                    waiter.resume(throwing: ScriptExecutionUnavailable())
+                }
+                return
+            }
+
+            if state.waiters.isEmpty {
+                states.removeValue(forKey: key)
+            } else {
+                let next = state.waiters.removeFirst()
+                state.isRunning = true
+                states[key] = state
+                next.resume()
+            }
+        }
     }
 
     /// 在专用线程执行嵌入式脚本, 超过 `timeout` 秒则放弃等待并抛出 parseError。
@@ -489,12 +590,12 @@ actor ConfigurableScraper: MusicScraper {
         let watchdog = DispatchQueue(label: "Primuse.ScraperJS.watchdog")
 
         return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<ResultBox, Error>) in
-            // 超时兜底: 时限到则放弃(死循环线程会继续跑直到进程退出, 但无法
-            // 用公开 API 安全中断 JSContext; 这是不引私有符号下的合理代价)。
+            // 超时兜底：当前 JSCore 线程无法公开中断，但上层会隔离该配置，
+            // 因而阻塞资源被严格限制为每个配置最多一组。
             watchdog.asyncAfter(deadline: .now() + timeout) {
                 if guardBox.claim() {
-                    plog("⏱️ JS[\(configID)] execution timed out after \(timeout.finiteInt())s, abandoning")
-                    continuation.resume(throwing: ScraperError.parseError("Script execution timed out"))
+                    plog("⏱️ JS[\(configID)] execution timed out after \(timeout.finiteInt())s, quarantining")
+                    continuation.resume(throwing: ScriptExecutionTimeout())
                 }
             }
 
@@ -761,7 +862,7 @@ actor ConfigurableScraper: MusicScraper {
         ]
 
         if let failingURL = (nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL)?.absoluteString {
-            parts.append("url=\(failingURL)")
+            parts.append("url=\(redactedURLDescription(URL(string: failingURL)))")
         }
 
         if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
@@ -769,6 +870,18 @@ actor ConfigurableScraper: MusicScraper {
         }
 
         return parts.joined(separator: " ")
+    }
+
+    nonisolated static func redactedURLDescription(_ url: URL?) -> String {
+        guard let url,
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return "?"
+        }
+        components.query = nil
+        components.fragment = nil
+        components.user = nil
+        components.password = nil
+        return components.string ?? "?"
     }
 
 }
@@ -894,17 +1007,6 @@ enum PlainHTTPClient {
 
             connection.start(queue: queue)
         }
-    }
-
-    /// 落盘版下载：边收边写临时文件，避免整文件全量驻留内存（整曲可达数十~
-    /// 上百 MB）。返回 (tempURL, URLResponse)，与 URLSession.download(for:)
-    /// 的语义一致——调用方负责把 tempURL move 到目标位置并清理。
-    static func download(for request: URLRequest) async throws -> (URL, URLResponse) {
-        let (data, response) = try await data(for: request, maxBytes: .max)
-        let tempURL = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("primuse_plainhttp_\(UUID().uuidString)")
-        try data.write(to: tempURL, options: .atomic)
-        return (tempURL, response)
     }
 
     private static func buildRequestData(for request: URLRequest) throws -> Data {
@@ -1083,7 +1185,7 @@ final class ScraperSessionManager: NSObject, @unchecked Sendable {
             // 不再传 per-task delegate。
             return try await _session.data(for: mergedRequest)
         } catch {
-            plog("⚠️ Request failed: \(mergedRequest.httpMethod ?? "GET") \(mergedRequest.url?.absoluteString ?? "?") \(ConfigurableScraper.describeNetworkError(error))")
+            plog("⚠️ Request failed: \(mergedRequest.httpMethod ?? "GET") \(ConfigurableScraper.redactedURLDescription(mergedRequest.url)) \(ConfigurableScraper.describeNetworkError(error))")
             throw error
         }
     }

@@ -164,6 +164,9 @@ final class CloudKitSyncService {
         get { UserDefaults.standard.bool(forKey: Self.initialUploadDoneKey) }
         set { UserDefaults.standard.set(newValue, forKey: Self.initialUploadDoneKey) }
     }
+    /// Set by record-level callbacks when a send pass contains a failure that
+    /// the app neither resolved nor expects CKSyncEngine to retry automatically.
+    private var unresolvedRecordSaveError: String?
 
     // MARK: - Init
 
@@ -239,12 +242,12 @@ final class CloudKitSyncService {
             plog("CloudKitSync: starting fetchChanges()")
             try await engine.fetchChanges()
             plog("CloudKitSync: fetchChanges OK, starting sendChanges()")
-            try await sendChangesResolvingRecoverableFailures(using: engine)
+            let drained = try await sendChangesResolvingRecoverableFailures(using: engine)
             plog("CloudKitSync: sendChanges OK")
             guard self.engine === engine, startAttemptID == attemptID else { return }
-            self.didCompleteInitialUpload = true
-            self.status = .upToDate
-            self.lastSyncedAt = Date()
+            self.didCompleteInitialUpload = drained
+            self.status = drained ? .upToDate : .syncing
+            if drained { self.lastSyncedAt = Date() }
         } catch {
             guard self.engine === engine, startAttemptID == attemptID else { return }
             if let ck = error as? CKError {
@@ -557,9 +560,9 @@ final class CloudKitSyncService {
         status = .syncing
         do {
             try await engine.fetchChanges()
-            try await sendChangesResolvingRecoverableFailures(using: engine)
-            status = .upToDate
-            lastSyncedAt = Date()
+            let drained = try await sendChangesResolvingRecoverableFailures(using: engine)
+            status = drained ? .upToDate : .syncing
+            if drained { lastSyncedAt = Date() }
         } catch {
             status = mapToSyncStatus(error)
         }
@@ -569,7 +572,8 @@ final class CloudKitSyncService {
     /// per-record error is recoverable. Repair those entries immediately, then
     /// give the engine one clean retry so startup doesn't leave sync looking
     /// failed after a harmless "record already exists" conflict.
-    private func sendChangesResolvingRecoverableFailures(using engine: CKSyncEngine) async throws {
+    private func sendChangesResolvingRecoverableFailures(using engine: CKSyncEngine) async throws -> Bool {
+        unresolvedRecordSaveError = nil
         do {
             try await engine.sendChanges()
         } catch {
@@ -577,7 +581,23 @@ final class CloudKitSyncService {
                 throw error
             }
             plog("CloudKitSync: resolved recoverable send conflicts, retrying sendChanges()")
+            unresolvedRecordSaveError = nil
             try await engine.sendChanges()
+        }
+        if let unresolvedRecordSaveError {
+            throw CloudSyncSendError.unresolvedRecordFailure(unresolvedRecordSaveError)
+        }
+        return engine.state.pendingRecordZoneChanges.isEmpty
+    }
+
+    private enum CloudSyncSendError: LocalizedError {
+        case unresolvedRecordFailure(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .unresolvedRecordFailure(let detail):
+                return "CloudKit record upload failed: \(detail)"
+            }
         }
     }
 
@@ -698,17 +718,8 @@ final class CloudKitSyncService {
         case .accountTemporarilyUnavailable:
             return .accountUnavailable(.temporarilyUnavailable)
         case .partialFailure:
-            // CKSyncEngine surfaces per-record failures via the
-            // `sentRecordZoneChanges` event handler, where they're either
-            // resolved (conflict merge) or re-queued. The top-level
-            // partial-failure error here is informational — the run as a whole
-            // succeeded enough to be worth treating as up-to-date so the UI
-            // doesn't go red. Stuck records will retry on the next pass.
-            lastSyncedAt = Date()
-            // Engine state has been updated for everything that did succeed,
-            // so future cold launches don't need to re-seed.
-            didCompleteInitialUpload = true
-            return .upToDate
+            didCompleteInitialUpload = false
+            return .error("CloudKit partial upload failure: \(ckError.localizedDescription)")
         case .serverRejectedRequest, .badContainer, .missingEntitlement, .permissionFailure:
             // Container / entitlement misconfigured server-side. Surface a specific
             // hint so the user knows it isn't a transient runtime issue.
@@ -1829,8 +1840,12 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
                 }
             }
         case .quotaExceeded:
+            didCompleteInitialUpload = false
+            unresolvedRecordSaveError = ckError.localizedDescription
             status = .quotaExceeded
         case .notAuthenticated:
+            didCompleteInitialUpload = false
+            unresolvedRecordSaveError = ckError.localizedDescription
             status = .accountUnavailable(.noAccount)
         case .invalidArguments:
             // CKError 12, 常见信息 "You can't save the same record twice" — 同一
@@ -1841,6 +1856,8 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
             syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(recordID)])
             removeSystemFields(for: recordID)
         default:
+            didCompleteInitialUpload = false
+            unresolvedRecordSaveError = "\(ckError.code.rawValue): \(ckError.localizedDescription)"
             plog("CloudKitSync: unhandled save error code \(ckError.code.rawValue): \(ckError.localizedDescription)")
         }
     }

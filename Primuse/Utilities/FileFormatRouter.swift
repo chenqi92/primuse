@@ -5,12 +5,19 @@ enum FileFormatRouter {
     private static let nativeDecoder = NativeAudioDecoder()
     private static let ffmpegDecoder = FFmpegAudioDecoder()
 
-    static func decoder(for url: URL) -> PrimuseAudioDecoder {
+    static func decoder(for url: URL) async -> PrimuseAudioDecoder {
         // A DTS-CD image looks like ordinary PCM WAV by extension, so content
         // sniffing must happen before SFBAudioEngine accepts it as WAV.
-        if url.pathExtension.caseInsensitiveCompare("wav") == .orderedSame,
-           ffmpegDecoder.canDecode(url: url) {
-            return ffmpegDecoder
+        if url.pathExtension.caseInsensitiveCompare("wav") == .orderedSame {
+            do {
+                if try await ffmpegDecoder.canDecodeAsync(url: url) {
+                    return ffmpegDecoder
+                }
+            } catch {
+                // Probe failure is not evidence of PCM. Keep carrier bytes on
+                // the bounded FFmpeg path rather than risk Native WAV output.
+                return ffmpegDecoder
+            }
         }
         // SFBAudioEngine is the high-fidelity primary path for Core Audio,
         // lossless/legacy formats and DSD/DoP-capable sources.

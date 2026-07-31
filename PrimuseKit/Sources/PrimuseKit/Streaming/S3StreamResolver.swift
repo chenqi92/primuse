@@ -1,6 +1,42 @@
 import CryptoKit
 import Foundation
 
+/// Persists the last trusted S3 server clock adjustment per source. The normal
+/// signed connector learns this from a failed response's RFC 7231 `Date` header;
+/// the presigned playback resolver then uses the same correction after relaunch.
+public enum S3ClockSkewPolicy {
+    private static let keyPrefix = "primuse.s3.clockOffset."
+    private static let maximumAdjustment: TimeInterval = 24 * 60 * 60
+
+    public static func correctedDate(for sourceID: String, now: Date = Date()) -> Date {
+        now.addingTimeInterval(storedOffset(for: sourceID))
+    }
+
+    public static func storedOffset(for sourceID: String) -> TimeInterval {
+        UserDefaults.standard.double(forKey: keyPrefix + sourceID)
+    }
+
+    public static func store(offset: TimeInterval, for sourceID: String) {
+        guard offset.isFinite, abs(offset) <= maximumAdjustment else { return }
+        UserDefaults.standard.set(offset, forKey: keyPrefix + sourceID)
+    }
+
+    public static func adjustment(
+        serverDateHeader: String,
+        localDate: Date = Date()
+    ) -> TimeInterval? {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE',' dd MMM yyyy HH':'mm':'ss zzz"
+        guard let serverDate = formatter.date(from: serverDateHeader) else { return nil }
+        let offset = serverDate.timeIntervalSince(localDate)
+        guard offset.isFinite,
+              abs(offset) <= maximumAdjustment else { return nil }
+        return offset
+    }
+}
+
 /// S3 / S3 兼容(MinIO 等)的流式解析 —— 生成 SigV4 **预签名 GET URL**(鉴权放 query,
 /// AVPlayer 可直接播;iOS 端用的是 Authorization 头签名,不适合直接喂给 AVPlayer)。
 ///
@@ -29,7 +65,8 @@ public struct S3StreamResolver: StreamResolver {
         let scheme = source.useSsl ? "https" : "http"
         let host = Self.host(from: endpoint, port: source.port, scheme: scheme)
         let canonicalURI = "/\(bucket)/\(key)"
-        let (amzDate, dateStamp) = Self.timestamps(Date())
+        let correctedDate = S3ClockSkewPolicy.correctedDate(for: source.id)
+        let (amzDate, dateStamp) = Self.timestamps(correctedDate)
 
         guard let url = Self.presignedURL(method: "GET", scheme: scheme, host: host,
                                           canonicalURI: canonicalURI, accessKey: accessKey,

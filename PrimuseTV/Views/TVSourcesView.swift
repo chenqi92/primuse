@@ -66,7 +66,7 @@ struct TVSourcesView: View {
                     TVSourcesInfoCard()
                     TVFocusButton(radius: 16, accent: TVColor.brand, scale: 1.02, lift: 0,
                                   action: { typePicker = true }) { focused in
-                        Label("在 Apple TV 上手动添加", systemImage: "plus.circle.fill")
+                        Label(PMString("ext.tv.sources.addOnTV"), systemImage: "plus.circle.fill")
                             .font(.system(size: 20, weight: .semibold)).foregroundStyle(.white)
                             .padding(.horizontal, 24).padding(.vertical, 16)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -75,7 +75,7 @@ struct TVSourcesView: View {
                     }
                     TVFocusButton(radius: 16, scale: 1.02, lift: 0,
                                   action: { recycleBin = true }) { focused in
-                        Label("回收站", systemImage: "trash.circle")
+                        Label(PMString("ext.tv.sources.recycleBin"), systemImage: "trash.circle")
                             .font(.system(size: 20, weight: .semibold)).foregroundStyle(.white)
                             .padding(.horizontal, 24).padding(.vertical, 16)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -169,13 +169,13 @@ private struct TVSourcesInfoCard: View {
                         .font(.system(size: 15)).foregroundStyle(TVColor.textGhost).lineSpacing(4)
                     if !store.pairingCode.isEmpty {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("确认码")
+                            Text(PMString("ext.tv.sources.confirmCode"))
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundStyle(TVColor.textGhost)
                             Text(verbatim: store.pairingCode)
                                 .font(.system(size: 34, weight: .bold, design: .monospaced))
                                 .foregroundStyle(.white)
-                            Text("请确认手机上显示相同短码后再发送。")
+                            Text(PMString("ext.tv.sources.confirmCodeHint"))
                                 .font(.system(size: 14))
                                 .foregroundStyle(.white.opacity(0.62))
                         }
@@ -187,6 +187,7 @@ private struct TVSourcesInfoCard: View {
         .padding(28).frame(maxWidth: .infinity, alignment: .leading)
         .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .onAppear { store.startPairingServer() }
+        .onDisappear { store.stopPairingServer() }
     }
 }
 
@@ -257,16 +258,16 @@ private struct TVSourceRow: View {
                 }
             }
             Button { onEdit() } label: {
-                Label("编辑连接", systemImage: "slider.horizontal.3")
+                Label(PMString("ext.tv.sources.editConnection"), systemImage: "slider.horizontal.3")
             }
             if source.canScan {
                 Button { onScan() } label: {
-                    Label("选目录扫描", systemImage: "folder.badge.gearshape")
+                    Label(PMString("ext.tv.sources.scanFolders"), systemImage: "folder.badge.gearshape")
                 }
             }
             if source.supports2FA {
                 Button { onLogin2FA() } label: {
-                    Label("两步验证登录", systemImage: "lock.shield")
+                    Label(PMString("ext.tv.sources.login2FA"), systemImage: "lock.shield")
                 }
             }
             Button { onTestConnection() } label: {

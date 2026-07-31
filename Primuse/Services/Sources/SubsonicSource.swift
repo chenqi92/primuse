@@ -118,7 +118,7 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
     func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
         let stream = try await scanSongs(from: path)
         return AsyncThrowingStream { continuation in
-            Task {
+            let producer = Task {
                 do {
                     for try await scanned in stream {
                         continuation.yield(
@@ -133,20 +133,22 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
                     }
                     continuation.finish()
                 } catch {
-                    continuation.finish(throwing: error)
+                    Task.isCancelled ? continuation.finish() : continuation.finish(throwing: error)
                 }
             }
+            continuation.onTermination = { @Sendable _ in producer.cancel() }
         }
     }
 
     func scanSongs(from path: String) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error> {
         try await connect()
         return AsyncThrowingStream { continuation in
-            Task {
+            let producer = Task {
                 do {
                     var offset = 0
                     // 逐页拉专辑列表, 再对每个专辑取曲目(getAlbum 自带完整 Child 元数据)。
                     while true {
+                        try Task.checkCancellation()
                         let listContainer: AlbumListContainer = try await requestJSON(
                             "getAlbumList2",
                             query: [
@@ -174,6 +176,7 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
                             }
                             let songs = albumContainer.album?.song ?? []
                             for child in songs where child.isVideo != true {
+                                try Task.checkCancellation()
                                 let song = buildSong(from: child, album: album)
                                 continuation.yield(ConnectorScannedSong(song: song, displayName: child.title ?? song.title))
                             }
@@ -184,9 +187,10 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
                     }
                     continuation.finish()
                 } catch {
-                    continuation.finish(throwing: error)
+                    Task.isCancelled ? continuation.finish() : continuation.finish(throwing: error)
                 }
             }
+            continuation.onTermination = { @Sendable _ in producer.cancel() }
         }
     }
 
@@ -233,9 +237,18 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
         guard let remoteURL = buildRESTURL(method: "download", query: [URLQueryItem(name: "id", value: songID)]) else {
             throw SourceError.fileNotFound(path)
         }
-        let (data, response) = try await session.data(from: remoteURL)
-        try validate(response)
-        try data.write(to: fileURL, options: .atomic)
+        let (temporaryURL, response) = try await session.download(from: remoteURL)
+        do {
+            try validate(response)
+            if FileManager.default.fileExists(atPath: fileURL.path) {
+                try? FileManager.default.removeItem(at: temporaryURL)
+            } else {
+                try FileManager.default.moveItem(at: temporaryURL, to: fileURL)
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: temporaryURL)
+            throw error
+        }
         return fileURL
     }
 

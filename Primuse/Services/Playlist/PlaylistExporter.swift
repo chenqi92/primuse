@@ -85,17 +85,20 @@ enum PlaylistExporter {
     private static func makeM3U8(playlist: Playlist, songs: [Song], sourcesStore: SourcesStore) -> Data {
         var lines: [String] = []
         lines.append("#EXTM3U")
-        lines.append("#PLAYLIST:\(playlist.name)")
+        lines.append("#PLAYLIST:\(sanitizeM3ULine(playlist.name))")
         for song in songs {
             // EXTINF: 时长 (秒, 整数), 艺术家 - 歌曲名
             let duration = max(0, song.duration.rounded().finiteInt())
-            let displayArtist = song.artistName ?? ""
-            let title = displayArtist.isEmpty ? song.title : "\(displayArtist) - \(song.title)"
+            let displayArtist = sanitizeM3ULine(song.artistName ?? "")
+            let songTitle = sanitizeM3ULine(song.title)
+            let title = displayArtist.isEmpty ? songTitle : "\(displayArtist) - \(songTitle)"
             lines.append("#EXTINF:\(duration),\(title)")
             // 把源名拼到路径前面, 让对端肉眼能区分 (匹配仍走 basename)
-            let sourceName = sourcesStore.allSources.first(where: { $0.id == song.sourceID })?.name ?? "?"
-            let relPath = song.filePath.hasPrefix("/") ? song.filePath : "/" + song.filePath
-            lines.append("\(sourceName)\(relPath)")
+            let sourceName = sanitizeM3ULine(sourcesStore.allSources.first(where: { $0.id == song.sourceID })?.name ?? "?")
+            let cleanPath = sanitizeM3ULine(song.filePath)
+            let relPath = cleanPath.hasPrefix("/") ? cleanPath : "/" + cleanPath
+            let exportedPath = "\(sourceName)\(relPath)"
+            lines.append(exportedPath.hasPrefix("#") ? "./\(exportedPath)" : exportedPath)
         }
         return lines.joined(separator: "\n").data(using: .utf8) ?? Data()
     }
@@ -166,6 +169,24 @@ enum PlaylistExporter {
     }
 
     // MARK: - Helpers
+
+    private static func sanitizeM3ULine(_ value: String) -> String {
+        var result = ""
+        result.reserveCapacity(value.count)
+        var previousWasSpace = false
+        for scalar in value.unicodeScalars {
+            let replace = CharacterSet.controlCharacters.contains(scalar)
+                || scalar == "\n" || scalar == "\r"
+            if replace {
+                if !previousWasSpace { result.append(" ") }
+                previousWasSpace = true
+            } else {
+                result.unicodeScalars.append(scalar)
+                previousWasSpace = CharacterSet.whitespacesAndNewlines.contains(scalar)
+            }
+        }
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     /// 把歌单名压成合法文件名 — 去掉文件系统不喜欢的字符 + 截断到 80 字符。
     private static func sanitizeFileName(_ raw: String) -> String {

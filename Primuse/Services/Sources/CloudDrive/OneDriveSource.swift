@@ -96,11 +96,7 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
         guard http.statusCode == 200 else { throw CloudDriveError.apiError(http.statusCode, "Item not found") }
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
         guard let downloadUrl = json["@microsoft.graph.downloadUrl"] as? String, let fileURL = URL(string: downloadUrl) else { throw CloudDriveError.fileNotFound(path) }
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 300
-        let (fileData, _) = try await URLSession(configuration: config).data(from: fileURL)
-        try helper.cacheData(fileData, for: path)
-        return helper.cachedURL(for: path)
+        return try await helper.downloadToCache(request: URLRequest(url: fileURL), for: path)
     }
 
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
@@ -280,9 +276,11 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
             URLQueryItem(name: "client_id", value: cid),
             URLQueryItem(name: "scope", value: "Files.ReadWrite offline_access"),
         ])
-        let (data, _) = try await URLSession.shared.data(for: request)
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-        guard let at = json["access_token"] as? String else { throw CloudDriveError.tokenRefreshFailed("") }
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let json = try CloudDriveHelper.tokenRefreshJSON(data: data, response: response)
+        guard let at = json["access_token"] as? String else {
+            throw CloudDriveHelper.tokenRefreshFailure(statusCode: (response as? HTTPURLResponse)?.statusCode)
+        }
         return .init(accessToken: at, refreshToken: json["refresh_token"] as? String ?? rt, expiresAt: Date().addingTimeInterval(json["expires_in"] as? TimeInterval ?? 3600))
     }
 

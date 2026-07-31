@@ -18,14 +18,21 @@ actor MusicBrainzScraper: MusicScraper {
     // MARK: - MusicScraper
 
     func search(query: String, artist: String?, album: String?, limit: Int) async throws -> ScraperSearchResult {
-        var queryParts = ["recording:\(query)"]
-        if let artist, !artist.isEmpty { queryParts.append("artist:\(artist)") }
-        if let album, !album.isEmpty { queryParts.append("release:\(album)") }
+        var queryParts = [Self.literalClause(field: "recording", value: query)]
+        if let artist, !artist.isEmpty {
+            queryParts.append(Self.literalClause(field: "artist", value: artist))
+        }
+        if let album, !album.isEmpty {
+            queryParts.append(Self.literalClause(field: "release", value: album))
+        }
 
-        let queryStr = queryParts.joined(separator: " AND ")
-            .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-
-        guard let url = URL(string: "https://musicbrainz.org/ws/2/recording/?query=\(queryStr)&fmt=json&limit=\(limit)") else {
+        var components = URLComponents(string: "https://musicbrainz.org/ws/2/recording/")
+        components?.queryItems = [
+            URLQueryItem(name: "query", value: queryParts.joined(separator: " AND ")),
+            URLQueryItem(name: "fmt", value: "json"),
+            URLQueryItem(name: "limit", value: String(min(max(limit, 1), 100)))
+        ]
+        guard let url = components?.url else {
             return .empty(.musicBrainz)
         }
 
@@ -45,6 +52,20 @@ actor MusicBrainzScraper: MusicScraper {
             )
         }
         return ScraperSearchResult(items: items, source: .musicBrainz)
+    }
+
+    /// MusicBrainz search uses Lucene syntax. Quote user text and escape every
+    /// Lucene metacharacter before URLComponents performs transport encoding.
+    private nonisolated static func literalClause(field: String, value: String) -> String {
+        let special = CharacterSet(charactersIn: #"+-&|!(){}[]^\"~*?:\/"#)
+        var escaped = ""
+        for scalar in value.unicodeScalars {
+            if special.contains(scalar) {
+                escaped.append("\\")
+            }
+            escaped.append(Character(scalar))
+        }
+        return "\(field):\"\(escaped)\""
     }
 
     func getDetail(externalId: String) async throws -> ScraperDetail? {

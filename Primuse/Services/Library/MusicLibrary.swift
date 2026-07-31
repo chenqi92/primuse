@@ -2054,8 +2054,10 @@ final class MusicLibrary {
     private(set) var lyricsSearchRevision: Int = 0
 
     private let snapshotURL: URL
+    private let backupSnapshotURL: URL
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
+    @ObservationIgnored private var persistenceBlockedByCorruption = false
 
     func updateDisabledSourceIDs(_ ids: Set<String>) {
         guard disabledSourceIDs != ids else { return }
@@ -2153,6 +2155,7 @@ final class MusicLibrary {
         try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
 
         snapshotURL = directory.appendingPathComponent("library-cache.json")
+        backupSnapshotURL = directory.appendingPathComponent("library-cache.backup.json")
         encoder.outputFormatting = [.sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         decoder.dateDecodingStrategy = .iso8601
@@ -2209,8 +2212,13 @@ final class MusicLibrary {
         }
         lyricsSearchInvalidationTask?.cancel()
         lyricsSearchInvalidationTask = nil
+        let needsImmediatePersistence = persistTask != nil || deferredPersistRequested
         persistTask?.cancel()
         persistTask = nil
+        if needsImmediatePersistence {
+            deferredPersistRequested = false
+            persistNow()
+        }
         plog("📚 Deferring library publications during scene transition")
     }
 
@@ -2788,6 +2796,24 @@ final class MusicLibrary {
     func songs(forPlaylist playlistID: String) -> [Song] {
         _ = visibleSongsReference
         return (playlistSongIDs[playlistID] ?? []).compactMap { visibleSongByID[$0] }
+    }
+
+    /// Count and first visible entry without materializing the full playlist.
+    /// List rows frequently need only these two values.
+    func songSummary(forPlaylist playlistID: String) -> (first: Song?, count: Int) {
+        _ = visibleSongsReference
+        var first: Song?
+        var count = 0
+        for songID in playlistSongIDs[playlistID] ?? [] {
+            guard let song = visibleSongByID[songID] else { continue }
+            if first == nil { first = song }
+            count += 1
+        }
+        return (first, count)
+    }
+
+    func songCount(forPlaylist playlistID: String) -> Int {
+        songSummary(forPlaylist: playlistID).count
     }
 
     func recentlyPlayedSongs(limit: Int = 6) -> [Song] {
@@ -3580,9 +3606,34 @@ final class MusicLibrary {
     func reloadFromDisk() { loadSnapshot() }
 
     private func loadSnapshot() {
-        guard let data = try? Data(contentsOf: snapshotURL),
-              let snapshot = try? decoder.decode(Snapshot.self, from: data) else {
+        guard FileManager.default.fileExists(atPath: snapshotURL.path) else {
+            persistenceBlockedByCorruption = false
             return
+        }
+        guard let data = try? Data(contentsOf: snapshotURL) else {
+            persistenceBlockedByCorruption = true
+            plog("⛔ Library snapshot exists but cannot be read; persistence disabled to protect it")
+            return
+        }
+
+        let snapshot: Snapshot
+        if let decoded = try? decoder.decode(Snapshot.self, from: data) {
+            snapshot = decoded
+            persistenceBlockedByCorruption = false
+        } else {
+            let corruptURL = snapshotURL.deletingLastPathComponent()
+                .appendingPathComponent("library-cache.corrupt-\(Int(Date().timeIntervalSince1970)).json")
+            try? FileManager.default.copyItem(at: snapshotURL, to: corruptURL)
+
+            guard let backupData = try? Data(contentsOf: backupSnapshotURL),
+                  let backup = try? decoder.decode(Snapshot.self, from: backupData) else {
+                persistenceBlockedByCorruption = true
+                plog("⛔ Library snapshot is corrupt and no valid backup exists; persistence disabled to prevent an empty overwrite")
+                return
+            }
+            snapshot = backup
+            persistenceBlockedByCorruption = false
+            plog("⚠️ Library snapshot was corrupt; restored the last valid backup")
         }
 
         // Migrate the decoded value before publishing it. `songs` is backed by
@@ -3697,6 +3748,10 @@ final class MusicLibrary {
     /// stall the main actor for hundreds of ms every few seconds while encoding
     /// the whole library inline.
     func persistNow() {
+        guard !persistenceBlockedByCorruption else {
+            plog("⛔ Library persistence skipped because the on-disk snapshot is corrupt")
+            return
+        }
         let snapshot = Snapshot(
             songs: songs,
             playlists: allPlaylists,
@@ -3708,23 +3763,35 @@ final class MusicLibrary {
             pendingHistoryIdentities: pendingHistoryIdentities.isEmpty ? nil : pendingHistoryIdentities
         )
         let url = snapshotURL
+        let backupURL = backupSnapshotURL
         let previous = persistWriteTask
         persistWriteTask = Task.detached(priority: .utility) {
             // Chain after any in-flight write so the atomic file is updated in
             // call order and we never run two encodes against the same path.
             await previous?.value
-            Self.writeSnapshot(snapshot, to: url)
+            Self.writeSnapshot(snapshot, to: url, backupURL: backupURL)
         }
     }
 
     /// Encode + atomically write a snapshot. `nonisolated` so it runs off the
     /// main actor; uses a fresh encoder rather than sharing the main-actor one.
-    private nonisolated static func writeSnapshot(_ snapshot: Snapshot, to url: URL) {
+    private nonisolated static func writeSnapshot(_ snapshot: Snapshot, to url: URL, backupURL: URL) {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(snapshot) else { return }
-        try? data.write(to: url, options: .atomic)
+        if let currentData = try? Data(contentsOf: url) {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            if (try? decoder.decode(Snapshot.self, from: currentData)) != nil {
+                try? currentData.write(to: backupURL, options: .atomic)
+            }
+        }
+        do {
+            try data.write(to: url, options: .atomic)
+        } catch {
+            plog("⚠️ Library snapshot write failed: \(error.localizedDescription)")
+        }
     }
 
     private func sortPlaylists() {

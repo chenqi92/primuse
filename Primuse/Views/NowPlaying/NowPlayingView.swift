@@ -2616,8 +2616,17 @@ struct LyricsScrollView: View {
                 lineLevelLyricsView
             }
         }
-        .onReceive(Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()) { _ in
+        .task(id: player.isPlaying) {
             updateCurrentLine()
+            guard player.isPlaying else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(100))
+                guard !Task.isCancelled, player.isPlaying else { break }
+                updateCurrentLine()
+            }
+        }
+        .onChange(of: player.currentTime) { _, _ in
+            if !player.isPlaying { updateCurrentLine() }
         }
         .onChange(of: songID) { _, _ in
             // 切歌时把行索引清零 + 让自动滚动重新 anchor
@@ -3477,10 +3486,10 @@ struct CastDevicePickerSheet: View {
                     .frame(width: 30, height: 30)
                     .background(PMColor.brand.opacity(0.14), in: .rect(cornerRadius: 7))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("DLNA 投屏")
+                    Text("cast_to_device")
                         .font(.system(size: 13.5, weight: .semibold))
                         .foregroundStyle(PMColor.text)
-                    Text("局域网 Renderer · \(remoteRenderers.count) 个设备")
+                    Text("cast_lan_devices")
                         .font(.system(size: 11))
                         .foregroundStyle(PMColor.textMuted)
                 }
@@ -3525,7 +3534,7 @@ struct CastDevicePickerSheet: View {
             Rectangle().fill(PMColor.divider).frame(height: 0.5)
 
             HStack(spacing: 10) {
-                Text("本机也可被投送")
+                Text("settings_dlna_enable")
                     .font(.system(size: 11))
                     .foregroundStyle(PMColor.textFaint)
                 Spacer()
@@ -3536,7 +3545,7 @@ struct CastDevicePickerSheet: View {
                             dismiss()
                         }
                     } label: {
-                        Text("停止投屏")
+                        Text("cast_local_subtitle")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(PMColor.text)
                             .padding(.horizontal, 12)

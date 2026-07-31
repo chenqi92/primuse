@@ -8,11 +8,52 @@
 #include <libavutil/mem.h>
 #include <libavutil/samplefmt.h>
 #include <libswresample/swresample.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include <math.h>
 #include <string.h>
+#include <time.h>
 
 static NSString *const FFmpegDecoderErrorDomain = @"com.welape.yuanyin.ffmpeg-decoder";
+static const NSTimeInterval FFmpegDefaultIOTimeout = 15.0;
+
+typedef struct {
+    atomic_bool cancelled;
+    atomic_bool timedOut;
+    atomic_uint_fast64_t deadlineNanos;
+} FFmpegInterruptState;
+
+static uint64_t FFmpegMonotonicNanos(void) {
+    struct timespec now = {0};
+    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) return 0;
+    return (uint64_t)now.tv_sec * 1000000000ULL + (uint64_t)now.tv_nsec;
+}
+
+static void FFmpegBeginInterruptibleOperation(FFmpegInterruptState *state,
+                                               uint64_t timeoutNanos) {
+    atomic_store_explicit(&state->timedOut, false, memory_order_release);
+    if (atomic_load_explicit(&state->cancelled, memory_order_acquire)) {
+        atomic_store_explicit(&state->deadlineNanos, 0, memory_order_release);
+        return;
+    }
+    uint64_t now = FFmpegMonotonicNanos();
+    uint64_t deadline = now > UINT64_MAX - timeoutNanos
+        ? UINT64_MAX : now + timeoutNanos;
+    atomic_store_explicit(&state->deadlineNanos, deadline, memory_order_release);
+}
+
+static int FFmpegInterruptCallback(void *opaque) {
+    FFmpegInterruptState *state = opaque;
+    if (!state) return 0;
+    if (atomic_load_explicit(&state->cancelled, memory_order_acquire)) return 1;
+    uint64_t deadline = atomic_load_explicit(&state->deadlineNanos, memory_order_acquire);
+    uint64_t now = FFmpegMonotonicNanos();
+    if (deadline > 0 && now >= deadline) {
+        atomic_store_explicit(&state->timedOut, true, memory_order_release);
+        return 1;
+    }
+    return 0;
+}
 
 static NSString *FFmpegErrorMessage(int code) {
     char buffer[AV_ERROR_MAX_STRING_SIZE] = {0};
@@ -26,6 +67,18 @@ static NSError *FFmpegError(int code, NSString *operation) {
                                code:code
                            userInfo:@{NSLocalizedDescriptionKey:
                                [NSString stringWithFormat:@"%@: %@", operation, FFmpegErrorMessage(code)]}];
+}
+
+static NSError *FFmpegOperationError(int code,
+                                     NSString *operation,
+                                     FFmpegInterruptState *state) {
+    if (state && atomic_load_explicit(&state->timedOut, memory_order_acquire)) {
+        return [NSError errorWithDomain:NSURLErrorDomain
+                                   code:NSURLErrorTimedOut
+                               userInfo:@{NSLocalizedDescriptionKey:
+                                   [NSString stringWithFormat:@"%@ timed out", operation]}];
+    }
+    return FFmpegError(code, operation);
 }
 
 static AVAudioChannelLayout *FFmpegAudioChannelLayout(int channels) {
@@ -66,13 +119,30 @@ static BOOL FFmpegCodecIsDSD(enum AVCodecID codecID) {
 /// fallback. A separate format context keeps the real decoder positioned at
 /// the beginning of the file.
 static NSTimeInterval FFmpegPacketDuration(NSURL *url,
-                                           const AVInputFormat *forcedInputFormat) {
-    AVFormatContext *context = NULL;
-    if (avformat_open_input(&context, url.fileSystemRepresentation,
-                            forcedInputFormat, NULL) < 0) {
+                                           const AVInputFormat *forcedInputFormat,
+                                           FFmpegInterruptState *interruptState,
+                                           uint64_t timeoutNanos,
+                                           int *readError) {
+    if (readError) *readError = 0;
+    AVFormatContext *context = avformat_alloc_context();
+    if (!context) {
+        if (readError) *readError = AVERROR(ENOMEM);
         return 0;
     }
-    if (avformat_find_stream_info(context, NULL) < 0) {
+    context->interrupt_callback.callback = FFmpegInterruptCallback;
+    context->interrupt_callback.opaque = interruptState;
+    FFmpegBeginInterruptibleOperation(interruptState, timeoutNanos);
+    int result = avformat_open_input(&context, url.fileSystemRepresentation,
+                                     forcedInputFormat, NULL);
+    if (result < 0) {
+        if (readError) *readError = result;
+        avformat_close_input(&context);
+        return 0;
+    }
+    FFmpegBeginInterruptibleOperation(interruptState, timeoutNanos);
+    result = avformat_find_stream_info(context, NULL);
+    if (result < 0) {
+        if (readError) *readError = result;
         avformat_close_input(&context);
         return 0;
     }
@@ -80,6 +150,7 @@ static NSTimeInterval FFmpegPacketDuration(NSURL *url,
     int streamIndex = av_find_best_stream(context, AVMEDIA_TYPE_AUDIO,
                                           -1, -1, NULL, 0);
     if (streamIndex < 0) {
+        if (readError) *readError = streamIndex;
         avformat_close_input(&context);
         return 0;
     }
@@ -88,6 +159,7 @@ static NSTimeInterval FFmpegPacketDuration(NSURL *url,
     AVRational timeBase = stream->time_base;
     AVPacket *packet = av_packet_alloc();
     if (!packet) {
+        if (readError) *readError = AVERROR(ENOMEM);
         avformat_close_input(&context);
         return 0;
     }
@@ -95,7 +167,11 @@ static NSTimeInterval FFmpegPacketDuration(NSURL *url,
     int64_t earliestTimestamp = INT64_MAX;
     int64_t latestEndTimestamp = INT64_MIN;
     int64_t accumulatedDuration = 0;
-    while (av_read_frame(context, packet) >= 0) {
+    // This is a metadata probe, not realtime playback. Give the complete scan
+    // one total budget so a long stream cannot extend its deadline forever by
+    // yielding one packet just before every timeout.
+    FFmpegBeginInterruptibleOperation(interruptState, timeoutNanos);
+    while ((result = av_read_frame(context, packet)) >= 0) {
         if (packet->stream_index == streamIndex) {
             int64_t timestamp = packet->pts != AV_NOPTS_VALUE
                 ? packet->pts : packet->dts;
@@ -119,6 +195,13 @@ static NSTimeInterval FFmpegPacketDuration(NSURL *url,
     av_packet_free(&packet);
     avformat_close_input(&context);
 
+    BOOL interrupted = atomic_load_explicit(&interruptState->timedOut, memory_order_acquire)
+        || atomic_load_explicit(&interruptState->cancelled, memory_order_acquire);
+    if (interrupted || (result < 0 && result != AVERROR_EOF)) {
+        if (readError) *readError = result < 0 ? result : AVERROR_EXIT;
+        return 0;
+    }
+
     int64_t durationTicks = 0;
     if (earliestTimestamp != INT64_MAX && latestEndTimestamp != INT64_MIN &&
         latestEndTimestamp > earliestTimestamp) {
@@ -134,6 +217,17 @@ static NSTimeInterval FFmpegPacketDuration(NSURL *url,
 @end
 
 @implementation FFmpegAudioReadResult
+@end
+
+@interface FFmpegDecoderBridge ()
++ (BOOL)URLContainsDTSSync:(NSURL *)url
+            interruptState:(FFmpegInterruptState *)interruptState
+               timeoutNanos:(uint64_t)timeoutNanos
+                       error:(NSError **)error;
+- (instancetype)initWithURL:(NSURL *)url
+          scanPacketDuration:(BOOL)scanPacketDuration
+                   ioTimeout:(NSTimeInterval)ioTimeout
+                       error:(NSError **)error;
 @end
 
 static uint16_t FFmpegReadLittleEndian16(const uint8_t *bytes) {
@@ -242,12 +336,6 @@ static BOOL FFmpegWAVEContainsDTSSync(const uint8_t *bytes, NSUInteger length) {
     return NO;
 }
 
-@interface FFmpegDecoderBridge ()
-- (nullable instancetype)initWithURL:(NSURL *)url
-                  scanPacketDuration:(BOOL)scanPacketDuration
-                               error:(NSError **)error;
-@end
-
 @implementation FFmpegDecoderBridge {
     AVFormatContext *_formatContext;
     AVCodecContext *_codecContext;
@@ -263,6 +351,8 @@ static BOOL FFmpegWAVEContainsDTSSync(const uint8_t *bytes, NSUInteger length) {
     BOOL _decoderEnded;
     BOOL _packetPending;
     FFmpegAudioFileInfo *_fileInfo;
+    FFmpegInterruptState _interruptState;
+    uint64_t _ioTimeoutNanos;
 }
 
 + (BOOL)dataContainsDTSSync:(NSData *)data {
@@ -277,62 +367,172 @@ static BOOL FFmpegWAVEContainsDTSSync(const uint8_t *bytes, NSUInteger length) {
     return FFmpegPayloadContainsDTSSync(bytes, data.length);
 }
 
-+ (BOOL)URLContainsDTSSync:(NSURL *)url {
++ (NSNumber *)DTSSyncResultForURL:(NSURL *)url error:(NSError **)error {
+    FFmpegInterruptState interruptState;
+    atomic_init(&interruptState.cancelled, false);
+    atomic_init(&interruptState.timedOut, false);
+    atomic_init(&interruptState.deadlineNanos, 0);
+    uint64_t timeoutNanos = (uint64_t)llround(
+        FFmpegDefaultIOTimeout * 1000000000.0
+    );
+    BOOL result = [self URLContainsDTSSync:url
+                           interruptState:&interruptState
+                              timeoutNanos:timeoutNanos
+                                      error:error];
+    return error && *error ? nil : @(result);
+}
+
++ (BOOL)URLContainsDTSSync:(NSURL *)url
+            interruptState:(FFmpegInterruptState *)interruptState
+               timeoutNanos:(uint64_t)timeoutNanos
+                       error:(NSError **)error {
     if (!url.isFileURL) return NO;
-    NSFileHandle *handle = [NSFileHandle fileHandleForReadingFromURL:url error:nil];
-    if (!handle) return NO;
-    NSData *prefix = [handle readDataUpToLength:256 * 1024 error:nil];
-    [handle closeFile];
+    AVIOInterruptCB interrupt = {
+        .callback = FFmpegInterruptCallback,
+        .opaque = interruptState,
+    };
+    AVIOContext *input = NULL;
+    FFmpegBeginInterruptibleOperation(interruptState, timeoutNanos);
+    int openResult = avio_open2(
+        &input, url.fileSystemRepresentation, AVIO_FLAG_READ, &interrupt, NULL
+    );
+    if (openResult < 0 || !input) {
+        if (error) *error = FFmpegOperationError(
+            openResult < 0 ? openResult : AVERROR(EIO),
+            @"Opening audio header",
+            interruptState
+        );
+        avio_closep(&input);
+        return NO;
+    }
+
+    const int prefixLimit = 256 * 1024;
+    NSMutableData *prefix = [NSMutableData dataWithLength:(NSUInteger)prefixLimit];
+    int totalRead = 0;
+    int readResult = 0;
+    while (totalRead < prefixLimit) {
+        readResult = avio_read_partial(
+            input,
+            (uint8_t *)prefix.mutableBytes + totalRead,
+            prefixLimit - totalRead
+        );
+        if (readResult <= 0) break;
+        totalRead += readResult;
+    }
+    avio_closep(&input);
+    BOOL interrupted = atomic_load_explicit(&interruptState->timedOut, memory_order_acquire)
+        || atomic_load_explicit(&interruptState->cancelled, memory_order_acquire);
+    if (interrupted || (readResult < 0 && readResult != AVERROR_EOF)) {
+        if (error) *error = FFmpegOperationError(
+            readResult < 0 ? readResult : AVERROR_EXIT,
+            @"Reading audio header",
+            interruptState
+        );
+        return NO;
+    }
+    prefix.length = (NSUInteger)MAX(0, totalRead);
     return [self dataContainsDTSSync:prefix];
 }
 
-+ (BOOL)canDecodeURL:(NSURL *)url {
-    if (!url.isFileURL) return NO;
-    NSError *error = nil;
-    FFmpegDecoderBridge *decoder = [[FFmpegDecoderBridge alloc] initWithURL:url error:&error];
-    return decoder != nil && error == nil;
++ (NSNumber *)decodeSupportForURL:(NSURL *)url error:(NSError **)error {
+    if (!url.isFileURL) return @NO;
+    FFmpegDecoderBridge *decoder = [[FFmpegDecoderBridge alloc] initWithURL:url error:error];
+    if (!decoder) return nil;
+    return @YES;
 }
 
 + (FFmpegAudioFileInfo *)probeURL:(NSURL *)url error:(NSError **)error {
     FFmpegDecoderBridge *decoder = [[FFmpegDecoderBridge alloc]
         initWithURL:url
         scanPacketDuration:YES
+        ioTimeout:FFmpegDefaultIOTimeout
         error:error];
     return decoder.fileInfo;
 }
 
 - (instancetype)initWithURL:(NSURL *)url error:(NSError **)error {
-    return [self initWithURL:url scanPacketDuration:NO error:error];
+    return [self initWithURL:url ioTimeout:FFmpegDefaultIOTimeout error:error];
+}
+
+- (instancetype)initWithURL:(NSURL *)url
+                   ioTimeout:(NSTimeInterval)ioTimeout
+                       error:(NSError **)error {
+    return [self initWithURL:url
+          scanPacketDuration:NO
+                   ioTimeout:ioTimeout
+                       error:error];
 }
 
 - (instancetype)initWithURL:(NSURL *)url
           scanPacketDuration:(BOOL)scanPacketDuration
+                   ioTimeout:(NSTimeInterval)ioTimeout
                        error:(NSError **)error {
     self = [super init];
     if (!self) return nil;
 
+    NSTimeInterval boundedTimeout = isfinite(ioTimeout)
+        ? MIN(MAX(ioTimeout, 0.1), 3600.0)
+        : FFmpegDefaultIOTimeout;
+    _ioTimeoutNanos = (uint64_t)llround(boundedTimeout * 1000000000.0);
+    atomic_init(&_interruptState.cancelled, false);
+    atomic_init(&_interruptState.timedOut, false);
+    atomic_init(&_interruptState.deadlineNanos, 0);
     _audioStreamIndex = -1;
     _resamplerInputFormat = AV_SAMPLE_FMT_NONE;
     av_channel_layout_uninit(&_resamplerInputLayout);
 
     const AVInputFormat *forcedInputFormat = NULL;
-    if ([[url.pathExtension lowercaseString] isEqualToString:@"wav"] &&
-        [[self class] URLContainsDTSSync:url]) {
+    NSError *headerError = nil;
+    BOOL containsDTSSync = NO;
+    if ([[url.pathExtension lowercaseString] isEqualToString:@"wav"]) {
+        containsDTSSync = [[self class] URLContainsDTSSync:url
+                                           interruptState:&_interruptState
+                                              timeoutNanos:_ioTimeoutNanos
+                                                      error:&headerError];
+    }
+    if (headerError) {
+        if (error) *error = headerError;
+        [self closeDecoder];
+        return nil;
+    }
+    if (containsDTSSync) {
         // DTS-CD images are formally PCM WAV files. Force the raw DTS demuxer;
         // its parser scans through the RIFF prefix to the first valid sync word.
         forcedInputFormat = av_find_input_format("dts");
     }
-
-    int result = avformat_open_input(&_formatContext, url.fileSystemRepresentation,
-                                     forcedInputFormat, NULL);
-    if (result < 0) {
-        if (error) *error = FFmpegError(result, @"Unable to open audio file");
+    if (atomic_load_explicit(&_interruptState.timedOut, memory_order_acquire) ||
+        atomic_load_explicit(&_interruptState.cancelled, memory_order_acquire)) {
+        if (error) *error = FFmpegOperationError(
+            AVERROR_EXIT, @"Reading audio header", &_interruptState
+        );
         [self closeDecoder];
         return nil;
     }
+
+    _formatContext = avformat_alloc_context();
+    if (!_formatContext) {
+        if (error) *error = FFmpegError(AVERROR(ENOMEM), @"Unable to allocate input context");
+        [self closeDecoder];
+        return nil;
+    }
+    _formatContext->interrupt_callback.callback = FFmpegInterruptCallback;
+    _formatContext->interrupt_callback.opaque = &_interruptState;
+    FFmpegBeginInterruptibleOperation(&_interruptState, _ioTimeoutNanos);
+    int result = avformat_open_input(&_formatContext, url.fileSystemRepresentation,
+                                     forcedInputFormat, NULL);
+    if (result < 0) {
+        if (error) *error = FFmpegOperationError(
+            result, @"Opening audio file", &_interruptState
+        );
+        [self closeDecoder];
+        return nil;
+    }
+    FFmpegBeginInterruptibleOperation(&_interruptState, _ioTimeoutNanos);
     result = avformat_find_stream_info(_formatContext, NULL);
     if (result < 0) {
-        if (error) *error = FFmpegError(result, @"Unable to read stream information");
+        if (error) *error = FFmpegOperationError(
+            result, @"Reading stream information", &_interruptState
+        );
         [self closeDecoder];
         return nil;
     }
@@ -415,7 +615,20 @@ static BOOL FFmpegWAVEContainsDTSSync(const uint8_t *bytes, NSUInteger length) {
     }
     if (scanPacketDuration &&
         (!isfinite(_fileInfo.duration) || _fileInfo.duration <= 0)) {
-        _fileInfo.duration = FFmpegPacketDuration(url, forcedInputFormat);
+        int packetDurationError = 0;
+        _fileInfo.duration = FFmpegPacketDuration(
+            url, forcedInputFormat, &_interruptState, _ioTimeoutNanos,
+            &packetDurationError
+        );
+        if (packetDurationError < 0) {
+            if (error) *error = FFmpegOperationError(
+                packetDurationError,
+                @"Reading packet timeline",
+                &_interruptState
+            );
+            [self closeDecoder];
+            return nil;
+        }
     }
     return self;
 }
@@ -429,6 +642,7 @@ static BOOL FFmpegWAVEContainsDTSSync(const uint8_t *bytes, NSUInteger length) {
         return ended;
     }
 
+    FFmpegBeginInterruptibleOperation(&_interruptState, _ioTimeoutNanos);
     while (YES) {
         int result = avcodec_receive_frame(_codecContext, _frame);
         if (result == 0) {
@@ -479,6 +693,9 @@ static BOOL FFmpegWAVEContainsDTSSync(const uint8_t *bytes, NSUInteger length) {
         }
 
         while ((result = av_read_frame(_formatContext, _packet)) >= 0) {
+            // A packet is concrete forward progress. Give the next blocking
+            // read a fresh idle window instead of imposing a total-track cap.
+            FFmpegBeginInterruptibleOperation(&_interruptState, _ioTimeoutNanos);
             if (_packet->stream_index != _audioStreamIndex) {
                 av_packet_unref(_packet);
                 continue;
@@ -499,7 +716,9 @@ static BOOL FFmpegWAVEContainsDTSSync(const uint8_t *bytes, NSUInteger length) {
         }
         if (result == AVERROR_EOF) _inputEnded = YES;
         else if (result < 0 && result != AVERROR(EAGAIN)) {
-            if (error) *error = FFmpegError(result, @"Unable to read audio packet");
+            if (error) *error = FFmpegOperationError(
+                result, @"Reading audio packet", &_interruptState
+            );
             return nil;
         }
     }
@@ -627,11 +846,14 @@ static BOOL FFmpegWAVEContainsDTSSync(const uint8_t *bytes, NSUInteger length) {
     AVStream *stream = _formatContext->streams[_audioStreamIndex];
     int64_t timestamp = av_rescale_q((int64_t)llround(MAX(0, time) * AV_TIME_BASE),
                                     AV_TIME_BASE_Q, stream->time_base);
+    FFmpegBeginInterruptibleOperation(&_interruptState, _ioTimeoutNanos);
     int result = avformat_seek_file(_formatContext, (int)_audioStreamIndex,
                                     INT64_MIN, timestamp, timestamp,
                                     AVSEEK_FLAG_BACKWARD);
     if (result < 0) {
-        if (error) *error = FFmpegError(result, @"Unable to seek audio stream");
+        if (error) *error = FFmpegOperationError(
+            result, @"Seeking audio stream", &_interruptState
+        );
         return NO;
     }
     avcodec_flush_buffers(_codecContext);
@@ -643,6 +865,10 @@ static BOOL FFmpegWAVEContainsDTSSync(const uint8_t *bytes, NSUInteger length) {
     if (_packetPending) av_packet_unref(_packet);
     _packetPending = NO;
     return YES;
+}
+
+- (void)cancel {
+    atomic_store_explicit(&_interruptState.cancelled, true, memory_order_release);
 }
 
 - (void)closeDecoder {

@@ -123,7 +123,10 @@ final class TVStore {
         engine.onEnded = { [weak self] in self?.advanceAfterEnd() }
     }
 
-    var hasRealLibrary: Bool { !library.visibleAlbums.isEmpty }
+    var hasRealLibrary: Bool {
+        _ = libraryViewRevision
+        return !cachedAlbums.isEmpty
+    }
 
     /// 选中的歌(tvOS 暂无真实音频,仅展示真实元数据);未选中时不显示底部条/正在播放页。
     var nowPlaying: TVNowPlaying = .none
@@ -174,6 +177,11 @@ final class TVStore {
     // 在 refreshVisibility()(reload / 改源后)重建,曲库快照变更即失效。
     @ObservationIgnored private var songByID: [String: TVSong] = [:]
     @ObservationIgnored private var albumByID: [String: TVAlbum] = [:]
+    @ObservationIgnored private var cachedSongs: [TVSong] = []
+    @ObservationIgnored private var cachedAlbums: [TVAlbum] = []
+    @ObservationIgnored private var cachedArtists: [TVArtist] = []
+    @ObservationIgnored private var visibleSongCountsBySource: [String: Int] = [:]
+    private var libraryViewRevision = 0
 
     // uploadNow 单飞:串行化改源后的快照上传,避免快速连续切源时
     // 两个 detached 任务交错 delete + save。
@@ -206,9 +214,9 @@ final class TVStore {
 
     // MARK: 浏览数据(全部来自真实曲库;为空即显示空态)
 
-    var albums: [TVAlbum] { library.visibleAlbums.map { self.map($0) } }
-    var songs: [TVSong] { library.visibleSongs.map { self.map($0) } }
-    var artists: [TVArtist] { library.visibleArtists.map { self.map($0) } }
+    var albums: [TVAlbum] { _ = libraryViewRevision; return cachedAlbums }
+    var songs: [TVSong] { _ = libraryViewRevision; return cachedSongs }
+    var artists: [TVArtist] { _ = libraryViewRevision; return cachedArtists }
     var playlists: [TVPlaylist] {
         let normal = library.playlists.map {
             mapPlaylist($0, kind: $0.id == MusicLibrary.likedSongsPlaylistID ? .liked : .normal)
@@ -274,13 +282,14 @@ final class TVStore {
         library.recentlyAddedAlbums(limit: 12).map { self.map($0) }
     }
     var recommended: [TVAlbum] {
-        let a = albums
-        return a.count > 6 ? Array(a.suffix(6)) : a
+        _ = libraryViewRevision
+        return cachedAlbums.count > 6 ? Array(cachedAlbums.suffix(6)) : cachedAlbums
     }
 
     func isLiked(_ id: String) -> Bool { localLiked.contains(id) }
     func toggleLiked(_ id: String) {
         if localLiked.contains(id) { localLiked.remove(id) } else { localLiked.insert(id) }
+        rebuildLookupCaches()
     }
 
     // MARK: 真实模型 → TV view-model 映射
@@ -314,7 +323,7 @@ final class TVStore {
         TVPlaylist(id: sp.id, name: sp.name, kind: .smart, count: 0, coverAlbumID: "")
     }
     private func map(_ s: MusicSource) -> TVSource {
-        let cnt = hasRealLibrary ? library.visibleSongs.filter { $0.sourceID == s.id }.count : s.songCount
+        let cnt = hasRealLibrary ? (visibleSongCountsBySource[s.id] ?? 0) : s.songCount
         let (c, _) = Self.tint(s.id)
         return TVSource(id: s.id, name: s.name, type: s.type.rawValue,
                          iconName: s.type.iconName,
@@ -330,7 +339,7 @@ final class TVStore {
     /// NAS 两步验证:用一次性验证码登录,成功则把申请到的「受信设备」令牌(deviceId)存进源,
     /// 之后该设备登录即可跳过 OTP。返回 nil 表示成功,否则返回错误文案。
     func login2FA(sourceID: String, otp: String) async -> String? {
-        guard let source = sourcesStore.source(id: sourceID) else { return "源不存在" }
+        guard let source = sourcesStore.source(id: sourceID) else { return PMString("ext.tv.test.sourceNotFound") }
         let cred = TVCredentialStore.credential(for: source, bundle: credentialBundle)
         do {
             let did = try await StreamResolverRegistry.shared.loginForDeviceToken(
@@ -344,10 +353,10 @@ final class TVStore {
             return nil
         } catch let e as StreamResolveError {
             switch e {
-            case .needs2FA: return "验证码无效,请重试"
-            case .missingCredential: return "缺少账号密码,请先在该源上输入登录凭据"
-            case .authFailed: return "登录失败(账号或密码错误)"
-            default: return "登录失败"
+            case .needs2FA: return PMString("ext.tv.otp.invalid")
+            case .missingCredential: return PMString("ext.tv.otp.missingCredential")
+            case .authFailed: return PMString("ext.tv.otp.authFailed")
+            default: return PMString("ext.tv.otp.failed")
             }
         } catch {
             return error.localizedDescription
@@ -432,9 +441,13 @@ final class TVStore {
         if let reader = TVPlaybackCoordinator.makeDirectReader(source: source, song: song, credential: cred) {
             do {
                 let len = try await reader.contentLength()
-                return "已连接 · \(source.host ?? "")(直连,可在 TV 直接播放)· 文件 \(TVFmt.count(Int(len / 1024))) KB"
+                return PMString(
+                    "ext.tv.test.directConnected",
+                    source.host ?? "",
+                    TVFmt.count(Int(len / 1024))
+                )
             } catch {
-                return "连接失败:\(error.localizedDescription)"
+                return PMString("ext.tv.test.failedDetail", error.localizedDescription)
             }
         }
         do {
@@ -447,7 +460,7 @@ final class TVStore {
             case .missingCredential:
                 return PMString("ext.tv.test.missingCredential")
             case .needs2FA:
-                return "需要两步验证 —— 请长按该源选「两步验证登录」输入验证码"
+                return PMString("ext.tv.test.needs2FA")
             case .authFailed:
                 return PMString("ext.tv.test.authFailed")
             case .badServerResponse(let code):
@@ -513,6 +526,14 @@ final class TVStore {
             }
         }
         configServer.start()
+    }
+
+    func stopPairingServer() {
+        guard pairingStarted else { return }
+        pairingStarted = false
+        configServer.stop()
+        pairingQRContent = "primuse://add-source"
+        pairingCode = ""
     }
 
     /// 收到 iPhone 经局域网直传来的整库 + 源 + 凭据:落盘、持久化凭据、合并重载曲库。
@@ -667,10 +688,17 @@ final class TVStore {
     /// 重建 song(_:)/album(_:) 的单条查询索引。曲库可见集变化后调用一次,
     /// 之后单条查询为 O(1),不再每次访问都全量 map 整库。
     private func rebuildLookupCaches() {
-        songByID = Dictionary(library.visibleSongs.map { ($0.id, self.map($0)) },
+        let visibleSongs = library.visibleSongs
+        cachedSongs = visibleSongs.map { self.map($0) }
+        cachedAlbums = library.visibleAlbums.map { self.map($0) }
+        cachedArtists = library.visibleArtists.map { self.map($0) }
+        visibleSongCountsBySource = Dictionary(grouping: visibleSongs, by: \.sourceID)
+            .mapValues(\.count)
+        songByID = Dictionary(cachedSongs.map { ($0.id, $0) },
                               uniquingKeysWith: { first, _ in first })
-        albumByID = Dictionary(library.visibleAlbums.map { ($0.id, self.map($0)) },
+        albumByID = Dictionary(cachedAlbums.map { ($0.id, $0) },
                                uniquingKeysWith: { first, _ in first })
+        libraryViewRevision &+= 1
     }
 
     /// 在 Apple TV 上删除音乐源:本地软删除 + 隐藏其歌曲 + 尽力把快照上传回 iCloud。

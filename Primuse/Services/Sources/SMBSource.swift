@@ -170,7 +170,11 @@ actor SMBSource: MusicSourceConnector {
                 let client = try await self.ensureConnectedShare(named: shareName)
                 try await client.downloadItem(atPath: relativePath, to: tempURL) { _, _ in true }
             }
-            try FileManager.default.moveItem(at: tempURL, to: localURL)
+            if FileManager.default.fileExists(atPath: localURL.path) {
+                try? FileManager.default.removeItem(at: tempURL)
+            } else {
+                try FileManager.default.moveItem(at: tempURL, to: localURL)
+            }
         } catch {
             try? FileManager.default.removeItem(at: tempURL)
             throw error
@@ -292,14 +296,15 @@ actor SMBSource: MusicSourceConnector {
 
     func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
         return AsyncThrowingStream { continuation in
-            Task {
+            let producer = Task {
                 do {
                     try await scanDirectory(path: path, continuation: continuation)
                     continuation.finish()
                 } catch {
-                    continuation.finish(throwing: error)
+                    Task.isCancelled ? continuation.finish() : continuation.finish(throwing: error)
                 }
             }
+            continuation.onTermination = { @Sendable _ in producer.cancel() }
         }
     }
 
@@ -394,9 +399,11 @@ actor SMBSource: MusicSourceConnector {
         path: String,
         continuation: AsyncThrowingStream<RemoteFileItem, Error>.Continuation
     ) async throws {
+        try Task.checkCancellation()
         let items = try await listFiles(at: path)
 
         for item in items {
+            try Task.checkCancellation()
             if item.isDirectory {
                 try await scanDirectory(path: item.path, continuation: continuation)
             } else if let scannable = SidecarHintResolver.scannableItem(item, siblings: items) {
@@ -729,7 +736,7 @@ actor SMBSource: MusicSourceConnector {
     }
 
     private static func cacheFileName(for path: String) -> String {
-        normalizeRemotePath(path).replacingOccurrences(of: "/", with: "_")
+        CacheFileNamePolicy.make(path: normalizeRemotePath(path))
     }
 
     // MARK: - SMB URL Construction

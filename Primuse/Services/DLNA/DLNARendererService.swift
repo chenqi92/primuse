@@ -137,6 +137,9 @@ final class DLNARendererService {
     /// slow-loris 式只 connect 不发完整请求头拖死 fd。
     private static let httpHeaderTimeout: TimeInterval = 12
     private static let maxHTTPConnections = 16
+    private static let maxSubscriptions = 64
+    private static let minSubscriptionTimeout = 60
+    private static let maxSubscriptionTimeout = 1_800
     private var activeHTTPConnections = 0
     /// NOTIFY alive 周期任务。`ssdp:byebye` 在 stop() 里同步发掉。
     private var notifyTask: Task<Void, Never>?
@@ -148,7 +151,7 @@ final class DLNARendererService {
         let sid: String
         let service: String  // "AVTransport" | "RenderingControl"
         let callbackURL: URL
-        var seq: Int = 0
+        var seq: UInt32 = 0
         var expiresAt: Date
     }
     private var subscriptions: [String: Subscription] = [:]
@@ -571,12 +574,14 @@ final class DLNARendererService {
 
         ssdpSocket = fd
 
-        // DispatchSourceRead 在 main queue 上等 readable; recvfrom 立即返回。
-        // setCancelHandler 里 close(fd), 保证 socket 跟 source 同生命周期。
-        let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: .main)
+        // Keep socket reads and datagram decoding off the UI queue. A burst of
+        // controller discovery traffic must not stall playback controls.
+        let queue = DispatchQueue(label: "com.welape.primuse.dlna.ssdp", qos: .utility)
+        let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
         source.setEventHandler { [weak self] in
-            MainActor.assumeIsolated {
-                self?.handleSSDPRead()
+            guard let packet = Self.receiveSSDPDatagram(from: fd) else { return }
+            Task { @MainActor [weak self] in
+                self?.handleSSDPDatagram(packet.request, fromHost: packet.host, fromPort: packet.port)
             }
         }
         source.setCancelHandler {
@@ -610,24 +615,25 @@ final class DLNARendererService {
 
     /// DispatchSource 触发时调 recvfrom 取一个 UDP 包 ── UDP datagram 边界
     /// 明确, 每次 read 一个完整 M-SEARCH (或 NOTIFY, 但我们 ignore)。
-    private func handleSSDPRead() {
-        guard ssdpSocket >= 0 else { return }
+    nonisolated private static func receiveSSDPDatagram(
+        from socket: Int32
+    ) -> (request: String, host: String, port: UInt16)? {
         var buffer = [UInt8](repeating: 0, count: 65536)
         var src = sockaddr_in()
         var srcLen = socklen_t(MemoryLayout<sockaddr_in>.size)
         let n = buffer.withUnsafeMutableBufferPointer { buf -> Int in
             withUnsafeMutablePointer(to: &src) { srcPtr in
                 srcPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { saPtr in
-                    Darwin.recvfrom(ssdpSocket, buf.baseAddress, buf.count, 0, saPtr, &srcLen)
+                    Darwin.recvfrom(socket, buf.baseAddress, buf.count, 0, saPtr, &srcLen)
                 }
             }
         }
-        guard n > 0 else { return }
+        guard n > 0 else { return nil }
         let data = Data(buffer[0..<n])
-        guard let request = String(data: data, encoding: .utf8) else { return }
+        guard let request = String(data: data, encoding: .utf8) else { return nil }
         let host = Self.ipString(from: src.sin_addr)
         let port = UInt16(bigEndian: src.sin_port)
-        handleSSDPDatagram(request, fromHost: host, fromPort: port)
+        return (request, host, port)
     }
 
     /// 解析 M-SEARCH, 命中我们 ST 时按 UPnP/AV 规范 unicast 回 6 条 200 OK
@@ -745,7 +751,7 @@ final class DLNARendererService {
         }
     }
 
-    private static func ipString(from addr: in_addr) -> String {
+    nonisolated private static func ipString(from addr: in_addr) -> String {
         var copy = addr
         var buf = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
         inet_ntop(AF_INET, &copy, &buf, socklen_t(INET_ADDRSTRLEN))
@@ -1091,6 +1097,10 @@ final class DLNARendererService {
             headers[key] = value
         }
         if let existingSID = headers["sid"], var sub = subscriptions[existingSID] {
+            guard sub.service == service else {
+                await sendStatus(412, on: connection)
+                return
+            }
             let timeoutSeconds = parseTimeout(headers["timeout"]) ?? 1800
             sub.expiresAt = Date().addingTimeInterval(TimeInterval(timeoutSeconds))
             subscriptions[existingSID] = sub
@@ -1102,7 +1112,9 @@ final class DLNARendererService {
         // CALLBACK 形如 "<http://192.168.1.20:7676/abcd>" 可能多个 URL,取第一个
         guard let callbackHeader = headers["callback"],
               let urlStr = callbackHeader.split(separator: "<").last?.split(separator: ">").first,
-              let callbackURL = URL(string: String(urlStr)) else {
+              let callbackURL = URL(string: String(urlStr)),
+              isAllowedGENACallback(callbackURL, from: connection),
+              subscriptions.count < Self.maxSubscriptions else {
             await sendStatus(400, on: connection); return
         }
         let timeoutSeconds = parseTimeout(headers["timeout"]) ?? 1800
@@ -1152,7 +1164,8 @@ final class DLNARendererService {
         guard let sub = subscriptions[sid] else { return }
         guard let body = makeEventBody(for: sub.service) else { return }
         var newSub = sub
-        newSub.seq += 1
+        let sequence = newSub.seq
+        newSub.seq &+= 1
         subscriptions[sid] = newSub
 
         var request = URLRequest(url: sub.callbackURL)
@@ -1161,9 +1174,19 @@ final class DLNARendererService {
         request.setValue("upnp:event", forHTTPHeaderField: "NT")
         request.setValue("upnp:propchange", forHTTPHeaderField: "NTS")
         request.setValue(sid, forHTTPHeaderField: "SID")
-        request.setValue(String(newSub.seq), forHTTPHeaderField: "SEQ")
+        request.setValue(String(sequence), forHTTPHeaderField: "SEQ")
         request.httpBody = body.data(using: .utf8)
-        URLSession.shared.dataTask(with: request) { _, _, _ in /* fire and forget */ }.resume()
+        request.timeoutInterval = 5
+        let callbackURL = sub.callbackURL
+        URLSession.shared.dataTask(with: request) { [weak self] _, response, error in
+            let status = (response as? HTTPURLResponse)?.statusCode
+            guard error != nil || status.map({ !(200 ..< 300).contains($0) }) == true else { return }
+            Task { @MainActor in
+                guard self?.subscriptions[sid]?.callbackURL == callbackURL else { return }
+                self?.subscriptions.removeValue(forKey: sid)
+                self?.logEvent(.event, "GENA callback failed; subscription removed (sid=\(sid.suffix(8)))")
+            }
+        }.resume()
     }
 
     private func makeEventBody(for service: String) -> String? {
@@ -1258,8 +1281,27 @@ final class DLNARendererService {
     private func parseTimeout(_ header: String?) -> Int? {
         guard let header else { return nil }
         let trimmed = header.lowercased().replacingOccurrences(of: "second-", with: "")
-        if trimmed == "infinite" { return 1800 } // 我们最长跟自己保活的节奏对齐
-        return Int(trimmed)
+        if trimmed == "infinite" { return Self.maxSubscriptionTimeout }
+        guard let requested = Int(trimmed), requested > 0 else { return nil }
+        return min(max(requested, Self.minSubscriptionTimeout), Self.maxSubscriptionTimeout)
+    }
+
+    /// 回调必须指向发起订阅的同一台局域网控制设备，避免通过 CALLBACK
+    /// 探测或请求任意内网服务。
+    private func isAllowedGENACallback(_ url: URL, from connection: NWConnection) -> Bool {
+        guard url.scheme?.lowercased() == "http",
+              url.user == nil,
+              url.password == nil,
+              let callbackHost = url.host else { return false }
+        return normalizedNetworkHost(callbackHost) == normalizedNetworkHost(remoteHost(connection))
+    }
+
+    private func normalizedNetworkHost(_ value: String) -> String {
+        var host = value.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+        if let zone = host.firstIndex(of: "%") {
+            host = String(host[..<zone])
+        }
+        return host
     }
 
     private func handleAVTransportAction(raw: String, connection: NWConnection, controllerID: String) async {
@@ -1392,10 +1434,17 @@ final class DLNARendererService {
                 on: connection
             )
         case "Seek":
-            if let target = extract(tag: "Target", from: body),
-               let seconds = parseTime(target) {
-                player.seek(to: seconds, startPlaying: player.isPlaying)
+            let unit = extract(tag: "Unit", from: body)?.uppercased() ?? ""
+            guard unit == "REL_TIME" else {
+                await sendSOAPError(code: 710, description: "Seek mode not supported", on: connection)
+                return
             }
+            guard let target = extract(tag: "Target", from: body),
+                  let seconds = parseTime(target) else {
+                await sendSOAPError(code: 711, description: "Illegal seek target", on: connection)
+                return
+            }
+            player.seek(to: seconds, startPlaying: player.isPlaying)
             await sendSOAP(action: "Seek", body: "", on: connection)
         default:
             logEvent(.error, "AVTransport unsupported action: \(action)")
@@ -1423,7 +1472,9 @@ final class DLNARendererService {
         guard let rawURI = extract(tag: uriTag, from: body)?
             .trimmingCharacters(in: .whitespacesAndNewlines),
               rawURI.isEmpty == false,
-              let url = URL(string: rawURI) else {
+              let url = URL(string: rawURI),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
             return nil
         }
 
@@ -2131,6 +2182,7 @@ final class DLNARendererService {
         case 200: return "OK"
         case 400: return "Bad Request"
         case 404: return "Not Found"
+        case 412: return "Precondition Failed"
         case 413: return "Payload Too Large"
         case 500: return "Internal Server Error"
         default: return "OK"
@@ -2216,14 +2268,27 @@ final class DLNARendererService {
             .replacingOccurrences(of: "&gt;", with: ">")
             .replacingOccurrences(of: "&amp;", with: "&")
             .replacingOccurrences(of: "&quot;", with: "\"")
-        let open = "<\(tag)"
-        guard let openRange = decoded.range(of: open) else { return nil }
+        guard let openRange = exactOpenTagRange(tag, in: decoded) else { return nil }
         guard let closeRange = decoded.range(of: "</\(tag)>", range: openRange.upperBound..<decoded.endIndex) else { return nil }
         let afterOpen = decoded[openRange.upperBound..<closeRange.lowerBound]
         // 跳过开标签里可能的属性,落到 >
         guard let bracket = afterOpen.firstIndex(of: ">") else { return nil }
         return String(afterOpen[afterOpen.index(after: bracket)...])
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func exactOpenTagRange(_ tag: String, in xml: String) -> Range<String.Index>? {
+        let needle = "<\(tag)"
+        var searchStart = xml.startIndex
+        while let range = xml.range(of: needle, range: searchStart..<xml.endIndex) {
+            guard range.upperBound < xml.endIndex else { return nil }
+            let next = xml[range.upperBound]
+            if next == ">" || next.isWhitespace {
+                return range
+            }
+            searchStart = range.upperBound
+        }
+        return nil
     }
 }
 
@@ -2473,14 +2538,27 @@ final class RemoteRendererController {
             .replacingOccurrences(of: "&gt;", with: ">")
             .replacingOccurrences(of: "&amp;", with: "&")
             .replacingOccurrences(of: "&quot;", with: "\"")
-        let open = "<\(tag)"
-        guard let openRange = decoded.range(of: open) else { return nil }
+        guard let openRange = exactOpenTagRange(tag, in: decoded) else { return nil }
         guard let closeRange = decoded.range(of: "</\(tag)>",
                                               range: openRange.upperBound..<decoded.endIndex) else { return nil }
         let afterOpen = decoded[openRange.upperBound..<closeRange.lowerBound]
         guard let bracket = afterOpen.firstIndex(of: ">") else { return nil }
         return String(afterOpen[afterOpen.index(after: bracket)...])
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func exactOpenTagRange(_ tag: String, in xml: String) -> Range<String.Index>? {
+        let needle = "<\(tag)"
+        var searchStart = xml.startIndex
+        while let range = xml.range(of: needle, range: searchStart..<xml.endIndex) {
+            guard range.upperBound < xml.endIndex else { return nil }
+            let next = xml[range.upperBound]
+            if next == ">" || next.isWhitespace {
+                return range
+            }
+            searchStart = range.upperBound
+        }
+        return nil
     }
 
     private static func formatTime(_ t: TimeInterval) -> String {
@@ -2711,12 +2789,28 @@ final class DLNAMediaServer {
             respondStatus(404, on: conn); return
         }
 
-        let (start, end): (Int, Int) = {
-            if let rangeHeader, let r = parseByteRange(rangeHeader, totalSize: size) {
-                return r
+        if size == 0 {
+            if rangeHeader != nil {
+                respondStatus(416, on: conn, contentRange: "bytes */0")
+            } else {
+                let response = "HTTP/1.1 200 OK\r\nContent-Type: \(entry.mimeType)\r\nContent-Length: 0\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n"
+                conn.send(content: Data(response.utf8), completion: .contentProcessed { _ in conn.cancel() })
             }
-            return (0, size - 1)
-        }()
+            return
+        }
+
+        let parsedRange: (Int, Int)?
+        if let rangeHeader {
+            guard let range = parseByteRange(rangeHeader, totalSize: size) else {
+                respondStatus(416, on: conn, contentRange: "bytes */\(size)")
+                return
+            }
+            parsedRange = range
+        } else {
+            parsedRange = nil
+        }
+
+        let (start, end) = parsedRange ?? (0, size - 1)
         if start >= size {
             respondStatus(416, on: conn, contentRange: "bytes */\(size)")
             return
@@ -2815,8 +2909,10 @@ final class DLNAMediaServer {
     private func parseByteRange(_ value: String, totalSize: Int) -> (Int, Int)? {
         guard totalSize > 0 else { return nil }
         let prefix = "bytes="
-        guard let rangeStart = value.range(of: prefix) else { return nil }
-        let after = value[rangeStart.upperBound...]
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard normalized.hasPrefix(prefix), !normalized.contains(",") else { return nil }
+        guard let rangeStart = normalized.range(of: prefix) else { return nil }
+        let after = normalized[rangeStart.upperBound...]
         let parts = after.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
         guard parts.count == 2 else { return nil }
         let startStr = parts[0].trimmingCharacters(in: .whitespaces)

@@ -53,6 +53,37 @@ xcrun clang -fobjc-arc \
   "$ROOT_DIR/Primuse/Services/Audio/FFmpegDecoderBridge.m" \
   -o "$SMOKE_DIR/ffmpeg-bridge-smoke"
 
+xcrun clang -fobjc-arc -c \
+  -F "$RUNTIME_DIR" \
+  "$ROOT_DIR/Primuse/Services/Audio/FFmpegDecoderBridge.m" \
+  -o "$SMOKE_DIR/FFmpegDecoderBridge.o"
+
+xcrun swiftc -parse-as-library \
+  -import-objc-header "$ROOT_DIR/scripts/FFmpegWorkerTimeoutSmoke-Bridging.h" \
+  -module-cache-path "$SMOKE_DIR/ModuleCache" \
+  -F "$RUNTIME_DIR" \
+  -framework AVFoundation -framework Foundation \
+  -framework libavformat -framework libavcodec -framework libswresample -framework libavutil \
+  -Xlinker -rpath -Xlinker "$RUNTIME_DIR" \
+  "$ROOT_DIR/Primuse/Services/Audio/AudioDecoderProtocol.swift" \
+  "$ROOT_DIR/Primuse/Services/Audio/FFmpegAudioDecoder.swift" \
+  "$ROOT_DIR/scripts/FFmpegWorkerTimeoutSmoke.swift" \
+  "$SMOKE_DIR/FFmpegDecoderBridge.o" \
+  -o "$SMOKE_DIR/ffmpeg-worker-timeout-smoke"
+
+mkfifo "$SMOKE_DIR/stalled.dts"
+mkfifo "$SMOKE_DIR/cancelled.dts"
+mkfifo "$SMOKE_DIR/stalled-probe.wav"
+mkfifo "$SMOKE_DIR/queued-a.dts"
+mkfifo "$SMOKE_DIR/queued-b.dts"
+"$SMOKE_DIR/ffmpeg-worker-timeout-smoke" \
+  "$SMOKE_DIR/stalled.dts" \
+  "$SMOKE_DIR/cancelled.dts" \
+  "$SMOKE_DIR/stalled-probe.wav" \
+  "$SMOKE_DIR/queued-a.dts" \
+  "$SMOKE_DIR/queued-b.dts" \
+  "$SMOKE_DIR/tone.dts"
+
 "$SMOKE_DIR/ffmpeg-bridge-smoke" \
   "$SMOKE_DIR/tone.dts" \
   "$SMOKE_DIR/tone-5.1-center-only.dts" \

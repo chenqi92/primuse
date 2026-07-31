@@ -31,10 +31,14 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
             .init(name: "isdir", value: "0"), .init(name: "autoinit", value: "1"),
             .init(name: "rtype", value: "3"), .init(name: "block_list", value: blockList),
         ])
-        let (preData, _) = try await URLSession.shared.data(for: preReq)
+        let (preData, preResponse) = try await URLSession.shared.data(for: preReq)
+        guard let preHTTP = preResponse as? HTTPURLResponse,
+              (200...299).contains(preHTTP.statusCode) else {
+            throw CloudDriveError.apiError((preResponse as? HTTPURLResponse)?.statusCode ?? 0, "Baidu precreate HTTP failure")
+        }
         let preJSON = (try? JSONSerialization.jsonObject(with: preData)) as? [String: Any] ?? [:]
         guard (preJSON["errno"] as? Int ?? -1) == 0, let uploadid = preJSON["uploadid"] as? String else {
-            throw CloudDriveError.apiError(0, "Baidu precreate failed: \(preJSON)")
+            throw CloudDriveError.apiError(preJSON["errno"] as? Int ?? 0, "Baidu precreate failed")
         }
 
         // 2. superfile2 上传(单分片 partseq=0),multipart 字段名 file
@@ -52,7 +56,19 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
         var upReq = URLRequest(url: up.url!)
         upReq.httpMethod = "POST"
         upReq.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        _ = try await URLSession.shared.upload(for: upReq, from: body)
+        let (uploadData, uploadResponse) = try await URLSession.shared.upload(for: upReq, from: body)
+        guard let uploadHTTP = uploadResponse as? HTTPURLResponse,
+              (200...299).contains(uploadHTTP.statusCode) else {
+            throw CloudDriveError.apiError((uploadResponse as? HTTPURLResponse)?.statusCode ?? 0, "Baidu part upload HTTP failure")
+        }
+        let uploadJSON = (try? JSONSerialization.jsonObject(with: uploadData)) as? [String: Any] ?? [:]
+        if let errno = uploadJSON["errno"] as? Int, errno != 0 {
+            throw CloudDriveError.apiError(errno, "Baidu part upload failed")
+        }
+        guard let uploadedMD5 = uploadJSON["md5"] as? String,
+              uploadedMD5.caseInsensitiveCompare(md5) == .orderedSame else {
+            throw CloudDriveError.invalidResponse
+        }
 
         // 3. create
         var cr = URLComponents(string: "\(Self.apiBase)/rest/2.0/xpan/file")!
@@ -65,10 +81,14 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
             .init(name: "isdir", value: "0"), .init(name: "uploadid", value: uploadid),
             .init(name: "rtype", value: "3"), .init(name: "block_list", value: blockList),
         ])
-        let (crData, _) = try await URLSession.shared.data(for: crReq)
+        let (crData, crResponse) = try await URLSession.shared.data(for: crReq)
+        guard let crHTTP = crResponse as? HTTPURLResponse,
+              (200...299).contains(crHTTP.statusCode) else {
+            throw CloudDriveError.apiError((crResponse as? HTTPURLResponse)?.statusCode ?? 0, "Baidu create HTTP failure")
+        }
         let crJSON = (try? JSONSerialization.jsonObject(with: crData)) as? [String: Any] ?? [:]
         guard (crJSON["errno"] as? Int ?? -1) == 0 else {
-            throw CloudDriveError.apiError(0, "Baidu create failed: \(crJSON)")
+            throw CloudDriveError.apiError(crJSON["errno"] as? Int ?? 0, "Baidu create failed")
         }
         plog("📁 Baidu sidecar uploaded: \((path as NSString).lastPathComponent)")
     }
@@ -207,16 +227,6 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
     private static let dlinkUserAgent = "pan.baidu.com"
     private static let dlinkReferer = "https://pan.baidu.com/"
 
-    /// 整文件下载专用共享 session。每次 `downloadFile` 都 `URLSession(configuration:)`
-    /// 新建会从不 invalidate,内部连接池/工作队列/代理持有会一直存活;批量回填整库
-    /// 时每首歌泄漏一个 session。复用单例避免泄漏(对比 `CloudDriveHelper.rangeSession`)。
-    /// 长超时给冷大文件首字节服务端 hydration 留余量。
-    private static let downloadSession: URLSession = {
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 300
-        return URLSession(configuration: config)
-    }()
-
     /// dir → (full paginated listing, expiry).
     /// Lets backfill skip the file/list call entirely for songs that share
     /// a directory with a previously-resolved song. For a typical album
@@ -236,13 +246,6 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
     /// Debounced save task。命中频繁的播放会触发多次 cache 写入,
     /// 用 2s 节流避免每次都写盘。
     private var dlinkPersistTask: Task<Void, Never>?
-
-    /// In-flight token-refresh 去重。getToken() 横跨多个 await 挂起点,
-    /// actor 重入允许并发任务(起播时 prefetchAhead 会并发发 5+ 路 fetchRange)
-    /// 同时看到 isExpired,各自发 refresh。百度 refresh_token 轮换单次有效:
-    /// 第一路刷新成功后旧 refresh_token 失效,其余各路 → invalid_grant。
-    /// 让并发调用共享同一个 in-flight 刷新任务,完成后 double-check 最新 token。
-    private var refreshTask: Task<CloudTokenManager.Tokens, Error>?
 
     init(sourceID: String) {
         self.sourceID = sourceID
@@ -396,9 +399,17 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
 
     func localURL(for path: String) async throws -> URL {
         if helper.hasCached(path: path) { return helper.cachedURL(for: path) }
-        let data = try await downloadFile(at: path)
-        try helper.cacheData(data, for: path)
-        return helper.cachedURL(for: path)
+        let token = try await getToken()
+        let dlink = try await getDlink(for: path)
+        return try await helper.withTokenRetry(initialToken: token, refresh: refreshToken) { @Sendable tok in
+            guard let url = Self.appendingAccessToken(to: dlink, token: tok) else {
+                throw CloudDriveError.invalidResponse
+            }
+            var request = URLRequest(url: url)
+            request.setValue(Self.dlinkUserAgent, forHTTPHeaderField: "User-Agent")
+            request.setValue(Self.dlinkReferer, forHTTPHeaderField: "Referer")
+            return try await self.helper.downloadToCache(request: request, for: path)
+        }
     }
 
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
@@ -564,20 +575,6 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
         comps.queryItems = items
         comps.percentEncodedQuery = comps.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         return comps.url
-    }
-
-    private func downloadFile(at path: String) async throws -> Data {
-        let token = try await getToken()
-        let dlink = try await getDlink(for: path)
-        guard let url = Self.appendingAccessToken(to: dlink, token: token) else {
-            throw CloudDriveError.invalidResponse
-        }
-        var request = URLRequest(url: url)
-        // Same UA pinning as range path — Baidu throttles / 403s without it.
-        request.setValue(Self.dlinkUserAgent, forHTTPHeaderField: "User-Agent")
-        request.setValue(Self.dlinkReferer, forHTTPHeaderField: "Referer")
-        let (fileData, _) = try await Self.downloadSession.data(for: request)
-        return fileData
     }
 
     /// 批量预热 dlink cache, 给定一组 path, 一次 filemetas 调用拿 100 个 dlink。
@@ -751,6 +748,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
         queryItems: [URLQueryItem]
     ) async throws -> [String: Any] {
         var attempt = 0
+        var didRefreshRejectedToken = false
         var backoff: TimeInterval = 0.5
         while true {
             try await throttle()
@@ -760,6 +758,13 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
             guard let url = components.url else { throw CloudDriveError.invalidResponse }
 
             let (data, response) = try await URLSession.shared.data(from: url)
+            if let http = response as? HTTPURLResponse,
+               (http.statusCode == 401 || http.statusCode == 403),
+               !didRefreshRejectedToken {
+                _ = try await helper.tokenManager.refreshDeduped(.ifMatches(token), refresh: refreshToken)
+                didRefreshRejectedToken = true
+                continue
+            }
             if let http = response as? HTTPURLResponse, http.statusCode != 200 {
                 let body = String(data: data, encoding: .utf8) ?? ""
                 plog("☁️ Baidu HTTP \(http.statusCode) url=\(base) body=\(body.prefix(500))")
@@ -769,6 +774,12 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
             let errno = (json["errno"] as? Int) ?? 0
             if errno == 0 {
                 return json
+            }
+
+            if (errno == 111 || errno == -6), !didRefreshRejectedToken {
+                _ = try await helper.tokenManager.refreshDeduped(.ifMatches(token), refresh: refreshToken)
+                didRefreshRejectedToken = true
+                continue
             }
 
             let bodyPreview = String(data: data, encoding: .utf8)?.prefix(500) ?? ""
@@ -804,6 +815,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
         var transportAttempt = 0
         var rateLimitBackoff: TimeInterval = 0.5
         var transportBackoff: TimeInterval = 0.75
+        var didRefreshRejectedToken = false
         while true {
             try await throttle()
             let token = try await getToken()
@@ -831,6 +843,13 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
                 transportBackoff = min(transportBackoff * 2, 6)
                 continue
             }
+            if let http = response as? HTTPURLResponse,
+               (http.statusCode == 401 || http.statusCode == 403),
+               !didRefreshRejectedToken {
+                _ = try await helper.tokenManager.refreshDeduped(.ifMatches(token), refresh: refreshToken)
+                didRefreshRejectedToken = true
+                continue
+            }
             if let http = response as? HTTPURLResponse, http.statusCode != 200 {
                 let body = String(data: data, encoding: .utf8) ?? ""
                 plog("☁️ Baidu HTTP \(http.statusCode) url=\(base) body=\(body.prefix(500))")
@@ -852,6 +871,12 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
                 throw CloudDriveError.invalidResponse
             }
             if errno == 0 { return data }
+
+            if (errno == 111 || errno == -6), !didRefreshRejectedToken {
+                _ = try await helper.tokenManager.refreshDeduped(.ifMatches(token), refresh: refreshToken)
+                didRefreshRejectedToken = true
+                continue
+            }
 
             let bodyPreview = String(data: data, encoding: .utf8)?.prefix(500) ?? ""
             plog("☁️ Baidu errno=\(errno) attempt=\(rateLimitAttempt) url=\(base) body=\(bodyPreview)")
@@ -911,51 +936,27 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
     }
 
     private func getToken() async throws -> String {
-        guard let tokens = await helper.tokenManager.getTokens() else {
-            plog("⚠️ Baidu getToken: missing stored token sourceID=\(sourceID.prefix(8))…")
-            throw CloudDriveError.notAuthenticated
-        }
-        if !tokens.isExpired {
-            return tokens.accessToken
-        }
-        return try await refreshSharedToken(currentToken: tokens).accessToken
-    }
-
-    /// 并发去重的 token 刷新。多路并发调用共享同一个 in-flight `refreshTask`,
-    /// 只发一次 refresh 请求。完成后清掉 task 引用,下次过期再重建。
-    private func refreshSharedToken(currentToken: CloudTokenManager.Tokens) async throws -> CloudTokenManager.Tokens {
-        if let inFlight = refreshTask {
-            return try await inFlight.value
-        }
-        // 在第一个 await 之前同步占住 refreshTask 槽位:check-then-set 之间不能
-        // 有挂起点,否则两路并发可能都过了 nil 检查再各建一个 task。task body 内部
-        // 先 double-check 最新 token(可能已被上一次刷新写盘),仍过期才真正刷新。
-        let task = Task<CloudTokenManager.Tokens, Error> { [weak self] in
-            guard let self else { throw CloudDriveError.notAuthenticated }
-            if let latest = await self.helper.tokenManager.getTokens(), !latest.isExpired {
-                return latest
-            }
-            let refreshed = try await self.refreshToken(currentToken)
-            await self.helper.tokenManager.saveTokens(refreshed)
-            return refreshed
-        }
-        refreshTask = task
-        defer { refreshTask = nil }
-        return try await task.value
+        try await helper.tokenManager.refreshDeduped(.ifExpired, refresh: refreshToken).accessToken
     }
 
     private func refreshToken(_ tokens: CloudTokenManager.Tokens) async throws -> CloudTokenManager.Tokens {
         guard let rt = tokens.refreshToken else { throw CloudDriveError.tokenRefreshFailed("No refresh token") }
         let creds = await helper.tokenManager.getAppCredentials()
         guard let cid = creds?.clientId else { throw CloudDriveError.tokenRefreshFailed("No client ID") }
-        var c = URLComponents(string: "\(Self.oauthBase)/token")!
-        c.queryItems = [.init(name: "grant_type", value: "refresh_token"), .init(name: "refresh_token", value: rt), .init(name: "client_id", value: cid), .init(name: "client_secret", value: creds?.clientSecret ?? "")]
-        let (data, _) = try await URLSession.shared.data(from: c.url!)
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-        if let err = json["error"] as? String {
-            throw CloudDriveError.tokenRefreshFailed("\(err): \(json["error_description"] as? String ?? "")")
+        var request = URLRequest(url: URL(string: "\(Self.oauthBase)/token")!)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.httpBody = CloudDriveHelper.formURLEncodedBody([
+            .init(name: "grant_type", value: "refresh_token"),
+            .init(name: "refresh_token", value: rt),
+            .init(name: "client_id", value: cid),
+            .init(name: "client_secret", value: creds?.clientSecret ?? ""),
+        ])
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let json = try CloudDriveHelper.tokenRefreshJSON(data: data, response: response)
+        guard let at = json["access_token"] as? String else {
+            throw CloudDriveHelper.tokenRefreshFailure(statusCode: (response as? HTTPURLResponse)?.statusCode)
         }
-        guard let at = json["access_token"] as? String else { throw CloudDriveError.tokenRefreshFailed("") }
         return .init(accessToken: at, refreshToken: json["refresh_token"] as? String ?? rt, expiresAt: Date().addingTimeInterval(json["expires_in"] as? TimeInterval ?? 3600))
     }
 

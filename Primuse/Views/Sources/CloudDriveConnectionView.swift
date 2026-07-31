@@ -530,8 +530,7 @@ struct CloudDriveConnectionView: View {
 
             do {
                 let tokens = try await OAuthService.shared.authorize(config: config)
-                await tokenManager.saveTokens(tokens)
-                guard await tokenManager.getTokens() != nil else {
+                guard await tokenManager.saveTokens(tokens) else {
                     plog("⚠️ OAuth token save verification failed type=\(source.type.rawValue) sourceID=\(source.id)")
                     throw OAuthError.tokenExchangeFailed(String(localized: "cloud_err_token_save_failed"))
                 }

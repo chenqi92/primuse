@@ -82,7 +82,7 @@ actor TVSMBLister: TVDirectoryLister {
     }
 }
 
-enum TVScanError: Error { case connectFailed, unsupported }
+enum TVScanError: Error { case connectFailed, unsupported, maximumDepthExceeded }
 
 // MARK: - 扫描服务(走查选中目录 → 路径式建 Song)
 
@@ -94,6 +94,7 @@ final class TVSourceScanner {
     var phase: Phase = .idle
     var indexed: Int = 0
     var currentFile: String = ""
+    private static let maximumScanDepth = 64
 
     /// 构造源对应的目录列举器。目前仅 SMB;其它协议返回 nil(UI 据此提示)。
     static func makeLister(source: MusicSource, credential: SourceCredential?) -> TVDirectoryLister? {
@@ -106,8 +107,11 @@ final class TVSourceScanner {
     var supportsScanning: Bool { false }   // 占位,实例方法在 makeLister 判定
 
     /// 浏览一层目录(给选目录页用)。
-    func browse(lister: TVDirectoryLister, path: String) async -> [TVDirEntry] {
-        (try? await lister.list(path)) ?? []
+    func browse(lister: TVDirectoryLister, path: String) async throws -> [TVDirEntry] {
+        try Task.checkCancellation()
+        let entries = try await lister.list(path)
+        try Task.checkCancellation()
+        return entries
     }
 
     /// 走查选中目录建库:先路径骨架(快),再逐文件读真实 tag/时长/封面/歌词(慢)。
@@ -122,27 +126,63 @@ final class TVSourceScanner {
         var seen = Set<String>()
         do {
             for dir in dirs {
-                try await collect(lister: lister, path: dir, source: source, into: &collected, seen: &seen)
+                try Task.checkCancellation()
+                try await collect(
+                    lister: lister,
+                    path: dir,
+                    source: source,
+                    depth: 0,
+                    into: &collected,
+                    seen: &seen
+                )
             }
+            let songs = try await enrichAll(collected, source: source, credential: credential)
+            try Task.checkCancellation()
+            indexed = songs.count
+            phase = .done
+            return songs
+        } catch is CancellationError {
+            phase = .idle
+            currentFile = ""
+            return nil
         } catch {
-            phase = .failed((error as? TVScanError) == .connectFailed ? "连接失败,请检查地址/凭据" : error.localizedDescription)
+            let message: String
+            switch error as? TVScanError {
+            case .connectFailed:
+                message = PMString("ext.tv.scan.connectFailed")
+            case .maximumDepthExceeded:
+                message = PMString("ext.tv.scan.depthExceeded", Self.maximumScanDepth)
+            default:
+                message = error.localizedDescription
+            }
+            phase = .failed(message)
             return nil
         }
-        let songs = await enrichAll(collected, source: source, credential: credential)
-        indexed = songs.count
-        phase = .done
-        return songs
     }
 
     /// 递归遍历:收集每首歌的路径骨架 + 其所在目录的同级文件(供找歌词/封面)。
     private func collect(lister: TVDirectoryLister, path: String, source: MusicSource,
+                         depth: Int,
                          into collected: inout [(song: Song, siblings: [TVDirEntry])],
                          seen: inout Set<String>) async throws {
+        try Task.checkCancellation()
+        guard depth <= Self.maximumScanDepth else {
+            throw TVScanError.maximumDepthExceeded
+        }
         let entries = try await lister.list(path)
+        try Task.checkCancellation()
         let files = entries.filter { !$0.isDir }
         for e in entries {
+            try Task.checkCancellation()
             if e.isDir {
-                try await collect(lister: lister, path: e.path, source: source, into: &collected, seen: &seen)
+                try await collect(
+                    lister: lister,
+                    path: e.path,
+                    source: source,
+                    depth: depth + 1,
+                    into: &collected,
+                    seen: &seen
+                )
             } else {
                 let ext = (e.name as NSString).pathExtension.lowercased()
                 if PrimuseConstants.supportedAudioExtensions.contains(ext) {
@@ -173,24 +213,27 @@ final class TVSourceScanner {
 
     /// 逐文件补真实元数据(有限并发,默认 4)。失败的文件保留路径骨架,不阻断。
     private func enrichAll(_ items: [(song: Song, siblings: [TVDirEntry])],
-                           source: MusicSource, credential: SourceCredential?) async -> [Song] {
+                           source: MusicSource, credential: SourceCredential?) async throws -> [Song] {
         var result: [Song] = []
         result.reserveCapacity(items.count)
         let chunk = 4
         var i = 0
         while i < items.count {
+            try Task.checkCancellation()
             let slice = Array(items[i..<min(i + chunk, items.count)])
             let enriched: [Song] = await withTaskGroup(of: (Int, Song).self) { group in
                 for (j, it) in slice.enumerated() {
                     group.addTask {
-                        (j, await TVMetadataEnricher.enrich(song: it.song, source: source,
-                                                            credential: credential, siblings: it.siblings))
+                        guard !Task.isCancelled else { return (j, it.song) }
+                        return (j, await TVMetadataEnricher.enrich(song: it.song, source: source,
+                                                                   credential: credential, siblings: it.siblings))
                     }
                 }
                 var acc = [Song?](repeating: nil, count: slice.count)
                 for await (j, s) in group { acc[j] = s }
                 return acc.compactMap { $0 }
             }
+            try Task.checkCancellation()
             result.append(contentsOf: enriched)
             i += chunk
             currentFile = enriched.last?.filePath ?? currentFile

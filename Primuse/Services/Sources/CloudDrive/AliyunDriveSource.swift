@@ -172,9 +172,8 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
 
     func localURL(for path: String) async throws -> URL {
         if helper.hasCached(path: path) { return helper.cachedURL(for: path) }
-        let data = try await downloadFile(at: path)
-        try helper.cacheData(data, for: path)
-        return helper.cachedURL(for: path)
+        let url = try await getDownloadURL(for: path)
+        return try await helper.downloadToCache(request: URLRequest(url: url), for: path)
     }
 
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
@@ -250,14 +249,6 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
         return try await helper.rangeRequest(url: url, offset: offset, length: length)
     }
 
-    private func downloadFile(at path: String) async throws -> Data {
-        let url = try await getDownloadURL(for: path)
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 300
-        let (fileData, _) = try await URLSession(configuration: config).data(from: url)
-        return fileData
-    }
-
     private func getDownloadURL(for path: String) async throws -> URL {
         if let cached = downloadURLCache[path], cached.expiresAt > Date() {
             return cached.url
@@ -308,9 +299,11 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = bodyData
-        let (data, _) = try await URLSession.shared.data(for: request)
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-        guard let at = json["access_token"] as? String else { throw CloudDriveError.tokenRefreshFailed("") }
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let json = try CloudDriveHelper.tokenRefreshJSON(data: data, response: response)
+        guard let at = json["access_token"] as? String else {
+            throw CloudDriveHelper.tokenRefreshFailure(statusCode: (response as? HTTPURLResponse)?.statusCode)
+        }
         return .init(accessToken: at, refreshToken: json["refresh_token"] as? String ?? rt, expiresAt: Date().addingTimeInterval(json["expires_in"] as? TimeInterval ?? 7200), extra: tokens.extra)
     }
 

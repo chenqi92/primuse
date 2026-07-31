@@ -130,24 +130,14 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource {
         if helper.hasCached(path: path) { return helper.cachedURL(for: path) }
         let token = try await getToken()
         let argData = try SafeJSONSerialization.data(withJSONObject: ["path": path])
-        let data: Data = try await helper.withTokenRetry(initialToken: token, refresh: refreshToken) { @Sendable tok in
+        return try await helper.withTokenRetry(initialToken: token, refresh: refreshToken) { @Sendable tok in
             var request = URLRequest(url: URL(string: "\(Self.contentBase)/files/download")!)
             request.httpMethod = "POST"
             request.setValue("Bearer \(tok)", forHTTPHeaderField: "Authorization")
             request.setValue(String(data: argData, encoding: .utf8), forHTTPHeaderField: "Dropbox-API-Arg")
             request.timeoutInterval = 300
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse else {
-                throw CloudDriveError.invalidResponse
-            }
-            if http.statusCode == 401 { throw CloudDriveError.tokenExpired }
-            guard (200...299).contains(http.statusCode) else {
-                throw CloudDriveError.apiError(http.statusCode, "Download failed")
-            }
-            return data
+            return try await self.helper.downloadToCache(request: request, for: path)
         }
-        try helper.cacheData(data, for: path)
-        return helper.cachedURL(for: path)
     }
 
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
@@ -252,9 +242,11 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource {
             items.append(URLQueryItem(name: "client_secret", value: secret))
         }
         request.httpBody = CloudDriveHelper.formURLEncodedBody(items)
-        let (data, _) = try await URLSession.shared.data(for: request)
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-        guard let at = json["access_token"] as? String else { throw CloudDriveError.tokenRefreshFailed("") }
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let json = try CloudDriveHelper.tokenRefreshJSON(data: data, response: response)
+        guard let at = json["access_token"] as? String else {
+            throw CloudDriveHelper.tokenRefreshFailure(statusCode: (response as? HTTPURLResponse)?.statusCode)
+        }
         return .init(accessToken: at, refreshToken: rt, expiresAt: Date().addingTimeInterval(json["expires_in"] as? TimeInterval ?? 14400))
     }
 

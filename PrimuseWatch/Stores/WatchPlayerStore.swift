@@ -105,6 +105,14 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
     /// 立刻响应。iPhone 处理完命令后会回推真实状态, 200ms 内对齐;
     /// 万一命令失败, 1 秒窗口期过后 iPhone 推送会自动校正。
     func togglePlayPause() {
+        guard canSendRealtimeCommand else {
+            requestCurrentState()
+            return
+        }
+        let previousPlaying = isPlaying
+        let previousCurrentTime = currentTime
+        let previousSentTime = sentCurrentTime
+        let previousAnchor = sentTimeAnchor
         isPlaying.toggle()
         lastUserToggleAt = Date()
         if isPlaying {
@@ -112,25 +120,60 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
             sentCurrentTime = currentTime
             sentTimeAnchor = Date().timeIntervalSince1970
         }
-        send(["command": "togglePlayPause"])
+        send(["command": "togglePlayPause"]) { [weak self] in
+            guard let self else { return }
+            self.isPlaying = previousPlaying
+            self.currentTime = previousCurrentTime
+            self.sentCurrentTime = previousSentTime
+            self.sentTimeAnchor = previousAnchor
+        }
     }
     func next() { send(["command": "next"]) }
     func previous() { send(["command": "previous"]) }
     func seek(to time: TimeInterval) {
+        guard canSendRealtimeCommand else {
+            requestCurrentState()
+            return
+        }
+        let previousTime = currentTime
+        let previousSentTime = sentCurrentTime
+        let previousAnchor = sentTimeAnchor
         let clamped = min(max(0, time), duration)
         lastUserSeekAt = Date()
         currentTime = clamped
         sentCurrentTime = clamped
         sentTimeAnchor = Date().timeIntervalSince1970
-        send(["command": "seek", "time": clamped])
+        send(["command": "seek", "time": clamped]) { [weak self] in
+            guard let self else { return }
+            self.currentTime = previousTime
+            self.sentCurrentTime = previousSentTime
+            self.sentTimeAnchor = previousAnchor
+        }
     }
     func requestCurrentState() { send(["command": "requestState"]) }
     func play(songID: String) { send(["command": "playSong", "songID": songID]) }
 
-    private func send(_ message: [String: Any]) {
-        guard let session, session.activationState == .activated else { return }
+    private var canSendRealtimeCommand: Bool {
+        guard let session else { return false }
+        return session.activationState == .activated && session.isReachable
+    }
+
+    private func send(
+        _ message: [String: Any],
+        rollback: (@MainActor @Sendable () -> Void)? = nil
+    ) {
+        guard let session, session.activationState == .activated else {
+            rollback?()
+            return
+        }
         if session.isReachable {
-            session.sendMessage(message, replyHandler: nil, errorHandler: Self.sendErrorHandler)
+            session.sendMessage(message, replyHandler: nil) { [weak self] error in
+                Self.sendErrorHandler(error)
+                Task { @MainActor in
+                    rollback?()
+                    self?.requestCurrentState()
+                }
+            }
             return
         }
         // iPhone 不可达 ── 控制类指令必须实时, 排队几小时后才执行的暂停 /
@@ -142,6 +185,7 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
         if cmd == "requestState" {
             session.transferUserInfo(message)
         } else {
+            rollback?()
             print("⌚️ drop \(cmd) — iPhone unreachable")
         }
     }

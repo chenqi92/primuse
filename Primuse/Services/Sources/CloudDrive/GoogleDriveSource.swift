@@ -154,12 +154,11 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
         var components = URLComponents(string: "\(Self.apiBase)/files/\(path)")!
         components.queryItems = [.init(name: "alt", value: "media")]
         let mediaURL = components.url!
-        let (data, http) = try await helper.withTokenRetry(initialToken: token, refresh: refreshToken) { @Sendable tok in
-            try await self.helper.makeAuthorizedRequest(url: mediaURL, accessToken: tok)
+        return try await helper.withTokenRetry(initialToken: token, refresh: refreshToken) { @Sendable tok in
+            var request = URLRequest(url: mediaURL)
+            request.setValue("Bearer \(tok)", forHTTPHeaderField: "Authorization")
+            return try await self.helper.downloadToCache(request: request, for: path)
         }
-        guard (200...299).contains(http.statusCode) else { throw CloudDriveError.apiError(http.statusCode, "Download failed") }
-        try helper.cacheData(data, for: path)
-        return helper.cachedURL(for: path)
     }
 
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
@@ -261,9 +260,11 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
             URLQueryItem(name: "refresh_token", value: rt),
             URLQueryItem(name: "client_id", value: cid),
         ])
-        let (data, _) = try await URLSession.shared.data(for: request)
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-        guard let at = json["access_token"] as? String else { throw CloudDriveError.tokenRefreshFailed("") }
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let json = try CloudDriveHelper.tokenRefreshJSON(data: data, response: response)
+        guard let at = json["access_token"] as? String else {
+            throw CloudDriveHelper.tokenRefreshFailure(statusCode: (response as? HTTPURLResponse)?.statusCode)
+        }
         return .init(accessToken: at, refreshToken: rt, expiresAt: Date().addingTimeInterval(json["expires_in"] as? TimeInterval ?? 3600))
     }
 

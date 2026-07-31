@@ -53,6 +53,7 @@ enum CloudDriveError: Error, LocalizedError {
     case notAuthenticated
     case tokenExpired
     case tokenRefreshFailed(String)
+    case tokenPersistenceFailed
     case apiError(Int, String)
     case invalidResponse
     case fileNotFound(String)
@@ -63,6 +64,7 @@ enum CloudDriveError: Error, LocalizedError {
         case .notAuthenticated: return "Not authenticated"
         case .tokenExpired: return "Token expired"
         case .tokenRefreshFailed(let msg): return "Token refresh failed: \(msg)"
+        case .tokenPersistenceFailed: return "Refreshed token could not be stored securely"
         case .apiError(let code, let msg): return "API error \(code): \(msg)"
         case .invalidResponse: return "Invalid response"
         case .fileNotFound(let path): return "File not found: \(path)"
@@ -95,6 +97,46 @@ struct CloudDriveHelper: Sendable {
         return components.percentEncodedQuery?.data(using: .utf8)
     }
 
+    /// Parses an OAuth refresh response and preserves the distinction between
+    /// temporary provider failures and permanently invalid credentials.
+    static func tokenRefreshJSON(
+        data: Data,
+        response: URLResponse
+    ) throws -> [String: Any] {
+        guard let http = response as? HTTPURLResponse else {
+            throw CloudDriveError.invalidResponse
+        }
+        let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        let providerError = json["error"] as? String
+
+        if !(200...299).contains(http.statusCode) || providerError != nil {
+            throw tokenRefreshFailure(
+                statusCode: http.statusCode,
+                providerErrorCode: providerError
+            )
+        }
+        return json
+    }
+
+    static func tokenRefreshFailure(
+        statusCode: Int?,
+        providerErrorCode: String? = nil
+    ) -> CloudDriveError {
+        switch CloudTokenRefreshPolicy.disposition(
+            statusCode: statusCode,
+            providerErrorCode: providerErrorCode
+        ) {
+        case .transient:
+            return .apiError(statusCode ?? 503, "Token refresh temporarily unavailable")
+        case .permanent:
+            if let reason = providerErrorCode?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !reason.isEmpty {
+                return .tokenRefreshFailed(reason)
+            }
+            return .tokenRefreshFailed("HTTP \(statusCode ?? 0)")
+        }
+    }
+
     /// 云盘 Range 专用 session。不能用 `URLSession.shared`: 它的
     /// `httpMaximumConnectionsPerHost` 继承平台默认值 —— iOS=4 而 macOS=6。
     /// 起播瞬间 CloudPlaybackSource 的 prefetchAhead(4)+user fetch=5 路 Range
@@ -114,16 +156,21 @@ struct CloudDriveHelper: Sendable {
         )
     }()
 
+    static let downloadSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 300
+        config.timeoutIntervalForResource = 3600
+        return URLSession(configuration: config)
+    }()
+
     // MARK: - Range request
 
     /// HTTP Range GET. `offset < 0` means "from end" — translated to `Range: bytes=-N`.
     /// Always returns bytes whose semantic position is `[offset, offset+length)` of
     /// the underlying file:
     /// - 206 Partial Content: response body is exactly that slice — pass through.
-    /// - 200 OK: server ignored our Range header and sent the full file. We slice
-    ///   the requested window ourselves so callers can trust offsets. Without this
-    ///   correction, a seek-to-middle would write the start of the file into the
-    ///   middle of our cache and corrupt `.partial` permanently.
+    /// - 200 OK: server ignored our Range header. Abort before buffering the full
+    ///   file; the playback layer will fall back to its streamed full download.
     func rangeRequest(
         url: URL,
         offset: Int64,
@@ -172,24 +219,19 @@ struct CloudDriveHelper: Sendable {
             request.setValue(referer, forHTTPHeaderField: "Referer")
         }
         request.timeoutInterval = timeoutSeconds
-        let (data, response) = try await Self.rangeSession.data(for: request)
+        let (bytes, response) = try await Self.rangeSession.bytes(for: request)
         guard let http = response as? HTTPURLResponse else { throw CloudDriveError.invalidResponse }
         switch http.statusCode {
         case 206:
+            var data = Data()
+            data.reserveCapacity(Int(min(length, 4 * 1024 * 1024)))
+            for try await byte in bytes {
+                if Int64(data.count) >= length { break }
+                data.append(byte)
+            }
             return data
         case 200:
-            // Server returned the full file. Translate "from end" offsets to
-            // a positive index into the body, then slice to the requested window.
-            let totalSize = Int64(data.count)
-            let actualOffset: Int64 = offset < 0
-                ? max(0, totalSize + offset)
-                : offset
-            guard actualOffset < totalSize else { return Data() }
-            guard let requestedEnd = SafeByteRange.exclusiveEnd(offset: actualOffset, length: length) else {
-                return Data()
-            }
-            let upper = min(requestedEnd, totalSize)
-            return data.subdata(in: Int(actualOffset)..<Int(upper))
+            throw CloudDriveError.apiError(200, "Server ignored byte-range request")
         default:
             // Surface the status code so the caller can decide whether
             // it's recoverable (401/403/410 → token/dlink refresh) and
@@ -291,8 +333,30 @@ struct CloudDriveHelper: Sendable {
         FileManager.default.fileExists(atPath: cachedURL(for: path).path)
     }
 
-    func cacheData(_ data: Data, for path: String) throws {
-        try data.write(to: cachedURL(for: path))
+    /// Streams a complete remote file to URLSession's temporary file and only
+    /// publishes the cache entry after a successful HTTP response.
+    func downloadToCache(request: URLRequest, for path: String) async throws -> URL {
+        let destination = cachedURL(for: path)
+        if FileManager.default.fileExists(atPath: destination.path) { return destination }
+
+        let (temporaryURL, response) = try await Self.downloadSession.download(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            try? FileManager.default.removeItem(at: temporaryURL)
+            throw CloudDriveError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            try? FileManager.default.removeItem(at: temporaryURL)
+            if http.statusCode == 401 { throw CloudDriveError.tokenExpired }
+            if http.statusCode == 429 { throw CloudDriveError.rateLimited }
+            throw CloudDriveError.apiError(http.statusCode, "Download failed")
+        }
+
+        if FileManager.default.fileExists(atPath: destination.path) {
+            try? FileManager.default.removeItem(at: temporaryURL)
+        } else {
+            try FileManager.default.moveItem(at: temporaryURL, to: destination)
+        }
+        return destination
     }
 
     // MARK: - Scan
@@ -302,14 +366,15 @@ struct CloudDriveHelper: Sendable {
         listFiles: @escaping @Sendable (String) async throws -> [RemoteFileItem]
     ) -> AsyncThrowingStream<RemoteFileItem, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            let producer = Task {
                 do {
                     try await scanDirectory(path: path, listFiles: listFiles, continuation: continuation)
                     continuation.finish()
                 } catch {
-                    continuation.finish(throwing: error)
+                    Task.isCancelled ? continuation.finish() : continuation.finish(throwing: error)
                 }
             }
+            continuation.onTermination = { @Sendable _ in producer.cancel() }
         }
     }
 
@@ -323,6 +388,7 @@ struct CloudDriveHelper: Sendable {
         listFiles: @escaping @Sendable (String) async throws -> [RemoteFileItem],
         continuation: AsyncThrowingStream<RemoteFileItem, Error>.Continuation
     ) async throws {
+        try Task.checkCancellation()
         let items = try await listFiles(path)
 
         // 找当前目录里的封面/歌词/MV 文件，作为 sidecar 候选
@@ -332,6 +398,7 @@ struct CloudDriveHelper: Sendable {
         // 先把当前目录的音频文件 yield 出去，避免 ConnectorScanner 等子树扫完才开始处理
         var audioBasenames = Set<String>()
         for item in items where !item.isDirectory {
+            try Task.checkCancellation()
             let ext = (item.name as NSString).pathExtension.lowercased()
             if PrimuseConstants.supportedAudioExtensions.contains(ext) {
                 let basename = (item.name as NSString).deletingPathExtension
@@ -364,6 +431,7 @@ struct CloudDriveHelper: Sendable {
         // (Song.isStandaloneMusicVideo)。有同名音频的视频仍由上面的
         // sidecar 逻辑挂到那首歌上, 不重复成曲。
         for item in items where !item.isDirectory {
+            try Task.checkCancellation()
             let ext = (item.name as NSString).pathExtension.lowercased()
             guard PrimuseConstants.supportedMusicVideoExtensions.contains(ext) else { continue }
             let basename = (item.name as NSString).deletingPathExtension
@@ -395,6 +463,7 @@ struct CloudDriveHelper: Sendable {
             }
             // 每完成一个就投下一个，保持 N 路并发
             while try await group.next() != nil {
+                try Task.checkCancellation()
                 guard let next = iterator.next() else { continue }
                 group.addTask { [self] in
                     try await scanDirectory(path: next.path, listFiles: listFiles, continuation: continuation)

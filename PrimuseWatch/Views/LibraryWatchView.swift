@@ -8,7 +8,7 @@ struct LibraryWatchView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 4) {
+            LazyVStack(spacing: 4) {
                 if store.queue.isEmpty {
                     emptyState
                 } else {

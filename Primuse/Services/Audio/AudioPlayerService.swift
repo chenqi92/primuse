@@ -571,7 +571,7 @@ final class AudioPlayerService {
                 AppServices.shared.appleMusic.setAppleMusicShuffle(shuffleEnabled)
                 return
             }
-            queueGeneration += 1
+            invalidateQueueTransitions()
             rebuildShuffleOrder()
         }
     }
@@ -580,7 +580,9 @@ final class AudioPlayerService {
             if isMirroringFromAppleMusic { return }
             if isAppleMusicMode && !isPrimuseManagingAppleMusicQueue {
                 AppServices.shared.appleMusic.setAppleMusicRepeat(repeatMode)
+                return
             }
+            invalidateQueueTransitions()
         }
     }
 
@@ -679,6 +681,13 @@ final class AudioPlayerService {
     /// `primuse-stream://` URL to SFB's URL-based opener fails because
     /// the scheme isn't registered with the file system.
     fileprivate enum DecoderKind: Sendable, Equatable { case native, ffmpeg, streaming, httpStream, cloudStream, assetReader }
+    private struct CommittedCrossfade {
+        let attemptID: UUID
+        let playID: UUID
+        let song: Song
+        let url: URL
+        let decoderKind: DecoderKind
+    }
     private var activeDecoderKind: DecoderKind = .native
     private var activeDSDPlaybackMode: DSDPlaybackMode = .pcm
 
@@ -719,7 +728,10 @@ final class AudioPlayerService {
     private var prefetchTask: Task<Void, Never>?
     private var gaplessPreparationTask: Task<Void, Never>?
     private var gaplessFollowupTask: Task<Void, Never>?
+    private var crossfadeStartupTask: Task<Void, Never>?
     private var crossfadeDecodingTask: Task<Void, Never>?
+    private var crossfadeAttemptID: UUID?
+    private var committedCrossfade: CommittedCrossfade?
     /// swapPlayerNodes() 之后, crossfade 解码任务正在喂的那个物理节点已经
     /// 从 crossfade 节点变成 primary 节点。该任务必须改用 scheduleBuffer
     /// (primary) 继续投递, 否则 buffer 会落到换出后被 stop/reset/静音的旧
@@ -728,6 +740,7 @@ final class AudioPlayerService {
     /// 与解码循环的单条 schedule 语句交错。
     private var crossfadeSwapDone = false
     private var crossfadeTimer: Timer?
+    private var crossfadeTimerAttemptID: UUID?
     private var crossfadeTriggered = false
     /// crossfade 进行中 —— 用来让 startTimeUpdater 跳过 currentTime 更新。
     /// crossfade 期间 audioEngine.currentTime 还是旧曲的 primary node 时间,
@@ -848,9 +861,8 @@ final class AudioPlayerService {
         playID = UUID()
         decodingTask?.cancel(); decodingTask = nil
         cancelGaplessTasks()
-        crossfadeDecodingTask?.cancel(); crossfadeDecodingTask = nil
+        cancelCrossfadeAttempt()
         audioEngine.stopPlayback()
-        audioEngine.stopCrossfadeNode()
         stopTimeUpdater()
         currentTime = 0
         duration = 0
@@ -1044,6 +1056,12 @@ final class AudioPlayerService {
                 AppServices.shared.appleMusic.markPlaybackInterrupted()
             }
             let wasPlaying = self.isPlaying
+            // Once a fade has committed, currentSong already points at the
+            // incoming track while the engine's primary node still belongs to
+            // the outgoing one. Finish the node swap before reading progress,
+            // otherwise the old track's tail becomes the new track's recovery
+            // position after the interruption.
+            self.cancelCrossfadeAttempt(finishingCommittedTransition: true)
             self.syncPlaybackProgressFromEngine()
             self.pendingRecoveryTime = self.currentTime
             self.needsPlaybackRecovery = wasPlaying
@@ -1065,6 +1083,7 @@ final class AudioPlayerService {
         manager.onConfigurationChange = { [weak self] in
             guard let self, self.currentSong != nil else { return }
             let shouldAutoResume = self.isPlaying || self.shouldResumeAfterInterruption
+            self.cancelCrossfadeAttempt(finishingCommittedTransition: true)
             self.syncPlaybackProgressFromEngine()
             self.pendingRecoveryTime = self.currentTime
             self.needsPlaybackRecovery = self.needsPlaybackRecovery || shouldAutoResume
@@ -1498,6 +1517,7 @@ final class AudioPlayerService {
         // Invalidate any pending operations immediately
         let id = UUID()
         playID = id
+        cancelCrossfadeAttempt()
         clearPendingPlaybackRecovery()
         let callerFile = (caller as NSString).lastPathComponent
         plog("▶️ play(song: \(song.title)) playID=\(id.uuidString.prefix(8)) FROM=\(callerFile):\(callerLine)")
@@ -1550,10 +1570,7 @@ final class AudioPlayerService {
         decodingTask?.cancel()
         decodingTask = nil
         cancelGaplessTasks()
-        crossfadeDecodingTask?.cancel()
-        crossfadeDecodingTask = nil
         audioEngine.stopPlayback()
-        audioEngine.stopCrossfadeNode()
         stopTimeUpdater()
         stopMusicVideoPlayback(clearPlayer: true)
 
@@ -1600,9 +1617,8 @@ final class AudioPlayerService {
         // 停猿音自家 engine, audio session 让给 ApplicationMusicPlayer。
         decodingTask?.cancel(); decodingTask = nil
         cancelGaplessTasks()
-        crossfadeDecodingTask?.cancel(); crossfadeDecodingTask = nil
+        cancelCrossfadeAttempt()
         audioEngine.stopPlayback()
-        audioEngine.stopCrossfadeNode()
         stopTimeUpdater()
         stopMusicVideoPlayback(clearPlayer: true)
         currentSong = song
@@ -1805,6 +1821,7 @@ final class AudioPlayerService {
         isPrimuseManagingAppleMusicQueue = false
         let id = UUID()
         playID = id
+        cancelCrossfadeAttempt()
         clearPendingPlaybackRecovery()
         decodingTask?.cancel()
         decodingTask = nil
@@ -2051,9 +2068,10 @@ final class AudioPlayerService {
                         for: song,
                         url: url,
                         mode: settings.replayGainMode,
-                        allowFileRead: decoderKind != .cloudStream && decoderKind != .httpStream
+                        allowFileRead: decoderKind != .cloudStream && decoderKind != .httpStream,
+                        expectedPlayID: id,
+                        expectedSongID: song.id
                     )
-                    guard self.playID == id else { return }
                 }
             }
 
@@ -2532,21 +2550,28 @@ final class AudioPlayerService {
     }
 
     private func usesFFmpegDecoder(for song: Song, url: URL) async -> Bool {
-        if url.isFileURL, url.pathExtension.caseInsensitiveCompare("wav") == .orderedSame {
-            return await ffmpegCanDecodeOffMain(url)
-        }
+        // Persisted format knowledge is authoritative and avoids re-reading a
+        // dead mount merely to rediscover DTS-CD content.
         if FileFormatRouter.decoder(for: song.fileFormat) is FFmpegAudioDecoder {
             return true
+        }
+        if url.isFileURL, url.pathExtension.caseInsensitiveCompare("wav") == .orderedSame {
+            return await ffmpegCanDecodeOffMain(url)
         }
         if nativeDecoder.canDecode(url: url) { return false }
         return await ffmpegCanDecodeOffMain(url)
     }
 
     private func ffmpegCanDecodeOffMain(_ url: URL) async -> Bool {
-        let decoder = ffmpegDecoder
-        return await Task.detached(priority: .userInitiated) {
-            decoder.canDecode(url: url)
-        }.value
+        do {
+            return try await ffmpegDecoder.canDecodeAsync(url: url)
+        } catch {
+            // A failed/timeout probe is not proof that a WAV is PCM. Prefer the
+            // bounded FFmpeg path so DTS carrier bytes can never reach Native
+            // WAV playback as audible noise; the decode error remains visible.
+            plog("FFmpeg content probe unavailable: \(error.localizedDescription)")
+            return true
+        }
     }
 
     private func prefetchNextSong() {
@@ -2707,8 +2732,13 @@ final class AudioPlayerService {
             let settings = playbackSettings.snapshot()
             if shouldApplyReplayGain(settings), url.isFileURL {
                 Task { [id] in
-                    await self.applyReplayGain(for: song, url: url, mode: settings.replayGainMode)
-                    guard self.playID == id else { return }
+                    await self.applyReplayGain(
+                        for: song,
+                        url: url,
+                        mode: settings.replayGainMode,
+                        expectedPlayID: id,
+                        expectedSongID: song.id
+                    )
                 }
             }
 
@@ -2789,6 +2819,56 @@ final class AudioPlayerService {
         }
 
         startGaplessPreparation(playID: id, transition: transition)
+    }
+
+    /// Schedules the held final buffer on whichever physical node currently
+    /// owns the crossfaded song. The callback remains valid across node swap
+    /// because the logical play ID is assigned when the fade begins.
+    private func scheduleCrossfadeFinalBuffer(_ buffer: AVAudioPCMBuffer, playID id: UUID) {
+        let completion: @Sendable (AVAudioPlayerNodeCompletionCallbackType) -> Void = { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.playID == id else { return }
+                await self.handleTrackEnd()
+            }
+        }
+        if crossfadeSwapDone {
+            audioEngine.scheduleBuffer(
+                buffer,
+                completionCallbackType: .dataPlayedBack,
+                completionHandler: completion
+            )
+        } else {
+            audioEngine.scheduleCrossfadeBuffer(
+                buffer,
+                completionCallbackType: .dataPlayedBack,
+                completionHandler: completion
+            )
+        }
+    }
+
+    private func scheduleCrossfadeFinalBufferAsFailure(
+        _ buffer: AVAudioPCMBuffer,
+        playID id: UUID
+    ) {
+        let completion: @Sendable (AVAudioPlayerNodeCompletionCallbackType) -> Void = { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.playID == id else { return }
+                await self.autoAdvanceAfterFailure()
+            }
+        }
+        if crossfadeSwapDone {
+            audioEngine.scheduleBuffer(
+                buffer,
+                completionCallbackType: .dataPlayedBack,
+                completionHandler: completion
+            )
+        } else {
+            audioEngine.scheduleCrossfadeBuffer(
+                buffer,
+                completionCallbackType: .dataPlayedBack,
+                completionHandler: completion
+            )
+        }
     }
 
     private func shouldAttemptGapless(settings: PlaybackSettings) -> Bool {
@@ -2894,6 +2974,9 @@ final class AudioPlayerService {
             return
         }
         shouldResumeAfterInterruption = false
+        // Align the engine's primary node with currentSong before capturing
+        // the pause position during an already-committed fade.
+        cancelCrossfadeAttempt(finishingCommittedTransition: true)
         syncPlaybackProgressFromEngine()
         audioEngine.pause()
         isPlaying = false
@@ -2950,16 +3033,21 @@ final class AudioPlayerService {
             plog("⚠️ Cast: Apple Music DRM songs cannot be cast, ignored")
             return
         }
+        // During a committed fade currentSong already names the incoming
+        // track, while currentTime is intentionally frozen. Complete the node
+        // swap first so the renderer resumes the right track at its real time.
+        cancelCrossfadeAttempt(finishingCommittedTransition: true)
+        syncPlaybackProgressFromEngine()
         let resumeSong = currentSong
         let resumeTime = currentTime
         let wasPlaying = isPlaying
 
         // 1. 本地停 (audioEngine + decoding task), audio session 让出去
+        playID = UUID()
         decodingTask?.cancel(); decodingTask = nil
         cancelGaplessTasks()
-        crossfadeDecodingTask?.cancel(); crossfadeDecodingTask = nil
+        cancelCrossfadeAttempt()
         audioEngine.stopPlayback()
-        audioEngine.stopCrossfadeNode()
         stopMusicVideoPlayback(clearPlayer: true)
         stopTimeUpdater()
         isPlaying = false
@@ -2984,6 +3072,7 @@ final class AudioPlayerService {
         let controller = castingController
         let resumeSong = currentSong
         let resumeTime = currentTime
+        let shouldResumeLocally = isPlaying
         castingRenderer = nil
         castingController = nil
 
@@ -2994,10 +3083,10 @@ final class AudioPlayerService {
 
         if let song = resumeSong {
             await play(song: song)
-            if resumeTime > 1 {
+            if resumeTime > 1 || !shouldResumeLocally {
                 // play 完成后再 seek; 给一点 buffer 时间
                 try? await Task.sleep(for: .milliseconds(300))
-                seek(to: resumeTime, startPlaying: false)
+                seek(to: max(0, resumeTime), startPlaying: shouldResumeLocally)
             }
         }
     }
@@ -3106,16 +3195,13 @@ final class AudioPlayerService {
         if let cur = currentSong {
             sourceManager?.finalizeStreamingSession(for: cur)
         }
+        // Invalidate buffer completion callbacks before stop/reset fires them.
+        playID = UUID()
         decodingTask?.cancel()
         decodingTask = nil
         cancelGaplessTasks()
-        crossfadeDecodingTask?.cancel()
-        crossfadeDecodingTask = nil
-        crossfadeTimer?.invalidate()
-        crossfadeTimer = nil
-        crossfadeTriggered = false; isCrossfading = false
+        cancelCrossfadeAttempt()
         audioEngine.stopPlayback()
-        audioEngine.stopCrossfadeNode()
         audioEngine.resetPlayerVolume()
         stopMusicVideoPlayback(clearPlayer: true)
         sourceManager?.cancelMusicVideoDownloads(keeping: nil)
@@ -3153,13 +3239,8 @@ final class AudioPlayerService {
         decodingTask?.cancel()
         decodingTask = nil
         cancelGaplessTasks()
-        crossfadeDecodingTask?.cancel()
-        crossfadeDecodingTask = nil
-        crossfadeTimer?.invalidate()
-        crossfadeTimer = nil
-        crossfadeTriggered = false; isCrossfading = false
+        cancelCrossfadeAttempt()
         audioEngine.stopPlayback()
-        audioEngine.stopCrossfadeNode()
         audioEngine.resetPlayerVolume()
         stopMusicVideoPlayback(clearPlayer: false)
         isPlaying = false
@@ -3335,8 +3416,7 @@ final class AudioPlayerService {
         decodingTask?.cancel()
         decodingTask = nil
         cancelGaplessTasks()
-        crossfadeDecodingTask?.cancel()
-        crossfadeDecodingTask = nil
+        cancelCrossfadeAttempt()
         audioEngine.stopPlayback()
         stopTimeUpdater()
 
@@ -3361,7 +3441,9 @@ final class AudioPlayerService {
                         for: song,
                         url: url,
                         mode: settings.replayGainMode,
-                        allowFileRead: activeDecoderKind != .cloudStream && activeDecoderKind != .httpStream
+                        allowFileRead: activeDecoderKind != .cloudStream && activeDecoderKind != .httpStream,
+                        expectedPlayID: id,
+                        expectedSongID: song.id
                     )
                 }
 
@@ -3554,6 +3636,13 @@ final class AudioPlayerService {
 
                 guard let firstBuffer = firstPlayableBuffer else {
                     isLoading = false
+                    isPlaying = false
+                    currentTime = targetTime
+                    updateNowPlayingInfo()
+                    updatePlaybackState()
+                    if shouldStartPlaying {
+                        await handleTrackEnd()
+                    }
                     return
                 }
                 guard playID == id else { return }
@@ -3655,7 +3744,7 @@ final class AudioPlayerService {
             return
         }
 
-        queueGeneration += 1
+        invalidateQueueTransitions()
         queueEntries = songs.map { QueueEntry(song: $0) }
         currentIndex = max(0, min(index, songs.count - 1))
         // Protect any newly-installed canonical queue from an existing Apple
@@ -3677,7 +3766,7 @@ final class AudioPlayerService {
     func appendToQueue(_ songs: [Song]) {
         let playable = songs.filteredPlayable()
         guard !playable.isEmpty else { return }
-        queueGeneration += 1
+        invalidateQueueTransitions()
         queueEntries.append(contentsOf: playable.map { QueueEntry(song: $0) })
         if isAppleMusicMode {
             isPrimuseManagingAppleMusicQueue = true
@@ -3697,7 +3786,7 @@ final class AudioPlayerService {
             return
         }
         let insertionIndex = min(currentIndex + 1, queueEntries.count)
-        queueGeneration += 1
+        invalidateQueueTransitions()
         queueEntries.insert(contentsOf: playable.map { QueueEntry(song: $0) }, at: insertionIndex)
         if isAppleMusicMode {
             isPrimuseManagingAppleMusicQueue = true
@@ -3713,7 +3802,7 @@ final class AudioPlayerService {
     func removeQueuePrefix(count: Int) {
         guard count > 0 else { return }
         let toRemove = min(count, queueEntries.count)
-        queueGeneration += 1
+        invalidateQueueTransitions()
         queueEntries.removeFirst(toRemove)
         currentIndex = max(0, currentIndex - toRemove)
         pendingNextShuffleIndices = nil
@@ -3723,8 +3812,7 @@ final class AudioPlayerService {
     /// Wipe the queue. Replaces the legacy `player.queue = []` setter,
     /// which is no longer accessible since `queue` is now computed.
     func clearQueue() {
-        queueGeneration += 1
-        cancelGaplessTasks()
+        invalidateQueueTransitions()
         queueEntries = []
         currentIndex = 0
         pendingNextShuffleIndices = nil
@@ -3743,7 +3831,7 @@ final class AudioPlayerService {
               source.allSatisfy({ queueEntries.indices.contains($0) }),
               destination >= 0,
               destination <= queueEntries.count else { return }
-        queueGeneration += 1
+        invalidateQueueTransitions()
         queueEntries.move(fromOffsets: source, toOffset: destination)
         pendingNextShuffleIndices = nil
         if shuffleEnabled {
@@ -3961,9 +4049,10 @@ final class AudioPlayerService {
                     for: prepared.song,
                     url: prepared.url,
                     mode: settings.replayGainMode,
-                    allowFileRead: prepared.decoderKind != .cloudStream && prepared.decoderKind != .httpStream
+                    allowFileRead: prepared.decoderKind != .cloudStream && prepared.decoderKind != .httpStream,
+                    expectedPlayID: id,
+                    expectedSongID: prepared.song.id
                 )
-                guard self.playID == id else { return }
             }
         } else {
             audioEngine.resetPlayerVolume()
@@ -4141,6 +4230,88 @@ final class AudioPlayerService {
 
     // MARK: - Crossfade
 
+    private func isCurrentCrossfadeAttempt(
+        _ attemptID: UUID,
+        sourcePlayID: UUID,
+        queueGeneration sourceQueueGeneration: Int,
+        nextEntryID: UUID
+    ) -> Bool {
+        !Task.isCancelled
+            && isPlaying
+            && crossfadeAttemptID == attemptID
+            && playID == sourcePlayID
+            && queueGeneration == sourceQueueGeneration
+            && nextQueueEntryInQueue()?.id == nextEntryID
+    }
+
+    private func failCrossfadeAttempt(_ attemptID: UUID) {
+        guard crossfadeAttemptID == attemptID else { return }
+        let hadAudibleTransition = isCrossfading || crossfadeTimer != nil
+        crossfadeAttemptID = nil
+        committedCrossfade = nil
+        crossfadeStartupTask = nil
+        crossfadeTimer?.invalidate()
+        crossfadeTimer = nil
+        crossfadeTimerAttemptID = nil
+        crossfadeTriggered = false
+        isCrossfading = false
+        crossfadeSwapDone = false
+        if hadAudibleTransition {
+            audioEngine.stopCrossfadeNode()
+            audioEngine.resetPlayerVolume()
+        }
+    }
+
+    /// Invalidates both the not-yet-ready startup and any active fade/feeder.
+    /// Every queue or playback ownership change goes through this helper so an
+    /// old task cannot mutate a newer attempt's flags or queue index.
+    private func cancelCrossfadeAttempt(finishingCommittedTransition: Bool = false) {
+        if finishingCommittedTransition,
+           let committedCrossfade,
+           crossfadeAttemptID == committedCrossfade.attemptID,
+           playID == committedCrossfade.playID {
+            crossfadeTimer?.invalidate()
+            crossfadeTimer = nil
+            crossfadeTimerAttemptID = nil
+            completeCrossfade(
+                attemptID: committedCrossfade.attemptID,
+                playID: committedCrossfade.playID,
+                nextSong: committedCrossfade.song,
+                nextURL: committedCrossfade.url,
+                nextDecoderKind: committedCrossfade.decoderKind
+            )
+            return
+        }
+        let hadActiveAttempt = crossfadeAttemptID != nil
+            || crossfadeStartupTask != nil
+            || crossfadeDecodingTask != nil
+            || crossfadeTimer != nil
+            || crossfadeTriggered
+            || isCrossfading
+        crossfadeAttemptID = nil
+        committedCrossfade = nil
+        crossfadeStartupTask?.cancel()
+        crossfadeStartupTask = nil
+        crossfadeDecodingTask?.cancel()
+        crossfadeDecodingTask = nil
+        crossfadeTimer?.invalidate()
+        crossfadeTimer = nil
+        crossfadeTimerAttemptID = nil
+        crossfadeTriggered = false
+        isCrossfading = false
+        crossfadeSwapDone = false
+        if hadActiveAttempt {
+            audioEngine.stopCrossfadeNode()
+            audioEngine.resetPlayerVolume()
+        }
+    }
+
+    private func invalidateQueueTransitions() {
+        queueGeneration += 1
+        cancelGaplessTasks()
+        cancelCrossfadeAttempt(finishingCommittedTransition: true)
+    }
+
     private func checkCrossfade() {
         // This runs on every playback progress tick. Avoid copying the full
         // settings payload in the overwhelmingly common disabled case.
@@ -4149,35 +4320,75 @@ final class AudioPlayerService {
               !crossfadeTriggered else { return }
         let settings = playbackSettings.snapshot()
         guard duration > 0, currentTime >= duration - settings.crossfadeDuration else { return }
+        // "Stop after this song" owns the upcoming boundary. Let the normal
+        // end callback stop playback instead of committing the next queue item.
+        if let lockedID = sleepStopAfterSongID, currentSong?.id == lockedID {
+            return
+        }
         // Skip under repeat-one — `nextSongInQueue()` returns the
         // current song there, which would crossfade-to-self. Pre-fix
         // `currentIndex < queue.count - 1` was always false in the
         // single-song repeat-one case so crossfade was never enabled;
         // preserve that.
-        guard repeatMode != .one, let nextSong = nextSongInQueue() else { return }
+        guard repeatMode != .one,
+              let sourcePlayID = playID,
+              let nextEntry = nextQueueEntryInQueue() else { return }
+        let nextSong = nextEntry.song
         guard shouldBypassContinuousAudioTransition(for: nextSong) == false else { return }
 
+        let attemptID = UUID()
+        let sourceQueueGeneration = queueGeneration
+        crossfadeAttemptID = attemptID
         crossfadeTriggered = true
-        Task { await startCrossfade(duration: settings.crossfadeDuration) }
+        crossfadeStartupTask?.cancel()
+        crossfadeStartupTask = Task {
+            await startCrossfade(
+                duration: settings.crossfadeDuration,
+                attemptID: attemptID,
+                sourcePlayID: sourcePlayID,
+                queueGeneration: sourceQueueGeneration,
+                nextEntryID: nextEntry.id
+            )
+        }
     }
 
-    private func startCrossfade(duration crossfadeDuration: Double) async {
+    private func startCrossfade(
+        duration crossfadeDuration: Double,
+        attemptID: UUID,
+        sourcePlayID: UUID,
+        queueGeneration sourceQueueGeneration: Int,
+        nextEntryID: UUID
+    ) async {
+        guard isCurrentCrossfadeAttempt(
+            attemptID,
+            sourcePlayID: sourcePlayID,
+            queueGeneration: sourceQueueGeneration,
+            nextEntryID: nextEntryID
+        ) else { return }
         guard shouldUseCrossfade(playbackSettings.snapshot()) else {
-            crossfadeTriggered = false; isCrossfading = false
+            failCrossfadeAttempt(attemptID)
             return
         }
-        guard let nextSong = nextSongInQueue() else {
-            crossfadeTriggered = false; isCrossfading = false
+        guard let nextEntry = nextQueueEntryInQueue(), nextEntry.id == nextEntryID else {
+            failCrossfadeAttempt(attemptID)
             return
         }
+        let nextSong = nextEntry.song
         guard shouldBypassContinuousAudioTransition(for: nextSong) == false else {
-            crossfadeTriggered = false; isCrossfading = false
+            failCrossfadeAttempt(attemptID)
             return
         }
 
+        let preparationDeadline = Date().addingTimeInterval(Double(Self.firstBufferTimeoutSeconds))
         do {
             let nextURL = try await resolvedURL(for: nextSong)
             let nextDecoderKind = await decoderKind(for: nextSong, url: nextURL)
+            guard isCurrentCrossfadeAttempt(
+                attemptID,
+                sourcePlayID: sourcePlayID,
+                queueGeneration: sourceQueueGeneration,
+                nextEntryID: nextEntryID
+            ) else { return }
             guard nextDecoderKind == .native
                     || nextDecoderKind == .ffmpeg
                     || nextDecoderKind == .httpStream
@@ -4185,41 +4396,90 @@ final class AudioPlayerService {
                   nextDecoderKind != .native
                     || nativeDecoder.canDecode(url: nextURL),
                   let outputFormat = audioEngine.outputFormat else {
-                crossfadeTriggered = false; isCrossfading = false
+                failCrossfadeAttempt(attemptID)
                 return
             }
 
             // crossfade 一开始就把 UI 切到下一首 —— 用户听到的主音是 next
             // 在淡入接管, 看到的应该跟着是 next。之前要等 ramp 跑完才切,
             // 出现「下一首歌的声音出来了但播放器还显示上一首」的不一致。
-            // 期间 currentTime 暂停更新 (isCrossfading=true), 直到 swap
-            // 完成跟随新 primary node。
-            // 冻结进度 (isCrossfading=true) 贯穿整个尝试, 同时抑制 startTimeUpdater
-            // 的 duration 安全网。但在拿到下一首首个 buffer *之前* 不推进队列索引/
-            // currentSong/scrobble —— 否则 decode 失败 (返回 nil / 抛错) 时会出现
+            // 在拿到下一首缓冲 *之前* 不冻结进度、不推进队列索引/
+            // currentSong/scrobble —— 否则网络预取慢或 decode 失败时会抑制
+            // 曲末 watchdog，并出现
             // 「UI 已切到下一首、声音还停在上一首、isCrossfading 卡 true 进度永久冻结」。
-            // 任何失败路径都复位 isCrossfading/crossfadeTriggered, 让旧曲继续正常播放。
-            isCrossfading = true
 
             // Note: ReplayGain for crossfade node would need per-node volume tracking
             // For now, apply after swap
 
             // Decode into crossfade node — 先确保能解码并拿到首个 buffer。
             guard let stream = await decodeStream(for: nextSong, url: nextURL, outputFormat: outputFormat) else {
-                crossfadeTriggered = false; isCrossfading = false
+                failCrossfadeAttempt(attemptID)
                 return
             }
             let iteratorBox = BufferIteratorBox(stream.makeAsyncIterator())
 
             // swap 还没发生 —— 新曲的 buffer 先进 crossfade 节点。
             crossfadeSwapDone = false
-            guard let firstBuffer = try await iteratorBox.next() else {
-                crossfadeTriggered = false; isCrossfading = false
+            let firstBufferSeconds = Int(ceil(preparationDeadline.timeIntervalSinceNow))
+            guard firstBufferSeconds > 0 else {
+                failCrossfadeAttempt(attemptID)
                 return
             }
+            guard let firstBuffer = try await awaitFirstBuffer(
+                from: iteratorBox,
+                timeoutSeconds: firstBufferSeconds
+            ) else {
+                failCrossfadeAttempt(attemptID)
+                return
+            }
+            guard isCurrentCrossfadeAttempt(
+                attemptID,
+                sourcePlayID: sourcePlayID,
+                queueGeneration: sourceQueueGeneration,
+                nextEntryID: nextEntryID
+            ) else { return }
+            // Hold one decoded buffer back so EOF is known before scheduling
+            // the physical last buffer. This gives unknown-duration cloud
+            // tracks a reliable `.dataPlayedBack` boundary instead of relying
+            // on the duration watchdog.
+            let remainingBufferSeconds = Int(ceil(preparationDeadline.timeIntervalSinceNow))
+            guard remainingBufferSeconds > 0 else {
+                failCrossfadeAttempt(attemptID)
+                return
+            }
+            let secondBuffer = try await awaitFirstBuffer(
+                from: iteratorBox,
+                timeoutSeconds: remainingBufferSeconds
+            )
+            guard isCurrentCrossfadeAttempt(
+                attemptID,
+                sourcePlayID: sourcePlayID,
+                queueGeneration: sourceQueueGeneration,
+                nextEntryID: nextEntryID
+            ) else { return }
+            // Settings and the sleep lock can change while remote resolution
+            // or prefetch is in flight. Revalidate at the commit boundary.
+            guard shouldUseCrossfade(playbackSettings.snapshot()),
+                  sleepStopAfterSongID != currentSong?.id else {
+                failCrossfadeAttempt(attemptID)
+                return
+            }
+            isCrossfading = true
+            let nextPlayID = UUID()
+            committedCrossfade = CommittedCrossfade(
+                attemptID: attemptID,
+                playID: nextPlayID,
+                song: nextSong,
+                url: nextURL,
+                decoderKind: nextDecoderKind
+            )
+            playID = nextPlayID
 
             // 解码就绪, 现在才把 UI/索引/scrobble 切到下一首 —— 用户听到 next
             // 淡入接管, 看到的也跟着切。
+            if let previous = currentSong {
+                sourceManager?.finalizeStreamingSession(for: previous)
+            }
             advanceToNextIndex()
             currentSong = nextSong
             currentTime = 0
@@ -4231,73 +4491,103 @@ final class AudioPlayerService {
             updateNowPlayingArtworkIfNeeded()
             updatePlaybackState()
 
-            audioEngine.scheduleCrossfadeBuffer(firstBuffer)
+            if secondBuffer == nil {
+                scheduleCrossfadeFinalBuffer(firstBuffer, playID: nextPlayID)
+            } else {
+                audioEngine.scheduleCrossfadeBuffer(firstBuffer)
+            }
             audioEngine.playCrossfadeNode()
 
             let gate = AsyncBufferGate(
                 maxBufferedDuration: Self.decodedAudioLookahead,
                 maxBufferCount: Self.maxInFlightDecodedBufferCount
             )
+            crossfadeStartupTask = nil
             crossfadeDecodingTask = Task { [iteratorBox, gate] in
+                var lastBuffer = secondBuffer
+                var decodeFailed = false
                 defer { Task { await gate.drain() } }
                 do {
                     while let buffer = try await iteratorBox.next() {
                         guard !Task.isCancelled else { return }
-                        let bufferedDuration = Self.decodedBufferDuration(buffer)
-                        await gate.acquire(duration: bufferedDuration)
-                        guard !Task.isCancelled else { return }
-                        // swap 之后, 这个解码任务投递的物理节点已经变成
-                        // primary。继续用 scheduleCrossfadeBuffer 会把 buffer
-                        // 喂到换出后被静音/reset 的旧节点上(歌中途静音)。
-                        // 两边都在 MainActor, 此判断与 completeCrossfade 的
-                        // 置位不会交错。
-                        if self.crossfadeSwapDone {
-                            self.audioEngine.scheduleBuffer(
-                                buffer,
-                                completionCallbackType: .dataConsumed
-                            ) { _ in gate.release(duration: bufferedDuration) }
-                        } else {
-                            self.audioEngine.scheduleCrossfadeBuffer(
-                                buffer,
-                                completionCallbackType: .dataConsumed
-                            ) { _ in gate.release(duration: bufferedDuration) }
+                        if let previous = lastBuffer {
+                            let bufferedDuration = Self.decodedBufferDuration(previous)
+                            await gate.acquire(duration: bufferedDuration)
+                            guard !Task.isCancelled, self.playID == nextPlayID else { return }
+                            // swap 之后, 这个解码任务投递的物理节点已经变成
+                            // primary。继续用 scheduleCrossfadeBuffer 会把 buffer
+                            // 喂到换出后被静音/reset 的旧节点上(歌中途静音)。
+                            if self.crossfadeSwapDone {
+                                self.audioEngine.scheduleBuffer(
+                                    previous,
+                                    completionCallbackType: .dataConsumed
+                                ) { _ in gate.release(duration: bufferedDuration) }
+                            } else {
+                                self.audioEngine.scheduleCrossfadeBuffer(
+                                    previous,
+                                    completionCallbackType: .dataConsumed
+                                ) { _ in gate.release(duration: bufferedDuration) }
+                            }
                         }
+                        lastBuffer = buffer
                     }
                 } catch {
-                    if !Task.isCancelled { plog("Crossfade decode error: \(error)") }
+                    if !Task.isCancelled {
+                        decodeFailed = true
+                        plog("Crossfade decode error: \(error)")
+                    }
+                }
+                if let finalBuffer = lastBuffer {
+                    guard !Task.isCancelled, self.playID == nextPlayID else { return }
+                    if decodeFailed {
+                        self.scheduleCrossfadeFinalBufferAsFailure(finalBuffer, playID: nextPlayID)
+                    } else {
+                        self.scheduleCrossfadeFinalBuffer(finalBuffer, playID: nextPlayID)
+                    }
+                } else if decodeFailed, !Task.isCancelled, self.playID == nextPlayID {
+                    await self.autoAdvanceAfterFailure()
                 }
             }
 
-            // Start volume ramp using MainActor-isolated timer
-            await MainActor.run {
-                startCrossfadeRamp(
-                    duration: crossfadeDuration,
-                    nextSong: nextSong,
-                    nextURL: nextURL,
-                    nextDecoderKind: nextDecoderKind
-                )
-            }
+            startCrossfadeRamp(
+                duration: crossfadeDuration,
+                attemptID: attemptID,
+                playID: nextPlayID,
+                nextSong: nextSong,
+                nextURL: nextURL,
+                nextDecoderKind: nextDecoderKind
+            )
         } catch {
+            guard crossfadeAttemptID == attemptID else { return }
             plog("Crossfade start error: \(error)")
-            crossfadeTriggered = false; isCrossfading = false
+            failCrossfadeAttempt(attemptID)
         }
     }
 
     private func startCrossfadeRamp(
         duration: Double,
+        attemptID: UUID,
+        playID rampPlayID: UUID,
         nextSong: Song,
         nextURL: URL,
         nextDecoderKind: DecoderKind
     ) {
+        guard crossfadeAttemptID == attemptID,
+              playID == rampPlayID,
+              committedCrossfade?.attemptID == attemptID else { return }
         let totalSteps = max(1, (duration / 0.05).finiteInt(or: 1))
         let stepCounter = StepCounter()
-        let rampPlayID = playID
-
+        crossfadeTimerAttemptID = attemptID
         crossfadeTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
-                guard let self, self.playID == rampPlayID else {
-                    self?.crossfadeTimer?.invalidate()
-                    self?.crossfadeTimer = nil
+                guard let self,
+                      self.crossfadeAttemptID == attemptID,
+                      self.playID == rampPlayID else {
+                    if self?.crossfadeTimerAttemptID == attemptID {
+                        self?.crossfadeTimer?.invalidate()
+                        self?.crossfadeTimer = nil
+                        self?.crossfadeTimerAttemptID = nil
+                    }
                     return
                 }
                 // AudioEngine pauses both physical nodes. Freeze the ramp too;
@@ -4307,9 +4597,18 @@ final class AudioPlayerService {
                 let progress = Float(stepCounter.value) / Float(totalSteps)
 
                 if progress >= 1.0 {
-                    self.crossfadeTimer?.invalidate()
-                    self.crossfadeTimer = nil
-                    self.completeCrossfade(nextSong: nextSong, nextURL: nextURL, nextDecoderKind: nextDecoderKind)
+                    if self.crossfadeTimerAttemptID == attemptID {
+                        self.crossfadeTimer?.invalidate()
+                        self.crossfadeTimer = nil
+                        self.crossfadeTimerAttemptID = nil
+                    }
+                    self.completeCrossfade(
+                        attemptID: attemptID,
+                        playID: rampPlayID,
+                        nextSong: nextSong,
+                        nextURL: nextURL,
+                        nextDecoderKind: nextDecoderKind
+                    )
                 } else {
                     // Equal-power crossfade curve: maintains perceived loudness
                     // through the transition (no "dip" in the middle like linear)
@@ -4323,7 +4622,14 @@ final class AudioPlayerService {
         }
     }
 
-    private func completeCrossfade(nextSong: Song, nextURL: URL, nextDecoderKind: DecoderKind) {
+    private func completeCrossfade(
+        attemptID: UUID,
+        playID completedPlayID: UUID,
+        nextSong: Song,
+        nextURL: URL,
+        nextDecoderKind: DecoderKind
+    ) {
+        guard crossfadeAttemptID == attemptID, playID == completedPlayID else { return }
         // Stop old decoding
         decodingTask?.cancel()
         decodingTask = nil
@@ -4343,9 +4649,10 @@ final class AudioPlayerService {
         // 注意: currentSong / queue index / scrobble session 已经在
         // startCrossfade 早期设置好了, 不在这里重复 (重复会让 ScrobbleService
         // 误以为又开了一首新歌, 重新计时)。
-        let newID = UUID()
-        playID = newID
         activeDecoderKind = nextDecoderKind
+        crossfadeAttemptID = nil
+        committedCrossfade = nil
+        crossfadeStartupTask = nil
         crossfadeTriggered = false; isCrossfading = false
         isCrossfading = false
         plog("🔄 completeCrossfade: swap done, currentSong=\(nextSong.title)")
@@ -4358,7 +4665,9 @@ final class AudioPlayerService {
                     for: nextSong,
                     url: nextURL,
                     mode: settings.replayGainMode,
-                    allowFileRead: nextDecoderKind != .cloudStream && nextDecoderKind != .httpStream
+                    allowFileRead: nextDecoderKind != .cloudStream && nextDecoderKind != .httpStream,
+                    expectedPlayID: completedPlayID,
+                    expectedSongID: nextSong.id
                 )
             }
         }
@@ -4371,6 +4680,10 @@ final class AudioPlayerService {
                 let decoder: any PrimuseAudioDecoder = nextDecoderKind == .ffmpeg
                     ? self.ffmpegDecoder : self.nativeDecoder
                 if let info = try? await decoder.fileInfo(for: nextURL) {
+                    guard self.playID == completedPlayID,
+                          self.currentSong?.id == nextSong.id,
+                          info.duration.isFinite,
+                          info.duration > 0 else { return }
                     self.duration = info.duration
                 }
             }
@@ -4395,8 +4708,12 @@ final class AudioPlayerService {
         for song: Song,
         url: URL,
         mode: ReplayGainMode,
-        allowFileRead: Bool = true
+        allowFileRead: Bool = true,
+        expectedPlayID: UUID? = nil,
+        expectedSongID: String? = nil
     ) async {
+        guard expectedPlayID == nil || playID == expectedPlayID,
+              expectedSongID == nil || currentSong?.id == expectedSongID else { return }
         let storedValues = replayGainValues(from: song, mode: mode)
         if storedValues.hasValue {
             audioEngine.applyReplayGain(gain: storedValues.gain, peak: storedValues.peak)
@@ -4409,6 +4726,8 @@ final class AudioPlayerService {
         }
 
         let metadata = await FileMetadataReader.read(from: url)
+        guard expectedPlayID == nil || playID == expectedPlayID,
+              expectedSongID == nil || currentSong?.id == expectedSongID else { return }
         let values = replayGainValues(from: metadata, mode: mode)
         audioEngine.applyReplayGain(gain: values.gain, peak: values.peak)
     }
@@ -4652,7 +4971,7 @@ final class AudioPlayerService {
         guard !additions.isEmpty else { return false }
 
         let firstNewIndex = queueEntries.count
-        queueGeneration += 1
+        invalidateQueueTransitions()
         queueEntries.append(contentsOf: additions.map { QueueEntry(song: $0) })
         pendingNextShuffleIndices = nil
         shuffledIndices = [currentIndex]
@@ -4662,15 +4981,19 @@ final class AudioPlayerService {
         return true
     }
 
-    private func nextSongInQueue() -> Song? {
-        guard !queue.isEmpty else { return nil }
+    private func nextQueueEntryInQueue() -> QueueEntry? {
+        guard !queueEntries.isEmpty else { return nil }
 
-        if repeatMode == .one { return currentSong }
+        if repeatMode == .one {
+            guard queueEntries.indices.contains(currentIndex) else { return nil }
+            return queueEntries[currentIndex]
+        }
 
         if shuffleEnabled {
             let nextPos = shufflePosition + 1
             if nextPos < shuffledIndices.count {
-                return queue[shuffledIndices[nextPos]]
+                let index = shuffledIndices[nextPos]
+                return queueEntries.indices.contains(index) ? queueEntries[index] : nil
             } else if repeatMode == .all {
                 // Wrap: read the pre-generated next round (lazily built
                 // here so the prefetch path and the real advance path
@@ -4679,23 +5002,28 @@ final class AudioPlayerService {
                 // we'd prewarm a completely different track).
                 let pending = pendingNextShuffleIndices ?? buildPendingNextRound()
                 if pendingNextShuffleIndices == nil { pendingNextShuffleIndices = pending }
-                guard let firstIdx = pending.first else { return queue.first }
-                return queue[firstIdx]
+                guard let firstIndex = pending.first else { return queueEntries.first }
+                return queueEntries.indices.contains(firstIndex) ? queueEntries[firstIndex] : nil
             } else {
                 return nil
             }
         }
 
         let nextIndex = currentIndex + 1
-        if nextIndex < queue.count {
-            return queue[nextIndex]
+        if queueEntries.indices.contains(nextIndex) {
+            return queueEntries[nextIndex]
         } else if repeatMode == .all {
-            return queue[0]
+            return queueEntries.first
         }
         return nil
     }
 
+    private func nextSongInQueue() -> Song? {
+        nextQueueEntryInQueue()?.song
+    }
+
     private func advanceToNextIndex() {
+        guard !queueEntries.isEmpty else { return }
         if shuffleEnabled {
             let nextPos = shufflePosition + 1
             if nextPos < shuffledIndices.count {

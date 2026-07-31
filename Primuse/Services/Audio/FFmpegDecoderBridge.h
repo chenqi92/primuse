@@ -26,11 +26,20 @@ NS_ASSUME_NONNULL_BEGIN
 /// rules and pointer arithmetic on one serial decoder task.
 @interface FFmpegDecoderBridge : NSObject
 + (BOOL)dataContainsDTSSync:(NSData *)data;
-+ (BOOL)canDecodeURL:(NSURL *)url;
++ (nullable NSNumber *)DTSSyncResultForURL:(NSURL *)url error:(NSError **)error;
++ (nullable NSNumber *)decodeSupportForURL:(NSURL *)url error:(NSError **)error;
 + (nullable FFmpegAudioFileInfo *)probeURL:(NSURL *)url error:(NSError **)error;
 - (nullable instancetype)initWithURL:(NSURL *)url error:(NSError **)error;
+/// Opens a decoder with a bounded FFmpeg I/O operation timeout. The default
+/// initializer uses the playback-safe timeout chosen by the bridge.
+- (nullable instancetype)initWithURL:(NSURL *)url
+                           ioTimeout:(NSTimeInterval)ioTimeout
+                               error:(NSError **)error;
 - (nullable FFmpegAudioReadResult *)readNextBufferWithError:(NSError **)error;
 - (BOOL)seekToTime:(NSTimeInterval)time error:(NSError **)error;
+/// Interrupts an in-flight open/read/seek operation. Safe to call from a
+/// different thread when the Swift stream is cancelled.
+- (void)cancel;
 @property(nonatomic, readonly) FFmpegAudioFileInfo *fileInfo;
 @end
 

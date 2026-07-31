@@ -12,6 +12,7 @@ actor WebDAVSource: MusicSourceConnector {
     private let username: String
     private let password: String
     private var provider: WebDAVFileProvider?
+    private var connectTask: Task<Void, Error>?
     private let cacheDirectory: URL
 
     /// 长生命周期 session, 让 fetchRange 复用 HTTP keep-alive 连接,
@@ -52,9 +53,23 @@ actor WebDAVSource: MusicSourceConnector {
     }
 
     func connect() async throws {
+        if let connectTask {
+            try await connectTask.value
+            return
+        }
         if provider != nil {
             return
         }
+        let task = Task { [weak self] in
+            guard let self else { throw CancellationError() }
+            try await self.establishConnection()
+        }
+        connectTask = task
+        defer { connectTask = nil }
+        try await task.value
+    }
+
+    private func establishConnection() async throws {
 
         // 匿名 WebDAV 必须完全不带凭据；传一个 user/password 都为空的
         // URLCredential 仍可能让底层生成空的 Authorization challenge 响应。
@@ -75,6 +90,7 @@ actor WebDAVSource: MusicSourceConnector {
 
         do {
             _ = try await listFiles(at: "/")
+            try Task.checkCancellation()
         } catch {
             self.provider = nil
             throw error
@@ -82,6 +98,8 @@ actor WebDAVSource: MusicSourceConnector {
     }
 
     func disconnect() async {
+        connectTask?.cancel()
+        connectTask = nil
         provider = nil
     }
 
@@ -119,10 +137,7 @@ actor WebDAVSource: MusicSourceConnector {
     }
 
     private static func cacheFileName(for path: String) -> String {
-        let digest = SHA256.hash(data: Data(path.utf8))
-        let hash = digest.prefix(16).map { String(format: "%02x", $0) }.joined()
-        let ext = (path as NSString).pathExtension
-        return ext.isEmpty ? hash : "\(hash).\(ext)"
+        CacheFileNamePolicy.make(path: path)
     }
 
     func localURL(for path: String) async throws -> URL {
@@ -157,7 +172,11 @@ actor WebDAVSource: MusicSourceConnector {
                     }
                 }
             }
-            try FileManager.default.moveItem(at: tempPath, to: localPath)
+            if FileManager.default.fileExists(atPath: localPath.path) {
+                try? FileManager.default.removeItem(at: tempPath)
+            } else {
+                try FileManager.default.moveItem(at: tempPath, to: localPath)
+            }
         } catch {
             try? FileManager.default.removeItem(at: tempPath)
             throw error
@@ -183,7 +202,7 @@ actor WebDAVSource: MusicSourceConnector {
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
         let localURL = try await localURL(for: path)
         return AsyncThrowingStream { continuation in
-            Task {
+            let producer = Task {
                 do {
                     let handle = try FileHandle(forReadingFrom: localURL)
                     defer { handle.closeFile() }
@@ -195,9 +214,10 @@ actor WebDAVSource: MusicSourceConnector {
                     }
                     continuation.finish()
                 } catch {
-                    continuation.finish(throwing: error)
+                    Task.isCancelled ? continuation.finish() : continuation.finish(throwing: error)
                 }
             }
+            continuation.onTermination = { @Sendable _ in producer.cancel() }
         }
     }
 
@@ -252,9 +272,11 @@ actor WebDAVSource: MusicSourceConnector {
         path: String,
         continuation: AsyncThrowingStream<RemoteFileItem, Error>.Continuation
     ) async throws {
+        try Task.checkCancellation()
         let items = try await listFiles(at: path)
 
         for item in items {
+            try Task.checkCancellation()
             if item.isDirectory {
                 try await scanDirectory(path: item.path, continuation: continuation)
             } else if let scannable = SidecarHintResolver.scannableItem(item, siblings: items) {

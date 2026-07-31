@@ -334,15 +334,7 @@ private final class PooledConnection: @unchecked Sendable {
         case 206:
             return body
         case 200:
-            // 服务端忽略 Range 返回整文件，自行切窗口(与 CloudDriveHelper.rangeRequest 200 分支一致)。
-            let total = Int64(body.count)
-            let actualOffset = offset < 0 ? max(0, total + offset) : offset
-            guard actualOffset < total else { return Data() }
-            guard let requestedEnd = SafeByteRange.exclusiveEnd(offset: actualOffset, length: length) else {
-                return Data()
-            }
-            let upper = min(requestedEnd, total)
-            return body.subdata(in: Int(actualOffset)..<Int(upper))
+            throw TCPRangeFetcher.FetchError.http(200)
         default:
             throw TCPRangeFetcher.FetchError.http(status)
         }
@@ -372,6 +364,13 @@ private final class PooledConnection: @unchecked Sendable {
                 status = parsed.status
                 contentLength = parsed.contentLength
                 isChunked = parsed.isChunked
+                if parsed.status == 200 {
+                    // Abort as soon as headers prove Range was ignored. Reading
+                    // the body here can otherwise aggregate a multi-GB file.
+                    conn.cancel()
+                    markDead()
+                    throw TCPRangeFetcher.FetchError.http(200)
+                }
             }
 
             // 收齐则立即返回(不能再 receiveOnce，否则会等一个永不到来的字节)。

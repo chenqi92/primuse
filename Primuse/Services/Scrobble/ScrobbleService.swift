@@ -23,6 +23,8 @@ final class ScrobbleService {
     /// 失败队列, 持久化到 UserDefaults。
     private var queue: [QueuedEntry] = []
     private static let queueKey = "primuse.scrobble.queue.v1"
+    private static let queueLimit = 5_000
+    private static let queueRetention: TimeInterval = 90 * 24 * 60 * 60
     private static let recentReportsKey = "primuse.scrobble.recentReports.v1"
     private static let recentReportsLimit = 12
     private(set) var recentReports: [RecentReport] = []
@@ -207,13 +209,16 @@ final class ScrobbleService {
         }
     }
 
-    /// Scrobble 提交 — 每个 provider 单独 try, 失败的进队列后续重试。
+    /// Scrobble 提交。先同步持久化，再尝试网络；进程在请求期间被终止时，
+    /// 下次启动仍能补报。语义是 at-least-once，provider 以 startedAt 去重。
     private func scrobbleAcrossProviders(entry: ScrobbleEntry) {
         let providers = activeProviders()
         guard !providers.isEmpty else { return }
+
+        let providerIDs = Set(providers.map(\.id))
+        enqueue(entry: entry, providers: providerIDs, shouldScheduleRetry: false)
+
         Task {
-            var failed: Set<ScrobbleProviderID> = []
-            var submitted: [ScrobbleProviderID] = []
             await withTaskGroup(of: (ScrobbleProviderID, Bool, Bool).self) { group in
                 for provider in providers {
                     group.addTask {
@@ -231,20 +236,24 @@ final class ScrobbleService {
                     }
                 }
                 for await (pid, done, didSubmit) in group {
-                    if !done { failed.insert(pid) }
-                    if didSubmit { submitted.append(pid) }
+                    if didSubmit {
+                        self.recordRecent(entry: entry, provider: pid)
+                    }
+                    if done {
+                        self.markProviderCompleted(entry: entry, provider: pid)
+                    }
                 }
             }
-            await MainActor.run {
-                for provider in submitted {
-                    self.recordRecent(entry: entry, provider: provider)
-                }
-                if !failed.isEmpty { self.enqueue(entry: entry, providers: failed) }
-            }
+            self.saveQueue()
+            self.scheduleRetry(reason: "initial submission completed")
         }
     }
 
-    private func enqueue(entry: ScrobbleEntry, providers: Set<ScrobbleProviderID>) {
+    private func enqueue(
+        entry: ScrobbleEntry,
+        providers: Set<ScrobbleProviderID>,
+        shouldScheduleRetry: Bool = true
+    ) {
         // 同 song + 同 startedAt 的去重 (理论不会重复 scrobble 同一条, 但保险)。
         if let idx = queue.firstIndex(where: {
             $0.entry.songID == entry.songID && $0.entry.startedAt == entry.startedAt
@@ -254,12 +263,28 @@ final class ScrobbleService {
             queue.append(QueuedEntry(
                 entry: entry,
                 pendingProviders: providers,
-                attempts: 1,
+                attempts: 0,
                 nextRetryAt: Date().timeIntervalSince1970 + 60  // 1 min 后首次重试
             ))
         }
+        pruneQueue()
         saveQueue()
-        scheduleRetry(reason: "new failure enqueued")
+        if shouldScheduleRetry {
+            scheduleRetry(reason: "new failure enqueued")
+        }
+    }
+
+    private func markProviderCompleted(
+        entry: ScrobbleEntry,
+        provider: ScrobbleProviderID
+    ) {
+        guard let index = queue.firstIndex(where: {
+            $0.entry.songID == entry.songID && $0.entry.startedAt == entry.startedAt
+        }) else { return }
+        queue[index].pendingProviders.remove(provider)
+        if queue[index].pendingProviders.isEmpty {
+            queue.remove(at: index)
+        }
     }
 
     /// 后台重试循环 — 周期扫描队列, 把到时间的条目重新发, 全部成功就出队。
@@ -421,6 +446,7 @@ final class ScrobbleService {
     // MARK: - Persistence
 
     private func saveQueue() {
+        pruneQueue()
         if let data = try? JSONEncoder().encode(queue) {
             UserDefaults.standard.set(data, forKey: Self.queueKey)
         }
@@ -430,6 +456,27 @@ final class ScrobbleService {
         if let data = UserDefaults.standard.data(forKey: Self.queueKey),
            let decoded = try? JSONDecoder().decode([QueuedEntry].self, from: data) {
             queue = decoded
+            pruneQueue()
+            saveQueue()
+        }
+    }
+
+    /// Bounds offline growth and deterministically drops expired/oldest entries.
+    /// Keeping the newest 5,000 listens covers prolonged offline use without
+    /// allowing UserDefaults to grow without limit.
+    private func pruneQueue(now: TimeInterval = Date().timeIntervalSince1970) {
+        let cutoff = now - Self.queueRetention
+        queue.removeAll {
+            $0.pendingProviders.isEmpty || TimeInterval($0.entry.startedAt) < cutoff
+        }
+        if queue.count > Self.queueLimit {
+            queue.sort {
+                if $0.entry.startedAt != $1.entry.startedAt {
+                    return $0.entry.startedAt < $1.entry.startedAt
+                }
+                return $0.entry.songID < $1.entry.songID
+            }
+            queue.removeFirst(queue.count - Self.queueLimit)
         }
     }
 

@@ -873,18 +873,4 @@ final class AudioEngine {
         }
     }
 
-    func seek(to time: TimeInterval, in file: AVAudioFile) throws {
-        playerNode?.stop()
-        let sampleRate = file.processingFormat.sampleRate
-        // 先比较再转换: AVAudioFrameCount 是 UInt32, 若 startFrame 越过文件末尾
-        // (time 估算偏大 / NaN), `file.length - startFrame` 为负, 转 UInt32 会致命 trap。
-        guard time.isFinite, sampleRate > 0 else { return }
-        let startFrame = AVAudioFramePosition(time * sampleRate)
-        guard startFrame >= 0, startFrame < file.length else { return }
-        let remainingFrames = AVAudioFrameCount(file.length - startFrame)
-        guard remainingFrames > 0 else { return }
-        file.framePosition = startFrame
-        playerNode?.play()
-        isPlaying = true
-    }
 }

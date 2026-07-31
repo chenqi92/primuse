@@ -58,6 +58,18 @@ private actor SidecarWriteCircuitBreaker {
         }
         return didOpenCircuit
     }
+
+    /// A new user-initiated scrape is a new circuit-breaker run. Re-open only
+    /// idle sources; an older sidecar task that is still finishing keeps its
+    /// serialization state intact.
+    func resetIdleUnavailableSources() {
+        let sourceIDs = states.compactMap { sourceID, state in
+            state.isUnavailable && !state.isRunning && state.waiters.isEmpty ? sourceID : nil
+        }
+        for sourceID in sourceIDs {
+            states[sourceID] = nil
+        }
+    }
 }
 
 @MainActor
@@ -73,6 +85,8 @@ final class MusicScraperService {
     private var scrapingGeneration = 0
     private var backgroundEnrichmentTask: Task<Void, Never>?
     private var sidecarWriteTasks: [UUID: Task<Void, Never>] = [:]
+    private let sidecarCircuitBreaker = SidecarWriteCircuitBreaker()
+    private var isSingleScraping = false
     private var pendingEnrichmentSongIDs: [String] = []
     private var pendingEnrichmentSongIDSet: Set<String> = []
     private var isPausedForSceneTransition = false
@@ -138,6 +152,16 @@ final class MusicScraperService {
     /// Scrape single song — never overwrites existing cover/lyrics with nil
     /// dryRun: if true, returns updated song without writing to library
     func scrapeSingle(song: Song, in library: MusicLibrary, dryRun: Bool = false) async throws -> (Song, Data?, [LyricLine]?) {
+        guard !isScraping, !isSingleScraping else {
+            throw ScraperError.networkError(String(localized: "scrape_song_failed"))
+        }
+        isSingleScraping = true
+        defer {
+            isSingleScraping = false
+            startBackgroundEnrichmentIfNeeded(in: library)
+        }
+        await sidecarCircuitBreaker.resetIdleUnavailableSources()
+
         guard let result = try await processedSongWithAssets(song, forceRescrape: true, storeAssets: !dryRun) else {
             return (song, nil, nil)
         }
@@ -186,7 +210,11 @@ final class MusicScraperService {
                     let songForWrite = updatedSong
                     let sourceManager = self.sourceManager
                     let songID = updatedSong.id
-                    startSidecarWriteTask {
+                    let sidecarCircuitBreaker = self.sidecarCircuitBreaker
+                    let sidecarTask = startSidecarWriteTask {
+                        guard await sidecarCircuitBreaker.acquire(sourceID: songForWrite.sourceID) else {
+                            return
+                        }
                         do {
                             let writeResult = try await MusicScraperService.writeSidecarWithTimeout(
                                 seconds: sidecarSettings.timeout,
@@ -194,6 +222,13 @@ final class MusicScraperService {
                                 for: songForWrite,
                                 coverData: sidecarCoverData, lyricsLines: sidecarLyricsLines
                             )
+                            let didOpenCircuit = await sidecarCircuitBreaker.release(
+                                sourceID: songForWrite.sourceID,
+                                sourceUnavailable: writeResult.sourceUnavailable
+                            )
+                            if didOpenCircuit {
+                                plog("⚠️ Sidecar: source \(songForWrite.sourceID) is read-only or unavailable; later writes are skipped")
+                            }
                             plog("📝 Sidecar: result cover=\(writeResult.coverWritten) lyrics=\(writeResult.lyricsWritten) errors=\(writeResult.errors)")
 
                             var needsUpdate = false
@@ -229,11 +264,22 @@ final class MusicScraperService {
                                 plog("⚠️ Sidecar write errors: \(writeResult.errors)")
                             }
                         } catch is CancellationError {
+                            _ = await sidecarCircuitBreaker.release(
+                                sourceID: songForWrite.sourceID,
+                                sourceUnavailable: false
+                            )
                             plog("⚠️ Sidecar write timed out (\(sidecarSettings.timeout.finiteInt())s) for '\(songForWrite.title)'")
                         } catch {
+                            _ = await sidecarCircuitBreaker.release(
+                                sourceID: songForWrite.sourceID,
+                                sourceUnavailable: MusicScraperService.isSourceUnavailableSidecarError(error)
+                            )
                             plog("⚠️ Sidecar write skipped for '\(songForWrite.title)': \(error.localizedDescription)")
                         }
                     }
+                    // Keep the single-song operation inside the same gate until
+                    // its sidecar mutation finishes (or times out).
+                    await sidecarTask?.value
                 } else {
                     plog("📝 Sidecar: source does not support writing, keeping local metadata cache for '\(updatedSong.title)'")
                 }
@@ -363,6 +409,7 @@ final class MusicScraperService {
 
     private func startBackgroundEnrichmentIfNeeded(in library: MusicLibrary) {
         guard !isPausedForSceneTransition,
+              !isSingleScraping,
               backgroundEnrichmentTask == nil,
               !pendingEnrichmentSongIDs.isEmpty else { return }
         backgroundEnrichmentTask = Task(priority: .utility) { @MainActor [weak self] in
@@ -489,7 +536,7 @@ final class MusicScraperService {
         saveCheckpoint: Bool = true,
         allowBackgroundExecution: Bool = false
     ) {
-        guard !isScraping else {
+        guard !isScraping, !isSingleScraping else {
             plog("MusicScraperService: ignored overlapping batch scrape request")
             return
         }
@@ -519,6 +566,7 @@ final class MusicScraperService {
         beginBackgroundTaskIfNeeded()
 
         scrapingTask = Task {
+            await sidecarCircuitBreaker.resetIdleUnavailableSources()
             defer {
                 let cancelled = Task.isCancelled
                 let updated = updatedCount
@@ -549,7 +597,7 @@ final class MusicScraperService {
 
             var pendingSongUpdates: [Song] = []
             var pendingSidecarOperations: [@Sendable () async -> Void] = []
-            let sidecarCircuitBreaker = SidecarWriteCircuitBreaker()
+            let sidecarCircuitBreaker = self.sidecarCircuitBreaker
             var lastCompletedSongID: String?
             var completedSongCountInBatch = 0
 
@@ -777,12 +825,12 @@ final class MusicScraperService {
             )
             let albumsNeedingCover = library.visibleAlbums.filter { album in
                 (isWholeVisibleLibrary || targetAlbumIDs.contains(album.id))
-                    && !assetStore.hasAlbumCover(forAlbumID: album.id)
+                    && (forceRescrape || !assetStore.hasAlbumCover(forAlbumID: album.id))
             }
             let artistsNeedingImage = library.visibleArtists.filter { artist in
                 let name = artist.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 return (isWholeVisibleLibrary || targetArtistIDs.contains(artist.id) || targetArtistNames.contains(name))
-                    && !assetStore.hasArtistImage(forArtistID: artist.id)
+                    && (forceRescrape || !assetStore.hasArtistImage(forArtistID: artist.id))
             }
             totalCount += albumsNeedingCover.count + artistsNeedingImage.count
 
@@ -832,10 +880,11 @@ final class MusicScraperService {
     /// Tracks every unstructured sidecar write so lifecycle cancellation can
     /// stop the network/file work as well as the parent scraping loop. Detached
     /// tasks that were not retained previously survived `scrapingTask.cancel()`.
+    @discardableResult
     private func startSidecarWriteTask(
         _ operation: @escaping @Sendable () async -> Void
-    ) {
-        guard !isPausedForSceneTransition else { return }
+    ) -> Task<Void, Never>? {
+        guard !isPausedForSceneTransition else { return nil }
 
         let id = UUID()
         let task = Task.detached(priority: .utility) {
@@ -848,6 +897,7 @@ final class MusicScraperService {
             await task.value
             self?.sidecarWriteTasks[id] = nil
         }
+        return task
     }
 
     private func cancelSidecarWriteTasks() {

@@ -227,9 +227,15 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
         if sourceFormat == outputFormat {
             plog("🎵 SFBDecoder: direct read (formats match)")
             var stallNanos: UInt64 = 0
-            while !Task.isCancelled, decoder.position < totalFrames {
-                let remainingFrames = AVAudioFrameCount(totalFrames - decoder.position)
-                let framesToRead = min(bufferFrameCount, remainingFrames)
+            while !Task.isCancelled,
+                  totalFrames < 0 || decoder.position < totalFrames {
+                let framesToRead: AVAudioFrameCount
+                if totalFrames >= 0 {
+                    let remainingFrames = AVAudioFrameCount(totalFrames - decoder.position)
+                    framesToRead = min(bufferFrameCount, remainingFrames)
+                } else {
+                    framesToRead = bufferFrameCount
+                }
                 guard var buffer = AVAudioPCMBuffer(pcmFormat: sourceFormat, frameCapacity: framesToRead) else {
                     continuation.finish(throwing: AudioDecoderError.bufferAllocationFailed)
                     return
@@ -271,15 +277,33 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
                 continuation.finish(throwing: AudioDecoderError.converterCreationFailed)
                 return
             }
-            while !Task.isCancelled, decoder.position < totalFrames {
-                let remainingFrames = AVAudioFrameCount(totalFrames - decoder.position)
-                let framesToRead = min(bufferFrameCount, remainingFrames)
+            var stallNanos: UInt64 = 0
+            while !Task.isCancelled,
+                  totalFrames < 0 || decoder.position < totalFrames {
+                let framesToRead: AVAudioFrameCount
+                if totalFrames >= 0 {
+                    let remainingFrames = AVAudioFrameCount(totalFrames - decoder.position)
+                    framesToRead = min(bufferFrameCount, remainingFrames)
+                } else {
+                    framesToRead = bufferFrameCount
+                }
                 guard var inputBuffer = AVAudioPCMBuffer(pcmFormat: sourceFormat, frameCapacity: framesToRead) else {
                     continuation.finish(throwing: AudioDecoderError.bufferAllocationFailed)
                     return
                 }
+                let positionBefore = decoder.position
                 try decoder.decode(into: inputBuffer, length: framesToRead)
-                guard inputBuffer.frameLength > 0 else { break }
+                if inputBuffer.frameLength == 0 {
+                    if decoder.position > positionBefore {
+                        stallNanos = 0
+                        continue
+                    }
+                    stallNanos += Self.decodeStallBackoffNanos
+                    if stallNanos >= Self.maxDecodeStallNanos { break }
+                    try await Task.sleep(nanoseconds: Self.decodeStallBackoffNanos)
+                    continue
+                }
+                stallNanos = 0
                 if framesToDiscard > 0 {
                     let discarded = min(
                         framesToDiscard,

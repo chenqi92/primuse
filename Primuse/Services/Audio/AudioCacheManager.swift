@@ -74,6 +74,21 @@ actor AudioCacheManager {
         schedulePersist()
     }
 
+    func migrateEntry(from oldPath: String, to newPath: String, byteCount: Int64?) {
+        ensureInitialized()
+        if let date = accessLog.removeValue(forKey: oldPath) {
+            accessLog[newPath] = max(accessLog[newPath] ?? .distantPast, date)
+        } else {
+            accessLog[newPath] = Date()
+        }
+        if var entry = offlineManifest.removeValue(forKey: oldPath) {
+            entry.byteCount = byteCount ?? entry.byteCount
+            offlineManifest[newPath] = entry
+        }
+        schedulePersist()
+        scheduleManifestPersist()
+    }
+
     func cacheLimitBytes() -> Int64 {
         PlaybackSettings.load().audioCacheLimitBytes
     }

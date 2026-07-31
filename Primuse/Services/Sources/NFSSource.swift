@@ -49,6 +49,18 @@ enum NFSSelectionPathCodec {
         return [exportName] + children
     }
 
+    static func cacheFileName(for path: String) -> String? {
+        guard let selection = try? parse(path) else { return nil }
+        return cacheFileName(for: selection)
+    }
+
+    static func cacheFileName(for selection: SelectionPath) -> String {
+        CacheFileNamePolicy.make(
+            path: "\(selection.exportPath):\(selection.relativePath)",
+            preferredExtension: (selection.relativePath as NSString).pathExtension
+        )
+    }
+
     static func displayName(forExportPath exportPath: String) -> String {
         let trimmed = exportPath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let name = (trimmed as NSString).lastPathComponent
@@ -110,6 +122,7 @@ actor NFSSource: MusicSourceConnector {
     private var connectedExportPath: String?
     private var cachedExports: [String]?
     private let cacheDirectory: URL
+    private var localFileTasks: [String: Task<URL, Error>] = [:]
 
     init(
         sourceID: String,
@@ -192,18 +205,36 @@ actor NFSSource: MusicSourceConnector {
         let selection = try resolveSelectionPath(for: path)
         let client = try await ensureConnected(to: selection.exportPath)
 
-        let localURL = cacheDirectory.appendingPathComponent(cacheFileName(for: selection))
+        let cacheName = NFSSelectionPathCodec.cacheFileName(for: selection)
+        let localURL = cacheDirectory.appendingPathComponent(cacheName)
         if FileManager.default.fileExists(atPath: localURL.path) {
             return localURL
         }
 
-        do {
-            try await client.download(path: selection.relativePath, to: localURL)
-            return localURL
-        } catch {
-            try? FileManager.default.removeItem(at: localURL)
-            throw SourceError.connectionFailed(error.localizedDescription)
+        if let inFlight = localFileTasks[cacheName] {
+            return try await inFlight.value
         }
+
+        let task = Task<URL, Error> {
+            let tempURL = self.cacheDirectory.appendingPathComponent(
+                "\(cacheName).part-\(UUID().uuidString)"
+            )
+            do {
+                try await client.download(path: selection.relativePath, to: tempURL)
+                if FileManager.default.fileExists(atPath: localURL.path) {
+                    try? FileManager.default.removeItem(at: tempURL)
+                    return localURL
+                }
+                try FileManager.default.moveItem(at: tempURL, to: localURL)
+                return localURL
+            } catch {
+                try? FileManager.default.removeItem(at: tempURL)
+                throw SourceError.connectionFailed(error.localizedDescription)
+            }
+        }
+        localFileTasks[cacheName] = task
+        defer { localFileTasks[cacheName] = nil }
+        return try await task.value
     }
 
     func deleteFile(at path: String) async throws {
@@ -273,14 +304,15 @@ actor NFSSource: MusicSourceConnector {
 
     func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            let producer = Task {
                 do {
                     try await scanDirectory(at: path, continuation: continuation)
                     continuation.finish()
                 } catch {
-                    continuation.finish(throwing: error)
+                    Task.isCancelled ? continuation.finish() : continuation.finish(throwing: error)
                 }
             }
+            continuation.onTermination = { @Sendable _ in producer.cancel() }
         }
     }
 
@@ -288,9 +320,11 @@ actor NFSSource: MusicSourceConnector {
         at path: String,
         continuation: AsyncThrowingStream<RemoteFileItem, Error>.Continuation
     ) async throws {
+        try Task.checkCancellation()
         let items = try await listFiles(at: path)
 
         for item in items {
+            try Task.checkCancellation()
             if item.isDirectory {
                 try await scanDirectory(at: item.path, continuation: continuation)
                 continue
@@ -450,11 +484,4 @@ actor NFSSource: MusicSourceConnector {
             .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
     }
 
-    private func cacheFileName(for selection: NFSSelectionPathCodec.SelectionPath) -> String {
-        let key = "\(selection.exportPath):\(selection.relativePath)"
-        let digest = SHA256.hash(data: Data(key.utf8))
-        let hash = digest.prefix(16).map { String(format: "%02x", $0) }.joined()
-        let ext = (selection.relativePath as NSString).pathExtension
-        return ext.isEmpty ? hash : "\(hash).\(ext)"
-    }
 }

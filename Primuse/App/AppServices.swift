@@ -51,12 +51,14 @@ final class AppServices {
         }
 
         let store = SourcesStore()
+        let library = MusicLibrary()
         let manager = SourceManager(sourcesProvider: {
             await MainActor.run { store.sources }
+        }, songsProvider: {
+            library.songs
         })
         let scraperSettings = ScraperSettingsStore()
         let scraper = MusicScraperService(sourceManager: manager)
-        let library = MusicLibrary()
         let playbackSettings = PlaybackSettingsStore()
         let player = AudioPlayerService(sourceManager: manager, library: library, playbackSettings: playbackSettings)
         let sync = CloudKitSyncService(

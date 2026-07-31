@@ -30,8 +30,8 @@ struct TVQueueView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     TVEyebrow(text: PMString("ext.tv.queue.upNext", upNext.count)).padding(.bottom, 20)
                     ScrollView(.vertical, showsIndicators: false) {
-                        VStack(spacing: 10) {
-                            ForEach(Array(upNext.enumerated()), id: \.offset) { idx, song in
+                        LazyVStack(spacing: 10) {
+                            ForEach(Array(upNext.enumerated()), id: \.element.id) { idx, song in
                                 queueRow(index: idx, song: song)
                             }
                         }

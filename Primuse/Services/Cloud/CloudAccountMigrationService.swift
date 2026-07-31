@@ -49,10 +49,8 @@ enum CloudAccountMigrationService {
         // failed > 0, the next launch retries — common case is a
         // network blip or token-refresh-needed source: re-OAuth
         // through the UI repopulates the keychain, then the next
-        // launch can identify and merge it. Phase-2 orphan
-        // attribution still runs on each retry, so single-account
-        // users get cleanup immediately even when phase 1 is
-        // incomplete.
+        // launch can identify and merge it. Sources that cannot be
+        // identified stay intact until identity can be proven.
         if stats.failed == 0 && stats.examined > 0 {
             UserDefaults.standard.set(true, forKey: migrationKey)
         } else if stats.examined == 0 {
@@ -92,12 +90,6 @@ enum CloudAccountMigrationService {
         // most recently scanned first so the keeper election below is
         // O(1).
         var grouped: [String: [MusicSource]] = [:]
-        // Failed-to-resolve sources, partitioned by provider. Phase 2
-        // below tries to attribute them to a known account when the
-        // provider has exactly one identified account (the common
-        // legacy shape: one user account, several stale duplicate
-        // mounts whose tokens were overwritten by the freshest add).
-        var unresolvedByProvider: [MusicSourceType: [MusicSource]] = [:]
         // Every source that failed network identification (dead creds OR
         // transient), for the credential-free config dedup below.
         var unidentified: [MusicSource] = []
@@ -117,17 +109,8 @@ enum CloudAccountMigrationService {
             } catch {
                 stats.failed += 1
                 unidentified.append(source)
-                // Only credentials that are *definitively* dead make a
-                // source a phase-2 attribution candidate. A pure network
-                // blip at launch (URLError, 5xx/timeout) must NOT count —
-                // otherwise a second same-provider account that merely
-                // failed to identify this once would be misread as a stale
-                // duplicate, its songs repointed to the other account and
-                // its mount soft-deleted. Transient failures just retry on
-                // the next launch.
                 if isDeadCredentialError(error) {
-                    unresolvedByProvider[source.type, default: []].append(source)
-                    plog("⚠️ Migration: phase 1 skip source=\(source.id) (\(source.type.rawValue)) — dead credentials, phase-2 candidate — \(error.localizedDescription)")
+                    plog("⚠️ Migration: phase 1 skip source=\(source.id) (\(source.type.rawValue)) — credentials require re-authorization; source retained — \(error.localizedDescription)")
                 } else {
                     plog("⚠️ Migration: phase 1 skip source=\(source.id) (\(source.type.rawValue)) — transient, retry next launch — \(error.localizedDescription)")
                 }
@@ -208,7 +191,6 @@ enum CloudAccountMigrationService {
         // folders are byte-identical — never two distinct accounts (their
         // folder ids differ), and never same-account-different-folder mounts
         // (those wait for the credential path once the user re-authenticates).
-        var mergedAwayBySignature = Set<String>()
         let bySignature = Dictionary(grouping: unidentified.compactMap { source -> (String, MusicSource)? in
             guard let sig = accountConfigSignature(for: source) else { return nil }
             return (sig, source)
@@ -231,56 +213,8 @@ enum CloudAccountMigrationService {
             for source in toMerge {
                 sourcesStore.remove(id: source.id)
                 stats.merged += 1
-                mergedAwayBySignature.insert(source.id)
             }
         }
-        // Don't let phase 2 re-process sources we just merged away here.
-        if !mergedAwayBySignature.isEmpty {
-            for key in unresolvedByProvider.keys {
-                unresolvedByProvider[key]?.removeAll { mergedAwayBySignature.contains($0.id) }
-            }
-        }
-
-        // Phase 2: best-effort fallback for sources whose tokens are
-        // dead (the legacy "5 baidu sources, only the latest still
-        // signed in" shape). When a provider has exactly one
-        // identified account in this run, assume the orphans belong to
-        // it — this matches >99% of real cases (one upstream account,
-        // several stale duplicates created by repeated re-adds), and
-        // mis-attribution is bounded: we only repoint songs, never
-        // delete them, and the user can manually re-add a mount with
-        // its own OAuth.
-        //
-        // Conservative gate: skip when there are zero or ≥2 known
-        // accounts for the provider (can't distinguish orphan
-        // ownership). Skip when there's no keeper at all.
-        for (provider, orphans) in unresolvedByProvider {
-            let knownKeys = grouped.keys.filter { $0.hasPrefix("\(provider.rawValue):") }
-            guard knownKeys.count == 1, let key = knownKeys.first,
-                  let candidates = grouped[key],
-                  let keeper = candidates.max(by: { ($0.lastScannedAt ?? .distantPast) < ($1.lastScannedAt ?? .distantPast) })
-            else {
-                plog("☁️ Migration: phase 2 skip provider=\(provider.rawValue) — \(knownKeys.count) known account(s), can't disambiguate \(orphans.count) orphan(s)")
-                continue
-            }
-            plog("☁️ Migration: phase 2 attributing \(orphans.count) orphan \(provider.rawValue) source(s) to keeper=\(keeper.id)")
-            let orphanIDs = Set(orphans.map(\.id))
-            let affectedSongs = library.songs.filter { orphanIDs.contains($0.sourceID) }
-            if !affectedSongs.isEmpty {
-                let repointed = affectedSongs.map { song -> Song in
-                    var copy = song
-                    copy.sourceID = keeper.id
-                    return copy
-                }
-                library.replaceSongs(repointed)
-                stats.songsRepointed += affectedSongs.count
-            }
-            for source in orphans {
-                sourcesStore.remove(id: source.id)
-                stats.merged += 1
-            }
-        }
-
         return stats
     }
 
@@ -292,8 +226,17 @@ enum CloudAccountMigrationService {
     /// soft-deleted and its songs repointed to another account.
     ///
     /// Network / transient errors (URLError, `apiError` for 5xx/timeout,
-    /// `rateLimited`, `invalidResponse`) deliberately return false — the
-    /// source stays untouched and re-identifies on the next launch.
+    /// `rateLimited`, `invalidResponse`) deliberately return false.
+    private static func isDeadCredentialError(_ error: Error) -> Bool {
+        switch error {
+        case CloudDriveError.notAuthenticated,
+             CloudDriveError.tokenRefreshFailed:
+            return true
+        default:
+            return false
+        }
+    }
+
     /// A credential-free account fingerprint: the source's scanned cloud
     /// folder ids. These ids are globally unique per drive/account and embed
     /// the account identity, so two OAuth mounts with byte-identical folder
@@ -307,14 +250,4 @@ enum CloudAccountMigrationService {
         return "\(source.type.rawValue)#\(dirs.sorted().joined(separator: "|"))"
     }
 
-    private static func isDeadCredentialError(_ error: Error) -> Bool {
-        switch error {
-        case CloudDriveError.notAuthenticated,
-             CloudDriveError.tokenExpired,
-             CloudDriveError.tokenRefreshFailed:
-            return true
-        default:
-            return false
-        }
-    }
 }

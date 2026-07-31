@@ -18,6 +18,7 @@ final class LyricsTranslationCache {
         /// 语言对/全是目标语言的源文 throw "无法翻译", 是确定性失败,每次播
         /// 都重试白白吃 CPU。带 24h TTL 让 Apple 更新支持后能自动恢复。
         var negativeEntries: [String: Date]?
+        var insertionOrder: [String]?
     }
 
     private var entries: [String: String] = [:]
@@ -134,7 +135,11 @@ final class LyricsTranslationCache {
         // 写盘前把过期的 negative entry 顺手清掉, 不然会无限增长。
         let cutoff = Date().addingTimeInterval(-Self.negativeTTL)
         negativeEntries = negativeEntries.filter { $0.value > cutoff }
-        let snapshot = Persisted(entries: entries, negativeEntries: negativeEntries)
+        let snapshot = Persisted(
+            entries: entries,
+            negativeEntries: negativeEntries,
+            insertionOrder: insertionOrder
+        )
         do {
             let data = try JSONEncoder().encode(snapshot)
             try data.write(to: fileURL, options: .atomic)
@@ -149,7 +154,16 @@ final class LyricsTranslationCache {
             return
         }
         entries = decoded.entries
-        insertionOrder = Array(entries.keys)  // load 时不维护精确顺序, 走 dict natural 顺序
+        var seen = Set<String>()
+        insertionOrder = (decoded.insertionOrder ?? entries.keys.sorted()).filter {
+            entries[$0] != nil && seen.insert($0).inserted
+        }
+        for key in entries.keys.sorted() where seen.insert(key).inserted {
+            insertionOrder.append(key)
+        }
+        while insertionOrder.count > Self.maxEntries {
+            entries[insertionOrder.removeFirst()] = nil
+        }
         // 载入时筛掉超过 TTL 的 negative entry, 避免老条目永远占位。
         let cutoff = Date().addingTimeInterval(-Self.negativeTTL)
         negativeEntries = (decoded.negativeEntries ?? [:]).filter { $0.value > cutoff }

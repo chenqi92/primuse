@@ -8,8 +8,15 @@ actor ScraperManager {
     /// `scrapeMetadata`,这张表让被限流的源在退避窗口内的后续调用里被直接跳过,
     /// 不再继续撞限流。无 Retry-After 时用 `defaultBackoff` 兜底。
     private var rateLimitBackoff: [String: ContinuousClock.Instant] = [:]
+    private struct FailureState {
+        var consecutiveFailures: Int
+        var circuitOpenUntil: ContinuousClock.Instant?
+    }
+    private var failureStates: [String: FailureState] = [:]
     private static let defaultBackoff: Duration = .seconds(30)
     private static let maxBackoff: Duration = .seconds(300)
+    private static let circuitFailureThreshold = 3
+    private static let circuitCooldown: Duration = .seconds(120)
 
     struct ScrapeNeeds: Sendable {
         var metadata: Bool = true
@@ -25,6 +32,44 @@ actor ScraperManager {
             return false
         }
         return true
+    }
+
+    private func isCircuitOpen(_ config: ScraperSourceConfig) -> Bool {
+        guard let until = failureStates[config.id]?.circuitOpenUntil else { return false }
+        if ContinuousClock.now >= until {
+            failureStates[config.id] = nil
+            return false
+        }
+        return true
+    }
+
+    private func registerSuccess(_ config: ScraperSourceConfig) {
+        failureStates[config.id] = nil
+    }
+
+    private func registerFailure(_ error: Error, config: ScraperSourceConfig) {
+        if error is CancellationError { return }
+        if let scraperError = error as? ScraperError {
+            switch scraperError {
+            case .notFound, .rateLimited:
+                return
+            case .networkError, .parseError:
+                break
+            }
+        }
+        var state = failureStates[config.id] ?? FailureState(consecutiveFailures: 0, circuitOpenUntil: nil)
+        state.consecutiveFailures += 1
+        if state.consecutiveFailures >= Self.circuitFailureThreshold {
+            state.circuitOpenUntil = ContinuousClock.now + Self.circuitCooldown
+            plog("Scrape source unavailable [\(config.type.displayName)], circuit open for \(Self.circuitCooldown)")
+        }
+        failureStates[config.id] = state
+    }
+
+    private func handleFailure(_ error: Error, config: ScraperSourceConfig) {
+        if !handleRateLimit(error, config: config) {
+            registerFailure(error, config: config)
+        }
     }
 
     /// 命中 `ScraperError.rateLimited` 时登记退避截止时刻。
@@ -69,8 +114,8 @@ actor ScraperManager {
         // Scrape metadata from first successful source
         if needs.metadata {
             for config in enabledSources where config.type.supportsMetadata {
-                if isBackingOff(config) {
-                    plog("🔍 Skipping \(config.type.displayName) metadata — rate-limit backoff")
+                if isBackingOff(config) || isCircuitOpen(config) {
+                    plog("🔍 Skipping \(config.type.displayName) metadata — temporarily unavailable")
                     continue
                 }
                 do {
@@ -79,15 +124,17 @@ actor ScraperManager {
                     let searchResult = try await scraper.search(
                         query: cleanedTitle, artist: effectiveArtist, album: nil, limit: Self.autoScrapeLimit
                     )
+                    registerSuccess(config)
                     plog("🔍 \(config.type.displayName) returned \(searchResult.items.count) results")
                     if let best = Self.bestMatch(in: searchResult.items, title: cleanedTitle, artist: effectiveArtist, durationMs: durationMs(duration)) {
                         result.detail = try await scraper.getDetail(externalId: best.externalId)
+                        registerSuccess(config)
                         if result.detail != nil { break }
                     }
                 } catch {
                     plog("🔍 \(config.type.displayName) FAILED: \(error.localizedDescription)")
                     await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
-                    _ = handleRateLimit(error, config: config)
+                    handleFailure(error, config: config)
                     result.errors.append("[\(config.type.displayName)] metadata: \(error.localizedDescription)")
                 }
             }
@@ -96,13 +143,14 @@ actor ScraperManager {
         // Scrape cover from first successful source
         if needs.cover {
             for config in enabledSources where config.type.supportsCover {
-                if isBackingOff(config) { continue }
+                if isBackingOff(config) || isCircuitOpen(config) { continue }
                 do {
                     let scraper = getScraper(for: config)
 
                     // If we already have a detail with cover URL from the same source, use it
                     if let detail = result.detail, detail.source == config.type, let coverUrl = detail.coverUrl {
                         if let data = try await downloadImage(url: coverUrl, sourceConfig: config) {
+                            registerSuccess(config)
                             result.coverData = data
                             break
                         }
@@ -112,8 +160,10 @@ actor ScraperManager {
                     let searchResult = try await scraper.search(
                         query: cleanedTitle, artist: effectiveArtist, album: nil, limit: Self.autoScrapeLimit
                     )
+                    registerSuccess(config)
                     if let best = Self.bestMatch(in: searchResult.items, title: cleanedTitle, artist: effectiveArtist, durationMs: durationMs(duration)) {
                         let covers = try await scraper.getCoverArt(externalId: best.externalId)
+                        registerSuccess(config)
                         if let coverUrl = covers.first?.coverUrl,
                            let data = try await downloadImage(url: coverUrl, sourceConfig: config) {
                             result.coverData = data
@@ -122,7 +172,7 @@ actor ScraperManager {
                     }
                 } catch {
                     await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
-                    _ = handleRateLimit(error, config: config)
+                    handleFailure(error, config: config)
                     result.errors.append("[\(config.type.displayName)] cover: \(error.localizedDescription)")
                 }
             }
@@ -132,8 +182,8 @@ actor ScraperManager {
         if needs.lyrics {
             plog("🎤 Lyrics tier: needs.lyrics=true, enabled sources w/ supportsLyrics: \(enabledSources.filter { $0.type.supportsLyrics }.map { $0.type.displayName })")
             for config in enabledSources where config.type.supportsLyrics {
-                if isBackingOff(config) {
-                    plog("🎤 Skipping \(config.type.displayName) lyrics — rate-limit backoff")
+                if isBackingOff(config) || isCircuitOpen(config) {
+                    plog("🎤 Skipping \(config.type.displayName) lyrics — temporarily unavailable")
                     continue
                 }
                 do {
@@ -144,9 +194,11 @@ actor ScraperManager {
                         guard let lrclibScraper = scraper as? LRCLIBScraper else {
                             throw ScraperError.parseError("LRCLIB scraper cache type mismatch")
                         }
-                        if let lyricsResult = try await lrclibScraper.fetchLyrics(
+                        let fetchedLyrics = try await lrclibScraper.fetchLyrics(
                             title: cleanedTitle, artist: artist, album: album, duration: duration
-                        ), lyricsResult.hasLyrics {
+                        )
+                        registerSuccess(config)
+                        if let lyricsResult = fetchedLyrics, lyricsResult.hasLyrics {
                             result.lyrics = parseLyrics(lyricsResult)
                             if result.lyrics != nil { break }
                         }
@@ -158,6 +210,7 @@ actor ScraperManager {
                         let searchResult = try await scraper.search(
                             query: cleanedTitle, artist: effectiveArtist, album: nil, limit: Self.autoScrapeLimit
                         )
+                        registerSuccess(config)
                         // Lyrics must match the requested title. Duration alone is not a
                         // sufficient identity signal: short clips with no artist metadata
                         // can otherwise accept an unrelated same-length song returned by a
@@ -177,7 +230,9 @@ actor ScraperManager {
                         for candidate in candidates {
                             triedCount += 1
                             do {
-                                guard let lyricsResult = try await scraper.getLyrics(externalId: candidate.externalId),
+                                let fetchedLyrics = try await scraper.getLyrics(externalId: candidate.externalId)
+                                registerSuccess(config)
+                                guard let lyricsResult = fetchedLyrics,
                                       lyricsResult.hasLyrics else { continue }
                                 hasLyricsCount += 1
                                 guard let parsed = parseLyrics(lyricsResult), !parsed.isEmpty else { continue }
@@ -190,7 +245,8 @@ actor ScraperManager {
                                 }
                             } catch {
                                 plog("🎤 [\(config.type.displayName)] getLyrics failed for '\(candidate.title)': \(error.localizedDescription)")
-                                if handleRateLimit(error, config: config) { break }
+                                handleFailure(error, config: config)
+                                if isBackingOff(config) || isCircuitOpen(config) { break }
                             }
                         }
                         if result.lyrics == nil, let fb = lineLevelFallback {
@@ -205,7 +261,7 @@ actor ScraperManager {
                 } catch {
                     plog("🎤 [\(config.type.displayName)] lyrics tier ERROR: \(error.localizedDescription)")
                     await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
-                    _ = handleRateLimit(error, config: config)
+                    handleFailure(error, config: config)
                     result.errors.append("[\(config.type.displayName)] lyrics: \(error.localizedDescription)")
                 }
             }

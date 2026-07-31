@@ -110,16 +110,65 @@ enum XorZlibLyricsDecoder {
 
     private static func inflateZlib(_ data: Data) -> Data? {
         guard data.count > 6 else { return nil }
+        let cmf = Int(data[0])
+        let flg = Int(data[1])
+        guard cmf & 0x0F == 8, ((cmf << 8) | flg) % 31 == 0 else { return nil }
         let raw = data.subdata(in: 2..<(data.count - 4))
-        let dstCapacity = max(raw.count * 16, 64 * 1024)
-        let dst = UnsafeMutablePointer<UInt8>.allocate(capacity: dstCapacity)
-        defer { dst.deallocate() }
-        let written = raw.withUnsafeBytes { src -> Int in
-            guard let base = src.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return 0 }
-            return compression_decode_buffer(dst, dstCapacity, base, raw.count, nil, COMPRESSION_ZLIB)
+        let expectedChecksum = data.suffix(4).reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+        let chunkSize = 64 * 1024
+        let maxOutputBytes = 16 * 1024 * 1024
+        let scratch = UnsafeMutablePointer<UInt8>.allocate(capacity: 1)
+        defer { scratch.deallocate() }
+        var stream = compression_stream(
+            dst_ptr: scratch,
+            dst_size: 0,
+            src_ptr: UnsafePointer(scratch),
+            src_size: 0,
+            state: nil
+        )
+        guard compression_stream_init(&stream, COMPRESSION_STREAM_DECODE, COMPRESSION_ZLIB) != COMPRESSION_STATUS_ERROR else {
+            return nil
         }
-        guard written > 0 else { return nil }
-        return Data(bytes: dst, count: written)
+        defer { compression_stream_destroy(&stream) }
+
+        return raw.withUnsafeBytes { source -> Data? in
+            guard let sourceBase = source.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return nil }
+            stream.src_ptr = sourceBase
+            stream.src_size = raw.count
+            let destination = UnsafeMutablePointer<UInt8>.allocate(capacity: chunkSize)
+            defer { destination.deallocate() }
+            var output = Data()
+
+            while true {
+                stream.dst_ptr = destination
+                stream.dst_size = chunkSize
+                let status = compression_stream_process(&stream, Int32(COMPRESSION_STREAM_FINALIZE.rawValue))
+                let produced = chunkSize - stream.dst_size
+                if produced > 0 { output.append(destination, count: produced) }
+                guard output.count <= maxOutputBytes else { return nil }
+
+                switch status {
+                case COMPRESSION_STATUS_END:
+                    guard !output.isEmpty, adler32(output) == expectedChecksum else { return nil }
+                    return output
+                case COMPRESSION_STATUS_ERROR:
+                    return nil
+                default:
+                    if produced == 0, stream.src_size == 0 { return nil }
+                }
+            }
+        }
+    }
+
+    private static func adler32(_ data: Data) -> UInt32 {
+        let modulus: UInt32 = 65_521
+        var a: UInt32 = 1
+        var b: UInt32 = 0
+        for byte in data {
+            a = (a + UInt32(byte)) % modulus
+            b = (b + a) % modulus
+        }
+        return (b << 16) | a
     }
 }
 

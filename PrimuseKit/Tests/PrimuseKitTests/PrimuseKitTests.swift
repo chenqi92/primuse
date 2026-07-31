@@ -52,6 +52,25 @@ import Testing
     #expect(SafeByteRange.httpHeader(offset: 0, length: 0) == nil)
 }
 
+@Test func cacheFileNamesDoNotAliasDistinctRemotePaths() {
+    let nested = CacheFileNamePolicy.make(path: "/A/B.mp3")
+    let underscored = CacheFileNamePolicy.make(path: "/A_B.mp3")
+
+    #expect(nested != underscored)
+    #expect(nested.hasSuffix(".mp3"))
+    #expect(CacheFileNamePolicy.make(path: "/A/B.mp3") == nested)
+    #expect(CacheFileNamePolicy.make(path: "item-id", preferredExtension: "FLAC").hasSuffix(".flac"))
+}
+
+@Test func tokenRefreshPolicyKeepsTemporaryFailuresRetryable() {
+    #expect(CloudTokenRefreshPolicy.disposition(statusCode: 429) == .transient)
+    #expect(CloudTokenRefreshPolicy.disposition(statusCode: 503) == .transient)
+    #expect(CloudTokenRefreshPolicy.disposition(statusCode: 400, providerErrorCode: "server_error") == .transient)
+    #expect(CloudTokenRefreshPolicy.disposition(statusCode: 200, providerErrorCode: "slow_down") == .transient)
+    #expect(CloudTokenRefreshPolicy.disposition(statusCode: 400, providerErrorCode: "invalid_grant") == .permanent)
+    #expect(CloudTokenRefreshPolicy.disposition(statusCode: 401) == .permanent)
+}
+
 @Test func nfsVersionKeepsExplicitSelectionAndAutoFallbackOrder() {
     #expect(NFSVersion.v3.connectionAttemptOrder == [.v3])
     #expect(NFSVersion.v4.connectionAttemptOrder == [.v4])

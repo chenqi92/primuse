@@ -81,6 +81,7 @@ public actor CloudDriveStreamResolver: StreamResolver {
         req.httpBody = "pick_code=\(Self.formEncode(pickCode))".data(using: .utf8)
         let (data, response) = try await session.data(for: req)
         try Self.checkAuth(response)
+        try Self.checkBodyAuthenticationFailure(data)
         guard let url = Self.parse115URL(data) else { throw StreamResolveError.cannotBuildURL }
         return url
     }
@@ -142,7 +143,7 @@ public actor CloudDriveStreamResolver: StreamResolver {
             var req = URLRequest(url: comp.url!)
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             req.setValue("open_platform", forHTTPHeaderField: "Platform")
-            return try await send(req, parse: Self.parse123URL)
+            return try await send(req, bodyAuthCodes: [401, 403], parse: Self.parse123URL)
         default:
             throw StreamResolveError.unsupportedSourceType(type)
         }
@@ -201,9 +202,14 @@ public actor CloudDriveStreamResolver: StreamResolver {
         return token
     }
 
-    private func send(_ req: URLRequest, parse: (Data) -> URL?) async throws -> URL {
+    private func send(
+        _ req: URLRequest,
+        bodyAuthCodes: Set<Int> = [],
+        parse: (Data) -> URL?
+    ) async throws -> URL {
         let (data, response) = try await session.data(for: req)
         try Self.checkAuth(response)
+        try Self.checkBodyAuthenticationFailure(data, additionalCodes: bodyAuthCodes)
         guard let url = parse(data) else { throw StreamResolveError.cannotBuildURL }
         return url
     }
@@ -236,6 +242,29 @@ public actor CloudDriveStreamResolver: StreamResolver {
         guard let http = response as? HTTPURLResponse else { return }
         if http.statusCode == 401 || http.statusCode == 403 { throw StreamResolveError.authFailed }
         guard (200...299).contains(http.statusCode) else { throw StreamResolveError.badServerResponse(http.statusCode) }
+    }
+
+    static func checkBodyAuthenticationFailure(
+        _ data: Data,
+        additionalCodes: Set<Int> = [401, 403]
+    ) throws {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+        let rawCode = json["code"] ?? json["errno"]
+        let code: Int? = {
+            if let value = rawCode as? Int { return value }
+            if let value = rawCode as? NSNumber { return value.intValue }
+            if let value = rawCode as? String { return Int(value) }
+            return nil
+        }()
+        if let code, additionalCodes.contains(code) {
+            throw StreamResolveError.authFailed
+        }
+        let errorCode = ((json["error"] as? String) ?? (json["error_code"] as? String))?
+            .lowercased()
+        if let errorCode,
+           ["invalid_token", "token_expired", "expired_token", "unauthorized"].contains(errorCode) {
+            throw StreamResolveError.authFailed
+        }
     }
 
     static func parseAliyunURL(_ data: Data) -> URL? { stringURL(data, key: "url") }

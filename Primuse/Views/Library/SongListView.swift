@@ -1482,7 +1482,10 @@ private struct MacAddVisibleSongsToPlaylistSheet: View {
                                             .font(.system(size: 12.5, weight: .semibold))
                                             .foregroundStyle(PMColor.text)
                                             .lineLimit(1)
-                                        Text("\(library.songs(forPlaylist: playlist.id).count) \(String(localized: "songs_count"))")
+                                        Text(String(
+                                            format: String(localized: "carplay_playlist_song_count_format"),
+                                            library.songCount(forPlaylist: playlist.id)
+                                        ))
                                             .font(.system(size: 10.5))
                                             .foregroundStyle(PMColor.textFaint)
                                     }
