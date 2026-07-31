@@ -511,6 +511,53 @@ public enum AppleMusicQueueOwnershipPolicy {
     }
 }
 
+/// Distinguishes Apple Music catalog playback from the two kinds of items that
+/// can appear in the user's Music library. A library row is not automatically
+/// subscription-independent: an Apple Music catalog item can remain in the
+/// library after the subscription expires.
+public enum AppleMusicPlaybackSource: Sendable, Equatable {
+    case catalog
+    case catalogBackedUserLibrary
+    case subscriptionIndependentUserLibrary
+}
+
+/// Resolves the opaque identifiers MusicKit supplies for a `Song` into the
+/// narrowest safe playback source. Library IDs use the `i.` namespace; an
+/// additional catalog/global ID means the row still represents catalog
+/// content and must retain the no-subscription crash guard.
+public enum AppleMusicPlaybackSourceResolver {
+    public static func resolve(
+        itemID: String,
+        explicitCatalogIDs: Set<String>,
+        genericPlayParameterIDs: Set<String>
+    ) -> AppleMusicPlaybackSource {
+        guard itemID.hasPrefix("i.") else { return .catalog }
+
+        if explicitCatalogIDs.contains(where: { !$0.isEmpty }) {
+            return .catalogBackedUserLibrary
+        }
+
+        let hasAlternateCatalogID = genericPlayParameterIDs.contains { candidate in
+            !candidate.isEmpty && candidate != itemID && !candidate.hasPrefix("i.")
+        }
+        return hasAlternateCatalogID
+            ? .catalogBackedUserLibrary
+            : .subscriptionIndependentUserLibrary
+    }
+}
+
+/// `MusicSubscription.canPlayCatalogContent` only describes catalog
+/// privileges. Keep the guard for both catalog search results and catalog
+/// items retained in the library, while allowing confirmed library-only items
+/// such as locally imported files to reach ApplicationMusicPlayer.
+public enum AppleMusicSubscriptionGatePolicy {
+    public static func requiresCatalogCapability(
+        for source: AppleMusicPlaybackSource
+    ) -> Bool {
+        source != .subscriptionIndependentUserLibrary
+    }
+}
+
 /// Pure policy for recognizing the end of a MusicKit track.
 ///
 /// `ApplicationMusicPlayer` does not consistently settle on `.stopped`: some

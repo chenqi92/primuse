@@ -205,41 +205,47 @@ final class AppleMusicService {
     ///    的 queue 设置 + play() 在某些 iOS 版本会触发底层 assert。这里先
     ///    用 `MusicSubscription.current` 探一下能力, 不能播就直接给 UI 报
     ///    错而不是冒险调 player。
-    /// 播放前置 ── 清掉上次失败残留的 lastPlaybackError, 再用
-     /// `MusicSubscription.current` 探一下能不能播 catalog 内容。单曲 play(_:)
-     /// 和多曲 play(songs:) 共用这一步: 用户没订阅 / 区域不支持时, 直接给 UI
-     /// 报本地化错误并返回 false, 避免冒险设置 queue + play() 触发底层 assert。
-     /// 返回 true 表示可以继续走 player 开播。
-     private func ensurePlayablePreflight() async -> Bool {
-         lastPlaybackError = nil
-         do {
-             let subscription = try await MusicSubscription.current
-             guard subscription.canPlayCatalogContent else {
-                 lastPlaybackError = subscription.canBecomeSubscriber
-                     ? String(localized: "apple_music_needs_subscription")
-                     : String(localized: "apple_music_unavailable")
-                 return false
-             }
-             return true
-         } catch {
-             plog("⚠️Apple Music subscription check failed: \(error.localizedDescription)")
-             lastPlaybackError = error.localizedDescription
-             return false
-         }
-     }
+    /// 播放前置 ── 清掉上次失败残留的 lastPlaybackError。目录结果以及资料库里
+    /// 仍带 catalog ID 的订阅歌曲保留原有能力检查，避免无订阅时触发 MusicKit
+    /// 底层 assert；只有确认不带 catalog 身份的导入/本地资料库歌曲才绕过。
+    private func ensurePlayablePreflight(for source: AppleMusicPlaybackSource) async -> Bool {
+        lastPlaybackError = nil
+        guard AppleMusicSubscriptionGatePolicy.requiresCatalogCapability(for: source) else {
+            return true
+        }
+
+        do {
+            let subscription = try await MusicSubscription.current
+            guard subscription.canPlayCatalogContent else {
+                lastPlaybackError = subscription.canBecomeSubscriber
+                    ? String(localized: "apple_music_needs_subscription")
+                    : String(localized: "apple_music_unavailable")
+                return false
+            }
+            return true
+        } catch {
+            plog("⚠️Apple Music subscription check failed: \(error.localizedDescription)")
+            lastPlaybackError = error.localizedDescription
+            return false
+        }
+    }
 
      /// 把整段 queue 推给 ApplicationMusicPlayer ── 让用户点资料库里某首歌时
      /// 自动把后续歌曲串成播放上下文, 支持 mini player / 大播放器的下一首/上一首
      /// 按钮; 否则单首 queue 下 skipToNext 实际等同 stop, 体验是"控件没反应"。
      /// startAt 越界自动 clamp 到 0。
-     func play(songs: [MusicKit.Song], startAt index: Int) async {
+     func playUserLibrary(
+        songs: [MusicKit.Song],
+        startAt index: Int,
+        source: AppleMusicPlaybackSource
+     ) async {
          guard !songs.isEmpty else { return }
          let safeIndex = max(0, min(index, songs.count - 1))
          let starting = songs[safeIndex]
-         // 订阅探测 + 清上次错误 ── 跟单曲 play(_:) 共用同一前置, 否则订阅过期
-         // 但 user library 仍在库的用户点歌会绕过预检, 命中被规避的底层 assert,
-         // 也拿不到本地化的"需要订阅"提示。
-         guard await ensurePlayablePreflight() else {
+         // 不能把所有 MusicLibraryRequest 结果都当成本地文件：订阅过期后，
+         // catalog 歌曲仍可能残留在资料库。caller 已根据 play parameters 区分
+         // 两者；本地导入绕过，catalog-backed 资料库歌曲继续走防崩预检。
+         guard await ensurePlayablePreflight(for: source) else {
              pendingExpectedDuration = nil
              return
          }
@@ -270,8 +276,8 @@ final class AppleMusicService {
      }
 
      /// 下一首 / 上一首 ── 走 ApplicationMusicPlayer 自带 queue 操作。
-     /// 单首 queue 时 skipToNextEntry 等同 stop, 所以 caller 应通过 play(songs:)
-     /// 把上下文塞够再调用。
+     /// 单首 queue 时 skipToNextEntry 等同 stop, 所以 caller 应通过
+     /// playUserLibrary(songs:startAt:) 把上下文塞够再调用。
      func skipToNextAppleMusic() {
          Task { @MainActor in
              do {
@@ -301,7 +307,7 @@ final class AppleMusicService {
 
         // 订阅探测 + 清上次错误 ── 没订阅 / 不支持时直接 bail, 避免触发 player
         // 的边界 case。
-        guard await ensurePlayablePreflight() else {
+        guard await ensurePlayablePreflight(for: .catalog) else {
             pendingExpectedDuration = nil
             return
         }

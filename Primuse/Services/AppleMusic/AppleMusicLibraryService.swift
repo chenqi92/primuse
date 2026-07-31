@@ -193,7 +193,11 @@ final class AppleMusicLibraryService {
         if queue.isEmpty {
             await appleMusic.play(mk)
         } else {
-            await appleMusic.play(songs: queue, startAt: startIndex)
+            await appleMusic.playUserLibrary(
+                songs: queue,
+                startAt: startIndex,
+                source: Self.playbackSource(for: mk)
+            )
         }
     }
 
@@ -367,6 +371,21 @@ final class AppleMusicLibraryService {
         )
     }
 
+    /// MusicKit exposes `PlayParameters` only as Codable. A library row with a
+    /// catalog/global ID is still subscription-backed; a row that only carries
+    /// its `i.` library ID is an imported/library-only item and may play without
+    /// `canPlayCatalogContent`.
+    private nonisolated static func playbackSource(
+        for song: MusicKit.Song
+    ) -> AppleMusicPlaybackSource {
+        let identifiers = musicItemIdentifiers(for: song)
+        return AppleMusicPlaybackSourceResolver.resolve(
+            itemID: song.id.rawValue,
+            explicitCatalogIDs: identifiers.explicitCatalogIDs,
+            genericPlayParameterIDs: identifiers.genericPlayParameterIDs
+        )
+    }
+
     private nonisolated static func trackIdentity(_ song: PrimuseKit.Song) -> AppleMusicTrackIdentity {
         AppleMusicTrackIdentity(
             itemID: song.id,
@@ -383,7 +402,19 @@ final class AppleMusicLibraryService {
     /// items) the library ID in that payload, so decode only the documented ID
     /// shaped keys and ignore reporting/account fields.
     private nonisolated static func alternateMusicItemIDs(for song: MusicKit.Song) -> Set<String> {
-        var result: Set<String> = [song.id.rawValue]
+        musicItemIdentifiers(for: song).all
+    }
+
+    private nonisolated struct MusicItemIdentifiers {
+        var all: Set<String>
+        var explicitCatalogIDs: Set<String> = []
+        var genericPlayParameterIDs: Set<String> = []
+    }
+
+    private nonisolated static func musicItemIdentifiers(
+        for song: MusicKit.Song
+    ) -> MusicItemIdentifiers {
+        var result = MusicItemIdentifiers(all: [song.id.rawValue])
         if let playParameters = song.playParameters,
            let data = try? JSONEncoder().encode(playParameters),
            let object = try? JSONSerialization.jsonObject(with: data) {
@@ -392,20 +423,31 @@ final class AppleMusicLibraryService {
         if let url = song.url,
            let components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
             for item in components.queryItems ?? [] where item.name.lowercased() == "i" {
-                if let value = item.value, !value.isEmpty { result.insert(value) }
+                if let value = item.value, !value.isEmpty {
+                    result.all.insert(value)
+                    result.explicitCatalogIDs.insert(value)
+                }
             }
         }
         return result
     }
 
-    private nonisolated static func collectMusicItemIDs(from object: Any, into result: inout Set<String>) {
+    private nonisolated static func collectMusicItemIDs(
+        from object: Any,
+        into result: inout MusicItemIdentifiers
+    ) {
         if let dictionary = object as? [String: Any] {
             for (key, value) in dictionary {
                 let normalizedKey = key.lowercased().filter(\.isLetter)
                 if ["id", "catalogid", "globalid", "libraryid"].contains(normalizedKey),
                    let id = value as? String,
                    !id.isEmpty {
-                    result.insert(id)
+                    result.all.insert(id)
+                    if normalizedKey == "catalogid" || normalizedKey == "globalid" {
+                        result.explicitCatalogIDs.insert(id)
+                    } else if normalizedKey == "id" {
+                        result.genericPlayParameterIDs.insert(id)
+                    }
                 } else {
                     collectMusicItemIDs(from: value, into: &result)
                 }

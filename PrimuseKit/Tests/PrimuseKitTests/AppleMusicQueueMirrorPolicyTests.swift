@@ -74,6 +74,64 @@ struct AppleMusicQueueOwnershipPolicyTests {
     }
 }
 
+@Suite("Apple Music subscription gate policy")
+struct AppleMusicSubscriptionGatePolicyTests {
+    @Test("Catalog results require subscription capability")
+    func gatesCatalogPlayback() {
+        #expect(AppleMusicSubscriptionGatePolicy.requiresCatalogCapability(for: .catalog))
+    }
+
+    @Test("Catalog-backed library songs retain the crash-prevention gate")
+    func gatesCatalogBackedLibraryPlayback() {
+        #expect(AppleMusicSubscriptionGatePolicy.requiresCatalogCapability(
+            for: .catalogBackedUserLibrary
+        ))
+    }
+
+    @Test("Only confirmed library-only songs bypass the catalog gate")
+    func allowsImportedLibraryPlaybackWithoutSubscription() {
+        #expect(!AppleMusicSubscriptionGatePolicy.requiresCatalogCapability(
+            for: .subscriptionIndependentUserLibrary
+        ))
+    }
+}
+
+@Suite("Apple Music playback source resolver")
+struct AppleMusicPlaybackSourceResolverTests {
+    @Test("A non-library identifier is a catalog result")
+    func resolvesCatalogResult() {
+        #expect(AppleMusicPlaybackSourceResolver.resolve(
+            itemID: "123456789",
+            explicitCatalogIDs: [],
+            genericPlayParameterIDs: []
+        ) == .catalog)
+    }
+
+    @Test("A library row with a catalog identifier remains subscription-backed")
+    func resolvesCatalogBackedLibraryItem() {
+        #expect(AppleMusicPlaybackSourceResolver.resolve(
+            itemID: "i.library-song",
+            explicitCatalogIDs: ["123456789"],
+            genericPlayParameterIDs: ["i.library-song"]
+        ) == .catalogBackedUserLibrary)
+
+        #expect(AppleMusicPlaybackSourceResolver.resolve(
+            itemID: "i.library-song",
+            explicitCatalogIDs: [],
+            genericPlayParameterIDs: ["i.library-song", "123456789"]
+        ) == .catalogBackedUserLibrary)
+    }
+
+    @Test("An imported row carrying only its library identifier is independent")
+    func resolvesImportedLibraryItem() {
+        #expect(AppleMusicPlaybackSourceResolver.resolve(
+            itemID: "i.imported-song",
+            explicitCatalogIDs: [],
+            genericPlayParameterIDs: ["i.imported-song"]
+        ) == .subscriptionIndependentUserLibrary)
+    }
+}
+
 @Suite("Apple Music playback-end policy")
 struct AppleMusicPlaybackEndPolicyTests {
     @Test("A paused track still ends when MusicKit resets its current time")
