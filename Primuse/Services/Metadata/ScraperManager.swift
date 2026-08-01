@@ -24,6 +24,21 @@ actor ScraperManager {
         var lyrics: Bool = true
     }
 
+    private struct RankedMetadataDetail {
+        let detail: ScraperDetail
+        let rank: ScrapeCandidateRank
+        let sourceOrder: Int
+        let searchOrder: Int
+    }
+
+    private struct PendingMetadataCandidate {
+        let config: ScraperSourceConfig
+        let item: ScraperSearchItem
+        let rank: ScrapeCandidateRank
+        let sourceOrder: Int
+        let searchOrder: Int
+    }
+
     /// 该源当前是否处于限流退避窗口内(过期条目顺手清掉)。
     private func isBackingOff(_ config: ScraperSourceConfig) -> Bool {
         guard let until = rateLimitBackoff[config.id] else { return false }
@@ -111,9 +126,16 @@ actor ScraperManager {
             return result
         }
 
-        // Scrape metadata from first successful source
+        // Rank the returned rows inside each provider, then continue to the next
+        // provider only while the best trusted detail is still sparse. This
+        // fixes provider-first selection without multiplying every bulk scrape
+        // into an unconditional all-source request fan-out.
         if needs.metadata {
-            for config in enabledSources where config.type.supportsMetadata {
+            var selectedDetail: RankedMetadataDetail?
+            var additionalCandidates: [PendingMetadataCandidate] = []
+            let metadataSources = enabledSources.enumerated().filter { $0.element.type.supportsMetadata }
+
+            metadataSourceLoop: for (sourceOrder, config) in metadataSources {
                 if isBackingOff(config) || isCircuitOpen(config) {
                     plog("🔍 Skipping \(config.type.displayName) metadata — temporarily unavailable")
                     continue
@@ -124,12 +146,54 @@ actor ScraperManager {
                     let searchResult = try await scraper.search(
                         query: cleanedTitle, artist: effectiveArtist, album: nil, limit: Self.autoScrapeLimit
                     )
-                    registerSuccess(config)
                     plog("🔍 \(config.type.displayName) returned \(searchResult.items.count) results")
-                    if let best = Self.bestMatch(in: searchResult.items, title: cleanedTitle, artist: effectiveArtist, durationMs: durationMs(duration)) {
-                        result.detail = try await scraper.getDetail(externalId: best.externalId)
-                        registerSuccess(config)
-                        if result.detail != nil { break }
+                    let rankedItems = Self.topMatches(
+                        in: searchResult.items,
+                        title: cleanedTitle,
+                        artist: effectiveArtist,
+                        durationMs: durationMs(duration),
+                        maxCount: Self.autoMetadataCandidatesPerSource
+                    )
+                    let confidentCandidates = rankedItems.enumerated().compactMap { searchOrder, item -> PendingMetadataCandidate? in
+                        guard Self.isConfidentAutoMatch(
+                            item,
+                            title: cleanedTitle,
+                            artist: effectiveArtist,
+                            durationMs: durationMs(duration)
+                        ) else { return nil }
+                        return PendingMetadataCandidate(
+                            config: config,
+                            item: item,
+                            rank: Self.candidateRank(
+                                item,
+                                title: cleanedTitle,
+                                artist: effectiveArtist,
+                                durationMs: durationMs(duration)
+                            ),
+                            sourceOrder: sourceOrder,
+                            searchOrder: searchOrder
+                        )
+                    }
+                    guard let primaryCandidate = confidentCandidates.first else { continue }
+                    additionalCandidates.append(contentsOf: confidentCandidates.dropFirst())
+
+                    do {
+                        if let rankedDetail = try await fetchMetadataDetail(
+                            primaryCandidate,
+                            title: cleanedTitle,
+                            artist: effectiveArtist,
+                            durationMs: durationMs(duration)
+                        ) {
+                            selectedDetail = Self.preferredDetail(rankedDetail, current: selectedDetail)
+                            if Self.isSufficientMetadata(selectedDetail?.rank) {
+                                break metadataSourceLoop
+                            }
+                        }
+                    } catch {
+                        plog("🔍 \(config.type.displayName) detail FAILED: \(error.localizedDescription)")
+                        await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
+                        handleFailure(error, config: config)
+                        result.errors.append("[\(config.type.displayName)] metadata detail: \(error.localizedDescription)")
                     }
                 } catch {
                     plog("🔍 \(config.type.displayName) FAILED: \(error.localizedDescription)")
@@ -138,6 +202,34 @@ actor ScraperManager {
                     result.errors.append("[\(config.type.displayName)] metadata: \(error.localizedDescription)")
                 }
             }
+
+            // Search rows from configurable providers often expose only identity
+            // fields; their second or third detail can be much richer than the
+            // server's first row. Try a small globally ranked fallback set only
+            // when every provider's primary detail is still insufficient.
+            if !Self.isSufficientMetadata(selectedDetail?.rank) {
+                let fallbackCandidates = additionalCandidates.sorted(by: Self.isPreferred)
+                for candidate in fallbackCandidates.prefix(Self.autoMetadataExtraDetailFetchLimit) {
+                    if isBackingOff(candidate.config) || isCircuitOpen(candidate.config) { continue }
+                    do {
+                        if let rankedDetail = try await fetchMetadataDetail(
+                            candidate,
+                            title: cleanedTitle,
+                            artist: effectiveArtist,
+                            durationMs: durationMs(duration)
+                        ) {
+                            selectedDetail = Self.preferredDetail(rankedDetail, current: selectedDetail)
+                            if Self.isSufficientMetadata(selectedDetail?.rank) { break }
+                        }
+                    } catch {
+                        plog("🔍 \(candidate.config.type.displayName) fallback detail FAILED: \(error.localizedDescription)")
+                        await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
+                        handleFailure(error, config: candidate.config)
+                        result.errors.append("[\(candidate.config.type.displayName)] metadata detail: \(error.localizedDescription)")
+                    }
+                }
+            }
+            result.detail = selectedDetail?.detail
         }
 
         // Scrape cover from first successful source
@@ -275,10 +367,12 @@ actor ScraperManager {
         return result
     }
 
-    /// 自动刮削每个源拉这么多候选,然后用 `bestMatch` 多维度选最优。
-    /// 之前是 15 + 取首位,实测经常错配（"冷酷到底"被刮成 Amrit Maan 那种）。
-    /// 5 个候选下 server 通常会把官方主推排前面,且足够 scoring 区分。
-    private static let autoScrapeLimit = 5
+    /// Fetch enough search rows to let local identity and completeness ranking
+    /// recover richer matches that providers place below promoted first rows.
+    private static let autoScrapeLimit = 15
+    private static let autoMetadataCandidatesPerSource = 3
+    private static let autoMetadataExtraDetailFetchLimit = 3
+    private static let sufficientMetadataCompleteness = 7
 
     private nonisolated func durationMs(_ d: TimeInterval?) -> Int? {
         guard let d, d > 0 else { return nil }
@@ -338,11 +432,10 @@ actor ScraperManager {
 
         let requestedArtist = normalizeComparableText(artist)
         let candidateArtist = normalizeComparableText(item.artist)
-        let artistMatches = !requestedArtist.isEmpty
-            && !candidateArtist.isEmpty
+        let artistMatches = !candidateArtist.isEmpty
             && (candidateArtist == requestedArtist
-                || candidateArtist.contains(requestedArtist)
-                || requestedArtist.contains(candidateArtist))
+            || candidateArtist.contains(requestedArtist)
+            || requestedArtist.contains(candidateArtist))
         let durationMatches: Bool = if let targetMs,
                                        targetMs > 0,
                                        let candidateMs = item.durationMs {
@@ -350,9 +443,26 @@ actor ScraperManager {
         } else {
             false
         }
+        let durationClearlyConflicts: Bool = if let targetMs,
+                                                targetMs > 0,
+                                                let candidateMs = item.durationMs,
+                                                candidateMs > 0 {
+            let plausibleToleranceMs = max(10_000, min(30_000, targetMs / 10))
+            abs(candidateMs - targetMs) > plausibleToleranceMs
+        } else {
+            false
+        }
 
         if !requestedArtist.isEmpty {
-            return artistMatches || durationMatches
+            if !candidateArtist.isEmpty {
+                // A concrete conflicting artist is an identity failure. A near
+                // duration must not turn a same-title cover into an automatic
+                // metadata write.
+                return artistMatches && !durationClearlyConflicts
+            }
+            // Some sources omit artist in search rows. In that case a near-
+            // exact duration may act as the missing second identity signal.
+            return durationMatches
         }
 
         // Without an artist, an exact title alone is weak evidence: popular
@@ -367,8 +477,8 @@ actor ScraperManager {
         return candidateTitle == requestedTitle
     }
 
-    /// 评分后取前 N 个候选(按分数降序)。供 lyrics 阶段依次 try、优先字级使用。
-    /// 全部都 0 分时 fallback 用 server 默认顺序。
+    /// Rank candidates with the same policy used by manual scraping. Provider
+    /// order is only the final deterministic tie-breaker.
     static func topMatches(
         in items: [ScraperSearchItem],
         title: String,
@@ -377,53 +487,191 @@ actor ScraperManager {
         maxCount: Int
     ) -> [ScraperSearchItem] {
         guard !items.isEmpty, maxCount > 0 else { return [] }
-        let normTitle = normalizeComparableText(title)
-        let normArtist = normalizeComparableText(artist)
-
-        let scored = items.map { item -> (ScraperSearchItem, Int) in
-            (item, score(item: item, normTitle: normTitle, normArtist: normArtist, targetMs: targetMs))
+        let ranked = items.enumerated().map { index, item in
+            (
+                item: item,
+                rank: candidateRank(item, title: title, artist: artist, durationMs: targetMs),
+                index: index
+            )
         }
-        // 全部 0 分 = 没任何维度匹配上,直接用 server 顺序
-        if scored.allSatisfy({ $0.1 == 0 }) {
-            return Array(items.prefix(maxCount))
-        }
-        return scored.sorted { $0.1 > $1.1 }.prefix(maxCount).map(\.0)
+        return ranked.sorted { lhs, rhs in
+            if ScrapeCandidateRankingPolicy.isPreferred(lhs.rank, over: rhs.rank) {
+                return true
+            }
+            if ScrapeCandidateRankingPolicy.isPreferred(rhs.rank, over: lhs.rank) {
+                return false
+            }
+            return lhs.index < rhs.index
+        }.prefix(maxCount).map(\.item)
     }
 
-    private static func score(
-        item: ScraperSearchItem,
-        normTitle: String,
-        normArtist: String,
-        targetMs: Int?
-    ) -> Int {
-        var s = 0
+    private static func candidateRank(
+        _ item: ScraperSearchItem,
+        title: String,
+        artist: String?,
+        durationMs: Int?
+    ) -> ScrapeCandidateRank {
+        ScrapeCandidateRankingPolicy.rank(
+            requestedTitle: title,
+            requestedArtist: artist,
+            targetDurationMs: durationMs,
+            candidateTitle: item.title,
+            candidateArtist: item.artist,
+            candidateDurationMs: item.durationMs,
+            candidateAlbum: item.album,
+            candidateYear: item.year,
+            candidateHasArtwork: preferredText(item.coverUrl, fallback: nil) != nil,
+            candidateTrackNumber: item.trackNumber,
+            candidateGenreCount: meaningfulGenres(item.genres)?.count ?? 0
+        )
+    }
 
-        // duration 维度（最强信号）— 准确性最高,放最大权重
-        if let target = targetMs, let itemMs = item.durationMs {
-            let diff = abs(itemMs - target)
-            if diff < 2000 { s += 50 }
-            else if diff < 5000 { s += 30 }
-            else if diff < 10000 { s += 10 }
-            else { s -= 20 }     // 差距超 10s 直接扣分,大概率不是同一首
+    private func fetchMetadataDetail(
+        _ candidate: PendingMetadataCandidate,
+        title: String,
+        artist: String?,
+        durationMs: Int?
+    ) async throws -> RankedMetadataDetail? {
+        guard !isBackingOff(candidate.config), !isCircuitOpen(candidate.config) else {
+            return nil
         }
+        let scraper = getScraper(for: candidate.config)
+        let fetchedDetail = try await scraper.getDetail(externalId: candidate.item.externalId)
+        registerSuccess(candidate.config)
+        let detail = Self.mergedDetail(fetchedDetail, searchItem: candidate.item)
+        let detailItem = Self.searchItem(from: detail)
+        guard Self.isConfidentAutoMatch(
+            detailItem,
+            title: title,
+            artist: artist,
+            durationMs: durationMs
+        ) else { return nil }
 
-        // title 维度
-        let itemTitle = normalizeComparableText(item.title)
-        if itemTitle == normTitle { s += 30 }
-        else if !itemTitle.isEmpty && !normTitle.isEmpty {
-            if itemTitle.contains(normTitle) || normTitle.contains(itemTitle) { s += 15 }
+        return RankedMetadataDetail(
+            detail: detail,
+            rank: Self.candidateRank(
+                detailItem,
+                title: title,
+                artist: artist,
+                durationMs: durationMs
+            ),
+            sourceOrder: candidate.sourceOrder,
+            searchOrder: candidate.searchOrder
+        )
+    }
+
+    private static func preferredDetail(
+        _ candidate: RankedMetadataDetail,
+        current: RankedMetadataDetail?
+    ) -> RankedMetadataDetail {
+        guard let current else { return candidate }
+        return isPreferred(candidate, over: current) ? candidate : current
+    }
+
+    private static func isSufficientMetadata(_ rank: ScrapeCandidateRank?) -> Bool {
+        guard let rank, rank.metadataCompleteness >= sufficientMetadataCompleteness else {
+            return false
         }
-
-        // artist 维度
-        if !normArtist.isEmpty, let itemArtist = item.artist {
-            let itemNormArtist = normalizeComparableText(itemArtist)
-            if !itemNormArtist.isEmpty {
-                if itemNormArtist == normArtist { s += 20 }
-                else if itemNormArtist.contains(normArtist) || normArtist.contains(itemNormArtist) { s += 10 }
-            }
+        switch rank.durationTier {
+        case .close, .plausible, .unavailable:
+            return true
+        case .unknown, .mismatch:
+            return false
         }
+    }
 
-        return s
+    private static func isPreferred(
+        _ lhs: PendingMetadataCandidate,
+        _ rhs: PendingMetadataCandidate
+    ) -> Bool {
+        if ScrapeCandidateRankingPolicy.isPreferred(lhs.rank, over: rhs.rank) {
+            return true
+        }
+        if ScrapeCandidateRankingPolicy.isPreferred(rhs.rank, over: lhs.rank) {
+            return false
+        }
+        if lhs.sourceOrder != rhs.sourceOrder {
+            return lhs.sourceOrder < rhs.sourceOrder
+        }
+        return lhs.searchOrder < rhs.searchOrder
+    }
+
+    private static func isPreferred(
+        _ lhs: RankedMetadataDetail,
+        over rhs: RankedMetadataDetail
+    ) -> Bool {
+        if ScrapeCandidateRankingPolicy.isPreferred(lhs.rank, over: rhs.rank) {
+            return true
+        }
+        if ScrapeCandidateRankingPolicy.isPreferred(rhs.rank, over: lhs.rank) {
+            return false
+        }
+        if lhs.sourceOrder != rhs.sourceOrder {
+            return lhs.sourceOrder < rhs.sourceOrder
+        }
+        return lhs.searchOrder < rhs.searchOrder
+    }
+
+    private static func mergedDetail(
+        _ detail: ScraperDetail?,
+        searchItem: ScraperSearchItem
+    ) -> ScraperDetail {
+        ScraperDetail(
+            externalId: preferredText(detail?.externalId, fallback: searchItem.externalId) ?? searchItem.externalId,
+            source: detail?.source ?? searchItem.source,
+            title: preferredText(detail?.title, fallback: searchItem.title) ?? searchItem.title,
+            artist: preferredText(detail?.artist, fallback: searchItem.artist),
+            albumArtist: preferredText(detail?.albumArtist, fallback: nil),
+            album: preferredText(detail?.album, fallback: searchItem.album),
+            year: preferredPositiveInt(detail?.year, fallback: searchItem.year),
+            trackNumber: preferredPositiveInt(detail?.trackNumber, fallback: searchItem.trackNumber),
+            discNumber: preferredPositiveInt(detail?.discNumber, fallback: nil),
+            durationMs: preferredPositiveInt(detail?.durationMs, fallback: searchItem.durationMs),
+            genres: meaningfulGenres(detail?.genres) ?? meaningfulGenres(searchItem.genres),
+            coverUrl: preferredText(detail?.coverUrl, fallback: searchItem.coverUrl)
+        )
+    }
+
+    private static func searchItem(from detail: ScraperDetail) -> ScraperSearchItem {
+        ScraperSearchItem(
+            externalId: detail.externalId,
+            source: detail.source,
+            title: detail.title,
+            artist: detail.artist,
+            album: detail.album,
+            year: detail.year,
+            durationMs: detail.durationMs,
+            coverUrl: detail.coverUrl,
+            trackNumber: detail.trackNumber,
+            genres: detail.genres
+        )
+    }
+
+    private static func preferredText(_ value: String?, fallback: String?) -> String? {
+        if let value {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { return trimmed }
+        }
+        if let fallback {
+            let trimmed = fallback.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { return trimmed }
+        }
+        return nil
+    }
+
+    private static func preferredPositiveInt(_ value: Int?, fallback: Int?) -> Int? {
+        if let value, value > 0 { return value }
+        if let fallback, fallback > 0 { return fallback }
+        return nil
+    }
+
+    private static func meaningfulGenres(_ genres: [String]?) -> [String]? {
+        let cleaned = genres?.compactMap { genre -> String? in
+            let trimmed = genre.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        guard let cleaned, !cleaned.isEmpty else { return nil }
+        return cleaned
     }
 
     /// Lyrics are destructive-looking when wrong, so require a normalized title

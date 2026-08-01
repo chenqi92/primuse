@@ -876,24 +876,34 @@ public enum ScrapeMetadataApplicationPolicy {
     }
 }
 
-/// A deterministic rank for manual scrape candidates. Title compatibility is
-/// the identity gate; when the library song has a reliable duration, close
-/// known durations come next, unknown durations follow, and clearly mismatched
-/// durations are last. This prevents a provider that omits duration from
-/// receiving an artificially perfect score by shrinking the score denominator.
+/// A deterministic rank for scrape candidates. Title compatibility remains
+/// the identity gate. Known durations within a small, adaptive tolerance rank
+/// ahead of unknown durations, while obvious duration mismatches remain last.
+/// Metadata completeness breaks identity ties without allowing a rich but
+/// unrelated result to bypass the title gate.
 public struct ScrapeCandidateRank: Sendable, Equatable {
     public enum DurationTier: Int, Sendable, Equatable {
         case close = 0
-        case unknown = 1
-        case mismatch = 2
-        case unavailable = 3
+        case plausible = 1
+        case unknown = 2
+        case mismatch = 3
+        case unavailable = 4
+    }
+
+    public enum ArtistTier: Int, Sendable, Equatable {
+        case exact = 0
+        case partial = 1
+        case unavailable = 2
+        case conflict = 3
     }
 
     public let confidence: Double
     public let titleMatchLevel: Int
     public let artistMatchLevel: Int
+    public let artistTier: ArtistTier
     public let durationTier: DurationTier
     public let durationDeltaMs: Int?
+    public let metadataCompleteness: Int
 }
 
 public enum ScrapeCandidateRankingPolicy {
@@ -903,7 +913,12 @@ public enum ScrapeCandidateRankingPolicy {
         targetDurationMs: Int?,
         candidateTitle: String,
         candidateArtist: String?,
-        candidateDurationMs: Int?
+        candidateDurationMs: Int?,
+        candidateAlbum: String? = nil,
+        candidateYear: Int? = nil,
+        candidateHasArtwork: Bool = false,
+        candidateTrackNumber: Int? = nil,
+        candidateGenreCount: Int = 0
     ) -> ScrapeCandidateRank {
         let titleMatchLevel = textMatchLevel(
             requested: requestedTitle,
@@ -913,12 +928,23 @@ public enum ScrapeCandidateRankingPolicy {
             requested: requestedArtist,
             candidate: candidateArtist
         )
+        let normalizedRequestedArtist = normalized(requestedArtist)
+        let normalizedCandidateArtist = normalized(candidateArtist)
+        let artistTier: ScrapeCandidateRank.ArtistTier
+        if normalizedRequestedArtist.isEmpty || normalizedCandidateArtist.isEmpty {
+            artistTier = .unavailable
+        } else if artistMatchLevel == 2 {
+            artistTier = .exact
+        } else if artistMatchLevel == 1 {
+            artistTier = .partial
+        } else {
+            artistTier = .conflict
+        }
 
         var score = 0.0
         var maximumScore = 30.0
         score += titleMatchLevel == 2 ? 30 : (titleMatchLevel == 1 ? 15 : 0)
 
-        let normalizedRequestedArtist = normalized(requestedArtist)
         if !normalizedRequestedArtist.isEmpty {
             maximumScore += 20
             score += artistMatchLevel == 2 ? 20 : (artistMatchLevel == 1 ? 10 : 0)
@@ -933,16 +959,25 @@ public enum ScrapeCandidateRankingPolicy {
             if let candidateMs = validCandidateMs {
                 let delta = abs(candidateMs - targetMs)
                 durationDeltaMs = delta
+                let plausibleToleranceMs = max(10_000, min(30_000, targetMs / 10))
                 if delta < 2_000 {
                     score += 50
                 } else if delta < 5_000 {
                     score += 30
                 } else if delta < 10_000 {
                     score += 10
+                } else if delta <= plausibleToleranceMs {
+                    score += 5
                 } else {
                     score -= 20
                 }
-                durationTier = delta < 10_000 ? .close : .mismatch
+                if delta < 10_000 {
+                    durationTier = .close
+                } else if delta <= plausibleToleranceMs {
+                    durationTier = .plausible
+                } else {
+                    durationTier = .mismatch
+                }
             } else {
                 durationDeltaMs = nil
                 durationTier = .unknown
@@ -955,12 +990,22 @@ public enum ScrapeCandidateRankingPolicy {
         let confidence = maximumScore > 0
             ? max(0, min(1, score / maximumScore))
             : 0
+        let metadataCompleteness = informationCompleteness(
+            durationMs: validCandidateMs,
+            album: candidateAlbum,
+            year: candidateYear,
+            hasArtwork: candidateHasArtwork,
+            trackNumber: candidateTrackNumber,
+            genreCount: candidateGenreCount
+        )
         return ScrapeCandidateRank(
             confidence: confidence,
             titleMatchLevel: titleMatchLevel,
             artistMatchLevel: artistMatchLevel,
+            artistTier: artistTier,
             durationTier: durationTier,
-            durationDeltaMs: durationDeltaMs
+            durationDeltaMs: durationDeltaMs,
+            metadataCompleteness: metadataCompleteness
         )
     }
 
@@ -975,19 +1020,34 @@ public enum ScrapeCandidateRankingPolicy {
         }
 
         if lhsTitleCompatible {
+            let lhsArtistConflict = lhs.artistTier == .conflict
+            let rhsArtistConflict = rhs.artistTier == .conflict
+            if lhsArtistConflict != rhsArtistConflict {
+                return !lhsArtistConflict
+            }
             if lhs.durationTier != rhs.durationTier {
                 return lhs.durationTier.rawValue < rhs.durationTier.rawValue
+            }
+            if lhs.titleMatchLevel != rhs.titleMatchLevel {
+                return lhs.titleMatchLevel > rhs.titleMatchLevel
+            }
+            if lhs.durationTier == .close {
+                let lhsPrecision = durationPrecisionBucket(lhs.durationDeltaMs)
+                let rhsPrecision = durationPrecisionBucket(rhs.durationDeltaMs)
+                if lhsPrecision != rhsPrecision {
+                    return lhsPrecision < rhsPrecision
+                }
+            }
+            if lhs.metadataCompleteness != rhs.metadataCompleteness {
+                return lhs.metadataCompleteness > rhs.metadataCompleteness
+            }
+            if lhs.artistTier != rhs.artistTier {
+                return lhs.artistTier.rawValue < rhs.artistTier.rawValue
             }
             if let lhsDelta = lhs.durationDeltaMs,
                let rhsDelta = rhs.durationDeltaMs,
                lhsDelta != rhsDelta {
                 return lhsDelta < rhsDelta
-            }
-            if lhs.artistMatchLevel != rhs.artistMatchLevel {
-                return lhs.artistMatchLevel > rhs.artistMatchLevel
-            }
-            if lhs.titleMatchLevel != rhs.titleMatchLevel {
-                return lhs.titleMatchLevel > rhs.titleMatchLevel
             }
         }
 
@@ -995,6 +1055,32 @@ public enum ScrapeCandidateRankingPolicy {
             return lhs.confidence > rhs.confidence
         }
         return false
+    }
+
+    private static func durationPrecisionBucket(_ deltaMs: Int?) -> Int {
+        guard let deltaMs else { return Int.max }
+        if deltaMs < 2_000 { return 0 }
+        if deltaMs < 5_000 { return 1 }
+        if deltaMs < 10_000 { return 2 }
+        return 3
+    }
+
+    private static func informationCompleteness(
+        durationMs: Int?,
+        album: String?,
+        year: Int?,
+        hasArtwork: Bool,
+        trackNumber: Int?,
+        genreCount: Int
+    ) -> Int {
+        var score = 0
+        if durationMs != nil { score += 2 }
+        if !normalized(album).isEmpty { score += 2 }
+        if hasArtwork { score += 2 }
+        if let year, year > 0 { score += 1 }
+        if let trackNumber, trackNumber > 0 { score += 1 }
+        if genreCount > 0 { score += 1 }
+        return score
     }
 
     private static func textMatchLevel(

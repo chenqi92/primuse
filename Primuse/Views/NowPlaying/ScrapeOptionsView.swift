@@ -137,6 +137,8 @@ struct ScrapeOptionsView: View {
         let year: Int?
         let durationMs: Int?
         let coverUrl: String?
+        let trackNumber: Int?
+        let genres: [String]?
         let externalId: String
         let sourceConfig: ScraperSourceConfig
         let matchRank: ScrapeCandidateRank
@@ -148,7 +150,7 @@ struct ScrapeOptionsView: View {
         var source: String { sourceConfig.displayName }
 
         var durationText: String? {
-            guard let ms = durationMs else { return nil }
+            guard let ms = durationMs, ms > 0 else { return nil }
             let s = ms / 1000
             return String(format: "%d:%02d", s / 60, s % 60)
         }
@@ -392,10 +394,11 @@ struct ScrapeOptionsView: View {
     }
 
     private func macCandidateSubtitle(_ item: SearchResultItem) -> String {
-        var parts: [String] = []
+        var parts: [String] = [item.durationText ?? "--:--"]
         if let a = item.artist, !a.isEmpty { parts.append(a) }
+        if let album = item.album, !album.isEmpty { parts.append(album) }
         if let y = item.year { parts.append(String(y)) }
-        return parts.isEmpty ? "—" : parts.joined(separator: " · ")
+        return parts.joined(separator: " · ")
     }
 
     // MARK: Middle — cover compare + field diff
@@ -806,6 +809,7 @@ struct ScrapeOptionsView: View {
         macDisplayTitle = title
         macSidecarBaseNameOverride = sidecarBaseName
         macUsesMediaServerWriteback = usesMediaServerWriteback
+        manualMatchTitle = title
         manualSearchQuery = MusicScraperService.searchQuery(title: title, artist: song.artistName)
         await macRunSearch()
     }
@@ -1125,9 +1129,10 @@ struct ScrapeOptionsView: View {
                                 HStack {
                                     Text(item.title).font(.subheadline).fontWeight(.medium).lineLimit(1)
                                     Spacer()
-                                    if let dur = item.durationText {
-                                        Text(dur).font(.caption).foregroundStyle(.secondary).monospacedDigit()
-                                    }
+                                    Text(item.durationText ?? "--:--")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .monospacedDigit()
                                 }
                                 HStack(spacing: 4) {
                                     if let artist = item.artist {
@@ -1294,7 +1299,14 @@ struct ScrapeOptionsView: View {
                         targetDurationMs: targetDurationMs,
                         candidateTitle: item.title,
                         candidateArtist: item.artist,
-                        candidateDurationMs: item.durationMs
+                        candidateDurationMs: item.durationMs,
+                        candidateAlbum: item.album,
+                        candidateYear: item.year,
+                        candidateHasArtwork: item.coverUrl?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+                        candidateTrackNumber: item.trackNumber,
+                        candidateGenreCount: item.genres?.filter {
+                            !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        }.count ?? 0
                     )
                     aggregatedResults.append(SearchResultItem(
                         id: "\(config.type.rawValue)_\(item.externalId)",
@@ -1304,6 +1316,8 @@ struct ScrapeOptionsView: View {
                         year: item.year,
                         durationMs: item.durationMs,
                         coverUrl: item.coverUrl,
+                        trackNumber: item.trackNumber,
+                        genres: item.genres,
                         externalId: item.externalId,
                         sourceConfig: config,
                         matchRank: matchRank,
@@ -1345,25 +1359,32 @@ struct ScrapeOptionsView: View {
             let detail = try await scraper.getDetail(externalId: item.externalId)
             plog("👉 detail returned: title='\(detail?.title ?? "nil")' artist='\(detail?.artist ?? "nil")'")
 
+            let candidateTitle = firstNonEmptyText(detail?.title, item.title) ?? song.title
+            let candidateArtist = firstNonEmptyText(detail?.artist, item.artist, song.artistName)
+            let candidateAlbum = firstNonEmptyText(detail?.album, item.album, song.albumTitle)
+            let candidateCoverUrl = firstNonEmptyText(detail?.coverUrl, item.coverUrl)
+            let candidateGenres = firstNonEmptyGenres(detail?.genres, item.genres)
+            let candidateYear = firstPositiveInt(detail?.year, item.year, song.year)
+            let candidateTrackNumber = firstPositiveInt(detail?.trackNumber, item.trackNumber, song.trackNumber)
+            let candidateDiscNumber = firstPositiveInt(detail?.discNumber, song.discNumber)
+            let candidateDurationMs = firstPositiveInt(detail?.durationMs, item.durationMs)
+
             var updated = song
-            if let detail {
-                updated.title = detail.title
-                updated.albumTitle = detail.album ?? song.albumTitle
-                updated.artistName = detail.artist ?? song.artistName
-                updated.trackNumber = detail.trackNumber ?? song.trackNumber
-                updated.discNumber = detail.discNumber ?? song.discNumber
-                updated.genre = detail.genres?.prefix(3).joined(separator: ", ") ?? song.genre
-                updated.year = detail.year ?? song.year
-            }
+            updated.title = candidateTitle
+            updated.albumTitle = candidateAlbum
+            updated.artistName = candidateArtist
+            updated.trackNumber = candidateTrackNumber
+            updated.discNumber = candidateDiscNumber
+            updated.genre = candidateGenres?.prefix(3).joined(separator: ", ") ?? song.genre
+            updated.year = candidateYear
 
             // Download cover art if available (keep in memory, don't store to disk yet)
             var hasCover = false
             var coverData: Data?
             // Prefer search result's coverUrl if detail doesn't have one
-            let coverUrl = detail?.coverUrl ?? item.coverUrl
-            if !isAppleMusicSong, let coverUrl,
+            if !isAppleMusicSong, let candidateCoverUrl,
                let data = try? await ConfigurableScraper.downloadResource(
-                from: coverUrl,
+                from: candidateCoverUrl,
                 sourceConfig: item.sourceConfig,
                 timeout: 10
                ) {
@@ -1376,13 +1397,12 @@ struct ScrapeOptionsView: View {
             // asking that same scraper always returned nil on macOS. Reuse the
             // automatic/iOS lyrics-source chain with the selected candidate's
             // normalized metadata instead.
-            let candidateDurationMs = detail?.durationMs ?? item.durationMs
             let lyricsDuration = candidateDurationMs.map { TimeInterval($0) / 1000.0 }
                 ?? song.duration
             let fetchedLyrics = await scraperService.fetchOnlineLyrics(
-                title: detail?.title ?? item.title,
-                artist: detail?.artist ?? item.artist ?? song.artistName,
-                album: detail?.album ?? item.album ?? song.albumTitle,
+                title: candidateTitle,
+                artist: candidateArtist,
+                album: candidateAlbum,
                 duration: lyricsDuration
             )
             let lyricsLines = fetchedLyrics.flatMap { $0.isEmpty ? nil : $0 }
@@ -1651,6 +1671,30 @@ struct ScrapeOptionsView: View {
         t.formattedDuration
     }
 
+    private func firstNonEmptyText(_ values: String?...) -> String? {
+        for value in values {
+            guard let value else { continue }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { return trimmed }
+        }
+        return nil
+    }
+
+    private func firstPositiveInt(_ values: Int?...) -> Int? {
+        values.compactMap { $0 }.first(where: { $0 > 0 })
+    }
+
+    private func firstNonEmptyGenres(_ values: [String]?...) -> [String]? {
+        for value in values {
+            let cleaned = value?.compactMap { genre -> String? in
+                let trimmed = genre.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            }
+            if let cleaned, !cleaned.isEmpty { return cleaned }
+        }
+        return nil
+    }
+
     /// 解码封面字节流的真实像素尺寸 (NSBitmapImageRep / CGImage), 用于
     /// "2400×2400 · 612 KB" 这种信息展示。失败返回 nil。
     private func coverPixelSize(from data: Data) -> (Int, Int)? {
@@ -1674,9 +1718,9 @@ struct ScrapeOptionsView: View {
                 plog("⚠️ Manual search skipping \(sourceConfig.type.rawValue): config '\(configID)' not found")
                 return false
             }
-            let canSearch = config.search != nil
+            let canSearch = config.supportsMetadata && config.search != nil
             if !canSearch {
-                plog("⚠️ Manual search skipping \(sourceConfig.type.rawValue): search endpoint missing")
+                plog("⚠️ Manual search skipping \(sourceConfig.type.rawValue): metadata search unavailable")
             }
             return canSearch
         default:
