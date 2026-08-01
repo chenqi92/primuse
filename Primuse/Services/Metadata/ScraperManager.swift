@@ -63,7 +63,7 @@ actor ScraperManager {
     }
 
     private func registerFailure(_ error: Error, config: ScraperSourceConfig) {
-        if error is CancellationError { return }
+        if isCancellation(error) { return }
         if let scraperError = error as? ScraperError {
             switch scraperError {
             case .notFound, .rateLimited:
@@ -79,6 +79,18 @@ actor ScraperManager {
             plog("Scrape source unavailable [\(config.type.displayName)], circuit open for \(Self.circuitCooldown)")
         }
         failureStates[config.id] = state
+    }
+
+    private func isCancellation(_ error: Error) -> Bool {
+        if Task.isCancelled || error is CancellationError { return true }
+        if let urlError = error as? URLError, urlError.code == .cancelled { return true }
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled { return true }
+        if case ScraperError.networkError(let message) = error,
+           message.localizedCaseInsensitiveContains("cancel") {
+            return true
+        }
+        return false
     }
 
     private func handleFailure(_ error: Error, config: ScraperSourceConfig) {
@@ -174,7 +186,10 @@ actor ScraperManager {
                             searchOrder: searchOrder
                         )
                     }
-                    guard let primaryCandidate = confidentCandidates.first else { continue }
+                    guard let primaryCandidate = confidentCandidates.first else {
+                        registerSuccess(config)
+                        continue
+                    }
                     additionalCandidates.append(contentsOf: confidentCandidates.dropFirst())
 
                     do {
@@ -190,12 +205,14 @@ actor ScraperManager {
                             }
                         }
                     } catch {
+                        if isCancellation(error) { return result }
                         plog("🔍 \(config.type.displayName) detail FAILED: \(error.localizedDescription)")
                         await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
                         handleFailure(error, config: config)
                         result.errors.append("[\(config.type.displayName)] metadata detail: \(error.localizedDescription)")
                     }
                 } catch {
+                    if isCancellation(error) { return result }
                     plog("🔍 \(config.type.displayName) FAILED: \(error.localizedDescription)")
                     await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
                     handleFailure(error, config: config)
@@ -222,6 +239,7 @@ actor ScraperManager {
                             if Self.isSufficientMetadata(selectedDetail?.rank) { break }
                         }
                     } catch {
+                        if isCancellation(error) { return result }
                         plog("🔍 \(candidate.config.type.displayName) fallback detail FAILED: \(error.localizedDescription)")
                         await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
                         handleFailure(error, config: candidate.config)
@@ -263,6 +281,7 @@ actor ScraperManager {
                         }
                     }
                 } catch {
+                    if isCancellation(error) { return result }
                     await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
                     handleFailure(error, config: config)
                     result.errors.append("[\(config.type.displayName)] cover: \(error.localizedDescription)")
@@ -336,6 +355,7 @@ actor ScraperManager {
                                     lineLevelFallback = parsed
                                 }
                             } catch {
+                                if isCancellation(error) { return result }
                                 plog("🎤 [\(config.type.displayName)] getLyrics failed for '\(candidate.title)': \(error.localizedDescription)")
                                 handleFailure(error, config: config)
                                 if isBackingOff(config) || isCircuitOpen(config) { break }
@@ -351,6 +371,7 @@ actor ScraperManager {
                         if result.lyrics != nil { break }
                     }
                 } catch {
+                    if isCancellation(error) { return result }
                     plog("🎤 [\(config.type.displayName)] lyrics tier ERROR: \(error.localizedDescription)")
                     await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
                     handleFailure(error, config: config)
@@ -371,7 +392,7 @@ actor ScraperManager {
     /// recover richer matches that providers place below promoted first rows.
     private static let autoScrapeLimit = 15
     private static let autoMetadataCandidatesPerSource = 3
-    private static let autoMetadataExtraDetailFetchLimit = 3
+    private static let autoMetadataExtraDetailFetchLimit = 4
     private static let sufficientMetadataCompleteness = 7
 
     private nonisolated func durationMs(_ d: TimeInterval?) -> Int? {
@@ -443,14 +464,15 @@ actor ScraperManager {
         } else {
             false
         }
-        let durationClearlyConflicts: Bool = if let targetMs,
-                                                targetMs > 0,
-                                                let candidateMs = item.durationMs,
-                                                candidateMs > 0 {
+        let durationClearlyConflicts: Bool
+        if let targetMs,
+           targetMs > 0,
+           let candidateMs = item.durationMs,
+           candidateMs > 0 {
             let plausibleToleranceMs = max(10_000, min(30_000, targetMs / 10))
-            abs(candidateMs - targetMs) > plausibleToleranceMs
+            durationClearlyConflicts = abs(candidateMs - targetMs) > plausibleToleranceMs
         } else {
-            false
+            durationClearlyConflicts = false
         }
 
         if !requestedArtist.isEmpty {
@@ -569,13 +591,17 @@ actor ScraperManager {
     }
 
     private static func isSufficientMetadata(_ rank: ScrapeCandidateRank?) -> Bool {
-        guard let rank, rank.metadataCompleteness >= sufficientMetadataCompleteness else {
+        guard let rank,
+              rank.titleMatchLevel == 2,
+              rank.metadataCompleteness >= sufficientMetadataCompleteness else {
             return false
         }
         switch rank.durationTier {
-        case .close, .plausible, .unavailable:
+        case .close:
+            return (rank.durationDeltaMs ?? Int.max) < 5_000
+        case .unavailable:
             return true
-        case .unknown, .mismatch:
+        case .plausible, .unknown, .mismatch:
             return false
         }
     }
@@ -584,16 +610,18 @@ actor ScraperManager {
         _ lhs: PendingMetadataCandidate,
         _ rhs: PendingMetadataCandidate
     ) -> Bool {
+        // Give every provider's second result a chance before spending the
+        // fallback budget on third rows from an earlier provider.
+        if lhs.searchOrder != rhs.searchOrder {
+            return lhs.searchOrder < rhs.searchOrder
+        }
         if ScrapeCandidateRankingPolicy.isPreferred(lhs.rank, over: rhs.rank) {
             return true
         }
         if ScrapeCandidateRankingPolicy.isPreferred(rhs.rank, over: lhs.rank) {
             return false
         }
-        if lhs.sourceOrder != rhs.sourceOrder {
-            return lhs.sourceOrder < rhs.sourceOrder
-        }
-        return lhs.searchOrder < rhs.searchOrder
+        return lhs.sourceOrder < rhs.sourceOrder
     }
 
     private static func isPreferred(

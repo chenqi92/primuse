@@ -84,9 +84,9 @@ struct ScrapeCandidateRankingPolicyTests {
         #expect(ScrapeCandidateRankingPolicy.isPreferred(twoSecondsAway, over: eightSecondsAway))
     }
 
-    @Test("Richer metadata wins before a small delta difference within one duration tier")
-    func completenessWinsWithinDurationTier() {
-        let sparse = rank(candidateDurationMs: targetMs + 2_000)
+    @Test("Richer metadata wins within the same duration precision band")
+    func completenessWinsWithinDurationPrecisionBand() {
+        let sparse = rank(candidateDurationMs: targetMs + 6_000)
         let rich = rank(
             candidateDurationMs: targetMs + 8_000,
             album: "测试专辑",
@@ -96,6 +96,21 @@ struct ScrapeCandidateRankingPolicyTests {
 
         #expect(sparse.durationTier == rich.durationTier)
         #expect(ScrapeCandidateRankingPolicy.isPreferred(rich, over: sparse))
+    }
+
+    @Test("Near-exact duration wins before completeness from a weaker duration band")
+    func durationPrecisionBandPrecedesCompleteness() {
+        let nearExact = rank(candidateDurationMs: targetMs + 1_000)
+        let richButLessPrecise = rank(
+            candidateDurationMs: targetMs + 8_000,
+            album: "测试专辑",
+            year: 2026,
+            hasArtwork: true,
+            trackNumber: 3,
+            genreCount: 1
+        )
+
+        #expect(ScrapeCandidateRankingPolicy.isPreferred(nearExact, over: richButLessPrecise))
     }
 
     @Test("Exact identity outranks plausible duration from the wrong artist")
@@ -135,6 +150,33 @@ struct ScrapeCandidateRankingPolicyTests {
         #expect(ScrapeCandidateRankingPolicy.isPreferred(richWithoutArtist, over: sparseExactArtist))
     }
 
+    @Test("A compatible version suffix with reliable duration outranks an exact-title missing-duration result")
+    func reliableDurationPrecedesExactTitleLevel() {
+        let exactTitleWithoutDuration = rank(candidateDurationMs: nil)
+        let suffixedRichResult = rank(
+            candidateTitle: "测试歌曲（专辑版）",
+            candidateDurationMs: targetMs + 1_000,
+            album: "测试专辑",
+            hasArtwork: true
+        )
+
+        #expect(suffixedRichResult.titleMatchLevel == 1)
+        #expect(ScrapeCandidateRankingPolicy.isPreferred(suffixedRichResult, over: exactTitleWithoutDuration))
+    }
+
+    @Test("A stronger close-duration band outranks exact title text")
+    func closeDurationPrecisionPrecedesExactTitleLevel() {
+        let exactTitleEightSecondsAway = rank(candidateDurationMs: targetMs + 8_000)
+        let suffixedTitleOneSecondAway = rank(
+            candidateTitle: "测试歌曲（专辑版）",
+            candidateDurationMs: targetMs + 1_000
+        )
+
+        #expect(exactTitleEightSecondsAway.durationTier == .close)
+        #expect(suffixedTitleOneSecondAway.durationTier == .close)
+        #expect(ScrapeCandidateRankingPolicy.isPreferred(suffixedTitleOneSecondAway, over: exactTitleEightSecondsAway))
+    }
+
     @Test("A title-incompatible result cannot win on duration alone")
     func titleCompatibilityRemainsIdentityGate() {
         let compatibleUnknown = rank(candidateDurationMs: nil)
@@ -152,6 +194,7 @@ struct ScrapeCandidateRankingPolicyTests {
 
     private func rank(
         hasTargetDuration: Bool = true,
+        candidateTitle: String = "测试歌曲",
         candidateArtist: String? = "测试歌手",
         candidateDurationMs: Int?,
         album: String? = nil,
@@ -164,7 +207,7 @@ struct ScrapeCandidateRankingPolicyTests {
             requestedTitle: "测试歌曲",
             requestedArtist: "测试歌手",
             targetDurationMs: hasTargetDuration ? targetMs : nil,
-            candidateTitle: "测试歌曲",
+            candidateTitle: candidateTitle,
             candidateArtist: candidateArtist,
             candidateDurationMs: candidateDurationMs,
             candidateAlbum: album,

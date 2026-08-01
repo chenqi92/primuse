@@ -1028,15 +1028,15 @@ public enum ScrapeCandidateRankingPolicy {
             if lhs.durationTier != rhs.durationTier {
                 return lhs.durationTier.rawValue < rhs.durationTier.rawValue
             }
-            if lhs.titleMatchLevel != rhs.titleMatchLevel {
-                return lhs.titleMatchLevel > rhs.titleMatchLevel
-            }
             if lhs.durationTier == .close {
                 let lhsPrecision = durationPrecisionBucket(lhs.durationDeltaMs)
                 let rhsPrecision = durationPrecisionBucket(rhs.durationDeltaMs)
                 if lhsPrecision != rhsPrecision {
                     return lhsPrecision < rhsPrecision
                 }
+            }
+            if lhs.titleMatchLevel != rhs.titleMatchLevel {
+                return lhs.titleMatchLevel > rhs.titleMatchLevel
             }
             if lhs.metadataCompleteness != rhs.metadataCompleteness {
                 return lhs.metadataCompleteness > rhs.metadataCompleteness
