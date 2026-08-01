@@ -382,7 +382,7 @@ actor TVArtworkLoader {
         return result
     }
 
-    /// 无专辑归属的散曲封面：歌曲 ID 缓存优先，其次兼容旧本地引用，最后只对
+    /// 歌曲级封面：歌曲 ID 缓存优先，其次兼容旧本地引用，最后只对
     /// HTTP(S) 封面引用发起有限大小的请求。源端路径不在这里猜测，避免把未经
     /// 解析的 NAS 路径当成公网 URL 或绕过源凭据体系。
     func songCover(songID: String, coverRef: String?) async -> Data? {
@@ -564,6 +564,7 @@ struct TVArtworkView: View {
     var tint: Color
     var tint2: Color
     var glyph: String
+    var placeholderKind: TVArtworkPlaceholderKind = .music
     var size: CGFloat
     var height: CGFloat? = nil
     var radius: CGFloat = 0
@@ -575,7 +576,10 @@ struct TVArtworkView: View {
     @State private var retryRevision = 0
 
     private var artworkIdentity: String {
-        if !coverKey.isEmpty { return "album:\(coverKey)" }
+        if !coverKey.isEmpty {
+            guard let songID, !songID.isEmpty else { return "album:\(coverKey)" }
+            return "album:\(coverKey)|song:\(songID)|\(coverRef ?? "")"
+        }
         guard let songID, !songID.isEmpty else { return "" }
         return "song:\(songID)|\(coverRef ?? "")"
     }
@@ -590,7 +594,13 @@ struct TVArtworkView: View {
             if let image {
                 Image(uiImage: image).resizable().scaledToFill()
             } else {
-                TVCoverArt(tint: tint, tint2: tint2, glyph: glyph, size: size, height: h)
+                TVMusicPlaceholder(
+                    tint: tint,
+                    tint2: tint2,
+                    kind: placeholderKind,
+                    size: size,
+                    height: h
+                )
             }
         }
         .frame(width: size, height: h)
@@ -612,24 +622,32 @@ struct TVArtworkView: View {
             image = nil
 
             if !coverKey.isEmpty {
-                // ① 专辑封面始终优先；存在 albumID 时不混用单曲封面。
+                // ① 优先使用已同步到本地的准确专辑封面。
                 if let data = await MetadataAssetStore.shared.cachedAlbumCover(forAlbumID: coverKey),
                    await accept(data, identity: identity, paletteKey: paletteKey) {
                     return
                 }
-                // ② 否则按 (艺术家, 专辑) 在线取真实封面。
+            }
+            if let songID, !songID.isEmpty {
+                // ② 再查歌曲自身缓存/安全远程引用，避免准确散曲封面被模糊专辑搜索覆盖。
+                if let data = await TVArtworkLoader.shared.songCover(
+                    songID: songID,
+                    coverRef: coverRef
+                ), await accept(
+                    data,
+                    identity: identity,
+                    paletteKey: "song:\(songID)",
+                    songScoped: true
+                ) {
+                    return
+                }
+            }
+            if !coverKey.isEmpty {
+                // ③ 本地准确来源都没有时，最后按 (艺术家, 专辑) 在线搜索封面。
                 if let data = await TVArtworkLoader.shared.cover(
                     key: coverKey,
                     artist: artist,
                     album: album
-                ), await accept(data, identity: identity, paletteKey: paletteKey) {
-                    return
-                }
-            } else if let songID, !songID.isEmpty {
-                // ③ 散曲回退到按 Song.id 同步/生成的封面缓存，必要时读取安全的远程引用。
-                if let data = await TVArtworkLoader.shared.songCover(
-                    songID: songID,
-                    coverRef: coverRef
                 ), await accept(data, identity: identity, paletteKey: paletteKey) {
                     return
                 }
@@ -680,7 +698,12 @@ struct TVArtworkView: View {
     /// UIImage 成功创建后再提色；图片与颜色两次回填都校验共享的 activeIdentity，
     /// 避免滚动复用或快速切歌时慢请求把上一张封面写到当前页面。
     @MainActor
-    private func accept(_ data: Data, identity: String, paletteKey: String) async -> Bool {
+    private func accept(
+        _ data: Data,
+        identity: String,
+        paletteKey: String,
+        songScoped: Bool = false
+    ) async -> Bool {
         guard let ui = UIImage(data: data), activeIdentity == identity,
               !Task.isCancelled else { return false }
         image = ui
@@ -690,7 +713,9 @@ struct TVArtworkView: View {
             for: data,
             artworkKey: paletteKey
         ), activeIdentity == identity, !Task.isCancelled else { return true }
-        if !coverKey.isEmpty {
+        if songScoped, let songID, !songID.isEmpty {
+            store.applyArtworkPalette(palette, forSongID: songID)
+        } else if !coverKey.isEmpty {
             store.applyArtworkPalette(palette, forAlbumID: coverKey)
         } else if let songID, !songID.isEmpty {
             store.applyArtworkPalette(palette, forSongID: songID)
@@ -707,10 +732,12 @@ struct TVArtworkView: View {
     init(coverKey: String, artist: String, album: String,
          songID: String? = nil, coverRef: String? = nil,
          tint: Color, tint2: Color,
-         glyph: String, size: CGFloat, height: CGFloat? = nil, radius: CGFloat = 0) {
+         glyph: String, placeholderKind: TVArtworkPlaceholderKind = .music,
+         size: CGFloat, height: CGFloat? = nil, radius: CGFloat = 0) {
         self.coverKey = coverKey; self.artist = artist; self.album = album
         self.songID = songID; self.coverRef = coverRef
         self.tint = tint; self.tint2 = tint2; self.glyph = glyph
+        self.placeholderKind = placeholderKind
         self.size = size; self.height = height; self.radius = radius
     }
 }

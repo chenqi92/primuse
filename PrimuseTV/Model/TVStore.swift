@@ -335,7 +335,7 @@ final class TVStore {
         if updatedAlbum { libraryViewRevision &+= 1 }
     }
 
-    /// 散曲没有 albumID，调色板按 Song.id 独立缓存；播放器和纯散曲首页都
+    /// 歌曲级真实封面的调色板按 Song.id 独立缓存；播放器和歌曲卡片都
     /// 通过同一 revision 立即重绘。
     /// key 加命名空间，避免极端情况下歌曲 ID 与专辑 ID 相同而串色。
     func applyArtworkPalette(_ palette: TVArtworkPalette, forSongID songID: String) {
@@ -343,7 +343,7 @@ final class TVStore {
         let key = Self.songArtworkPaletteKey(songID)
         guard artworkPalettes[key] != palette else { return }
         artworkPalettes[key] = palette
-        if nowPlaying.songID == songID, nowPlaying.albumID.isEmpty {
+        if nowPlaying.songID == songID {
             nowPlaying.tint = palette.primary.color
             nowPlaying.tint2 = palette.secondary.color
         }
@@ -542,13 +542,15 @@ final class TVStore {
         }
     }
 
-    /// 由字符串确定性派生封面渐变两端色。
+    /// 由字符串确定性选择低饱和占位色。只使用适合电视背景的珊瑚、松绿、
+    /// 藏蓝、靛蓝和梅紫，避免全色相随机后大量落入泥棕色。
     private static func tint(_ seed: String) -> (Color, Color) {
         var h: UInt64 = 5381
         for b in seed.utf8 { h = (h &* 33) &+ UInt64(b) }
-        let hue = Double(h % 360) / 360.0
-        return (Color(hue: hue, saturation: 0.45, brightness: 0.55),
-                Color(hue: hue, saturation: 0.62, brightness: 0.22))
+        let hues: [Double] = [0.02, 0.46, 0.58, 0.69, 0.86]
+        let hue = hues[Int(h % UInt64(hues.count))]
+        return (Color(hue: hue, saturation: 0.38, brightness: 0.58),
+                Color(hue: hue, saturation: 0.30, brightness: 0.22))
     }
     private static func glyph(_ s: String) -> String {
         let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -687,11 +689,12 @@ final class TVStore {
 
         let album = selectedAlbum ?? album(song.albumID)
         let fallback = Self.tint(song.id)
-        let songPalette = song.albumID.isEmpty
-            ? artworkPalettes[Self.songArtworkPaletteKey(song.id)]
-            : nil
-        let tint = album?.tint ?? songPalette?.primary.color ?? fallback.0
-        let tint2 = album?.tint2 ?? songPalette?.secondary.color ?? fallback.1
+        let albumPalette = artworkPalettes[song.albumID]
+        let songPalette = artworkPalettes[Self.songArtworkPaletteKey(song.id)]
+        let tint = albumPalette?.primary.color ?? songPalette?.primary.color
+            ?? album?.tint ?? fallback.0
+        let tint2 = albumPalette?.secondary.color ?? songPalette?.secondary.color
+            ?? album?.tint2 ?? fallback.1
         nowPlaying = TVNowPlaying(
             songID: song.id,
             coverRef: rawSong.coverArtFileName,
@@ -1138,16 +1141,17 @@ final class TVStore {
         let a = albumOf(song)
         let rawSong = library.song(id: song.id)
         let fallback = Self.tint(song.id)
-        let songPalette = song.albumID.isEmpty
-            ? artworkPalettes[Self.songArtworkPaletteKey(song.id)]
-            : nil
+        let albumPalette = artworkPalettes[song.albumID]
+        let songPalette = artworkPalettes[Self.songArtworkPaletteKey(song.id)]
         nowPlaying = TVNowPlaying(
             songID: song.id,
             coverRef: rawSong?.coverArtFileName,
             title: song.title, artist: song.artist, album: a?.title ?? "",
             albumID: song.albumID,
-            tint: a?.tint ?? songPalette?.primary.color ?? fallback.0,
-            tint2: a?.tint2 ?? songPalette?.secondary.color ?? fallback.1,
+            tint: albumPalette?.primary.color ?? songPalette?.primary.color
+                ?? a?.tint ?? fallback.0,
+            tint2: albumPalette?.secondary.color ?? songPalette?.secondary.color
+                ?? a?.tint2 ?? fallback.1,
             glyph: a?.glyph ?? "♪", duration: song.duration, currentTime: resumeTime,
             format: song.format, bitrate: song.bitrate, sampleRate: song.sampleRate, sourcePath: "")
         hasNowPlaying = true

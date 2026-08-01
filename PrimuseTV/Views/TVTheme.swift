@@ -262,10 +262,100 @@ struct TVAmbientBackdrop: View {
     }
 }
 
-// MARK: - 程序化封面
+// MARK: - 无封面占位
 
-/// 对应 theme.jsx 的 CoverArt: tint→tint2 渐变 + 左上高光 + 同心环 + 字形。
-/// 默认正方形；传 height 可画矩形(歌单磁贴)。
+enum TVArtworkPlaceholderKind: Equatable {
+    case music
+    case playlist
+}
+
+/// 歌曲、专辑与歌单真正缺少封面时使用的语义占位。
+///
+/// 低饱和语义底色负责与相邻卡片区分，单一 SF Symbol 负责远距离识别；不再把
+/// 标题首字母当作专辑封面，也不使用容易形成“靶心”观感的多重同心圆。
+struct TVMusicPlaceholder: View {
+    var tint: Color
+    var tint2: Color
+    var kind: TVArtworkPlaceholderKind = .music
+    var width: CGFloat
+    var height: CGFloat
+    var radius: CGFloat = 0
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    init(tint: Color, tint2: Color, kind: TVArtworkPlaceholderKind = .music,
+         size: CGFloat, height: CGFloat? = nil, radius: CGFloat = 0) {
+        self.tint = tint
+        self.tint2 = tint2
+        self.kind = kind
+        self.width = size
+        self.height = height ?? size
+        self.radius = radius
+    }
+
+    var body: some View {
+        let m = min(width, height)
+        let isDark = colorScheme == .dark
+
+        ZStack {
+            LinearGradient(
+                colors: [TVColor.bgElev, TVColor.bgDeep],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            RadialGradient(
+                colors: [tint.opacity(isDark ? 0.52 : 0.32), .clear],
+                center: UnitPoint(x: 0.18, y: 0.12),
+                startRadius: 0,
+                endRadius: m * 0.82
+            )
+            RadialGradient(
+                colors: [tint2.opacity(isDark ? 0.42 : 0.20), .clear],
+                center: UnitPoint(x: 0.86, y: 0.92),
+                startRadius: 0,
+                endRadius: m * 0.72
+            )
+
+            Circle()
+                .fill(TVColor.text.opacity(isDark ? 0.07 : 0.055))
+                .overlay {
+                    Circle().strokeBorder(
+                        TVColor.text.opacity(isDark ? 0.14 : 0.10),
+                        lineWidth: max(1, m * 0.004)
+                    )
+                }
+                .frame(width: m * 0.48, height: m * 0.48)
+
+            placeholderIcon(size: m, opacity: isDark ? 0.88 : 0.76)
+        }
+        .frame(width: width, height: height)
+        .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+        .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private func placeholderIcon(size: CGFloat, opacity: Double) -> some View {
+        switch kind {
+        case .music:
+            Image("BrandGlyph")
+                .renderingMode(.template)
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .foregroundStyle(TVColor.text.opacity(opacity))
+                .frame(width: size * 0.24, height: size * 0.24)
+        case .playlist:
+            Image(systemName: "music.note.list")
+                .font(.system(size: size * 0.19, weight: .semibold))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(TVColor.text.opacity(opacity))
+        }
+    }
+}
+
+// MARK: - 艺术家字母头像
+
+/// 仅用于艺术家等人物身份的 monogram；歌曲和专辑缺图使用 `TVMusicPlaceholder`。
 struct TVCoverArt: View {
     var tint: Color
     var tint2: Color

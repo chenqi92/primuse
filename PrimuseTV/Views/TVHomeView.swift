@@ -142,10 +142,9 @@ struct TVHomeView: View {
                 radius: 18
             )
         } else {
-            TVCoverArt(
+            TVMusicPlaceholder(
                 tint: hero.tint,
                 tint2: hero.tint2,
-                glyph: hero.glyph,
                 size: 380,
                 radius: 18
             )

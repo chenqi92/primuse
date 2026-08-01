@@ -57,6 +57,7 @@ struct TVPlaylistCard: View {
                                   coverRef: coverSong?.coverRef ?? playlist.coverRef,
                                   tint: cover?.tint ?? TVColor.brand,
                                   tint2: cover?.tint2 ?? .black, glyph: cover?.glyph ?? "♪",
+                                  placeholderKind: .playlist,
                                   size: width, height: h)
                     if playlist.kind == .smart {
                         VStack {
