@@ -1394,6 +1394,13 @@ struct SourcesContentView: View {
     }
 
     private func directoryDisplayName(for path: String, source: MusicSource) -> String {
+        if SourceDirectorySelectionPolicy.selectableRootPath(
+            for: source.type,
+            browserPath: path
+        ) != nil {
+            return source.basePath ?? String(localized: "shared_folders")
+        }
+
         if source.type.isCloudDrive,
            let displayName = CloudDirectoryNameStore.displayName(for: path, sourceID: source.id),
            !displayName.isEmpty {

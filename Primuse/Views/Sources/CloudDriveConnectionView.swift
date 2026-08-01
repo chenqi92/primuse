@@ -466,25 +466,48 @@ struct CloudDriveConnectionView: View {
             let tokenManager = CloudTokenManager(sourceID: source.id)
 
             // Check if we already have valid tokens
-            if let tokens = await tokenManager.getTokens(), !tokens.isExpired {
+            switch await tokenManager.lookupTokens() {
+            case .found(let tokens) where !tokens.isExpired:
                 // Already authorized — go directly to browsing
                 withAnimation { step = .browsing }
                 return
+            case .temporarilyUnavailable:
+                errorMessage = String(localized: "credential_temporarily_unavailable")
+                withAnimation { step = .failed }
+                return
+            case .failed:
+                errorMessage = String(localized: "credential_read_failed")
+                withAnimation { step = .failed }
+                return
+            case .found, .notFound:
+                break
             }
 
             // Resolve credentials with a preference for built-in credentials unless
             // the source explicitly stores a custom client_id in the model.
-            if let creds = await resolvedCredentials(using: tokenManager) {
-                await tokenManager.saveAppCredentials(creds)
-                withAnimation { step = .readyToAuth }
-            } else {
-                // No credentials at all — need manual setup
-                withAnimation { step = .needsSetup }
+            do {
+                if let creds = try await resolvedCredentials(using: tokenManager) {
+                    guard await tokenManager.saveAppCredentials(creds) else {
+                        errorMessage = String(localized: "credential_save_failed_message")
+                        withAnimation { step = .failed }
+                        return
+                    }
+                    withAnimation { step = .readyToAuth }
+                } else {
+                    // No credentials at all — need manual setup
+                    withAnimation { step = .needsSetup }
+                }
+            } catch let error as CloudDriveError {
+                errorMessage = credentialMessage(for: error)
+                withAnimation { step = .failed }
+            } catch {
+                errorMessage = error.localizedDescription
+                withAnimation { step = .failed }
             }
         }
     }
 
-    private func resolvedCredentials(using tokenManager: CloudTokenManager) async -> CloudTokenManager.AppCredentials? {
+    private func resolvedCredentials(using tokenManager: CloudTokenManager) async throws -> CloudTokenManager.AppCredentials? {
         // App-owned credentials must win over stale per-source values entered
         // before built-in support existed. This applies to both Baidu and 123.
         if source.type == .baiduPan || source.type == .pan123,
@@ -494,21 +517,33 @@ struct CloudDriveConnectionView: View {
 
         let hasCustomCredentials = !(source.username?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
 
-        if hasCustomCredentials,
-           let creds = await tokenManager.getAppCredentials(),
-           !creds.clientId.isEmpty {
-            return creds
+        if hasCustomCredentials {
+            switch await tokenManager.lookupAppCredentials() {
+            case .found(let creds) where !creds.clientId.isEmpty:
+                return creds
+            case .temporarilyUnavailable(let status):
+                throw CloudDriveError.credentialTemporarilyUnavailable(status)
+            case .failed(let status):
+                throw CloudDriveError.credentialReadFailed(status)
+            case .found, .notFound:
+                break
+            }
         }
 
         if let builtIn = BuiltInCloudCredentials.credentials(for: source.type) {
             return .init(clientId: builtIn.clientId, clientSecret: builtIn.clientSecret)
         }
 
-        if let creds = await tokenManager.getAppCredentials(), !creds.clientId.isEmpty {
+        switch await tokenManager.lookupAppCredentials() {
+        case .found(let creds) where !creds.clientId.isEmpty:
             return creds
+        case .temporarilyUnavailable(let status):
+            throw CloudDriveError.credentialTemporarilyUnavailable(status)
+        case .failed(let status):
+            throw CloudDriveError.credentialReadFailed(status)
+        case .found, .notFound:
+            return nil
         }
-
-        return nil
     }
 
     private func startOAuth() {
@@ -517,18 +552,19 @@ struct CloudDriveConnectionView: View {
 
         Task {
             let tokenManager = CloudTokenManager(sourceID: source.id)
-            guard let creds = await resolvedCredentials(using: tokenManager) else {
-                errorMessage = String(localized: "cloud_err_no_client_id")
-                withAnimation { step = .needsSetup }
-                return
-            }
-
-            await tokenManager.saveAppCredentials(creds)
-
-            let config = oauthConfig(for: source.type, clientId: creds.clientId, clientSecret: creds.clientSecret)
-            plog("☁️ OAuth starting type=\(source.type.rawValue) sourceID=\(source.id) clientId=\(creds.clientId) redirect=\(config.redirectURI) scopes=\(config.scopes)")
-
             do {
+                guard let creds = try await resolvedCredentials(using: tokenManager) else {
+                    errorMessage = String(localized: "cloud_err_no_client_id")
+                    withAnimation { step = .needsSetup }
+                    return
+                }
+                guard await tokenManager.saveAppCredentials(creds) else {
+                    throw OAuthError.tokenExchangeFailed(String(localized: "credential_save_failed_message"))
+                }
+
+                let config = oauthConfig(for: source.type, clientId: creds.clientId, clientSecret: creds.clientSecret)
+                plog("☁️ OAuth starting type=\(source.type.rawValue) sourceID=\(source.id) clientId=\(creds.clientId) redirect=\(config.redirectURI) scopes=\(config.scopes)")
+
                 let tokens = try await OAuthService.shared.authorize(config: config)
                 guard await tokenManager.saveTokens(tokens) else {
                     plog("⚠️ OAuth token save verification failed type=\(source.type.rawValue) sourceID=\(source.id)")
@@ -556,10 +592,24 @@ struct CloudDriveConnectionView: View {
                     errorMessage = error.localizedDescription
                     withAnimation { step = .failed }
                 }
+            } catch let error as CloudDriveError {
+                errorMessage = credentialMessage(for: error)
+                withAnimation { step = .failed }
             } catch {
                 errorMessage = error.localizedDescription
                 withAnimation { step = .failed }
             }
+        }
+    }
+
+    private func credentialMessage(for error: CloudDriveError) -> String {
+        switch error {
+        case .credentialTemporarilyUnavailable:
+            return String(localized: "credential_temporarily_unavailable")
+        case .credentialReadFailed:
+            return String(localized: "credential_read_failed")
+        default:
+            return error.localizedDescription
         }
     }
 

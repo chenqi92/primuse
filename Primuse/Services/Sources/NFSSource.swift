@@ -12,7 +12,10 @@ enum NFSSelectionPathCodec {
         "nfs::\(encodeToken(normalizedExportPath(exportPath)))::\(encodeToken(normalizedRelativePath(relativePath)))"
     }
 
-    static func parse(_ path: String) throws -> SelectionPath {
+    static func parse(
+        _ path: String,
+        constrainedToExport configuredExportPath: String? = nil
+    ) throws -> SelectionPath {
         guard path.hasPrefix("nfs::") else {
             throw SourceError.pathNotFound(path)
         }
@@ -30,9 +33,17 @@ enum NFSSelectionPathCodec {
             throw SourceError.pathNotFound(path)
         }
 
+        guard let scoped = NFSSelectionScopePolicy.resolve(
+            exportPath: exportPath,
+            relativePath: relativePath,
+            configuredExportPath: configuredExportPath
+        ) else {
+            throw SourceError.pathNotFound(path)
+        }
+
         return SelectionPath(
-            exportPath: normalizedExportPath(exportPath),
-            relativePath: normalizedRelativePath(relativePath)
+            exportPath: scoped.exportPath,
+            relativePath: scoped.relativePath
         )
     }
 
@@ -77,11 +88,7 @@ enum NFSSelectionPathCodec {
 
     static func normalizedExportPath(_ path: String) -> String {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.isEmpty == false else {
-            return "/"
-        }
-
-        return trimmed.hasPrefix("/") ? trimmed : "/\(trimmed)"
+        return RemotePathScopePolicy(rootPath: trimmed).rootPath
     }
 
     private static func encodeToken(_ value: String) -> String {
@@ -108,6 +115,11 @@ enum NFSSelectionPathCodec {
 
         return String(data: data, encoding: .utf8)
     }
+}
+
+private struct NFSFallbackCandidate {
+    let version: NFSVersion
+    let client: any NFSClientBackend
 }
 
 actor NFSSource: MusicSourceConnector {
@@ -194,7 +206,7 @@ actor NFSSource: MusicSourceConnector {
                 .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
         }
 
-        let selection = try resolveSelectionPath(for: path)
+        let selection = try await resolveSelectionPath(for: path)
         return try await listDirectory(
             exportPath: selection.exportPath,
             relativePath: selection.relativePath
@@ -202,7 +214,7 @@ actor NFSSource: MusicSourceConnector {
     }
 
     func localURL(for path: String) async throws -> URL {
-        let selection = try resolveSelectionPath(for: path)
+        let selection = try await resolveSelectionPath(for: path)
         let client = try await ensureConnected(to: selection.exportPath)
 
         let cacheName = NFSSelectionPathCodec.cacheFileName(for: selection)
@@ -238,7 +250,7 @@ actor NFSSource: MusicSourceConnector {
     }
 
     func deleteFile(at path: String) async throws {
-        let selection = try resolveSelectionPath(for: path)
+        let selection = try await resolveSelectionPath(for: path)
         let client = try await ensureConnected(to: selection.exportPath)
 
         try await client.remove(path: selection.relativePath)
@@ -248,7 +260,7 @@ actor NFSSource: MusicSourceConnector {
     /// 任意 offset 读取，让 CloudPlaybackSource 边下边播替代整文件下载。
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
         guard length > 0 else { return Data() }
-        let selection = try resolveSelectionPath(for: path)
+        let selection = try await resolveSelectionPath(for: path)
         let client = try await ensureConnected(to: selection.exportPath)
 
         // offset < 0 表示从末尾倒数，先 stat 拿 size 转正。
@@ -361,9 +373,10 @@ actor NFSSource: MusicSourceConnector {
         components.scheme = "nfs"
         components.host = urlHost
 
-        if let port, port > 0 {
-            components.port = port
-        }
+        // NFSKit appends URL ports to the hostname before rpcbind lookup,
+        // producing an unresolvable `host:port` address. NFSv3 discovers its
+        // MOUNT and NFS service ports through rpcbind; only the v4 backend
+        // above applies the explicitly configured NFS port directly.
 
         guard let url = components.url else {
             throw SourceError.connectionFailed("Invalid NFS host")
@@ -377,21 +390,34 @@ actor NFSSource: MusicSourceConnector {
             return cachedExports
         }
 
-        var client = try resolveClient()
+        let activeClient = try resolveClient()
         let exports: [String]
         do {
-            let loaded = try await client.listExports()
+            let loaded = try await activeClient.listExports()
             guard loaded.isEmpty == false else {
                 throw SourceError.connectionFailed("No NFS exports found")
             }
             exports = loaded
         } catch {
-            client = try await switchToV4ForAuto(after: error)
-            exports = try await client.listExports()
+            let candidate = try makeFallbackCandidateForAuto(after: error)
+            do {
+                let loaded = try await candidate.client.listExports()
+                guard loaded.isEmpty == false else {
+                    throw SourceError.connectionFailed("No NFS exports found")
+                }
+                await commitFallback(candidate)
+                exports = loaded
+            } catch {
+                await candidate.client.disconnect()
+                throw error
+            }
         }
 
         let normalizedExports = exports
-            .map(NFSSelectionPathCodec.normalizedExportPath)
+            .compactMap { exportPath -> String? in
+                let scope = RemotePathScopePolicy(rootPath: exportPath)
+                return scope.matchesRoot(exportPath) ? scope.rootPath : nil
+            }
             .sorted { $0.localizedCompare($1) == .orderedAscending }
 
         if normalizedExports.isEmpty {
@@ -418,43 +444,78 @@ actor NFSSource: MusicSourceConnector {
         do {
             try await activeClient.connect(exportPath: normalizedExportPath)
         } catch {
-            let fallback = try await switchToV4ForAuto(after: error)
-            try await fallback.connect(exportPath: normalizedExportPath)
-            activeClient = fallback
+            let candidate = try makeFallbackCandidateForAuto(after: error)
+            do {
+                try await candidate.client.connect(exportPath: normalizedExportPath)
+                await commitFallback(candidate, connectedTo: normalizedExportPath)
+                activeClient = candidate.client
+            } catch {
+                await candidate.client.disconnect()
+                throw error
+            }
         }
 
         connectedExportPath = normalizedExportPath
         return activeClient
     }
 
-    private func switchToV4ForAuto(after originalError: any Error) async throws -> any NFSClientBackend {
-        guard nfsVersion.connectionAttemptOrder.count > 1,
-              nfsVersion.connectionAttemptOrder.contains(.v4),
-              activeVersion != .v4 else {
+    private func makeFallbackCandidateForAuto(after originalError: any Error) throws -> NFSFallbackCandidate {
+        guard let activeVersion,
+              let fallbackVersion = nfsVersion.fallbackVersion(after: activeVersion) else {
             throw originalError
         }
 
-        if let client {
-            await client.disconnect()
-        }
-
-        let fallback = try makeClient(version: .v4)
-        client = fallback
-        activeVersion = .v4
-        connectedExportPath = nil
-        cachedExports = nil
-        return fallback
+        return NFSFallbackCandidate(
+            version: fallbackVersion,
+            client: try makeClient(version: fallbackVersion)
+        )
     }
 
-    private func resolveSelectionPath(for path: String) throws -> NFSSelectionPathCodec.SelectionPath {
+    private func commitFallback(
+        _ candidate: NFSFallbackCandidate,
+        connectedTo exportPath: String? = nil
+    ) async {
+        let previousClient = client
+        let previousVersion = activeVersion
+
+        client = candidate.client
+        activeVersion = previousVersion?.versionAfterFallback(
+            to: candidate.version,
+            succeeded: true
+        ) ?? candidate.version
+        connectedExportPath = exportPath
+        cachedExports = nil
+
+        await previousClient?.disconnect()
+    }
+
+    private func resolveSelectionPath(
+        for path: String
+    ) async throws -> NFSSelectionPathCodec.SelectionPath {
         if path.hasPrefix("nfs::") {
-            return try NFSSelectionPathCodec.parse(path)
+            let selection = try NFSSelectionPathCodec.parse(
+                path,
+                constrainedToExport: configuredExportPath
+            )
+            if configuredExportPath == nil {
+                let allowedExports = try await loadExports()
+                guard allowedExports.contains(where: {
+                    RemotePathScopePolicy(rootPath: $0).matchesRoot(selection.exportPath)
+                }) else {
+                    throw SourceError.pathNotFound(path)
+                }
+            }
+            return selection
         }
 
         if let configuredExportPath {
+            guard let relativePath = RemotePathScopePolicy(rootPath: "/")
+                .resolvedPath(forStoredPath: path) else {
+                throw SourceError.pathNotFound(path)
+            }
             return .init(
                 exportPath: configuredExportPath,
-                relativePath: NFSSelectionPathCodec.normalizedRelativePath(path)
+                relativePath: relativePath
             )
         }
 
@@ -468,8 +529,11 @@ actor NFSSource: MusicSourceConnector {
         let client = try await ensureConnected(to: exportPath)
 
         return try await client.listDirectory(path: relativePath)
-            .map { entry in
-                let normalizedPath = NFSSelectionPathCodec.normalizedRelativePath(entry.path)
+            .compactMap { entry in
+                guard let normalizedPath = RemotePathScopePolicy(rootPath: "/")
+                    .resolvedPath(forStoredPath: entry.path) else {
+                    return nil
+                }
                 return RemoteFileItem(
                     name: entry.name,
                     path: NFSSelectionPathCodec.makeSelectionPath(

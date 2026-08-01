@@ -8,31 +8,71 @@ struct TVHomeView: View {
     @Environment(\.colorScheme) private var colorScheme
     var openPlayer: () -> Void = {}
 
-    private var heroAlbum: TVAlbum? { store.albums.first }
-    private var heroSong: TVSong? { heroAlbum == nil ? store.songs.first : nil }
-    private var hero: TVAlbum {
-        if let heroAlbum { return heroAlbum }
-        let song = heroSong
-        let title = song?.title ?? "Primuse"
-        let palette = song.flatMap { store.artworkColors(forSongID: $0.id) }
-        return TVAlbum(
-            id: "",
-            title: title,
-            artist: song?.artist ?? "",
-            year: 0,
-            tint: palette?.primary ?? TVColor.brand,
-            tint2: palette?.secondary ?? Color(hex: "#1f3a5b"),
-            glyph: title.isEmpty ? "♪" : String(title.prefix(1))
+    private var candidateAlbum: TVAlbum? {
+        store.albums.first(where: { !store.songs(forAlbum: $0.id).isEmpty })
+            ?? store.albums.first
+    }
+    private var candidateAlbumSongs: [TVSong] {
+        guard let candidateAlbum else { return [] }
+        return store.songs(forAlbum: candidateAlbum.id)
+    }
+    private var heroContent: TVHomeHeroPolicy.Content {
+        TVHomeHeroPolicy.content(
+            totalSongCount: store.songs.count,
+            albumCount: store.albums.count,
+            candidateAlbumSongCount: candidateAlbumSongs.count
         )
     }
+    private var heroAlbum: TVAlbum? {
+        heroContent == .album ? candidateAlbum : nil
+    }
+    private var heroSong: TVSong? {
+        heroContent == .song ? store.songs.first : nil
+    }
+    private var hero: TVAlbum {
+        switch heroContent {
+        case .album:
+            return candidateAlbum ?? placeholderHero
+        case .song:
+            guard let song = store.songs.first else { return placeholderHero }
+            let palette = store.artworkColors(forSongID: song.id)
+            let title = song.title
+            return TVAlbum(
+                id: "song:\(song.id)",
+                title: title,
+                artist: song.artist,
+                year: 0,
+                tint: palette?.primary ?? TVColor.brand,
+                tint2: palette?.secondary ?? Color(hex: "#1f3a5b"),
+                glyph: title.isEmpty ? "♪" : String(title.prefix(1))
+            )
+        case .empty:
+            return placeholderHero
+        }
+    }
+    private var placeholderHero: TVAlbum {
+        TVAlbum(id: "_", title: "Primuse", artist: "", year: 0,
+                tint: TVColor.brand, tint2: .black, glyph: "♪")
+    }
     private var heroSongs: [TVSong] {
-        heroAlbum == nil ? store.songs : store.songs(forAlbum: hero.id)
+        switch heroContent {
+        case .album: return candidateAlbumSongs
+        case .song: return store.songs
+        case .empty: return []
+        }
+    }
+    private var heroSongCount: Int {
+        TVHomeHeroPolicy.displayedSongCount(
+            for: heroContent,
+            totalSongCount: store.songs.count,
+            candidateAlbumSongCount: candidateAlbumSongs.count
+        )
     }
     private var heroHeading: String {
         hero.artist.isEmpty ? hero.title : "\(hero.artist) · \(hero.title)"
     }
     private var heroSubtitle: String {
-        var parts = [PMString("ext.tv.songsCount", heroSongs.count)]
+        var parts = [PMString("ext.tv.songsCount", heroSongCount)]
         let mins = (heroSongs.reduce(0) { $0 + $1.duration } / 60).finiteInt()
         if mins > 0 { parts.append(PMString("ext.tv.minCount", mins)) }
         if hero.year > 0 { parts.append("\(hero.year)") }

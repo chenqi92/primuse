@@ -2,6 +2,39 @@ import Foundation
 import CoreFoundation
 import CryptoKit
 
+/// Reconciles the local and synchronizable Keychain variants used for cloud
+/// OAuth credentials. A rotation is durable only when no obsolete variant can
+/// later surface the previous refresh token.
+public enum CloudCredentialVariantPolicy {
+    /// The target write may be reported as persisted only after the obsolete
+    /// variant is gone, has been made an exact mirror, or is a synchronizable
+    /// item that this process cannot access and therefore cannot read back.
+    public static func isWriteSafe(
+        targetStored: Bool,
+        obsoleteVariantRemoved: Bool,
+        obsoleteVariantMatchesTarget: Bool,
+        obsoleteVariantCannotOverrideTarget: Bool
+    ) -> Bool {
+        targetStored && (
+            obsoleteVariantRemoved
+                || obsoleteVariantMatchesTarget
+                || obsoleteVariantCannotOverrideTarget
+        )
+    }
+
+    /// When both variants exist during launch migration, modification dates
+    /// decide which copy is authoritative. Ties or missing metadata keep the
+    /// synchronizable value so a residual legacy/local item can never roll a
+    /// newer roaming refresh token back.
+    public static func shouldReplaceSynchronizableValue(
+        localModifiedAt: Date?,
+        synchronizableModifiedAt: Date?
+    ) -> Bool {
+        guard let localModifiedAt, let synchronizableModifiedAt else { return false }
+        return localModifiedAt > synchronizableModifiedAt
+    }
+}
+
 /// Builds deterministic, collision-resistant filenames for remote-file caches.
 /// The remote path is hashed instead of replacing separators, because paths such
 /// as `/A/B.mp3` and `/A_B.mp3` must never address the same cached bytes.
@@ -343,6 +376,576 @@ public enum SafeByteRange {
     }
 }
 
+/// A two-byte probe avoids a MiniDLNA 1.3.3 edge case where `bytes=0-0`
+/// is treated as an open-ended request and the whole file is streamed. The
+/// response must also describe exactly the requested (or EOF-clipped) range;
+/// a bare 206 is not sufficient proof that later random access is safe.
+public enum HTTPRangeProbePolicy {
+    public static let requestHeaderValue = "bytes=0-1"
+
+    public static func validatedTotalLength(
+        contentRange header: String?,
+        contentLength: Int64?
+    ) -> Int64? {
+        guard let header else { return nil }
+        let unitAndValue = header.split(
+            separator: " ",
+            maxSplits: 1,
+            omittingEmptySubsequences: true
+        )
+        guard unitAndValue.count == 2,
+              unitAndValue[0].lowercased() == "bytes" else { return nil }
+
+        let rangeAndTotal = unitAndValue[1].split(
+            separator: "/",
+            maxSplits: 1,
+            omittingEmptySubsequences: false
+        )
+        guard rangeAndTotal.count == 2,
+              rangeAndTotal[1] != "*",
+              let total = Int64(rangeAndTotal[1]),
+              total > 0 else { return nil }
+
+        let bounds = rangeAndTotal[0].split(
+            separator: "-",
+            maxSplits: 1,
+            omittingEmptySubsequences: false
+        )
+        guard bounds.count == 2,
+              let start = Int64(bounds[0]),
+              let end = Int64(bounds[1]),
+              start == 0,
+              end == min(1, total - 1) else { return nil }
+
+        let expectedLength = min(Int64(2), total)
+        if let contentLength, contentLength != expectedLength {
+            return nil
+        }
+        return total
+    }
+}
+
+/// Some connectors cannot safely sustain the generic five-request playback
+/// burst. OneDrive can stall under concurrent ranges, while FilesProvider's FTP
+/// range implementation leaves each control task open until its session is
+/// invalidated. Both use demand-driven reads instead of background prefetch.
+public enum RangeStreamingPrefetchPolicy {
+    public static func aheadCount(
+        for sourceType: MusicSourceType,
+        defaultValue: Int
+    ) -> Int {
+        switch sourceType {
+        case .oneDrive, .ftp:
+            return 0
+        default:
+            return max(0, defaultValue)
+        }
+    }
+
+    public static func allowsBackgroundPrewarm(for sourceType: MusicSourceType) -> Bool {
+        allowsAutomaticTrailingFill(for: sourceType)
+    }
+
+    /// Whether a foreground range read may schedule completion of the
+    /// remaining cache gap in the background. Constrained connectors must
+    /// stay demand-driven even when the remaining file is below the generic
+    /// trailing-fill threshold.
+    public static func allowsAutomaticTrailingFill(for sourceType: MusicSourceType) -> Bool {
+        switch sourceType {
+        case .oneDrive, .ftp:
+            return false
+        default:
+            return true
+        }
+    }
+}
+
+/// Constrains persisted remote paths to one canonical source root. Protocol
+/// connectors use this before reads and destructive operations so stale or
+/// tampered absolute paths cannot escape the source that owns them.
+public struct RemotePathScopePolicy: Equatable, Sendable {
+    public let rootPath: String
+
+    public init(rootPath: String) {
+        self.rootPath = Self.normalizeAbsolutePath(rootPath)
+    }
+
+    /// Resolves a stored absolute or source-relative path and rejects any path
+    /// that can escape the configured root. Parent components are rejected
+    /// before standardization so a persisted `..` can never be hidden by a
+    /// later in-root component.
+    public func resolvedPath(forStoredPath storedPath: String) -> String? {
+        guard !Self.containsParentReference(storedPath) else { return nil }
+        if storedPath.isEmpty || storedPath == "/" { return rootPath }
+
+        let candidate: String
+        if storedPath.hasPrefix("/") {
+            candidate = Self.normalizeAbsolutePath(storedPath)
+        } else if rootPath == "/" {
+            candidate = Self.normalizeAbsolutePath("/\(storedPath)")
+        } else {
+            candidate = Self.normalizeAbsolutePath("\(rootPath)/\(storedPath)")
+        }
+
+        guard rootPath == "/"
+                || candidate == rootPath
+                || candidate.hasPrefix(rootPath + "/") else {
+            return nil
+        }
+        return candidate
+    }
+
+    /// Converts a validated stored path to a slash-prefixed path relative to
+    /// the configured root. This is the namespace expected by mounted NFS
+    /// clients, whose `/` is already the selected export.
+    public func relativePath(forStoredPath storedPath: String) -> String? {
+        guard let resolved = resolvedPath(forStoredPath: storedPath) else { return nil }
+        guard rootPath != "/" else { return resolved }
+        guard resolved != rootPath else { return "/" }
+        return String(resolved.dropFirst(rootPath.count))
+    }
+
+    /// Export identities must match exactly. Component-prefix collisions such
+    /// as `/exports/music-old` are not children of `/exports/music` and a
+    /// stored parent reference is never accepted as an alias of the same root.
+    public func matchesRoot(_ storedRoot: String) -> Bool {
+        guard !Self.containsParentReference(storedRoot) else { return false }
+        return Self.normalizeAbsolutePath(storedRoot) == rootPath
+    }
+
+    private static func containsParentReference(_ path: String) -> Bool {
+        path.split(separator: "/", omittingEmptySubsequences: false)
+            .contains { $0 == ".." }
+    }
+
+    private static func normalizeAbsolutePath(_ path: String) -> String {
+        guard !path.isEmpty else { return "/" }
+        let absolutePath = path.hasPrefix("/") ? path : "/\(path)"
+        var normalized = (absolutePath as NSString).standardizingPath
+        if normalized.isEmpty || normalized == "." { return "/" }
+        if !normalized.hasPrefix("/") { normalized = "/\(normalized)" }
+        while normalized.count > 1 && normalized.hasSuffix("/") {
+            normalized.removeLast()
+        }
+        return normalized
+    }
+}
+
+public struct NFSScopedSelection: Equatable, Sendable {
+    public let exportPath: String
+    public let relativePath: String
+
+    public init(exportPath: String, relativePath: String) {
+        self.exportPath = exportPath
+        self.relativePath = relativePath
+    }
+}
+
+/// Validates the decoded parts of an NFS selection path before a client mounts
+/// an export. A configured source is confined to that exact export; all sources
+/// reject parent components in both the export identity and relative file path.
+public enum NFSSelectionScopePolicy {
+    public static func resolve(
+        exportPath: String,
+        relativePath: String,
+        configuredExportPath: String?
+    ) -> NFSScopedSelection? {
+        let exportScope = RemotePathScopePolicy(rootPath: exportPath)
+        guard exportScope.matchesRoot(exportPath),
+              let scopedRelativePath = RemotePathScopePolicy(rootPath: "/")
+                .resolvedPath(forStoredPath: relativePath) else {
+            return nil
+        }
+
+        if let configuredExportPath {
+            let configured = configuredExportPath
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !configured.isEmpty {
+                let configuredScope = RemotePathScopePolicy(rootPath: configured)
+                guard configuredScope.matchesRoot(configured),
+                      configuredScope.matchesRoot(exportScope.rootPath) else {
+                    return nil
+                }
+            }
+        }
+
+        return NFSScopedSelection(
+            exportPath: exportScope.rootPath,
+            relativePath: scopedRelativePath
+        )
+    }
+}
+
+/// Keeps the app-facing FTP namespace relative to the configured source root.
+/// FilesProvider must receive a root base URL because it applies its own
+/// `ftpPath` helper more than once in several operations; putting `basePath` in
+/// both the URL and operation path would produce `/base/base/...` commands.
+public struct FTPPathPolicy: Equatable, Sendable {
+    public static let providerBaseURLPath = "/"
+
+    public let basePath: String
+
+    public init(basePath: String?) {
+        self.basePath = Self.normalizeAbsolutePath(basePath ?? "/")
+    }
+
+    /// Converts a source-relative browser/song path to the absolute server path
+    /// passed to every FilesProvider operation.
+    public func providerPath(forSourcePath sourcePath: String) -> String {
+        let sourcePath = Self.normalizeAbsolutePath(sourcePath)
+        guard basePath != "/" else { return sourcePath }
+        guard sourcePath != "/" else { return basePath }
+        return basePath + sourcePath
+    }
+
+    /// Converts a FilesProvider list result back to the source-relative path
+    /// persisted by selected directories and songs. Out-of-root results are
+    /// rejected instead of escaping the configured source scope.
+    public func sourcePath(forProviderPath providerPath: String) -> String? {
+        let providerPath = Self.normalizeAbsolutePath(providerPath)
+        guard basePath != "/" else { return providerPath }
+        if providerPath == basePath { return "/" }
+        guard providerPath.hasPrefix(basePath + "/") else { return nil }
+        return String(providerPath.dropFirst(basePath.count))
+    }
+
+    private static func normalizeAbsolutePath(_ path: String) -> String {
+        guard !path.isEmpty else { return "/" }
+        let absolutePath = path.hasPrefix("/") ? path : "/\(path)"
+        var normalized = (absolutePath as NSString).standardizingPath
+        if normalized.isEmpty || normalized == "." { return "/" }
+        if !normalized.hasPrefix("/") { normalized = "/\(normalized)" }
+        while normalized.count > 1 && normalized.hasSuffix("/") {
+            normalized.removeLast()
+        }
+        return normalized
+    }
+}
+
+/// Keeps FTP callback quirks from turning an incomplete transfer into a
+/// durable cache entry. FilesProvider can invoke a completion more than once
+/// while validating the final control reply; its additional MLST fallback
+/// callback source is disabled below.
+public enum FTPTransferPolicy {
+    /// FilesProvider 0.26's MLST fallback calls its attribute completion twice.
+    /// Its RETR path starts a transfer for both callbacks, so callers that add
+    /// their own retry must use the dependency's single-callback LIST path.
+    public static let usesRFC3659ForAttributes = false
+
+    public enum CallbackDecision: Equatable, Sendable {
+        case accept
+        case retry
+        case awaitRetry
+        case fail
+    }
+
+    public enum PromotionDecision: Equatable, Sendable {
+        case rejectTemporary
+        case useExistingTarget
+        case promoteTemporary
+        case replaceIncompleteTarget
+    }
+
+    public struct RangePlan: Equatable, Sendable {
+        public let offset: Int64
+        public let expectedLength: Int
+
+        public init(offset: Int64, expectedLength: Int) {
+            self.offset = offset
+            self.expectedLength = expectedLength
+        }
+    }
+
+    /// A full-file callback is valid only when the transport itself succeeded
+    /// and the staged file has the exact advertised byte count. This matters
+    /// for zero-byte files because a failed transfer may still leave an empty
+    /// destination behind.
+    public static func downloadPayloadIsValid(
+        expectedSize: Int64,
+        actualSize: Int64?,
+        errorOccurred: Bool
+    ) -> Bool {
+        !errorOccurred && expectedSize >= 0 && actualSize == expectedSize
+    }
+
+    /// Converts regular and suffix requests into a nonnegative, EOF-clipped
+    /// range whose expected byte count fits FilesProvider's `Int` API.
+    public static func rangePlan(
+        fileSize: Int64,
+        requestedOffset: Int64,
+        requestedLength: Int64
+    ) -> RangePlan {
+        let safeFileSize = max(0, fileSize)
+        let actualOffset = requestedOffset < 0
+            ? max(0, safeFileSize + requestedOffset)
+            : requestedOffset
+        let available = actualOffset < safeFileSize
+            ? safeFileSize - actualOffset
+            : 0
+        let boundedLength = min(
+            max(0, requestedLength),
+            min(available, Int64(Int.max))
+        )
+        return RangePlan(offset: actualOffset, expectedLength: Int(boundedLength))
+    }
+
+    /// A positive range is complete only when its callback contains every
+    /// EOF-clipped byte and no transport error accompanied the buffer.
+    public static func rangePayloadIsValid(
+        expectedLength: Int,
+        actualLength: Int?,
+        errorOccurred: Bool
+    ) -> Bool {
+        !errorOccurred && expectedLength >= 0 && actualLength == expectedLength
+    }
+
+    /// A valid payload from either attempt wins. The first failed callback
+    /// starts one retry; duplicate callbacks from that first attempt are
+    /// ignored while the retry is active.
+    public static func callbackDecision(
+        attempt: Int,
+        payloadIsValid: Bool,
+        retryAlreadyStarted: Bool
+    ) -> CallbackDecision {
+        if payloadIsValid { return .accept }
+        if attempt == 0 {
+            return retryAlreadyStarted ? .awaitRetry : .retry
+        }
+        return .fail
+    }
+
+    /// FTP is byte-preserving in binary mode, so only an exact byte count may
+    /// be promoted. If another concurrent request already installed an exact
+    /// target, that target wins and the redundant temporary file is discarded.
+    public static func promotionDecision(
+        expectedSize: Int64,
+        temporarySize: Int64?,
+        existingTargetSize: Int64?
+    ) -> PromotionDecision {
+        guard expectedSize >= 0, temporarySize == expectedSize else {
+            return .rejectTemporary
+        }
+        if existingTargetSize == expectedSize {
+            return .useExistingTarget
+        }
+        if existingTargetSize != nil {
+            return .replaceIncompleteTarget
+        }
+        return .promoteTemporary
+    }
+}
+
+/// Resolves a callback/cancellation race exactly once, including cancellation
+/// that arrives before the checked continuation has been installed.
+public final class CancellableResultRace<Value: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Value, any Error>?
+    private var pendingResult: Result<Value, any Error>?
+    private var resolved = false
+
+    public init() {}
+
+    public var isResolved: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return resolved
+    }
+
+    public func install(_ continuation: CheckedContinuation<Value, any Error>) {
+        lock.lock()
+        if let pendingResult {
+            self.pendingResult = nil
+            lock.unlock()
+            continuation.resume(with: pendingResult)
+        } else {
+            self.continuation = continuation
+            lock.unlock()
+        }
+    }
+
+    @discardableResult
+    public func resolve(_ result: Result<Value, any Error>) -> Bool {
+        lock.lock()
+        guard !resolved else {
+            lock.unlock()
+            return false
+        }
+        resolved = true
+        let continuation = continuation
+        self.continuation = nil
+        if continuation == nil {
+            pendingResult = result
+        }
+        lock.unlock()
+        continuation?.resume(with: result)
+        return true
+    }
+
+    @discardableResult
+    public func cancel() -> Bool {
+        resolve(.failure(CancellationError()))
+    }
+}
+
+/// A one-shot bag for transport resources that may be installed concurrently
+/// with termination. Resources already present are cancelled by `cancelAll`;
+/// resources registered after termination are cancelled immediately.
+public final class OneShotCancellationRegistry: @unchecked Sendable {
+    private let lock = NSLock()
+    private var actions: [@Sendable () -> Void] = []
+    private var terminated = false
+
+    public init() {}
+
+    /// Returns `true` when the action was retained for later cancellation and
+    /// `false` when termination had already happened and it ran immediately.
+    @discardableResult
+    public func register(_ action: @escaping @Sendable () -> Void) -> Bool {
+        lock.lock()
+        guard !terminated else {
+            lock.unlock()
+            action()
+            return false
+        }
+        actions.append(action)
+        lock.unlock()
+        return true
+    }
+
+    @discardableResult
+    public func cancelAll() -> Int {
+        lock.lock()
+        terminated = true
+        let pending = actions
+        actions.removeAll()
+        lock.unlock()
+        pending.forEach { $0() }
+        return pending.count
+    }
+}
+
+/// Thread-safe cancellation registry used when one logical connector owns
+/// several isolated transport sessions. `cancelAll` takes the actions before
+/// invoking them so callbacks may unregister themselves without deadlocking.
+public final class CancellableOperationRegistry: @unchecked Sendable {
+    private let lock = NSLock()
+    private var actions: [UUID: @Sendable () -> Void] = [:]
+
+    public init() {}
+
+    @discardableResult
+    public func register(_ action: @escaping @Sendable () -> Void) -> UUID {
+        let id = UUID()
+        lock.lock()
+        actions[id] = action
+        lock.unlock()
+        return id
+    }
+
+    public func unregister(_ id: UUID) {
+        lock.lock()
+        actions[id] = nil
+        lock.unlock()
+    }
+
+    @discardableResult
+    public func cancelAll() -> Int {
+        lock.lock()
+        let pending = Array(actions.values)
+        actions.removeAll()
+        lock.unlock()
+        pending.forEach { $0() }
+        return pending.count
+    }
+}
+
+/// Owns cancellable operations for exactly one connection generation.
+/// Closing a generation forms a latch: registrations that race or arrive
+/// afterward are cancelled immediately, while a stale close cannot affect a
+/// newer connection.
+public final class ConnectionScopedOperationRegistry: @unchecked Sendable {
+    public struct Generation: Hashable, Sendable {
+        fileprivate let value: UInt64
+    }
+
+    private let lock = NSLock()
+    private var nextGeneration: UInt64 = 0
+    private var activeGeneration: Generation?
+    private var actions: [UUID: @Sendable () -> Void] = [:]
+
+    public init() {}
+
+    /// Opens a fresh generation and cancels any operations left behind by a
+    /// previous generation before returning its token.
+    @discardableResult
+    public func open() -> Generation {
+        lock.lock()
+        nextGeneration &+= 1
+        let generation = Generation(value: nextGeneration)
+        activeGeneration = generation
+        let stale = Array(actions.values)
+        actions.removeAll()
+        lock.unlock()
+        stale.forEach { $0() }
+        return generation
+    }
+
+    /// Returns an ID only when the supplied generation is still open. A
+    /// rejected registration is cancelled synchronously and is never retained.
+    @discardableResult
+    public func register(
+        for generation: Generation,
+        _ action: @escaping @Sendable () -> Void
+    ) -> UUID? {
+        let id = UUID()
+        lock.lock()
+        guard activeGeneration == generation else {
+            lock.unlock()
+            action()
+            return nil
+        }
+        actions[id] = action
+        lock.unlock()
+        return id
+    }
+
+    public func unregister(_ id: UUID) {
+        lock.lock()
+        actions[id] = nil
+        lock.unlock()
+    }
+
+    public func isActive(_ generation: Generation) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return activeGeneration == generation
+    }
+
+    /// Closes only the matching generation. Every retained operation is
+    /// cancelled exactly once; later registrations for that token cancel
+    /// themselves immediately.
+    @discardableResult
+    public func close(_ generation: Generation) -> Int {
+        lock.lock()
+        guard activeGeneration == generation else {
+            lock.unlock()
+            return 0
+        }
+        activeGeneration = nil
+        let pending = Array(actions.values)
+        actions.removeAll()
+        lock.unlock()
+        pending.forEach { $0() }
+        return pending.count
+    }
+
+    public var activeOperationCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return actions.count
+    }
+}
+
 public enum PrimuseConstants {
     public static let appGroupIdentifier = "group.com.welape.yuanyin"
     public static let playbackStateKey = "playbackState"
@@ -581,6 +1184,125 @@ public enum AppleMusicQueueOwnershipPolicy {
     }
 }
 
+public enum NetworkCredentialPolicy {
+    public enum LookupResult: Equatable, Sendable {
+        case found(String)
+        case notFound
+        case temporarilyUnavailable(Int32)
+        case failed(Int32)
+
+        public var password: String? {
+            guard case .found(let password) = self else { return nil }
+            return password
+        }
+    }
+
+    public enum ConnectorResolution: Equatable, Sendable {
+        case ready(String)
+        case temporarilyUnavailable(Int32)
+        case failed(Int32)
+    }
+
+    public static func username(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    public static func password(_ value: String) -> String {
+        value
+    }
+
+    public static func resolveForConnector(_ lookup: LookupResult) -> ConnectorResolution {
+        switch lookup {
+        case .found(let password): return .ready(password)
+        case .notFound: return .ready("")
+        case .temporarilyUnavailable(let status): return .temporarilyUnavailable(status)
+        case .failed(let status): return .failed(status)
+        }
+    }
+
+    /// A replacement credential is eligible for persistence only after the
+    /// remote service has accepted it and an authenticated browse request has
+    /// succeeded. Until then callers must keep using the last durable value.
+    public static func validatedReplacement(
+        candidate: String?,
+        loginSucceeded: Bool,
+        browserReady: Bool
+    ) -> String? {
+        guard loginSucceeded, browserReady else { return nil }
+        return candidate
+    }
+}
+
+/// NIOSSH advertises only AES-GCM transport ciphers by default. Some NAS SSH
+/// servers (including Dropbear builds) advertise CTR ciphers instead, so SFTP
+/// must add the narrow compatibility cipher before key exchange begins.
+public enum SFTPTransportCompatibilityPolicy {
+    public enum Profile: Equatable, Sendable {
+        case libraryDefaults
+        case aes128CTR
+    }
+
+    public static let connectionProfile: Profile = .aes128CTR
+
+    public static func hasCipherOverlap(
+        client: Set<String>,
+        server: Set<String>
+    ) -> Bool {
+        !client.isDisjoint(with: server)
+    }
+}
+
+/// Resolves Keychain lookup results for Scrobble providers without treating a
+/// read failure as a definitively missing token. Providers whose credentials
+/// are temporarily unreadable remain eligible for the durable retry queue;
+/// providers that are definitively unconfigured do not create new queue rows.
+public enum ScrobbleCredentialAvailabilityPolicy {
+    public enum ValueResolution: Equatable, Sendable {
+        case ready(String)
+        case notConfigured
+        case unavailable
+    }
+
+    public enum ProviderResolution: Equatable, Sendable {
+        case ready
+        case notConfigured
+        case unavailable
+    }
+
+    public static func resolveValue(
+        _ lookup: NetworkCredentialPolicy.LookupResult,
+        fallback: String = ""
+    ) -> ValueResolution {
+        switch lookup {
+        case .found(let value):
+            if !value.isEmpty { return .ready(value) }
+            return fallback.isEmpty ? .notConfigured : .ready(fallback)
+        case .notFound:
+            return fallback.isEmpty ? .notConfigured : .ready(fallback)
+        case .temporarilyUnavailable, .failed:
+            return .unavailable
+        }
+    }
+
+    public static func resolveProvider(
+        _ values: [ValueResolution]
+    ) -> ProviderResolution {
+        guard !values.isEmpty else { return .notConfigured }
+        if values.contains(.unavailable) { return .unavailable }
+        if values.allSatisfy({
+            if case .ready = $0 { return true }
+            return false
+        }) {
+            return .ready
+        }
+        return .notConfigured
+    }
+
+    public static func shouldQueue(_ resolution: ProviderResolution) -> Bool {
+        resolution == .ready || resolution == .unavailable
+    }
+}
+
 /// Distinguishes Apple Music catalog playback from the two kinds of items that
 /// can appear in the user's Music library. A library row is not automatically
 /// subscription-independent: an Apple Music catalog item can remain in the
@@ -588,6 +1310,7 @@ public enum AppleMusicQueueOwnershipPolicy {
 public enum AppleMusicPlaybackSource: Sendable, Equatable {
     case catalog
     case catalogBackedUserLibrary
+    case unverifiedUserLibrary
     case subscriptionIndependentUserLibrary
 }
 
@@ -599,9 +1322,20 @@ public enum AppleMusicPlaybackSourceResolver {
     public static func resolve(
         itemID: String,
         explicitCatalogIDs: Set<String>,
-        genericPlayParameterIDs: Set<String>
+        genericPlayParameterIDs: Set<String>,
+        confirmedLibraryIDs: Set<String>,
+        confirmedLocalFileIDs: Set<String> = []
     ) -> AppleMusicPlaybackSource {
-        guard itemID.hasPrefix("i.") else { return .catalog }
+        let observedLibraryIDs = genericPlayParameterIDs
+            .union(confirmedLibraryIDs)
+            .union([itemID])
+        let hasConfirmedLocalFile = !observedLibraryIDs.isDisjoint(with: confirmedLocalFileIDs)
+
+        // MusicKit on macOS can expose an imported Music.app row using its
+        // signed decimal persistent ID rather than the `i.*` namespace. Such
+        // an ID is library-only only when iTunesLibrary independently confirms
+        // that the row points at a readable, non-DRM local file.
+        guard itemID.hasPrefix("i.") || hasConfirmedLocalFile else { return .catalog }
 
         if explicitCatalogIDs.contains(where: { !$0.isEmpty }) {
             return .catalogBackedUserLibrary
@@ -610,9 +1344,82 @@ public enum AppleMusicPlaybackSourceResolver {
         let hasAlternateCatalogID = genericPlayParameterIDs.contains { candidate in
             !candidate.isEmpty && candidate != itemID && !candidate.hasPrefix("i.")
         }
-        return hasAlternateCatalogID
-            ? .catalogBackedUserLibrary
-            : .subscriptionIndependentUserLibrary
+        if hasAlternateCatalogID {
+            return .catalogBackedUserLibrary
+        }
+
+        if hasConfirmedLocalFile {
+            return .subscriptionIndependentUserLibrary
+        }
+
+        // `i.*` alone only identifies a row in the user's library. It does not
+        // prove that the row is a locally imported, subscription-independent
+        // item. Require the successfully decoded PlayParameters payload to
+        // repeat that library identity; absent or malformed metadata must keep
+        // the subscription preflight so MusicKit cannot hit its no-subscription
+        // assertion path.
+        guard confirmedLibraryIDs.contains(itemID) else {
+            return .unverifiedUserLibrary
+        }
+        return .subscriptionIndependentUserLibrary
+    }
+}
+
+/// Converts the bit pattern exposed by `ITMediaItem.persistentID` into every
+/// decimal representation MusicKit has been observed to use. IDs above
+/// `Int64.max` appear as negative decimal strings in `MusicLibraryRequest`.
+public enum AppleMusicLocalFileIdentity {
+    public static func playbackIdentifiers(forPersistentID persistentID: UInt64) -> Set<String> {
+        [
+            String(persistentID),
+            String(Int64(bitPattern: persistentID)),
+        ]
+    }
+}
+
+/// Requires MusicKit and iTunesLibrary to agree on the same local library row.
+/// A persistent-ID collision, a partial PlayParameters payload, or a non-song
+/// item must not weaken the catalog subscription preflight.
+public enum AppleMusicLocalFileProvenancePolicy {
+    public static func confirmsLibrarySong(
+        itemID: String,
+        playParameterIDs: Set<String>,
+        persistentIDs: Set<String>,
+        declaresLibraryItem: Bool,
+        mediaKinds: Set<String>,
+        confirmedLocalFileIDs: Set<String>
+    ) -> Bool {
+        guard declaresLibraryItem,
+              mediaKinds.contains(where: { $0.caseInsensitiveCompare("song") == .orderedSame }),
+              playParameterIDs.contains(itemID),
+              persistentIDs.contains(itemID),
+              confirmedLocalFileIDs.contains(itemID) else {
+            return false
+        }
+        return true
+    }
+}
+
+/// Chooses the cold-cache lookup endpoint without treating an arbitrary
+/// decimal catalog ID as a user-library item.
+public enum AppleMusicItemLookupPolicy {
+    public static func shouldUseUserLibrary(
+        itemID: String,
+        confirmedLocalFileIDs: Set<String>
+    ) -> Bool {
+        itemID.hasPrefix("i.") || confirmedLocalFileIDs.contains(itemID)
+    }
+}
+
+/// Ends the optimistic loading state after MusicKit either starts producing
+/// playback state or rejects the request during its subscription preflight.
+public enum AppleMusicMirrorLoadingPolicy {
+    public static func shouldFinishLoading(
+        isPlaying: Bool,
+        currentPlaybackTime: TimeInterval,
+        playbackError: String?
+    ) -> Bool {
+        isPlaying || currentPlaybackTime > 0 || !(playbackError?.isEmpty ?? true)
     }
 }
 
@@ -625,6 +1432,50 @@ public enum AppleMusicSubscriptionGatePolicy {
         for source: AppleMusicPlaybackSource
     ) -> Bool {
         source != .subscriptionIndependentUserLibrary
+    }
+}
+
+public struct AppleMusicSystemQueuePlan: Equatable, Sendable {
+    public let retainedIndices: [Int]
+    public let startIndex: Int
+
+    public init(retainedIndices: [Int], startIndex: Int) {
+        self.retainedIndices = retainedIndices
+        self.startIndex = startIndex
+    }
+}
+
+/// Keeps a subscription-independent library start from smuggling catalog-backed
+/// entries into an `ApplicationMusicPlayer` queue after the catalog preflight
+/// has intentionally been bypassed for that starting item.
+public enum AppleMusicSystemQueuePolicy {
+    public static func plan(
+        startingItemID: String,
+        startingSource: AppleMusicPlaybackSource,
+        queuedItemIDs: [String],
+        queuedSources: [AppleMusicPlaybackSource]
+    ) -> AppleMusicSystemQueuePlan? {
+        guard queuedItemIDs.count == queuedSources.count,
+              let originalStartIndex = queuedItemIDs.firstIndex(of: startingItemID) else {
+            return nil
+        }
+
+        let retainedIndices: [Int]
+        if startingSource == .subscriptionIndependentUserLibrary {
+            retainedIndices = queuedSources.indices.filter {
+                queuedSources[$0] == .subscriptionIndependentUserLibrary
+            }
+        } else {
+            retainedIndices = Array(queuedSources.indices)
+        }
+
+        guard let startIndex = retainedIndices.firstIndex(of: originalStartIndex) else {
+            return nil
+        }
+        return AppleMusicSystemQueuePlan(
+            retainedIndices: retainedIndices,
+            startIndex: startIndex
+        )
     }
 }
 
@@ -1283,5 +2134,528 @@ public enum OAuthCallbackURLMatcher {
             && registered.host?.lowercased() == callback.host?.lowercased()
             && registered.port == callback.port
             && registered.percentEncodedPath == callback.percentEncodedPath
+    }
+}
+
+/// Deduplicates concurrent async work while keeping its required persistence
+/// step inside the shared task. Every participant therefore observes the same
+/// success or failure, including failures that happen after the remote work
+/// itself has completed.
+public actor PersistedTaskDeduplicator<Value: Sendable> {
+    private var inFlight: (id: UUID, task: Task<Value, Error>)?
+
+    public init() {}
+
+    public func run(
+        operation: @Sendable @escaping () async throws -> Value,
+        persist: @Sendable @escaping (Value) async throws -> Void
+    ) async throws -> Value {
+        if let inFlight {
+            return try await inFlight.task.value
+        }
+
+        let id = UUID()
+        let task = Task<Value, Error> {
+            let value = try await operation()
+            try await persist(value)
+            return value
+        }
+        inFlight = (id, task)
+
+        do {
+            let value = try await task.value
+            clearInFlight(id: id)
+            return value
+        } catch {
+            clearInFlight(id: id)
+            throw error
+        }
+    }
+
+    /// Retries only the durable write for a value whose remote operation has
+    /// already succeeded. It deliberately shares `inFlight` with `run` so
+    /// concurrent callers neither repeat the remote operation nor race the
+    /// persistence retry.
+    public func retryPersistence(
+        of value: Value,
+        persist: @Sendable @escaping (Value) async throws -> Void
+    ) async throws -> Value {
+        try await run(
+            operation: { value },
+            persist: persist
+        )
+    }
+
+    private func clearInFlight(id: UUID) {
+        if inFlight?.id == id {
+            inFlight = nil
+        }
+    }
+}
+
+/// A source tombstone is the retry target for irreversible credential cleanup.
+/// It may only be removed after every credential store owned by that source
+/// reports success. Unrelated stores must not block deletion: for example, a
+/// network share has no OAuth token, while a cloud drive has no source password.
+public enum SourcePermanentDeletionPolicy {
+    public enum CredentialStore: Hashable, Sendable {
+        case password
+        case cloudCredentials
+    }
+
+    public static func requiredCredentialStores(
+        for sourceType: MusicSourceType,
+        authType: SourceAuthType
+    ) -> Set<CredentialStore> {
+        var stores: Set<CredentialStore> = []
+        if sourceType.requiresCredentials, authType != .none {
+            stores.insert(.password)
+        }
+        if sourceType.isCloudDrive {
+            stores.insert(.cloudCredentials)
+        }
+        return stores
+    }
+
+    public static func canRemoveTombstone(
+        requiredStores: Set<CredentialStore>,
+        passwordDeleted: Bool,
+        cloudCredentialsDeleted: Bool
+    ) -> Bool {
+        (!requiredStores.contains(.password) || passwordDeleted)
+            && (!requiredStores.contains(.cloudCredentials) || cloudCredentialsDeleted)
+    }
+}
+
+/// A queue may contain the same song more than once. Including its position
+/// keeps every visible occurrence distinct while still invalidating a row when
+/// a different song replaces the same queue slot.
+public struct QueueRowIdentity: Hashable, Sendable {
+    public let position: Int
+    public let songID: String
+
+    public init(position: Int, songID: String) {
+        self.position = position
+        self.songID = songID
+    }
+
+    public static func make(for songIDs: [String]) -> [QueueRowIdentity] {
+        songIDs.enumerated().map { position, songID in
+            QueueRowIdentity(position: position, songID: songID)
+        }
+    }
+
+    public static func makeVisible(
+        for songIDs: [String],
+        where isVisible: (String) -> Bool
+    ) -> [QueueRowIdentity] {
+        songIDs.enumerated().compactMap { position, songID in
+            guard isVisible(songID) else { return nil }
+            return QueueRowIdentity(position: position, songID: songID)
+        }
+    }
+}
+
+/// Splits a queue's current shuffle round into played and upcoming occurrences.
+/// `roundOffset` distinguishes the same queue slot when repeat-all previews the
+/// next round, while `queueIndex` keeps duplicate songs in separate slots.
+public struct QueuePresentationOccurrence: Hashable, Sendable {
+    public let queueIndex: Int
+    public let roundOffset: Int
+
+    public init(queueIndex: Int, roundOffset: Int) {
+        self.queueIndex = queueIndex
+        self.roundOffset = roundOffset
+    }
+}
+
+/// Selects a prepared repeat-all shuffle round without regenerating it once a
+/// caller has cached the first result. Callers persist the returned round and
+/// feed it back on subsequent reads so previews, prefetch and playback agree.
+public enum ShuffleRoundPreparationPolicy {
+    public static func preparedRound(
+        pending: [Int]?,
+        generate: () -> [Int]
+    ) -> [Int] {
+        if let pending { return pending }
+        return generate()
+    }
+}
+
+public enum QueuePresentationPolicy {
+    public static func playedOccurrences(
+        queueCount: Int,
+        currentIndex: Int,
+        shuffledIndices: [Int]?,
+        shufflePosition: Int
+    ) -> [QueuePresentationOccurrence] {
+        guard queueCount > 0 else { return [] }
+        guard let shuffledIndices, !shuffledIndices.isEmpty else {
+            let end = min(max(currentIndex, 0), queueCount)
+            return occurrences(in: Array(0..<end), queueCount: queueCount, roundOffset: 0)
+        }
+
+        let currentPosition = min(max(shufflePosition, 0), shuffledIndices.count - 1)
+        let played = Array(shuffledIndices.prefix(currentPosition))
+            .filter { $0 != currentIndex }
+        return occurrences(in: played, queueCount: queueCount, roundOffset: 0)
+    }
+
+    public static func upcomingOccurrences(
+        queueCount: Int,
+        currentIndex: Int,
+        shuffledIndices: [Int]?,
+        shufflePosition: Int,
+        nextRoundIndices: [Int]?
+    ) -> [QueuePresentationOccurrence] {
+        guard queueCount > 0 else { return [] }
+        guard let shuffledIndices, !shuffledIndices.isEmpty else {
+            let start = min(max(currentIndex + 1, 0), queueCount)
+            return occurrences(in: Array(start..<queueCount), queueCount: queueCount, roundOffset: 0)
+        }
+
+        let currentPosition = min(max(shufflePosition, 0), shuffledIndices.count - 1)
+        let consumedCurrentRound = Set(
+            shuffledIndices.prefix(currentPosition + 1).filter { (0..<queueCount).contains($0) }
+        )
+        let remaining = shuffledIndices.dropFirst(currentPosition + 1).filter {
+            $0 != currentIndex && !consumedCurrentRound.contains($0)
+        }
+        var result = occurrences(
+            in: Array(remaining),
+            queueCount: queueCount,
+            roundOffset: 0
+        )
+        if let nextRoundIndices {
+            result.append(contentsOf: occurrences(
+                in: nextRoundIndices,
+                queueCount: queueCount,
+                roundOffset: 1
+            ))
+        }
+        return result
+    }
+
+    private static func occurrences(
+        in indices: [Int],
+        queueCount: Int,
+        roundOffset: Int
+    ) -> [QueuePresentationOccurrence] {
+        var seen = Set<Int>()
+        return indices.compactMap { index in
+            guard (0..<queueCount).contains(index), seen.insert(index).inserted else { return nil }
+            return QueuePresentationOccurrence(queueIndex: index, roundOffset: roundOffset)
+        }
+    }
+}
+
+/// Resolves queue navigation against the current library without mutating the
+/// canonical queue. This lets playback survive source removal or disablement.
+public enum QueueTraversalPolicy {
+    public static func nextAvailableIndex(
+        queueCount: Int,
+        after currentIndex: Int,
+        wraps: Bool,
+        isAvailable: (Int) -> Bool
+    ) -> Int? {
+        guard queueCount > 0 else { return nil }
+
+        let forwardStart = max(0, currentIndex + 1)
+        if forwardStart < queueCount {
+            for index in forwardStart..<queueCount where isAvailable(index) {
+                return index
+            }
+        }
+
+        guard wraps, currentIndex >= 0 else { return nil }
+        let wrapEnd = min(currentIndex, queueCount - 1)
+        for index in 0...wrapEnd where isAvailable(index) {
+            return index
+        }
+        return nil
+    }
+
+    public static func previousAvailableIndex(
+        before currentIndex: Int,
+        isAvailable: (Int) -> Bool
+    ) -> Int? {
+        guard currentIndex > 0 else { return nil }
+        for index in stride(from: currentIndex - 1, through: 0, by: -1)
+        where isAvailable(index) {
+            return index
+        }
+        return nil
+    }
+}
+
+/// Rejects asynchronous playback work after another selection supersedes it.
+/// Cancellation alone is insufficient because a resolver may finish normally
+/// after its owning task has been cancelled.
+public enum PlaybackRequestGenerationPolicy {
+    public static func shouldApplyResult<RequestID: Equatable>(
+        requestID: RequestID,
+        activeRequestID: RequestID?,
+        isCancelled: Bool
+    ) -> Bool {
+        !isCancelled && requestID == activeRequestID
+    }
+}
+
+/// Keeps playback-owner transitions consistent without depending on any Apple
+/// framework types. A pending Apple Music request already owns the upcoming
+/// audio session even before its song has reached the shared now-playing UI.
+public enum AppleMusicPlaybackOwnershipPolicy {
+    /// Every local playback entry point must await a renderer Stop that was
+    /// detached for an Apple Music handoff. Looking only at the visible cast
+    /// controller is insufficient because it is nil while Stop is in flight.
+    public static func shouldAwaitCastingHandoff(
+        isLocalPlayback: Bool,
+        hasPendingHandoff: Bool
+    ) -> Bool {
+        isLocalPlayback && hasPendingHandoff
+    }
+
+    public static func canStartCasting(
+        isAppleMusicMode: Bool,
+        hasActivePlaybackRequest: Bool
+    ) -> Bool {
+        !isAppleMusicMode && !hasActivePlaybackRequest
+    }
+
+    /// Local decoder callbacks need a fresh generation at end-of-track. Apple
+    /// Music natural-end callbacks are already request-scoped, and retaining
+    /// their token keeps the state mirror alive for replay from the stopped UI.
+    public static func shouldInvalidatePlayIDAtTrackEnd(
+        isAppleMusicMode: Bool,
+        hasActivePlaybackRequest: Bool
+    ) -> Bool {
+        !isAppleMusicMode && !hasActivePlaybackRequest
+    }
+}
+
+/// Revalidates every condition that makes a user-library playback request
+/// meaningful after a shared sync suspension.
+public enum AppleMusicLibraryPlaybackGatePolicy {
+    public static func canContinue(
+        requestIsPending: Bool,
+        isCancelled: Bool,
+        syncEnabled: Bool,
+        sourceEnabled: Bool,
+        isAuthorized: Bool
+    ) -> Bool {
+        requestIsPending
+            && !isCancelled
+            && syncEnabled
+            && sourceEnabled
+            && isAuthorized
+    }
+}
+
+/// Prevents a delayed error-dismiss timer from clearing a newer playback
+/// request's message, including the case where the text happens to match.
+public enum PlaybackErrorDismissalPolicy {
+    public static func shouldDismiss<RequestID: Equatable>(
+        requestID: RequestID?,
+        activeRequestID: RequestID?,
+        scheduledMessage: String,
+        currentMessage: String?,
+        isCancelled: Bool
+    ) -> Bool {
+        !isCancelled
+            && requestID == activeRequestID
+            && scheduledMessage == currentMessage
+    }
+}
+
+/// An AVPlayer end notification is valid only for the item that is both still
+/// active in the engine and still installed on the player. This rejects queued
+/// notifications from an item detached by a newer selection or cancellation.
+public enum PlaybackEndIdentityPolicy {
+    public static func shouldAdvance<ItemID: Equatable>(
+        endedItemID: ItemID,
+        activeItemID: ItemID?,
+        currentItemID: ItemID?
+    ) -> Bool {
+        endedItemID == activeItemID && endedItemID == currentItemID
+    }
+}
+
+/// Limits tvOS decoded-playback cleanup to files created in the immediate
+/// temporary directory with the app-owned prefix. The guard prevents an
+/// unexpected URL from turning lifecycle cleanup into an arbitrary deletion.
+public enum TVDecodedTemporaryFilePolicy {
+    public static let fileNamePrefix = "tvsfb-"
+
+    public static func makeURL(
+        in temporaryDirectory: URL,
+        fileExtension: String,
+        identifier: UUID = UUID()
+    ) -> URL {
+        let sanitizedExtension = fileExtension
+            .lowercased()
+            .filter { $0.isLetter || $0.isNumber }
+        let resolvedExtension = sanitizedExtension.isEmpty ? "bin" : sanitizedExtension
+        return temporaryDirectory.appendingPathComponent(
+            "\(fileNamePrefix)\(identifier.uuidString).\(resolvedExtension)",
+            isDirectory: false
+        )
+    }
+
+    public static func isManagedFile(
+        _ fileURL: URL,
+        in temporaryDirectory: URL
+    ) -> Bool {
+        guard fileURL.isFileURL, temporaryDirectory.isFileURL else { return false }
+        let standardizedFile = fileURL.standardizedFileURL
+        let standardizedDirectory = temporaryDirectory.standardizedFileURL
+        return standardizedFile.deletingLastPathComponent().path == standardizedDirectory.path
+            && standardizedFile.lastPathComponent.hasPrefix(fileNamePrefix)
+    }
+
+    @discardableResult
+    public static func removeIfManaged(
+        _ fileURL: URL,
+        in temporaryDirectory: URL,
+        fileManager: FileManager = .default
+    ) throws -> Bool {
+        guard isManagedFile(fileURL, in: temporaryDirectory),
+              fileManager.fileExists(atPath: fileURL.path) else {
+            return false
+        }
+        try fileManager.removeItem(at: fileURL)
+        return true
+    }
+}
+
+/// Validates the byte-accounting boundaries shared by tvOS whole-file decoder
+/// downloads. Short nonempty chunks may continue, but empty/oversized chunks
+/// and any final byte-count mismatch must fail closed.
+public enum ExactChunkedDownloadPolicy {
+    public enum ChunkDecision: Equatable, Sendable {
+        case append
+        case rejectEmpty
+        case rejectOversized
+    }
+
+    public static func contentLengthIsValid(_ contentLength: Int64) -> Bool {
+        contentLength >= 0
+    }
+
+    public static func chunkDecision(
+        requestedLength: Int64,
+        receivedLength: Int
+    ) -> ChunkDecision {
+        guard receivedLength > 0 else { return .rejectEmpty }
+        guard requestedLength > 0,
+              Int64(receivedLength) <= requestedLength else {
+            return .rejectOversized
+        }
+        return .append
+    }
+
+    public static func isComplete(
+        expectedLength: Int64,
+        writtenLength: Int64
+    ) -> Bool {
+        expectedLength >= 0 && writtenLength == expectedLength
+    }
+}
+
+/// A library can contain playable tracks without any album grouping. Presence
+/// checks must therefore consider visible songs instead of treating albums as
+/// the sole proof that the local snapshot is usable.
+public enum VisibleLibraryPresencePolicy {
+    public static func hasContent(songCount: Int, albumCount: Int) -> Bool {
+        songCount > 0 || albumCount > 0
+    }
+}
+
+/// Chooses a tvOS home hero without assuming every playable song belongs to a
+/// visible album. Albumless libraries use a song-backed whole-library hero so
+/// the title, artist, count, and play-all controls remain meaningful.
+public enum TVHomeHeroPolicy {
+    public enum Content: Equatable, Sendable {
+        case album
+        case song
+        case empty
+    }
+
+    public static func content(
+        totalSongCount: Int,
+        albumCount: Int,
+        candidateAlbumSongCount: Int
+    ) -> Content {
+        if albumCount > 0,
+           candidateAlbumSongCount > 0 || totalSongCount <= 0 {
+            return .album
+        }
+        if totalSongCount > 0 { return .song }
+        return .empty
+    }
+
+    public static func displayedSongCount(
+        for content: Content,
+        totalSongCount: Int,
+        candidateAlbumSongCount: Int
+    ) -> Int {
+        switch content {
+        case .album:
+            return max(0, candidateAlbumSongCount)
+        case .song:
+            return max(0, totalSongCount)
+        case .empty:
+            return 0
+        }
+    }
+}
+
+/// Publishes the durable local snapshot before any remote synchronization can
+/// suspend startup, then applies the downloaded snapshot while retaining the
+/// local state needed by the caller's merge policy.
+public enum LocalFirstSnapshotBootstrap {
+    @MainActor
+    public static func run<LocalState>(
+        publishLocal: () -> LocalState,
+        download: () async -> Void,
+        applyDownloaded: (LocalState) -> Void
+    ) async {
+        let localState = publishLocal()
+        await download()
+        applyDownloaded(localState)
+    }
+}
+
+/// Keeps the directory browser's display paths separate from connector-native
+/// root paths. S3 uses an empty prefix for the bucket root, while the shared
+/// browser represents its root breadcrumb as `/`.
+public enum SourceDirectorySelectionPolicy {
+    /// Path passed to the connector for a path shown by the shared browser.
+    public static func connectorPath(
+        for sourceType: MusicSourceType,
+        browserPath: String
+    ) -> String {
+        guard sourceType == .s3, browserPath == "/" else { return browserPath }
+        return ""
+    }
+
+    /// Selectable scan path for the current browser root, when supported.
+    /// Only S3 exposes its bucket root as an explicit scan scope.
+    public static func selectableRootPath(
+        for sourceType: MusicSourceType,
+        browserPath: String
+    ) -> String? {
+        guard sourceType == .s3,
+              browserPath.isEmpty || browserPath == "/" else { return nil }
+        return ""
+    }
+
+    /// Selecting the S3 bucket root covers all child prefixes, so it is kept
+    /// as the sole scope. Lists containing only child paths remain unchanged.
+    public static func normalizedSelections(
+        _ directories: [String],
+        for sourceType: MusicSourceType
+    ) -> [String] {
+        guard sourceType == .s3, directories.contains("") else { return directories }
+        return [""]
     }
 }

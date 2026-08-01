@@ -3,16 +3,7 @@ import Security
 import PrimuseKit
 
 enum KeychainService {
-    enum PasswordLookupResult: Equatable {
-        case found(String)
-        case notFound
-        case temporarilyUnavailable(OSStatus)
-
-        var password: String? {
-            guard case .found(let password) = self else { return nil }
-            return password
-        }
-    }
+    typealias PasswordLookupResult = NetworkCredentialPolicy.LookupResult
 
     /// In-memory mirror of credentials that were successfully persisted and
     /// then read in this app session. Two reasons:
@@ -85,20 +76,41 @@ enum KeychainService {
         // Persisting real credentials in UserDefaults would expose them as
         // plaintext, so the fallback is available only for explicitly opted-in
         // fake QA credentials. Normal simulator runs fail closed.
-        if finalStatus == errSecMissingEntitlement {
-            guard simulatorPlaintextFallbackEnabled else {
-                purgeSimulatorPlaintextFallback()
+        if !simulatorPlaintextFallbackEnabled {
+            purgeSimulatorPlaintextFallback()
+            if finalStatus == errSecMissingEntitlement {
                 plog("⚠️ Keychain unavailable (-34018); plaintext simulator credential fallback is disabled")
                 return false
             }
-            let stored = simulatorFallbackWrite(password, for: account)
-            if stored {
+        } else {
+            // Simulator installs can move between signed and unsigned builds.
+            // Keep the explicitly enabled QA fallback synchronized so a later
+            // entitlement transition cannot revive an older fake credential.
+            let fallbackWriteOutcome: SimulatorCredentialWriteOutcome
+            switch finalStatus {
+            case errSecSuccess:
+                fallbackWriteOutcome = .primarySucceeded
+            case errSecMissingEntitlement:
+                fallbackWriteOutcome = .missingEntitlement
+            default:
+                fallbackWriteOutcome = .otherFailure
+            }
+            let fallbackMutation = SimulatorCredentialFallbackPolicy.mutation(
+                after: fallbackWriteOutcome
+            )
+            guard applySimulatorFallbackMutation(
+                fallbackMutation,
+                password: password,
+                for: account
+            ) else {
+                plog("⚠️ Simulator credential fallback write failed for account=\(account.prefix(8))…")
+                return false
+            }
+            if finalStatus == errSecMissingEntitlement {
                 cacheWrite(password, for: account)
                 plog("🔐 Keychain unavailable (-34018); saved explicitly enabled fake QA credential for account=\(account.prefix(8))…")
-            } else {
-                plog("⚠️ Simulator credential fallback write failed for account=\(account.prefix(8))…")
+                return true
             }
-            return stored
         }
         #endif
 
@@ -143,6 +155,16 @@ enum KeychainService {
         passwordLookup(for: account).password
     }
 
+    /// Resolves a source credential without collapsing Keychain failures into
+    /// an empty secret. Anonymous/non-credential sources intentionally receive
+    /// an empty value; every other read error must stop before network auth.
+    static func connectorCredential(for source: MusicSource) -> NetworkCredentialPolicy.ConnectorResolution {
+        guard source.type.requiresCredentials, source.authType != .none else {
+            return .ready("")
+        }
+        return NetworkCredentialPolicy.resolveForConnector(passwordLookup(for: source.id))
+    }
+
     /// Keeps "no saved credential" separate from a temporarily unreadable
     /// Keychain (for example before the first device unlock). Authentication
     /// callers must not turn the latter into an empty-password login attempt.
@@ -175,28 +197,51 @@ enum KeychainService {
         let status = SecItemCopyMatching(query as CFDictionary, &result)
 
         #if DEBUG && targetEnvironment(simulator)
-        if status == errSecMissingEntitlement, !simulatorPlaintextFallbackEnabled {
+        let fallbackEnabled = simulatorPlaintextFallbackEnabled
+        if !fallbackEnabled {
             purgeSimulatorPlaintextFallback()
-            plog("🔑 Keychain temporarily unavailable; plaintext simulator credential fallback is disabled")
-            return .temporarilyUnavailable(status)
+            if status == errSecMissingEntitlement {
+                plog("🔑 Keychain temporarily unavailable; plaintext simulator credential fallback is disabled")
+                return .temporarilyUnavailable(status)
+            }
         }
-        if status == errSecMissingEntitlement,
-           let password = simulatorFallbackRead(for: account) {
+        let fallbackPassword = fallbackEnabled ? simulatorFallbackRead(for: account) : nil
+        let primaryRead: SimulatorCredentialPrimaryRead
+        switch status {
+        case errSecSuccess:
+            primaryRead = .found
+        case errSecItemNotFound:
+            primaryRead = .itemNotFound
+        case errSecMissingEntitlement:
+            primaryRead = .missingEntitlement
+        default:
+            primaryRead = .unavailable
+        }
+        if SimulatorCredentialFallbackPolicy.readSource(
+            primary: primaryRead,
+            fallbackExists: fallbackPassword != nil
+        ) == .fallback,
+           let password = fallbackPassword {
             cacheWrite(password, for: account)
-            plog("🔑 Keychain getPassword HIT (simulator fallback) account=\(account.prefix(8))…")
+            plog("🔑 Keychain getPassword HIT (simulator fallback) primaryStatus=\(status) account=\(account.prefix(8))…")
             return .found(password)
         }
         if status == errSecMissingEntitlement {
             plog("🔑 Keychain getPassword MISS (simulator fallback) account=\(account.prefix(8))…")
-            return .notFound
+            return .temporarilyUnavailable(status)
         }
         #endif
 
         guard status == errSecSuccess else {
             plog("🔑 Keychain getPassword MISS status=\(status) account=\(account.prefix(8))…")
-            return status == errSecItemNotFound
-                ? .notFound
-                : .temporarilyUnavailable(status)
+            switch status {
+            case errSecItemNotFound:
+                return .notFound
+            case errSecInteractionNotAllowed, errSecNotAvailable:
+                return .temporarilyUnavailable(status)
+            default:
+                return .failed(status)
+            }
         }
 
         let items: [[String: Any]]
@@ -206,7 +251,7 @@ enum KeychainService {
             items = [match]
         } else {
             plog("🔑 Keychain getPassword unreadable result account=\(account.prefix(8))…")
-            return .temporarilyUnavailable(errSecDecode)
+            return .failed(errSecDecode)
         }
 
         // Prefer the local (non-synchronizable) entry; fall back to any match.
@@ -214,12 +259,12 @@ enum KeychainService {
             ?? items.first
         guard let data = chosen?[kSecValueData as String] as? Data else {
             plog("🔑 Keychain getPassword MISS status=\(status) account=\(account.prefix(8))…")
-            return .temporarilyUnavailable(errSecDecode)
+            return .failed(errSecDecode)
         }
 
         guard let pw = String(data: data, encoding: .utf8) else {
             plog("🔑 Keychain getPassword decode failed account=\(account.prefix(8))…")
-            return .temporarilyUnavailable(errSecDecode)
+            return .failed(errSecDecode)
         }
         // Promote to memory cache so subsequent reads skip the keychain.
         cacheWrite(pw, for: account)
@@ -227,11 +272,8 @@ enum KeychainService {
         return .found(pw)
     }
 
-    static func deletePassword(for account: String) {
-        cacheWrite(nil, for: account)
-        #if DEBUG && targetEnvironment(simulator)
-        simulatorFallbackDelete(for: account)
-        #endif
+    @discardableResult
+    static func deletePassword(for account: String) -> Bool {
         // Always sweep BOTH synchronizable and non-synchronizable variants with
         // `kSecAttrSynchronizableAny`, regardless of the current `credentials`
         // channel state. If we honored the channel toggle here, turning the
@@ -247,7 +289,32 @@ enum KeychainService {
         if Self.supportsSynchronizableKeychainAttributes {
             query[kSecAttrSynchronizable as String] = kSecAttrSynchronizableAny
         }
-        SecItemDelete(query as CFDictionary)
+        let status = SecItemDelete(query as CFDictionary)
+        #if DEBUG && targetEnvironment(simulator)
+        if status == errSecMissingEntitlement {
+            let deletedFallback = applySimulatorFallbackMutation(
+                SimulatorCredentialFallbackPolicy.mutation(after: .explicitDelete),
+                password: nil,
+                for: account
+            )
+            if deletedFallback { cacheWrite(nil, for: account) }
+            return deletedFallback
+        }
+        #endif
+
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            plog("⚠️ Keychain delete failed for account=\(account.prefix(8))… status=\(status)")
+            return false
+        }
+        #if DEBUG && targetEnvironment(simulator)
+        guard applySimulatorFallbackMutation(
+            SimulatorCredentialFallbackPolicy.mutation(after: .explicitDelete),
+            password: nil,
+            for: account
+        ) else { return false }
+        #endif
+        cacheWrite(nil, for: account)
+        return true
     }
 
     private static func persistPasswordItem(
@@ -337,14 +404,33 @@ enum KeychainService {
         return simulatorFallbackRead(for: account) == password
     }
 
-    private static func simulatorFallbackDelete(for account: String) {
+    private static func simulatorFallbackDelete(for account: String) -> Bool {
         var values = UserDefaults.standard.dictionary(forKey: simulatorFallbackDefaultsKey)
             as? [String: String] ?? [:]
-        guard values.removeValue(forKey: account) != nil else { return }
+        guard values.removeValue(forKey: account) != nil else { return true }
         if values.isEmpty {
             UserDefaults.standard.removeObject(forKey: simulatorFallbackDefaultsKey)
         } else {
             UserDefaults.standard.set(values, forKey: simulatorFallbackDefaultsKey)
+        }
+        let stored = UserDefaults.standard.dictionary(forKey: simulatorFallbackDefaultsKey)
+            as? [String: String]
+        return stored?[account] == nil
+    }
+
+    private static func applySimulatorFallbackMutation(
+        _ mutation: SimulatorCredentialFallbackMutation,
+        password: String?,
+        for account: String
+    ) -> Bool {
+        switch mutation {
+        case .replace:
+            guard let password else { return false }
+            return simulatorFallbackWrite(password, for: account)
+        case .preserve:
+            return true
+        case .remove:
+            return simulatorFallbackDelete(for: account)
         }
     }
     #endif

@@ -314,8 +314,13 @@
 "enable" = "Activer";
 "disabled" = "Désactivé";
 "delete_song_message" = "Lorsque la source prend en charge la suppression, le fichier du morceau source sera supprimé. Les fichiers de pochette/paroles du même nom ne sont supprimés que si aucun autre morceau ne les utilise, et les caches locaux sont effacés.";
+"delete_song_failed_title" = "Échec de la suppression";
+"delete_song_failed_message" = "Le fichier source n’a pas pu être supprimé. Le morceau a été conservé dans la bibliothèque. Vérifiez que la source n’est pas en lecture seule et contrôlez les autorisations du compte, puis réessayez.";
 "scan" = "Analyser";
 "password_edit_hint" = "Laissez vide pour conserver le mot de passe actuel";
+"synology_password_edit_validation_title" = "Le mot de passe Synology nécessite une validation de connexion";
+"synology_password_edit_validation_hint" = "Les mots de passe Synology sont vérifiés et mis à jour lors de la connexion ; le mot de passe actuel reste inchangé.";
+"synology_password_update_save_failed" = "DSM a accepté le nouveau mot de passe, mais il n’a pas pu être enregistré de façon sécurisée. Le mot de passe enregistré reste inchangé. Réessayez.";
 "anonymous_login_hint" = "Aucun identifiant n'est utilisé ; les identifiants enregistrés sont supprimés lors de l'enregistrement";
 "select_directories" = "Sélectionner des dossiers";
 "scan_directories" = "Analyser les dossiers";
@@ -1962,3 +1967,4 @@
 "credential_save_failed_title" = "Échec de l’enregistrement des identifiants";
 "credential_save_failed_message" = "Le mot de passe n’a pas pu être enregistré de façon sécurisée. La source n’a pas été enregistrée. Réessayez.";
 "credential_temporarily_unavailable" = "Le mot de passe est temporairement indisponible. Déverrouillez votre appareil et réessayez.";
+"credential_read_failed" = "Le mot de passe enregistré n’a pas pu être lu de façon sécurisée. Réessayez ou mettez à jour les identifiants.";

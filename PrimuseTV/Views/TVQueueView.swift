@@ -4,13 +4,24 @@ import PrimuseKit
 
 /// tvOS 播放队列覆层 — 左侧大封面,右侧「接下来」列表(对应 TVQueueArtboard)。
 struct TVQueueView: View {
+    private struct UpNextRow: Identifiable {
+        let id: QueueRowIdentity
+        let song: TVSong
+    }
+
     @Environment(TVStore.self) private var store
     @Environment(\.dismiss) private var dismiss
 
-    private var upNext: [TVSong] { store.queueUpNextIDs.compactMap(store.song) }
+    private var upNextRows: [UpNextRow] {
+        QueueRowIdentity.makeVisible(for: store.queueUpNextIDs) { store.song($0) != nil }
+            .compactMap { identity in
+                store.song(identity.songID).map { UpNextRow(id: identity, song: $0) }
+            }
+    }
 
     var body: some View {
         let np = store.nowPlaying
+        let rows = upNextRows
         ZStack {
             TVAmbientBackdrop(tint: np.tint, tint2: np.tint2, strength: 0.55)
             TVColor.bg.opacity(0.48).ignoresSafeArea()
@@ -29,11 +40,15 @@ struct TVQueueView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 0) {
-                    TVEyebrow(text: PMString("ext.tv.queue.upNext", upNext.count)).padding(.bottom, 20)
+                    TVEyebrow(text: PMString("ext.tv.queue.upNext", rows.count)).padding(.bottom, 20)
                     ScrollView(.vertical, showsIndicators: false) {
                         LazyVStack(spacing: 10) {
-                            ForEach(Array(upNext.enumerated()), id: \.element.id) { idx, song in
-                                queueRow(index: idx, song: song)
+                            ForEach(Array(rows.enumerated()), id: \.element.id) { displayIndex, row in
+                                queueRow(
+                                    displayIndex: displayIndex,
+                                    queueOffset: row.id.position,
+                                    song: row.song
+                                )
                             }
                         }
                         // 留出边距,否则选中行的左右描边会被竖向 ScrollView 的横向裁切切掉。
@@ -47,12 +62,12 @@ struct TVQueueView: View {
         .onExitCommand { dismiss() }
     }
 
-    private func queueRow(index idx: Int, song: TVSong) -> some View {
+    private func queueRow(displayIndex: Int, queueOffset: Int, song: TVSong) -> some View {
         let album = store.albumOf(song)
         return TVFocusButton(radius: TVRadius.card, scale: 1.01, lift: 0,
-                             action: { store.playQueueItem(at: idx); dismiss() }) { focused in
+                             action: { store.playQueueItem(at: queueOffset); dismiss() }) { focused in
             HStack(spacing: 18) {
-                Text("\(idx + 1)").font(.system(size: 20, design: .monospaced))
+                Text("\(displayIndex + 1)").font(.system(size: 20, design: .monospaced))
                     .foregroundStyle(TVColor.textGhost).frame(width: 28)
                 TVArtworkView(coverKey: album?.id ?? "", artist: album?.artist ?? song.artist,
                               album: album?.title ?? "", songID: song.id, coverRef: song.coverRef,

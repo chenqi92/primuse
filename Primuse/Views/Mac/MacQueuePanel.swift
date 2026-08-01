@@ -34,7 +34,8 @@ struct MacQueuePanel: View {
 
     @ViewBuilder
     private var list: some View {
-        if player.queue.isEmpty {
+        let entries = player.queueEntries
+        if entries.isEmpty {
             ContentUnavailableView(
                 "queue_empty",
                 systemImage: "music.note.list",
@@ -51,29 +52,35 @@ struct MacQueuePanel: View {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     // currentIndex 在切歌/换队列瞬间可能越界, 钳到合法区间,
                     // 否则下面构造 Range 时 lowerBound > upperBound 会 trap。
-                    let count = player.queue.count
-                    let cur = min(max(player.currentIndex, 0), count - 1)
+                    let cur = min(max(player.currentIndex, 0), entries.count - 1)
 
-                    let playedIndices = 0..<cur
-                    if !playedIndices.isEmpty {
+                    // In shuffle mode raw queue offsets are not playback history.
+                    // Use the player's current-round traversal prefix so Played
+                    // cannot overlap the current-round Up Next section.
+                    let playedEntries = player.playedQueueEntries
+                    if !playedEntries.isEmpty {
                         queueSection(title: "played") {
-                            ForEach(Array(playedIndices), id: \.self) { index in
-                                queueRow(song: player.queue[index], index: index, dimmed: true)
+                            ForEach(playedEntries) { entry in
+                                queueRow(entry: entry.entry, dimmed: true)
                             }
                         }
                     }
 
                     if let current = player.currentSong {
+                        let currentEntry = entries[cur]
                         queueSection(title: "now_playing", accent: true) {
-                            queueRow(song: current, index: cur, isPlaying: true)
+                            queueRow(entry: currentEntry, displayedSong: current, isPlaying: true)
+                                .id(currentEntry.id)
                         }
                     }
 
-                    let upNextIndices = (cur + 1)..<count
-                    if !upNextIndices.isEmpty {
+                    // Use the player's real traversal order. In shuffle mode
+                    // this differs from the raw queue tail.
+                    let upNextEntries = player.upcomingQueueEntries
+                    if !upNextEntries.isEmpty {
                         queueSection(title: "up_next") {
-                            ForEach(Array(upNextIndices), id: \.self) { index in
-                                queueRow(song: player.queue[index], index: index, draggable: true)
+                            ForEach(upNextEntries) { entry in
+                                queueRow(entry: entry.entry, draggable: true)
                             }
                         }
                     }
@@ -125,12 +132,13 @@ struct MacQueuePanel: View {
         }
     }
 
-    private func queueRow(song: Song,
-                          index: Int,
+    private func queueRow(entry: QueueEntry,
+                          displayedSong: Song? = nil,
                           isPlaying: Bool = false,
                           dimmed: Bool = false,
                           draggable: Bool = false) -> some View {
-        HStack(spacing: 8) {
+        let song = displayedSong ?? entry.song
+        return HStack(spacing: 8) {
             if draggable {
                 Image(systemName: "line.3.horizontal")
                     .font(.system(size: 10, weight: .medium))
@@ -173,13 +181,15 @@ struct MacQueuePanel: View {
         .background(isPlaying ? PMColor.rowHover : Color.clear, in: .rect(cornerRadius: 6))
         .opacity(dimmed ? 0.52 : 1)
         .contentShape(Rectangle())
-        .onTapGesture { playAt(index: index) }
+        .onTapGesture { playEntry(entry) }
     }
 
     private var footer: some View {
         HStack(spacing: 8) {
             Button("clear_all") { clearPlayed(uptoIndex: player.currentIndex) }
-                .disabled(player.currentIndex <= 0)
+                // Prefix removal only matches the visible Played partition in
+                // non-shuffle order. Never delete unrelated raw slots in shuffle.
+                .disabled(player.shuffleEnabled || player.currentIndex <= 0)
             Button("save_as_playlist") { saveQueueAsPlaylist() }
                 .disabled(player.queue.isEmpty)
             Spacer(minLength: 0)
@@ -204,10 +214,11 @@ struct MacQueuePanel: View {
 
     // MARK: - Actions
 
-    private func playAt(index: Int) {
-        guard index >= 0, index < player.queue.count else { return }
-        // 经 playFromQueue 而非直接写 currentIndex: shuffle 开启时它会把该
-        // 队列索引 swap 到当前 shufflePosition,保持显示序与实际播放序一致。
+    private func playEntry(_ entry: QueueEntry) {
+        guard let index = player.queueEntries.firstIndex(where: { $0.id == entry.id }) else { return }
+        // Resolve the stable queue occurrence back to its current raw offset.
+        // The queue may be reordered between rendering and tapping, and the
+        // same Song may legitimately appear in more than one slot.
         Task { await player.playFromQueue(at: index) }
     }
 

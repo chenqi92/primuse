@@ -176,8 +176,13 @@
 "disabled" = "Disabled";
 "delete_song" = "Delete from Library";
 "delete_song_message" = "When the source supports deletion, the source song file will be removed. Same-name cover/lyrics files are removed only when no other song uses them, and local caches are cleared.";
+"delete_song_failed_title" = "Deletion Failed";
+"delete_song_failed_message" = "The source file could not be deleted, so the song was kept in the library. Check whether the source is read-only and verify account permissions, then try again.";
 "scan" = "Scan";
 "password_edit_hint" = "Leave empty to keep current password";
+"synology_password_edit_validation_title" = "Synology Password Requires Connection Validation";
+"synology_password_edit_validation_hint" = "Synology passwords are verified and updated while connecting; the current password remains unchanged.";
+"synology_password_update_save_failed" = "DSM accepted the new password, but it couldn’t be saved securely. The saved password remains unchanged. Please try again.";
 "anonymous_login_hint" = "No username or password is used; saved credentials are deleted when you save";
 "select_directories" = "Select Directories";
 "scan_directories" = "Scan Directories";
@@ -1790,3 +1795,4 @@
 "credential_save_failed_title" = "Credential Save Failed";
 "credential_save_failed_message" = "The password couldn’t be saved securely. The source was not saved. Please try again.";
 "credential_temporarily_unavailable" = "The password is temporarily unavailable. Unlock your device and try again.";
+"credential_read_failed" = "The saved password couldn’t be read securely. Try again or update the credential.";

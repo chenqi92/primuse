@@ -163,8 +163,13 @@
 "disabled" = "已停用";
 "delete_song" = "從資料庫刪除";
 "delete_song_message" = "支援刪除的音樂來源會同步刪除來源歌曲；同名封面/歌詞沒有其他歌曲使用時才會刪除，並清除本機快取。";
+"delete_song_failed_title" = "刪除失敗";
+"delete_song_failed_message" = "無法刪除來源檔案，歌曲已保留在資料庫。請檢查音樂來源是否唯讀及帳號權限後再試一次。";
 "scan" = "掃描";
 "password_edit_hint" = "留空則保持目前密碼不變";
+"synology_password_edit_validation_title" = "Synology 密碼需要連線驗證";
+"synology_password_edit_validation_hint" = "Synology 密碼只能在連線時驗證並更新；目前密碼會保持不變。";
+"synology_password_update_save_failed" = "DSM 已接受新密碼，但系統未能將其安全儲存。已儲存的密碼保持不變，請重試。";
 "anonymous_login_hint" = "不使用帳號和密碼；儲存時會刪除先前保存的憑證";
 "select_directories" = "選擇目錄";
 "scan_directories" = "掃描目錄";
@@ -1938,3 +1943,4 @@
 "credential_save_failed_title" = "憑證儲存失敗";
 "credential_save_failed_message" = "密碼未能安全儲存，來源尚未儲存，請重試。";
 "credential_temporarily_unavailable" = "暫時無法讀取密碼，請解鎖裝置後重試。";
+"credential_read_failed" = "無法安全讀取已儲存的密碼，請重試或更新憑證。";

@@ -68,6 +68,13 @@ final class ScrobbleService {
         var listenedSeconds: TimeInterval = 0
     }
 
+    private struct ProviderSnapshot {
+        var ready: [any ScrobbleProvider] = []
+        /// Enabled providers whose Keychain values could not be read. They are
+        /// queue targets even though no provider instance can be built yet.
+        var unavailable: Set<ScrobbleProviderID> = []
+    }
+
     private init() {
         loadQueue()
         loadRecentReports()
@@ -192,7 +199,11 @@ final class ScrobbleService {
 
     /// Now Playing 同步发送 — 失败不入队 (now playing 是实时状态, 没必要补)。
     private func sendNowPlayingAcrossProviders(entry: ScrobbleEntry) {
-        let providers = activeProviders()
+        let snapshot = providerSnapshot()
+        let providers = snapshot.ready
+        if !snapshot.unavailable.isEmpty {
+            plog("🎵 scrobble nowPlaying skipped for unavailable credentials: \(snapshot.unavailable.map(\.rawValue).sorted())")
+        }
         guard !providers.isEmpty else { return }
         Task {
             await withTaskGroup(of: Void.self) { group in
@@ -212,11 +223,20 @@ final class ScrobbleService {
     /// Scrobble 提交。先同步持久化，再尝试网络；进程在请求期间被终止时，
     /// 下次启动仍能补报。语义是 at-least-once，provider 以 startedAt 去重。
     private func scrobbleAcrossProviders(entry: ScrobbleEntry) {
-        let providers = activeProviders()
-        guard !providers.isEmpty else { return }
+        let snapshot = providerSnapshot()
+        let providers = snapshot.ready
+        let providerIDs = Set(providers.map(\.id)).union(snapshot.unavailable)
+        guard !providerIDs.isEmpty else { return }
 
-        let providerIDs = Set(providers.map(\.id))
         enqueue(entry: entry, providers: providerIDs, shouldScheduleRetry: false)
+
+        // A temporarily unreadable Keychain must not turn an otherwise valid
+        // listen into a no-op. The durable queue already knows how to retain an
+        // enabled provider with no current instance and retry it with backoff.
+        guard !providers.isEmpty else {
+            scheduleRetry(reason: "credential unavailable")
+            return
+        }
 
         Task {
             await withTaskGroup(of: (ScrobbleProviderID, Bool, Bool).self) { group in
@@ -398,34 +418,51 @@ final class ScrobbleService {
 
     // MARK: - Provider factory
 
-    /// 当前启用 + 已配置 token 的 provider 实例集合。
-    /// 每次重新生成 (token 变化 / settings 变化都生效)。
-    private func activeProviders() -> [any ScrobbleProvider] {
+    /// 当前启用 provider 的凭据快照。Keychain 暂不可读与明确未配置必须
+    /// 分开：前者进入补报队列，后者不为新播放创建无法发送的队列项。
+    private func providerSnapshot() -> ProviderSnapshot {
         let settings = ScrobbleSettingsStore.shared
-        guard settings.isEnabled else { return [] }
-        var result: [any ScrobbleProvider] = []
+        guard settings.isEnabled else { return ProviderSnapshot() }
+        var snapshot = ProviderSnapshot()
         for pid in settings.enabledProviders {
             switch pid {
             case .listenBrainz:
-                if let token = KeychainService.getPassword(for: pid.keychainAccount), !token.isEmpty {
-                    result.append(ListenBrainzProvider(userToken: token))
+                let value = ScrobbleCredentialAvailabilityPolicy.resolveValue(
+                    KeychainService.passwordLookup(for: pid.keychainAccount)
+                )
+                switch ScrobbleCredentialAvailabilityPolicy.resolveProvider([value]) {
+                case .ready:
+                    if case .ready(let token) = value {
+                        snapshot.ready.append(ListenBrainzProvider(userToken: token))
+                    }
+                case .unavailable:
+                    snapshot.unavailable.insert(pid)
+                case .notConfigured:
+                    break
                 }
             case .lastFm:
-                // 三件套都齐了才能 sign + 发请求。effective getter 自动
-                // 在「用户自己粘的 key」和「app 内置 default」之间挑。
-                let apiKey = LastFmCredentialsStore.effectiveAPIKey()
-                let apiSecret = LastFmCredentialsStore.effectiveAPISecret()
-                let sessionKey = LastFmCredentialsStore.loadSessionKey()
-                if !apiKey.isEmpty, !apiSecret.isEmpty, !sessionKey.isEmpty {
-                    result.append(LastFmProvider(
+                switch LastFmCredentialsStore.resolveProviderCredentials() {
+                case .ready(let apiKey, let apiSecret, let sessionKey):
+                    snapshot.ready.append(LastFmProvider(
                         apiKey: apiKey,
                         apiSecret: apiSecret,
                         sessionKey: sessionKey
                     ))
+                case .unavailable:
+                    snapshot.unavailable.insert(pid)
+                case .notConfigured:
+                    break
                 }
             }
         }
-        return result
+        return snapshot
+    }
+
+    /// Retry only needs provider instances that can be constructed now. Queue
+    /// entries for unavailable credentials remain untouched by retryLoop's
+    /// existing enabled-provider preservation branch.
+    private func activeProviders() -> [any ScrobbleProvider] {
+        providerSnapshot().ready
     }
 
     private func makeEntry(from song: Song) -> ScrobbleEntry {

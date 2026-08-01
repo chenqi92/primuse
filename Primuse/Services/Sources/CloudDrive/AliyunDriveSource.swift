@@ -291,9 +291,9 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
     // 这样能作为 @Sendable 闭包传给 tokenManager.refreshDeduped / withTokenRetry。
     private nonisolated func refreshToken(_ tokens: CloudTokenManager.Tokens) async throws -> CloudTokenManager.Tokens {
         guard let rt = tokens.refreshToken else { throw CloudDriveError.tokenRefreshFailed("No refresh token") }
-        let creds = await helper.tokenManager.getAppCredentials()
-        guard let cid = creds?.clientId else { throw CloudDriveError.tokenRefreshFailed("No client ID") }
-        let body: [String: String] = ["grant_type": "refresh_token", "refresh_token": rt, "client_id": cid, "client_secret": creds?.clientSecret ?? ""]
+        let creds = try await helper.tokenManager.requireAppCredentials()
+        guard !creds.clientId.isEmpty else { throw CloudDriveError.tokenRefreshFailed("No client ID") }
+        let body: [String: String] = ["grant_type": "refresh_token", "refresh_token": rt, "client_id": creds.clientId, "client_secret": creds.clientSecret ?? ""]
         let bodyData = try SafeJSONSerialization.data(withJSONObject: body)
         var request = URLRequest(url: URL(string: "\(Self.oauthBase)/access_token")!)
         request.httpMethod = "POST"

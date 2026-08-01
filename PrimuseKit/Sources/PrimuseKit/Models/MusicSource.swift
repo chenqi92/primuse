@@ -365,6 +365,37 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     }
 }
 
+/// The source-audio part of a destructive song deletion. Sidecar cleanup is
+/// deliberately not represented as a failure here: once the audio is gone (or
+/// was already absent), keeping an unplayable library row would be worse than
+/// reporting a best-effort sidecar warning.
+public enum SourceAudioDeletionStatus: Equatable, Sendable {
+    case deleted
+    case alreadyMissing
+    case failed
+}
+
+/// Pure policy shared by row, Now Playing, macOS and duplicate-cleanup entry
+/// points. Keeping the decision here makes it impossible for a view to treat a
+/// transport error as a successful library deletion.
+public enum SourceFileDeletionPolicy {
+    public static func shouldShowDeleteAction(for sourceType: MusicSourceType?) -> Bool {
+        sourceType?.supportsFileDeletion == true
+    }
+
+    public static func shouldRemoveLibraryRecord(
+        after audioStatus: SourceAudioDeletionStatus,
+        sidecarWarningCount: Int = 0
+    ) -> Bool {
+        switch audioStatus {
+        case .deleted, .alreadyMissing:
+            return true
+        case .failed:
+            return false
+        }
+    }
+}
+
 // MARK: - Auth Types
 
 public enum SourceAuthType: String, Codable, Sendable {
@@ -411,6 +442,32 @@ public enum NFSVersion: String, Codable, Sendable, CaseIterable {
         case .v3: return [.v3]
         case .v4: return [.v4]
         }
+    }
+
+    /// Whether a v3-only client can make this mode's first connection attempt.
+    /// Auto qualifies because it deliberately starts with v3, but the caller
+    /// must not claim that it can perform Auto's v4 fallback.
+    public var canStartWithV3OnlyBackend: Bool {
+        connectionAttemptOrder.first == .v3
+    }
+
+    /// Returns the other protocol only for Auto. This also covers a connector
+    /// that is already on v4 and later encounters a path or protocol error.
+    public func fallbackVersion(after attemptedVersion: NFSVersion) -> NFSVersion? {
+        guard self == .auto else { return nil }
+
+        switch attemptedVersion {
+        case .v3: return .v4
+        case .v4: return .v3
+        case .auto: return nil
+        }
+    }
+
+    /// Commits a fallback protocol only after its operation has succeeded.
+    /// A failed candidate leaves the currently active protocol unchanged so a
+    /// retry starts from the same deterministic state.
+    public func versionAfterFallback(to candidateVersion: NFSVersion, succeeded: Bool) -> NFSVersion {
+        succeeded ? candidateVersion : self
     }
 }
 

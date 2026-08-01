@@ -10,14 +10,16 @@ struct SMBBrowserView: View {
     init(source: MusicSource, selectedDirectories: Binding<[String]>) {
         self.source = source
         self._selectedDirectories = selectedDirectories
-        self.connector = SMBSource(
-            sourceID: source.id,
-            host: source.host ?? "",
-            port: source.port ?? 445,
-            sharePath: source.shareName ?? "",
-            username: source.username ?? "",
-            password: KeychainService.getPassword(for: source.id) ?? ""
-        )
+        self.connector = credentialProtectedConnector(for: source) { password in
+            SMBSource(
+                sourceID: source.id,
+                host: source.host ?? "",
+                port: source.port ?? 445,
+                sharePath: source.shareName ?? "",
+                username: source.username ?? "",
+                password: password
+            )
+        }
     }
 
     var body: some View {

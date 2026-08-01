@@ -96,6 +96,110 @@ struct AppleMusicSubscriptionGatePolicyTests {
     }
 }
 
+@Suite("Apple Music system queue policy")
+struct AppleMusicSystemQueuePolicyTests {
+    @Test("Imported library tracks keep continuous imported playback")
+    func keepsImportedQueue() {
+        let plan = AppleMusicSystemQueuePolicy.plan(
+            startingItemID: "i.two",
+            startingSource: .subscriptionIndependentUserLibrary,
+            queuedItemIDs: ["i.one", "i.two", "i.three"],
+            queuedSources: Array(
+                repeating: .subscriptionIndependentUserLibrary,
+                count: 3
+            )
+        )
+
+        #expect(plan == AppleMusicSystemQueuePlan(
+            retainedIndices: [0, 1, 2],
+            startIndex: 1
+        ))
+    }
+
+    @Test("Imported starts exclude catalog-backed queue entries")
+    func filtersCatalogEntriesAfterImportedStart() {
+        let plan = AppleMusicSystemQueuePolicy.plan(
+            startingItemID: "i.imported-two",
+            startingSource: .subscriptionIndependentUserLibrary,
+            queuedItemIDs: ["i.imported-one", "i.imported-two", "i.catalog", "12345"],
+            queuedSources: [
+                .subscriptionIndependentUserLibrary,
+                .subscriptionIndependentUserLibrary,
+                .catalogBackedUserLibrary,
+                .catalog,
+            ]
+        )
+
+        #expect(plan == AppleMusicSystemQueuePlan(
+            retainedIndices: [0, 1],
+            startIndex: 1
+        ))
+    }
+
+    @Test("Signed decimal local rows keep order while catalog rows are filtered")
+    func filtersCatalogEntriesFromDecimalLocalQueue() {
+        let plan = AppleMusicSystemQueuePolicy.plan(
+            startingItemID: "-350135260054884126",
+            startingSource: .subscriptionIndependentUserLibrary,
+            queuedItemIDs: [
+                "6867642289211602051",
+                "catalog-123",
+                "-350135260054884126",
+                "i.catalog-backed",
+            ],
+            queuedSources: [
+                .subscriptionIndependentUserLibrary,
+                .catalog,
+                .subscriptionIndependentUserLibrary,
+                .catalogBackedUserLibrary,
+            ]
+        )
+
+        #expect(plan == AppleMusicSystemQueuePlan(
+            retainedIndices: [0, 2],
+            startIndex: 1
+        ))
+    }
+
+    @Test("Catalog and unverified starts retain the guarded queue")
+    func guardedStartsRetainQueue() {
+        for source in [
+            AppleMusicPlaybackSource.catalog,
+            .catalogBackedUserLibrary,
+            .unverifiedUserLibrary,
+        ] {
+            let plan = AppleMusicSystemQueuePolicy.plan(
+                startingItemID: "guarded",
+                startingSource: source,
+                queuedItemIDs: ["imported", "guarded", "catalog"],
+                queuedSources: [
+                    .subscriptionIndependentUserLibrary,
+                    source,
+                    .catalog,
+                ]
+            )
+
+            #expect(plan == AppleMusicSystemQueuePlan(
+                retainedIndices: [0, 1, 2],
+                startIndex: 1
+            ))
+            #expect(AppleMusicSubscriptionGatePolicy.requiresCatalogCapability(for: source))
+        }
+    }
+
+    @Test("A stale queue without the requested item falls back to that item only")
+    func rejectsQueueMissingStartingItem() {
+        let plan = AppleMusicSystemQueuePolicy.plan(
+            startingItemID: "i.requested",
+            startingSource: .subscriptionIndependentUserLibrary,
+            queuedItemIDs: ["i.stale", "catalog"],
+            queuedSources: [.subscriptionIndependentUserLibrary, .catalog]
+        )
+
+        #expect(plan == nil)
+    }
+}
+
 @Suite("Apple Music playback source resolver")
 struct AppleMusicPlaybackSourceResolverTests {
     @Test("A non-library identifier is a catalog result")
@@ -103,7 +207,8 @@ struct AppleMusicPlaybackSourceResolverTests {
         #expect(AppleMusicPlaybackSourceResolver.resolve(
             itemID: "123456789",
             explicitCatalogIDs: [],
-            genericPlayParameterIDs: []
+            genericPlayParameterIDs: [],
+            confirmedLibraryIDs: []
         ) == .catalog)
     }
 
@@ -112,14 +217,44 @@ struct AppleMusicPlaybackSourceResolverTests {
         #expect(AppleMusicPlaybackSourceResolver.resolve(
             itemID: "i.library-song",
             explicitCatalogIDs: ["123456789"],
-            genericPlayParameterIDs: ["i.library-song"]
+            genericPlayParameterIDs: ["i.library-song"],
+            confirmedLibraryIDs: ["i.library-song"]
         ) == .catalogBackedUserLibrary)
 
         #expect(AppleMusicPlaybackSourceResolver.resolve(
             itemID: "i.library-song",
             explicitCatalogIDs: [],
-            genericPlayParameterIDs: ["i.library-song", "123456789"]
+            genericPlayParameterIDs: ["i.library-song", "123456789"],
+            confirmedLibraryIDs: ["i.library-song"]
         ) == .catalogBackedUserLibrary)
+    }
+
+    @Test("An unverified library row fails closed")
+    func resolvesUnknownLibraryItem() {
+        #expect(AppleMusicPlaybackSourceResolver.resolve(
+            itemID: "i.unknown-song",
+            explicitCatalogIDs: [],
+            genericPlayParameterIDs: [],
+            confirmedLibraryIDs: []
+        ) == .unverifiedUserLibrary)
+
+        #expect(AppleMusicPlaybackSourceResolver.resolve(
+            itemID: "i.unknown-song",
+            explicitCatalogIDs: [],
+            genericPlayParameterIDs: ["i.unknown-song"],
+            confirmedLibraryIDs: []
+        ) == .unverifiedUserLibrary)
+
+        #expect(AppleMusicPlaybackSourceResolver.resolve(
+            itemID: "i.unknown-song",
+            explicitCatalogIDs: [],
+            genericPlayParameterIDs: ["i.unknown-song"],
+            confirmedLibraryIDs: ["i.different-song"]
+        ) == .unverifiedUserLibrary)
+
+        #expect(AppleMusicSubscriptionGatePolicy.requiresCatalogCapability(
+            for: .unverifiedUserLibrary
+        ))
     }
 
     @Test("An imported row carrying only its library identifier is independent")
@@ -127,8 +262,136 @@ struct AppleMusicPlaybackSourceResolverTests {
         #expect(AppleMusicPlaybackSourceResolver.resolve(
             itemID: "i.imported-song",
             explicitCatalogIDs: [],
-            genericPlayParameterIDs: ["i.imported-song"]
+            genericPlayParameterIDs: ["i.imported-song"],
+            confirmedLibraryIDs: ["i.imported-song"]
         ) == .subscriptionIndependentUserLibrary)
+    }
+
+    @Test("Signed decimal Music.app IDs require trusted local-file provenance")
+    func resolvesDecimalLocalFileItems() {
+        for itemID in ["6867642289211602051", "-350135260054884126"] {
+            #expect(AppleMusicPlaybackSourceResolver.resolve(
+                itemID: itemID,
+                explicitCatalogIDs: [],
+                genericPlayParameterIDs: [itemID],
+                confirmedLibraryIDs: [],
+                confirmedLocalFileIDs: [itemID]
+            ) == .subscriptionIndependentUserLibrary)
+
+            #expect(AppleMusicPlaybackSourceResolver.resolve(
+                itemID: itemID,
+                explicitCatalogIDs: [],
+                genericPlayParameterIDs: [itemID],
+                confirmedLibraryIDs: [],
+                confirmedLocalFileIDs: []
+            ) == .catalog)
+        }
+    }
+
+    @Test("Catalog identity takes priority over local-file provenance")
+    func keepsCatalogGateForCatalogBackedLocalRows() {
+        #expect(AppleMusicPlaybackSourceResolver.resolve(
+            itemID: "6867642289211602051",
+            explicitCatalogIDs: ["catalog-123"],
+            genericPlayParameterIDs: ["6867642289211602051"],
+            confirmedLibraryIDs: [],
+            confirmedLocalFileIDs: ["6867642289211602051"]
+        ) == .catalogBackedUserLibrary)
+    }
+
+    @Test("Persistent ID aliases cover signed MusicKit representations")
+    func createsSignedPersistentIDAliases() {
+        #expect(AppleMusicLocalFileIdentity.playbackIdentifiers(
+            forPersistentID: 6_867_642_289_211_602_051
+        ).contains("6867642289211602051"))
+        #expect(AppleMusicLocalFileIdentity.playbackIdentifiers(
+            forPersistentID: 0xFB24_11D6_0916_F0E2
+        ).contains("-350135260054884126"))
+    }
+
+    @Test("Cold lookup uses the library only for confirmed library identities")
+    func choosesColdLookupEndpoint() {
+        #expect(AppleMusicItemLookupPolicy.shouldUseUserLibrary(
+            itemID: "i.imported-song",
+            confirmedLocalFileIDs: []
+        ))
+        #expect(AppleMusicItemLookupPolicy.shouldUseUserLibrary(
+            itemID: "-350135260054884126",
+            confirmedLocalFileIDs: ["-350135260054884126"]
+        ))
+        #expect(!AppleMusicItemLookupPolicy.shouldUseUserLibrary(
+            itemID: "123456789",
+            confirmedLocalFileIDs: []
+        ))
+    }
+
+    @Test("Local-file provenance requires a complete matching library-song payload")
+    func validatesLocalFileProvenance() {
+        let itemID = "6867642289211602051"
+        #expect(AppleMusicLocalFileProvenancePolicy.confirmsLibrarySong(
+            itemID: itemID,
+            playParameterIDs: [itemID],
+            persistentIDs: [itemID],
+            declaresLibraryItem: true,
+            mediaKinds: ["song"],
+            confirmedLocalFileIDs: [itemID]
+        ))
+
+        #expect(!AppleMusicLocalFileProvenancePolicy.confirmsLibrarySong(
+            itemID: itemID,
+            playParameterIDs: [itemID],
+            persistentIDs: [itemID],
+            declaresLibraryItem: false,
+            mediaKinds: ["song"],
+            confirmedLocalFileIDs: [itemID]
+        ))
+        #expect(!AppleMusicLocalFileProvenancePolicy.confirmsLibrarySong(
+            itemID: itemID,
+            playParameterIDs: [itemID],
+            persistentIDs: ["different"],
+            declaresLibraryItem: true,
+            mediaKinds: ["song"],
+            confirmedLocalFileIDs: [itemID]
+        ))
+        #expect(!AppleMusicLocalFileProvenancePolicy.confirmsLibrarySong(
+            itemID: itemID,
+            playParameterIDs: [itemID],
+            persistentIDs: [itemID],
+            declaresLibraryItem: true,
+            mediaKinds: ["album"],
+            confirmedLocalFileIDs: [itemID]
+        ))
+    }
+}
+
+@Suite("Apple Music mirror loading policy")
+struct AppleMusicMirrorLoadingPolicyTests {
+    @Test("Playback progress or a preflight error ends loading")
+    func finishesOnPlaybackOrError() {
+        #expect(AppleMusicMirrorLoadingPolicy.shouldFinishLoading(
+            isPlaying: true,
+            currentPlaybackTime: 0,
+            playbackError: nil
+        ))
+        #expect(AppleMusicMirrorLoadingPolicy.shouldFinishLoading(
+            isPlaying: false,
+            currentPlaybackTime: 0.5,
+            playbackError: nil
+        ))
+        #expect(AppleMusicMirrorLoadingPolicy.shouldFinishLoading(
+            isPlaying: false,
+            currentPlaybackTime: 0,
+            playbackError: "需确认隐私声明"
+        ))
+    }
+
+    @Test("An unresolved request keeps loading")
+    func keepsLoadingWithoutOutcome() {
+        #expect(!AppleMusicMirrorLoadingPolicy.shouldFinishLoading(
+            isPlaying: false,
+            currentPlaybackTime: 0,
+            playbackError: nil
+        ))
     }
 }
 

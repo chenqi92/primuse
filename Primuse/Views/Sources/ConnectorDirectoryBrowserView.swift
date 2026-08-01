@@ -29,12 +29,20 @@ struct ConnectorDirectoryBrowserView: View {
         MacDirTreeBrowser(
             title: "浏览 \(source.type.displayName) · \(source.name)",
             subtitle: macConnectionString,
-            rootTitle: source.name,
-            selectedDirectories: $selectedDirectories,
+            rootTitle: source.basePath ?? source.name,
+            selectedDirectories: policySelectedDirectories,
             load: { path in
                 try await connector.connect()
                 return try await connector.listFiles(at: path)
-            }
+            },
+            rootPath: SourceDirectorySelectionPolicy.connectorPath(
+                for: source.type,
+                browserPath: "/"
+            ),
+            selectableRootPath: SourceDirectorySelectionPolicy.selectableRootPath(
+                for: source.type,
+                browserPath: "/"
+            )
         )
         #else
         iosBody
@@ -139,9 +147,25 @@ struct ConnectorDirectoryBrowserView: View {
 
     private var directoryList: some View {
         let directories = items.filter(\.isDirectory)
+        let selectableRootPath = SourceDirectorySelectionPolicy.selectableRootPath(
+            for: source.type,
+            browserPath: currentPath
+        )
 
         return List {
-            if directories.isEmpty {
+            if let selectableRootPath {
+                DirectoryCheckRow(
+                    name: String(localized: "current_directory"),
+                    subtitle: source.basePath,
+                    path: selectableRootPath,
+                    icon: "shippingbox.fill",
+                    iconColor: .orange,
+                    isNavigable: false,
+                    selectedDirectories: policySelectedDirectories
+                )
+            }
+
+            if directories.isEmpty, selectableRootPath == nil {
                 ContentUnavailableView(
                     "no_subdirectories",
                     systemImage: "folder",
@@ -156,7 +180,7 @@ struct ConnectorDirectoryBrowserView: View {
                         icon: "folder.fill",
                         iconColor: .orange,
                         isNavigable: false,
-                        selectedDirectories: $selectedDirectories
+                        selectedDirectories: policySelectedDirectories
                     )
                 }
 
@@ -168,7 +192,7 @@ struct ConnectorDirectoryBrowserView: View {
                         icon: "folder.fill",
                         iconColor: .blue,
                         isNavigable: true,
-                        selectedDirectories: $selectedDirectories,
+                        selectedDirectories: policySelectedDirectories,
                         onNavigate: { enterDirectory(item) }
                     )
                 }
@@ -253,10 +277,26 @@ struct ConnectorDirectoryBrowserView: View {
     }
 
     private func loadItems(at path: String) async throws -> [RemoteFileItem] {
-        try await DirectoryBrowserNetworkRetry.loadWithLocalNetworkAuthorizationGrace {
+        let connectorPath = SourceDirectorySelectionPolicy.connectorPath(
+            for: source.type,
+            browserPath: path
+        )
+        return try await DirectoryBrowserNetworkRetry.loadWithLocalNetworkAuthorizationGrace {
             try await connector.connect()
-            return try await connector.listFiles(at: path)
+            return try await connector.listFiles(at: connectorPath)
         }
+    }
+
+    private var policySelectedDirectories: Binding<[String]> {
+        Binding(
+            get: { selectedDirectories },
+            set: {
+                selectedDirectories = SourceDirectorySelectionPolicy.normalizedSelections(
+                    $0,
+                    for: source.type
+                )
+            }
+        )
     }
 
     private func applyLoadedItems(_ loaded: [RemoteFileItem]) {

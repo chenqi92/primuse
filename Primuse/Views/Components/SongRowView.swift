@@ -22,6 +22,7 @@ struct SongRowView: View {
     /// otherwise invalidate every visible row whenever any source mutates).
     var sourceName: String? = nil
     var sourceIconName: String? = nil
+    var canDeleteSourceFile = false
 
     /// Whether `MetadataBackfillService` gave up on this song. Resolved by
     /// the parent so the row doesn't observe `failedSongIDs` directly —
@@ -36,6 +37,7 @@ struct SongRowView: View {
     @State private var showBareAlert = false
     @State private var showTagEditor = false
     @State private var showSimilarSongs = false
+    @State private var deleteErrorMessage: String?
 
     /// "Metadata still pending" — cloud Phase-A songs whose `duration` (and
     /// usually cover/artist) hasn't been backfilled yet. Drives a soft dim +
@@ -185,12 +187,14 @@ struct SongRowView: View {
                         }
                     }
 
-                    // Group 3: Destructive
-                    Section {
-                        Button(role: .destructive) {
-                            showDeleteConfirm = true
-                        } label: {
-                            Label(String(localized: "delete_song"), systemImage: "trash")
+                    if canDeleteSourceFile {
+                        // Group 3: Destructive
+                        Section {
+                            Button(role: .destructive) {
+                                showDeleteConfirm = true
+                            } label: {
+                                Label(String(localized: "delete_song"), systemImage: "trash")
+                            }
                         }
                     }
                 } label: {
@@ -279,12 +283,14 @@ struct SongRowView: View {
                 }
             }
 
-            // Group 3: Destructive
-            Section {
-                Button(role: .destructive) {
-                    showDeleteConfirm = true
-                } label: {
-                    Label(String(localized: "delete_song"), systemImage: "trash")
+            if canDeleteSourceFile {
+                // Group 3: Destructive
+                Section {
+                    Button(role: .destructive) {
+                        showDeleteConfirm = true
+                    } label: {
+                        Label(String(localized: "delete_song"), systemImage: "trash")
+                    }
                 }
             }
         }
@@ -321,6 +327,17 @@ struct SongRowView: View {
             }
         } message: {
             Text(String(localized: "delete_song_message"))
+        }
+        .alert(
+            String(localized: "delete_song_failed_title"),
+            isPresented: Binding(
+                get: { deleteErrorMessage != nil },
+                set: { if !$0 { deleteErrorMessage = nil } }
+            )
+        ) {
+            Button(String(localized: "done"), role: .cancel) {}
+        } message: {
+            Text(deleteErrorMessage ?? "")
         }
     }
 
@@ -376,6 +393,7 @@ struct SongRowView: View {
     }
 
     private func deleteSong() {
+        guard canDeleteSourceFile else { return }
         Task {
             // Stop if currently playing
             if player.currentSong?.id == song.id {
@@ -383,11 +401,24 @@ struct SongRowView: View {
             }
             let retainedSongs = library.songs.filter { $0.id != song.id }
             let deleteSidecars = sourceManager.shouldDeleteSidecars(for: song, retaining: retainedSongs)
-            _ = await sourceManager.deleteSourceFilesAndCaches(for: song, deleteSidecars: deleteSidecars)
+            let result = await sourceManager.deleteSourceFilesAndCaches(
+                for: song,
+                deleteSidecars: deleteSidecars
+            )
+            guard result.shouldRemoveLibraryRecord else {
+                deleteErrorMessage = deletionFailureMessage(result)
+                return
+            }
             // Remove from library and keep the source badge in sync.
             let remaining = library.deleteSong(song)
             sourcesStore.updateLocal(song.sourceID) { $0.songCount = remaining }
         }
+    }
+
+    private func deletionFailureMessage(_ result: SongFileDeletionResult) -> String {
+        let summary = String(localized: "delete_song_failed_message")
+        guard let detail = result.failedPaths.first?.message, !detail.isEmpty else { return summary }
+        return "\(summary)\n\(detail)"
     }
 
     private func formatDuration(_ duration: TimeInterval) -> String {
@@ -771,6 +802,7 @@ extension SongRowView {
         var sourceName: String?
         var sourceIconName: String?
         var backfillFailed: Bool
+        var canDeleteSourceFile: Bool
     }
 
     static func context(
@@ -784,7 +816,10 @@ extension SongRowView {
         return RowContext(
             sourceName: showBadge ? source?.name : nil,
             sourceIconName: showBadge ? source?.type.iconName : nil,
-            backfillFailed: song.duration <= 0 && (backfill.didFail(songID: song.id) || localBareSong)
+            backfillFailed: song.duration <= 0 && (backfill.didFail(songID: song.id) || localBareSong),
+            canDeleteSourceFile: SourceFileDeletionPolicy.shouldShowDeleteAction(
+                for: source?.type
+            )
         )
     }
 
@@ -802,5 +837,6 @@ extension SongRowView {
         self.sourceName = context.sourceName
         self.sourceIconName = context.sourceIconName
         self.backfillFailed = context.backfillFailed
+        self.canDeleteSourceFile = context.canDeleteSourceFile
     }
 }

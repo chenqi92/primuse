@@ -439,6 +439,13 @@ final class ScanService {
                     currentFile: String(localized: "credential_temporarily_unavailable")
                 )
                 return
+            case .failed(let status):
+                plog("⛔ Synology scan stopped: credential read failed status=\(status)")
+                scanStates[source.id] = ScanState(
+                    isScanning: false,
+                    currentFile: String(localized: "credential_read_failed")
+                )
+                return
             }
             let loginResult = await api.login(
                 account: source.username ?? "",

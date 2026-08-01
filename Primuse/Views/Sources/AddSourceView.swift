@@ -37,6 +37,7 @@ struct AddSourceView: View {
     @State private var rememberDevice = false
     @State private var isInitialized = false
     @State private var showCredentialSaveError = false
+    @State private var showSynologyPasswordValidationInfo = false
     #if os(macOS)
     /// Captures the URL chosen via NSOpenPanel so we can persist a
     /// security-scoped bookmark once the source has an ID.
@@ -67,7 +68,16 @@ struct AddSourceView: View {
 
         let hasStoredSecret: Bool
         if let editingSource, editingSource.authType == authType {
-            hasStoredSecret = (KeychainService.getPassword(for: editingSource.id)?.isEmpty == false)
+            switch KeychainService.passwordLookup(for: editingSource.id) {
+            case .found(let secret):
+                hasStoredSecret = !secret.isEmpty
+            case .notFound:
+                hasStoredSecret = false
+            case .temporarilyUnavailable, .failed:
+                // Preserve an existing edit without forcing the user to
+                // overwrite a credential that is merely unreadable right now.
+                hasStoredSecret = true
+            }
         } else {
             hasStoredSecret = false
         }
@@ -108,6 +118,14 @@ struct AddSourceView: View {
             Button("ok", role: .cancel) {}
         } message: {
             Text("credential_save_failed_message")
+        }
+        .alert(
+            String(localized: "synology_password_edit_validation_title"),
+            isPresented: $showSynologyPasswordValidationInfo
+        ) {
+            Button("ok", role: .cancel) {}
+        } message: {
+            Text("synology_password_edit_validation_hint")
         }
     }
 
@@ -281,11 +299,12 @@ struct AddSourceView: View {
                         RevealableSecureField(title: authType == .apiKey ? "api_key" : "password", text: $password)
                             .focused($focusedField, equals: .password)
                             .frame(maxWidth: 280)
+                            .disabled(sourceType == .synology && isEditing)
                     }
                 }
 
                 if isEditing && authType != .none {
-                    macInfoRow("password_edit_hint")
+                    macInfoRow(credentialEditHint)
                 }
             }
         }
@@ -583,9 +602,12 @@ struct AddSourceView: View {
                         .focused($focusedField, equals: .password)
                         .submitLabel(.done)
                         .onSubmit { focusedField = nil }
+                        .disabled(sourceType == .synology && isEditing)
                 }
                 if isEditing && authType != .none {
-                    Text("password_edit_hint").font(.caption).foregroundStyle(.secondary)
+                    Text(credentialEditHint)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
         }
@@ -748,9 +770,13 @@ struct AddSourceView: View {
             // 兼容旧版“账号密码都留空即匿名”的来源记录。旧记录的 authType
             // 仍可能是 password；迁移成显式访客模式后才能正确清理/忽略旧凭据。
             if sourceType.supportsAnonymous,
-               username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-               (KeychainService.getPassword(for: s.id) ?? "").isEmpty {
-                authType = .none
+               username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                switch KeychainService.passwordLookup(for: s.id) {
+                case .notFound, .found(""):
+                    authType = .none
+                case .found(_), .temporarilyUnavailable(_), .failed(_):
+                    break
+                }
             }
             ftpEncryption = s.ftpEncryption ?? .none; nfsVersion = s.nfsVersion ?? .auto
         } else if let device = prefillDevice {
@@ -781,6 +807,15 @@ struct AddSourceView: View {
         // 服务端凭据本身的一部分。
         let username = self.username.trimmingCharacters(in: .whitespacesAndNewlines)
         let password = self.password
+
+        // An edited Synology source already has a last known-good credential.
+        // Replacing it from this form would bypass DSM login/2FA/SSL validation.
+        // Credential rotation therefore happens only through ConnectionFlowView.
+        if sourceType == .synology, editingSource != nil, !password.isEmpty {
+            self.password = ""
+            showSynologyPasswordValidationInfo = true
+            return
+        }
 
         // S3 special mapping: host=endpoint, basePath=bucket, shareName→basePath,
         // extraConfig=JSON{region, dirs} (region + scanned-directory list).
@@ -841,20 +876,31 @@ struct AddSourceView: View {
         if sourceType.isCloudDrive {
             // Store client_id + client_secret via CloudTokenManager
             let tm = CloudTokenManager(sourceID: source.id)
-            Task {
+            Task { @MainActor in
+                let persisted: Bool
                 if !username.isEmpty {
-                    await tm.saveAppCredentials(.init(
+                    persisted = await tm.saveAppCredentials(.init(
                         clientId: username,
                         clientSecret: password.isEmpty ? nil : password
                     ))
                 } else {
-                    await tm.deleteAppCredentials()
+                    persisted = await tm.deleteAppCredentials()
                 }
+                guard persisted else {
+                    showCredentialSaveError = true
+                    return
+                }
+                onSave(source)
+                dismiss()
             }
+            return
         } else if authType == .none {
             // 从账号登录切换到访客模式时必须删除旧 Keychain 项；否则连接器仍会
             // 读到旧密码，表面显示“访客”却继续以旧账号认证。
-            KeychainService.deletePassword(for: source.id)
+            guard KeychainService.deletePassword(for: source.id) else {
+                showCredentialSaveError = true
+                return
+            }
         } else if sourceType == .s3 || authType == .password || authType == .apiKey || authType == .cookie || authType == .oauth {
             if !password.isEmpty {
                 guard KeychainService.setPassword(password, for: source.id) else {
@@ -880,6 +926,12 @@ struct AddSourceView: View {
 
         onSave(source)
         dismiss()
+    }
+
+    private var credentialEditHint: LocalizedStringKey {
+        sourceType == .synology
+            ? "synology_password_edit_validation_hint"
+            : "password_edit_hint"
     }
 
     #if os(macOS)

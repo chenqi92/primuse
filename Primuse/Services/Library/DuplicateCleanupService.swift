@@ -105,8 +105,8 @@ final class DuplicateCleanupService {
             }
 
             for outcome in outcomes {
-                if outcome.result.hasFailures {
-                    failureCount += outcome.result.failedPaths.count
+                if !outcome.result.shouldRemoveLibraryRecord {
+                    failureCount += max(outcome.result.failedPaths.count, 1)
                     failedSongs.append(outcome.song)
                 } else {
                     removableSongs.append(outcome.song)

@@ -2,6 +2,9 @@ import Foundation
 import CryptoKit
 import MusicKit
 import PrimuseKit
+#if os(macOS)
+import iTunesLibrary
+#endif
 
 /// 把 Apple Music user library (用户已收藏 / 已添加到资料库的歌) 拉进
 /// 猿音 MusicLibrary, 跟 NAS / 云盘的歌一起出现在 Library 视图。
@@ -91,11 +94,18 @@ final class AppleMusicLibraryService {
     /// 不用每次再发 catalog lookup。冷启动后 cache 空, miss 时回退到
     /// MusicCatalogResourceRequest 拉一次。
     private var songCache: [String: MusicKit.Song] = [:]
+    /// Distinguishes a completed (possibly empty) library snapshot from a
+    /// one-off cold artwork lookup that happened to insert a single item.
+    private var hasCompletedLibrarySnapshot = false
     /// Canonical user-library entries only. `songCache` may also contain
     /// catalog-only tracks discovered through a playlist; using that mixed map
     /// for identity resolution can accidentally prefer the transient catalog
     /// object over its stable `i.*` library counterpart.
     private var canonicalLibrarySongCache: [String: MusicKit.Song] = [:]
+    /// Music.app rows that iTunesLibrary independently resolves to readable,
+    /// non-DRM files on this Mac. MusicKit may identify these rows with signed
+    /// decimal persistent IDs rather than `i.*` IDs.
+    private var subscriptionIndependentLocalFileIDs: Set<String> = []
 
     init(library: MusicLibrary, appleMusic: AppleMusicService) {
         self.library = library
@@ -131,15 +141,55 @@ final class AppleMusicLibraryService {
     /// play 入口用 ── songCache 空 (重启或刚装) 时同步等一次完整 sync, 让
     /// ApplicationMusicPlayer queue 能装上 user library 全集; 已经在跑的 sync
     /// 任务会被 await 直接复用, 不会重复触发。
-    func ensureCachePopulated() async {
-        guard AppleMusicFeatureSettings.syncUserLibraryEnabled else { return }
-        guard !library.disabledSourceIDs.contains(Self.systemSourceID) else { return }
-        if !songCache.isEmpty { return }
-        guard appleMusic.authState == .authorized else { return }
-        if let existing = syncTask {
-            await existing.value
-            return
+    private func playbackRequestCanContinue(_ requestID: UUID) -> Bool {
+        AppleMusicLibraryPlaybackGatePolicy.canContinue(
+            requestIsPending: appleMusic.isPlaybackRequestPending(requestID),
+            isCancelled: Task.isCancelled,
+            syncEnabled: AppleMusicFeatureSettings.syncUserLibraryEnabled,
+            sourceEnabled: !library.disabledSourceIDs.contains(Self.systemSourceID),
+            isAuthorized: appleMusic.authState == .authorized
+        )
+    }
+
+    private func failUnavailablePlaybackRequestIfCurrent(_ requestID: UUID) {
+        guard appleMusic.isPlaybackRequestPending(requestID),
+              !Task.isCancelled else { return }
+        appleMusic.failPlaybackRequest(
+            requestID,
+            message: String(localized: "playback_error_apple_music_generic")
+        )
+    }
+
+    /// Waiting on `Task.value` does not return promptly when only the waiter is
+    /// cancelled. Poll the shared generation instead so superseded playback
+    /// requests leave within one tick while the reusable library sync continues.
+    private func waitForSyncCompletion(
+        generation: UUID,
+        requestID: UUID
+    ) async -> Bool {
+        while syncGeneration == generation, syncTask != nil {
+            guard playbackRequestCanContinue(requestID) else { return false }
+            do {
+                try await Task.sleep(for: .milliseconds(100))
+            } catch {
+                return false
+            }
         }
+        return playbackRequestCanContinue(requestID)
+    }
+
+    private func ensureCachePopulated(for requestID: UUID) async -> Bool {
+        guard playbackRequestCanContinue(requestID) else { return false }
+        if syncTask != nil {
+            let existingGeneration = syncGeneration
+            guard await waitForSyncCompletion(
+                generation: existingGeneration,
+                requestID: requestID
+            ) else { return false }
+            if hasCompletedLibrarySnapshot { return true }
+        }
+        if hasCompletedLibrarySnapshot { return true }
+        guard playbackRequestCanContinue(requestID) else { return false }
         state = .syncing
         let generation = UUID()
         syncGeneration = generation
@@ -148,7 +198,10 @@ final class AppleMusicLibraryService {
         }
         syncTask = task
         scheduleSyncTimeout(generation: generation)
-        await task.value
+        return await waitForSyncCompletion(
+            generation: generation,
+            requestID: requestID
+        )
     }
 
     /// 用 PrimuseKit.Song 在系统侧起播 — filePath 字段实际是 MusicItemID。
@@ -159,18 +212,30 @@ final class AppleMusicLibraryService {
     /// AudioPlayerService 管理；传入纯 Apple Music 歌单时则保留系统队列能力。
     func play(
         primuseSong song: PrimuseKit.Song,
-        queueContext: [PrimuseKit.Song]? = nil
+        queueContext: [PrimuseKit.Song]? = nil,
+        requestID: UUID
     ) async {
         // songCache 是 in-memory, 重启后空。空 cache → orderedQueueFromCache
         // 返回 [], ApplicationMusicPlayer 的 queue 只装当前歌, 用户点"播放全部"
         // 看到的 queue 只剩 1 首播完就停。先确保 cache 至少有 user library
         // 当前的全集再继续。已经在跑的 sync 会被 await 等到完成。
-        await ensureCachePopulated()
+        guard await ensureCachePopulated(for: requestID) else {
+            failUnavailablePlaybackRequestIfCurrent(requestID)
+            return
+        }
 
         let amID = song.filePath
         let musicKitSong = await musicKitSong(amID: amID)
+        guard playbackRequestCanContinue(requestID) else {
+            failUnavailablePlaybackRequestIfCurrent(requestID)
+            return
+        }
         guard let mk = musicKitSong else {
             plog("⚠️Apple Music 找不到曲目 \(amID)")
+            appleMusic.failPlaybackRequest(
+                requestID,
+                message: String(localized: "playback_error_apple_music_generic")
+            )
             return
         }
         // Prefer the exact queue selected in Primuse. Falling back to the full
@@ -188,17 +253,40 @@ final class AppleMusicLibraryService {
         } else {
             queue = orderedQueueFromCache()
         }
-        let startIndex = queue.firstIndex(where: { $0.id == mk.id }) ?? 0
-        appleMusic.prepareExpectedPlaybackDuration(song.duration)
-        if queue.isEmpty {
-            await appleMusic.play(mk)
+        let startingSource = playbackSource(for: mk)
+        let queuedSources = queue.map(playbackSource(for:))
+        let plan = AppleMusicSystemQueuePolicy.plan(
+            startingItemID: mk.id.rawValue,
+            startingSource: startingSource,
+            queuedItemIDs: queue.map { $0.id.rawValue },
+            queuedSources: queuedSources
+        )
+        let systemQueue: [MusicKit.Song]
+        let startIndex: Int
+        if let plan {
+            systemQueue = plan.retainedIndices.map { queue[$0] }
+            startIndex = plan.startIndex
         } else {
-            await appleMusic.playUserLibrary(
-                songs: queue,
-                startAt: startIndex,
-                source: Self.playbackSource(for: mk)
-            )
+            // A cold/direct play can race cache population or receive a stale
+            // queue context that does not contain the requested item. Keep the
+            // requested row itself instead of starting an unrelated cached song.
+            systemQueue = [mk]
+            startIndex = 0
         }
+        guard playbackRequestCanContinue(requestID) else {
+            failUnavailablePlaybackRequestIfCurrent(requestID)
+            return
+        }
+        await appleMusic.playUserLibrary(
+            songs: systemQueue,
+            startAt: startIndex,
+            source: startingSource,
+            expectedDuration: song.duration,
+            requestID: requestID,
+            requestCanContinue: { [weak self] in
+                self?.playbackRequestCanContinue(requestID) == true
+            }
+        )
     }
 
     /// 取 songCache 的稳定排序 ── 用 libraryAddedDate 倒序 (新加的在前),
@@ -258,7 +346,10 @@ final class AppleMusicLibraryService {
         let id = MusicItemID(rawValue: amID)
         do {
             let resolved: MusicKit.Song?
-            if amID.hasPrefix("i.") {
+            if AppleMusicItemLookupPolicy.shouldUseUserLibrary(
+                itemID: amID,
+                confirmedLocalFileIDs: subscriptionIndependentLocalFileIDs
+            ) {
                 var request = MusicLibraryRequest<MusicKit.Song>()
                 request.filter(matching: \.id, equalTo: id)
                 request.limit = 1
@@ -269,7 +360,10 @@ final class AppleMusicLibraryService {
             }
             if let resolved {
                 songCache[amID] = resolved
-                if amID.hasPrefix("i.") {
+                if AppleMusicItemLookupPolicy.shouldUseUserLibrary(
+                    itemID: amID,
+                    confirmedLocalFileIDs: subscriptionIndependentLocalFileIDs
+                ) {
                     canonicalLibrarySongCache[amID] = resolved
                 }
             }
@@ -372,17 +466,27 @@ final class AppleMusicLibraryService {
     }
 
     /// MusicKit exposes `PlayParameters` only as Codable. A library row with a
-    /// catalog/global ID is still subscription-backed; a row that only carries
-    /// its `i.` library ID is an imported/library-only item and may play without
-    /// `canPlayCatalogContent`.
-    private nonisolated static func playbackSource(
+    /// catalog/global ID is still subscription-backed; only a row whose decoded
+    /// payload confirms its `i.` library ID without a catalog identity may play
+    /// without `canPlayCatalogContent`.
+    private func playbackSource(
         for song: MusicKit.Song
     ) -> AppleMusicPlaybackSource {
-        let identifiers = musicItemIdentifiers(for: song)
+        let identifiers = Self.musicItemIdentifiers(for: song)
+        let hasConfirmedLocalFile = AppleMusicLocalFileProvenancePolicy.confirmsLibrarySong(
+            itemID: song.id.rawValue,
+            playParameterIDs: identifiers.genericPlayParameterIDs,
+            persistentIDs: identifiers.persistentIDs,
+            declaresLibraryItem: identifiers.declaresLibraryItem,
+            mediaKinds: identifiers.mediaKinds,
+            confirmedLocalFileIDs: subscriptionIndependentLocalFileIDs
+        )
         return AppleMusicPlaybackSourceResolver.resolve(
             itemID: song.id.rawValue,
             explicitCatalogIDs: identifiers.explicitCatalogIDs,
-            genericPlayParameterIDs: identifiers.genericPlayParameterIDs
+            genericPlayParameterIDs: identifiers.genericPlayParameterIDs,
+            confirmedLibraryIDs: identifiers.confirmedLibraryIDs,
+            confirmedLocalFileIDs: hasConfirmedLocalFile ? [song.id.rawValue] : []
         )
     }
 
@@ -409,6 +513,13 @@ final class AppleMusicLibraryService {
         var all: Set<String>
         var explicitCatalogIDs: Set<String> = []
         var genericPlayParameterIDs: Set<String> = []
+        var persistentIDs: Set<String> = []
+        var mediaKinds: Set<String> = []
+        var declaresLibraryItem = false
+        /// Library identities observed in successfully decoded PlayParameters.
+        /// The raw Song.id is deliberately not inserted here: it is the value
+        /// being verified, not independent evidence that playback is local.
+        var confirmedLibraryIDs: Set<String> = []
     }
 
     private nonisolated static func musicItemIdentifiers(
@@ -439,7 +550,16 @@ final class AppleMusicLibraryService {
         if let dictionary = object as? [String: Any] {
             for (key, value) in dictionary {
                 let normalizedKey = key.lowercased().filter(\.isLetter)
-                if ["id", "catalogid", "globalid", "libraryid"].contains(normalizedKey),
+                if normalizedKey == "islibrary", let isLibrary = value as? Bool {
+                    result.declaresLibraryItem = result.declaresLibraryItem || isLibrary
+                } else if normalizedKey == "kind", let kind = value as? String {
+                    result.mediaKinds.insert(kind)
+                } else if normalizedKey == "musickitpersistentid",
+                          let persistentID = value as? String,
+                          !persistentID.isEmpty {
+                    result.all.insert(persistentID)
+                    result.persistentIDs.insert(persistentID)
+                } else if ["id", "catalogid", "globalid", "libraryid"].contains(normalizedKey),
                    let id = value as? String,
                    !id.isEmpty {
                     result.all.insert(id)
@@ -447,6 +567,11 @@ final class AppleMusicLibraryService {
                         result.explicitCatalogIDs.insert(id)
                     } else if normalizedKey == "id" {
                         result.genericPlayParameterIDs.insert(id)
+                        if id.hasPrefix("i.") {
+                            result.confirmedLibraryIDs.insert(id)
+                        }
+                    } else if normalizedKey == "libraryid", id.hasPrefix("i.") {
+                        result.confirmedLibraryIDs.insert(id)
                     }
                 } else {
                     collectMusicItemIDs(from: value, into: &result)
@@ -511,6 +636,7 @@ final class AppleMusicLibraryService {
             }
         }
         do {
+            await refreshSubscriptionIndependentLocalFileIDs()
             let fetchResult = try await fetchLibrarySongs()
             let allMusicKitSongs = fetchResult.songs
 
@@ -536,6 +662,7 @@ final class AppleMusicLibraryService {
                 songCache.merge(fetchedSongCache) { _, incoming in incoming }
                 canonicalLibrarySongCache.merge(fetchedSongCache) { _, incoming in incoming }
             }
+            hasCompletedLibrarySnapshot = true
             let songs = allMusicKitSongs.map { Self.toPrimuseSong($0) }
             // 把这些歌加进 library, sourceIDs 限定 Apple Music, 让 addSongs
             // 自己处理删除 (Apple Music 删歌的 case 会被检测到)。
@@ -599,6 +726,60 @@ final class AppleMusicLibraryService {
             }
         }
     }
+
+    /// Refreshes trusted local-file provenance before every MusicKit snapshot.
+    /// Failure is intentionally fail-closed: no row may bypass the catalog
+    /// preflight unless the current process can re-confirm its local file.
+    private func refreshSubscriptionIndependentLocalFileIDs() async {
+        #if os(macOS)
+        let result = await Task.detached(priority: .utility) {
+            Self.loadSubscriptionIndependentLocalFileIDs()
+        }.value
+        if let error = result.error {
+            subscriptionIndependentLocalFileIDs.removeAll()
+            plog("⚠️Apple Music local-file provenance unavailable: \(error)")
+        } else {
+            subscriptionIndependentLocalFileIDs = result.ids
+            plog("🎵 Apple Music local-file provenance: \(result.itemCount) readable non-DRM songs")
+        }
+        #else
+        subscriptionIndependentLocalFileIDs.removeAll()
+        #endif
+    }
+
+    #if os(macOS)
+    private nonisolated static func loadSubscriptionIndependentLocalFileIDs() -> (
+        ids: Set<String>,
+        itemCount: Int,
+        error: String?
+    ) {
+        do {
+            let localLibrary = try ITLibrary(apiVersion: "1.1", options: .lazyLoadData)
+            var confirmedIDs = Set<String>()
+            var confirmedItemCount = 0
+            for item in localLibrary.allMediaItems {
+                guard item.mediaKind == .kindSong,
+                      item.locationType == .file,
+                      !item.isDRMProtected,
+                      let location = item.location,
+                      location.isFileURL,
+                      location.pathExtension.lowercased() != "m4p",
+                      FileManager.default.isReadableFile(atPath: location.path) else {
+                    continue
+                }
+                confirmedItemCount += 1
+                confirmedIDs.formUnion(
+                    AppleMusicLocalFileIdentity.playbackIdentifiers(
+                        forPersistentID: item.persistentID.uint64Value
+                    )
+                )
+            }
+            return (confirmedIDs, confirmedItemCount, nil)
+        } catch {
+            return ([], 0, error.localizedDescription)
+        }
+    }
+    #endif
 
     /// macOS 的 `MusicLibraryRequest` 读取 Music.app 保存在本机的资料库副本。
     /// 用户未打开「同步资料库」时它只会返回本机导入的几首歌，即使同一 Apple

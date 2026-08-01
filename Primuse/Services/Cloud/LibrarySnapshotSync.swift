@@ -199,11 +199,19 @@ final class LibrarySnapshotSync: Sendable {
             ok = false
         }
         #if !os(tvOS)
-        if !Task.isCancelled {
-            await gatherAndUploadCredentials()
+        let credentialOutcome: SnapshotCredentialTransferOutcome
+        if Task.isCancelled {
+            credentialOutcome = .failed
+        } else {
+            credentialOutcome = await gatherAndUploadCredentials()
         }
-        #endif
+        return SnapshotTransferCompletionPolicy.iCloudSucceeded(
+            snapshotUploaded: ok,
+            credentialOutcome: credentialOutcome
+        )
+        #else
         return ok
+        #endif
     }
 
     /// 只覆盖服务器记录里的 `sources` 字段,**不动 library/歌词**。
@@ -213,19 +221,19 @@ final class LibrarySnapshotSync: Sendable {
     /// 这里先拉取服务器现有记录(保留其 libraryGz/library/lyricsGz 等字段原样),
     /// 仅把本地 `sources.json` 重新内联进 sources 字段后存回。无本地 sources 则跳过。
     @discardableResult
-    func uploadSourcesOnly() async -> Bool {
+    func uploadSourcesOnly(includingTombstones tombstones: [MusicSource] = []) async -> Bool {
         await withCloudMutationLock { [self] in
-            await performUploadSourcesOnly()
+            await performUploadSourcesOnly(includingTombstones: tombstones)
         }
     }
 
-    private func performUploadSourcesOnly() async -> Bool {
+    private func performUploadSourcesOnly(includingTombstones tombstones: [MusicSource]) async -> Bool {
         guard let database else {
             plog("LibrarySnapshotSync: CloudKit unavailable in this build, skip sources upload")
             return false
         }
         let fm = FileManager.default
-        guard fm.fileExists(atPath: sourcesURL.path) else {
+        guard fm.fileExists(atPath: sourcesURL.path) || !tombstones.isEmpty else {
             plog("LibrarySnapshotSync: no local sources.json, skip sources-only upload")
             return false
         }
@@ -238,12 +246,12 @@ final class LibrarySnapshotSync: Sendable {
             plog("LibrarySnapshotSync: no existing snapshot for sources-only — creating sources-only record (\(error))")
             record = CKRecord(recordType: recordType, recordID: recordID)
         }
-        var srcInfo = prepareSourcesRecord(record, fm: fm)
+        var srcInfo = prepareSourcesRecord(record, fm: fm, tombstones: tombstones)
         var outcome = await saveChangedRecord(record, in: database)
         if case .conflict(let serverRecord) = outcome {
             // Re-merge against the actual winner before retrying; simply
             // reusing our first payload would discard the concurrent edit.
-            srcInfo = prepareSourcesRecord(serverRecord, fm: fm)
+            srcInfo = prepareSourcesRecord(serverRecord, fm: fm, tombstones: tombstones)
             outcome = await saveChangedRecord(serverRecord, in: database)
         }
         switch outcome {
@@ -259,30 +267,76 @@ final class LibrarySnapshotSync: Sendable {
         }
     }
 
-    private func prepareSourcesRecord(_ record: CKRecord, fm: FileManager) -> String {
+    private func prepareSourcesRecord(
+        _ record: CKRecord,
+        fm: FileManager,
+        tombstones: [MusicSource]
+    ) -> String {
         // Merge the server fields with the latest local file every time this is
         // called, including conflict retry.
-        if let merged = mergeSourcesForUpload(with: record, fm: fm) {
+        guard let localData = localSourcesData(including: tombstones) else {
+            return "sourcesGz=no-file"
+        }
+        let payload: Data
+        if let incoming = sourcesSnapshotData(from: record, fm: fm),
+           let merged = Self.mergeSourcesJSON(localData: localData, incomingData: incoming) {
+            payload = merged.data
             do {
-                try merged.data.write(to: sourcesURL, options: .atomic)
+                // A retry-only tombstone may outlive its locally purged source
+                // row. Do not write that row back into the user-facing store;
+                // the durable cleanup journal owns it until propagation wins.
+                if tombstones.isEmpty {
+                    try merged.data.write(to: sourcesURL, options: .atomic)
+                }
                 plog("LibrarySnapshotSync: merged sources before upload local=\(merged.localCount) remote=\(merged.incomingCount) total=\(merged.totalCount)")
             } catch {
                 plog("LibrarySnapshotSync: merged sources write failed — \(error)")
             }
+        } else {
+            payload = localData
         }
         record["sourcesGz"] = nil
         record["sources"] = nil
-        let info = attachSourcesSnapshot(record, gzKey: "sourcesGz", assetKey: "sources")
+        let info = attachSourcesSnapshot(
+            record,
+            rawData: payload,
+            gzKey: "sourcesGz",
+            assetKey: "sources"
+        )
         record["modifiedAt"] = Date() as CKRecordValue
         return info
     }
 
-    private func saveChangedRecord(_ record: CKRecord, in database: CKDatabase) async -> RecordSaveOutcome {
+    /// Combines the live local file with durable tombstones captured before a
+    /// permanent delete removed their rows. LWW still lets a newer local restore
+    /// supersede an older queued delete.
+    private func localSourcesData(including tombstones: [MusicSource]) -> Data? {
+        let local = try? Data(contentsOf: sourcesURL)
+        guard !tombstones.isEmpty else { return local }
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        guard let tombstoneData = try? encoder.encode(tombstones),
+              let emptyData = try? encoder.encode([MusicSource]()) else {
+            return nil
+        }
+        return Self.mergeSourcesJSON(
+            localData: tombstoneData,
+            incomingData: local ?? emptyData
+        )?.data
+    }
+
+    private func saveChangedRecord(
+        _ record: CKRecord,
+        in database: CKDatabase,
+        savePolicy: CKModifyRecordsOperation.RecordSavePolicy = .changedKeys
+    ) async -> RecordSaveOutcome {
         do {
             let (saveResults, _) = try await database.modifyRecords(
                 saving: [record],
                 deleting: [],
-                savePolicy: .changedKeys
+                savePolicy: savePolicy
             )
             switch saveResults[record.recordID] {
             case .success:
@@ -624,8 +678,14 @@ final class LibrarySnapshotSync: Sendable {
     /// Sources contain a Synology trusted-device token used to skip TOTP on
     /// this device. Keep that token in the local sources.json, but never put it
     /// into the cross-device snapshot payload.
-    private func attachSourcesSnapshot(_ record: CKRecord, gzKey: String, assetKey: String) -> String {
-        guard let raw = try? Data(contentsOf: sourcesURL), raw.count <= Self.maxSourcesRawBytes,
+    private func attachSourcesSnapshot(
+        _ record: CKRecord,
+        rawData: Data? = nil,
+        gzKey: String,
+        assetKey: String
+    ) -> String {
+        guard let raw = rawData ?? (try? Data(contentsOf: sourcesURL)),
+              raw.count <= Self.maxSourcesRawBytes,
               let sanitized = Self.sanitizedSourcesData(raw) else {
             return "\(gzKey)=no-file"
         }
@@ -820,6 +880,11 @@ final class LibrarySnapshotSync: Sendable {
 
     // MARK: 凭据(CloudKit encryptedValues 端到端加密;密钥由系统 iCloud 钥匙串托管)
 
+    private struct CredentialRemovalPlan: Sendable {
+        let sourceIDs: Set<String>
+        let relayIfMatching: RelayEndpoint?
+    }
+
     /// tvOS:拉取并解密凭据包(供流式解析用)。
     func downloadCredentials() async -> CredentialBundle? {
         guard let database else {
@@ -838,21 +903,170 @@ final class LibrarySnapshotSync: Sendable {
         }
     }
 
-    /// 覆盖上传加密凭据包(空包且无中继端点时跳过)。
-    func uploadCredentials(_ bundle: CredentialBundle) async {
-        guard !bundle.entries.isEmpty || bundle.relay != nil, let data = try? bundle.jsonData() else { return }
+    /// 覆盖上传加密凭据包。空包先读取现有 change tag，并把本次实际观察到的
+    /// 凭据作为删除计划；发生冲突时只重放这些删除，保留另一台设备刚新增的项。
+    /// CloudKit 没有带 record change tag 的 record-ID 删除，因此空结果保存为不含
+    /// 秘密的加密空 tombstone，而不是无条件删除整个单例记录。
+    @discardableResult
+    func uploadCredentials(_ bundle: CredentialBundle) async -> Bool {
         guard let database else {
             plog("LibrarySnapshotSync: CloudKit unavailable in this build, skip credential upload")
-            return
+            return false
         }
-        let record = CKRecord(recordType: credRecordType, recordID: credRecordID)
+
+        let existingRecord: CKRecord?
+        do {
+            existingRecord = try await database.record(for: credRecordID)
+        } catch let error as CKError where error.code == .unknownItem {
+            existingRecord = nil
+        } catch {
+            plog("LibrarySnapshotSync: credential upload preflight failed — \(error)")
+            return false
+        }
+
+        guard CredentialBundlePolicy.writeAction(for: bundle) == .deleteRecord else {
+            return await saveCredentialBundle(bundle, existingRecord: existingRecord, in: database)
+        }
+        guard let existingRecord else { return true }
+        guard let data = existingRecord.encryptedValues["credentials"] as? Data,
+              let current = CredentialBundle.decode(data) else {
+            plog("LibrarySnapshotSync: empty credential upload skipped; cloud payload unavailable")
+            return false
+        }
+        let plan = CredentialRemovalPlan(
+            sourceIDs: Set(current.entries.keys),
+            relayIfMatching: current.relay
+        )
+        let updated = CredentialBundlePolicy.removing(
+            sourceIDs: plan.sourceIDs,
+            relayIfMatching: plan.relayIfMatching,
+            from: current
+        )
+        return await saveCredentialBundle(
+            updated,
+            existingRecord: existingRecord,
+            in: database,
+            removalPlan: plan
+        )
+    }
+
+    /// Best-effort privacy cleanup used by source soft-delete. This is a
+    /// targeted read-modify-write instead of uploading the caller's in-memory
+    /// bundle: a TV whose CloudKit download is temporarily unavailable must not
+    /// replace credentials belonging to other active devices/sources with an
+    /// incomplete local value.
+    @discardableResult
+    func removeCredentialFromCloud(forSourceID sourceID: String) async -> Bool {
+        await withCloudMutationLock { [self] in
+            await performRemoveCredentialFromCloud(forSourceID: sourceID)
+        }
+    }
+
+    private func performRemoveCredentialFromCloud(forSourceID sourceID: String) async -> Bool {
+        guard let database else {
+            plog("LibrarySnapshotSync: CloudKit unavailable, skip credential removal source=\(sourceID.prefix(8))…")
+            return false
+        }
+
+        let record: CKRecord
+        do {
+            record = try await database.record(for: credRecordID)
+        } catch let error as CKError where error.code == .unknownItem {
+            return true
+        } catch {
+            plog("LibrarySnapshotSync: credential removal fetch failed source=\(sourceID.prefix(8))… — \(error)")
+            return false
+        }
+
+        guard let data = record.encryptedValues["credentials"] as? Data,
+              let current = CredentialBundle.decode(data) else {
+            // An unreadable/missing payload is not an empty authority signal.
+            // Keep it untouched so a transient/schema issue cannot erase other
+            // devices' still-valid credentials.
+            plog("LibrarySnapshotSync: credential removal skipped; cloud payload unavailable source=\(sourceID.prefix(8))…")
+            return false
+        }
+        guard current.entries[sourceID] != nil else { return true }
+
+        let plan = CredentialRemovalPlan(sourceIDs: [sourceID], relayIfMatching: nil)
+        let updated = CredentialBundlePolicy.removing(
+            sourceIDs: plan.sourceIDs,
+            relayIfMatching: nil,
+            from: current
+        )
+        return await saveCredentialBundle(
+            updated,
+            existingRecord: record,
+            in: database,
+            removalPlan: plan
+        )
+    }
+
+    private func saveCredentialBundle(
+        _ bundle: CredentialBundle,
+        existingRecord: CKRecord?,
+        in database: CKDatabase,
+        removalPlan: CredentialRemovalPlan? = nil,
+        conflictRetriesRemaining: Int = 1
+    ) async -> Bool {
+        guard let data = try? bundle.jsonData() else {
+            plog("LibrarySnapshotSync: credential payload encoding failed")
+            return false
+        }
+        let record = existingRecord ?? CKRecord(recordType: credRecordType, recordID: credRecordID)
         record.encryptedValues["credentials"] = data
         record["modifiedAt"] = Date() as CKRecordValue
-        do {
-            _ = try await database.modifyRecords(saving: [record], deleting: [], savePolicy: .allKeys)
-            plog("LibrarySnapshotSync: uploaded credentials (\(bundle.entries.count))")
-        } catch {
-            plog("LibrarySnapshotSync: credential upload failed — \(error)")
+        var outcome = await saveChangedRecord(
+            record,
+            in: database,
+            savePolicy: .ifServerRecordUnchanged
+        )
+        if case .conflict(let serverRecord) = outcome {
+            if let removalPlan {
+                guard conflictRetriesRemaining > 0 else {
+                    plog("LibrarySnapshotSync: credential removal conflict persisted ids=\(removalPlan.sourceIDs.count)")
+                    return false
+                }
+                guard let serverData = serverRecord.encryptedValues["credentials"] as? Data,
+                      let serverBundle = CredentialBundle.decode(serverData) else {
+                    plog("LibrarySnapshotSync: credential removal conflict payload unavailable")
+                    return false
+                }
+                let rebased = CredentialBundlePolicy.removing(
+                    sourceIDs: removalPlan.sourceIDs,
+                    relayIfMatching: removalPlan.relayIfMatching,
+                    from: serverBundle
+                )
+                guard rebased != serverBundle else { return true }
+                return await saveCredentialBundle(
+                    rebased,
+                    existingRecord: serverRecord,
+                    in: database,
+                    removalPlan: removalPlan,
+                    conflictRetriesRemaining: conflictRetriesRemaining - 1
+                )
+            }
+            serverRecord.encryptedValues["credentials"] = data
+            serverRecord["modifiedAt"] = record["modifiedAt"]
+            outcome = await saveChangedRecord(
+                serverRecord,
+                in: database,
+                savePolicy: .ifServerRecordUnchanged
+            )
+        }
+        switch outcome {
+        case .success:
+            let kind = CredentialBundlePolicy.writeAction(for: bundle) == .deleteRecord
+                ? "empty change-tagged tombstone"
+                : "\(bundle.entries.count) entries"
+            plog("LibrarySnapshotSync: uploaded credentials (\(kind))")
+            return true
+        case .conflict:
+            plog("LibrarySnapshotSync: credential upload conflict persisted after retry")
+            return false
+        case .failure(let error):
+            plog("LibrarySnapshotSync: credential upload failed — \(error?.localizedDescription ?? "no per-record result")")
+            return false
         }
     }
 
@@ -861,28 +1075,59 @@ final class LibrarySnapshotSync: Sendable {
     /// client 密钥)成凭据包。`respectingChannel`:走 iCloud 时为 true,会尊重用户的
     /// 「凭据同步」开关;LAN 直传是用户显式扫码发起 + 端到端加密 + 仅本地一跳,故传
     /// false 不受该开关限制(用户既然扫码就是要把源连过去)。
-    func gatherCredentialBundle(respectingChannel: Bool) async -> CredentialBundle {
+    func gatherCredentialBundle(respectingChannel: Bool) async -> CredentialBundle? {
         if respectingChannel, !CloudSyncChannel.isEnabled(.credentials) { return CredentialBundle() }
-        guard let data = try? Data(contentsOf: sourcesURL) else { return CredentialBundle() }
+        guard let data = try? Data(contentsOf: sourcesURL) else { return nil }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        guard let sources = try? decoder.decode([MusicSource].self, from: data) else { return CredentialBundle() }
+        guard let sources = try? decoder.decode([MusicSource].self, from: data) else { return nil }
 
         var entries: [String: CredentialEntry] = [:]
         // 含手机上「停用」的源:Apple TV 可能本地启用某个手机上停用的源来播放,
         // 若只传已启用源的凭证,TV 上会「缺登录凭证」无法播。只排除已删除的。
         for source in sources where !source.isDeleted {
             var entry = CredentialEntry(username: source.username)
-            entry.password = KeychainService.getPassword(for: source.id)
+            if source.type.requiresCredentials, source.authType != .none {
+                switch KeychainService.passwordLookup(for: source.id) {
+                case .found(let password):
+                    entry.password = password
+                case .notFound:
+                    break
+                case .temporarilyUnavailable(let status):
+                    plog("⏳ LibrarySnapshotSync: skip credential snapshot; Keychain temporarily unavailable source=\(source.id.prefix(8))… status=\(status)")
+                    return nil
+                case .failed(let status):
+                    plog("⛔ LibrarySnapshotSync: skip credential snapshot; Keychain read failed source=\(source.id.prefix(8))… status=\(status)")
+                    return nil
+                }
+            }
             let tokenManager = CloudTokenManager(sourceID: source.id)
-            if let tokens = await tokenManager.getTokens() {
+            switch await tokenManager.lookupTokens() {
+            case .found(let tokens):
                 entry.token = tokens.accessToken
                 entry.refreshToken = tokens.refreshToken
                 entry.extra = tokens.extra ?? [:]
+            case .notFound:
+                break
+            case .temporarilyUnavailable(let status):
+                plog("⏳ LibrarySnapshotSync: skip credential snapshot; cloud tokens temporarily unavailable source=\(source.id.prefix(8))… status=\(status)")
+                return nil
+            case .failed(let status):
+                plog("⛔ LibrarySnapshotSync: skip credential snapshot; cloud token read failed source=\(source.id.prefix(8))… status=\(status)")
+                return nil
             }
-            if let creds = await tokenManager.getAppCredentials() {
+            switch await tokenManager.lookupAppCredentials() {
+            case .found(let creds):
                 entry.clientID = creds.clientId
                 entry.clientSecret = creds.clientSecret
+            case .notFound:
+                break
+            case .temporarilyUnavailable(let status):
+                plog("⏳ LibrarySnapshotSync: skip credential snapshot; cloud app credentials temporarily unavailable source=\(source.id.prefix(8))… status=\(status)")
+                return nil
+            case .failed(let status):
+                plog("⛔ LibrarySnapshotSync: skip credential snapshot; cloud app credential read failed source=\(source.id.prefix(8))… status=\(status)")
+                return nil
             }
             if !entry.isEmpty { entries[source.id] = entry }
         }
@@ -892,15 +1137,30 @@ final class LibrarySnapshotSync: Sendable {
     }
 
     /// CloudKit:采集凭据并加密上传(尊重「凭据同步」开关)。
-    private func gatherAndUploadCredentials() async {
-        guard CloudSyncChannel.isEnabled(.credentials) else { return }
-        await uploadCredentials(await gatherCredentialBundle(respectingChannel: true))
+    private func gatherAndUploadCredentials() async -> SnapshotCredentialTransferOutcome {
+        guard CloudSyncChannel.isEnabled(.credentials) else { return .skipped }
+        guard let bundle = await gatherCredentialBundle(respectingChannel: true) else {
+            plog("LibrarySnapshotSync: credential snapshot preparation failed")
+            return .failed
+        }
+        return await uploadCredentials(bundle) ? .succeeded : .failed
     }
 
     // MARK: LAN 直传(扫码,绕开 iCloud)
 
     /// 构建与 CloudKit 快照同构的整库 + 源 + 歌词 + 凭据载荷(各 `*Gz` 是同一份压缩字节)。
-    func buildLANPayload() async -> LANSyncPayload {
+    func buildLANPayload() async -> LANSyncPayload? {
+        let credentials = await gatherCredentialBundle(respectingChannel: false)
+        let credentialOutcome: SnapshotCredentialTransferOutcome = credentials == nil
+            ? .failed
+            : .succeeded
+        guard SnapshotTransferCompletionPolicy.canSendLAN(
+            credentialOutcome: credentialOutcome
+        ), let credentials else {
+            plog("LibrarySnapshotSync: LAN payload preparation aborted; credentials unavailable")
+            return nil
+        }
+
         var payload = LANSyncPayload()
         if let raw = try? Data(contentsOf: libraryCacheURL) { payload.libraryGz = Self.gzip(raw) }
         if let raw = try? Data(contentsOf: sourcesURL),
@@ -908,15 +1168,15 @@ final class LibrarySnapshotSync: Sendable {
             payload.sourcesGz = Self.gzip(sanitized)
         }
         if let lyrics = Self.gatherLyricsBlob() { payload.lyricsGz = Self.gzip(lyrics.data) }
-        payload.credentials = await gatherCredentialBundle(respectingChannel: false)
+        payload.credentials = credentials
         return payload
     }
 
     /// 把整库 + 源 + 凭据 AES-GCM 加密后直接 POST 给 Apple TV(`primuse://pair` 扫码端点)。
     /// 调用前应先 `MusicLibrary.persistNow()`,否则 library-cache.json 可能不是最新。
     func sendToTVOverLAN(_ link: LANPairLink) async -> Bool {
-        let payload = await buildLANPayload()
-        guard let json = try? payload.jsonData(),
+        guard let payload = await buildLANPayload(),
+              let json = try? payload.jsonData(),
               let box = LANSyncCrypto.seal(json, key: link.key),
               let url = link.configURL else { return false }
         var req = URLRequest(url: url)

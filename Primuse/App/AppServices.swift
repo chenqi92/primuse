@@ -36,6 +36,19 @@ final class AppServices {
     }
     private var pendingSourceCleanup: [String: SourceCleanupRequest] = [:]
     private var sourceCleanupTask: Task<Void, Never>?
+    private var pendingSourceCloudCleanups: [String: SourceCloudCleanupIntent] = [:]
+    private var sourceCloudCleanupPropagationTask: Task<Void, Never>?
+
+    private var sourceCloudCleanupJournalURL: URL {
+        #if os(tvOS)
+        let base = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+        #else
+        let base = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
+        #endif
+        return base
+            .appendingPathComponent("Primuse", isDirectory: true)
+            .appendingPathComponent("pending-source-cloud-cleanups.json")
+    }
 
     private init() {
         // Class is @MainActor so this initializer is too — but the static
@@ -104,8 +117,12 @@ final class AppServices {
         let amService = AppleMusicService()
         self.appleMusic = amService
         self.appleMusicLibrary = AppleMusicLibraryService(library: library, appleMusic: amService)
-        amService.onPlaybackEnded = { [weak player] in
-            player?.handleAppleMusicPlaybackEnded()
+        amService.onPlaybackEnded = { [weak player] requestID in
+            player?.handleAppleMusicPlaybackEnded(requestID: requestID)
+        }
+        amService.preparePlaybackHandoff = { [weak player] requestID in
+            guard let player else { return false }
+            return await player.prepareAppleMusicPlaybackHandoff(requestID: requestID)
         }
 
         // 确保 Apple Music 虚拟 source 一直存在 — 用户首次安装 / iCloud
@@ -153,11 +170,18 @@ final class AppServices {
             store?.allSources.first(where: { $0.id == sourceID })?.cloudAccountID
         }
 
+        loadPendingSourceCloudCleanups()
         observeSourceLifecycle()
 
         let pruneThreshold = Date(timeIntervalSinceNow: -7 * 24 * 60 * 60)
         library.prunePlaylists(deletedBefore: pruneThreshold)
-        store.pruneSources(deletedBefore: pruneThreshold)
+        let sourcePruneResults = store.pruneSources(deletedBefore: pruneThreshold)
+        let sourcePruneFailures = sourcePruneResults.filter {
+            $0.value == .credentialCleanupFailed
+        }
+        if !sourcePruneFailures.isEmpty {
+            plog("⏳ Source prune retained \(sourcePruneFailures.count) tombstone(s) for credential cleanup retry")
+        }
         ScraperConfigStore.shared.pruneConfigs(deletedBefore: pruneThreshold)
         reconcileDeletedSourceSongs()
         reconcileSourceSongCounts()
@@ -172,6 +196,7 @@ final class AppServices {
         wireIntentBridge()
         observeSpotlightReindex()
         rescanLocalImportIfNeeded()
+        schedulePendingSourceCloudCleanupPropagation(delay: .seconds(1))
 
         // 注意: 不在这里接线 Live Activity。PrimuseActivityExtension 的灵动岛 /
         // 锁屏布局仍是半成品(切歌不更新、杀进程后不消失),激活它比留作未启用
@@ -202,7 +227,12 @@ final class AppServices {
         sourceLifecycleObserverTokens.append(
             nc.addObserver(forName: .primuseSourceDidSoftDelete, object: nil, queue: .main) { [weak self] note in
                 guard let self, let id = note.userInfo?["id"] as? String else { return }
+                let capturedTombstone = note.userInfo?["source"] as? MusicSource
                 Task { @MainActor in
+                    if let tombstone = capturedTombstone ?? self.sourcesStore.source(id: id),
+                       tombstone.isDeleted {
+                        self.enqueueSourceCloudCleanup(tombstone)
+                    }
                     // 软删(进回收站)即回收空间:删本地导入源在沙箱的原始拷贝。
                     // 产品取舍 —— restore 不会自动重扫找回歌, 保留拷贝意义不大,
                     // 而用户删源的核心诉求就是立即回收空间。Toggling isEnabled
@@ -220,19 +250,159 @@ final class AppServices {
         sourceLifecycleObserverTokens.append(
             nc.addObserver(forName: .primuseSourceDidDelete, object: nil, queue: .main) { [weak self] note in
                 guard let self, let id = note.userInfo?["id"] as? String else { return }
+                let capturedTombstone = note.userInfo?["source"] as? MusicSource
                 Task { @MainActor in
+                    // The row may already be gone from SourcesStore. The
+                    // notification carries its last tombstone so the delayed
+                    // soft-delete propagation cannot be lost.
+                    if let tombstone = capturedTombstone, tombstone.isDeleted {
+                        self.enqueueSourceCloudCleanup(tombstone)
+                    }
                     // 永久删除(回收站清空 / 30 天清理 / CloudKit 远端永久删 echo)。
                     // 软删时通常已回收, 这里幂等兜底(目录已删则 removeItem no-op)。
-                    self.removeSourceLibraryData(id: id, purgePersistentCaches: true, removeImportedFiles: true)
+                    self.removeSourceLibraryData(
+                        id: id,
+                        purgePersistentCaches: true,
+                        removeImportedFiles: true,
+                        uploadSourcesSnapshot: capturedTombstone?.isDeleted == true
+                    )
                 }
             }
         )
     }
 
-    private func uploadSourcesSnapshotAfterSoftDeleteIfNeeded() {
-        guard CloudSyncChannel.isEnabled(.sources) else { return }
-        Task.detached(priority: .background) {
-            await LibrarySnapshotSync.shared.uploadSourcesOnly()
+    private func enqueueSourceCloudCleanup(_ tombstone: MusicSource) {
+        guard let intent = SourceCloudCleanupPolicy.coalescing(
+            current: pendingSourceCloudCleanups[tombstone.id],
+            tombstone: tombstone
+        ) else { return }
+        pendingSourceCloudCleanups[tombstone.id] = intent
+        persistPendingSourceCloudCleanups()
+        schedulePendingSourceCloudCleanupPropagation(delay: .milliseconds(400))
+    }
+
+    private func loadPendingSourceCloudCleanups() {
+        guard let data = try? Data(contentsOf: sourceCloudCleanupJournalURL) else { return }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let intents = try? decoder.decode([SourceCloudCleanupIntent].self, from: data) else {
+            plog("⛔ Source cloud cleanup journal is unreadable; preserving file for recovery")
+            return
+        }
+        for intent in intents where intent.tombstone.isDeleted {
+            if let current = pendingSourceCloudCleanups[intent.tombstone.id] {
+                let currentClock = max(
+                    current.tombstone.modifiedAt,
+                    current.tombstone.deletedAt ?? .distantPast
+                )
+                let incomingClock = max(
+                    intent.tombstone.modifiedAt,
+                    intent.tombstone.deletedAt ?? .distantPast
+                )
+                var merged = incomingClock >= currentClock ? intent : current
+                merged.needsSourceSnapshotUpload = current.needsSourceSnapshotUpload
+                    || intent.needsSourceSnapshotUpload
+                merged.needsCredentialRemoval = current.needsCredentialRemoval
+                    || intent.needsCredentialRemoval
+                pendingSourceCloudCleanups[intent.tombstone.id] = merged
+            } else {
+                pendingSourceCloudCleanups[intent.tombstone.id] = intent
+            }
+        }
+        if !pendingSourceCloudCleanups.isEmpty {
+            plog("⏳ Restored \(pendingSourceCloudCleanups.count) pending source cloud cleanup(s)")
+            schedulePendingSourceCloudCleanupPropagation(delay: .seconds(1))
+        }
+    }
+
+    private func persistPendingSourceCloudCleanups() {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        let intents = pendingSourceCloudCleanups.values.sorted {
+            $0.tombstone.id < $1.tombstone.id
+        }
+        do {
+            try FileManager.default.createDirectory(
+                at: sourceCloudCleanupJournalURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let data = try encoder.encode(intents)
+            try data.write(to: sourceCloudCleanupJournalURL, options: .atomic)
+        } catch {
+            plog("⛔ Source cloud cleanup journal persist failed — \(error.localizedDescription)")
+        }
+    }
+
+    private func schedulePendingSourceCloudCleanupPropagation(delay: Duration) {
+        guard !pendingSourceCloudCleanups.isEmpty,
+              sourceCloudCleanupPropagationTask == nil else { return }
+        sourceCloudCleanupPropagationTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: delay)
+            } catch {
+                return
+            }
+            guard let self, !Task.isCancelled else { return }
+            await self.propagatePendingSourceCloudCleanups()
+            self.sourceCloudCleanupPropagationTask = nil
+            if !self.pendingSourceCloudCleanups.isEmpty {
+                self.schedulePendingSourceCloudCleanupPropagation(delay: .seconds(30))
+            }
+        }
+    }
+
+    private func propagatePendingSourceCloudCleanups() async {
+        let snapshot = pendingSourceCloudCleanups.values.sorted {
+            $0.tombstone.id < $1.tombstone.id
+        }
+        for intent in snapshot {
+            let sourceID = intent.tombstone.id
+            if SourceCloudCleanupPolicy.isSuperseded(
+                intent,
+                by: sourcesStore.source(id: sourceID)
+            ) {
+                pendingSourceCloudCleanups.removeValue(forKey: sourceID)
+                persistPendingSourceCloudCleanups()
+                continue
+            }
+
+            let sourceSnapshotUploaded: Bool
+            if intent.needsSourceSnapshotUpload, CloudSyncChannel.isEnabled(.sources) {
+                sourceSnapshotUploaded = await LibrarySnapshotSync.shared.uploadSourcesOnly(
+                    includingTombstones: [intent.tombstone]
+                )
+            } else {
+                sourceSnapshotUploaded = !intent.needsSourceSnapshotUpload
+            }
+
+            // A restore can happen while the snapshot request is suspended.
+            // Re-check before applying irreversible credential cleanup.
+            if SourceCloudCleanupPolicy.isSuperseded(
+                intent,
+                by: sourcesStore.source(id: sourceID)
+            ) {
+                pendingSourceCloudCleanups.removeValue(forKey: sourceID)
+                persistPendingSourceCloudCleanups()
+                continue
+            }
+
+            let credentialRemoved: Bool
+            if intent.needsCredentialRemoval {
+                credentialRemoved = await LibrarySnapshotSync.shared
+                    .removeCredentialFromCloud(forSourceID: sourceID)
+            } else {
+                credentialRemoved = true
+            }
+            guard let current = pendingSourceCloudCleanups[sourceID] else { continue }
+            let sameTombstone = current.tombstone == intent.tombstone
+            let updated = SourceCloudCleanupPolicy.applying(
+                sourceSnapshotUploaded: sameTombstone && sourceSnapshotUploaded,
+                credentialRemoved: credentialRemoved,
+                to: current
+            )
+            pendingSourceCloudCleanups[sourceID] = updated
+            persistPendingSourceCloudCleanups()
         }
     }
 
@@ -288,8 +458,11 @@ final class AppServices {
             }
         }
 
+        // The durable intent was captured by the lifecycle notification before
+        // this debounce. Do not query SourcesStore here: an immediate permanent
+        // delete has legitimately removed the row by now.
         if requests.values.contains(where: \.uploadSourcesSnapshot) {
-            uploadSourcesSnapshotAfterSoftDeleteIfNeeded()
+            schedulePendingSourceCloudCleanupPropagation(delay: .zero)
         }
 
         Task { @MainActor [weak self] in

@@ -68,3 +68,155 @@ public struct CredentialBundle: Codable, Sendable, Equatable {
         entries[sourceID]?.toCredential(defaultUsername: defaultUsername)
     }
 }
+
+/// Credential snapshots are whole-bundle values. Keep the destructive choices
+/// in a pure policy so CloudKit and tvOS apply the same rules:
+///
+/// - an empty local bundle removes local persistence; CloudKit writes the same
+///   value as a change-tagged empty tombstone because record-ID-only deletion
+///   cannot protect a credential concurrently added by another device;
+/// - downloaded bundles merge with TV-local credentials, but entries for
+///   sources that no longer exist (or are soft-deleted) are pruned;
+/// - an unavailable download is represented by `nil` at the call site and must
+///   never be converted into an empty authoritative bundle.
+public enum CredentialSnapshotWriteAction: Sendable, Equatable {
+    case saveRecord
+    case deleteRecord
+}
+
+public enum CredentialBundlePolicy {
+    public static func writeAction(for bundle: CredentialBundle) -> CredentialSnapshotWriteAction {
+        bundle.entries.isEmpty && bundle.relay == nil ? .deleteRecord : .saveRecord
+    }
+
+    public static func pruning(
+        _ bundle: CredentialBundle,
+        activeSourceIDs: Set<String>
+    ) -> CredentialBundle {
+        var result = bundle
+        result.entries = result.entries.filter { activeSourceIDs.contains($0.key) }
+        return result
+    }
+
+    /// Incoming Cloud/LAN data wins for matching sources while current entries
+    /// remain available for active TV-only sources that are absent upstream.
+    public static func merging(
+        current: CredentialBundle,
+        incoming: CredentialBundle?,
+        activeSourceIDs: Set<String>
+    ) -> CredentialBundle {
+        var result = current
+        if let incoming {
+            result.version = max(current.version, incoming.version)
+            for (sourceID, entry) in incoming.entries {
+                result.entries[sourceID] = entry
+            }
+            if let relay = incoming.relay {
+                result.relay = relay
+            }
+        }
+        return pruning(result, activeSourceIDs: activeSourceIDs)
+    }
+
+    public static func removing(
+        sourceID: String,
+        from bundle: CredentialBundle
+    ) -> CredentialBundle {
+        removing(sourceIDs: [sourceID], relayIfMatching: nil, from: bundle)
+    }
+
+    /// Replays a previously observed removal against the conflict winner. Only
+    /// source IDs present in the original read are removed, so a credential
+    /// concurrently added under a different ID survives. Relay cleanup is
+    /// likewise conditional on the server still containing the observed value.
+    public static func removing(
+        sourceIDs: Set<String>,
+        relayIfMatching observedRelay: RelayEndpoint?,
+        from bundle: CredentialBundle
+    ) -> CredentialBundle {
+        var result = bundle
+        for sourceID in sourceIDs {
+            result.entries.removeValue(forKey: sourceID)
+        }
+        if let observedRelay, result.relay == observedRelay {
+            result.relay = nil
+        }
+        return result
+    }
+}
+
+/// Durable intent captured when a source becomes a tombstone. The source row
+/// may be removed locally before the delayed cleanup runs, so the intent keeps
+/// the complete tombstone needed by snapshot synchronization as well as the two
+/// independently retryable remote operations.
+public struct SourceCloudCleanupIntent: Codable, Equatable, Sendable {
+    public var tombstone: MusicSource
+    public var needsSourceSnapshotUpload: Bool
+    public var needsCredentialRemoval: Bool
+
+    public init(
+        tombstone: MusicSource,
+        needsSourceSnapshotUpload: Bool = true,
+        needsCredentialRemoval: Bool = true
+    ) {
+        self.tombstone = tombstone
+        self.needsSourceSnapshotUpload = needsSourceSnapshotUpload
+        self.needsCredentialRemoval = needsCredentialRemoval
+    }
+}
+
+/// Pure state transitions for the persisted source-cleanup journal.
+public enum SourceCloudCleanupPolicy {
+    /// Coalesces repeated soft/permanent-delete signals without losing a newer
+    /// tombstone or a still-pending half of the remote cleanup.
+    public static func coalescing(
+        current: SourceCloudCleanupIntent?,
+        tombstone: MusicSource
+    ) -> SourceCloudCleanupIntent? {
+        guard tombstone.isDeleted else { return current }
+        guard let current else {
+            return SourceCloudCleanupIntent(tombstone: tombstone)
+        }
+
+        var result = current
+        if sourceClock(tombstone) >= sourceClock(current.tombstone) {
+            result.tombstone = tombstone
+        }
+        result.needsSourceSnapshotUpload = true
+        result.needsCredentialRemoval = true
+        return result
+    }
+
+    /// A newer restore supersedes an older delete intent. A missing local row
+    /// does not: that is the normal permanent-delete race this journal covers.
+    public static func isSuperseded(
+        _ intent: SourceCloudCleanupIntent,
+        by currentSource: MusicSource?
+    ) -> Bool {
+        guard let currentSource, !currentSource.isDeleted else { return false }
+        return sourceClock(currentSource) > sourceClock(intent.tombstone)
+    }
+
+    /// Applies independently observed remote results. Returning nil means both
+    /// durable operations completed and the journal row may be removed.
+    public static func applying(
+        sourceSnapshotUploaded: Bool,
+        credentialRemoved: Bool,
+        to intent: SourceCloudCleanupIntent
+    ) -> SourceCloudCleanupIntent? {
+        var result = intent
+        if sourceSnapshotUploaded {
+            result.needsSourceSnapshotUpload = false
+        }
+        if credentialRemoved {
+            result.needsCredentialRemoval = false
+        }
+        return result.needsSourceSnapshotUpload || result.needsCredentialRemoval
+            ? result
+            : nil
+    }
+
+    private static func sourceClock(_ source: MusicSource) -> Date {
+        max(source.modifiedAt, source.deletedAt ?? .distantPast)
+    }
+}

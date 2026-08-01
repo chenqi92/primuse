@@ -250,15 +250,15 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
     // 这样能作为 @Sendable 闭包传给 tokenManager.refreshDeduped / withTokenRetry。
     private nonisolated func refreshToken(_ tokens: CloudTokenManager.Tokens) async throws -> CloudTokenManager.Tokens {
         guard let rt = tokens.refreshToken else { throw CloudDriveError.tokenRefreshFailed("No refresh token") }
-        let creds = await helper.tokenManager.getAppCredentials()
-        guard let cid = creds?.clientId else { throw CloudDriveError.tokenRefreshFailed("No client ID") }
+        let creds = try await helper.tokenManager.requireAppCredentials()
+        guard !creds.clientId.isEmpty else { throw CloudDriveError.tokenRefreshFailed("No client ID") }
         var request = URLRequest(url: URL(string: Self.tokenURL)!)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.httpBody = CloudDriveHelper.formURLEncodedBody([
             URLQueryItem(name: "grant_type", value: "refresh_token"),
             URLQueryItem(name: "refresh_token", value: rt),
-            URLQueryItem(name: "client_id", value: cid),
+            URLQueryItem(name: "client_id", value: creds.clientId),
         ])
         let (data, response) = try await URLSession.shared.data(for: request)
         let json = try CloudDriveHelper.tokenRefreshJSON(data: data, response: response)

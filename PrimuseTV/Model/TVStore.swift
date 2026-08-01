@@ -123,6 +123,8 @@ final class TVStore {
     let sourcesStore = SourcesStore()
     @ObservationIgnored let engine = TVAudioEngine()
     @ObservationIgnored private lazy var coordinator = TVPlaybackCoordinator(store: self, engine: engine)
+    @ObservationIgnored private var playbackTask: Task<Void, Never>?
+    @ObservationIgnored private var activePlaybackRequestID: UUID?
 
     init() {
         engine.onEnded = { [weak self] in self?.advanceAfterEnd() }
@@ -130,7 +132,10 @@ final class TVStore {
 
     var hasRealLibrary: Bool {
         _ = libraryViewRevision
-        return !cachedSongs.isEmpty || !cachedAlbums.isEmpty
+        return VisibleLibraryPresencePolicy.hasContent(
+            songCount: cachedSongs.count,
+            albumCount: cachedAlbums.count
+        )
     }
 
     /// 选中的歌(tvOS 暂无真实音频,仅展示真实元数据);未选中时不显示底部条/正在播放页。
@@ -442,6 +447,11 @@ final class TVStore {
         let type = s.type
         // 厂商尚未提供可依赖的公开 API；保留同步记录和 UI 状态，但不宣称可播放。
         if type.isAwaitingPublicAPI { return .unsupported }
+        // TV 本机 NFS reader 目前只实现 v3。显式 v4 仍可经 iPhone relay
+        // 播放，但不能标记成无需中继的本机直连。
+        if type == .nfs, !(s.nfsVersion ?? .auto).canStartWithV3OnlyBackend {
+            return credentialBundle?.relay != nil ? .ok : .needsRelay
+        }
         // 协议直连(SMB/NFS/FTP):TV 本机直读,无需中继 → 可直接播放。
         if Self.directProtocolTypes.contains(type) {
             return .ok
@@ -563,20 +573,25 @@ final class TVStore {
         #if DEBUG
         injectDebugCredential()   // 先注入,避免与自动播放钩子竞态(CloudKit await 期间)
         #endif
-        // 先载入持久化(含上次会话在 TV 上扫的歌),捕获后再下载手机快照覆盖文件,
-        // 之后用 reloadMerging 把 TV-only 源的歌合并回来(同步不冲掉 TV 扫的)。
-        library.reloadFromDisk()
-        let before = library.songs
-        await LibrarySnapshotSync.shared.download()
-        reloadMerging(before: before)
+        // 在首次 await 前发布本地曲库与来源。CloudKit 慢或未登录时首页仍可立即
+        // 使用持久化歌曲；下载完成后继续用本地 before 保留 TV-only 扫描结果。
+        await LocalFirstSnapshotBootstrap.run(
+            publishLocal: {
+                self.reload()
+                return self.library.songs
+            },
+            download: {
+                await LibrarySnapshotSync.shared.download()
+            },
+            applyDownloaded: { before in
+                self.reloadMerging(before: before)
+            }
+        )
         // 凭据优先级:① 局域网直传存下来的配对包(reload 已载入)为基线;② CloudKit
         // 拉到(同账号兜底)的逐条覆盖上去。不同 Apple ID 的 TV,CloudKit 返回 nil,
         // 仅靠 LAN 配对包即可;同账号则两者合并。模拟器无 iCloud 也保留注入的 DEBUG 凭据。
         if let cloud = await LibrarySnapshotSync.shared.downloadCredentials() {
-            var merged = credentialBundle ?? CredentialBundle()
-            for (k, v) in cloud.entries { merged.entries[k] = v }
-            if let r = cloud.relay { merged.relay = r }
-            credentialBundle = merged
+            mergeCredentialBundle(cloud, persistAsPaired: false)
         }
     }
 
@@ -610,20 +625,18 @@ final class TVStore {
     @discardableResult
     func applyLANPayload(_ payload: LANSyncPayload) -> Bool {
         let before = library.songs
+        LibrarySnapshotSync.shared.applyLANPayload(payload)
+        reloadMerging(before: before)
         var credentialsPersisted = true
-        if let creds = payload.credentials, !creds.entries.isEmpty || creds.relay != nil {
-            var merged = TVCredentialStore.loadPairedBundle() ?? CredentialBundle()
-            for (k, v) in creds.entries { merged.entries[k] = v }
-            if let r = creds.relay { merged.relay = r }
-            credentialsPersisted = TVCredentialStore.savePairedBundle(merged)
-            if credentialsPersisted {
-                credentialBundle = merged
-            } else {
+        if let credentials = payload.credentials {
+            credentialsPersisted = mergeCredentialBundle(
+                credentials,
+                persistAsPaired: true
+            )
+            if !credentialsPersisted {
                 plog("TVStore: unable to persist paired credential bundle")
             }
         }
-        LibrarySnapshotSync.shared.applyLANPayload(payload)
-        reloadMerging(before: before)
         sourcesRevision += 1
         plog("TVStore: applied LAN payload → sources=\(sourcesStore.sources.count) songs=\(library.songs.count) credentialsPersisted=\(credentialsPersisted)")
         return credentialsPersisted
@@ -644,7 +657,7 @@ final class TVStore {
         refreshVisibility()
         publishTopShelf()
         flushPendingDeepLink()
-        if credentialBundle == nil { credentialBundle = TVCredentialStore.loadPairedBundle() }
+        pruneCredentialBundlesToActiveSources()
     }
 
     #if DEBUG
@@ -752,8 +765,63 @@ final class TVStore {
         refreshVisibility()
         publishTopShelf()
         flushPendingDeepLink()
-        // 凭据未就绪时,载入局域网直传持久化下来的配对包(CloudKit 兜底会在 bootstrap 再覆盖)。
-        if credentialBundle == nil { credentialBundle = TVCredentialStore.loadPairedBundle() }
+        // 凭据未就绪时载入局域网直传持久化下来的配对包，并以本地活跃来源
+        // 为边界裁剪。CloudKit 下载失败不会被当成空包，也不会清掉活跃源凭据。
+        pruneCredentialBundlesToActiveSources()
+    }
+
+    private var activeCredentialSourceIDs: Set<String> {
+        Set(sourcesStore.sources.map(\.id))
+    }
+
+    private func pruneCredentialBundlesToActiveSources() {
+        let activeSourceIDs = activeCredentialSourceIDs
+        // Soft-deleted source rows remain in the recycle bin, so retry local
+        // Keychain cleanup on every reload if an earlier delete happened while
+        // the Keychain was temporarily unavailable.
+        for source in sourcesStore.recentlyDeletedSources {
+            TVCredentialStore.clearLocalCredential(sourceID: source.id)
+        }
+        var paired: CredentialBundle?
+        if let stored = TVCredentialStore.loadPairedBundle() {
+            let pruned = CredentialBundlePolicy.pruning(stored, activeSourceIDs: activeSourceIDs)
+            if pruned != stored
+                || CredentialBundlePolicy.writeAction(for: pruned) == .deleteRecord {
+                TVCredentialStore.savePairedBundle(pruned)
+            }
+            paired = pruned
+        }
+        if let current = credentialBundle {
+            credentialBundle = CredentialBundlePolicy.pruning(
+                current,
+                activeSourceIDs: activeSourceIDs
+            )
+        } else {
+            credentialBundle = paired
+        }
+    }
+
+    @discardableResult
+    private func mergeCredentialBundle(
+        _ incoming: CredentialBundle,
+        persistAsPaired: Bool
+    ) -> Bool {
+        let activeSourceIDs = activeCredentialSourceIDs
+        var persisted = true
+        if persistAsPaired {
+            let paired = CredentialBundlePolicy.merging(
+                current: TVCredentialStore.loadPairedBundle() ?? CredentialBundle(),
+                incoming: incoming,
+                activeSourceIDs: activeSourceIDs
+            )
+            persisted = TVCredentialStore.savePairedBundle(paired)
+        }
+        credentialBundle = CredentialBundlePolicy.merging(
+            current: credentialBundle ?? CredentialBundle(),
+            incoming: incoming,
+            activeSourceIDs: activeSourceIDs
+        )
+        return persisted
     }
 
     /// 生成 Top Shelf 展示数据(最近播放 + 资料库专辑),后台预取封面并写入 App Group,
@@ -838,9 +906,11 @@ final class TVStore {
     /// 彻底删除请在手机/电脑上操作。
     func deleteSource(_ id: String) {
         sourcesStore.remove(id: id)
+        TVCredentialStore.clearLocalCredential(sourceID: id)
+        pruneCredentialBundlesToActiveSources()
         refreshVisibility()
         sourcesRevision += 1
-        enqueueSnapshotUpload()
+        enqueueSnapshotUpload(removingCredentialFor: id)
     }
 
     /// 在 Apple TV 上启用 / 停用音乐源。停用源的歌曲在资料库里是隐藏的,启用后即可
@@ -961,10 +1031,13 @@ final class TVStore {
     /// 避免两个 detached 任务交错改写同一条 CloudKit 记录。
     /// 只走 `uploadSourcesOnly()` —— 仅覆盖服务器记录的 sources 字段,绝不回传 tvOS 本机
     /// 那份启动时下载的旧 library 副本(否则会回退手机端新扫描的曲库)。
-    private func enqueueSnapshotUpload() {
+    private func enqueueSnapshotUpload(removingCredentialFor sourceID: String? = nil) {
         let previous = pendingUpload
         pendingUpload = Task {
             await previous?.value
+            if let sourceID, sourcesStore.source(id: sourceID)?.isDeleted != false {
+                await LibrarySnapshotSync.shared.removeCredentialFromCloud(forSourceID: sourceID)
+            }
             await LibrarySnapshotSync.shared.uploadSourcesOnly()
         }
     }
@@ -1033,13 +1106,14 @@ final class TVStore {
 
     func next() {
         // 手动下一首:忽略「单曲循环」;到队尾时「列表循环」则回到队首。
-        if queueIndex + 1 < queue.count, let s = song(queue[queueIndex + 1]) {
-            queueIndex += 1
-            startPlaying(s)
-        } else if repeatMode == .all, let first = queue.first, let s = song(first) {
-            queueIndex = 0
-            startPlaying(s)
-        }
+        guard let nextIndex = QueueTraversalPolicy.nextAvailableIndex(
+            queueCount: queue.count,
+            after: queueIndex,
+            wraps: repeatMode == .all,
+            isAvailable: { song(queue[$0]) != nil }
+        ), let nextSong = song(queue[nextIndex]) else { return }
+        queueIndex = nextIndex
+        startPlaying(nextSong)
     }
 
     /// 一曲自然播完后的推进:单曲循环重播本曲,否则等同手动下一首。
@@ -1112,8 +1186,10 @@ final class TVStore {
     func previous() {
         // 播过 3 秒先回到开头,否则切上一首。
         if currentTime > 3 { engine.seek(to: 0); return }
-        let previousIndex = queueIndex - 1
-        guard queue.indices.contains(previousIndex), let s = song(queue[previousIndex]) else { engine.seek(to: 0); return }
+        guard let previousIndex = QueueTraversalPolicy.previousAvailableIndex(
+            before: queueIndex,
+            isAvailable: { song(queue[$0]) != nil }
+        ), let s = song(queue[previousIndex]) else { engine.seek(to: 0); return }
         queueIndex = previousIndex
         startPlaying(s)
     }
@@ -1138,6 +1214,12 @@ final class TVStore {
 
     /// 设置展示元数据 + 触发真实解析播放。
     private func startPlaying(_ song: TVSong, resumeTime: Double = 0, autoPlay: Bool = true) {
+        playbackTask?.cancel()
+        let requestID = UUID()
+        activePlaybackRequestID = requestID
+        playbackIssue = nil
+        engine.prepareForSelection(startAt: resumeTime)
+
         let a = albumOf(song)
         let rawSong = library.song(id: song.id)
         let fallback = Self.tint(song.id)
@@ -1157,14 +1239,29 @@ final class TVStore {
         hasNowPlaying = true
         lyrics = []
         refreshUpNext()
-        Task {
-            await coordinator.play(
+        playbackTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.coordinator.play(
                 songID: song.id,
-                preferMusicVideo: isMusicVideoModeEnabled,
+                requestID: requestID,
+                preferMusicVideo: self.isMusicVideoModeEnabled,
                 startAt: resumeTime,
                 autoPlay: autoPlay
             )
+            guard self.isCurrentPlaybackRequest(
+                requestID,
+                isCancelled: Task.isCancelled
+            ) else { return }
+            self.playbackTask = nil
         }
+    }
+
+    func isCurrentPlaybackRequest(_ requestID: UUID, isCancelled: Bool) -> Bool {
+        PlaybackRequestGenerationPolicy.shouldApplyResult(
+            requestID: requestID,
+            activeRequestID: activePlaybackRequestID,
+            isCancelled: isCancelled
+        )
     }
 
     /// 协调器加载完歌词后回填(本地缓存 / 从源读 .lrc)。仅当仍是这首歌时生效。

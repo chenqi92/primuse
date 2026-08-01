@@ -30,6 +30,7 @@ final class TVAudioEngine {
     private var sessionIsActive = false
     private var resourceLoader: TVStreamResourceLoader?   // 自定义播放头时强引用(delegate 弱持有)
     private var protocolLoader: TVProtocolResourceLoader?  // 协议直连(SMB/NFS/FTP/SFTP)时强引用
+    private var activeItemID: ObjectIdentifier?
 
     // 非原生格式(APE/WavPack/DSD 等 AVPlayer 解不了的)走 SFBAudioEngine。两引擎并列,
     // usingSFB 决定 play/pause/seek/时间读取走哪一个。
@@ -41,6 +42,7 @@ final class TVAudioEngine {
     }()
     private var usingSFB = false
     @ObservationIgnored private var sfbTimer: Timer?
+    @ObservationIgnored private var decodedTemporaryFileURL: URL?
 
     private var npTitle = ""
     private var npArtist = ""
@@ -50,11 +52,6 @@ final class TVAudioEngine {
         player.automaticallyWaitsToMinimizeStalling = true
         addPeriodicObserver()
         setupRemoteCommands()
-        endObserver = NotificationCenter.default.addObserver(
-            forName: AVPlayerItem.didPlayToEndTimeNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.handleEnded() }
-        }
     }
 
     // 注:引擎随 app 生命周期存在(TVStore 持有,单例式),观察者用 [weak self]
@@ -90,6 +87,27 @@ final class TVAudioEngine {
     }
 
     // MARK: 载入 / 传输
+
+    /// Synchronously detaches the previous track before an asynchronous resolver
+    /// starts. Keeping the audio session active avoids an avoidable route handoff
+    /// between adjacent queue items, while all track-specific state is cleared.
+    func prepareForSelection(startAt seconds: Double) {
+        resetSFBIfNeeded()
+        itemStatusObs?.invalidate()
+        itemStatusObs = nil
+        removeEndObserver()
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+        activeItemID = nil
+        resourceLoader = nil
+        protocolLoader = nil
+        isVideoMode = false
+        isPlaying = false
+        currentTime = seconds.isFinite ? max(0, seconds) : 0
+        duration = 0
+        status = .loading
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+    }
 
     func load(url: URL, headers: [String: String] = [:], fileExtension: String? = nil,
               title: String, artist: String, album: String, duration: Double) {
@@ -156,6 +174,9 @@ final class TVAudioEngine {
 
     /// 挂 KVO 状态观察 + 上播放器 + 刷新 Now Playing。两条 load 路径共用。
     private func finishLoad(item: AVPlayerItem) {
+        removeEndObserver()
+        let observedItemID = ObjectIdentifier(item)
+        activeItemID = observedItemID
         itemStatusObs = item.observe(\.status, options: [.new]) { [weak self] item, _ in
             // KVO 回调在属性变更线程上同步执行,AVFoundation 不保证主线程投递(.failed 尤其常落后台队列),
             // 故显式跳主线程,不能用 assumeIsolated 假设隔离。
@@ -163,34 +184,50 @@ final class TVAudioEngine {
             let errorMessage = item.error?.localizedDescription
             let itemDuration = item.duration.seconds
             Task { @MainActor in
+                guard let self, self.activeItemID == observedItemID else { return }
                 switch status {
                 case .readyToPlay:
                     plog("📺 TV engine: item readyToPlay dur=\(itemDuration)")
                 case .failed:
                     let msg = errorMessage ?? PMString("ext.tv.playback.failed")
                     plog("📺 TV engine: item FAILED — \(msg)")
-                    self?.status = .failed(msg)
-                    self?.isPlaying = false
+                    self.status = .failed(msg)
+                    self.isPlaying = false
                 default: break
                 }
             }
         }
         player.replaceCurrentItem(with: item)
+        endObserver = NotificationCenter.default.addObserver(
+            forName: AVPlayerItem.didPlayToEndTimeNotification,
+            object: item,
+            queue: .main
+        ) { [weak self] notification in
+            guard let endedItem = notification.object as? AVPlayerItem else { return }
+            let endedItemID = ObjectIdentifier(endedItem)
+            MainActor.assumeIsolated {
+                self?.handleAVPlayerItemEnded(endedItemID: endedItemID)
+            }
+        }
         updateNowPlayingInfo()
     }
 
     /// 非原生格式:用 SFBAudioEngine 解码播放已下载到本地的文件(AVPlayer 解不了的格式)。
     func loadDecoded(fileURL: URL, title: String, artist: String, album: String, duration: Double) {
+        resetSFBIfNeeded()
         activateAudioSession()
         isVideoMode = false
         // 让 AVPlayer 静音让位。
+        removeEndObserver()
         player.replaceCurrentItem(with: nil)
+        activeItemID = nil
         resourceLoader = nil
         protocolLoader = nil
         npTitle = title; npArtist = artist; npAlbum = album
         self.duration = duration
         currentTime = 0
         status = .loading
+        decodedTemporaryFileURL = fileURL
         usingSFB = true
         startSFBPolling()
         do {
@@ -199,8 +236,10 @@ final class TVAudioEngine {
             status = .playing
             plog("📺 TV engine.loadDecoded(SFB) \(fileURL.lastPathComponent) dur=\(duration)")
         } catch {
+            sfb.stop()
             usingSFB = false
             stopSFBPolling()
+            removeDecodedTemporaryFile()
             status = .failed(error.localizedDescription)
             plog("📺 TV engine: SFB decode FAILED — \(error.localizedDescription)")
         }
@@ -209,7 +248,15 @@ final class TVAudioEngine {
 
     func play() {
         activateAudioSession()
-        if usingSFB { sfb.resume() } else { player.play() }
+        if usingSFB {
+            sfb.resume()
+        } else {
+            guard player.currentItem != nil else {
+                isPlaying = false
+                return
+            }
+            player.play()
+        }
         isPlaying = true
         status = .playing
         updateNowPlayingInfo()
@@ -225,9 +272,11 @@ final class TVAudioEngine {
     func togglePlayPause() { isPlaying ? pause() : play() }
 
     func stop() {
-        if usingSFB { sfb.stop(); usingSFB = false; stopSFBPolling() }
+        resetSFBIfNeeded()
+        removeEndObserver()
         player.pause()
         player.replaceCurrentItem(with: nil)
+        activeItemID = nil
         isVideoMode = false
         isPlaying = false
         currentTime = 0
@@ -255,6 +304,20 @@ final class TVAudioEngine {
     /// 切回 AVPlayer 路径前,确保 SFB 引擎停掉、轮询取消。
     private func resetSFBIfNeeded() {
         if usingSFB { sfb.stop(); usingSFB = false; stopSFBPolling() }
+        removeDecodedTemporaryFile()
+    }
+
+    private func removeDecodedTemporaryFile() {
+        guard let fileURL = decodedTemporaryFileURL else { return }
+        decodedTemporaryFileURL = nil
+        do {
+            try TVDecodedTemporaryFilePolicy.removeIfManaged(
+                fileURL,
+                in: FileManager.default.temporaryDirectory
+            )
+        } catch {
+            plog("📺 TV engine: temporary decode cleanup failed — \(error.localizedDescription)")
+        }
     }
 
     /// SFB 无 AVPlayer 的 periodicTimeObserver,用定时器把 currentTime/duration/isPlaying 镜像进
@@ -296,13 +359,14 @@ final class TVAudioEngine {
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             MainActor.assumeIsolated {
                 guard let self else { return }
+                guard let item = self.player.currentItem else { return }
                 if time.seconds.isFinite { self.currentTime = time.seconds }
                 self.isPlaying = (self.player.timeControlStatus == .playing)
-                if self.duration <= 0, let item = self.player.currentItem {
+                if self.duration <= 0 {
                     let d = item.duration.seconds
                     if d.isFinite, d > 0 { self.duration = d }
                 }
-                if let item = self.player.currentItem, item.status == .failed {
+                if item.status == .failed {
                     self.status = .failed(item.error?.localizedDescription ?? PMString("ext.tv.playback.failed"))
                     self.isPlaying = false
                 }
@@ -310,8 +374,36 @@ final class TVAudioEngine {
         }
     }
 
+    private func removeEndObserver() {
+        guard let endObserver else { return }
+        NotificationCenter.default.removeObserver(endObserver)
+        self.endObserver = nil
+    }
+
+    private func handleAVPlayerItemEnded(endedItemID: ObjectIdentifier) {
+        guard PlaybackEndIdentityPolicy.shouldAdvance(
+            endedItemID: endedItemID,
+            activeItemID: activeItemID,
+            currentItemID: player.currentItem.map(ObjectIdentifier.init)
+        ) else {
+            plog("📺 TV engine: ignored stale didPlayToEnd notification")
+            return
+        }
+        // Make the accepted end transition single-shot before advancing the
+        // queue. A repeat/new selection installs a fresh item-bound observer.
+        removeEndObserver()
+        activeItemID = nil
+        handleEnded()
+    }
+
     private func handleEnded() {
         plog("📺 TV engine: didPlayToEnd → advance")
+        if usingSFB {
+            sfb.stop()
+            usingSFB = false
+            stopSFBPolling()
+            removeDecodedTemporaryFile()
+        }
         isPlaying = false
         currentTime = duration
         status = .paused

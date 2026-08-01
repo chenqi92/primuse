@@ -53,18 +53,25 @@ enum LastFmAuthService {
         guard !apiKey.isEmpty, !apiSecret.isEmpty else {
             throw LastFmAuthError.missingCredentials
         }
+        let sessionKey: String
         do {
-            let sessionKey = try await LastFmProvider.exchangeToken(
+            sessionKey = try await LastFmProvider.exchangeToken(
                 token: token, apiKey: apiKey, apiSecret: apiSecret
             )
-            LastFmCredentialsStore.saveSessionKey(sessionKey)
-            LastFmCredentialsStore.savePendingAuthToken(nil)
-            return (try? await fetchUsername(apiKey: apiKey, sessionKey: sessionKey)) ?? ""
         } catch {
             // 用户没点 Allow 就回来/关闭网页, getSession 抛 error 14 → 给个友好
             // 提示让 UI 区分这种情况。
             throw LastFmAuthError.notAuthorized(error.localizedDescription)
         }
+
+        // The authorization token remains pending until the exchanged session
+        // key is durable. Otherwise a transient Keychain write failure would
+        // strand the account in a UI-only "connected" state with no retry path.
+        guard LastFmCredentialsStore.saveSessionKey(sessionKey) else {
+            throw LastFmAuthError.credentialPersistenceFailed
+        }
+        LastFmCredentialsStore.savePendingAuthToken(nil)
+        return (try? await fetchUsername(apiKey: apiKey, sessionKey: sessionKey)) ?? ""
     }
 
     // MARK: - Internal
@@ -116,6 +123,7 @@ enum LastFmAuthError: LocalizedError {
     case missingCredentials
     case tokenFailed(String)
     case notAuthorized(String)
+    case credentialPersistenceFailed
 
     var errorDescription: String? {
         switch self {
@@ -125,6 +133,8 @@ enum LastFmAuthError: LocalizedError {
             return String(format: String(localized: "scrobble_lastfm_err_token_format"), msg)
         case .notAuthorized:
             return String(localized: "scrobble_lastfm_err_not_authorized")
+        case .credentialPersistenceFailed:
+            return String(localized: "credential_save_failed_message")
         }
     }
 }

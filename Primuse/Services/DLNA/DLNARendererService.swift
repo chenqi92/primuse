@@ -574,19 +574,12 @@ final class DLNARendererService {
 
         ssdpSocket = fd
 
-        // Keep socket reads and datagram decoding off the UI queue. A burst of
-        // controller discovery traffic must not stall playback controls.
-        let queue = DispatchQueue(label: "com.welape.primuse.dlna.ssdp", qos: .utility)
-        let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
-        source.setEventHandler { [weak self] in
-            guard let packet = Self.receiveSSDPDatagram(from: fd) else { return }
-            Task { @MainActor [weak self] in
-                self?.handleSSDPDatagram(packet.request, fromHost: packet.host, fromPort: packet.port)
-            }
-        }
-        source.setCancelHandler {
-            Darwin.close(fd)
-        }
+        // Keep socket reads and datagram decoding off the UI queue. Build the
+        // DispatchSource in a nonisolated context; its event handler is also
+        // explicitly @Sendable so Swift cannot inherit this @MainActor method's
+        // executor. Otherwise libdispatch invokes an actor-isolated closure on
+        // the SSDP queue and Swift 6 traps before it can hop to MainActor.
+        let source = Self.makeSSDPReadSource(fileDescriptor: fd, owner: self)
         source.resume()
         ssdpReadSource = source
 
@@ -634,6 +627,28 @@ final class DLNARendererService {
         let host = Self.ipString(from: src.sin_addr)
         let port = UInt16(bigEndian: src.sin_port)
         return (request, host, port)
+    }
+
+    nonisolated private static func makeSSDPReadSource(
+        fileDescriptor fd: Int32,
+        owner: DLNARendererService
+    ) -> DispatchSourceRead {
+        let queue = DispatchQueue(label: "com.welape.primuse.dlna.ssdp", qos: .utility)
+        let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
+        source.setEventHandler { @Sendable [weak owner] in
+            guard let packet = Self.receiveSSDPDatagram(from: fd) else { return }
+            Task { @MainActor [weak owner] in
+                owner?.handleSSDPDatagram(
+                    packet.request,
+                    fromHost: packet.host,
+                    fromPort: packet.port
+                )
+            }
+        }
+        source.setCancelHandler {
+            Darwin.close(fd)
+        }
+        return source
     }
 
     /// 解析 M-SEARCH, 命中我们 ST 时按 UPnP/AV 规范 unicast 回 6 条 200 OK
@@ -1577,7 +1592,7 @@ final class DLNARendererService {
     private func probeRange(url: URL, session: URLSession) async -> RemoteMediaProbe? {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue("bytes=0-0", forHTTPHeaderField: "Range")
+        request.setValue(HTTPRangeProbePolicy.requestHeaderValue, forHTTPHeaderField: "Range")
         request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         request.timeoutInterval = 5
 
@@ -1586,10 +1601,15 @@ final class DLNARendererService {
             guard let http = response as? HTTPURLResponse else { return nil }
             switch http.statusCode {
             case 206:
-                let size = parseContentRangeTotal(responseHeader("Content-Range", in: http))
-                    ?? contentLength(from: http)
-                guard let size, size > 0 else {
-                    return RemoteMediaProbe(fileSize: 0, supportsRange: false, detail: "range OK but total length unknown")
+                guard let size = HTTPRangeProbePolicy.validatedTotalLength(
+                    contentRange: responseHeader("Content-Range", in: http),
+                    contentLength: contentLength(from: http)
+                ) else {
+                    return RemoteMediaProbe(
+                        fileSize: 0,
+                        supportsRange: false,
+                        detail: "range response mismatch; using progressive fallback"
+                    )
                 }
                 return RemoteMediaProbe(fileSize: size, supportsRange: true, detail: "range OK size=\(size / 1024)KB")
             case 200:
@@ -1636,13 +1656,6 @@ final class DLNARendererService {
         }
         return responseHeader("Content-Length", in: response)
             .flatMap { Int64($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
-    }
-
-    private func parseContentRangeTotal(_ header: String?) -> Int64? {
-        guard let header,
-              let total = header.split(separator: "/").last,
-              total != "*" else { return nil }
-        return Int64(total.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     private func responseHeader(_ name: String, in response: HTTPURLResponse) -> String? {

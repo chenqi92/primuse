@@ -51,6 +51,8 @@ struct CloudOAuthConfig: Sendable {
 /// Common errors for cloud drive operations
 enum CloudDriveError: Error, LocalizedError {
     case notAuthenticated
+    case credentialTemporarilyUnavailable(Int32)
+    case credentialReadFailed(Int32)
     case tokenExpired
     case tokenRefreshFailed(String)
     case tokenPersistenceFailed
@@ -62,6 +64,10 @@ enum CloudDriveError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .notAuthenticated: return "Not authenticated"
+        case .credentialTemporarilyUnavailable(let status):
+            return "Stored credential temporarily unavailable (\(status))"
+        case .credentialReadFailed(let status):
+            return "Stored credential could not be read (\(status))"
         case .tokenExpired: return "Token expired"
         case .tokenRefreshFailed(let msg): return "Token refresh failed: \(msg)"
         case .tokenPersistenceFailed: return "Refreshed token could not be stored securely"

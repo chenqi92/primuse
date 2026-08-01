@@ -176,8 +176,13 @@
 "disabled" = "已禁用";
 "delete_song" = "从资料库删除";
 "delete_song_message" = "支持删除的音乐源会同步删除源歌曲；同名封面/歌词没有其他歌曲使用时才会删除，并清除本地缓存。";
+"delete_song_failed_title" = "删除失败";
+"delete_song_failed_message" = "未能删除源文件，歌曲已保留在资料库。请检查音乐源是否只读及账号权限后重试。";
 "scan" = "扫描";
 "password_edit_hint" = "留空则保持当前密码不变";
+"synology_password_edit_validation_title" = "Synology 密码需要连接验证";
+"synology_password_edit_validation_hint" = "Synology 密码只能在连接时验证并更新；当前密码会保持不变。";
+"synology_password_update_save_failed" = "DSM 已接受新密码，但系统未能将其安全保存。已保存的密码保持不变，请重试。";
 "anonymous_login_hint" = "无需账号和密码；保存时会删除此前存储的凭据";
 "select_directories" = "选择目录";
 "scan_directories" = "扫描目录";
@@ -2065,3 +2070,4 @@
 "credential_save_failed_title" = "凭据保存失败";
 "credential_save_failed_message" = "密码未能安全保存，来源尚未保存，请重试。";
 "credential_temporarily_unavailable" = "密码暂时无法读取，请解锁设备后重试。";
+"credential_read_failed" = "无法安全读取已保存的密码，请重试或更新凭据。";

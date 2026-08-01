@@ -941,16 +941,16 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
 
     private func refreshToken(_ tokens: CloudTokenManager.Tokens) async throws -> CloudTokenManager.Tokens {
         guard let rt = tokens.refreshToken else { throw CloudDriveError.tokenRefreshFailed("No refresh token") }
-        let creds = await helper.tokenManager.getAppCredentials()
-        guard let cid = creds?.clientId else { throw CloudDriveError.tokenRefreshFailed("No client ID") }
+        let creds = try await helper.tokenManager.requireAppCredentials()
+        guard !creds.clientId.isEmpty else { throw CloudDriveError.tokenRefreshFailed("No client ID") }
         var request = URLRequest(url: URL(string: "\(Self.oauthBase)/token")!)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.httpBody = CloudDriveHelper.formURLEncodedBody([
             .init(name: "grant_type", value: "refresh_token"),
             .init(name: "refresh_token", value: rt),
-            .init(name: "client_id", value: cid),
-            .init(name: "client_secret", value: creds?.clientSecret ?? ""),
+            .init(name: "client_id", value: creds.clientId),
+            .init(name: "client_secret", value: creds.clientSecret ?? ""),
         ])
         let (data, response) = try await URLSession.shared.data(for: request)
         let json = try CloudDriveHelper.tokenRefreshJSON(data: data, response: response)

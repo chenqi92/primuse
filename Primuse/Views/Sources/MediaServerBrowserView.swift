@@ -10,17 +10,19 @@ struct MediaServerBrowserView: View {
     init(source: MusicSource, selectedDirectories: Binding<[String]>) {
         self.source = source
         self._selectedDirectories = selectedDirectories
-        self.connector = MediaServerSource(
-            sourceID: source.id,
-            kind: MediaServerSource.Kind(sourceType: source.type)!,
-            host: source.host ?? "",
-            port: source.port,
-            useSsl: source.useSsl,
-            basePath: source.basePath,
-            username: source.username ?? "",
-            secret: KeychainService.getPassword(for: source.id) ?? "",
-            authType: source.authType
-        )
+        self.connector = credentialProtectedConnector(for: source) { secret in
+            MediaServerSource(
+                sourceID: source.id,
+                kind: MediaServerSource.Kind(sourceType: source.type)!,
+                host: source.host ?? "",
+                port: source.port,
+                useSsl: source.useSsl,
+                basePath: source.basePath,
+                username: source.username ?? "",
+                secret: secret,
+                authType: source.authType
+            )
+        }
     }
 
     var body: some View {

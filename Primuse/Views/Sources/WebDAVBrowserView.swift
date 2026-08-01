@@ -10,15 +10,17 @@ struct WebDAVBrowserView: View {
     init(source: MusicSource, selectedDirectories: Binding<[String]>) {
         self.source = source
         self._selectedDirectories = selectedDirectories
-        self.connector = WebDAVSource(
-            sourceID: source.id,
-            host: source.host ?? "",
-            port: source.port,
-            useSsl: source.useSsl,
-            basePath: source.basePath,
-            username: source.username ?? "",
-            password: KeychainService.getPassword(for: source.id) ?? ""
-        )
+        self.connector = credentialProtectedConnector(for: source) { password in
+            WebDAVSource(
+                sourceID: source.id,
+                host: source.host ?? "",
+                port: source.port,
+                useSsl: source.useSsl,
+                basePath: source.basePath,
+                username: source.username ?? "",
+                password: password
+            )
+        }
     }
 
     var body: some View {

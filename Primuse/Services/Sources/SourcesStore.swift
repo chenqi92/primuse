@@ -4,6 +4,12 @@ import PrimuseKit
 @MainActor
 @Observable
 final class SourcesStore {
+    enum PermanentDeleteResult: Equatable {
+        case deleted
+        case sourceNotFound
+        case credentialCleanupFailed
+    }
+
     /// Backing storage including soft-deleted entries. `sources` filters this
     /// for normal UI use; `recentlyDeletedSources` exposes the deleted ones.
     private(set) var allSources: [MusicSource]
@@ -17,6 +23,11 @@ final class SourcesStore {
             .filter { $0.isDeleted }
             .sorted { ($0.deletedAt ?? .distantPast) > ($1.deletedAt ?? .distantPast) }
     }
+
+    /// Source tombstones whose required credential cleanup failed during this
+    /// run. Keeping this observable lets both automatic pruning and manual
+    /// deletion surface a retry target in Recently Deleted.
+    private(set) var permanentDeletionFailureIDs: Set<String> = []
 
     /// CloudAccount entities owning OAuth-typed mounts. Persisted to a
     /// sibling JSON file (`cloudAccounts.json`). Stage 2 keeps this
@@ -138,9 +149,11 @@ final class SourcesStore {
     /// Baidu sources mess). This is not used by the enable/disable toggle.
     func remove(id: String) {
         guard let index = allSources.firstIndex(where: { $0.id == id }) else { return }
+        permanentDeletionFailureIDs.remove(id)
         allSources[index].isDeleted = true
         allSources[index].deletedAt = Date()
         allSources[index].modifiedAt = Date()
+        let tombstone = allSources[index]
         persist()
         // notifyChanged drives UI refresh + recycle-bin sync; the
         // dedicated soft-delete notification tells CloudKit to enqueue
@@ -150,13 +163,14 @@ final class SourcesStore {
         NotificationCenter.default.post(
             name: .primuseSourceDidSoftDelete,
             object: nil,
-            userInfo: ["id": id]
+            userInfo: ["id": id, "source": tombstone]
         )
     }
 
     /// Restore a soft-deleted source from the recycle bin.
     func restore(id: String) {
         guard let index = allSources.firstIndex(where: { $0.id == id }) else { return }
+        permanentDeletionFailureIDs.remove(id)
         allSources[index].isDeleted = false
         allSources[index].deletedAt = nil
         allSources[index].modifiedAt = Date()
@@ -165,9 +179,12 @@ final class SourcesStore {
     }
 
     /// Permanently remove a source (manual purge or 30-day prune).
-    func permanentlyDelete(id: String) {
-        allSources.removeAll { $0.id == id }
-        persist()
+    @discardableResult
+    func permanentlyDelete(id: String) -> PermanentDeleteResult {
+        guard let index = allSources.firstIndex(where: { $0.id == id }) else {
+            permanentDeletionFailureIDs.remove(id)
+            return .sourceNotFound
+        }
         // Irreversible credential / token cleanup belongs here, not on a view
         // observer: both the manual "delete forever" action and the launch-time
         // 30-day prune funnel through permanentlyDelete, whereas the
@@ -178,42 +195,66 @@ final class SourcesStore {
         // no-ops for non-cloud sources, and are idempotent, so the remaining
         // view-layer listener (which still wipes song records / source caches
         // it owns the instances for) can re-run them harmlessly.
-        purgeCredentials(forSourceID: id)
+        // Keep the soft-deleted row until every persisted credential is gone.
+        // If Keychain is locked or otherwise unavailable, the tombstone remains
+        // in Recently Deleted and the user (or next prune pass) can retry.
+        guard purgeCredentials(for: allSources[index]) else {
+            permanentDeletionFailureIDs.insert(id)
+            plog("⛔ Source permanent delete deferred: credential cleanup failed id=\(id.prefix(8))…")
+            return .credentialCleanupFailed
+        }
+
+        let tombstone = allSources[index]
+        permanentDeletionFailureIDs.remove(id)
+        allSources.remove(at: index)
+        persist()
         NotificationCenter.default.post(
             name: .primuseSourceDidDelete,
             object: nil,
-            userInfo: ["id": id]
+            userInfo: ["id": id, "source": tombstone]
         )
+        return .deleted
     }
 
     /// Tear down the persisted secrets and per-source storage owned outside the
     /// source row itself: Keychain passwords, cloud OAuth tokens + app
     /// credentials, security-scoped bookmarks (macOS only) and cloud directory
     /// display names. Idempotent and safe to call for any source type.
-    private func purgeCredentials(forSourceID id: String) {
+    private func purgeCredentials(for source: MusicSource) -> Bool {
         // KeychainService / CloudTokenManager / CloudDirectoryNameStore 仅存在于
         // iOS/macOS app target;tvOS 共享本文件但用 TVCredentialStore,无这些凭据存储。
         #if os(iOS) || os(macOS)
-        KeychainService.deletePassword(for: id)
-        Task {
-            let tm = CloudTokenManager(sourceID: id)
-            await tm.deleteTokens()
-            await tm.deleteAppCredentials()
-        }
+        let requiredStores = SourcePermanentDeletionPolicy.requiredCredentialStores(
+            for: source.type,
+            authType: source.authType
+        )
+        let passwordDeleted = !requiredStores.contains(.password)
+            || KeychainService.deletePassword(for: source.id)
+        let cloudCredentialsDeleted = !requiredStores.contains(.cloudCredentials)
+            || CloudTokenManager.deleteStoredCredentials(for: source.id)
+        guard SourcePermanentDeletionPolicy.canRemoveTombstone(
+            requiredStores: requiredStores,
+            passwordDeleted: passwordDeleted,
+            cloudCredentialsDeleted: cloudCredentialsDeleted
+        ) else { return false }
         #if os(macOS)
-        LocalBookmarkStore.remove(sourceID: id)
+        LocalBookmarkStore.remove(sourceID: source.id)
         #endif
-        CloudDirectoryNameStore.deleteAll(for: id)
+        CloudDirectoryNameStore.deleteAll(for: source.id)
         #endif
+        return true
     }
 
     /// Sweep soft-deleted sources older than `threshold` and remove them for
     /// good. Called on launch with a 30-day threshold.
-    func pruneSources(deletedBefore threshold: Date) {
+    @discardableResult
+    func pruneSources(deletedBefore threshold: Date) -> [String: PermanentDeleteResult] {
         let toPrune = allSources.filter { $0.isDeleted && ($0.deletedAt ?? .distantFuture) < threshold }
+        var results: [String: PermanentDeleteResult] = [:]
         for source in toPrune {
-            permanentlyDelete(id: source.id)
+            results[source.id] = permanentlyDelete(id: source.id)
         }
+        return results
     }
 
     /// Apply a remote delete event as a tombstone. The notification keeps
@@ -241,12 +282,13 @@ final class SourcesStore {
         allSources[index].isDeleted = true
         allSources[index].deletedAt = deletedAt
         allSources[index].modifiedAt = max(allSources[index].modifiedAt, deletedAt)
+        let tombstone = allSources[index]
         persist()
         notifyChanged([id])
         NotificationCenter.default.post(
             name: .primuseSourceDidSoftDelete,
             object: nil,
-            userInfo: ["id": id]
+            userInfo: ["id": id, "source": tombstone]
         )
     }
 

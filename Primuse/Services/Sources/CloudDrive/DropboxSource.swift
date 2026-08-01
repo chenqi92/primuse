@@ -228,17 +228,17 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource {
     // 这样能作为 @Sendable 闭包传给 tokenManager.refreshDeduped / withTokenRetry。
     private nonisolated func refreshToken(_ tokens: CloudTokenManager.Tokens) async throws -> CloudTokenManager.Tokens {
         guard let rt = tokens.refreshToken else { throw CloudDriveError.tokenRefreshFailed("No refresh token") }
-        let creds = await helper.tokenManager.getAppCredentials()
-        guard let cid = creds?.clientId else { throw CloudDriveError.tokenRefreshFailed("No client ID") }
+        let creds = try await helper.tokenManager.requireAppCredentials()
+        guard !creds.clientId.isEmpty else { throw CloudDriveError.tokenRefreshFailed("No client ID") }
         var request = URLRequest(url: URL(string: "https://api.dropboxapi.com/oauth2/token")!)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         var items = [
             URLQueryItem(name: "grant_type", value: "refresh_token"),
             URLQueryItem(name: "refresh_token", value: rt),
-            URLQueryItem(name: "client_id", value: cid),
+            URLQueryItem(name: "client_id", value: creds.clientId),
         ]
-        if let secret = creds?.clientSecret {
+        if let secret = creds.clientSecret {
             items.append(URLQueryItem(name: "client_secret", value: secret))
         }
         request.httpBody = CloudDriveHelper.formURLEncodedBody(items)

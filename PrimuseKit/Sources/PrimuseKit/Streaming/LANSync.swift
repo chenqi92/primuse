@@ -1,6 +1,30 @@
 import CryptoKit
 import Foundation
 
+/// Completion semantics for transfers that promise both a library snapshot and
+/// its credential snapshot. A disabled iCloud credential channel is an explicit
+/// skip, while LAN pairing always requires a successfully prepared bundle.
+public enum SnapshotCredentialTransferOutcome: Sendable, Equatable {
+    case skipped
+    case succeeded
+    case failed
+}
+
+public enum SnapshotTransferCompletionPolicy {
+    public static func iCloudSucceeded(
+        snapshotUploaded: Bool,
+        credentialOutcome: SnapshotCredentialTransferOutcome
+    ) -> Bool {
+        snapshotUploaded && credentialOutcome != .failed
+    }
+
+    public static func canSendLAN(
+        credentialOutcome: SnapshotCredentialTransferOutcome
+    ) -> Bool {
+        credentialOutcome == .succeeded
+    }
+}
+
 /// 局域网「扫码直传」的载荷:与 CloudKit 快照同构的整库 + 源 + 歌词 + 凭据,经
 /// AES-GCM 加密后由 iPhone 直接 POST 给 Apple TV。绕开 iCloud —— 不受 Apple ID /
 /// 区域 / Development·Production 环境隔离,只要两台设备在同一局域网即可。

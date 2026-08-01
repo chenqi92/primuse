@@ -19,6 +19,23 @@ enum TVPlaybackIssue: Equatable {
     }
 }
 
+private enum TVDecodedDownloadError: Error, LocalizedError, Sendable {
+    case invalidContentLength(Int64)
+    case incomplete(expected: Int64, actual: Int64)
+    case oversizedChunk(requested: Int64, actual: Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidContentLength(let length):
+            return "Remote file reported an invalid content length: \(length)."
+        case .incomplete(let expected, let actual):
+            return "Remote file download was incomplete: expected \(expected) bytes, received \(actual)."
+        case .oversizedChunk(let requested, let actual):
+            return "Remote file returned \(actual) bytes for a \(requested)-byte request."
+        }
+    }
+}
+
 /// 串起 TVStore(持有真实 Song/MusicSource)↔ StreamResolver ↔ TVAudioEngine。
 /// 把真实歌曲解析成网络流 URL 并交给 AVPlayer;解析失败转成可展示的 TVPlaybackIssue。
 @MainActor
@@ -34,21 +51,24 @@ final class TVPlaybackCoordinator {
 
     func play(
         songID: String,
+        requestID: UUID,
         preferMusicVideo: Bool = false,
         startAt: Double = 0,
         autoPlay: Bool = true
     ) async {
         // Keep the store alive for the whole asynchronous playback setup. A queued
         // task may otherwise outlive TVStore and turn an `unowned` access into a trap.
-        guard let store else { return }
+        guard let store, isCurrent(requestID, store: store) else { return }
         store.playbackIssue = nil
         guard let song = store.library.song(id: songID) else {
             plog("🎬 TV play: song not found id=\(songID)")
+            guard isCurrent(requestID, store: store) else { return }
             store.playbackIssue = .failed(PMString("ext.tv.playback.songNotFound"))
             return
         }
         guard let source = store.sourcesStore.source(id: song.sourceID) else {
             plog("🎬 TV play: NO source for '\(song.title)' sourceID=\(song.sourceID)")
+            guard isCurrent(requestID, store: store) else { return }
             store.playbackIssue = .unsupported(song.sourceID)
             return
         }
@@ -66,12 +86,15 @@ final class TVPlaybackCoordinator {
                 source: source,
                 credential: credential,
                 ext: ext,
+                requestID: requestID,
                 startAt: startAt,
                 autoPlay: autoPlay
             )
+            guard isCurrent(requestID, store: store) else { return }
             return
         }
         if let directURL = asset.directURL {
+            guard isCurrent(requestID, store: store) else { return }
             engine.load(url: directURL,
                         headers: [:],
                         fileExtension: ext,
@@ -80,23 +103,46 @@ final class TVPlaybackCoordinator {
                         album: song.albumTitle ?? "",
                         duration: song.duration,
                         isVideo: asset.isVideo)
-            finishLoadedPlayback(song: song, source: source, credential: credential, startAt: startAt, autoPlay: autoPlay)
+            finishLoadedPlayback(
+                song: song,
+                source: source,
+                credential: credential,
+                requestID: requestID,
+                startAt: startAt,
+                autoPlay: autoPlay
+            )
             return
         }
         // 协议直连(SMB/NFS/FTP/SFTP):用原生协议库按 range 读字节直接喂 AVPlayer,不经 iPhone
         // 中继。建得出 reader 即走直连;建不出(配置缺失)回落到 resolveStream(中继 / 其它)。
         if let reader = Self.makeDirectReader(source: source, song: playbackSong, credential: credential) {
             plog("🎬 TV play: direct protocol \(source.type.rawValue)")
+            guard isCurrent(requestID, store: store) else { return }
             engine.load(reader: reader, fileExtension: ext,
                         title: song.title, artist: song.artistName ?? "",
                         album: song.albumTitle ?? "", duration: song.duration,
                         isVideo: asset.isVideo)
-            finishLoadedPlayback(song: song, source: source, credential: credential, startAt: startAt, autoPlay: autoPlay)
+            finishLoadedPlayback(
+                song: song,
+                source: source,
+                credential: credential,
+                requestID: requestID,
+                startAt: startAt,
+                autoPlay: autoPlay
+            )
             return
         }
         do {
-            let resolved = try await resolveStream(song: playbackSong, source: source, credential: credential, retried: false)
+            let resolved = try await resolveStream(
+                song: playbackSong,
+                source: source,
+                credential: credential,
+                requestID: requestID,
+                retried: false
+            )
+            try ensureCurrent(requestID, store: store)
             plog("🎬 TV play: resolved → host=\(resolved.url.host ?? "?") headers=\(resolved.headers.count)")
+            guard isCurrent(requestID, store: store) else { return }
             engine.load(url: resolved.url,
                         headers: resolved.headers,
                         fileExtension: ext,
@@ -105,12 +151,23 @@ final class TVPlaybackCoordinator {
                         album: song.albumTitle ?? "",
                         duration: song.duration,
                         isVideo: asset.isVideo)
-            finishLoadedPlayback(song: song, source: source, credential: credential, startAt: startAt, autoPlay: autoPlay)
+            finishLoadedPlayback(
+                song: song,
+                source: source,
+                credential: credential,
+                requestID: requestID,
+                startAt: startAt,
+                autoPlay: autoPlay
+            )
+        } catch is CancellationError {
+            return
         } catch let error as StreamResolveError {
             plog("🎬 TV play: resolve FAILED — \(error)")
+            guard isCurrent(requestID, store: store) else { return }
             store.playbackIssue = issue(for: error, source: source)
         } catch {
             plog("🎬 TV play: resolve error — \(error)")
+            guard isCurrent(requestID, store: store) else { return }
             store.playbackIssue = .failed(error.localizedDescription)
         }
     }
@@ -165,6 +222,7 @@ final class TVPlaybackCoordinator {
         song: Song,
         source: MusicSource,
         credential: SourceCredential?,
+        requestID: UUID,
         startAt: Double,
         autoPlay: Bool
     ) {
@@ -177,7 +235,7 @@ final class TVPlaybackCoordinator {
         if !autoPlay {
             engine.pause()
         }
-        loadLyrics(song: song, source: source, credential: credential)
+        loadLyrics(song: song, source: source, credential: credential, requestID: requestID)
     }
 
     private func playNonNative(
@@ -185,32 +243,84 @@ final class TVPlaybackCoordinator {
         source: MusicSource,
         credential: SourceCredential?,
         ext: String,
+        requestID: UUID,
         startAt: Double,
         autoPlay: Bool
     ) async {
         guard let store else { return }
+        var downloadedTempURL: URL?
+        var handedOffToEngine = false
+        defer {
+            if let downloadedTempURL, !handedOffToEngine {
+                _ = try? TVDecodedTemporaryFilePolicy.removeIfManaged(
+                    downloadedTempURL,
+                    in: FileManager.default.temporaryDirectory
+                )
+            }
+        }
         do {
-            let tempURL = try await downloadToTemp(song: song, source: source, credential: credential, ext: ext)
+            let tempURL = try await downloadToTemp(
+                song: song,
+                source: source,
+                credential: credential,
+                ext: ext,
+                requestID: requestID
+            )
+            downloadedTempURL = tempURL
+            try ensureCurrent(requestID, store: store)
+            guard isCurrent(requestID, store: store) else { return }
             engine.loadDecoded(fileURL: tempURL, title: song.title, artist: song.artistName ?? "",
                                album: song.albumTitle ?? "", duration: song.duration)
-            finishLoadedPlayback(song: song, source: source, credential: credential, startAt: startAt, autoPlay: autoPlay)
+            handedOffToEngine = true
+            finishLoadedPlayback(
+                song: song,
+                source: source,
+                credential: credential,
+                requestID: requestID,
+                startAt: startAt,
+                autoPlay: autoPlay
+            )
+        } catch is CancellationError {
+            return
         } catch let e as StreamResolveError {
             plog("🎬 TV play: non-native resolve FAILED — \(e)")
+            guard isCurrent(requestID, store: store) else { return }
             store.playbackIssue = issue(for: e, source: source)
         } catch {
             plog("🎬 TV play: non-native download error — \(error)")
+            guard isCurrent(requestID, store: store) else { return }
             store.playbackIssue = .failed(error.localizedDescription)
         }
     }
 
     /// 把整文件下载到 tmp:协议源走 reader 分块落盘,HTTP 源走 resolve + URLSession。
     private func downloadToTemp(song: Song, source: MusicSource,
-                              credential: SourceCredential?, ext: String) async throws -> URL {
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("tvsfb-\(UUID().uuidString).\(ext.isEmpty ? "bin" : ext)")
+                              credential: SourceCredential?, ext: String,
+                              requestID: UUID) async throws -> URL {
+        guard let store else { throw CancellationError() }
+        let fileManager = FileManager.default
+        let temporaryDirectory = fileManager.temporaryDirectory
+        let tmp = TVDecodedTemporaryFilePolicy.makeURL(
+            in: temporaryDirectory,
+            fileExtension: ext
+        )
+        var shouldKeepFile = false
+        defer {
+            if !shouldKeepFile {
+                _ = try? TVDecodedTemporaryFilePolicy.removeIfManaged(
+                    tmp,
+                    in: temporaryDirectory,
+                    fileManager: fileManager
+                )
+            }
+        }
         if let reader = Self.makeDirectReader(source: source, song: song, credential: credential) {
             let total = try await reader.contentLength()
-            FileManager.default.createFile(atPath: tmp.path, contents: nil)
+            try ensureCurrent(requestID, store: store)
+            guard ExactChunkedDownloadPolicy.contentLengthIsValid(total) else {
+                throw TVDecodedDownloadError.invalidContentLength(total)
+            }
+            fileManager.createFile(atPath: tmp.path, contents: nil)
             let handle = try FileHandle(forWritingTo: tmp)
             defer { try? handle.close() }
             var offset: Int64 = 0
@@ -218,21 +328,45 @@ final class TVPlaybackCoordinator {
             while offset < total {
                 let len = min(chunk, total - offset)
                 let data = try await reader.read(offset: offset, length: len)
-                if data.isEmpty { break }
+                try ensureCurrent(requestID, store: store)
+                switch ExactChunkedDownloadPolicy.chunkDecision(
+                    requestedLength: len,
+                    receivedLength: data.count
+                ) {
+                case .append:
+                    break
+                case .rejectEmpty:
+                    throw TVDecodedDownloadError.incomplete(expected: total, actual: offset)
+                case .rejectOversized:
+                    throw TVDecodedDownloadError.oversizedChunk(
+                        requested: len,
+                        actual: data.count
+                    )
+                }
                 try handle.write(contentsOf: data)
                 offset += Int64(data.count)
             }
+            guard ExactChunkedDownloadPolicy.isComplete(
+                expectedLength: total,
+                writtenLength: offset
+            ) else {
+                throw TVDecodedDownloadError.incomplete(expected: total, actual: offset)
+            }
+            shouldKeepFile = true
             return tmp
         }
         // HTTP 源:解析成 URL + 头,整文件下载。
         let resolved = try await registry.resolve(for: song, source: source, credential: credential)
+        try ensureCurrent(requestID, store: store)
         var req = URLRequest(url: resolved.url)
         for (k, v) in resolved.headers { req.setValue(v, forHTTPHeaderField: k) }
         let (data, response) = try await Self.lyricsSession.data(for: req)
+        try ensureCurrent(requestID, store: store)
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
             throw StreamResolveError.badServerResponse(http.statusCode)
         }
         try data.write(to: tmp)
+        shouldKeepFile = true
         return tmp
     }
 
@@ -254,12 +388,26 @@ final class TVPlaybackCoordinator {
 
     /// 会话过期(.authFailed)时清掉会话并重试一次(Synology/cloud 用;Subsonic 无状态不会触发)。
     private func resolveStream(song: Song, source: MusicSource,
-                              credential: SourceCredential?, retried: Bool) async throws -> ResolvedStream {
+                              credential: SourceCredential?, requestID: UUID,
+                              retried: Bool) async throws -> ResolvedStream {
+        guard let store else { throw CancellationError() }
         do {
-            return try await registry.resolve(for: song, source: source, credential: credential)
+            let resolved = try await registry.resolve(for: song, source: source, credential: credential)
+            try ensureCurrent(requestID, store: store)
+            return resolved
         } catch StreamResolveError.authFailed where !retried {
+            try ensureCurrent(requestID, store: store)
             await registry.invalidateSession(for: source)
-            return try await resolveStream(song: song, source: source, credential: credential, retried: true)
+            try ensureCurrent(requestID, store: store)
+            let resolved = try await resolveStream(
+                song: song,
+                source: source,
+                credential: credential,
+                requestID: requestID,
+                retried: true
+            )
+            try ensureCurrent(requestID, store: store)
+            return resolved
         }
     }
 
@@ -269,13 +417,18 @@ final class TVPlaybackCoordinator {
     /// `.lrc` sidecar —— 不再依赖手机端是否抓过(TV 本就连着源、有凭证)。`lyricsFileName`
     /// 指向源里的歌词文件(NAS 是 `.lrc` 真实路径,云盘是 item ID),复用 stream resolver
     /// 解出下载地址即可。
-    private func loadLyrics(song: Song, source: MusicSource, credential: SourceCredential?) {
-        Task { [weak store, song, source, credential] in
+    private func loadLyrics(song: Song, source: MusicSource,
+                            credential: SourceCredential?, requestID: UUID) {
+        Task { [weak self, weak store, song, source, credential] in
+            guard let self, let store,
+                  self.isCurrent(requestID, store: store) else { return }
             let songID = song.id
             if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: songID), !cached.isEmpty {
-                store?.applyLyrics(Self.toTVLyrics(cached), forSongID: songID)
+                guard self.isCurrent(requestID, store: store) else { return }
+                store.applyLyrics(Self.toTVLyrics(cached), forSongID: songID)
                 return
             }
+            guard self.isCurrent(requestID, store: store) else { return }
             // 歌词文件路径:① song.lyricsFileName 指向的源内 .lrc(.json 是本机缓存名,已查过);
             // ② 协议直连源(SMB/NFS/FTP)按音频路径推同名 .lrc —— 即便扫描时没记录歌词,播放时
             //    也能就地从 NAS 同目录读到。
@@ -291,32 +444,47 @@ final class TVPlaybackCoordinator {
             var lrcSong = song
             lrcSong.filePath = lrcPath
             do {
-                guard let text = try await Self.fetchLyricText(song: lrcSong, source: source, credential: credential),
+                guard let text = try await self.fetchLyricText(
+                    song: lrcSong,
+                    source: source,
+                    credential: credential,
+                    requestID: requestID
+                ),
                       !text.isEmpty else { return }
+                try self.ensureCurrent(requestID, store: store)
                 let lines = LyricsParser.parse(text)
                 guard !lines.isEmpty else { return }
                 _ = await MetadataAssetStore.shared.cacheLyrics(lines, forSongID: songID, force: false)
-                store?.applyLyrics(Self.toTVLyrics(lines), forSongID: songID)
+                try self.ensureCurrent(requestID, store: store)
+                store.applyLyrics(Self.toTVLyrics(lines), forSongID: songID)
                 plog("🎬 TV source-lyrics loaded \(lines.count) lines for '\(song.title)'")
+            } catch is CancellationError {
+                return
             } catch {
+                guard self.isCurrent(requestID, store: store) else { return }
                 plog("🎬 TV source-lyrics fetch failed '\(song.title)': \(error)")
             }
         }
     }
 
     /// 取歌词文本:协议直连源用 reader 直读小文件;HTTP/云盘走 StreamResolver 解 URL 下载。
-    private static func fetchLyricText(song: Song, source: MusicSource,
-                                       credential: SourceCredential?) async throws -> String? {
-        if let reader = makeDirectReader(source: source, song: song, credential: credential) {
+    private func fetchLyricText(song: Song, source: MusicSource,
+                                credential: SourceCredential?, requestID: UUID) async throws -> String? {
+        guard let store else { throw CancellationError() }
+        if let reader = Self.makeDirectReader(source: source, song: song, credential: credential) {
             let size = try await reader.contentLength()
+            try ensureCurrent(requestID, store: store)
             guard size > 0, size < 512 * 1024 else { return nil }
             let data = try await reader.read(offset: 0, length: size)
+            try ensureCurrent(requestID, store: store)
             return String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1)
         }
         let resolved = try await StreamResolverRegistry.shared.resolve(for: song, source: source, credential: credential)
+        try ensureCurrent(requestID, store: store)
         var req = URLRequest(url: resolved.url)
         for (k, v) in resolved.headers { req.setValue(v, forHTTPHeaderField: k) }
-        let (data, _) = try await lyricsSession.data(for: req)
+        let (data, _) = try await Self.lyricsSession.data(for: req)
+        try ensureCurrent(requestID, store: store)
         return String(data: data, encoding: .utf8)
     }
 
@@ -335,6 +503,14 @@ final class TVPlaybackCoordinator {
         cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
         return URLSession(configuration: cfg, delegate: TVInsecureTLSDelegate(), delegateQueue: nil)
     }()
+
+    private func isCurrent(_ requestID: UUID, store: TVStore) -> Bool {
+        store.isCurrentPlaybackRequest(requestID, isCancelled: Task.isCancelled)
+    }
+
+    private func ensureCurrent(_ requestID: UUID, store: TVStore) throws {
+        guard isCurrent(requestID, store: store) else { throw CancellationError() }
+    }
 
     private func issue(for error: StreamResolveError, source: MusicSource) -> TVPlaybackIssue {
         switch error {

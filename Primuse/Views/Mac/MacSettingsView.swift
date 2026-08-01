@@ -3445,7 +3445,9 @@ private struct MacSTDeletedView: View {
                     ForEach(Array(sources.enumerated()), id: \.element.id) { index, s in
                         MacDeletedRealRow(
                             title: s.name,
-                            sub: deletedAtText(s.deletedAt),
+                            sub: sourcesStore.permanentDeletionFailureIDs.contains(s.id)
+                                ? "\(String(localized: "status_unavailable")) · \(String(localized: "retry"))"
+                                : deletedAtText(s.deletedAt),
                             icon: s.type.iconName,
                             divider: index != 0,
                             restore: { sourcesStore.restore(id: s.id) },

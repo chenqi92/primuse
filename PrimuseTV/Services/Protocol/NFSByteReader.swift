@@ -20,17 +20,26 @@ actor NFSByteReader: ByteRangeReader {
 
     init?(source: MusicSource, filePath: String) {
         guard let parsed = Self.parseSelection(filePath) else { return nil }
+        guard let scoped = NFSSelectionScopePolicy.resolve(
+            exportPath: parsed.export,
+            relativePath: parsed.relative,
+            configuredExportPath: source.basePath
+        ) else { return nil }
+        let requestedVersion = source.nfsVersion ?? .auto
+        guard requestedVersion.canStartWithV3OnlyBackend else { return nil }
         let host = (source.host ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !host.isEmpty else { return nil }
         let urlHost = (host.contains(":") && !host.hasPrefix("[")) ? "[\(host)]" : host
         var comps = URLComponents()
         comps.scheme = "nfs"
         comps.host = urlHost
-        if let p = source.port, p > 0 { comps.port = p }
+        // NFSKit's v3 wrapper appends URL ports to the hostname before libnfs
+        // performs rpcbind lookup. Leave it unset so rpcbind discovers both
+        // MOUNT and NFS service ports instead of resolving "host:2049".
         guard let u = comps.url else { return nil }
         url = u
-        exportPath = parsed.export
-        relativePath = parsed.relative
+        exportPath = scoped.exportPath
+        relativePath = scoped.relativePath
     }
 
     private func ensure() async throws -> NFSClient {

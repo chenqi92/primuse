@@ -28,18 +28,19 @@ struct QueueView: View {
                         }
                     }
 
-                    // Up Next (draggable). Iterate over queueEntries
-                    // (each has a stable UUID) instead of integer
+                    // Up Next (draggable). Iterate over presentation entries
+                    // (each has a stable slot + round identity) instead of integer
                     // indices — the previous `id: \.self` on Int
                     // index made SwiftUI's diff see no identity change
                     // after a reorder (range stays 0..N-1), so only
                     // the dragged row animated while the others
                     // swapped contents in place. Two rows visually
                     // overlapped for a few frames whenever the source
-                    // and destination weren't adjacent. UUID-keyed
+                    // and destination weren't adjacent. Occurrence-keyed
                     // ForEach lets SwiftUI animate every row's real
                     // position swap, and is also robust to the queue
-                    // holding the same song multiple times.
+                    // holding duplicate songs or previewing the same slot again
+                    // in the next repeat-all shuffle round.
                     let queueEntries = player.queueEntries
                     let currentIndex = queueEntries.isEmpty
                         ? 0
@@ -54,13 +55,13 @@ struct QueueView: View {
                         Section("up_next") {
                             ForEach(upNextEntries) { entry in
                                 SongRowView(
-                                    song: entry.song,
+                                    song: entry.entry.song,
                                     isPlaying: false,
                                     showsActions: false,
-                                    context: SongRowView.context(for: entry.song, sourcesStore: sourcesStore, backfill: backfill)
+                                    context: SongRowView.context(for: entry.entry.song, sourcesStore: sourcesStore, backfill: backfill)
                                 )
                                 .contentShape(Rectangle())
-                                .onTapGesture { playEntry(entry) }
+                                .onTapGesture { playEntry(entry.entry) }
                             }
                             // Drag-reorder only maps cleanly to raw queue
                             // offsets when the displayed order *is* the queue
@@ -81,21 +82,22 @@ struct QueueView: View {
                         }
                     }
 
-                    // Previously played. Same UUID-keyed identity for
-                    // consistency, even without onMove.
-                    if currentIndex > 0 {
-                        let playedEntries = Array(queueEntries[0..<currentIndex])
+                    // Previously played follows the actual shuffle prefix instead
+                    // of the raw queue prefix, so no current-round row appears in
+                    // both Played and Up Next.
+                    let playedEntries = player.playedQueueEntries
+                    if !playedEntries.isEmpty {
                         Section("played") {
                             ForEach(playedEntries) { entry in
                                 SongRowView(
-                                    song: entry.song,
+                                    song: entry.entry.song,
                                     isPlaying: false,
                                     showsActions: false,
-                                    context: SongRowView.context(for: entry.song, sourcesStore: sourcesStore, backfill: backfill)
+                                    context: SongRowView.context(for: entry.entry.song, sourcesStore: sourcesStore, backfill: backfill)
                                 )
                                 .opacity(0.6)
                                 .contentShape(Rectangle())
-                                .onTapGesture { playEntry(entry) }
+                                .onTapGesture { playEntry(entry.entry) }
                             }
                         }
                     }

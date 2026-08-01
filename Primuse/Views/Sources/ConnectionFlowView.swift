@@ -14,6 +14,11 @@ struct ConnectionFlowView: View {
     @State private var step: FlowStep = .connecting
     @State private var otpCode = ""
     @State private var passwordInput = ""
+    /// A replacement entered after DSM rejects the saved password. Keep it in
+    /// memory until login, optional 2FA, SSL trust, and the first authenticated
+    /// directory request have all succeeded. The last known-good Keychain item
+    /// must remain untouched while any of those checks are still pending.
+    @State private var pendingPasswordCandidate: String?
     @State private var errorMessage = ""
     @State private var rememberDevice = true
     @State private var synologyAPI: SynologyAPI?
@@ -245,8 +250,8 @@ struct ConnectionFlowView: View {
 
     // MARK: - Password prompt
     //
-    // 仅在 DSM 真正返回 code=400(账号或密码错误)时才出现。用户输入的
-    // 密码写回本机 Keychain,下次连接自动复用。
+    // 仅在 DSM 真正返回 code=400(账号或密码错误)时才出现。新密码
+    // 先作为待验证值贯穿登录/2FA/SSL 重试，确认可浏览后才写回 Keychain。
     private var passwordView: some View {
         ScrollView {
             VStack(spacing: 20) {
@@ -298,21 +303,11 @@ struct ConnectionFlowView: View {
     private func submitPassword() {
         let pwd = passwordInput
         guard !pwd.isEmpty else { return }
-        // 顺手写一份到 Keychain (下次免输);但 connectSynology 这一次
-        // 直接用 overridePassword,不依赖 keychain 读回去——否则 keychain
-        // 写失败时密码就丢了。
-        guard KeychainService.setPassword(pwd, for: source.id) else {
-            errorMessage = String(localized: "credential_save_failed_message")
-            return
-        }
+        pendingPasswordCandidate = pwd
+        plog("🔐 Synology credential replacement validation started source=\(source.id.prefix(8))…")
         errorMessage = ""
-        passwordInput = ""
         step = .connecting
         Task {
-            // SourceManager connectors capture credentials when they are
-            // created. Rebuild any connector that may still hold the rejected
-            // password before this corrected credential is used elsewhere.
-            await onPasswordSaved?()
             await connectSynology(otpCode: nil, overridePassword: pwd)
         }
     }
@@ -341,6 +336,8 @@ struct ConnectionFlowView: View {
         step = .connecting
         errorMessage = ""
         otpCode = ""
+        passwordInput = ""
+        pendingPasswordCandidate = nil
         rememberDevice = source.rememberDevice
         Task {
             switch source.type {
@@ -376,6 +373,11 @@ struct ConnectionFlowView: View {
                 errorMessage = String(localized: "credential_temporarily_unavailable")
                 withAnimation { step = .failed }
                 return
+            case .failed(let status):
+                plog("⛔ Synology connection stopped: credential read failed status=\(status)")
+                errorMessage = String(localized: "credential_read_failed")
+                withAnimation { step = .failed }
+                return
             }
         }
 
@@ -389,9 +391,32 @@ struct ConnectionFlowView: View {
         )
 
         if result.success {
-            onDeviceTrustSaved?(rememberDevice, result.deviceId)
             do {
                 let shares = try await api.listSharedFolders()
+
+                if let validatedPassword = NetworkCredentialPolicy.validatedReplacement(
+                    candidate: overridePassword,
+                    loginSucceeded: true,
+                    browserReady: true
+                ) {
+                    guard KeychainService.setPassword(validatedPassword, for: source.id) else {
+                        plog("⚠️ Synology credential replacement validated but persistence failed; existing credential retained source=\(source.id.prefix(8))…")
+                        pendingPasswordCandidate = nil
+                        errorMessage = String(localized: "synology_password_update_save_failed")
+                        withAnimation { step = .password }
+                        return
+                    }
+
+                    // SourceManager connectors may still hold the rejected
+                    // credential. Refresh only after the validated replacement
+                    // has been persisted successfully.
+                    await onPasswordSaved?()
+                    plog("✅ Synology credential replacement persisted after login and browse validation source=\(source.id.prefix(8))…")
+                    pendingPasswordCandidate = nil
+                    passwordInput = ""
+                }
+
+                onDeviceTrustSaved?(rememberDevice, result.deviceId)
                 rootItems = shares
                 onSessionReady?(api)
                 withAnimation { step = .browsing }
@@ -399,10 +424,11 @@ struct ConnectionFlowView: View {
                 if let domain = SSLTrustStore.sslErrorDomain(from: error) {
                     let trusted = await promptSSLTrust(domain: domain)
                     if trusted {
-                        await connectSynology(otpCode: otpCode)
+                        await connectSynology(otpCode: otpCode, overridePassword: overridePassword)
                         return
                     }
                 }
+                pendingPasswordCandidate = nil
                 errorMessage = error.localizedDescription
                 withAnimation { step = .failed }
             }
@@ -419,7 +445,7 @@ struct ConnectionFlowView: View {
                let domain = SSLTrustStore.sslErrorDomain(from: error) {
                 let trusted = await promptSSLTrust(domain: domain)
                 if trusted {
-                    await connectSynology(otpCode: otpCode)
+                    await connectSynology(otpCode: otpCode, overridePassword: overridePassword)
                     return
                 }
             }
@@ -428,12 +454,14 @@ struct ConnectionFlowView: View {
             // 408/409/410 要求先在 DSM 修改密码，锁定/网络问题也应保留真实失败态。
             if result.requiresCredentialPrompt {
                 await MainActor.run {
+                    pendingPasswordCandidate = nil
                     errorMessage = result.errorMessage ?? String(localized: "password_wrong_hint")
                     withAnimation { step = .password }
                 }
                 return
             }
 
+            pendingPasswordCandidate = nil
             errorMessage = result.errorMessage ?? "Unknown error"
             withAnimation { step = .failed }
         }
@@ -442,7 +470,8 @@ struct ConnectionFlowView: View {
     private func verifyOTP() {
         errorMessage = ""
         step = .connecting
-        Task { await connectSynology(otpCode: otpCode) }
+        let candidate = pendingPasswordCandidate
+        Task { await connectSynology(otpCode: otpCode, overridePassword: candidate) }
     }
 }
 

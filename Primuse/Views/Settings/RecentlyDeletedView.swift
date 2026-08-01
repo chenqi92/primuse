@@ -63,6 +63,9 @@ struct RecentlyDeletedView: View {
                         title: source.name,
                         deletedAt: source.deletedAt,
                         systemImage: source.type.iconName,
+                        statusMessage: sourcesStore.permanentDeletionFailureIDs.contains(source.id)
+                            ? "\(String(localized: "status_unavailable")) · \(String(localized: "retry"))"
+                            : nil,
                         restore: { sourcesStore.restore(id: source.id) },
                         purge: { sourcesStore.permanentlyDelete(id: source.id) }
                     )
@@ -106,6 +109,7 @@ struct RecentlyDeletedView: View {
         title: String,
         deletedAt: Date?,
         systemImage: String,
+        statusMessage: String? = nil,
         restore: @escaping () -> Void,
         purge: @escaping () -> Void
     ) -> some View {
@@ -115,7 +119,12 @@ struct RecentlyDeletedView: View {
                 .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                if let deletedAt {
+                if let statusMessage {
+                    Text(statusMessage)
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                        .lineLimit(2)
+                } else if let deletedAt {
                     Text(daysRemaining(from: deletedAt))
                         .font(.caption2)
                         .foregroundStyle(.secondary)

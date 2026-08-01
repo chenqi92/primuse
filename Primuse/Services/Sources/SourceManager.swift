@@ -11,13 +11,23 @@ struct SongFileDeletionResult: Sendable {
     var deletedPaths: [String] = []
     var missingPaths: [String] = []
     var failedPaths: [Failure] = []
+    var sidecarWarnings: [Failure] = []
+    var audioStatus: SourceAudioDeletionStatus = .failed
 
     var hasFailures: Bool { !failedPaths.isEmpty }
+    var shouldRemoveLibraryRecord: Bool {
+        SourceFileDeletionPolicy.shouldRemoveLibraryRecord(
+            after: audioStatus,
+            sidecarWarningCount: sidecarWarnings.count
+        )
+    }
 
     mutating func merge(_ other: SongFileDeletionResult) {
         deletedPaths.append(contentsOf: other.deletedPaths)
         missingPaths.append(contentsOf: other.missingPaths)
         failedPaths.append(contentsOf: other.failedPaths)
+        sidecarWarnings.append(contentsOf: other.sidecarWarnings)
+        audioStatus = other.audioStatus
     }
 }
 
@@ -394,44 +404,52 @@ final class SourceManager {
             connector = UnsupportedSourceConnector(sourceID: source.id, sourceType: .appleMusicLibrary)
             #endif
         case .smb:
-            connector = SMBSource(
-                sourceID: source.id,
-                host: source.host ?? "",
-                port: source.port ?? 445,
-                sharePath: source.shareName ?? "",
-                username: source.username ?? "",
-                password: KeychainService.getPassword(for: source.id) ?? ""
-            )
+            connector = credentialProtectedConnector(for: source) { password in
+                SMBSource(
+                    sourceID: source.id,
+                    host: source.host ?? "",
+                    port: source.port ?? 445,
+                    sharePath: source.shareName ?? "",
+                    username: source.username ?? "",
+                    password: password
+                )
+            }
         case .webdav:
-            connector = WebDAVSource(
-                sourceID: source.id,
-                host: source.host ?? "",
-                port: source.port,
-                useSsl: source.useSsl,
-                basePath: source.basePath,
-                username: source.username ?? "",
-                password: KeychainService.getPassword(for: source.id) ?? ""
-            )
+            connector = credentialProtectedConnector(for: source) { password in
+                WebDAVSource(
+                    sourceID: source.id,
+                    host: source.host ?? "",
+                    port: source.port,
+                    useSsl: source.useSsl,
+                    basePath: source.basePath,
+                    username: source.username ?? "",
+                    password: password
+                )
+            }
         case .ftp:
-            connector = FTPSource(
-                sourceID: source.id,
-                host: source.host ?? "",
-                port: source.port,
-                basePath: source.basePath,
-                username: source.username ?? "",
-                password: KeychainService.getPassword(for: source.id) ?? "",
-                encryption: source.ftpEncryption ?? .none
-            )
+            connector = credentialProtectedConnector(for: source) { password in
+                FTPSource(
+                    sourceID: source.id,
+                    host: source.host ?? "",
+                    port: source.port,
+                    basePath: source.basePath,
+                    username: source.username ?? "",
+                    password: password,
+                    encryption: source.ftpEncryption ?? .none
+                )
+            }
         case .sftp:
-            connector = SFTPSource(
-                sourceID: source.id,
-                host: source.host ?? "",
-                port: source.port,
-                basePath: source.basePath,
-                username: source.username ?? "",
-                secret: KeychainService.getPassword(for: source.id) ?? "",
-                authType: source.authType
-            )
+            connector = credentialProtectedConnector(for: source) { secret in
+                SFTPSource(
+                    sourceID: source.id,
+                    host: source.host ?? "",
+                    port: source.port,
+                    basePath: source.basePath,
+                    username: source.username ?? "",
+                    secret: secret,
+                    authType: source.authType
+                )
+            }
         case .nfs:
             connector = NFSSource(
                 sourceID: source.id,
@@ -443,55 +461,65 @@ final class SourceManager {
         case .upnp:
             connector = UPnPSource(sourceID: source.id)
         case .jellyfin, .emby, .plex:
-            connector = MediaServerSource(
-                sourceID: source.id,
-                kind: MediaServerSource.Kind(sourceType: source.type)!,
-                host: source.host ?? "",
-                port: source.port,
-                useSsl: source.useSsl,
-                basePath: source.basePath,
-                username: source.username ?? "",
-                secret: KeychainService.getPassword(for: source.id) ?? "",
-                authType: source.authType
-            )
+            connector = credentialProtectedConnector(for: source) { secret in
+                MediaServerSource(
+                    sourceID: source.id,
+                    kind: MediaServerSource.Kind(sourceType: source.type)!,
+                    host: source.host ?? "",
+                    port: source.port,
+                    useSsl: source.useSsl,
+                    basePath: source.basePath,
+                    username: source.username ?? "",
+                    secret: secret,
+                    authType: source.authType
+                )
+            }
         case .subsonic, .navidrome, .airsonic, .gonic:
-            connector = SubsonicSource(
-                sourceID: source.id,
-                sourceType: source.type,
-                host: source.host ?? "",
-                port: source.port,
-                useSsl: source.useSsl,
-                basePath: source.basePath,
-                username: source.username ?? "",
-                password: KeychainService.getPassword(for: source.id) ?? ""
-            )
+            connector = credentialProtectedConnector(for: source) { password in
+                SubsonicSource(
+                    sourceID: source.id,
+                    sourceType: source.type,
+                    host: source.host ?? "",
+                    port: source.port,
+                    useSsl: source.useSsl,
+                    basePath: source.basePath,
+                    username: source.username ?? "",
+                    password: password
+                )
+            }
         case .qnap:
-            connector = QnapSource(
-                sourceID: source.id,
-                host: source.host ?? "",
-                port: source.port ?? 8080,
-                useSsl: source.useSsl,
-                username: source.username ?? "",
-                password: KeychainService.getPassword(for: source.id) ?? ""
-            )
+            connector = credentialProtectedConnector(for: source) { password in
+                QnapSource(
+                    sourceID: source.id,
+                    host: source.host ?? "",
+                    port: source.port ?? 8080,
+                    useSsl: source.useSsl,
+                    username: source.username ?? "",
+                    password: password
+                )
+            }
         case .ugreen:
-            connector = UgreenSource(
-                sourceID: source.id,
-                host: source.host ?? "",
-                port: source.port ?? 9999,
-                useSsl: source.useSsl,
-                username: source.username ?? "",
-                password: KeychainService.getPassword(for: source.id) ?? ""
-            )
+            connector = credentialProtectedConnector(for: source) { password in
+                UgreenSource(
+                    sourceID: source.id,
+                    host: source.host ?? "",
+                    port: source.port ?? 9999,
+                    useSsl: source.useSsl,
+                    username: source.username ?? "",
+                    password: password
+                )
+            }
         case .fnos:
-            connector = FnOSSource(
-                sourceID: source.id,
-                host: source.host ?? "",
-                port: source.port ?? 5666,
-                useSsl: source.useSsl,
-                username: source.username ?? "",
-                password: KeychainService.getPassword(for: source.id) ?? ""
-            )
+            connector = credentialProtectedConnector(for: source) { password in
+                FnOSSource(
+                    sourceID: source.id,
+                    host: source.host ?? "",
+                    port: source.port ?? 5666,
+                    useSsl: source.useSsl,
+                    username: source.username ?? "",
+                    password: password
+                )
+            }
         case .baiduPan:
             connector = BaiduPanSource(sourceID: source.id)
         case .aliyunDrive:
@@ -510,16 +538,18 @@ final class SourceManager {
             // S3 uses host=endpoint, basePath=bucket, and extraConfig holds
             // {"region":..., "dirs":[...]} — read region S3-aware so the dir
             // list sharing the slot doesn't break the lookup.
-            connector = S3Source(
-                sourceID: source.id,
-                endpoint: source.host ?? "s3.amazonaws.com",
-                port: source.port,
-                region: source.s3Region ?? "us-east-1",
-                bucket: source.basePath ?? "",
-                accessKey: source.username ?? "",
-                secretKey: KeychainService.getPassword(for: source.id) ?? "",
-                useSsl: source.useSsl
-            )
+            connector = credentialProtectedConnector(for: source) { secretKey in
+                S3Source(
+                    sourceID: source.id,
+                    endpoint: source.host ?? "s3.amazonaws.com",
+                    port: source.port,
+                    region: source.s3Region ?? "us-east-1",
+                    bucket: source.basePath ?? "",
+                    accessKey: source.username ?? "",
+                    secretKey: secretKey,
+                    useSsl: source.useSsl
+                )
+            }
         case .appleMusic:
             // Apple Music 在系统侧 ApplicationMusicPlayer 播放, 不需要 connector
             // 扫文件 / 解析。给个 unsupported 占位让 switch 完整, 实际 scan
@@ -527,7 +557,7 @@ final class SourceManager {
             connector = UnsupportedSourceConnector(sourceID: source.id, sourceType: .appleMusic)
         }
 
-        if cache {
+        if cache, !(connector is CredentialUnavailableSourceConnector) {
             connectors[source.id] = connector
         }
         return connector
@@ -716,7 +746,25 @@ final class SourceManager {
     private func credentialChecks(for source: MusicSource) -> [SourceDiagnosticCheck] {
         guard source.type.requiresCredentials, source.authType != .none else { return [] }
 
-        let secret = KeychainService.getPassword(for: source.id) ?? ""
+        let secret: String
+        switch KeychainService.connectorCredential(for: source) {
+        case .ready(let value):
+            secret = value
+        case .temporarilyUnavailable(let status):
+            plog("⏳ Source diagnostic deferred: credential temporarily unavailable status=\(status)")
+            return [SourceDiagnosticCheck(
+                status: .failed,
+                title: String(localized: "source_diag_auth_title"),
+                message: String(localized: "credential_temporarily_unavailable")
+            )]
+        case .failed(let status):
+            plog("⛔ Source diagnostic stopped: credential read failed status=\(status)")
+            return [SourceDiagnosticCheck(
+                status: .failed,
+                title: String(localized: "source_diag_auth_title"),
+                message: String(localized: "credential_read_failed")
+            )]
+        }
         let username = trimmed(source.username)
         var checks: [SourceDiagnosticCheck] = []
 
@@ -784,6 +832,18 @@ final class SourceManager {
     private static func advice(for error: Error, source: MusicSource) -> SourceDiagnosticAdvice {
         if let cloudError = error as? CloudDriveError {
             switch cloudError {
+            case .credentialTemporarilyUnavailable:
+                return SourceDiagnosticAdvice(
+                    title: String(localized: "source_diag_auth_title"),
+                    message: String(localized: "credential_temporarily_unavailable"),
+                    suggestion: ""
+                )
+            case .credentialReadFailed:
+                return SourceDiagnosticAdvice(
+                    title: String(localized: "source_diag_auth_title"),
+                    message: String(localized: "credential_read_failed"),
+                    suggestion: ""
+                )
             case .notAuthenticated, .tokenExpired, .tokenRefreshFailed(_), .tokenPersistenceFailed:
                 return SourceDiagnosticAdvice(
                     title: String(localized: "source_diag_advice_oauth_title"),
@@ -1978,7 +2038,9 @@ final class SourceManager {
     @discardableResult
     func deleteSourceFilesAndCaches(for song: Song, deleteSidecars: Bool = true) async -> SongFileDeletionResult {
         let result = await deleteSourceFiles(for: song, deleteSidecars: deleteSidecars)
-        deleteLocalCaches(for: song)
+        if result.shouldRemoveLibraryRecord {
+            deleteLocalCaches(for: song)
+        }
         return result
     }
 
@@ -2091,6 +2153,7 @@ final class SourceManager {
                         for song in chunk {
                             var result = SongFileDeletionResult()
                             result.deletedPaths.append(song.filePath)
+                            result.audioStatus = .deleted
                             outcomeBySongID[song.id] = SongFileDeletionOutcome(song: song, result: result)
                         }
 
@@ -2116,6 +2179,7 @@ final class SourceManager {
                             var result = SongFileDeletionResult()
                             if Self.isMissingFileError(error) {
                                 result.missingPaths.append(song.filePath)
+                                result.audioStatus = .alreadyMissing
                             } else {
                                 result.failedPaths.append(.init(path: song.filePath, message: message))
                             }
@@ -2205,9 +2269,11 @@ final class SourceManager {
             do {
                 try await connector.deleteFile(at: song.filePath)
                 result.deletedPaths.append(song.filePath)
+                result.audioStatus = .deleted
             } catch {
                 if isMissingFileError(error) {
                     result.missingPaths.append(song.filePath)
+                    result.audioStatus = .alreadyMissing
                 } else {
                     result.failedPaths.append(.init(path: song.filePath, message: error.localizedDescription))
                     logDeletionFailures(result, song: song)
@@ -2228,6 +2294,10 @@ final class SourceManager {
                             // failure is a warning, not a reason to retain a
                             // library row that can no longer play.
                             plog("⚠️ Delete sidecar failed for '\(song.title)' at \(path): \(error.localizedDescription)")
+                            result.sidecarWarnings.append(.init(
+                                path: path,
+                                message: error.localizedDescription
+                            ))
                         }
                     }
                 }
@@ -2834,8 +2904,8 @@ final class SourceManager {
                 // can surface stale-container path warnings after reinstall.
                 guard source.type != .local else { return }
 
-                if source.type == .oneDrive {
-                    plog("⏩ Cache: skip OneDrive prewarm for '\(song.title)' (foreground Range playback keeps priority)")
+                if !RangeStreamingPrefetchPolicy.allowsBackgroundPrewarm(for: source.type) {
+                    plog("⏩ Cache: skip \(source.type.rawValue) prewarm for '\(song.title)' (foreground Range playback keeps priority)")
                     return
                 }
 
@@ -2928,7 +2998,7 @@ final class SourceManager {
         guard let sources = try? await sourcesProvider(),
               let source = sources.first(where: { $0.id == song.sourceID }),
               shouldUseRangeStreamingForPlayback(source: source, song: song) else { return }
-        guard source.type != .oneDrive else { return }
+        guard RangeStreamingPrefetchPolicy.allowsBackgroundPrewarm(for: source.type) else { return }
         let conn = connector(for: source)
         do { try await conn.connect() } catch { return }
         await prewarmCloudSong(song: song, connector: conn)
@@ -3072,9 +3142,15 @@ final class SourceManager {
             cacheRelativePath = nil
         }
 
-        let prefetchAhead = source.type == .oneDrive ? 0 : CloudPlaybackSource.prefetchAhead
-        if source.type == .oneDrive {
-            plog("☁️ OneDrive streaming: background chunk prefetch disabled for '\(song.title)'")
+        let prefetchAhead = RangeStreamingPrefetchPolicy.aheadCount(
+            for: source.type,
+            defaultValue: CloudPlaybackSource.prefetchAhead
+        )
+        let allowsTrailingFill = RangeStreamingPrefetchPolicy
+            .allowsAutomaticTrailingFill(for: source.type)
+        if prefetchAhead == 0,
+           source.type == .oneDrive || source.type == .ftp {
+            plog("☁️ \(source.type.rawValue) streaming: background chunk prefetch disabled for '\(song.title)'")
         }
 
         return CloudPlaybackSource.makeInputSource(
@@ -3084,7 +3160,8 @@ final class SourceManager {
             cacheURL: cache,
             persistOnComplete: cacheEnabled,
             cacheRelativePath: cacheRelativePath,
-            prefetchAhead: prefetchAhead
+            prefetchAhead: prefetchAhead,
+            allowsTrailingFill: allowsTrailingFill
         )
     }
 

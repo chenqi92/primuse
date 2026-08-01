@@ -33,6 +33,7 @@ struct ScrobbleSettingsView: View {
     /// nil = 还没开始 / 已经完成 / 取消; non-nil = 等待用户授权确认中。
     @State private var lastFmPendingToken: String?
     @State private var lastFmAuthSession: LastFmAuthSession?
+    @State private var credentialSaveError: String?
 
     @State private var showClearQueueConfirm = false
 
@@ -84,7 +85,10 @@ struct ScrobbleSettingsView: View {
         }
         .alert("scrobble_lastfm_signout_confirm", isPresented: $showLastFmSignOutConfirm) {
             Button("scrobble_lastfm_signout", role: .destructive) {
-                LastFmCredentialsStore.signOut()
+                guard LastFmCredentialsStore.signOut() else {
+                    credentialSaveError = String(localized: "credential_save_failed_message")
+                    return
+                }
                 lastFmConnected = false
                 lastFmUsername = ""
                 lastFmPendingToken = nil
@@ -97,6 +101,11 @@ struct ScrobbleSettingsView: View {
                                     set: { if !$0 { lastFmError = nil } })) {
             Button("ok", role: .cancel) {}
         } message: { Text(lastFmError ?? "") }
+        .alert(String(localized: "credential_save_failed_title"),
+               isPresented: Binding(get: { credentialSaveError != nil },
+                                    set: { if !$0 { credentialSaveError = nil } })) {
+            Button("ok", role: .cancel) {}
+        } message: { Text(credentialSaveError ?? "") }
         .confirmationDialog("scrobble_clear_queue_confirm", isPresented: $showClearQueueConfirm, titleVisibility: .visible) {
             Button("clear_all", role: .destructive) {
                 service.clearQueue()
@@ -377,11 +386,11 @@ struct ScrobbleSettingsView: View {
                                 .foregroundStyle(PMColor.textFaint)
                             macSecretField("API Key", text: $lastFmAPIKey)
                                 .onChange(of: lastFmAPIKey) { _, newVal in
-                                    LastFmCredentialsStore.saveAPIKey(newVal)
+                                    saveLastFmAPIKey(newVal)
                                 }
                             macSecretField("API Secret", text: $lastFmAPISecret)
                                 .onChange(of: lastFmAPISecret) { _, newVal in
-                                    LastFmCredentialsStore.saveAPISecret(newVal)
+                                    saveLastFmAPISecret(newVal)
                                 }
                         }
                         .padding(.top, 8)
@@ -752,12 +761,12 @@ struct ScrobbleSettingsView: View {
                             RevealableSecureField(title: "scrobble_lastfm_api_key_placeholder", text: $lastFmAPIKey)
                                 .textContentType(.password)
                                 .onChange(of: lastFmAPIKey) { _, newVal in
-                                    LastFmCredentialsStore.saveAPIKey(newVal)
+                                    saveLastFmAPIKey(newVal)
                                 }
                             RevealableSecureField(title: "scrobble_lastfm_api_secret_placeholder", text: $lastFmAPISecret)
                                 .textContentType(.password)
                                 .onChange(of: lastFmAPISecret) { _, newVal in
-                                    LastFmCredentialsStore.saveAPISecret(newVal)
+                                    saveLastFmAPISecret(newVal)
                                 }
                             Link(destination: URL(string: "https://www.last.fm/api/account/create")!) {
                                 Label("scrobble_lastfm_register_app", systemImage: "arrow.up.right.square")
@@ -896,10 +905,35 @@ struct ScrobbleSettingsView: View {
     private func saveListenBrainzToken() {
         let trimmed = listenBrainzToken.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
-            KeychainService.deletePassword(for: ScrobbleProviderID.listenBrainz.keychainAccount)
+            guard KeychainService.deletePassword(
+                for: ScrobbleProviderID.listenBrainz.keychainAccount
+            ) else {
+                credentialSaveError = String(localized: "credential_save_failed_message")
+                return
+            }
             listenBrainzValid = nil
         } else {
-            KeychainService.setPassword(trimmed, for: ScrobbleProviderID.listenBrainz.keychainAccount)
+            guard KeychainService.setPassword(
+                trimmed,
+                for: ScrobbleProviderID.listenBrainz.keychainAccount
+            ) else {
+                credentialSaveError = String(localized: "credential_save_failed_message")
+                return
+            }
+        }
+    }
+
+    private func saveLastFmAPIKey(_ value: String) {
+        guard LastFmCredentialsStore.saveAPIKey(value) else {
+            credentialSaveError = String(localized: "credential_save_failed_message")
+            return
+        }
+    }
+
+    private func saveLastFmAPISecret(_ value: String) {
+        guard LastFmCredentialsStore.saveAPISecret(value) else {
+            credentialSaveError = String(localized: "credential_save_failed_message")
+            return
         }
     }
 
@@ -910,7 +944,13 @@ struct ScrobbleSettingsView: View {
         defer { isValidatingLB = false }
         // 先存 (validate 用的就是 Keychain 内的 token via provider factory),
         // 失败也保留让用户改。
-        KeychainService.setPassword(trimmed, for: ScrobbleProviderID.listenBrainz.keychainAccount)
+        guard KeychainService.setPassword(
+            trimmed,
+            for: ScrobbleProviderID.listenBrainz.keychainAccount
+        ) else {
+            credentialSaveError = String(localized: "credential_save_failed_message")
+            return
+        }
         let provider = ListenBrainzProvider(userToken: trimmed)
         let result = await provider.validateCredentials()
         listenBrainzValid = result

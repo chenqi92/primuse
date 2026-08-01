@@ -75,6 +75,17 @@ import Testing
     #expect(NFSVersion.v3.connectionAttemptOrder == [.v3])
     #expect(NFSVersion.v4.connectionAttemptOrder == [.v4])
     #expect(NFSVersion.auto.connectionAttemptOrder == [.v3, .v4])
+    #expect(NFSVersion.auto.canStartWithV3OnlyBackend)
+    #expect(NFSVersion.v3.canStartWithV3OnlyBackend)
+    #expect(!NFSVersion.v4.canStartWithV3OnlyBackend)
+    #expect(NFSVersion.v3.fallbackVersion(after: .v3) == nil)
+    #expect(NFSVersion.v4.fallbackVersion(after: .v4) == nil)
+    #expect(NFSVersion.auto.fallbackVersion(after: .v3) == .v4)
+    #expect(NFSVersion.auto.fallbackVersion(after: .v4) == .v3)
+    #expect(NFSVersion.v3.versionAfterFallback(to: .v4, succeeded: false) == .v3)
+    #expect(NFSVersion.v3.versionAfterFallback(to: .v4, succeeded: true) == .v4)
+    #expect(NFSVersion.v4.versionAfterFallback(to: .v3, succeeded: false) == .v4)
+    #expect(NFSVersion.v4.versionAfterFallback(to: .v3, succeeded: true) == .v3)
 }
 
 @Test func testAudioFormatRouting() {
@@ -126,6 +137,26 @@ import Testing
     for sourceType in MusicSourceType.allCases {
         #expect(sourceType.supportsFileDeletion == !readOnly.contains(sourceType))
     }
+}
+
+@Test func sourceFileDeletionPolicyKeepsFailedRowsAndIgnoresSidecarWarnings() {
+    #expect(SourceFileDeletionPolicy.shouldShowDeleteAction(for: .webdav))
+    #expect(SourceFileDeletionPolicy.shouldShowDeleteAction(for: .smb))
+    #expect(!SourceFileDeletionPolicy.shouldShowDeleteAction(for: .upnp))
+    #expect(!SourceFileDeletionPolicy.shouldShowDeleteAction(for: .appleMusicLibrary))
+    #expect(!SourceFileDeletionPolicy.shouldShowDeleteAction(for: nil))
+
+    #expect(SourceFileDeletionPolicy.shouldRemoveLibraryRecord(after: .deleted))
+    #expect(SourceFileDeletionPolicy.shouldRemoveLibraryRecord(after: .alreadyMissing))
+    #expect(SourceFileDeletionPolicy.shouldRemoveLibraryRecord(
+        after: .deleted,
+        sidecarWarningCount: 1
+    ))
+    #expect(!SourceFileDeletionPolicy.shouldRemoveLibraryRecord(after: .failed))
+    #expect(!SourceFileDeletionPolicy.shouldRemoveLibraryRecord(
+        after: .failed,
+        sidecarWarningCount: 1
+    ))
 }
 
 @Test func entireLibraryScanPolicyIncludesLocalFolderSources() {

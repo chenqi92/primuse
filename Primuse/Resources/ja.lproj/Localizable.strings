@@ -315,8 +315,13 @@
 "enable" = "有効にする";
 "disabled" = "無効";
 "delete_song_message" = "削除に対応したソースでは、ソースの曲ファイルが削除されます。同名のカバー／歌詞ファイルは、ほかの曲で使用されていない場合にのみ削除され、ローカルキャッシュも消去されます。";
+"delete_song_failed_title" = "削除できませんでした";
+"delete_song_failed_message" = "ソースファイルを削除できなかったため、曲はライブラリに残しました。ソースが読み取り専用でないこととアカウントの権限を確認して、もう一度お試しください。";
 "scan" = "スキャン";
 "password_edit_hint" = "空欄のままにすると現在のパスワードを維持します";
+"synology_password_edit_validation_title" = "Synology パスワードには接続検証が必要です";
+"synology_password_edit_validation_hint" = "Synology パスワードは接続時に検証され更新されます。現在のパスワードは変更されません。";
+"synology_password_update_save_failed" = "DSM は新しいパスワードを受け入れましたが、安全に保存できませんでした。保存済みのパスワードは変更されません。もう一度お試しください。";
 "anonymous_login_hint" = "ユーザ名とパスワードを使用せず、保存時に以前の認証情報を削除します";
 "select_directories" = "ディレクトリを選択";
 "scan_directories" = "ディレクトリをスキャン";
@@ -1963,3 +1968,4 @@
 "credential_save_failed_title" = "認証情報の保存に失敗しました";
 "credential_save_failed_message" = "パスワードを安全に保存できなかったため、ソースは保存されていません。もう一度お試しください。";
 "credential_temporarily_unavailable" = "パスワードを一時的に読み取れません。デバイスのロックを解除してから、もう一度お試しください。";
+"credential_read_failed" = "保存済みのパスワードを安全に読み取れませんでした。もう一度試すか、認証情報を更新してください。";

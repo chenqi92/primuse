@@ -128,6 +128,7 @@ struct NowPlayingView: View {
     @State private var showSongInfo = false
     @State private var showSleepTimer = false
     @State private var showDeleteConfirm = false
+    @State private var deleteErrorMessage: String?
     @State private var showTagEditor = false
     @State private var showSimilarSongs = false
     @State private var showMusicVideoFullScreen = false
@@ -349,6 +350,17 @@ struct NowPlayingView: View {
             }
         } message: {
             Text(String(localized: "delete_song_message"))
+        }
+        .alert(
+            String(localized: "delete_song_failed_title"),
+            isPresented: Binding(
+                get: { deleteErrorMessage != nil },
+                set: { if !$0 { deleteErrorMessage = nil } }
+            )
+        ) {
+            Button(String(localized: "done"), role: .cancel) {}
+        } message: {
+            Text(deleteErrorMessage ?? "")
         }
         .onChange(of: lyricsFontScale) { _, _ in
             CloudKVSSync.shared.markChanged(key: CloudKVSKey.lyricsFontScale)
@@ -929,7 +941,11 @@ struct NowPlayingView: View {
     }
 
     private func deleteCurrentSong() {
-        guard let song = player.currentSong else { return }
+        guard let song = player.currentSong,
+              SourceFileDeletionPolicy.shouldShowDeleteAction(
+                  for: sourcesStore.source(id: song.sourceID)?.type
+              )
+        else { return }
         Task {
             // Move off the deleted song AND drop every queue entry that
             // points at it before touching the files. Otherwise the stale
@@ -956,11 +972,24 @@ struct NowPlayingView: View {
             }
             let retainedSongs = library.songs.filter { $0.id != song.id }
             let deleteSidecars = sourceManager.shouldDeleteSidecars(for: song, retaining: retainedSongs)
-            _ = await sourceManager.deleteSourceFilesAndCaches(for: song, deleteSidecars: deleteSidecars)
+            let result = await sourceManager.deleteSourceFilesAndCaches(
+                for: song,
+                deleteSidecars: deleteSidecars
+            )
+            guard result.shouldRemoveLibraryRecord else {
+                deleteErrorMessage = deletionFailureMessage(result)
+                return
+            }
             // Remove from library and keep the source badge in sync.
             let remaining = library.deleteSong(song)
             sourcesStore.updateLocal(song.sourceID) { $0.songCount = remaining }
         }
+    }
+
+    private func deletionFailureMessage(_ result: SongFileDeletionResult) -> String {
+        let summary = String(localized: "delete_song_failed_message")
+        guard let detail = result.failedPaths.first?.message, !detail.isEmpty else { return summary }
+        return "\(summary)\n\(detail)"
     }
 
     #if os(iOS)
@@ -995,6 +1024,11 @@ struct NowPlayingView: View {
             songID: player.currentSong?.id,
             hasSong: player.currentSong != nil,
             isAppleMusicMode: player.isAppleMusicMode,
+            canDeleteSourceFile: player.currentSong.map {
+                SourceFileDeletionPolicy.shouldShowDeleteAction(
+                    for: sourcesStore.source(id: $0.sourceID)?.type
+                )
+            } ?? false,
             appleMusicCatalogURL: appleMusicCatalogURL,
             showsLyricsPreferences: showLyrics,
             albumID: currentAlbum?.id,
@@ -2513,6 +2547,7 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let songID: String?
     let hasSong: Bool
     let isAppleMusicMode: Bool
+    let canDeleteSourceFile: Bool
     let appleMusicCatalogURL: URL?
     let showsLyricsPreferences: Bool
     let albumID: String?
@@ -2692,7 +2727,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                 }
             }
 
-            if !snapshot.isAppleMusicMode {
+            if snapshot.canDeleteSourceFile {
                 Section {
                     Button(role: .destructive, action: onDelete) {
                         Label(String(localized: "delete_song"), systemImage: "trash")
@@ -2711,27 +2746,47 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
 
 // MARK: - LyricsScrollView (隔离的歌词渲染子 view)
 
-/// Geometry preferences can be emitted several times while SwiftUI is still
-/// resolving one render pass. Writing each intermediate value straight back
-/// into `@State` creates a layout-feedback loop and iOS records an
-/// "updated multiple times per frame" runtime fault. Coalesce the transient
-/// values and apply only the last stable measurement on the main actor.
+/// Word-level rows can emit several geometry changes while SwiftUI resolves
+/// one render pass. Keep those measurements outside view state and apply only
+/// the last stable batch, so measuring a row never invalidates that same row.
 @MainActor
-private final class LyricPreferenceUpdateCoordinator {
+private final class LyricGeometryUpdateCoordinator {
     private var rowFrameTask: Task<Void, Never>?
+    private var rowFrames: [String: CGRect] = [:]
+    private var hasAppliedRowFrames = false
 
-    func scheduleRowFrames(_ apply: @escaping @MainActor () -> Void) {
+    func scheduleRowFrame(
+        id: String,
+        frame: CGRect,
+        validIDs: Set<String>,
+        apply: @escaping @MainActor ([String: CGRect], Bool) -> Void
+    ) {
+        rowFrames = LyricRowFrameBatchPolicy.merging(
+            id: id,
+            frame: frame,
+            into: rowFrames,
+            retaining: validIDs
+        )
         rowFrameTask?.cancel()
         rowFrameTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(20))
             guard !Task.isCancelled else { return }
-            apply()
+            let shouldAnimate = hasAppliedRowFrames
+            hasAppliedRowFrames = true
+            apply(rowFrames, shouldAnimate)
+            rowFrameTask = nil
         }
     }
 
-    func cancelAll() {
+    func frame(for id: String) -> CGRect? {
+        rowFrames[id]
+    }
+
+    func reset() {
         rowFrameTask?.cancel()
         rowFrameTask = nil
+        rowFrames = [:]
+        hasAppliedRowFrames = false
     }
 }
 
@@ -2757,14 +2812,10 @@ struct LyricsScrollView: View {
     @State private var isPinchingLyrics = false
     @State private var currentLineIndex = 0
     @State private var wordAutoOffset: CGFloat = 0
-    /// 字级歌词的 row frame 是否已经测量过一次。首次测量直接定位 (instant),
-    /// 之后的帧变化走动画, 避免硬跳。切歌时重置。
-    @State private var hasMeasuredWordFrames = false
-    @State private var wordLineFrames: [String: CGRect] = [:]
     /// 行点击与父级空白点击是 simultaneous gestures。记录行点击时刻并在
-    /// 下一次主线程调度时仲裁，避免为每行持续发布全局 Geometry preference。
+    /// 下一次主线程调度时仲裁，避免为每行持续发布全局 geometry preference。
     @State private var lastLyricRowTapAt: Date = .distantPast
-    @State private var preferenceUpdateCoordinator = LyricPreferenceUpdateCoordinator()
+    @State private var geometryUpdateCoordinator = LyricGeometryUpdateCoordinator()
 
     // 用户手动拖动歌词时, 暂时冻结自动滚动 ── 否则刚拖到想看的位置, 下一帧
     // auto follow 又把视图拽回当前行, 等于不能浏览。lastUserScrollTime 静止
@@ -2832,8 +2883,6 @@ struct LyricsScrollView: View {
             // 切歌时把行索引清零 + 让自动滚动重新 anchor
             currentLineIndex = 0
             wordAutoOffset = 0
-            hasMeasuredWordFrames = false
-            wordLineFrames = [:]
             lastLyricRowTapAt = .distantPast
             manualWordOffset = nil
             wordDragStartOffset = 0
@@ -2842,7 +2891,7 @@ struct LyricsScrollView: View {
             isPinchingLyrics = false
             wordAutoFollowResumeTask?.cancel()
             lineAutoFollowResumeTask?.cancel()
-            preferenceUpdateCoordinator.cancelAll()
+            geometryUpdateCoordinator.reset()
         }
         .lyricsTranslationTaskIfAvailable(
             songID: songID,
@@ -2960,6 +3009,7 @@ struct LyricsScrollView: View {
                             endLineManualBrowsing(proxy: proxy)
                         }
                 )
+
                 // DragGesture.onEnded describes the finger, not the actual
                 // ScrollView. Momentum can continue afterwards, and an
                 // interrupted gesture may never deliver onEnded. Observe the
@@ -3011,6 +3061,7 @@ struct LyricsScrollView: View {
     private var smoothWordLyricsView: some View {
         GeometryReader { geo in
             let contentWidth = lyricContentWidth(in: geo.size.width)
+            let validRowIDs = Set(lyrics.lazy.map(\.id))
 
             VStack(alignment: .leading, spacing: 12) {
                 Spacer().frame(height: 20)
@@ -3038,7 +3089,16 @@ struct LyricsScrollView: View {
                         // 一段短暂渐变, 而非瞬间还原。
                         .animation(.smooth(duration: Self.lyricsTransitionDuration, extraBounce: 0), value: currentLineIndex)
                         .padding(.vertical, 2)
-                        .background(rowFrameReader(id: line.id))
+                        .onGeometryChange(for: CGRect.self) { proxy in
+                            proxy.frame(in: .named(SmoothWordLyricsCoordinateSpace.name))
+                        } action: { frame in
+                            scheduleWordRowFrame(
+                                id: line.id,
+                                frame: frame,
+                                validIDs: validRowIDs,
+                                viewportHeight: geo.size.height
+                            )
+                        }
                 }
 
                 Spacer().frame(height: 80)
@@ -3048,21 +3108,6 @@ struct LyricsScrollView: View {
             .coordinateSpace(name: SmoothWordLyricsCoordinateSpace.name)
             .offset(y: displayWordOffset(autoOffset: wordAutoOffset))
             .frame(maxWidth: .infinity, alignment: .topLeading)
-            .onPreferenceChange(LyricRowFramePreferenceKey.self) { frames in
-                let viewportHeight = geo.size.height
-                preferenceUpdateCoordinator.scheduleRowFrames {
-                    if wordLineFrames != frames {
-                        wordLineFrames = frames
-                        // 切歌后第一次测量直接定位, 不要从 offset 0 滑入。之后的帧变化
-                        // (行切换导致 active 行 Text↔KaraokeLineView 高度微调 / 翻译加载)
-                        // 必须走动画: 否则会用 animated:false 把行切换刚启动的滚动 spring
-                        // 瞬时覆盖, 让滚动看起来像硬跳。
-                        let animate = hasMeasuredWordFrames
-                        hasMeasuredWordFrames = true
-                        updateWordAutoOffset(viewportHeight: viewportHeight, animated: animate)
-                    }
-                }
-            }
             .onChange(of: currentLineIndex) { _, _ in
                 updateWordAutoOffset(viewportHeight: geo.size.height, animated: true)
             }
@@ -3073,7 +3118,7 @@ struct LyricsScrollView: View {
             .simultaneousGesture(wordDragGesture())
             .onDisappear {
                 wordAutoFollowResumeTask?.cancel()
-                preferenceUpdateCoordinator.cancelAll()
+                geometryUpdateCoordinator.reset()
             }
         }
         .clipped()
@@ -3215,25 +3260,50 @@ struct LyricsScrollView: View {
         .padding(.bottom, 4)
     }
 
-    private func rowFrameReader(id: String) -> some View {
-        GeometryReader { proxy in
-            Color.clear.preference(
-                key: LyricRowFramePreferenceKey.self,
-                value: [id: proxy.frame(in: .named(SmoothWordLyricsCoordinateSpace.name))]
+    private func scheduleWordRowFrame(
+        id: String,
+        frame: CGRect,
+        validIDs: Set<String>,
+        viewportHeight: CGFloat
+    ) {
+        geometryUpdateCoordinator.scheduleRowFrame(
+            id: id,
+            frame: frame,
+            validIDs: validIDs
+        ) { frames, shouldAnimate in
+            updateWordAutoOffset(
+                viewportHeight: viewportHeight,
+                animated: shouldAnimate,
+                frames: frames
             )
         }
     }
 
-    private func targetWordContentOffset(for index: Int, viewportHeight: CGFloat) -> CGFloat {
+    private func targetWordContentOffset(
+        for index: Int,
+        viewportHeight: CGFloat,
+        frames: [String: CGRect]? = nil
+    ) -> CGFloat {
         guard !lyrics.isEmpty else { return 0 }
         let safeIndex = min(max(index, 0), lyrics.count - 1)
-        guard let frame = wordLineFrames[lyrics[safeIndex].id] else { return wordAutoOffset }
+        let rowID = lyrics[safeIndex].id
+        guard let frame = frames?[rowID] ?? geometryUpdateCoordinator.frame(for: rowID) else {
+            return wordAutoOffset
+        }
         let visualAnchor = viewportHeight * Self.lyricsVisualAnchor
         return visualAnchor - frame.midY
     }
 
-    private func updateWordAutoOffset(viewportHeight: CGFloat, animated: Bool) {
-        let next = targetWordContentOffset(for: currentLineIndex, viewportHeight: viewportHeight)
+    private func updateWordAutoOffset(
+        viewportHeight: CGFloat,
+        animated: Bool,
+        frames: [String: CGRect]? = nil
+    ) {
+        let next = targetWordContentOffset(
+            for: currentLineIndex,
+            viewportHeight: viewportHeight,
+            frames: frames
+        )
         guard abs(next - wordAutoOffset) > 0.5 else { return }
         let update = { wordAutoOffset = next }
         guard animated, !isPinchingLyrics else {
@@ -3304,8 +3374,8 @@ struct LyricsScrollView: View {
         }
         .frame(width: availableWidth, alignment: frameAlignment)
         // active 行放大用 scaleEffect 而非改 fontSize: scaleEffect 是渲染层变换,
-        // 不改变 row 的布局占位 → 不会触发 LyricRowFramePreferenceKey 重算,
-        // 也就不会和自动滚动 / GeometryReader 形成反馈循环 (当年改 fontSize
+        // 不改变 row 的布局占位 → 不会触发歌词行 geometry 重新测量,
+        // 也就不会和自动滚动形成反馈循环 (当年改 fontSize
         // 导致卡死的根因)。anchor 跟行对齐方向一致, 让行从锚定边「长出来」,
         // 左对齐行的左边缘 / 右对齐行的右边缘保持不动。
         .scaleEffect(visualScale, anchor: line.voice == .secondary ? .trailing : .leading)
@@ -3482,14 +3552,6 @@ struct LyricsScrollView: View {
 
 private enum SmoothWordLyricsCoordinateSpace {
     static let name = "smoothWordLyricsContent"
-}
-
-private struct LyricRowFramePreferenceKey: PreferenceKey {
-    static let defaultValue: [String: CGRect] = [:]
-
-    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
-        value.merge(nextValue()) { _, new in new }
-    }
 }
 
 private extension View {

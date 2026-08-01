@@ -314,8 +314,13 @@
 "enable" = "Aktivieren";
 "disabled" = "Deaktiviert";
 "delete_song_message" = "Wenn die Quelle das Löschen unterstützt, wird die Titeldatei in der Quelle entfernt. Gleichnamige Cover-/Liedtextdateien werden nur entfernt, wenn kein anderer Titel sie verwendet, und lokale Caches werden geleert.";
+"delete_song_failed_title" = "Löschen fehlgeschlagen";
+"delete_song_failed_message" = "Die Quelldatei konnte nicht gelöscht werden. Der Titel bleibt in der Mediathek. Prüfe Schreibschutz und Kontoberechtigungen und versuche es erneut.";
 "scan" = "Scannen";
 "password_edit_hint" = "Leer lassen, um das aktuelle Passwort beizubehalten";
+"synology_password_edit_validation_title" = "Synology-Passwort erfordert Verbindungsprüfung";
+"synology_password_edit_validation_hint" = "Synology-Passwörter werden beim Verbinden geprüft und aktualisiert; das aktuelle Passwort bleibt unverändert.";
+"synology_password_update_save_failed" = "DSM hat das neue Passwort akzeptiert, es konnte jedoch nicht sicher gespeichert werden. Das gespeicherte Passwort bleibt unverändert. Versuche es erneut.";
 "anonymous_login_hint" = "Es werden keine Anmeldedaten verwendet; gespeicherte Zugangsdaten werden beim Speichern gelöscht";
 "select_directories" = "Verzeichnisse auswählen";
 "scan_directories" = "Verzeichnisse scannen";
@@ -1962,3 +1967,4 @@
 "credential_save_failed_title" = "Anmeldedaten konnten nicht gespeichert werden";
 "credential_save_failed_message" = "Das Passwort konnte nicht sicher gespeichert werden. Die Quelle wurde nicht gespeichert. Versuche es erneut.";
 "credential_temporarily_unavailable" = "Das Passwort ist vorübergehend nicht verfügbar. Entsperre dein Gerät und versuche es erneut.";
+"credential_read_failed" = "Das gespeicherte Passwort konnte nicht sicher gelesen werden. Versuche es erneut oder aktualisiere die Anmeldedaten.";

@@ -74,26 +74,78 @@ actor SFTPSource: MusicSourceConnector {
             authType: authType
         )
 
-        let settings = SSHClientSettings(
+        var settings = SSHClientSettings(
             host: host,
             port: port,
             authenticationMethod: { authMethod },
             hostKeyValidator: .custom(SFTPHostKeyValidator(host: host, port: port))
         )
 
-        let newClient = try await SSHClient.connect(to: settings)
+        // NIOSSH defaults to AES-GCM only. Dropbear and other NAS SSH servers
+        // commonly offer AES-CTR instead; add only the required compatibility
+        // cipher rather than Citadel's broader `.all` legacy algorithm set.
+        if SFTPTransportCompatibilityPolicy.connectionProfile == .aes128CTR {
+            // Citadel exposes AES128CTR through `.all`; clear its extra KEX and
+            // host-key additions so the existing Curve25519/Ed25519 defaults
+            // remain mandatory. This also avoids the dependency's incorrect
+            // Swift 6 Sendable annotation on the raw transport metatype array.
+            var algorithms = SSHAlgorithms.all
+            algorithms.keyExchangeAlgorithms = nil
+            algorithms.publicKeyAlgorihtms = nil
+            settings.algorithms = algorithms
+        }
+
+        let newClient: SSHClient
         do {
+            plog("[SFTP] stage=connect endpoint=\(host):\(port)")
+            newClient = try await SSHClient.connect(to: settings)
+        } catch {
+            plog(Self.connectionFailureLog(stage: "connect", error: error))
+            throw Self.connectionError(error)
+        }
+
+        var stage = "open-sftp"
+        do {
+            plog("[SFTP] stage=\(stage) endpoint=\(host):\(port)")
             let newSFTP = try await newClient.openSFTP()
+            stage = "resolve-root"
             let resolvedRoot = try await resolveRootPath(using: newSFTP)
+            stage = "list-root"
             _ = try await newSFTP.listDirectory(atPath: resolvedRoot)
             try Task.checkCancellation()
             client = newClient
             sftp = newSFTP
             rootPath = resolvedRoot
+            plog("[SFTP] stage=ready endpoint=\(host):\(port)")
         } catch {
+            plog(Self.connectionFailureLog(stage: stage, error: error))
             try? await newClient.close()
-            throw error
+            throw Self.connectionError(error)
         }
+    }
+
+    private nonisolated static func connectionFailureLog(
+        stage: String,
+        error: Error
+    ) -> String {
+        "[SFTP] stage=\(stage) failed type=\(String(reflecting: type(of: error))) detail=\(String(describing: error))"
+    }
+
+    private nonisolated static func connectionError(_ error: Error) -> Error {
+        if let sshError = error as? NIOSSHError {
+            if sshError.type == .keyExchangeNegotiationFailure {
+                return SourceError.connectionFailed(
+                    "SSH key exchange failed because the server and client have no compatible algorithms"
+                )
+            }
+            return SourceError.connectionFailed("SSH protocol error: \(sshError.type.description)")
+        }
+        if let mismatch = error as? SFTPHostKeyMismatch {
+            return SourceError.connectionFailed(
+                "SSH host key changed for \(mismatch.host):\(mismatch.port)"
+            )
+        }
+        return error
     }
 
     func disconnect() async {
@@ -116,14 +168,17 @@ actor SFTPSource: MusicSourceConnector {
             throw SourceError.connectionFailed("Not connected")
         }
 
-        let remotePath = resolvedRemotePath(for: path)
+        let remotePath = try resolvedRemotePath(for: path)
         let listings = try await sftp.listDirectory(atPath: remotePath)
 
         let allComponents = listings.flatMap { $0.components }
         return allComponents.compactMap { item -> RemoteFileItem? in
             guard item.filename != ".", item.filename != ".." else { return nil }
 
-            let childPath = joinedPath(parent: remotePath, child: item.filename)
+            guard let childPath = RemotePathScopePolicy(rootPath: rootPath)
+                .resolvedPath(forStoredPath: joinedPath(parent: remotePath, child: item.filename)) else {
+                return nil
+            }
             let isDir = item.attributes.permissions.map { $0 & 0o40000 != 0 } ?? false
             return RemoteFileItem(
                 name: item.filename,
@@ -141,7 +196,7 @@ actor SFTPSource: MusicSourceConnector {
             throw SourceError.connectionFailed("Not connected")
         }
 
-        let remotePath = resolvedRemotePath(for: path)
+        let remotePath = try resolvedRemotePath(for: path)
         let localURL = cacheDirectory.appendingPathComponent(safeCacheFileName(for: remotePath))
 
         if FileManager.default.fileExists(atPath: localURL.path) {
@@ -216,7 +271,7 @@ actor SFTPSource: MusicSourceConnector {
         guard let sftp else {
             throw SourceError.connectionFailed("Not connected")
         }
-        let remotePath = resolvedRemotePath(for: path)
+        let remotePath = try resolvedRemotePath(for: path)
 
         // offset < 0 表示从末尾倒数 (suffix range), 先 stat 拿 size 转正
         let actualOffset: UInt64
@@ -308,23 +363,15 @@ actor SFTPSource: MusicSourceConnector {
         }
 
         let resolved = try await sftp.getRealPath(atPath: requestedRoot)
-        return resolved.isEmpty ? "/" : resolved
+        return RemotePathScopePolicy(rootPath: resolved.isEmpty ? "/" : resolved).rootPath
     }
 
-    private func resolvedRemotePath(for path: String) -> String {
-        guard path.isEmpty == false else {
-            return rootPath
+    private func resolvedRemotePath(for path: String) throws -> String {
+        guard let resolved = RemotePathScopePolicy(rootPath: rootPath)
+            .resolvedPath(forStoredPath: path) else {
+            throw SourceError.pathNotFound(path)
         }
-
-        if path == "/" {
-            return rootPath
-        }
-
-        if path.hasPrefix("/") {
-            return path
-        }
-
-        return joinedPath(parent: rootPath, child: path)
+        return resolved
     }
 
     private func joinedPath(parent: String, child: String) -> String {

@@ -108,7 +108,8 @@ enum CloudPlaybackSource {
         cacheURL: URL,
         persistOnComplete: Bool = true,
         cacheRelativePath: String? = nil,
-        prefetchAhead: Int = Self.prefetchAhead
+        prefetchAhead: Int = Self.prefetchAhead,
+        allowsTrailingFill: Bool = true
     ) -> InputSource? {
         let path = song.filePath
         let connectorFetch: @Sendable (Int64, Int64, RangeFetchPriority) async throws -> Data = { off, len, priority in
@@ -128,6 +129,7 @@ enum CloudPlaybackSource {
             persistOnComplete: persistOnComplete,
             cacheRelativePath: cacheRelativePath,
             prefetchAhead: prefetchAhead,
+            allowsTrailingFill: allowsTrailingFill,
             connectorFetch: connectorFetch
         )
     }
@@ -161,6 +163,7 @@ enum CloudPlaybackSource {
             persistOnComplete: persistOnComplete,
             cacheRelativePath: cacheRelativePath,
             prefetchAhead: prefetchAhead,
+            allowsTrailingFill: true,
             connectorFetch: fetch
         )
     }
@@ -173,6 +176,7 @@ enum CloudPlaybackSource {
         persistOnComplete: Bool,
         cacheRelativePath: String?,
         prefetchAhead: Int,
+        allowsTrailingFill: Bool,
         connectorFetch: @escaping @Sendable (Int64, Int64, RangeFetchPriority) async throws -> Data
     ) -> InputSource? {
         let partialURL = URL(fileURLWithPath: cacheURL.path + ".partial")
@@ -235,6 +239,7 @@ enum CloudPlaybackSource {
             persistOnComplete: persistOnComplete,
             cacheRelativePath: cacheRelativePath,
             prefetchAhead: prefetchAhead,
+            allowsTrailingFill: allowsTrailingFill,
             connectorFetch: connectorFetch
         )
         registerActiveState(state, key: partialURL.path)
@@ -410,6 +415,10 @@ private final class State: @unchecked Sendable {
     /// OneDrive keeps a single serialized TCP Range connection, so it uses 0
     /// to keep that connection reserved for foreground decoder reads.
     private let prefetchAhead: Int
+    /// A zero-prefetch source is explicitly demand-driven. Do not turn its
+    /// first foreground chunk into a full-file background transfer through
+    /// the generic trailing-gap completion path.
+    private let allowsTrailingFill: Bool
     /// Chunk start offsets currently being fetched in background. Stops
     /// us from racing two prefetches against the same range when SFB
     /// asks repeatedly while a prefetch is still in flight.
@@ -479,6 +488,7 @@ private final class State: @unchecked Sendable {
         persistOnComplete: Bool = true,
         cacheRelativePath: String? = nil,
         prefetchAhead: Int = CloudPlaybackSource.prefetchAhead,
+        allowsTrailingFill: Bool = true,
         connectorFetch: @escaping @Sendable (Int64, Int64, RangeFetchPriority) async throws -> Data
     ) {
         self.label = label
@@ -489,6 +499,7 @@ private final class State: @unchecked Sendable {
         self.persistOnComplete = persistOnComplete
         self.cacheRelativePath = cacheRelativePath
         self.prefetchAhead = max(0, prefetchAhead)
+        self.allowsTrailingFill = allowsTrailingFill
         self.connectorFetch = connectorFetch
         // 排序 + 简单 dedupe (调用方应保证 disjoint, 这里不强行 coalesce)
         self.cachedRanges = initialRanges.sorted { $0.lowerBound < $1.lowerBound }
@@ -993,6 +1004,7 @@ private final class State: @unchecked Sendable {
             }
         } else if persistOnComplete,
                   activeURL == partialURL,
+                  allowsTrailingFill,
                   !trailingFillScheduled,
                   cachedRanges.first?.lowerBound == 0 {
             // 「就差一小段就能 rename」的常见模式:
@@ -1064,7 +1076,7 @@ private final class State: @unchecked Sendable {
         // Audio Cache 关闭时 streaming 文件只放在 NSTemporaryDirectory 供
         // 本次 SFB 解码读取。不要在用户切歌/停止后继续补齐临时文件, 否则
         // 会把"边播边取"退化成后台整首下载。
-        guard persistOnComplete else { return }
+        guard persistOnComplete, allowsTrailingFill else { return }
         lock.lock()
         // 已经 rename 过了, 啥也不做。
         if activeURL == finalURL {

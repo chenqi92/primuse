@@ -75,14 +75,16 @@ enum TVCredentialStore {
         return (cred.u, cred.p)
     }
 
-    static func clearLocalCredential(sourceID: String) {
+    @discardableResult
+    static func clearLocalCredential(sourceID: String) -> Bool {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: PrimuseConstants.keychainServiceName,
             kSecAttrAccount as String: localAccount(sourceID),
             kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
         ]
-        SecItemDelete(query as CFDictionary)
+        let status = SecItemDelete(query as CFDictionary)
+        return status == errSecSuccess || status == errSecItemNotFound
     }
 
     static func hasLocalCredential(sourceID: String) -> Bool {
@@ -105,6 +107,9 @@ enum TVCredentialStore {
 
     @discardableResult
     static func savePairedBundle(_ bundle: CredentialBundle) -> Bool {
+        guard CredentialBundlePolicy.writeAction(for: bundle) == .saveRecord else {
+            return clearPairedBundle()
+        }
         guard let data = try? bundle.jsonData() else { return false }
         return upsert(data: data, account: pairedBundleAccount)
     }
@@ -139,6 +144,18 @@ enum TVCredentialStore {
             ) == errSecSuccess
         }
         return false
+    }
+
+    @discardableResult
+    static func clearPairedBundle() -> Bool {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: PrimuseConstants.keychainServiceName,
+            kSecAttrAccount as String: pairedBundleAccount,
+            kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        return status == errSecSuccess || status == errSecItemNotFound
     }
 
     static func loadPairedBundle() -> CredentialBundle? {

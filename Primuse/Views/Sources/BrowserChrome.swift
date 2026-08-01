@@ -499,6 +499,7 @@ struct MacDirTreeBrowser: View {
     @Binding var selectedDirectories: [String]
     let load: (String) async throws -> [RemoteFileItem]
     var rootPath: String = "/"
+    var selectableRootPath: String? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var rows: [MacDirTreeRow] = []
@@ -641,10 +642,13 @@ struct MacDirTreeBrowser: View {
         ScrollView(.vertical, showsIndicators: true) {
             if rootLoading {
                 status(icon: nil, text: String(localized: "loading_directories"))
-            } else if rows.isEmpty {
+            } else if rows.isEmpty, selectableRootPath == nil {
                 status(icon: "folder", text: String(localized: "no_subdirectories"))
             } else {
                 LazyVStack(alignment: .leading, spacing: 1) {
+                    if let selectableRootPath {
+                        rootSelectionRow(selectableRootPath)
+                    }
                     ForEach(rows) { row in
                         rowView(row)
                     }
@@ -722,6 +726,36 @@ struct MacDirTreeBrowser: View {
         .onTapGesture { Task { await focus(row) } }
     }
 
+    private func rootSelectionRow(_ path: String) -> some View {
+        let checked = selectedDirectories.contains(path)
+        return Button {
+            toggleChecked(path)
+        } label: {
+            HStack(spacing: 6) {
+                Color.clear.frame(width: 16, height: 16)
+                Image(systemName: checked ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 14))
+                    .foregroundStyle(checked ? PMColor.brand : PMColor.textFaint)
+                    .frame(width: 18, height: 18)
+                Image(systemName: "shippingbox.fill")
+                    .font(.system(size: 13))
+                    .foregroundStyle(checked ? PMColor.brand : PMColor.textMuted)
+                    .frame(width: 18)
+                Text(verbatim: rootTitle)
+                    .font(.system(size: 13, weight: checked ? .medium : .regular))
+                    .foregroundStyle(PMColor.text.opacity(0.85))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 4)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
     private func errorState(_ message: String) -> some View {
         VStack(spacing: 12) {
             Image(systemName: "exclamationmark.triangle")
@@ -765,6 +799,9 @@ struct MacDirTreeBrowser: View {
         do {
             let items = try await listing(rootPath)
             rows = dirRows(from: items, depth: 0)
+            if selectableRootPath != nil {
+                focusedItems = items
+            }
         } catch {
             errorMessage = error.localizedDescription
         }

@@ -283,12 +283,12 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource {
     /// nonisolated:只用 helper(Sendable)/静态常量/URLSession,不碰 actor 可变状态。
     private nonisolated func refreshToken(_ tokens: CloudTokenManager.Tokens) async throws -> CloudTokenManager.Tokens {
         guard let rt = tokens.refreshToken else { throw CloudDriveError.tokenRefreshFailed("No refresh token") }
-        let creds = await helper.tokenManager.getAppCredentials()
-        guard let cid = creds?.clientId, !cid.isEmpty else { throw CloudDriveError.tokenRefreshFailed("No client ID") }
+        let creds = try await helper.tokenManager.requireAppCredentials()
+        guard !creds.clientId.isEmpty else { throw CloudDriveError.tokenRefreshFailed("No client ID") }
         var comps = URLComponents(string: Self.tokenURL)!
         comps.queryItems = [
-            .init(name: "client_id", value: cid),
-            .init(name: "client_secret", value: creds?.clientSecret ?? ""),
+            .init(name: "client_id", value: creds.clientId),
+            .init(name: "client_secret", value: creds.clientSecret ?? ""),
             .init(name: "grant_type", value: "refresh_token"),
             .init(name: "refresh_token", value: rt),
         ]

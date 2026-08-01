@@ -10,15 +10,17 @@ struct SFTPBrowserView: View {
     init(source: MusicSource, selectedDirectories: Binding<[String]>) {
         self.source = source
         self._selectedDirectories = selectedDirectories
-        self.connector = SFTPSource(
-            sourceID: source.id,
-            host: source.host ?? "",
-            port: source.port,
-            basePath: source.basePath,
-            username: source.username ?? "",
-            secret: KeychainService.getPassword(for: source.id) ?? "",
-            authType: source.authType
-        )
+        self.connector = credentialProtectedConnector(for: source) { secret in
+            SFTPSource(
+                sourceID: source.id,
+                host: source.host ?? "",
+                port: source.port,
+                basePath: source.basePath,
+                username: source.username ?? "",
+                secret: secret,
+                authType: source.authType
+            )
+        }
     }
 
     var body: some View {

@@ -85,35 +85,56 @@ public enum ScrobbleProviderID: String, Codable, Sendable, CaseIterable {
 /// 就够)。这里把读写集中, 让 Settings UI 和 ScrobbleService 共用一套
 /// 帐户命名, 避免散落各处拼字符串。
 enum LastFmCredentialsStore {
+    enum CredentialsResolution {
+        case ready(apiKey: String, apiSecret: String, sessionKey: String)
+        case notConfigured
+        case unavailable
+    }
+
     private static let apiKeyAccount = "scrobble.lastFm.apiKey"
     private static let apiSecretAccount = "scrobble.lastFm.apiSecret"
     private static let sessionKeyAccount = ScrobbleProviderID.lastFm.keychainAccount
     private static let pendingAuthTokenKey = "primuse.scrobble.lastFm.pendingAuthToken"
 
-    static func saveAPIKey(_ key: String) {
+    @discardableResult
+    static func saveAPIKey(_ key: String) -> Bool {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
-            KeychainService.deletePassword(for: apiKeyAccount)
+            return KeychainService.deletePassword(for: apiKeyAccount)
         } else {
-            KeychainService.setPassword(trimmed, for: apiKeyAccount)
+            return KeychainService.setPassword(trimmed, for: apiKeyAccount)
         }
     }
 
-    static func saveAPISecret(_ secret: String) {
+    @discardableResult
+    static func saveAPISecret(_ secret: String) -> Bool {
         let trimmed = secret.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
-            KeychainService.deletePassword(for: apiSecretAccount)
+            return KeychainService.deletePassword(for: apiSecretAccount)
         } else {
-            KeychainService.setPassword(trimmed, for: apiSecretAccount)
+            return KeychainService.setPassword(trimmed, for: apiSecretAccount)
         }
     }
 
-    static func saveSessionKey(_ session: String) {
+    @discardableResult
+    static func saveSessionKey(_ session: String) -> Bool {
         if session.isEmpty {
-            KeychainService.deletePassword(for: sessionKeyAccount)
+            return KeychainService.deletePassword(for: sessionKeyAccount)
         } else {
-            KeychainService.setPassword(session, for: sessionKeyAccount)
+            return KeychainService.setPassword(session, for: sessionKeyAccount)
         }
+    }
+
+    static func apiKeyLookup() -> KeychainService.PasswordLookupResult {
+        KeychainService.passwordLookup(for: apiKeyAccount)
+    }
+
+    static func apiSecretLookup() -> KeychainService.PasswordLookupResult {
+        KeychainService.passwordLookup(for: apiSecretAccount)
+    }
+
+    static func sessionKeyLookup() -> KeychainService.PasswordLookupResult {
+        KeychainService.passwordLookup(for: sessionKeyAccount)
     }
 
     static func loadAPIKey() -> String { KeychainService.getPassword(for: apiKeyAccount) ?? "" }
@@ -139,15 +160,23 @@ enum LastFmCredentialsStore {
     /// 没粘就 fallback 到 build-time default (`Secrets.local.xcconfig`)。
     /// 让发行构建可配置默认 key, 同时保留「我想用自己的 application 配额」的逃生口。
     static func effectiveAPIKey() -> String {
-        let user = loadAPIKey()
-        if !user.isEmpty { return user }
-        return AppSecrets.lastFmAPIKey
+        switch ScrobbleCredentialAvailabilityPolicy.resolveValue(
+            apiKeyLookup(),
+            fallback: AppSecrets.lastFmAPIKey
+        ) {
+        case .ready(let value): return value
+        case .notConfigured, .unavailable: return ""
+        }
     }
 
     static func effectiveAPISecret() -> String {
-        let user = loadAPISecret()
-        if !user.isEmpty { return user }
-        return AppSecrets.lastFmAPISecret
+        switch ScrobbleCredentialAvailabilityPolicy.resolveValue(
+            apiSecretLookup(),
+            fallback: AppSecrets.lastFmAPISecret
+        ) {
+        case .ready(let value): return value
+        case .notConfigured, .unavailable: return ""
+        }
     }
 
     /// app 是否内置了可用的 default key (空字符串 = 没内置, UI 要让
@@ -165,15 +194,52 @@ enum LastFmCredentialsStore {
     /// 完整登录态 = effective key/secret 都有 + sessionKey 已拿到。
     /// 注意是 effective —— 用户没粘自己 key 时也算 connected (用 default)。
     static func isConnected() -> Bool {
-        !effectiveAPIKey().isEmpty
-            && !effectiveAPISecret().isEmpty
-            && !loadSessionKey().isEmpty
+        if case .ready = resolveProviderCredentials() { return true }
+        return false
+    }
+
+    static func resolveProviderCredentials() -> CredentialsResolution {
+        let apiKey = ScrobbleCredentialAvailabilityPolicy.resolveValue(
+            apiKeyLookup(),
+            fallback: AppSecrets.lastFmAPIKey
+        )
+        let apiSecret = ScrobbleCredentialAvailabilityPolicy.resolveValue(
+            apiSecretLookup(),
+            fallback: AppSecrets.lastFmAPISecret
+        )
+        let sessionKey = ScrobbleCredentialAvailabilityPolicy.resolveValue(sessionKeyLookup())
+
+        switch ScrobbleCredentialAvailabilityPolicy.resolveProvider([
+            apiKey,
+            apiSecret,
+            sessionKey,
+        ]) {
+        case .ready:
+            guard case .ready(let resolvedAPIKey) = apiKey,
+                  case .ready(let resolvedAPISecret) = apiSecret,
+                  case .ready(let resolvedSessionKey) = sessionKey else {
+                return .notConfigured
+            }
+            return .ready(
+                apiKey: resolvedAPIKey,
+                apiSecret: resolvedAPISecret,
+                sessionKey: resolvedSessionKey
+            )
+        case .notConfigured:
+            return .notConfigured
+        case .unavailable:
+            return .unavailable
+        }
     }
 
     /// Sign-out — 只清 sessionKey 不清 apiKey/apiSecret, 让用户能直接
     /// 重新走 web auth 不用再粘一次 key。
-    static func signOut() {
-        KeychainService.deletePassword(for: sessionKeyAccount)
+    @discardableResult
+    static func signOut() -> Bool {
+        guard KeychainService.deletePassword(for: sessionKeyAccount) else {
+            return false
+        }
         savePendingAuthToken(nil)
+        return true
     }
 }

@@ -375,6 +375,16 @@ struct SearchView: View {
             .padding(14)
             .pmCard(cornerRadius: 10)
 
+            if let error = appleMusic.lastPlaybackError {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Color.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .pmRowBackground(cornerRadius: 6)
+            }
+
             ForEach(appleMusic.searchResults.prefix(5), id: \.id) { song in
                 Button {
                     Task { await appleMusic.play(song) }

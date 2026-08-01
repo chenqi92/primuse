@@ -104,6 +104,9 @@ actor SynologySource: MusicSourceConnector {
             case .temporarilyUnavailable(let status):
                 plog("⏳ SynologySource '\(sourceID)' connect deferred: credential temporarily unavailable status=\(status)")
                 throw SourceError.connectionFailed("credential temporarily unavailable")
+            case .failed(let status):
+                plog("⛔ SynologySource '\(sourceID)' connect aborted: credential read failed status=\(status)")
+                throw SourceError.connectionFailed("credential read failed")
             }
 
             let result = await api.login(

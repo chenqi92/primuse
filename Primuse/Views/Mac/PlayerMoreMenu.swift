@@ -28,6 +28,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @State private var showSimilarSongs = false
     @State private var showSleepTimer = false
     @State private var showDeleteConfirm = false
+    @State private var deleteErrorMessage: String?
     @State private var scrapeAlertMessage: String?
     @State private var isScrapingCurrentSong = false
     /// 用 Button + Popover 自己画菜单,不用 SwiftUI Menu。原因:
@@ -113,6 +114,17 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             Button(String(localized: "delete"), role: .destructive) { deleteCurrentSong() }
         } message: {
             Text(String(localized: "delete_song_message"))
+        }
+        .alert(
+            String(localized: "delete_song_failed_title"),
+            isPresented: Binding(
+                get: { deleteErrorMessage != nil },
+                set: { if !$0 { deleteErrorMessage = nil } }
+            )
+        ) {
+            Button(String(localized: "done"), role: .cancel) {}
+        } message: {
+            Text(deleteErrorMessage ?? "")
         }
     }
 
@@ -257,9 +269,10 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 openSettingsWindow()
             }
             divider()
-            menuRow(title: "delete_song", symbol: "trash", role: .destructive,
-                    disabled: player.currentSong == nil) {
-                showDeleteConfirm = true
+            if canDeleteCurrentSong {
+                menuRow(title: "delete_song", symbol: "trash", role: .destructive) {
+                    showDeleteConfirm = true
+                }
             }
         }
         .padding(.vertical, 6)
@@ -407,12 +420,26 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     }
 
     private func deleteCurrentSong() {
-        guard let song = player.currentSong else { return }
+        guard let song = player.currentSong, canDeleteCurrentSong else { return }
         let songID = song.id
         // 先切歌、等 next() 内部 play(song:) 完成,再删缓存/库记录 ——
         // 否则正在播放/预载的音频文件会被抽走 (异步 next() 与同步删除竞态)。
         Task {
             await player.next()
+
+            let retainedSongs = library.songs.filter { $0.id != song.id }
+            let deleteSidecars = sourceManager.shouldDeleteSidecars(
+                for: song,
+                retaining: retainedSongs
+            )
+            let result = await sourceManager.deleteSourceFilesAndCaches(
+                for: song,
+                deleteSidecars: deleteSidecars
+            )
+            guard result.shouldRemoveLibraryRecord else {
+                deleteErrorMessage = deletionFailureMessage(result)
+                return
+            }
 
             await MetadataAssetStore.shared.invalidateCoverCache(forSongID: songID)
             await MetadataAssetStore.shared.invalidateLyricsCache(forSongID: songID)
@@ -426,6 +453,19 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             // 存在的歌。这里把它从队列剔除, 并修正 currentIndex 指向当前在播的歌。
             removeFromPlayerQueue(songID)
         }
+    }
+
+    private var canDeleteCurrentSong: Bool {
+        guard let song = player.currentSong else { return false }
+        return SourceFileDeletionPolicy.shouldShowDeleteAction(
+            for: sourcesStore.source(id: song.sourceID)?.type
+        )
+    }
+
+    private func deletionFailureMessage(_ result: SongFileDeletionResult) -> String {
+        let summary = String(localized: "delete_song_failed_message")
+        guard let detail = result.failedPaths.first?.message, !detail.isEmpty else { return summary }
+        return "\(summary)\n\(detail)"
     }
 
     /// 把已删除的歌从播放队列剔除。AudioPlayerService 没有"按 id 移除单曲"的 API,
