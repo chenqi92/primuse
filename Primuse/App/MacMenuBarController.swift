@@ -69,9 +69,8 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
 
     /// 没有封面时使用 template image, 交给系统按菜单栏状态自动着色。
     private func statusBarImage() -> NSImage {
-        let configuration = NSImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
-        let image = NSImage(systemSymbolName: "music.note", accessibilityDescription: "Primuse")?
-            .withSymbolConfiguration(configuration) ?? NSImage()
+        let image = (NSImage(named: "BrandGlyph")?.copy() as? NSImage) ?? NSImage()
+        image.size = NSSize(width: 17, height: 17)
         image.isTemplate = true
         return image
     }

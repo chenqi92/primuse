@@ -301,7 +301,10 @@ struct ConnectionFlowView: View {
         // 顺手写一份到 Keychain (下次免输);但 connectSynology 这一次
         // 直接用 overridePassword,不依赖 keychain 读回去——否则 keychain
         // 写失败时密码就丢了。
-        KeychainService.setPassword(pwd, for: source.id)
+        guard KeychainService.setPassword(pwd, for: source.id) else {
+            errorMessage = String(localized: "credential_save_failed_message")
+            return
+        }
         errorMessage = ""
         passwordInput = ""
         step = .connecting
@@ -357,7 +360,24 @@ struct ConnectionFlowView: View {
 
         // overridePassword 不为空时直接用刚输入的明文,绕开 keychain
         // 读写中任何潜在的字节损失;否则才回落到 keychain 里上次保存的值。
-        let password = overridePassword ?? KeychainService.getPassword(for: source.id) ?? ""
+        let password: String
+        if let overridePassword {
+            password = overridePassword
+        } else {
+            switch KeychainService.passwordLookup(for: source.id) {
+            case .found(let savedPassword):
+                password = savedPassword
+            case .notFound:
+                errorMessage = String(localized: "password_required_title")
+                withAnimation { step = .password }
+                return
+            case .temporarilyUnavailable(let status):
+                plog("⏳ Synology connection deferred: credential temporarily unavailable status=\(status)")
+                errorMessage = String(localized: "credential_temporarily_unavailable")
+                withAnimation { step = .failed }
+                return
+            }
+        }
 
         // If we have a saved deviceId, try login with it (skip OTP)
         let result = await api.login(
@@ -404,13 +424,12 @@ struct ConnectionFlowView: View {
                 }
             }
 
-            // 凭据错误（DSM 错误码 400)→ 弹密码输入框让用户重输,而不是
-            // 直接进 failed 页。SynologyAPI 把错误码翻译成中文消息,这里
-            // 用消息内容反查;其他错误(IP 封禁/账号停用/2FA 等）走 failed
-            // 页让用户看到具体原因。
-            if (result.errorMessage ?? "").contains("用户名或密码错误") {
+            // Only structured credential-rejection codes (400/409/410) can be
+            // fixed by entering a password. Lockout/throttling/network errors
+            // keep their real failure state and never masquerade as bad input.
+            if result.requiresCredentialPrompt {
                 await MainActor.run {
-                    errorMessage = String(localized: "password_wrong_hint")
+                    errorMessage = result.errorMessage ?? String(localized: "password_wrong_hint")
                     withAnimation { step = .password }
                 }
                 return

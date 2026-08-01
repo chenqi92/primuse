@@ -3,7 +3,7 @@ import SwiftUI
 /// 16 条柱状频谱。强度 0~1, 0.07s linear 动画过渡, 25Hz tick 流畅但不卡。
 struct VisualizerBarsView: View {
     let levels: [Float]
-    var barColor: Color = .white
+    var barColor: Color = .primary
     var barWidth: CGFloat = 3
     var spacing: CGFloat = 3
     var maxHeight: CGFloat = 36

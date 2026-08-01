@@ -1062,48 +1062,72 @@ enum PMColorSchemeOverride: String, CaseIterable, Sendable {
     case system, light, dark
 }
 
-// MARK: - Brand monogram (应用内品牌字标)
+// MARK: - Brand mark (应用内品牌图标)
 
-/// 应用内统一的品牌字标 —— 品牌色渐变 squircle 叠中文 "猿" 字。Dock / 访达里是
-/// 完整 app 图标 (蓝调黑胶写实风), 但那套冷色图标塞进暖橙的界面里会打架; 应用内
-/// (侧栏头部 / 关于页) 改用这个跟 `PMColor.brand` 同色系的简化字标, 视觉更统一。
-/// 要改字、圆角、渐变或阴影只动这一处, 两个调用点同步更新。
+/// 应用内统一使用默认折页音符，并按出现位置套用平台圆角和阴影。
 struct BrandMonogram: View {
-    /// 出现位置 —— 决定尺寸 / 圆角 / 字号 / 阴影这组配套数值。
     enum Slot {
-        case sidebar   // 侧栏头部 28pt, 品牌色自身收尾的实色渐变
-        case feature   // 关于页等 96pt, 向背景深色过渡
+        case sidebar
+        case update
+        case feature
+        case onboarding
     }
 
     var slot: Slot
+    @State private var preferences = MacUIPreferences.shared
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        let isSidebar = slot == .sidebar
-        let size: CGFloat   = isSidebar ? 28 : 96
-        let corner: CGFloat = isSidebar ? 7  : 22
-        let glyph: CGFloat  = isSidebar ? 15 : 50
-        let shadowOpacity: Double = isSidebar ? 0.35 : 0.32
-        let shadowRadius: CGFloat = isSidebar ? 4 : 24
-        let shadowY: CGFloat      = isSidebar ? 2 : 8
-        // 侧栏用品牌色自身做渐变收尾; 关于页向背景深色过渡, 跟大图卡片融合。
-        let gradientEnd = isSidebar ? PMColor.brand.opacity(0.7) : PMColor.bgDeep
+        let metrics: (size: CGFloat, corner: CGFloat, shadow: CGFloat, y: CGFloat)
+        let followsTheme: Bool
+        switch slot {
+        case .sidebar:
+            metrics = (28, 7, 4, 2)
+            followsTheme = true
+        case .update:
+            metrics = (58, 14, 16, 6)
+            followsTheme = false
+        case .feature:
+            metrics = (96, 22, 24, 8)
+            followsTheme = false
+        case .onboarding:
+            metrics = (110, 26, 36, 12)
+            followsTheme = false
+        }
 
-        return RoundedRectangle(cornerRadius: corner, style: .continuous)
-            .fill(
-                LinearGradient(
-                    colors: [PMColor.brand, gradientEnd],
-                    startPoint: .topLeading, endPoint: .bottomTrailing
-                )
-            )
-            .frame(width: size, height: size)
-            .overlay {
-                // 设计稿用中文字符 monogram ("猿") 而非 SF Symbol, 更切合品牌名
-                // "猿音 Primuse"。
-                Text(verbatim: "猿")
-                    .font(.system(size: glyph, weight: .bold))
-                    .foregroundStyle(.white)
+        return Group {
+            if followsTheme {
+                RoundedRectangle(cornerRadius: metrics.corner, style: .continuous)
+                    .fill(preferences.brandColor.opacity(colorScheme == .dark ? 0.20 : 0.12))
+                    .frame(width: metrics.size, height: metrics.size)
+                    .overlay {
+                        Image("BrandGlyph")
+                            .renderingMode(.template)
+                            .resizable()
+                            .interpolation(.high)
+                            .aspectRatio(contentMode: .fit)
+                            .foregroundStyle(preferences.brandColor)
+                            .padding(5)
+                    }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: metrics.corner, style: .continuous)
+                            .strokeBorder(preferences.brandColor.opacity(colorScheme == .dark ? 0.34 : 0.22), lineWidth: 0.5)
+                    }
+                    .shadow(color: preferences.brandColor.opacity(colorScheme == .dark ? 0.22 : 0.16), radius: metrics.shadow, y: metrics.y)
+            } else {
+                Image("AppIconPreview")
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(1, contentMode: .fill)
+                    .frame(width: metrics.size, height: metrics.size)
+                    .clipShape(RoundedRectangle(cornerRadius: metrics.corner, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: metrics.corner, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.16), lineWidth: 0.5)
+                    }
+                    .shadow(color: PMColor.brand.opacity(0.30), radius: metrics.shadow, y: metrics.y)
             }
-            .shadow(color: PMColor.brand.opacity(shadowOpacity), radius: shadowRadius, y: shadowY)
+        }
     }
 }
 
@@ -1122,9 +1146,10 @@ struct MacAppIcon: Identifiable, Equatable, Sendable {
     /// 这套图标的品牌色 — 仅用于色环展示, 不强行改全局 accent。
     let tint: Color
 
-    /// 默认项 + 8 套功能方向, 跟资源目录里的 AppIcon{n}Preview 一一对应。
+    /// 当前默认、原经典图标和 8 套功能方向，跟资源目录里的预览资源一一对应。
     static let all: [MacAppIcon] = [
         MacAppIcon(id: "",         previewAsset: "AppIconPreview",  nameKey: "icon_default", tint: Color(red: 0.914, green: 0.314, blue: 0.263)),
+        MacAppIcon(id: "AppIcon9", previewAsset: "AppIcon9Preview", nameKey: "icon_theme_9", tint: Color(red: 0.063, green: 0.216, blue: 0.251)),
         MacAppIcon(id: "AppIcon1", previewAsset: "AppIcon1Preview", nameKey: "icon_theme_1", tint: Color(red: 0.957, green: 0.784, blue: 0.298)),
         MacAppIcon(id: "AppIcon2", previewAsset: "AppIcon2Preview", nameKey: "icon_theme_2", tint: Color(red: 0.251, green: 0.765, blue: 0.816)),
         MacAppIcon(id: "AppIcon3", previewAsset: "AppIcon3Preview", nameKey: "icon_theme_3", tint: Color(red: 0.788, green: 0.941, blue: 0.353)),

@@ -224,7 +224,9 @@
 "lyrics_font_xlarge" = "Très grande";
 "appearance" = "Apparence";
 "app_icon" = "Icône de l'app";
-"icon_default" = "Écoute au casque";
+"icon_default" = "Note pliée";
+"icon_appearance_gray" = "Gris";
+"icon_appearance_hint" = "L’icône suit automatiquement l’apparence claire, sombre ou grise de l’écran d’accueil.";
 "icon_theme_1" = "Bibliothèque privée";
 "icon_theme_2" = "Audio sans perte";
 "icon_theme_3" = "Collection vinyle";
@@ -233,6 +235,7 @@
 "icon_theme_6" = "Note douce";
 "icon_theme_7" = "Monogramme Primuse";
 "icon_theme_8" = "Étincelle musicale";
+"icon_theme_9" = "Icône classique";
 "queue_title" = "File de lecture";
 "queue_empty" = "File vide";
 "queue_empty_desc" = "Ajoutez des morceaux à la file de lecture";
@@ -1947,3 +1950,6 @@
 "dsd_mode_pcm" = "Convertir en PCM";
 "dsd_mode_dop" = "Préférer DoP";
 "output_sr_matching_fidelity_desc" = "Toujours actif en mode haute fidélité directe. Le système ou le périphérique peut refuser la fréquence demandée.";
+"credential_save_failed_title" = "Échec de l’enregistrement des identifiants";
+"credential_save_failed_message" = "Le mot de passe n’a pas pu être enregistré de façon sécurisée. La source n’a pas été enregistrée. Réessayez.";
+"credential_temporarily_unavailable" = "Le mot de passe est temporairement indisponible. Déverrouillez votre appareil et réessayez.";

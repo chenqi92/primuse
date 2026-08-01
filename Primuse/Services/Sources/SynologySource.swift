@@ -7,7 +7,6 @@ actor SynologySource: MusicSourceConnector {
 
     private let api: SynologyAPI
     private let username: String
-    private let password: String
     private let rememberDevice: Bool
     private let deviceId: String?
     private let cacheDirectory: URL
@@ -34,13 +33,12 @@ actor SynologySource: MusicSourceConnector {
 
     init(
         sourceID: String, host: String, port: Int, useSsl: Bool,
-        username: String, password: String,
+        username: String,
         rememberDevice: Bool, deviceId: String?
     ) {
         self.sourceID = sourceID
         self.api = SynologyAPI(host: host, port: port, useSsl: useSsl)
         self.username = username
-        self.password = password
         self.rememberDevice = rememberDevice
         self.deviceId = deviceId
 
@@ -76,24 +74,6 @@ actor SynologySource: MusicSourceConnector {
     private func connect(forceReconnect: Bool) async throws {
         if !forceReconnect, await api.isLoggedIn { return }
 
-        // 空密码 guard ── 关键保护机制。
-        //
-        // 之前没这个 guard 时, keychain 暂时不可访问 (kSecAttrAccessibleAfterFirstUnlock
-        // 在 app 冷启动 + 设备锁屏状态下读不到密码) 会导致 KeychainService.getPassword
-        // 返回 nil, 上层 fallback 成空字符串, 然后 connect() 拿空密码反复打 NAS,
-        // DSM 把 IP / 账号锁掉, 此后哪怕密码恢复了所有歌也都 connectionFailed
-        // ── 实测连续几十首歌全部 "登录尝试次数过多, 请稍后再试"。
-        //
-        // 这里直接 throw, UI 层会拿到 connectionFailed 并通过 SourceAuthAlert
-        // 弹"重新输入密码"。比浪费几次失败 login + 触发 NAS 端 lockout 强得多。
-        if password.isEmpty {
-            plog("⛔ SynologySource '\(sourceID)' connect aborted: password unavailable (keychain not yet accessible or credential cleared)")
-            await MainActor.run {
-                SourceAuthAlert.report(sourceID: sourceID, message: "缺少登录密码 ── 请重新输入")
-            }
-            throw SourceError.connectionFailed("missing password")
-        }
-
         if let existing = loginTask {
             // 多个 caller 等同一个 in-flight login 时打一条聚合日志, 方便确认
             // dedupe 在工作 ── 没这条日志时只能从 SynologyAPI:59 "login start"
@@ -103,7 +83,29 @@ actor SynologySource: MusicSourceConnector {
             try await existing.value
             return
         }
-        let task = Task { [api, username, password, rememberDevice, deviceId, sourceID] in
+        let task = Task { [api, username, rememberDevice, deviceId, sourceID] in
+            // Re-read immediately before every real login instead of capturing
+            // a possibly-empty value when SourceManager created this connector.
+            // Before-first-unlock Keychain failures are retryable and must not
+            // be converted into an empty-password DSM request or a password UI.
+            let password: String
+            switch KeychainService.passwordLookup(for: sourceID) {
+            case .found(let savedPassword):
+                password = savedPassword
+            case .notFound:
+                plog("⛔ SynologySource '\(sourceID)' connect aborted: no saved credential")
+                await MainActor.run {
+                    SourceAuthAlert.report(
+                        sourceID: sourceID,
+                        message: String(localized: "password_required_title")
+                    )
+                }
+                throw SourceError.connectionFailed("missing password")
+            case .temporarilyUnavailable(let status):
+                plog("⏳ SynologySource '\(sourceID)' connect deferred: credential temporarily unavailable status=\(status)")
+                throw SourceError.connectionFailed("credential temporarily unavailable")
+            }
+
             let result = await api.login(
                 account: username, password: password,
                 deviceName: rememberDevice ? "Primuse-iOS" : nil,
@@ -111,11 +113,14 @@ actor SynologySource: MusicSourceConnector {
             )
             guard result.success else {
                 let msg = result.errorMessage ?? "Login failed"
-                // 通知 UI 层弹"重新输入密码"。节流在 SourceAuthAlert 里做,
-                // 60s 同 sourceID 只弹一次。失败原因(密码错/限流/网络挂)
-                // 都走这条,因为表象都是"现在登不上",修法都得用户介入。
-                await MainActor.run {
-                    SourceAuthAlert.report(sourceID: sourceID, message: msg)
+                // Only actual credential-rejection codes require user input.
+                // Network failures, lockouts/throttling and 2FA must remain
+                // retryable errors instead of presenting a misleading password
+                // prompt that cannot fix them.
+                if result.requiresCredentialPrompt {
+                    await MainActor.run {
+                        SourceAuthAlert.report(sourceID: sourceID, message: msg)
+                    }
                 }
                 throw result.needs2FA
                     ? SourceError.authenticationFailed

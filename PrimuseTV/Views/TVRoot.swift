@@ -154,14 +154,25 @@ struct TVTabBar: View {
 
     var body: some View {
         HStack(spacing: 40) {
-            // Logo(真实 App 图标)
+            // 应用内标识跟随 TV 品牌色；主屏幕仍使用完整分层 App 图标。
             HStack(spacing: 14) {
-                Image("BrandMark")
-                    .resizable()
-                    .interpolation(.high)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(TVColor.brand.opacity(0.18))
                     .frame(width: 56, height: 56)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .shadow(color: TVColor.brand.opacity(0.33), radius: 12, y: 6)
+                    .overlay {
+                        Image("BrandGlyph")
+                            .renderingMode(.template)
+                            .resizable()
+                            .interpolation(.high)
+                            .aspectRatio(contentMode: .fit)
+                            .foregroundStyle(TVColor.brand)
+                            .padding(10)
+                    }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(TVColor.brand.opacity(0.34), lineWidth: 1)
+                    }
+                    .shadow(color: TVColor.brand.opacity(0.28), radius: 12, y: 6)
                 Text(verbatim: PMString("ext.tv.appName"))
                     .font(.system(size: 24, weight: .bold))
                     .foregroundStyle(.white)

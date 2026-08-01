@@ -208,7 +208,18 @@ actor MetadataAssetStore {
     func cacheCover(_ data: Data, forSongID songID: String) {
         let fileName = hashedFileName(for: songID, pathExtension: "jpg")
         let fileURL = artworkDirectory.appendingPathComponent(fileName)
-        try? writeContentAddressed(data, refURL: fileURL)
+        do {
+            try writeContentAddressed(data, refURL: fileURL)
+            Self.postCoverCached(songID: songID)
+        } catch {
+            plog("MetadataAssetStore: failed to cache cover for song '\(songID.prefix(8))': \(error.localizedDescription)")
+        }
+    }
+
+    private nonisolated static func postCoverCached(songID: String) {
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .primuseArtworkDidCache, object: songID)
+        }
     }
 
     /// Read cached cover art by song ID.

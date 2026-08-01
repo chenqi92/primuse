@@ -369,15 +369,13 @@ final class SourceManager {
         let connector: any MusicSourceConnector
         switch source.type {
         case .synology:
-            let pw = KeychainService.getPassword(for: source.id) ?? ""
-            plog("🔧 SourceManager creating SynologySource id=\(source.id) host=\(source.host ?? "?") userLen=\(source.username?.count ?? 0) pwLen=\(pw.count)")
+            plog("🔧 SourceManager creating SynologySource id=\(source.id) host=\(source.host ?? "?") userLen=\(source.username?.count ?? 0)")
             connector = SynologySource(
                 sourceID: source.id,
                 host: source.host ?? "",
                 port: source.port ?? 5001,
                 useSsl: source.useSsl,
                 username: source.username ?? "",
-                password: pw,
                 rememberDevice: source.rememberDevice,
                 deviceId: source.deviceId
             )
@@ -3499,7 +3497,7 @@ private extension SourceManager {
 }
 
 extension Notification.Name {
-    /// 一个音乐源的登录失败了 (密码错 / 2FA / 限流 / 网络挂)。
+    /// 一个音乐源遇到需要用户更新凭据的认证失败。
     /// userInfo: ["sourceID": String, "message": String]
     static let primuseSourceAuthFailed = Notification.Name("primuse.sourceAuthFailed")
 }

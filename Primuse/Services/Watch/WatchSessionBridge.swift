@@ -39,6 +39,9 @@ final class WatchSessionBridge: NSObject {
     private var lastPushedIsPlaying: Bool = false
     private var lastPushedIsLoading: Bool = false
     private var lastPushedLyric: String = ""
+    /// Quantized RGB of the last delivered artwork accent. Cover extraction is
+    /// asynchronous, so the color can change after the first state for a song.
+    private var lastPushedAccentSignature: UInt32?
     /// 最近一次成功推送的封面 songID。换歌后 cover 推送一次就够。
     private var lastSentCoverSongID: String?
     /// 最近一次编码好的封面 JPEG + 其 songID。watch 不可达走 applicationContext
@@ -101,6 +104,7 @@ final class WatchSessionBridge: NSObject {
         let isPlaying = player.isPlaying
         let isLoading = player.isLoading
         let lyric = currentLyricLine(song: song, time: player.currentTime)
+        let accentSignature = currentAccentSignature()
 
         let songChanged = songID != lastPushedSongID
         let stateChanged = force
@@ -108,6 +112,7 @@ final class WatchSessionBridge: NSObject {
             || isPlaying != lastPushedIsPlaying
             || isLoading != lastPushedIsLoading
             || lyric != lastPushedLyric
+            || accentSignature != lastPushedAccentSignature
 
         if !stateChanged { return }
 
@@ -119,6 +124,7 @@ final class WatchSessionBridge: NSObject {
         lastPushedIsPlaying = isPlaying
         lastPushedIsLoading = isLoading
         lastPushedLyric = lyric
+        lastPushedAccentSignature = accentSignature
 
         // 封面带不带取决于 watch 是否已经拿到这首的封面 ── 用
         // lastSentCoverSongID 而不是 songChanged 判断: watch 冷启动 / 重连后发
@@ -341,6 +347,14 @@ final class WatchSessionBridge: NSObject {
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         ui.getRed(&r, green: &g, blue: &b, alpha: &a)
         return (Double(r), Double(g), Double(b))
+    }
+
+    private func currentAccentSignature() -> UInt32 {
+        let (r, g, b) = currentAccentRGB()
+        func quantized(_ component: Double) -> UInt32 {
+            UInt32((max(0, min(1, component)) * 255).rounded())
+        }
+        return (quantized(r) << 16) | (quantized(g) << 8) | quantized(b)
     }
 
     /// 从缓存的歌词数组里找当前 time 应该高亮的行。无歌词返回空字符串。

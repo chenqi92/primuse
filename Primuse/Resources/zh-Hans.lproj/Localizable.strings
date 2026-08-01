@@ -78,7 +78,9 @@
 // MARK: - 外观设置
 "appearance" = "外观";
 "app_icon" = "应用图标";
-"icon_default" = "耳机播放";
+"icon_default" = "折页音符";
+"icon_appearance_gray" = "灰色";
+"icon_appearance_hint" = "图标会随主屏幕的浅色、深色或灰色外观自动切换。";
 "icon_theme_1" = "私人曲库";
 "icon_theme_2" = "无损音质";
 "icon_theme_3" = "唱片收藏";
@@ -87,6 +89,7 @@
 "icon_theme_6" = "清新音符";
 "icon_theme_7" = "Primuse 标志";
 "icon_theme_8" = "灵感音符";
+"icon_theme_9" = "经典图标";
 "queue_title" = "播放队列";
 "queue_empty" = "队列为空";
 "queue_empty_desc" = "添加歌曲到队列";
@@ -2050,3 +2053,6 @@
 "dsd_mode_pcm" = "转换为 PCM";
 "dsd_mode_dop" = "优先 DoP";
 "output_sr_matching_fidelity_desc" = "高保真直通模式始终启用。操作系统或输出设备仍可能拒绝请求的采样率。";
+"credential_save_failed_title" = "凭据保存失败";
+"credential_save_failed_message" = "密码未能安全保存，来源尚未保存，请重试。";
+"credential_temporarily_unavailable" = "密码暂时无法读取，请解锁设备后重试。";

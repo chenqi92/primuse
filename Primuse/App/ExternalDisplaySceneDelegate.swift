@@ -38,7 +38,7 @@ final class ExternalDisplaySceneDelegate: UIResponder, UIWindowSceneDelegate {
             .environment(services.sourceManager)
             .environment(services.scraperService)
         let host = UIHostingController(rootView: rootView)
-        host.view.backgroundColor = .black
+        host.view.backgroundColor = UIColor(red: 0.035, green: 0.043, blue: 0.055, alpha: 1)
         window.rootViewController = host
         window.makeKeyAndVisible()
         self.window = window

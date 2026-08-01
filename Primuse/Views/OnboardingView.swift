@@ -222,25 +222,7 @@ struct OnboardingView: View {
         VStack(spacing: 18) {
             Spacer(minLength: 0)
 
-            Text(verbatim: "猿")
-                .font(.system(size: 60, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: 110, height: 110)
-                .background {
-                    RoundedRectangle(cornerRadius: 26, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [PMColor.brand, Color.black.opacity(0.62)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .shadow(color: PMColor.brand.opacity(0.5), radius: 36, y: 12)
-                        .overlay(alignment: .top) {
-                            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                                .strokeBorder(Color.white.opacity(0.25), lineWidth: 0.5)
-                        }
-                }
+            BrandMonogram(slot: .onboarding)
 
             Text(String(localized: "onboarding_mac_welcome_title"))
                 .font(.system(size: 40, weight: .bold))

@@ -9,7 +9,89 @@ import MediaPlayer
 import AppKit
 #endif
 
+private struct NowPlayingAppearance {
+    let colorScheme: ColorScheme
+    let contrast: ColorSchemeContrast
+
+    var isLight: Bool { colorScheme == .light }
+    private var usesIncreasedContrast: Bool { contrast == .increased }
+
+    var primary: Color {
+        if isLight {
+            return .black.opacity(usesIncreasedContrast ? 0.96 : 0.88)
+        }
+        return .white
+    }
+
+    var secondary: Color {
+        if isLight {
+            return .black.opacity(usesIncreasedContrast ? 0.78 : 0.64)
+        }
+        return .white.opacity(usesIncreasedContrast ? 0.88 : 0.72)
+    }
+
+    var tertiary: Color {
+        if isLight {
+            return .black.opacity(usesIncreasedContrast ? 0.64 : 0.48)
+        }
+        return .white.opacity(usesIncreasedContrast ? 0.72 : 0.52)
+    }
+
+    var faint: Color {
+        if isLight {
+            return .black.opacity(usesIncreasedContrast ? 0.52 : 0.38)
+        }
+        return .white.opacity(usesIncreasedContrast ? 0.60 : 0.38)
+    }
+
+    var divider: Color {
+        primary.opacity(usesIncreasedContrast ? 0.18 : 0.10)
+    }
+
+    var track: Color {
+        primary.opacity(usesIncreasedContrast ? 0.28 : 0.18)
+    }
+
+    var backgroundBase: Color {
+        isLight
+            ? Color(red: 0.94, green: 0.945, blue: 0.955)
+            : Color(red: 0.035, green: 0.043, blue: 0.055)
+    }
+
+    var artworkAccentOpacity: Double {
+        isLight ? (usesIncreasedContrast ? 0.38 : 0.46) : 0.88
+    }
+
+    var fallbackAccentOpacity: Double {
+        isLight ? (usesIncreasedContrast ? 0.09 : 0.13) : 0.34
+    }
+
+    var artworkLowerAccentOpacity: Double {
+        isLight ? (usesIncreasedContrast ? 0.26 : 0.32) : 0.70
+    }
+
+    var fallbackLowerAccentOpacity: Double {
+        isLight ? (usesIncreasedContrast ? 0.06 : 0.09) : 0.26
+    }
+
+    var pastLyricOpacity: Double {
+        usesIncreasedContrast ? 0.56 : (isLight ? 0.40 : 0.32)
+    }
+
+    var futureLyricOpacity: Double {
+        usesIncreasedContrast ? 0.70 : (isLight ? 0.56 : 0.46)
+    }
+
+    var inactiveSyllableOpacity: Double {
+        usesIncreasedContrast ? 0.58 : (isLight ? 0.46 : 0.42)
+    }
+}
+
 struct NowPlayingView: View {
+    private enum AmbientBackdropTuning {
+        static let transitionDuration = 0.5
+    }
+
     var onMinimize: (() -> Void)? = nil
     var onOpenAlbum: ((Album) -> Void)? = nil
     var onOpenArtist: ((Artist) -> Void)? = nil
@@ -21,6 +103,8 @@ struct NowPlayingView: View {
     @Environment(PlaybackSettingsStore.self) private var playbackSettings
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.openURL) private var openURL
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
     /// Apple Music 歌的 catalog URL ── 用来给"在 Apple Music 打开"按钮跳转。
     /// 跳转后用户能看到 Apple Music 自家的歌词 / 添加收藏 / 看艺人页等
@@ -49,6 +133,10 @@ struct NowPlayingView: View {
     @State private var showMusicVideoFullScreen = false
     @State private var fullScreenMusicVideoPlayer: AVPlayer?
     @Environment(ThemeService.self) private var theme
+
+    private var appearance: NowPlayingAppearance {
+        NowPlayingAppearance(colorScheme: colorScheme, contrast: colorSchemeContrast)
+    }
 
     // 父持有 @AppStorage 仅为了 onChange 触发 CloudKVS 同步;实际渲染字号由
     // LyricsScrollView 子 view 自己读 AppStorage("lyricsFontScale")。
@@ -135,7 +223,7 @@ struct NowPlayingView: View {
 
             ZStack {
                 // Opaque base — prevents content bleeding through
-                Color.black.ignoresSafeArea()
+                appearance.backgroundBase.ignoresSafeArea()
                 // Dynamic background from cover colors — fully opaque
                 backgroundGradient.ignoresSafeArea()
 
@@ -334,9 +422,9 @@ struct NowPlayingView: View {
             wideLeftPane(artSize: artSize)
                 .frame(width: halfWidth)
 
-            // 中缝细分隔,半透明白,跟封面阴影协调
+            // 中缝细分隔,跟随播放器前景色并保持低对比度
             Rectangle()
-                .fill(.white.opacity(0.06))
+                .fill(appearance.divider)
                 .frame(width: 1)
                 .padding(.vertical, 40)
 
@@ -350,7 +438,7 @@ struct NowPlayingView: View {
         VStack(spacing: 0) {
             // 顶部 grabber —— 跟 portrait 模式对齐,留出下拉关闭手势的视觉提示
             Capsule()
-                .fill(.white.opacity(0.4))
+                .fill(appearance.tertiary)
                 .frame(width: 48, height: 5)
                 .padding(.top, topSafeArea + 6)
                 .padding(.bottom, 10)
@@ -378,7 +466,7 @@ struct NowPlayingView: View {
                     HStack(spacing: 6) {
                         Text(player.currentSong?.title ?? "")
                             .font(.title2).fontWeight(.bold).lineLimit(1)
-                            .foregroundStyle(.white)
+                            .foregroundStyle(appearance.primary)
                         if let song = player.currentSong, song.audioQuality != .standard {
                             AudioQualityBadge(quality: song.audioQuality)
                         }
@@ -390,7 +478,7 @@ struct NowPlayingView: View {
                 Button { openScrapeForCurrentSong() } label: {
                     Image(systemName: isScrapingCurrentSong ? "wand.and.stars.inverse" : "wand.and.stars")
                         .font(.title2)
-                        .foregroundStyle(.white.opacity(isScrapingCurrentSong ? 0.4 : 0.6))
+                        .foregroundStyle(isScrapingCurrentSong ? appearance.faint : appearance.secondary)
                         .symbolEffect(.pulse, options: .repeating, isActive: isScrapingCurrentSong)
                 }
                 .disabled(player.currentSong == nil || isScrapingCurrentSong)
@@ -399,7 +487,7 @@ struct NowPlayingView: View {
                 Button { toggleLikedCurrent() } label: {
                     Image(systemName: isCurrentLiked ? "heart.fill" : "heart")
                         .font(.title2)
-                        .foregroundStyle(isCurrentLiked ? .red : .white.opacity(0.6))
+                        .foregroundStyle(isCurrentLiked ? .red : appearance.secondary)
                         .contentTransition(.symbolEffect(.replace))
                 }
                 .disabled(player.currentSong == nil)
@@ -417,7 +505,7 @@ struct NowPlayingView: View {
                 ctrlBtn("shuffle", active: player.shuffleEnabled) { player.shuffleEnabled.toggle() }
                 Spacer()
                 Button { Task { await player.previous() } } label: {
-                    Image(systemName: "backward.fill").font(.title).foregroundStyle(.white)
+                    Image(systemName: "backward.fill").font(.title).foregroundStyle(appearance.primary)
                 }
                 .frame(width: 56, height: 56)
                 .accessibilityLabel("a11y_previous_track")
@@ -427,10 +515,10 @@ struct NowPlayingView: View {
                         Image(systemName: "play.circle.fill")
                             .font(.system(size: 60)).opacity(0)
                         if player.isLoading {
-                            ProgressView().controlSize(.large).tint(.white)
+                            ProgressView().controlSize(.large).tint(appearance.primary)
                         } else {
                             Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                                .font(.system(size: 60)).foregroundStyle(.white)
+                                .font(.system(size: 60)).foregroundStyle(appearance.primary)
                                 .contentTransition(.symbolEffect(.replace))
                         }
                     }
@@ -441,7 +529,7 @@ struct NowPlayingView: View {
                     : String(localized: "a11y_play"))
                 Spacer()
                 Button { Task { await player.next() } } label: {
-                    Image(systemName: "forward.fill").font(.title).foregroundStyle(.white)
+                    Image(systemName: "forward.fill").font(.title).foregroundStyle(appearance.primary)
                 }
                 .frame(width: 56, height: 56)
                 .accessibilityLabel("a11y_next_track")
@@ -458,7 +546,7 @@ struct NowPlayingView: View {
             .padding(.top, 14)
 
             HStack(spacing: 8) {
-                Image(systemName: "speaker.fill").font(.caption2).foregroundStyle(.white.opacity(0.4))
+                Image(systemName: "speaker.fill").font(.caption2).foregroundStyle(appearance.tertiary)
                 #if os(iOS) && !targetEnvironment(simulator)
                 SystemVolumeSlider()
                     .frame(maxWidth: .infinity)
@@ -470,7 +558,7 @@ struct NowPlayingView: View {
                     set: { player.audioEngine.volume = Float($0) }
                 ))
                 #endif
-                Image(systemName: "speaker.wave.3.fill").font(.caption2).foregroundStyle(.white.opacity(0.4))
+                Image(systemName: "speaker.wave.3.fill").font(.caption2).foregroundStyle(appearance.tertiary)
             }
             .padding(.horizontal, 36).padding(.top, 12)
 
@@ -481,7 +569,7 @@ struct NowPlayingView: View {
                 AirPlayButton().frame(width: 36, height: 36)
                 Spacer()
                 Button { showQueue = true } label: {
-                    Image(systemName: "list.bullet").foregroundStyle(.white.opacity(0.55))
+                    Image(systemName: "list.bullet").foregroundStyle(appearance.secondary)
                 }
             }
             .font(.body).padding(.horizontal, 80).padding(.top, 14)
@@ -497,7 +585,7 @@ struct NowPlayingView: View {
                         Text(source.name)
                     }
                 }
-                .font(.caption2).foregroundStyle(.white.opacity(0.3))
+                .font(.caption2).foregroundStyle(appearance.faint)
                 .padding(.top, 6).padding(.bottom, 16)
             } else {
                 Spacer().frame(height: 16)
@@ -528,7 +616,7 @@ struct NowPlayingView: View {
         VStack(spacing: 0) {
                     // Grabber handle (system-matching dimensions)
                     Capsule()
-                        .fill(.white.opacity(0.4))
+                        .fill(appearance.tertiary)
                         .frame(width: 48, height: 5)
                         .padding(.top, topSafeArea + 6)
                         .padding(.bottom, 10)
@@ -565,9 +653,9 @@ struct NowPlayingView: View {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(player.currentSong?.title ?? "")
                                             .font(.subheadline).fontWeight(.semibold).lineLimit(1)
-                                            .foregroundStyle(.white)
+                                            .foregroundStyle(appearance.primary)
                                         Text(player.currentSong?.artistName ?? "")
-                                            .font(.caption).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
+                                            .font(.caption).foregroundStyle(appearance.secondary).lineLimit(1)
                                     }
                                 }
                             }
@@ -582,7 +670,7 @@ struct NowPlayingView: View {
                             Button { openScrapeForCurrentSong() } label: {
                                 Image(systemName: isScrapingCurrentSong ? "wand.and.stars.inverse" : "wand.and.stars")
                                     .font(.title3)
-                                    .foregroundStyle(.white.opacity(isScrapingCurrentSong ? 0.4 : 0.6))
+                                    .foregroundStyle(isScrapingCurrentSong ? appearance.faint : appearance.secondary)
                                     .symbolEffect(.pulse, options: .repeating, isActive: isScrapingCurrentSong)
                             }
                             .disabled(player.currentSong == nil || isScrapingCurrentSong)
@@ -592,7 +680,7 @@ struct NowPlayingView: View {
                             Button { toggleLikedCurrent() } label: {
                                 Image(systemName: isCurrentLiked ? "heart.fill" : "heart")
                                     .font(.title3)
-                                    .foregroundStyle(isCurrentLiked ? .red : .white.opacity(0.6))
+                                    .foregroundStyle(isCurrentLiked ? .red : appearance.secondary)
                                     .contentTransition(.symbolEffect(.replace))
                             }
                             .disabled(player.currentSong == nil)
@@ -634,7 +722,7 @@ struct NowPlayingView: View {
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(player.currentSong?.title ?? "")
                                     .font(.title3).fontWeight(.bold).lineLimit(1)
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(appearance.primary)
                                 nowPlayingMetadataLinks(font: .body)
                             }
                             Spacer()
@@ -645,7 +733,7 @@ struct NowPlayingView: View {
                             Button { openScrapeForCurrentSong() } label: {
                                 Image(systemName: isScrapingCurrentSong ? "wand.and.stars.inverse" : "wand.and.stars")
                                     .font(.title2)
-                                    .foregroundStyle(.white.opacity(isScrapingCurrentSong ? 0.4 : 0.6))
+                                    .foregroundStyle(isScrapingCurrentSong ? appearance.faint : appearance.secondary)
                                     .symbolEffect(.pulse, options: .repeating, isActive: isScrapingCurrentSong)
                             }
                             .disabled(player.currentSong == nil || isScrapingCurrentSong)
@@ -656,7 +744,7 @@ struct NowPlayingView: View {
                             Button { toggleLikedCurrent() } label: {
                                 Image(systemName: isCurrentLiked ? "heart.fill" : "heart")
                                     .font(.title2)
-                                    .foregroundStyle(isCurrentLiked ? .red : .white.opacity(0.6))
+                                    .foregroundStyle(isCurrentLiked ? .red : appearance.secondary)
                                     .contentTransition(.symbolEffect(.replace))
                             }
                             .disabled(player.currentSong == nil)
@@ -682,7 +770,7 @@ struct NowPlayingView: View {
                         ctrlBtn("shuffle", active: player.shuffleEnabled) { player.shuffleEnabled.toggle() }
                         Spacer()
                         Button { Task { await player.previous() } } label: {
-                            Image(systemName: "backward.fill").font(.title).foregroundStyle(.white)
+                            Image(systemName: "backward.fill").font(.title).foregroundStyle(appearance.primary)
                         }
                         .frame(width: 56, height: 56)
                         .accessibilityLabel("a11y_previous_track")
@@ -695,10 +783,10 @@ struct NowPlayingView: View {
                                 if player.isLoading {
                                     ProgressView()
                                         .controlSize(.large)
-                                        .tint(.white)
+                                        .tint(appearance.primary)
                                 } else {
                                     Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                                        .font(.system(size: 56)).foregroundStyle(.white)
+                                        .font(.system(size: 56)).foregroundStyle(appearance.primary)
                                         .contentTransition(.symbolEffect(.replace))
                                 }
                             }
@@ -709,7 +797,7 @@ struct NowPlayingView: View {
                             : String(localized: "a11y_play"))
                         Spacer()
                         Button { Task { await player.next() } } label: {
-                            Image(systemName: "forward.fill").font(.title).foregroundStyle(.white)
+                            Image(systemName: "forward.fill").font(.title).foregroundStyle(appearance.primary)
                         }
                         .frame(width: 56, height: 56)
                         .accessibilityLabel("a11y_next_track")
@@ -727,7 +815,7 @@ struct NowPlayingView: View {
 
                     // Volume
                     HStack(spacing: 8) {
-                        Image(systemName: "speaker.fill").font(.caption2).foregroundStyle(.white.opacity(0.4))
+                        Image(systemName: "speaker.fill").font(.caption2).foregroundStyle(appearance.tertiary)
                         #if os(iOS) && !targetEnvironment(simulator)
                         SystemVolumeSlider()
                             .frame(maxWidth: .infinity)
@@ -739,7 +827,7 @@ struct NowPlayingView: View {
                             set: { player.audioEngine.volume = Float($0) }
                         ))
                         #endif
-                        Image(systemName: "speaker.wave.3.fill").font(.caption2).foregroundStyle(.white.opacity(0.4))
+                        Image(systemName: "speaker.wave.3.fill").font(.caption2).foregroundStyle(appearance.tertiary)
                     }
                     .padding(.horizontal, 26).padding(.top, 10)
 
@@ -747,7 +835,7 @@ struct NowPlayingView: View {
                     HStack {
                         Button { withAnimation(.easeInOut(duration: 0.3)) { showLyrics.toggle() } } label: {
                             Image(systemName: showLyrics ? "photo" : "quote.bubble")
-                                .foregroundStyle(showLyrics ? .white : .white.opacity(0.5))
+                                .foregroundStyle(showLyrics ? appearance.primary : appearance.tertiary)
                         }
                         .frame(width: 44, height: 44)
                         .accessibilityLabel(Text(showLyrics ? "a11y_close_lyrics" : "a11y_open_lyrics"))
@@ -755,7 +843,7 @@ struct NowPlayingView: View {
                         AirPlayButton().frame(width: 36, height: 36)
                         Spacer()
                         Button { showQueue = true } label: {
-                            Image(systemName: "list.bullet").foregroundStyle(.white.opacity(0.5))
+                            Image(systemName: "list.bullet").foregroundStyle(appearance.tertiary)
                         }
                     }
                     .font(.body).padding(.horizontal, 46).padding(.top, 12)
@@ -772,7 +860,7 @@ struct NowPlayingView: View {
                                 Text(source.name)
                             }
                         }
-                        .font(.caption2).foregroundStyle(.white.opacity(0.3)).padding(.top, 4).padding(.bottom, 6)
+                        .font(.caption2).foregroundStyle(appearance.faint).padding(.top, 4).padding(.bottom, 6)
                     }
                 }
     }
@@ -831,7 +919,7 @@ struct NowPlayingView: View {
             Button { player.toggleMusicVideoMode() } label: {
                 Image(systemName: player.isMusicVideoModeEnabled ? "play.rectangle.fill" : "play.rectangle")
                     .font(font)
-                    .foregroundStyle(player.isMusicVideoModeEnabled ? .white : .white.opacity(0.6))
+                    .foregroundStyle(player.isMusicVideoModeEnabled ? appearance.primary : appearance.secondary)
                     .contentTransition(.symbolEffect(.replace))
             }
             .disabled(player.currentSong == nil || player.isLoading)
@@ -918,7 +1006,9 @@ struct NowPlayingView: View {
             isSleepTimerActive: player.isSleepTimerActive,
             lyricsFontScale: lyricsFontScale,
             playbackRate: playbackSettings.playbackRate,
-            isLyricsTranslationEnabled: LyricsTranslationSettingsStore.shared.isEnabled
+            isLyricsTranslationEnabled: LyricsTranslationSettingsStore.shared.isEnabled,
+            colorScheme: colorScheme,
+            colorSchemeContrast: colorSchemeContrast
         )
 
         return NowPlayingMoreMenu(
@@ -954,26 +1044,71 @@ struct NowPlayingView: View {
         .equatable()
     }
 
-    // MARK: - Background gradient from cover dominant color
+    // MARK: - Ambient background from cover dominant color
 
     private var backgroundGradient: some View {
-        LinearGradient(
-            colors: [
-                theme.darkAccent,
-                gradientMidColor,
-                .black
-            ],
-            startPoint: .top, endPoint: .bottom
-        )
-        .animation(.easeInOut(duration: 0.5), value: theme.colorID)
-    }
+        GeometryReader { geo in
+            let radius = max(geo.size.width, geo.size.height) * 0.82
+            let hasArtworkTheme = theme.colorID != "default"
+            let accentOpacity = hasArtworkTheme
+                ? appearance.artworkAccentOpacity
+                : appearance.fallbackAccentOpacity
+            let lowerAccentOpacity = hasArtworkTheme
+                ? appearance.artworkLowerAccentOpacity
+                : appearance.fallbackLowerAccentOpacity
 
-    private var gradientMidColor: Color {
-        if #available(iOS 18.0, *) {
-            theme.darkAccent.mix(with: .black, by: 0.4)
-        } else {
-            theme.darkAccent.opacity(0.65)
+            ZStack {
+                appearance.backgroundBase
+
+                RadialGradient(
+                    colors: [theme.accentColor.opacity(accentOpacity), .clear],
+                    center: .topLeading,
+                    startRadius: 0,
+                    endRadius: radius
+                )
+
+                RadialGradient(
+                    colors: [theme.accentColor.opacity(lowerAccentOpacity), .clear],
+                    center: .bottomTrailing,
+                    startRadius: 0,
+                    endRadius: radius * 0.9
+                )
+
+                if appearance.isLight {
+                    // Keep a stable light surface for dark controls without
+                    // washing the cover-driven hue back to near-neutral.
+                    LinearGradient(
+                        colors: [
+                            .white.opacity(hasArtworkTheme
+                                ? (colorSchemeContrast == .increased ? 0.34 : 0.24)
+                                : (colorSchemeContrast == .increased ? 0.52 : 0.38)),
+                            .white.opacity(hasArtworkTheme
+                                ? (colorSchemeContrast == .increased ? 0.20 : 0.10)
+                                : (colorSchemeContrast == .increased ? 0.38 : 0.22))
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                } else {
+                    // Dark appearance keeps the immersive artwork field but
+                    // protects white lyrics and transport controls.
+                    LinearGradient(
+                        stops: [
+                            .init(color: .black.opacity(0.18), location: 0),
+                            .init(color: .black.opacity(0.22), location: 0.56),
+                            .init(color: .black.opacity(0.28), location: 1)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                }
+            }
         }
+        .animation(
+            .easeInOut(duration: AmbientBackdropTuning.transitionDuration),
+            value: theme.colorID
+        )
+        .allowsHitTesting(false)
     }
 
     // MARK: - Full Lyrics
@@ -1022,7 +1157,7 @@ struct NowPlayingView: View {
             }
         }
         .font(font)
-        .foregroundStyle(.white.opacity(0.7))
+        .foregroundStyle(appearance.secondary)
     }
 
     // MARK: - Helpers
@@ -1030,13 +1165,18 @@ struct NowPlayingView: View {
     private func ctrlBtn(_ icon: String, active: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon).font(.body)
-                .foregroundStyle(active ? .white : .white.opacity(0.4))
+                .foregroundStyle(active ? themedControlAccent : appearance.tertiary)
         }
         .frame(width: 44, height: 44)
         .accessibilityLabel(Self.iconA11yLabel(icon))
         .accessibilityValue(active
             ? String(localized: "a11y_value_on")
             : String(localized: "a11y_value_off"))
+    }
+
+    private var themedControlAccent: Color {
+        guard theme.colorID != "default" else { return appearance.primary }
+        return appearance.isLight ? theme.darkAccent : theme.accentColor
     }
 
     /// SF Symbol -> VoiceOver 标签的映射, 用在 transport 控件上。
@@ -1674,6 +1814,10 @@ struct ProgressSlider: View {
     let total: TimeInterval
     let onSeek: (TimeInterval) -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+    @Environment(ThemeService.self) private var theme
+
     @State private var isDragging = false
     @State private var dragValue: TimeInterval?
 
@@ -1684,6 +1828,15 @@ struct ProgressSlider: View {
         let fraction = displayValue / safeTotal
         guard fraction.isFinite else { return 0 }
         return CGFloat(max(0, min(1, fraction)))
+    }
+
+    private var appearance: NowPlayingAppearance {
+        NowPlayingAppearance(colorScheme: colorScheme, contrast: colorSchemeContrast)
+    }
+
+    private var fillColor: Color {
+        guard theme.colorID != "default" else { return appearance.primary }
+        return appearance.isLight ? theme.darkAccent : theme.accentColor
     }
 
     private func seekValue(for locationX: CGFloat, width: CGFloat) -> TimeInterval? {
@@ -1701,12 +1854,12 @@ struct ProgressSlider: View {
             ZStack(alignment: .leading) {
                 // Background track
                 Capsule()
-                    .fill(.white.opacity(0.2))
+                    .fill(appearance.track)
                     .frame(height: trackHeight)
 
                 // Filled track
                 Capsule()
-                    .fill(.white)
+                    .fill(fillColor)
                     .frame(width: max(0, min(width, width * progress)), height: trackHeight)
             }
             .frame(height: 20) // tap area
@@ -1742,6 +1895,9 @@ struct ProgressSlider: View {
 struct SystemVolumeSlider: UIViewRepresentable {
     static let compactHeight: CGFloat = 24
     static let verticalOffset: CGFloat = 1.5
+
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
     func makeUIView(context: Context) -> MPVolumeView {
         let view = MPVolumeView(frame: .zero)
@@ -1783,18 +1939,27 @@ struct SystemVolumeSlider: UIViewRepresentable {
         guard let slider = findSlider(in: volumeView) else {
             return
         }
-        slider.minimumTrackTintColor = .white
-        slider.maximumTrackTintColor = UIColor.white.withAlphaComponent(0.2)
-        slider.thumbTintColor = .white
-        slider.setThumbImage(thumbImage(diameter: 12), for: .normal)
-        slider.setThumbImage(thumbImage(diameter: 14), for: .highlighted)
+        let foreground = playerUIColor
+        slider.minimumTrackTintColor = foreground
+        slider.maximumTrackTintColor = foreground.withAlphaComponent(
+            colorSchemeContrast == .increased ? 0.30 : 0.20
+        )
+        slider.thumbTintColor = foreground
+        slider.setThumbImage(thumbImage(diameter: 12, color: foreground), for: .normal)
+        slider.setThumbImage(thumbImage(diameter: 14, color: foreground), for: .highlighted)
         slider.accessibilityLabel = String(localized: "volume")
     }
 
-    private func thumbImage(diameter: CGFloat) -> UIImage {
+    private var playerUIColor: UIColor {
+        colorScheme == .light
+            ? UIColor.black.withAlphaComponent(colorSchemeContrast == .increased ? 0.96 : 0.88)
+            : UIColor.white
+    }
+
+    private func thumbImage(diameter: CGFloat, color: UIColor) -> UIImage {
         let size = CGSize(width: diameter, height: diameter)
         return UIGraphicsImageRenderer(size: size).image { context in
-            UIColor.white.setFill()
+            color.setFill()
             context.cgContext.fillEllipse(in: CGRect(origin: .zero, size: size))
         }
     }
@@ -1816,10 +1981,16 @@ struct SystemVolumeSlider: UIViewRepresentable {
 struct VolumeSlider: View {
     @Binding var value: Double
 
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+
     @State private var isDragging = false
     @State private var localValue: Double?
 
     private var displayValue: Double { localValue ?? value }
+    private var appearance: NowPlayingAppearance {
+        NowPlayingAppearance(colorScheme: colorScheme, contrast: colorSchemeContrast)
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -1829,11 +2000,11 @@ struct VolumeSlider: View {
 
             ZStack(alignment: .leading) {
                 Capsule()
-                    .fill(.white.opacity(0.2))
+                    .fill(appearance.track)
                     .frame(height: trackHeight)
 
                 Capsule()
-                    .fill(.white)
+                    .fill(appearance.primary)
                     .frame(width: max(0, min(width, width * progress)), height: trackHeight)
             }
             .frame(height: 20)
@@ -2301,14 +2472,27 @@ struct AddToPlaylistSheet: View {
 
 #if os(iOS)
 struct AirPlayButton: UIViewRepresentable {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+
     func makeUIView(context: Context) -> AVRoutePickerView {
         let v = AVRoutePickerView()
-        v.tintColor = UIColor.white.withAlphaComponent(0.5)
-        v.activeTintColor = .white
         v.prioritizesVideoDevices = false
+        applyAppearance(to: v)
         return v
     }
-    func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
+
+    func updateUIView(_ uiView: AVRoutePickerView, context: Context) {
+        applyAppearance(to: uiView)
+    }
+
+    private func applyAppearance(to view: AVRoutePickerView) {
+        let foreground = colorScheme == .light
+            ? UIColor.black.withAlphaComponent(colorSchemeContrast == .increased ? 0.96 : 0.88)
+            : UIColor.white
+        view.tintColor = foreground.withAlphaComponent(colorSchemeContrast == .increased ? 0.72 : 0.52)
+        view.activeTintColor = foreground
+    }
 }
 #else
 /// macOS 上 AVRoutePickerView 是 NSView, tint / activeTint API 也不一样。
@@ -2341,6 +2525,8 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let lyricsFontScale: Double
     let playbackRate: Float
     let isLyricsTranslationEnabled: Bool
+    let colorScheme: ColorScheme
+    let colorSchemeContrast: ColorSchemeContrast
 }
 
 /// Keeps the existing SwiftUI `Menu` interaction and visual design, while using
@@ -2365,6 +2551,13 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.snapshot == rhs.snapshot
+    }
+
+    private var appearance: NowPlayingAppearance {
+        NowPlayingAppearance(
+            colorScheme: snapshot.colorScheme,
+            contrast: snapshot.colorSchemeContrast
+        )
     }
 
     var body: some View {
@@ -2511,7 +2704,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
             Image(systemName: "ellipsis.circle.fill")
                 .font(.title)
                 .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(.white.opacity(0.6))
+                .foregroundStyle(appearance.secondary)
         }
     }
 }
@@ -2555,6 +2748,9 @@ struct LyricsScrollView: View {
     let isScrapingCurrentSong: Bool
     let onAutomaticScrape: () -> Void
     let onBackgroundTap: () -> Void
+
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
     @AppStorage("lyricsFontScale") private var lyricsFontScale: Double = 1.0
     @State private var lyricsPinchScale: CGFloat = 1.0
@@ -2600,6 +2796,10 @@ struct LyricsScrollView: View {
     private var effectiveLyricsScale: Double {
         let combined = lyricsFontScale * Double(lyricsPinchScale)
         return min(max(combined, Self.lyricsMinScale), Self.lyricsMaxScale)
+    }
+
+    private var appearance: NowPlayingAppearance {
+        NowPlayingAppearance(colorScheme: colorScheme, contrast: colorSchemeContrast)
     }
 
     private var hasWordLevelLyrics: Bool {
@@ -2675,13 +2875,13 @@ struct LyricsScrollView: View {
             Spacer().frame(height: 60)
             Text("no_lyrics")
                 .font(.title3)
-                .foregroundStyle(.white.opacity(0.3))
+                .foregroundStyle(appearance.faint)
             Button { onAutomaticScrape() } label: {
                 HStack(spacing: 7) {
                     if isScrapingCurrentSong {
                         ProgressView()
                             .controlSize(.small)
-                            .tint(.white)
+                            .tint(appearance.primary)
                             .transition(.scale.combined(with: .opacity))
                     } else {
                         Image(systemName: "wand.and.stars")
@@ -2693,7 +2893,7 @@ struct LyricsScrollView: View {
                 .animation(.smooth(duration: 0.2, extraBounce: 0), value: isScrapingCurrentSong)
             }
             .buttonStyle(.bordered)
-            .tint(.white)
+            .tint(appearance.primary)
             .disabled(isScrapingCurrentSong)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -3009,9 +3209,9 @@ struct LyricsScrollView: View {
             Text("lyrics_word_level_badge")
                 .font(.caption2.weight(.semibold))
         }
-        .foregroundStyle(.white.opacity(0.6))
+        .foregroundStyle(appearance.secondary)
         .padding(.horizontal, 8).padding(.vertical, 3)
-        .background(Capsule().fill(.white.opacity(0.12)))
+        .background(Capsule().fill(appearance.primary.opacity(0.10)))
         .padding(.bottom, 4)
     }
 
@@ -3078,10 +3278,11 @@ struct LyricsScrollView: View {
                     .font(.system(size: fontSize * 0.65, weight: .medium))
                     .foregroundStyle(
                         dimmedByAmbient
-                            ? .white.opacity(0.7)
-                            : isActive ? .white.opacity(0.7)
-                            : index < currentLineIndex ? .white.opacity(0.18)
-                            : .white.opacity(0.28)
+                            ? appearance.secondary
+                            : isActive ? appearance.secondary
+                            : index < currentLineIndex
+                                ? appearance.primary.opacity(appearance.pastLyricOpacity * 0.72)
+                                : appearance.primary.opacity(appearance.futureLyricOpacity * 0.72)
                     )
                     // 长翻译在窄屏 / 大字号下要 wrap 多行。不加 fixedSize 时 SwiftUI
                     // 会优先单行 + 截断显示省略号。
@@ -3130,16 +3331,20 @@ struct LyricsScrollView: View {
             // 对比, 外层 ambient opacity 接管 row 整体明暗。这样无论 row 处于 future /
             // active / past, syllable 扫光的对比度都一致, 只是整体亮度被 ambient
             // 平滑过渡。
-            let inactiveOpacity: Double = dimmedByAmbient ? 0.4
-                : (isActive ? 0.4 : (index < currentLineIndex ? 0.25 : 0.4))
+            let inactiveOpacity: Double = dimmedByAmbient ? appearance.inactiveSyllableOpacity
+                : (isActive
+                    ? appearance.inactiveSyllableOpacity
+                    : (index < currentLineIndex
+                        ? appearance.pastLyricOpacity
+                        : appearance.futureLyricOpacity))
             let activeOpacity: Double = dimmedByAmbient ? 1.0
                 : (isActive ? 1.0 : inactiveOpacity)
             KaraokeLineView(
                 line: line,
                 fontSize: fontSize,
                 weight: weight,
-                activeColor: .white.opacity(activeOpacity),
-                inactiveColor: .white.opacity(inactiveOpacity),
+                activeColor: appearance.primary.opacity(activeOpacity),
+                inactiveColor: appearance.primary.opacity(inactiveOpacity),
                 timeAt: { date in player.interpolatedTime(at: date) },
                 fixedTime: timelineTime,
                 deactivationTime: dimmedByAmbient ? wordLevelDeactivationTime(for: index) : nil
@@ -3149,10 +3354,11 @@ struct LyricsScrollView: View {
                 .font(.system(size: fontSize, weight: weight))
                 .foregroundStyle(
                     dimmedByAmbient
-                        ? .white
-                        : isActive ? .white
-                        : index < currentLineIndex ? .white.opacity(0.25)
-                        : .white.opacity(0.4)
+                        ? appearance.primary
+                        : isActive ? appearance.primary
+                        : index < currentLineIndex
+                            ? appearance.primary.opacity(appearance.pastLyricOpacity)
+                            : appearance.primary.opacity(appearance.futureLyricOpacity)
                 )
                 // 长歌词在窄屏 / 放大字号下需要 wrap 多行。不加 fixedSize 时 SwiftUI
                 // 在某些 layout 约束下会单行 + 省略号; 而靠近当前行时切到 KaraokeLineView
@@ -3173,10 +3379,14 @@ struct LyricsScrollView: View {
     /// 实际明暗 + 大小过渡都由外层 .animation(value: currentLineIndex) 平滑插值。
     private func rowVisualActivity(index: Int) -> RowActivity {
         guard index >= 0, index < lyrics.count else {
-            return RowActivity(opacity: 0.4, scale: 1.0)
+            return RowActivity(opacity: appearance.futureLyricOpacity, scale: 1.0)
         }
         return RowActivity(
-            opacity: index == currentLineIndex ? 1.0 : 0.4,
+            opacity: index == currentLineIndex
+                ? 1.0
+                : (index < currentLineIndex
+                    ? appearance.pastLyricOpacity
+                    : appearance.futureLyricOpacity),
             scale: index == currentLineIndex ? Self.lyricsActiveVisualScale : 1.0
         )
     }
@@ -3185,10 +3395,14 @@ struct LyricsScrollView: View {
     /// 逐字歌词一致的渲染层缩放。这样不改变布局，也能让切句三种动效同步。
     private func lineLevelRowVisualActivity(index: Int) -> RowActivity {
         guard index >= 0, index < lyrics.count else {
-            return RowActivity(opacity: 0.4, scale: 1.0)
+            return RowActivity(opacity: appearance.futureLyricOpacity, scale: 1.0)
         }
         let isActive = index == currentLineIndex
-        let opacity = isActive ? 1.0 : (index < currentLineIndex ? 0.25 : 0.4)
+        let opacity = isActive
+            ? 1.0
+            : (index < currentLineIndex
+                ? appearance.pastLyricOpacity
+                : appearance.futureLyricOpacity)
         return RowActivity(
             opacity: opacity,
             scale: isActive ? Self.lyricsActiveVisualScale : 1.0
@@ -3204,7 +3418,7 @@ struct LyricsScrollView: View {
         // dimmedByAmbient 模式 (字级歌词): 只让 active 行走 KaraokeLineView 扫光,
         // 相邻 ±1 行也走普通 Text。
         //
-        // 原因: KaraokeLineView 内部 inactive syllable 用 .white.opacity(0.4) 实现
+        // 原因: KaraokeLineView 内部 inactive syllable 用较低透明度的语义前景色实现
         // 双层 Text 的"扫光底色对比"; 而 row 外层 ambient opacity 在非 active 行
         // 也是 0.4。两者 multiply → 0.16, 比远行 (普通 Text × 0.4 = 0.4) 显著
         // 暗一档 ── 用户看到的"下一行比下下行还暗"就是这个双重 multiply 造成。
@@ -3437,6 +3651,12 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
 /// 选择)在用户操作期间不会被强制关闭。
 fileprivate struct PlaybackProgressBar: View {
     @Environment(AudioPlayerService.self) private var player
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+
+    private var appearance: NowPlayingAppearance {
+        NowPlayingAppearance(colorScheme: colorScheme, contrast: colorSchemeContrast)
+    }
 
     var body: some View {
         VStack(spacing: 4) {
@@ -3449,7 +3669,7 @@ fileprivate struct PlaybackProgressBar: View {
                 Text(player.currentTime.formattedDuration); Spacer()
                 Text("-\(max(0, player.duration - player.currentTime).formattedDuration)")
             }
-            .font(.caption2).foregroundStyle(.white.opacity(0.5)).monospacedDigit()
+            .font(.caption2).foregroundStyle(appearance.tertiary).monospacedDigit()
         }
     }
 }

@@ -9,6 +9,14 @@ import PrimuseKit
 /// - 右 1/2: 标题 + 艺术家 + 大字滚动歌词
 /// - 没在播任何歌时: 简单 brand 占位, 不留空白
 struct ExternalDisplayNowPlayingView: View {
+    private enum AmbientBackdropTuning {
+        static let neutralBase = Color(red: 0.035, green: 0.043, blue: 0.055)
+        static let artworkAccentOpacity = 0.76
+        static let fallbackAccentOpacity = 0.30
+        static let artworkLowerAccentOpacity = 0.56
+        static let fallbackLowerAccentOpacity = 0.22
+    }
+
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(ThemeService.self) private var theme
@@ -21,15 +29,7 @@ struct ExternalDisplayNowPlayingView: View {
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                // 跟主屏 NowPlayingView 一样的封面色 ambient,统一视觉
-                Color.black.ignoresSafeArea()
-                LinearGradient(
-                    colors: [theme.darkAccent, theme.darkAccent.opacity(0.55), .black],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .ignoresSafeArea()
-                .animation(.easeInOut(duration: 0.5), value: theme.colorID)
+                externalBackdrop(size: geo.size)
 
                 if player.currentSong != nil {
                     activeBody(geo: geo)
@@ -44,6 +44,48 @@ struct ExternalDisplayNowPlayingView: View {
                 updateLyricIndex(for: time)
             }
         }
+    }
+
+    private func externalBackdrop(size: CGSize) -> some View {
+        let radius = max(size.width, size.height) * 0.78
+        let hasArtworkTheme = theme.colorID != "default"
+        let accentOpacity = hasArtworkTheme
+            ? AmbientBackdropTuning.artworkAccentOpacity
+            : AmbientBackdropTuning.fallbackAccentOpacity
+        let lowerAccentOpacity = hasArtworkTheme
+            ? AmbientBackdropTuning.artworkLowerAccentOpacity
+            : AmbientBackdropTuning.fallbackLowerAccentOpacity
+
+        return ZStack {
+            AmbientBackdropTuning.neutralBase
+
+            RadialGradient(
+                colors: [theme.accentColor.opacity(accentOpacity), .clear],
+                center: .topLeading,
+                startRadius: 0,
+                endRadius: radius
+            )
+
+            RadialGradient(
+                colors: [theme.accentColor.opacity(lowerAccentOpacity), .clear],
+                center: .bottomTrailing,
+                startRadius: 0,
+                endRadius: radius * 0.92
+            )
+
+            LinearGradient(
+                stops: [
+                    .init(color: .black.opacity(0.28), location: 0),
+                    .init(color: .black.opacity(0.34), location: 0.58),
+                    .init(color: .black.opacity(0.42), location: 1)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+        .ignoresSafeArea()
+        .animation(.easeInOut(duration: 0.5), value: theme.colorID)
+        .allowsHitTesting(false)
     }
 
     @ViewBuilder

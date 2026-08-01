@@ -422,7 +422,24 @@ final class ScanService {
         }
 
         if await api.isLoggedIn == false {
-            let password = KeychainService.getPassword(for: source.id) ?? ""
+            let password: String
+            switch KeychainService.passwordLookup(for: source.id) {
+            case .found(let savedPassword):
+                password = savedPassword
+            case .notFound:
+                scanStates[source.id] = ScanState(
+                    isScanning: false,
+                    currentFile: String(localized: "scan_needs_connect")
+                )
+                return
+            case .temporarilyUnavailable(let status):
+                plog("⏳ Synology scan deferred: credential temporarily unavailable status=\(status)")
+                scanStates[source.id] = ScanState(
+                    isScanning: false,
+                    currentFile: String(localized: "credential_temporarily_unavailable")
+                )
+                return
+            }
             let loginResult = await api.login(
                 account: source.username ?? "",
                 password: password,

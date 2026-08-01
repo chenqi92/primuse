@@ -37,7 +37,9 @@ final class AppIconService {
         let supportsAppearance: Bool
     }
 
-    static let themeCount = 8
+    /// Keep the former default icon immediately after the current primary icon,
+    /// then show the remaining design alternatives in their existing order.
+    private static let themeOrder = [9, 1, 2, 3, 4, 5, 6, 7, 8]
 
     /// Themes that ship only a single visual variant (no dark counterpart in
     /// the asset catalog). Add a theme index here when no dark image exists.
@@ -45,7 +47,7 @@ final class AppIconService {
 
     /// Brand tints sampled from the shared flat icon palette.
     private static let iconTints: [String: Color] = [
-        "":         Color(red: 0.914, green: 0.314, blue: 0.263), // default headphones — coral
+        "":         Color(red: 0.914, green: 0.314, blue: 0.263), // folded note — coral underside
         "AppIcon1": Color(red: 0.957, green: 0.784, blue: 0.298), // private library — yellow
         "AppIcon2": Color(red: 0.251, green: 0.765, blue: 0.816), // lossless audio — cyan
         "AppIcon3": Color(red: 0.788, green: 0.941, blue: 0.353), // turntable — acid lime
@@ -54,6 +56,7 @@ final class AppIconService {
         "AppIcon6": Color(red: 0.251, green: 0.835, blue: 0.784), // restored soft note — mint
         "AppIcon7": Color(red: 0.220, green: 0.835, blue: 0.784), // Primuse P — turquoise
         "AppIcon8": Color(red: 1.000, green: 0.569, blue: 0.482), // Muse spark — coral
+        "AppIcon9": Color(red: 0.063, green: 0.216, blue: 0.251), // classic headphones — deep teal
     ]
 
     let options: [IconOption] = {
@@ -67,7 +70,7 @@ final class AppIconService {
                 supportsAppearance: true
             )
         ]
-        for i in 1...AppIconService.themeCount {
+        for i in AppIconService.themeOrder {
             let name = "AppIcon\(i)"
             list.append(IconOption(
                 id: name,

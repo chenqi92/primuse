@@ -646,10 +646,23 @@ struct PrimuseApp: App {
                         }
                     }
                 }
-                .onChange(of: playerService.currentSong?.id) { _, _ in
+                // `.task(id:)` runs once when this scene is mounted as well as
+                // on later song changes. A plain `onChange` misses the case
+                // where a scene is recreated while the shared player already
+                // has a current song, leaving the player on the fallback tint.
+                .task(id: playerService.currentSong?.id) {
                     themeService.updateFromCoverArt(
                         fileName: playerService.currentSong?.coverArtFileName,
                         songID: playerService.currentSong?.id
+                    )
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidCache)) { note in
+                    guard let cachedSongID = note.object as? String,
+                          let currentSong = playerService.currentSong,
+                          currentSong.id == cachedSongID else { return }
+                    themeService.updateFromCoverArt(
+                        fileName: currentSong.coverArtFileName,
+                        songID: currentSong.id
                     )
                 }
                 // Sync player when library replaces a song (e.g. batch scraping

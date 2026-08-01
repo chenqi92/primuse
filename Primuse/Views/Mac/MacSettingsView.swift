@@ -3900,17 +3900,7 @@ private struct MacUpdateCheckView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 16) {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(LinearGradient(colors: [PMColor.brand, PMColor.bgDeep],
-                                         startPoint: .topLeading,
-                                         endPoint: .bottomTrailing))
-                    .frame(width: 58, height: 58)
-                    .overlay {
-                        Text(verbatim: "猿")
-                            .font(.system(size: 29, weight: .bold))
-                            .foregroundStyle(.white)
-                    }
-                    .shadow(color: PMColor.brand.opacity(0.28), radius: 16, y: 6)
+                BrandMonogram(slot: .update)
 
                 VStack(alignment: .leading, spacing: 5) {
                     Text(verbatim: statusTitle)

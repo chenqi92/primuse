@@ -36,6 +36,7 @@ struct AddSourceView: View {
     @State private var autoConnect = false
     @State private var rememberDevice = false
     @State private var isInitialized = false
+    @State private var showCredentialSaveError = false
     #if os(macOS)
     /// Captures the URL chosen via NSOpenPanel so we can persist a
     /// security-scoped bookmark once the source has an ID.
@@ -102,6 +103,11 @@ struct AddSourceView: View {
         }
         .onChange(of: useSsl) { oldValue, newValue in
             updateDefaultPortForSSLChange(from: oldValue, to: newValue)
+        }
+        .alert(String(localized: "credential_save_failed_title"), isPresented: $showCredentialSaveError) {
+            Button("ok", role: .cancel) {}
+        } message: {
+            Text("credential_save_failed_message")
         }
     }
 
@@ -771,9 +777,10 @@ struct AddSourceView: View {
     }
 
     private func saveSource() {
-        // 去除首尾空白/换行: 避免用户名密码混入不可见字符导致 NAS / 服务器认证失败。
+        // 用户名做常规规范化；密码必须逐字节保留，因为首尾空白可能是
+        // 服务端凭据本身的一部分。
         let username = self.username.trimmingCharacters(in: .whitespacesAndNewlines)
-        let password = self.password.trimmingCharacters(in: .whitespacesAndNewlines)
+        let password = self.password
 
         // S3 special mapping: host=endpoint, basePath=bucket, shareName→basePath,
         // extraConfig=JSON{region, dirs} (region + scanned-directory list).
@@ -850,12 +857,18 @@ struct AddSourceView: View {
             KeychainService.deletePassword(for: source.id)
         } else if sourceType == .s3 || authType == .password || authType == .apiKey || authType == .cookie || authType == .oauth {
             if !password.isEmpty {
-                KeychainService.setPassword(password, for: source.id)
+                guard KeychainService.setPassword(password, for: source.id) else {
+                    showCredentialSaveError = true
+                    return
+                }
             }
         } else if authType == .sshKey {
             let trimmedKey = sshKey.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmedKey.isEmpty {
-                KeychainService.setPassword(trimmedKey, for: source.id)
+                guard KeychainService.setPassword(trimmedKey, for: source.id) else {
+                    showCredentialSaveError = true
+                    return
+                }
             }
         }
 

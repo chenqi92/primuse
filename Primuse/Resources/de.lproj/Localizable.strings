@@ -224,7 +224,9 @@
 "lyrics_font_xlarge" = "Sehr groß";
 "appearance" = "Erscheinungsbild";
 "app_icon" = "App-Symbol";
-"icon_default" = "Kopfhörer";
+"icon_default" = "Gefaltete Note";
+"icon_appearance_gray" = "Grau";
+"icon_appearance_hint" = "Das Symbol folgt automatisch der hellen, dunklen oder grauen Darstellung des Home-Bildschirms.";
 "icon_theme_1" = "Private Mediathek";
 "icon_theme_2" = "Verlustfreies Audio";
 "icon_theme_3" = "Plattensammlung";
@@ -233,6 +235,7 @@
 "icon_theme_6" = "Sanfte Note";
 "icon_theme_7" = "Primuse-Zeichen";
 "icon_theme_8" = "Muse-Funke";
+"icon_theme_9" = "Klassisches Symbol";
 "queue_title" = "Warteschlange";
 "queue_empty" = "Warteschlange leer";
 "queue_empty_desc" = "Füge Titel zur Warteschlange hinzu";
@@ -1947,3 +1950,6 @@
 "dsd_mode_pcm" = "In PCM umwandeln";
 "dsd_mode_dop" = "DoP bevorzugen";
 "output_sr_matching_fidelity_desc" = "Im Hi-Fi-Direktmodus immer aktiv. System oder Ausgabegeraet koennen die angeforderte Abtastrate ablehnen.";
+"credential_save_failed_title" = "Anmeldedaten konnten nicht gespeichert werden";
+"credential_save_failed_message" = "Das Passwort konnte nicht sicher gespeichert werden. Die Quelle wurde nicht gespeichert. Versuche es erneut.";
+"credential_temporarily_unavailable" = "Das Passwort ist vorübergehend nicht verfügbar. Entsperre dein Gerät und versuche es erneut.";

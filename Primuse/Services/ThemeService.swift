@@ -19,6 +19,10 @@ final class ThemeService {
     /// Identity token for SwiftUI animation tracking
     private(set) var colorID: String = "default"
 
+    /// Invalidates detached extraction work when the playing song changes while
+    /// an older cover is still being sampled.
+    private var updateGeneration: UInt = 0
+
     /// User-chosen base accent (driven by selected app icon). When set, this
     /// replaces the static brand color as the fallback whenever a song's
     /// cover art isn't actively driving the theme.
@@ -37,6 +41,9 @@ final class ThemeService {
     // MARK: - Public API
 
     func updateFromCoverArt(fileName: String?, songID: String? = nil) {
+        updateGeneration &+= 1
+        let generation = updateGeneration
+
         #if os(macOS)
         guard MacUIPreferences.shared.coverDrivenAmbient else {
             resetToDefault()
@@ -82,6 +89,7 @@ final class ThemeService {
             let result = Self.extractDominantColor(from: resolvedImage)
             await MainActor.run { [weak self] in
                 guard let self else { return }
+                guard self.updateGeneration == generation else { return }
                 withAnimation(.easeInOut(duration: 0.6)) {
                     self.accentColor = result.accent
                     self.darkAccent = result.dark
@@ -92,6 +100,7 @@ final class ThemeService {
     }
 
     func resetToDefault() {
+        updateGeneration &+= 1
         withAnimation(.easeInOut(duration: 0.6)) {
             accentColor = baseAccent
             darkAccent = baseDarkAccent
@@ -171,14 +180,17 @@ final class ThemeService {
         let pixelCount = Int(sampleSize.width) * Int(sampleSize.height)
         let bytesPerPixel = cgImage.bitsPerPixel / 8
 
-        // HSB bucketing: 12 hue buckets of 30° each
+        // Finer hue buckets keep nearby warm tones from swallowing smaller
+        // but more characteristic cool/vivid regions in the artwork.
+        let bucketCount = 24
         struct HSBPixel {
             let hue: CGFloat
             let saturation: CGFloat
             let brightness: CGFloat
+            let weight: CGFloat
         }
 
-        var buckets = [[HSBPixel]](repeating: [], count: 12)
+        var buckets = [[HSBPixel]](repeating: [], count: bucketCount)
 
         for i in 0..<pixelCount {
             let offset = i * bytesPerPixel
@@ -196,31 +208,55 @@ final class ThemeService {
             // Filter out near-black, near-white, and desaturated pixels
             guard s > 0.15, br > 0.10, br < 0.95 else { continue }
 
-            let bucketIndex = min(11, Int(h * 12))
-            buckets[bucketIndex].append(HSBPixel(hue: h, saturation: s, brightness: br))
+            // Saturation-weighted scoring prevents large beige/skin/paper
+            // regions from making unrelated covers all resolve to brown.
+            let weight = s * s * (0.55 + 0.45 * br)
+            // Shift by half a bucket so reds near hue 0/1 stay together.
+            let bucketIndex = Int(h * CGFloat(bucketCount) + 0.5) % bucketCount
+            buckets[bucketIndex].append(
+                HSBPixel(hue: h, saturation: s, brightness: br, weight: weight)
+            )
         }
 
-        // Find the bucket with the most pixels
-        guard let dominantBucket = buckets.max(by: { $0.count < $1.count }),
-              !dominantBucket.isEmpty else {
+        let minimumBucketPixels = max(8, pixelCount / 200)
+        var dominantBucketIndex: Int?
+        var dominantBucketScore: CGFloat = 0
+        for index in buckets.indices where buckets[index].count >= minimumBucketPixels {
+            let score = buckets[index].reduce(CGFloat.zero) { $0 + $1.weight }
+            if score > dominantBucketScore {
+                dominantBucketScore = score
+                dominantBucketIndex = index
+            }
+        }
+
+        guard let dominantBucketIndex else {
             return ColorResult(accent: defaultAccent, dark: defaultDarkAccent)
         }
+        let dominantBucket = buckets[dominantBucketIndex]
 
-        // Average the pixels in the dominant bucket
-        var avgH: CGFloat = 0, avgS: CGFloat = 0, avgB: CGFloat = 0
+        // Weighted circular hue averaging handles the red 0/1 boundary while
+        // keeping saturation and brightness tied to representative pixels.
+        var hueX: CGFloat = 0, hueY: CGFloat = 0
+        var avgS: CGFloat = 0, avgB: CGFloat = 0, totalWeight: CGFloat = 0
         for pixel in dominantBucket {
-            avgH += pixel.hue
-            avgS += pixel.saturation
-            avgB += pixel.brightness
+            let angle = pixel.hue * 2 * .pi
+            hueX += cos(angle) * pixel.weight
+            hueY += sin(angle) * pixel.weight
+            avgS += pixel.saturation * pixel.weight
+            avgB += pixel.brightness * pixel.weight
+            totalWeight += pixel.weight
         }
-        let count = CGFloat(dominantBucket.count)
-        avgH /= count
-        avgS /= count
-        avgB /= count
+        guard totalWeight > 0 else {
+            return ColorResult(accent: defaultAccent, dark: defaultDarkAccent)
+        }
+        var avgH = atan2(hueY, hueX) / (2 * .pi)
+        if avgH < 0 { avgH += 1 }
+        avgS /= totalWeight
+        avgB /= totalWeight
 
-        // Ensure accent color is vibrant enough for UI use
-        // Clamp saturation ≥ 0.3 and brightness between 0.4–0.8 for good contrast
-        let accentS = max(avgS, 0.35)
+        // Keep the accent vivid enough for ambient use while bounding its
+        // brightness so downstream surfaces can maintain reliable contrast.
+        let accentS = min(max(avgS * 1.08, 0.35), 0.92)
         let accentB = min(max(avgB, 0.50), 0.85)
 
         let accent = Color(hue: avgH, saturation: accentS, brightness: accentB)

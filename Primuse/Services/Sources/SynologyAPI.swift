@@ -49,8 +49,16 @@ actor SynologyAPI {
         var sid: String?
         var deviceId: String?
         var needs2FA: Bool
+        /// Raw DSM authentication error code. Keep this structured so callers
+        /// never have to infer credential state from a localized message.
+        var errorCode: Int?
         var errorMessage: String?
         var underlyingError: (any Error)?
+
+        var requiresCredentialPrompt: Bool {
+            guard let errorCode else { return false }
+            return errorCode == 400 || errorCode == 409 || errorCode == 410
+        }
     }
 
     func login(account: String, password: String, otpCode: String? = nil,
@@ -94,27 +102,32 @@ actor SynologyAPI {
                 let did = d?["did"] as? String ?? d?["device_id"] as? String
                 self.sid = sid
                 plog("☁️ Synology login OK host=\(redactedHost(host)) sidPresent=\(sid?.isEmpty == false) deviceIdPresent=\(did?.isEmpty == false)")
-                return LoginResult(success: true, sid: sid, deviceId: did, needs2FA: false)
+                return LoginResult(
+                    success: true,
+                    sid: sid,
+                    deviceId: did,
+                    needs2FA: false,
+                    errorCode: nil
+                )
             } else {
                 let error = json["error"] as? [String: Any]
                 let code = error?["code"] as? Int ?? 0
                 plog("⚠️ Synology login failed host=\(redactedHost(host)) code=\(code) message=\(synologyErrorMessage(code: code))")
 
-                if code == 403 {
+                if code == 403 || code == 404 || code == 406 {
                     return LoginResult(success: false, needs2FA: true,
-                                      errorMessage: "Two-factor authentication required")
-                }
-                if code == 404 {
-                    return LoginResult(success: false, needs2FA: true,
+                                      errorCode: code,
                                       errorMessage: synologyErrorMessage(code: code))
                 }
 
                 return LoginResult(success: false, needs2FA: false,
+                                   errorCode: code,
                                    errorMessage: synologyErrorMessage(code: code))
             }
         } catch {
             plog("⚠️ Synology login request error host=\(redactedHost(host)): \(error.localizedDescription)")
             return LoginResult(success: false, needs2FA: false,
+                               errorCode: nil,
                                errorMessage: error.localizedDescription,
                                underlyingError: error)
         }

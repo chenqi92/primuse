@@ -225,7 +225,9 @@
 "lyrics_font_xlarge" = "特大";
 "appearance" = "外観";
 "app_icon" = "App アイコン";
-"icon_default" = "ヘッドホン再生";
+"icon_default" = "折り返し音符";
+"icon_appearance_gray" = "グレー";
+"icon_appearance_hint" = "ホーム画面のライト、ダーク、グレーの外観に合わせてアイコンが自動的に切り替わります。";
 "icon_theme_1" = "マイライブラリ";
 "icon_theme_2" = "ロスレス音質";
 "icon_theme_3" = "レコードコレクション";
@@ -234,6 +236,7 @@
 "icon_theme_6" = "ソフトノート";
 "icon_theme_7" = "Primuse マーク";
 "icon_theme_8" = "ミューズスパーク";
+"icon_theme_9" = "クラシックアイコン";
 "queue_title" = "再生キュー";
 "queue_empty" = "キューが空です";
 "queue_empty_desc" = "キューに曲を追加してください";
@@ -1948,3 +1951,6 @@
 "dsd_mode_pcm" = "PCM に変換";
 "dsd_mode_dop" = "DoP を優先";
 "output_sr_matching_fidelity_desc" = "高音質ダイレクトでは常に有効です。システムや出力機器が要求したサンプルレートを拒否する場合があります。";
+"credential_save_failed_title" = "認証情報の保存に失敗しました";
+"credential_save_failed_message" = "パスワードを安全に保存できなかったため、ソースは保存されていません。もう一度お試しください。";
+"credential_temporarily_unavailable" = "パスワードを一時的に読み取れません。デバイスのロックを解除してから、もう一度お試しください。";

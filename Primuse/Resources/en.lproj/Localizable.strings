@@ -78,7 +78,9 @@
 // MARK: - Appearance
 "appearance" = "Appearance";
 "app_icon" = "App Icon";
-"icon_default" = "Headphone Play";
+"icon_default" = "Folded Note";
+"icon_appearance_gray" = "Gray";
+"icon_appearance_hint" = "The icon automatically follows the Home Screen's light, dark, or gray appearance.";
 "icon_theme_1" = "Private Library";
 "icon_theme_2" = "Lossless Audio";
 "icon_theme_3" = "Record Collection";
@@ -87,6 +89,7 @@
 "icon_theme_6" = "Soft Note";
 "icon_theme_7" = "Primuse Mark";
 "icon_theme_8" = "Muse Spark";
+"icon_theme_9" = "Classic Icon";
 "queue_title" = "Queue";
 "queue_empty" = "Queue Empty";
 "queue_empty_desc" = "Add songs to the queue";
@@ -1775,3 +1778,6 @@
 "dsd_mode_pcm" = "Convert to PCM";
 "dsd_mode_dop" = "Prefer DoP";
 "output_sr_matching_fidelity_desc" = "Always enabled in High Fidelity Direct mode. The operating system and output device may still reject a requested sample rate.";
+"credential_save_failed_title" = "Credential Save Failed";
+"credential_save_failed_message" = "The password couldn’t be saved securely. The source was not saved. Please try again.";
+"credential_temporarily_unavailable" = "The password is temporarily unavailable. Unlock your device and try again.";

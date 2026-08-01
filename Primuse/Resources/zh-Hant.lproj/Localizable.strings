@@ -69,7 +69,9 @@
 "lyrics_font_xlarge" = "特大";
 "appearance" = "外觀";
 "app_icon" = "App 圖示";
-"icon_default" = "耳機播放";
+"icon_default" = "折頁音符";
+"icon_appearance_gray" = "灰色";
+"icon_appearance_hint" = "圖示會隨主畫面的淺色、深色或灰色外觀自動切換。";
 "icon_theme_1" = "私人曲庫";
 "icon_theme_2" = "無損音質";
 "icon_theme_3" = "唱片收藏";
@@ -78,6 +80,7 @@
 "icon_theme_6" = "清新音符";
 "icon_theme_7" = "Primuse 標誌";
 "icon_theme_8" = "靈感音符";
+"icon_theme_9" = "經典圖示";
 "queue_title" = "播放佇列";
 "queue_empty" = "佇列為空";
 "queue_empty_desc" = "加入歌曲到佇列";
@@ -1923,3 +1926,6 @@
 "dsd_mode_pcm" = "轉換為 PCM";
 "dsd_mode_dop" = "優先 DoP";
 "output_sr_matching_fidelity_desc" = "高傳真直通模式會固定啟用。作業系統或輸出裝置仍可能拒絕要求的取樣率。";
+"credential_save_failed_title" = "憑證儲存失敗";
+"credential_save_failed_message" = "密碼未能安全儲存，來源尚未儲存，請重試。";
+"credential_temporarily_unavailable" = "暫時無法讀取密碼，請解鎖裝置後重試。";
