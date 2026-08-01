@@ -523,6 +523,15 @@
 "reset_scraper_defaults" = "Rétablir les réglages par défaut";
 "scrape_actions" = "Actions de récupération";
 "scrape_missing_metadata" = "Récupérer les métadonnées manquantes";
+"batch_scrape_started_format" = "Récupération par lots lancée pour %d morceaux.";
+"batch_scrape_start_failed" = "Impossible de lancer la récupération par lots. Réessayez dans un instant.";
+"batch_scrape_song_progress_format" = "Récupération des morceaux : %d / %d";
+"batch_scrape_artwork_progress_format" = "Récupération des illustrations : %d / %d";
+"batch_scrape_counts_format" = "Mis à jour %d · Non mis à jour %d · Échecs %d";
+"batch_scrape_completed_format" = "Métadonnées dans l’app : %d morceaux sur %d traités, %d mis à jour, %d non mis à jour, %d échecs.";
+"batch_scrape_artwork_counts_format" = "Disponibles %d · Non récupérées %d";
+"batch_scrape_completed_artwork_format" = "Cache d’images de l’app : %d sur %d disponibles, %d non récupérées.";
+"batch_scrape_cancelled" = "Récupération par lots annulée.";
 "rescrape_library" = "Récupérer à nouveau la bibliothèque";
 "scrape_description" = "Complétez les titres, artistes, albums, pochettes et paroles manquants pour les morceaux déjà présents dans votre bibliothèque.";
 "updated_count" = "mis à jour";

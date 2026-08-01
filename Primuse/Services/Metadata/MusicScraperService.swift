@@ -75,6 +75,36 @@ private actor SidecarWriteCircuitBreaker {
 @MainActor
 @Observable
 final class MusicScraperService {
+    enum BatchScrapeStartResult: Equatable {
+        case started(runID: UUID, songCount: Int)
+        case busy
+        case deferred
+        case empty
+    }
+
+    enum BatchScrapePhase: Equatable {
+        case songs
+        case artwork
+    }
+
+    /// Reports metadata committed to the app library and artwork cache. Optional
+    /// media-server sidecar writes continue independently and are not included.
+    struct BatchScrapeCompletion: Equatable {
+        let runID: UUID
+        let originPlaylistID: String?
+        let songCount: Int
+        let updatedCount: Int
+        let skippedCount: Int
+        let failedCount: Int
+        let artworkTotalCount: Int
+        let artworkAvailableCount: Int
+        let artworkUnavailableCount: Int
+
+        var processedSongCount: Int {
+            updatedCount + skippedCount + failedCount
+        }
+    }
+
     nonisolated static let sidecarCoverWriteEnabledKey = "primuse.sidecar.coverWriteEnabled"
     nonisolated static let sidecarLyricsWriteEnabledKey = "primuse.sidecar.lyricsWriteEnabled"
     nonisolated static let sidecarWriteTimeoutKey = "primuse.sidecar.writeTimeout"
@@ -104,6 +134,16 @@ final class MusicScraperService {
         var songIDs: [String]
         var forceRescrape: Bool
         var nextSongIndex: Int
+        var updatedCount: Int?
+        var skippedCount: Int?
+        var failedCount: Int?
+        var artworkTargetIDs: [String]?
+        var runID: UUID?
+        var originPlaylistID: String?
+
+        var hasPersistedSongCounts: Bool {
+            updatedCount != nil && skippedCount != nil && failedCount != nil
+        }
     }
 
     private(set) var isScraping = false
@@ -114,6 +154,18 @@ final class MusicScraperService {
     private(set) var updatedCount = 0
     private(set) var skippedCount = 0
     private(set) var failedCount = 0
+    private(set) var batchPhase: BatchScrapePhase = .songs
+    private(set) var songTotalCount = 0
+    private(set) var artworkTotalCount = 0
+    private(set) var artworkProcessedCount = 0
+    private(set) var artworkAvailableCount = 0
+    private(set) var artworkUnavailableCount = 0
+    private(set) var lastCompletion: BatchScrapeCompletion?
+    private(set) var completionRevision: UInt = 0
+    private(set) var activeRunID: UUID?
+    private(set) var activeOriginPlaylistID: String?
+    private var pendingPlaylistCompletions: [String: BatchScrapeCompletion] = [:]
+    private var artworkTargetIDs: [String] = []
 
     init(sourceManager: SourceManager) {
         self.sourceManager = sourceManager
@@ -137,15 +189,62 @@ final class MusicScraperService {
         return Double(processedCount) / Double(totalCount)
     }
 
-    func scrapeMissingMetadata(in library: MusicLibrary) {
+    var phaseProcessedCount: Int {
+        switch batchPhase {
+        case .songs:
+            return min(processedCount, songTotalCount)
+        case .artwork:
+            return artworkProcessedCount
+        }
+    }
+
+    var phaseTotalCount: Int {
+        switch batchPhase {
+        case .songs:
+            return songTotalCount
+        case .artwork:
+            return artworkTotalCount
+        }
+    }
+
+    var phaseProgress: Double {
+        guard phaseTotalCount > 0 else { return 0 }
+        return min(Double(phaseProcessedCount) / Double(phaseTotalCount), 1)
+    }
+
+    /// Returns a playlist result once. Keeping it in the service lets a detail
+    /// page recover feedback after navigation without replaying it every time.
+    func consumeBatchCompletion(
+        forPlaylistID playlistID: String,
+        matching runID: UUID? = nil
+    ) -> BatchScrapeCompletion? {
+        guard let completion = pendingPlaylistCompletions[playlistID],
+              runID == nil || completion.runID == runID else { return nil }
+        pendingPlaylistCompletions[playlistID] = nil
+        return completion
+    }
+
+    @discardableResult
+    func scrapeMissingMetadata(in library: MusicLibrary) -> BatchScrapeStartResult {
         startScraping(in: library, forceRescrape: false)
     }
 
-    func scrapeMissingMetadata(songs: [Song], in library: MusicLibrary) {
-        startScraping(songs: songs, in: library, forceRescrape: false)
+    @discardableResult
+    func scrapeMissingMetadata(
+        songs: [Song],
+        in library: MusicLibrary,
+        originPlaylistID: String? = nil
+    ) -> BatchScrapeStartResult {
+        startScraping(
+            songs: songs,
+            in: library,
+            forceRescrape: false,
+            originPlaylistID: originPlaylistID
+        )
     }
 
-    func rescrapeLibrary(in library: MusicLibrary) {
+    @discardableResult
+    func rescrapeLibrary(in library: MusicLibrary) -> BatchScrapeStartResult {
         startScraping(in: library, forceRescrape: true)
     }
 
@@ -487,6 +586,8 @@ final class MusicScraperService {
         endBackgroundTaskIfHeld()
         if !preservingCheckpoint {
             clearScrapeCheckpoint()
+            activeRunID = nil
+            activeOriginPlaylistID = nil
         }
     }
 
@@ -504,18 +605,26 @@ final class MusicScraperService {
             library.visibleSongs.map { ($0.id, $0) },
             uniquingKeysWith: { current, _ in current }
         )
-        let startIndex = min(max(checkpoint.nextSongIndex, 0), checkpoint.songIDs.count)
-        let songs = checkpoint.songIDs.dropFirst(startIndex).compactMap { songsByID[$0] }
+        // Checkpoints written before result counters were introduced cannot be
+        // resumed with an accurate aggregate. Replaying them from the beginning
+        // is idempotent and avoids reporting only the tail as the whole result.
+        let startIndex = checkpoint.hasPersistedSongCounts
+            ? min(max(checkpoint.nextSongIndex, 0), checkpoint.songIDs.count)
+            : 0
+        let songs = checkpoint.songIDs.compactMap { songsByID[$0] }
+        let pendingSongs = checkpoint.songIDs.dropFirst(startIndex).compactMap { songsByID[$0] }
         guard !songs.isEmpty else {
             clearScrapeCheckpoint()
             return
         }
         startScraping(
             songs: songs,
+            pendingSongs: pendingSongs,
             in: library,
             forceRescrape: checkpoint.forceRescrape,
             saveCheckpoint: false,
-            allowBackgroundExecution: allowBackgroundExecution
+            allowBackgroundExecution: allowBackgroundExecution,
+            resumeCheckpoint: checkpoint
         )
     }
 
@@ -525,24 +634,31 @@ final class MusicScraperService {
         }
     }
 
-    private func startScraping(in library: MusicLibrary, forceRescrape: Bool) {
+    private func startScraping(
+        in library: MusicLibrary,
+        forceRescrape: Bool
+    ) -> BatchScrapeStartResult {
         startScraping(songs: library.visibleSongs, in: library, forceRescrape: forceRescrape)
     }
 
+    @discardableResult
     private func startScraping(
         songs requestedSongs: [Song],
+        pendingSongs requestedPendingSongs: [Song]? = nil,
         in library: MusicLibrary,
         forceRescrape: Bool,
         saveCheckpoint: Bool = true,
-        allowBackgroundExecution: Bool = false
-    ) {
+        allowBackgroundExecution: Bool = false,
+        resumeCheckpoint: ScrapeCheckpoint? = nil,
+        originPlaylistID: String? = nil
+    ) -> BatchScrapeStartResult {
         guard !isScraping, !isSingleScraping else {
             plog("MusicScraperService: ignored overlapping batch scrape request")
-            return
+            return .busy
         }
         guard allowBackgroundExecution || !isPausedForSceneTransition else {
             plog("MusicScraperService: deferred batch scrape during scene transition")
-            return
+            return .deferred
         }
 
         let latestByID = Dictionary(library.visibleSongs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -550,16 +666,47 @@ final class MusicScraperService {
             guard result.seen.insert(song.id).inserted else { return }
             result.ordered.append(latestByID[song.id] ?? song)
         }.ordered
-        guard !songs.isEmpty else { return }
+        guard !songs.isEmpty else { return .empty }
+        let pendingSongs = (requestedPendingSongs ?? songs).reduce(
+            into: (ordered: [Song](), seen: Set<String>())
+        ) { result, song in
+            guard result.seen.insert(song.id).inserted else { return }
+            result.ordered.append(latestByID[song.id] ?? song)
+        }.ordered
+        let runID = resumeCheckpoint?.runID ?? UUID()
+        let runOriginPlaylistID = resumeCheckpoint?.originPlaylistID ?? originPlaylistID
         if saveCheckpoint {
-            persistScrapeCheckpoint(songIDs: songs.map(\.id), forceRescrape: forceRescrape)
+            persistScrapeCheckpoint(
+                songIDs: songs.map(\.id),
+                forceRescrape: forceRescrape,
+                runID: runID,
+                originPlaylistID: runOriginPlaylistID
+            )
+        } else if var checkpoint = scrapeCheckpoint,
+                  checkpoint.runID == nil || checkpoint.originPlaylistID != runOriginPlaylistID {
+            // Upgrade checkpoints written by an older build so any later
+            // lifecycle resume keeps the same run identity and UI ownership.
+            checkpoint.runID = runID
+            checkpoint.originPlaylistID = runOriginPlaylistID
+            scrapeCheckpoint = checkpoint
+            writeScrapeCheckpoint(checkpoint)
         }
-        totalCount = songs.count
-        processedCount = 0
-        updatedCount = 0
-        skippedCount = 0
-        failedCount = 0
+        let logicalSongCount = resumeCheckpoint?.songIDs.count ?? songs.count
+        updatedCount = resumeCheckpoint?.updatedCount ?? 0
+        skippedCount = resumeCheckpoint?.skippedCount ?? 0
+        failedCount = resumeCheckpoint?.failedCount ?? 0
+        processedCount = updatedCount + skippedCount + failedCount
+        totalCount = logicalSongCount
         currentSongTitle = ""
+        batchPhase = .songs
+        songTotalCount = logicalSongCount
+        artworkTotalCount = 0
+        artworkTargetIDs = []
+        artworkAvailableCount = 0
+        artworkUnavailableCount = 0
+        artworkProcessedCount = 0
+        activeOriginPlaylistID = runOriginPlaylistID
+        activeRunID = runID
         isScraping = true
         scrapingGeneration += 1
         let generation = scrapingGeneration
@@ -570,7 +717,11 @@ final class MusicScraperService {
             defer {
                 let cancelled = Task.isCancelled
                 let updated = updatedCount
+                let skipped = skippedCount
                 let failed = failedCount
+                let availableArtwork = artworkAvailableCount
+                let unavailableArtwork = artworkUnavailableCount
+                let totalArtwork = artworkTotalCount
                 if scrapingGeneration == generation {
                     isScraping = false
                     currentSongTitle = ""
@@ -579,15 +730,32 @@ final class MusicScraperService {
                     // Fire the completion notification only when the run actually
                     // finished — cancellation (user hit "stop") shouldn't pop one.
                     if !cancelled {
+                        let completion = BatchScrapeCompletion(
+                            runID: runID,
+                            originPlaylistID: runOriginPlaylistID,
+                            songCount: logicalSongCount,
+                            updatedCount: updated,
+                            skippedCount: skipped,
+                            failedCount: failed,
+                            artworkTotalCount: totalArtwork,
+                            artworkAvailableCount: availableArtwork,
+                            artworkUnavailableCount: unavailableArtwork
+                        )
+                        lastCompletion = completion
+                        if let runOriginPlaylistID {
+                            pendingPlaylistCompletions[runOriginPlaylistID] = completion
+                        }
+                        completionRevision &+= 1
                         clearScrapeCheckpoint()
                         Task { @MainActor in
                             await Self.postScrapeCompletionNotification(
                                 forceRescrape: forceRescrape,
-                                updatedCount: updated,
-                                failedCount: failed
+                                completion: completion
                             )
                         }
                     }
+                    activeRunID = nil
+                    activeOriginPlaylistID = nil
                 }
             }
 
@@ -621,7 +789,7 @@ final class MusicScraperService {
             }
 
             // Phase 1: Scrape song metadata + write sidecar files
-            for song in songs {
+            for song in pendingSongs {
                 guard !Task.isCancelled else { return }
                 var completedCurrentSong = false
                 defer {
@@ -810,6 +978,7 @@ final class MusicScraperService {
             // Publish a short tail before derived album/artist work and before
             // declaring the scrape complete.
             publishPendingSongBatch()
+            finishScrapeSongPhaseCheckpoint()
 
             // Phase 2: Scrape album and artist covers
             guard !Task.isCancelled else { return }
@@ -823,16 +992,65 @@ final class MusicScraperService {
                     .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
                     .filter { !$0.isEmpty }
             )
-            let albumsNeedingCover = library.visibleAlbums.filter { album in
-                (isWholeVisibleLibrary || targetAlbumIDs.contains(album.id))
-                    && (forceRescrape || !assetStore.hasAlbumCover(forAlbumID: album.id))
+            let albumsInScope = library.visibleAlbums.filter { album in
+                isWholeVisibleLibrary || targetAlbumIDs.contains(album.id)
             }
-            let artistsNeedingImage = library.visibleArtists.filter { artist in
+            let artistsInScope = library.visibleArtists.filter { artist in
                 let name = artist.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 return (isWholeVisibleLibrary || targetArtistIDs.contains(artist.id) || targetArtistNames.contains(name))
-                    && (forceRescrape || !assetStore.hasArtistImage(forArtistID: artist.id))
             }
-            totalCount += albumsNeedingCover.count + artistsNeedingImage.count
+
+            let resumedTargetIDs = resumeCheckpoint?.artworkTargetIDs
+            let targetIDs: [String]
+            if let resumedTargetIDs {
+                targetIDs = resumedTargetIDs
+            } else {
+                let albumIDs = albumsInScope.compactMap { album -> String? in
+                    guard forceRescrape || !assetStore.hasAlbumCover(forAlbumID: album.id) else { return nil }
+                    return Self.albumArtworkTargetID(album.id)
+                }
+                let artistIDs = artistsInScope.compactMap { artist -> String? in
+                    guard forceRescrape || !assetStore.hasArtistImage(forArtistID: artist.id) else { return nil }
+                    return Self.artistArtworkTargetID(artist.id)
+                }
+                targetIDs = albumIDs + artistIDs
+            }
+
+            let targetIDSet = Set(targetIDs)
+            var availableIDs = Set<String>()
+            if !forceRescrape {
+                for targetID in targetIDs {
+                    if Self.isArtworkAvailable(targetID: targetID, in: assetStore) {
+                        availableIDs.insert(targetID)
+                    }
+                }
+            }
+
+            let albumsNeedingCover = albumsInScope.filter { album in
+                let targetID = Self.albumArtworkTargetID(album.id)
+                return targetIDSet.contains(targetID)
+                    && (forceRescrape || !availableIDs.contains(targetID))
+            }
+            let artistsNeedingImage = artistsInScope.filter { artist in
+                let targetID = Self.artistArtworkTargetID(artist.id)
+                return targetIDSet.contains(targetID)
+                    && (forceRescrape || !availableIDs.contains(targetID))
+            }
+            let pendingTargetIDs = Set(
+                albumsNeedingCover.map { Self.albumArtworkTargetID($0.id) }
+                    + artistsNeedingImage.map { Self.artistArtworkTargetID($0.id) }
+            )
+            artworkTargetIDs = targetIDs
+            artworkTotalCount = targetIDs.count
+            artworkAvailableCount = availableIDs.count
+            artworkUnavailableCount = targetIDSet.subtracting(availableIDs.union(pendingTargetIDs)).count
+            artworkProcessedCount = artworkAvailableCount + artworkUnavailableCount
+            if artworkTotalCount > 0 {
+                batchPhase = .artwork
+                totalCount += artworkTotalCount
+                processedCount += artworkProcessedCount
+                updateArtworkCheckpoint(forceWrite: true)
+            }
 
             await scrapeAlbumAndArtistCovers(
                 in: library,
@@ -840,10 +1058,26 @@ final class MusicScraperService {
                 artistsNeedingImage: artistsNeedingImage
             )
         }
+        return .started(runID: runID, songCount: logicalSongCount)
     }
 
-    private func persistScrapeCheckpoint(songIDs: [String], forceRescrape: Bool) {
-        let checkpoint = ScrapeCheckpoint(songIDs: songIDs, forceRescrape: forceRescrape, nextSongIndex: 0)
+    private func persistScrapeCheckpoint(
+        songIDs: [String],
+        forceRescrape: Bool,
+        runID: UUID,
+        originPlaylistID: String?
+    ) {
+        let checkpoint = ScrapeCheckpoint(
+            songIDs: songIDs,
+            forceRescrape: forceRescrape,
+            nextSongIndex: 0,
+            updatedCount: 0,
+            skippedCount: 0,
+            failedCount: 0,
+            artworkTargetIDs: nil,
+            runID: runID,
+            originPlaylistID: originPlaylistID
+        )
         scrapeCheckpoint = checkpoint
         writeScrapeCheckpoint(checkpoint)
     }
@@ -857,17 +1091,45 @@ final class MusicScraperService {
         guard var checkpoint = scrapeCheckpoint,
               let completedIndex = checkpoint.songIDs.firstIndex(of: songID) else { return }
 
-        // Keep the final song as a lightweight sentinel while album/artist
-        // artwork is still being processed. If iOS kills us in phase 2, the
-        // next run repeats at most that one song and then safely resumes the
-        // derived artwork pass.
-        checkpoint.nextSongIndex = min(completedIndex + 1, max(checkpoint.songIDs.count - 1, 0))
+        checkpoint.nextSongIndex = min(completedIndex + 1, checkpoint.songIDs.count)
+        checkpoint.updatedCount = updatedCount
+        checkpoint.skippedCount = skippedCount
+        checkpoint.failedCount = failedCount
         scrapeCheckpoint = checkpoint
 
         // Network scraping is much slower than this write, but avoid rewriting
         // a potentially large ID list after every track. Expiration handling
         // flushes the latest in-memory index before cancelling.
         if completedIndex.isMultiple(of: 10) || completedIndex == checkpoint.songIDs.count - 1 {
+            writeScrapeCheckpoint(checkpoint)
+        }
+    }
+
+    /// Commits the completed song phase even when a resumed target no longer
+    /// has a pending local row. A checkpoint at songIDs.count intentionally
+    /// resumes directly into derived artwork work without replaying a sentinel
+    /// song and double-counting its outcome.
+    private func finishScrapeSongPhaseCheckpoint() {
+        guard var checkpoint = scrapeCheckpoint else { return }
+        checkpoint.nextSongIndex = checkpoint.songIDs.count
+        checkpoint.updatedCount = updatedCount
+        checkpoint.skippedCount = skippedCount
+        checkpoint.failedCount = failedCount
+        scrapeCheckpoint = checkpoint
+        writeScrapeCheckpoint(checkpoint)
+    }
+
+    private func updateArtworkCheckpoint(forceWrite: Bool = false) {
+        guard var checkpoint = scrapeCheckpoint else { return }
+        checkpoint.artworkTargetIDs = artworkTargetIDs
+        scrapeCheckpoint = checkpoint
+
+        // The checkpoint includes the complete song-ID list, which can be large.
+        // Keep in-memory results exact for lifecycle cancellation, and only flush
+        // periodically during normal artwork work to avoid avoidable disk churn.
+        if forceWrite
+            || artworkProcessedCount.isMultiple(of: 10)
+            || artworkProcessedCount == artworkTotalCount {
             writeScrapeCheckpoint(checkpoint)
         }
     }
@@ -940,20 +1202,27 @@ final class MusicScraperService {
     /// the same wording / dedup behaviour.
     private static func postScrapeCompletionNotification(
         forceRescrape: Bool,
-        updatedCount: Int,
-        failedCount: Int
+        completion: BatchScrapeCompletion
     ) async {
         let titleKey = forceRescrape
             ? "notify_rescrape_done_title"
             : "notify_scrape_missing_done_title"
         let title = String(localized: String.LocalizationValue(titleKey))
-        let body: String
-        if failedCount > 0 {
-            let format = String(localized: "notify_scrape_done_body_with_failures")
-            body = String(format: format, updatedCount, failedCount)
-        } else {
-            let format = String(localized: "notify_scrape_done_body")
-            body = String(format: format, updatedCount)
+        var body = String(
+            format: String(localized: "batch_scrape_completed_format"),
+            completion.processedSongCount,
+            completion.songCount,
+            completion.updatedCount,
+            completion.skippedCount,
+            completion.failedCount
+        )
+        if completion.artworkTotalCount > 0 {
+            body += "\n" + String(
+                format: String(localized: "batch_scrape_completed_artwork_format"),
+                completion.artworkAvailableCount,
+                completion.artworkTotalCount,
+                completion.artworkUnavailableCount
+            )
         }
         await UserNotificationService.shared.postLongTaskCompletion(
             category: forceRescrape ? .rescrapeLibraryDone : .scrapeMissingDone,
@@ -969,6 +1238,7 @@ final class MusicScraperService {
         artistsNeedingImage: [Artist]
     ) async {
         let artworkService = ArtworkFetchService.shared
+        let assetStore = MetadataAssetStore.shared
 
         // Albums without cached cover
         if !albumsNeedingCover.isEmpty {
@@ -980,7 +1250,10 @@ final class MusicScraperService {
                 _ = await artworkService.fetchAlbumCover(
                     albumTitle: album.title, artistName: album.artistName, albumID: album.id
                 )
-                processedCount += 1
+                guard !Task.isCancelled else { return }
+                recordArtworkResult(
+                    isAvailable: assetStore.hasAlbumCover(forAlbumID: album.id)
+                )
             }
         }
 
@@ -994,9 +1267,44 @@ final class MusicScraperService {
                 _ = await artworkService.fetchArtistImage(
                     artistName: artist.name, artistID: artist.id
                 )
-                processedCount += 1
+                guard !Task.isCancelled else { return }
+                recordArtworkResult(
+                    isAvailable: assetStore.hasArtistImage(forArtistID: artist.id)
+                )
             }
         }
+    }
+
+    private static func albumArtworkTargetID(_ albumID: String) -> String {
+        "album:\(albumID)"
+    }
+
+    private static func artistArtworkTargetID(_ artistID: String) -> String {
+        "artist:\(artistID)"
+    }
+
+    private static func isArtworkAvailable(
+        targetID: String,
+        in assetStore: MetadataAssetStore
+    ) -> Bool {
+        if targetID.hasPrefix("album:") {
+            return assetStore.hasAlbumCover(forAlbumID: String(targetID.dropFirst(6)))
+        }
+        if targetID.hasPrefix("artist:") {
+            return assetStore.hasArtistImage(forArtistID: String(targetID.dropFirst(7)))
+        }
+        return false
+    }
+
+    private func recordArtworkResult(isAvailable: Bool) {
+        processedCount += 1
+        artworkProcessedCount += 1
+        if isAvailable {
+            artworkAvailableCount += 1
+        } else {
+            artworkUnavailableCount += 1
+        }
+        updateArtworkCheckpoint()
     }
 
     private struct ProcessedResult {

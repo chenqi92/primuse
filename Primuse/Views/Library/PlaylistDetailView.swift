@@ -1,5 +1,10 @@
 import SwiftUI
 import PrimuseKit
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 struct PlaylistDetailView: View {
     @Environment(\.dismiss) private var dismiss
@@ -14,6 +19,9 @@ struct PlaylistDetailView: View {
     @State private var exportShareItem: ExportShareItem?
     @State private var exportError: String?
     @State private var showReorderSheet = false
+    @State private var scrapeFeedback: ScrapeFeedback?
+    @State private var trackedScrapeRunID: UUID?
+    @State private var isViewVisible = false
 
     private var currentPlaylist: Playlist? {
         library.playlist(id: playlist.id)
@@ -36,19 +44,60 @@ struct PlaylistDetailView: View {
         playlist.id == MusicLibrary.likedSongsPlaylistID ? "heart.fill" : "music.note.list"
     }
 
+    private var isCurrentPlaylistScraping: Bool {
+        guard scraperService.isScraping,
+              scraperService.activeOriginPlaylistID == playlist.id,
+              let activeRunID = scraperService.activeRunID else { return false }
+        return trackedScrapeRunID == nil || trackedScrapeRunID == activeRunID
+    }
+
     /// 给 .sheet 用 — URL 不是 Identifiable, 包一层。
     struct ExportShareItem: Identifiable {
         let id = UUID()
         let url: URL
     }
 
+    private struct ScrapeFeedback: Identifiable {
+        let id = UUID()
+        let message: String
+        let systemImage: String
+        let color: Color
+    }
+
     @ViewBuilder
     var body: some View {
+        Group {
         #if os(macOS)
-        macPlaylistDetail
+            macPlaylistDetail
         #else
-        legacyPlaylistDetail
+            legacyPlaylistDetail
         #endif
+        }
+        .overlay(alignment: .bottom) {
+            scrapeFeedbackToast
+        }
+        .onChange(of: scraperService.completionRevision) { _, _ in
+            showScrapeCompletion()
+        }
+        .onChange(of: scraperService.activeRunID) { _, activeRunID in
+            if scraperService.activeOriginPlaylistID == playlist.id {
+                trackedScrapeRunID = activeRunID
+            } else if activeRunID == nil {
+                trackedScrapeRunID = nil
+            }
+        }
+        .onAppear {
+            isViewVisible = true
+            if scraperService.activeOriginPlaylistID == playlist.id {
+                trackedScrapeRunID = scraperService.activeRunID
+            } else {
+                trackedScrapeRunID = nil
+            }
+            showScrapeCompletion()
+        }
+        .onDisappear {
+            isViewVisible = false
+        }
     }
 
     private var legacyPlaylistDetail: some View {
@@ -76,6 +125,11 @@ struct PlaylistDetailView: View {
                         .foregroundStyle(.secondary)
                 }
                 .padding(.top, 20)
+
+                if isCurrentPlaylistScraping {
+                    batchScrapeProgressCard
+                        .padding(.horizontal)
+                }
 
                 // Action buttons ── 主按钮"播放全部"占大头, 旁边两个紧凑图标按钮。
                 // 三按钮等分时中文 label 在 iPhone 上挤换行 / 截断, 这套 Apple Music
@@ -174,7 +228,7 @@ struct PlaylistDetailView: View {
                     }
                     .disabled(songs.filteredPlayable().isEmpty)
                     Button {
-                        scraperService.scrapeMissingMetadata(songs: songs, in: library)
+                        startPlaylistScrape()
                     } label: {
                         Label("scrape_missing_metadata", systemImage: "wand.and.stars")
                     }
@@ -223,6 +277,108 @@ struct PlaylistDetailView: View {
         } message: { Text(exportError ?? "") }
     }
 
+    private var batchScrapeProgressCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityHidden(true)
+                Text(batchScrapeProgressTitle)
+                    .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
+                Spacer(minLength: 8)
+                Button("cancel", role: .cancel) {
+                    cancelPlaylistScrape()
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+            }
+
+            ProgressView(value: scraperService.phaseProgress)
+                .progressViewStyle(.linear)
+                .accessibilityLabel(Text(batchScrapeProgressTitle))
+                .accessibilityValue(Text(batchScrapeCountsText))
+
+            if !scraperService.currentSongTitle.isEmpty {
+                Text(scraperService.currentSongTitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Text(batchScrapeCountsText)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+        }
+        .padding(14)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(.quaternary, lineWidth: 0.5)
+        }
+    }
+
+    private var batchScrapeProgressTitle: String {
+        let key = switch scraperService.batchPhase {
+        case .songs:
+            "batch_scrape_song_progress_format"
+        case .artwork:
+            "batch_scrape_artwork_progress_format"
+        }
+        return String(
+            format: String(localized: String.LocalizationValue(key)),
+            scraperService.phaseProcessedCount,
+            scraperService.phaseTotalCount
+        )
+    }
+
+    private var batchScrapeCountsText: String {
+        switch scraperService.batchPhase {
+        case .songs:
+            return String(
+                format: String(localized: "batch_scrape_counts_format"),
+                scraperService.updatedCount,
+                scraperService.skippedCount,
+                scraperService.failedCount
+            )
+        case .artwork:
+            return String(
+                format: String(localized: "batch_scrape_artwork_counts_format"),
+                scraperService.artworkAvailableCount,
+                scraperService.artworkUnavailableCount
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var scrapeFeedbackToast: some View {
+        if let scrapeFeedback {
+            HStack(spacing: 10) {
+                Image(systemName: scrapeFeedback.systemImage)
+                    .foregroundStyle(scrapeFeedback.color)
+                Text(scrapeFeedback.message)
+                    .font(.subheadline.weight(.medium))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 11)
+            .frame(maxWidth: 560)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(.quaternary, lineWidth: 0.5)
+            }
+            .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 24)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .allowsHitTesting(false)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(scrapeFeedback.message))
+        }
+    }
+
     #if os(macOS)
     private var macPlaylistDetail: some View {
         ScrollView(.vertical, showsIndicators: false) {
@@ -241,6 +397,10 @@ struct PlaylistDetailView: View {
                 )
 
                 VStack(alignment: .leading, spacing: PMSpace.l) {
+                    if isCurrentPlaylistScraping {
+                        batchScrapeProgressCard
+                    }
+
                     // 设计稿: 普通歌单只有 LibraryHeader + 歌曲表。智能歌单才显示
                     // smart rule callout (放在 SmartPlaylistDetailView 里)。原来这里
                     // 给所有非 Liked/AM 歌单都套了一个 "reorder + 导出" 工具卡, 不在
@@ -347,7 +507,7 @@ struct PlaylistDetailView: View {
         middle.append(.init(icon: "wand.and.stars", title: String(localized: "scrape_missing_metadata"),
                             trailing: songs.count.formatted(),
                             enabled: !songs.isEmpty && !scraperService.isScraping) {
-            scraperService.scrapeMissingMetadata(songs: songs, in: library)
+            startPlaylistScrape()
         })
 
         return AnyView(MacHeaderMoreMenu(sections: [
@@ -553,6 +713,124 @@ struct PlaylistDetailView: View {
     private func canDeletePlaylist(_ playlistID: String) -> Bool {
         !AppleMusicLibraryService.isAppleMusicMirrorPlaylist(playlistID)
             && playlistID != MusicLibrary.likedSongsPlaylistID
+    }
+
+    private func startPlaylistScrape() {
+        switch scraperService.scrapeMissingMetadata(
+            songs: songs,
+            in: library,
+            originPlaylistID: playlist.id
+        ) {
+        case let .started(runID, songCount):
+            trackedScrapeRunID = runID
+            showScrapeFeedback(
+                String(
+                    format: String(localized: "batch_scrape_started_format"),
+                    songCount
+                ),
+                systemImage: "checkmark.circle.fill",
+                color: .green
+            )
+        case .busy, .deferred, .empty:
+            showScrapeFeedback(
+                String(localized: "batch_scrape_start_failed"),
+                systemImage: "exclamationmark.circle.fill",
+                color: .red
+            )
+        }
+    }
+
+    private func cancelPlaylistScrape() {
+        guard isCurrentPlaylistScraping else { return }
+        scraperService.cancel()
+        trackedScrapeRunID = nil
+        showScrapeFeedback(
+            String(localized: "batch_scrape_cancelled"),
+            systemImage: "xmark.circle.fill",
+            color: .gray
+        )
+    }
+
+    private func showScrapeCompletion() {
+        guard isViewVisible,
+              let completion = scraperService.consumeBatchCompletion(
+                  forPlaylistID: playlist.id,
+                  matching: trackedScrapeRunID
+              ) else { return }
+        trackedScrapeRunID = nil
+        var message = String(
+            format: String(localized: "batch_scrape_completed_format"),
+            completion.processedSongCount,
+            completion.songCount,
+            completion.updatedCount,
+            completion.skippedCount,
+            completion.failedCount
+        )
+        if completion.artworkTotalCount > 0 {
+            message += "\n" + String(
+                format: String(localized: "batch_scrape_completed_artwork_format"),
+                completion.artworkAvailableCount,
+                completion.artworkTotalCount,
+                completion.artworkUnavailableCount
+            )
+        }
+        let symbol: String
+        let color: Color
+        let appliedCount = completion.updatedCount + completion.artworkAvailableCount
+        let unavailableCount = completion.failedCount + completion.artworkUnavailableCount
+        if appliedCount == 0, unavailableCount > 0 {
+            symbol = "xmark.circle.fill"
+            color = .red
+        } else if unavailableCount > 0 {
+            symbol = "exclamationmark.triangle.fill"
+            color = .orange
+        } else if appliedCount > 0 {
+            symbol = "checkmark.circle.fill"
+            color = .green
+        } else {
+            symbol = "info.circle.fill"
+            color = .accentColor
+        }
+        showScrapeFeedback(message, systemImage: symbol, color: color)
+    }
+
+    private func showScrapeFeedback(
+        _ message: String,
+        systemImage: String,
+        color: Color
+    ) {
+        let feedback = ScrapeFeedback(
+            message: message,
+            systemImage: systemImage,
+            color: color
+        )
+        withAnimation {
+            scrapeFeedback = feedback
+        }
+        announceScrapeFeedback(message)
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(4))
+            guard scrapeFeedback?.id == feedback.id else { return }
+            withAnimation {
+                scrapeFeedback = nil
+            }
+        }
+    }
+
+    private func announceScrapeFeedback(_ message: String) {
+        #if os(iOS)
+        UIAccessibility.post(notification: .announcement, argument: message)
+        #elseif os(macOS)
+        guard let application = NSApp else { return }
+        NSAccessibility.post(
+            element: application,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: message,
+                .priority: NSAccessibilityPriorityLevel.high.rawValue,
+            ]
+        )
+        #endif
     }
 
     private func deleteCurrentPlaylist() {

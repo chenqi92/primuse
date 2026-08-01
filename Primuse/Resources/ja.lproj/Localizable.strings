@@ -524,6 +524,15 @@
 "reset_scraper_defaults" = "デフォルトに戻す";
 "scrape_actions" = "取得アクション";
 "scrape_missing_metadata" = "欠落メタデータを取得";
+"batch_scrape_started_format" = "%d曲の一括スクレイピングを開始しました。";
+"batch_scrape_start_failed" = "一括スクレイピングを開始できませんでした。しばらくしてからもう一度お試しください。";
+"batch_scrape_song_progress_format" = "曲をスクレイピング中 %d / %d";
+"batch_scrape_artwork_progress_format" = "アートワークを取得中 %d / %d";
+"batch_scrape_counts_format" = "更新 %d · 未更新 %d · 失敗 %d";
+"batch_scrape_completed_format" = "アプリ内の曲メタデータ：%d/%d曲を処理、%d曲を更新、%d曲は未更新、%d曲は失敗。";
+"batch_scrape_artwork_counts_format" = "取得済み %d · 未取得 %d";
+"batch_scrape_completed_artwork_format" = "アプリ内画像キャッシュ：%d/%d件を取得、%d件は未取得。";
+"batch_scrape_cancelled" = "一括スクレイピングをキャンセルしました。";
 "rescrape_library" = "ライブラリを再取得";
 "scrape_description" = "ライブラリにある曲のうち、欠落しているタイトル、アーティスト、アルバム、カバー、歌詞を補完します。";
 "updated_count" = "件更新";

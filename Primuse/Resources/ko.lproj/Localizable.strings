@@ -523,6 +523,15 @@
 "reset_scraper_defaults" = "기본값으로 재설정";
 "scrape_actions" = "가져오기 작업";
 "scrape_missing_metadata" = "누락된 메타데이터 가져오기";
+"batch_scrape_started_format" = "%d곡의 일괄 스크래핑을 시작했습니다.";
+"batch_scrape_start_failed" = "일괄 스크래핑을 시작할 수 없습니다. 잠시 후 다시 시도하세요.";
+"batch_scrape_song_progress_format" = "곡 스크래핑 중 %d / %d";
+"batch_scrape_artwork_progress_format" = "아트워크 가져오는 중 %d / %d";
+"batch_scrape_counts_format" = "업데이트 %d · 미업데이트 %d · 실패 %d";
+"batch_scrape_completed_format" = "앱 내 곡 메타데이터: %d/%d곡 처리, %d곡 업데이트, %d곡 미업데이트, %d곡 실패.";
+"batch_scrape_artwork_counts_format" = "사용 가능 %d · 가져오지 못함 %d";
+"batch_scrape_completed_artwork_format" = "앱 내 이미지 캐시: %d/%d개 사용 가능, %d개 가져오지 못함.";
+"batch_scrape_cancelled" = "일괄 스크래핑을 취소했습니다.";
 "rescrape_library" = "라이브러리 다시 가져오기";
 "scrape_description" = "라이브러리에 이미 있는 곡의 누락된 제목, 아티스트, 앨범, 커버, 가사를 채웁니다.";
 "updated_count" = "업데이트됨";

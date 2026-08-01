@@ -402,6 +402,15 @@
 "reset_scraper_defaults" = "恢复默认设置";
 "scrape_actions" = "刮削操作";
 "scrape_missing_metadata" = "刮削缺失元数据";
+"batch_scrape_started_format" = "已开始批量刮削，共 %d 首歌曲。";
+"batch_scrape_start_failed" = "批量刮削未能启动，请稍后重试。";
+"batch_scrape_song_progress_format" = "正在刮削歌曲 %d / %d";
+"batch_scrape_artwork_progress_format" = "正在获取封面图片 %d / %d";
+"batch_scrape_counts_format" = "已更新 %d · 未更新 %d · 失败 %d";
+"batch_scrape_completed_format" = "应用内歌曲元数据：已处理 %d / %d 首，更新 %d 首，未更新 %d 首，失败 %d 首。";
+"batch_scrape_artwork_counts_format" = "已获取 %d · 未获取 %d";
+"batch_scrape_completed_artwork_format" = "应用内图片缓存：已获取 %d / %d，未获取 %d。";
+"batch_scrape_cancelled" = "已取消批量刮削。";
 "rescrape_library" = "重新刮削整个资料库";
 "scrape_description" = "为当前资料库中已有歌曲补全缺失的标题、艺术家、专辑、封面和歌词。";
 "updated_count" = "项已更新";

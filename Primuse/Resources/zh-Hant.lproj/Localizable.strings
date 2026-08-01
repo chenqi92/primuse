@@ -375,6 +375,15 @@
 "reset_scraper_defaults" = "還原預設設定";
 "scrape_actions" = "刮削操作";
 "scrape_missing_metadata" = "刮削缺少的中繼資料";
+"batch_scrape_started_format" = "已開始批次刮削，共 %d 首歌曲。";
+"batch_scrape_start_failed" = "批次刮削無法啟動，請稍後再試。";
+"batch_scrape_song_progress_format" = "正在刮削歌曲 %d / %d";
+"batch_scrape_artwork_progress_format" = "正在取得封面圖片 %d / %d";
+"batch_scrape_counts_format" = "已更新 %d · 未更新 %d · 失敗 %d";
+"batch_scrape_completed_format" = "App 內歌曲中繼資料：已處理 %d / %d 首、更新 %d 首、未更新 %d 首、失敗 %d 首。";
+"batch_scrape_artwork_counts_format" = "已取得 %d · 未取得 %d";
+"batch_scrape_completed_artwork_format" = "App 內圖片快取：已取得 %d / %d，未取得 %d。";
+"batch_scrape_cancelled" = "已取消批次刮削。";
 "rescrape_library" = "重新刮削整個資料庫";
 "scrape_description" = "為目前資料庫中既有歌曲補齊缺少的標題、演出者、專輯、封面和歌詞。";
 "updated_count" = "項已更新";

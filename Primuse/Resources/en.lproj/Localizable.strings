@@ -402,6 +402,15 @@
 "reset_scraper_defaults" = "Reset to Defaults";
 "scrape_actions" = "Scrape Actions";
 "scrape_missing_metadata" = "Scrape Missing Metadata";
+"batch_scrape_started_format" = "Batch scraping started for %d songs.";
+"batch_scrape_start_failed" = "Batch scraping could not start. Try again shortly.";
+"batch_scrape_song_progress_format" = "Scraping songs %d / %d";
+"batch_scrape_artwork_progress_format" = "Fetching artwork %d / %d";
+"batch_scrape_counts_format" = "Updated %d · Not updated %d · Failed %d";
+"batch_scrape_completed_format" = "In-app song metadata: %d of %d processed, %d updated, %d not updated, %d failed.";
+"batch_scrape_artwork_counts_format" = "Available %d · Not fetched %d";
+"batch_scrape_completed_artwork_format" = "In-app artwork cache: %d of %d available, %d not fetched.";
+"batch_scrape_cancelled" = "Batch scraping cancelled.";
 "rescrape_library" = "Re-scrape Library";
 "scrape_description" = "Fill in missing titles, artists, albums, covers, and lyrics for songs already in your library.";
 "updated_count" = "updated";

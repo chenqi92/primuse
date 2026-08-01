@@ -523,6 +523,15 @@
 "reset_scraper_defaults" = "Auf Standardwerte zurücksetzen";
 "scrape_actions" = "Abruf-Aktionen";
 "scrape_missing_metadata" = "Fehlende Metadaten abrufen";
+"batch_scrape_started_format" = "Stapel-Scraping für %d Titel gestartet.";
+"batch_scrape_start_failed" = "Stapel-Scraping konnte nicht gestartet werden. Bitte versuche es gleich noch einmal.";
+"batch_scrape_song_progress_format" = "Titel werden abgerufen: %d / %d";
+"batch_scrape_artwork_progress_format" = "Cover werden abgerufen: %d / %d";
+"batch_scrape_counts_format" = "Aktualisiert %d · Nicht aktualisiert %d · Fehlgeschlagen %d";
+"batch_scrape_completed_format" = "App-Metadaten: %d von %d Titeln verarbeitet, %d aktualisiert, %d nicht aktualisiert, %d fehlgeschlagen.";
+"batch_scrape_artwork_counts_format" = "Verfügbar %d · Nicht abgerufen %d";
+"batch_scrape_completed_artwork_format" = "App-Bildcache: %d von %d verfügbar, %d nicht abgerufen.";
+"batch_scrape_cancelled" = "Stapel-Scraping abgebrochen.";
 "rescrape_library" = "Mediathek erneut abrufen";
 "scrape_description" = "Fülle fehlende Titel, Künstler, Alben, Cover und Liedtexte für bereits in deiner Mediathek vorhandene Titel aus.";
 "updated_count" = "aktualisiert";
