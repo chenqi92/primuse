@@ -9,6 +9,7 @@ import UIKit
 struct TVNowPlayingView: View {
     @Environment(TVStore.self) private var store
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
 
     @State private var showQueue = false
     @State private var showOptions = false
@@ -28,9 +29,9 @@ struct TVNowPlayingView: View {
             TVAmbientBackdrop(strength: 0.55)
             VStack(spacing: 18) {
                 Image(systemName: "play.circle").font(.system(size: 96))
-                    .foregroundStyle(.white.opacity(0.5))
-                Text(PMString("ext.tv.nowPlaying.notPlaying")).font(.system(size: 40, weight: .bold)).foregroundStyle(.white)
-                Text(PMString("ext.tv.nowPlaying.pickASong")).font(.system(size: 22)).foregroundStyle(.white.opacity(0.6))
+                    .foregroundStyle(TVColor.textFaint)
+                Text(PMString("ext.tv.nowPlaying.notPlaying")).font(.system(size: 40, weight: .bold)).foregroundStyle(TVColor.text)
+                Text(PMString("ext.tv.nowPlaying.pickASong")).font(.system(size: 22)).foregroundStyle(TVColor.textMuted)
             }
         }
     }
@@ -42,8 +43,7 @@ struct TVNowPlayingView: View {
             if store.isMusicVideoPlaybackActive {
                 musicVideoFullScreenPlayer
             } else {
-                // 暗色蒙层:浅色专辑底色下白字标题不再和背景同色看不清。
-                LinearGradient(colors: [.black.opacity(0.5), .black.opacity(0.28), .black.opacity(0.55)],
+                LinearGradient(colors: playerScrim,
                                startPoint: .top, endPoint: .bottom)
                     .ignoresSafeArea()
 
@@ -84,7 +84,7 @@ struct TVNowPlayingView: View {
                     .font(.system(size: 28))
                     .foregroundStyle(.white.opacity(0.74))
                     .padding(.top, 8)
-                Text("\(np.album) · \(np.format) \(np.bitrate) kbps · \(np.sampleRate, specifier: "%.1f") kHz")
+                Text(metadataLine(np))
                     .font(.system(size: 18))
                     .foregroundStyle(.white.opacity(0.52))
                     .padding(.top, 5)
@@ -99,9 +99,9 @@ struct TVNowPlayingView: View {
                         .padding(.bottom, 18)
                 }
 
-                scrubber
+                scrubber(immersiveDark: true)
                     .padding(.bottom, 20)
-                transport
+                transport(immersiveDark: true)
             }
             .focusScope(playerFocus)
             .focusSection()
@@ -116,13 +116,14 @@ struct TVNowPlayingView: View {
         return VStack(alignment: .leading, spacing: 0) {
             TVEyebrow(text: PMString("ext.tv.nowPlaying.eyebrow")).padding(.bottom, 16)
             TVArtworkView(coverKey: np.albumID, artist: np.artist, album: np.album,
+                          songID: np.songID, coverRef: np.coverRef,
                           tint: np.tint, tint2: np.tint2, glyph: np.glyph, size: 420, radius: 20)
                 .shadow(color: .black.opacity(0.5), radius: 36, y: 18)
             Text(np.title).font(.system(size: 48, weight: .bold)).tracking(-0.8)
-                .foregroundStyle(.white).lineLimit(2).padding(.top, 26)
-            Text(np.artist).font(.system(size: 26)).foregroundStyle(.white.opacity(0.72)).padding(.top, 8)
-            Text("\(np.album) · \(np.format) \(np.bitrate) kbps · \(np.sampleRate, specifier: "%.1f") kHz")
-                .font(.system(size: 18)).foregroundStyle(.white.opacity(0.5)).padding(.top, 4)
+                .foregroundStyle(TVColor.text).lineLimit(2).padding(.top, 26)
+            Text(np.artist).font(.system(size: 26)).foregroundStyle(TVColor.textMuted).padding(.top, 8)
+            Text(metadataLine(np))
+                .font(.system(size: 18)).foregroundStyle(TVColor.textFaint).padding(.top, 4)
 
             if let issue = store.playbackIssue {
                 Label(issue.message, systemImage: "exclamationmark.triangle.fill")
@@ -131,46 +132,63 @@ struct TVNowPlayingView: View {
             }
 
             Spacer(minLength: 24)
-            scrubber.padding(.bottom, 18)
-            transport
+            scrubber(immersiveDark: false).padding(.bottom, 18)
+            transport(immersiveDark: false)
         }
     }
 
-    private var scrubber: some View {
+    private var playerScrim: [Color] {
+        if colorScheme == .dark {
+            return [.black.opacity(0.30), .black.opacity(0.12), .black.opacity(0.42)]
+        }
+        return [TVColor.bg.opacity(0.28), TVColor.bg.opacity(0.08), TVColor.bg.opacity(0.48)]
+    }
+
+    private func metadataLine(_ np: TVNowPlaying) -> String {
+        let technical = "\(np.format) \(np.bitrate) kbps · \(String(format: "%.1f", np.sampleRate)) kHz"
+        return np.album.isEmpty ? technical : "\(np.album) · \(technical)"
+    }
+
+    private func scrubber(immersiveDark: Bool) -> some View {
         let np = store.nowPlaying
         let cur = store.currentTime
         let dur = store.duration
         let p = dur > 0 ? max(0, min(1, cur / dur)) : 0
         return HStack(spacing: 16) {
             Text(TVFmt.time(cur)).font(.system(size: 16, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.6)).frame(width: 56, alignment: .trailing)
-            TVScrubber(progress: p, tint: np.tint,
+                .foregroundStyle(immersiveDark ? Color.white.opacity(0.60) : TVColor.textMuted)
+                .frame(width: 56, alignment: .trailing)
+            TVScrubber(progress: p, tint: np.tint, immersiveDark: immersiveDark,
                        onBack: { store.skipBackward() }, onForward: { store.skipForward() })
             Text("-\(TVFmt.time(max(0, dur - cur)))").font(.system(size: 16, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.6)).frame(width: 56, alignment: .leading)
+                .foregroundStyle(immersiveDark ? Color.white.opacity(0.60) : TVColor.textMuted)
+                .frame(width: 56, alignment: .leading)
         }
     }
 
-    private var transport: some View {
+    private func transport(immersiveDark: Bool) -> some View {
         HStack(spacing: 20) {
             Spacer()
-            TVRoundBtn(icon: "shuffle", size: 64, active: store.shuffleEnabled) { store.toggleShuffle() }
+            TVRoundBtn(icon: "shuffle", size: 64, active: store.shuffleEnabled,
+                       immersiveDark: immersiveDark) { store.toggleShuffle() }
             if store.canPlayMusicVideo {
                 TVRoundBtn(icon: store.isMusicVideoModeEnabled ? "play.rectangle.fill" : "play.rectangle",
                            size: 64,
-                           active: store.isMusicVideoModeEnabled) { store.toggleMusicVideoMode() }
+                           active: store.isMusicVideoModeEnabled,
+                           immersiveDark: immersiveDark) { store.toggleMusicVideoMode() }
             }
-            TVRoundBtn(icon: "backward.fill", size: 64) { store.previous() }
+            TVRoundBtn(icon: "backward.fill", size: 64, immersiveDark: immersiveDark) { store.previous() }
             TVRoundBtn(icon: store.isPlaying ? "pause.fill" : "play.fill", size: 92,
-                       primary: true) { store.togglePlayPause() }
+                       primary: true, immersiveDark: immersiveDark) { store.togglePlayPause() }
                 // 进入播放页默认聚焦播放/暂停键,避免落在进度条上误触快进快退。
                 .prefersDefaultFocus(true, in: playerFocus)
-            TVRoundBtn(icon: "forward.fill", size: 64) { store.next() }
+            TVRoundBtn(icon: "forward.fill", size: 64, immersiveDark: immersiveDark) { store.next() }
             TVRoundBtn(icon: store.repeatMode == .one ? "repeat.1" : "repeat", size: 64,
-                       active: store.repeatMode != .off) { store.cycleRepeatMode() }
+                       active: store.repeatMode != .off,
+                       immersiveDark: immersiveDark) { store.cycleRepeatMode() }
             // 队列 / 更多移到同一行——和左侧传输键焦点左右线性可达,不再困在右上角。
-            TVRoundBtn(icon: "list.bullet", size: 64) { showQueue = true }
-            TVRoundBtn(icon: "ellipsis", size: 64) { showOptions = true }
+            TVRoundBtn(icon: "list.bullet", size: 64, immersiveDark: immersiveDark) { showQueue = true }
+            TVRoundBtn(icon: "ellipsis", size: 64, immersiveDark: immersiveDark) { showOptions = true }
             Spacer()
         }
     }
@@ -181,8 +199,8 @@ struct TVNowPlayingView: View {
     private var lyricsColumn: some View {
         if store.lyrics.isEmpty {
             VStack(spacing: 12) {
-                Image(systemName: "text.quote").font(.system(size: 48)).foregroundStyle(.white.opacity(0.35))
-                Text(PMString("ext.tv.nowPlaying.noLyrics")).font(.system(size: 26)).foregroundStyle(.white.opacity(0.5))
+                Image(systemName: "text.quote").font(.system(size: 48)).foregroundStyle(TVColor.textGhost)
+                Text(PMString("ext.tv.nowPlaying.noLyrics")).font(.system(size: 26)).foregroundStyle(TVColor.textFaint)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         } else {
@@ -237,12 +255,12 @@ struct TVNowPlayingView: View {
             } else {
                 // 普通 .lrc 无逐字时间——整行高亮;非当前行半透明。
                 Text(ln.text).font(.system(size: size, weight: isCur ? .bold : .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(TVColor.text)
                     .shadow(color: isCur ? store.nowPlaying.tint.opacity(0.5) : .clear, radius: 16, y: 2)
             }
             if !ln.translation.isEmpty {
                 Text(ln.translation).font(.system(size: 22)).italic()
-                    .foregroundStyle(.white.opacity(0.55))
+                    .foregroundStyle(TVColor.textFaint)
             }
         }
         .scaleEffect(scale, anchor: .leading)
@@ -268,10 +286,10 @@ struct TVKaraokeLine: View {
                 let fillT: Double = active ? 1 : (inFlight ? charT : 0)
                 let scale = inFlight ? 1 + 0.05 * sin(charT * .pi) : 1
                 Text(s.w)
-                    .foregroundStyle(.white.opacity(0.42))
+                    .foregroundStyle(TVColor.textGhost)
                     .overlay(alignment: .leading) {
                         Text(s.w)
-                            .foregroundStyle(.white)
+                            .foregroundStyle(TVColor.text)
                             .shadow(color: tint.opacity(0.8), radius: 12)
                             .mask(alignment: .leading) {
                                 GeometryReader { g in
@@ -343,6 +361,7 @@ private final class TVMusicVideoLayerView: UIView {
 private struct TVScrubber: View {
     let progress: Double
     let tint: Color
+    var immersiveDark = false
     var onBack: () -> Void
     var onForward: () -> Void
     @FocusState private var focused: Bool
@@ -350,12 +369,14 @@ private struct TVScrubber: View {
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                Capsule().fill(.white.opacity(focused ? 0.32 : 0.16))
+                Capsule().fill(immersiveDark
+                               ? Color.white.opacity(focused ? 0.32 : 0.16)
+                               : (focused ? TVColor.surfaceStrong : TVColor.divider))
                     .frame(height: focused ? 10 : 5)
                 Capsule().fill(tint)
                     .frame(width: max(0, geo.size.width * progress), height: focused ? 10 : 5)
                     .shadow(color: focused ? tint.opacity(0.8) : .clear, radius: focused ? 8 : 0)
-                Circle().fill(.white)
+                Circle().fill(immersiveDark ? Color.white : TVColor.text)
                     .frame(width: focused ? 30 : 16, height: focused ? 30 : 16)
                     .overlay(Circle().strokeBorder(tint, lineWidth: focused ? 4 : 0))
                     .shadow(color: tint.opacity(focused ? 0.9 : 0.5), radius: focused ? 12 : 4)
@@ -368,7 +389,9 @@ private struct TVScrubber: View {
         // 聚焦时整条进度条套上品牌色描边 + 辉光的高亮框,清楚区分「选中在此处」。
         .background {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color.white.opacity(focused ? 0.12 : 0))
+                .fill(focused
+                      ? (immersiveDark ? Color.white.opacity(0.12) : TVColor.surfaceStrong)
+                      : Color.clear)
                 .overlay {
                     RoundedRectangle(cornerRadius: 20, style: .continuous)
                         .strokeBorder(tint, lineWidth: focused ? 3 : 0)
@@ -397,15 +420,22 @@ struct TVRoundBtn: View {
     var size: CGFloat = 68
     var primary: Bool = false
     var active: Bool = false   // 开启态(随机/循环)——图标染品牌色
+    var immersiveDark: Bool = false
     var action: () -> Void = {}
 
     var body: some View {
-        TVFocusButton(radius: size / 2, accent: .white, scale: 1.14, lift: 8, action: action) { _ in
+        TVFocusButton(radius: size / 2,
+                      accent: immersiveDark ? Color.white : TVColor.focusRing,
+                      scale: 1.14, lift: 8, action: action) { _ in
             Image(systemName: icon)
                 .font(.system(size: size * 0.4, weight: .semibold))
-                .foregroundStyle(primary ? Color(hex: "#1f1c19") : (active ? TVColor.brand : .white))
+                .foregroundStyle(primary
+                                 ? (immersiveDark ? Color(hex: "#1f1c19") : TVColor.onBrand)
+                                 : (active ? TVColor.brand : (immersiveDark ? Color.white : TVColor.text)))
                 .frame(width: size, height: size)
-                .background(primary ? AnyShapeStyle(.white) : AnyShapeStyle(Color.white.opacity(0.14)),
+                .background(primary
+                            ? AnyShapeStyle(immersiveDark ? Color.white : TVColor.brand)
+                            : AnyShapeStyle(immersiveDark ? Color.white.opacity(0.14) : TVColor.surfaceStrong),
                             in: Circle())
         }
     }

@@ -16,6 +16,7 @@ struct MacMiniPlayerView: View {
     @Environment(AudioEngine.self) private var engine
     @Environment(SourceManager.self) private var sourceManager
     @Environment(ThemeService.self) private var theme
+    @Environment(\.colorScheme) private var colorScheme
     @State private var lyrics: [LyricLine] = []
     @State private var currentIndex: Int = 0
     @State private var lastManualLyricsScroll = Date.distantPast
@@ -73,10 +74,6 @@ struct MacMiniPlayerView: View {
         )
         .pmWindowDragRegion()
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        // mini player 卡片恒为深色背景,强制 dark colorScheme,让歌词 / 队列里
-        // 的 .primary / .secondary / .tertiary 解析成浅色 —— 否则浅色系统外观下
-        // 它们是深色,贴在深底上几乎看不见。
-        .environment(\.colorScheme, .dark)
         .task(id: player.currentSong?.id) { await reloadLyrics() }
         .background {
             MacMiniPlayerTimeObserver { updateIndex(time: $0) }
@@ -122,25 +119,23 @@ struct MacMiniPlayerView: View {
     private func topBarIcon(_ symbol: String) -> some View {
         Image(systemName: symbol)
             .font(.system(size: 11, weight: .bold))
-            .foregroundStyle(.white.opacity(0.85))
+            .foregroundStyle(PMColor.text.opacity(0.85))
             .frame(width: 26, height: 26)
-            .background(.white.opacity(0.10), in: .circle)
+            .background(PMColor.text.opacity(0.10), in: .circle)
     }
 
     // MARK: - Backdrop
 
     private var ambientBackdrop: some View {
-        // 不用共享的 `AmbientBackdrop` —— 它内部的 `.drawingGroup()` 在 mini player
-        // 这个 hosting 上下文里会把 ZStack 的兄弟层(主内容 VStack)整组渲染掉,
-        // 只剩背景一片深色(就是用户截图里"空白卡片"的根因)。这里用一个不依赖
-        // drawingGroup 的简单不透明深色 + 主题色斜向微光,既不透明又不破坏内容渲染。
-        PMColor.ambientDarkBase
+        // 不用共享的 `AmbientBackdrop`：它的 drawingGroup 会干扰 mini hosting。
+        // 这里用跟随外观的实色底 + 封面色微光，浅色与深色均保持完整对比度。
+        PMColor.bgDeep
             .overlay(
                 LinearGradient(
                     colors: [
-                        theme.accentColor.opacity(0.28),
+                        theme.accentColor.opacity(colorScheme == .dark ? 0.28 : 0.18),
                         .clear,
-                        theme.darkAccent.opacity(0.22),
+                        theme.darkAccent.opacity(colorScheme == .dark ? 0.22 : 0.12),
                     ],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
@@ -162,17 +157,17 @@ struct MacMiniPlayerView: View {
                 )
             } else {
                 RoundedRectangle(cornerRadius: cornerRadius)
-                    .fill(.white.opacity(0.12))
+                    .fill(PMColor.text.opacity(0.10))
                     .frame(width: coverSize, height: coverSize)
                     .overlay {
                         Image(systemName: "music.note")
                             .font(.system(size: bottomMode == .none ? 24 : 30))
-                            .foregroundStyle(.white.opacity(0.55))
+                            .foregroundStyle(PMColor.textFaint)
                     }
             }
         }
         .frame(maxWidth: .infinity)
-        .shadow(color: .black.opacity(0.32), radius: 12, y: 5)
+        .shadow(color: .black.opacity(colorScheme == .dark ? 0.32 : 0.18), radius: 12, y: 5)
         .contentShape(Rectangle())
         // 点封面切换折叠/展开 —— 跟 Apple Music 一致,也作为顶栏折叠箭头的兜底
         // 入口(保证折叠态一定能展开到歌词/队列)。
@@ -186,12 +181,12 @@ struct MacMiniPlayerView: View {
         VStack(spacing: 2) {
             Text(player.currentSong?.title ?? "—")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(PMColor.text)
                 .lineLimit(1)
                 .truncationMode(.tail)
             Text(player.currentSong?.artistName ?? "")
                 .font(.system(size: 11))
-                .foregroundStyle(.white.opacity(0.72))
+                .foregroundStyle(PMColor.textMuted)
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
@@ -215,11 +210,11 @@ struct MacMiniPlayerView: View {
         } label: {
             Text(title)
                 .font(.system(size: 11.5, weight: active ? .semibold : .medium))
-                .foregroundStyle(active ? .white : .white.opacity(0.5))
+                .foregroundStyle(active ? PMColor.text : PMColor.textFaint)
                 .padding(.vertical, 4)
                 .overlay(alignment: .bottom) {
                     Capsule()
-                        .fill(active ? Color.white : Color.clear)
+                        .fill(active ? PMColor.text : Color.clear)
                         .frame(height: 2)
                 }
         }
@@ -257,11 +252,7 @@ struct MacMiniPlayerView: View {
             .buttonStyle(.plain)
             .glassEffect(.regular.interactive(), in: .circle)
             .popover(isPresented: $airPlayShown, arrowEdge: .top) {
-                // 迷你播放器是恒定深色, 输出 popover 强制 dark 外观 (PMColor 走
-                // NSAppearance, 不吃 .environment(\.colorScheme)), 否则浅色 App 下
-                // 会从深色播放器里弹出一个亮白 popover, 跟卡片对不上。
                 AudioOutputPickerView()
-                    .preferredColorScheme(.dark)
             }
             .help(Text("audio_output"))
 
@@ -269,7 +260,7 @@ struct MacMiniPlayerView: View {
 
             Image(systemName: volumeSymbol)
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.white.opacity(0.62))
+                .foregroundStyle(PMColor.textMuted)
                 .frame(width: 14)
 
             // AppKit slider opts out of window-background dragging, so volume
@@ -297,7 +288,7 @@ struct MacMiniPlayerView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, bottomMode == .none ? 8 : 10)
         .overlay(alignment: .top) {
-            Rectangle().fill(.white.opacity(0.08)).frame(height: 0.5)
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
         }
     }
 
@@ -331,16 +322,16 @@ struct MacMiniPlayerView: View {
             Button { player.shuffleEnabled.toggle() } label: {
                 Image(systemName: "shuffle")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(player.shuffleEnabled ? theme.accentColor : .white.opacity(0.7))
+                    .foregroundStyle(player.shuffleEnabled ? theme.accentColor : PMColor.textMuted)
                     .frame(width: 30, height: 30)
-                    .background(.white.opacity(0.06), in: .circle)
+                    .background(PMColor.text.opacity(0.06), in: .circle)
             }
             .buttonStyle(.plain)
 
             Button { Task { await player.previous() } } label: {
                 Image(systemName: "backward.end.fill")
                     .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(PMColor.text)
             }
             .buttonStyle(.plain)
 
@@ -352,11 +343,11 @@ struct MacMiniPlayerView: View {
                     if player.isLoading {
                         ProgressView()
                             .controlSize(.small)
-                            .tint(.white)
+                            .tint(theme.onAccent)
                     } else {
                         Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                             .font(.system(size: 18, weight: .bold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(theme.onAccent)
                             .contentTransition(.symbolEffect(.replace))
                             .offset(x: player.isPlaying ? 0 : 1)
                     }
@@ -368,16 +359,16 @@ struct MacMiniPlayerView: View {
             Button { Task { await player.next() } } label: {
                 Image(systemName: "forward.end.fill")
                     .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(PMColor.text)
             }
             .buttonStyle(.plain)
 
             Button { cycleRepeat() } label: {
                 Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(player.repeatMode != .off ? theme.accentColor : .white.opacity(0.7))
+                    .foregroundStyle(player.repeatMode != .off ? theme.accentColor : PMColor.textMuted)
                     .frame(width: 30, height: 30)
-                    .background(.white.opacity(0.06), in: .circle)
+                    .background(PMColor.text.opacity(0.06), in: .circle)
             }
             .buttonStyle(.plain)
         }
@@ -676,7 +667,7 @@ private struct MacMiniPlayerProgress: View {
             }
             .font(.caption2)
             .monospacedDigit()
-            .foregroundStyle(.white.opacity(0.5))
+            .foregroundStyle(PMColor.textFaint)
         }
     }
 

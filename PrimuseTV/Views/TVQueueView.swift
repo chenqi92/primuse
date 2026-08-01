@@ -13,17 +13,18 @@ struct TVQueueView: View {
         let np = store.nowPlaying
         ZStack {
             TVAmbientBackdrop(tint: np.tint, tint2: np.tint2, strength: 0.55)
-            Color.black.opacity(0.5).ignoresSafeArea()
+            TVColor.bg.opacity(0.48).ignoresSafeArea()
 
             HStack(alignment: .center, spacing: 80) {
                 VStack(alignment: .leading, spacing: 0) {
                     TVEyebrow(text: PMString("ext.tv.queue.nowPlaying")).padding(.bottom, 20)
                     TVArtworkView(coverKey: np.albumID, artist: np.artist, album: np.album,
+                                  songID: np.songID, coverRef: np.coverRef,
                                   tint: np.tint, tint2: np.tint2, glyph: np.glyph, size: 340, radius: 18)
                         .shadow(color: .black.opacity(0.5), radius: 30, y: 16)
                     Text(np.title).font(.system(size: 42, weight: .bold)).tracking(-0.6)
-                        .foregroundStyle(.white).padding(.top, 26)
-                    Text(np.artist).font(.system(size: 22)).foregroundStyle(.white.opacity(0.7))
+                        .foregroundStyle(TVColor.text).padding(.top, 26)
+                    Text(np.artist).font(.system(size: 22)).foregroundStyle(TVColor.textMuted)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -54,21 +55,22 @@ struct TVQueueView: View {
                 Text("\(idx + 1)").font(.system(size: 20, design: .monospaced))
                     .foregroundStyle(TVColor.textGhost).frame(width: 28)
                 TVArtworkView(coverKey: album?.id ?? "", artist: album?.artist ?? song.artist,
-                              album: album?.title ?? "", tint: album?.tint ?? TVColor.brand,
+                              album: album?.title ?? "", songID: song.id, coverRef: song.coverRef,
+                              tint: album?.tint ?? TVColor.brand,
                               tint2: album?.tint2 ?? .black, glyph: album?.glyph ?? "♪", size: 56, radius: 8)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(song.title).font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(.white).lineLimit(1)
+                        .foregroundStyle(TVColor.text).lineLimit(1)
                     Text(song.artist).font(.system(size: 16))
                         .foregroundStyle(TVColor.textFaint).lineLimit(1)
                 }
                 Spacer(minLength: 0)
                 Text(TVFmt.time(song.duration)).font(.system(size: 16, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.5))
+                    .foregroundStyle(TVColor.textFaint)
             }
             .padding(.horizontal, 20).padding(.vertical, 14)
             .frame(maxWidth: .infinity)
-            .background(focused ? Color.white.opacity(0.12) : TVColor.card)
+            .background(focused ? TVColor.surfaceStrong : TVColor.card)
         }
     }
 }

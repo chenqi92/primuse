@@ -1,5 +1,23 @@
 #if os(tvOS)
 import SwiftUI
+import UIKit
+
+/// Apple TV 外观偏好。`.system` 不覆盖系统设置，浅色和深色则只覆盖本应用。
+enum TVAppearancePreference: String, CaseIterable {
+    static let storageKey = "tvAppearance"
+
+    case system
+    case light
+    case dark
+
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
+        }
+    }
+}
 
 /// tvOS app 入口。
 ///
@@ -9,12 +27,19 @@ import SwiftUI
 @main
 struct PrimuseTVApp: App {
     @State private var store = TVStore()
+    @AppStorage(TVAppearancePreference.storageKey)
+    private var appearanceRawValue = TVAppearancePreference.system.rawValue
+
+    private var appearance: TVAppearancePreference {
+        TVAppearancePreference(rawValue: appearanceRawValue) ?? .system
+    }
 
     var body: some Scene {
         WindowGroup {
             TVRoot()
                 .environment(store)
-                .preferredColorScheme(.dark)
+                .preferredColorScheme(appearance.colorScheme)
+                .modifier(TVWindowAppearanceModifier(preference: appearance))
                 .tint(TVColor.brand)
                 .onOpenURL { store.handleDeepLink($0) }
                 .task {
@@ -31,6 +56,39 @@ struct PrimuseTVApp: App {
                 // 注意:不在回到前台时自动重新拉快照。否则会用手机端的权威状态覆盖
                 // Apple TV 上的本地改动(如本地启用某个源)。仅在启动时拉一次 + 设置页
                 // 手动刷新;手机端发送即是「主动触发」,下次启动 TV app 会拉到。
+        }
+    }
+}
+
+/// SwiftUI 的外观偏好负责环境值，窗口覆盖则确保由 `UIColor` 动态提供的
+/// 语义 token 与所有全屏 presentation 使用同一套 trait。
+private struct TVWindowAppearanceModifier: ViewModifier {
+    let preference: TVAppearancePreference
+    @Environment(\.scenePhase) private var scenePhase
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear(perform: apply)
+            .onChange(of: preference) { _, _ in apply() }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { apply() }
+            }
+    }
+
+    @MainActor
+    private func apply() {
+        let style: UIUserInterfaceStyle
+        switch preference {
+        case .system: style = .unspecified
+        case .light: style = .light
+        case .dark: style = .dark
+        }
+
+        for scene in UIApplication.shared.connectedScenes {
+            guard let windowScene = scene as? UIWindowScene else { continue }
+            for window in windowScene.windows {
+                window.overrideUserInterfaceStyle = style
+            }
         }
     }
 }

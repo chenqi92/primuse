@@ -550,6 +550,7 @@ struct MacSourcesView: View {
                             $0.deviceId = nil
                         }
                     }
+                    Task { await sourceManager.refreshConnector(for: source.id) }
                 },
                 onSessionReady: { api in scanService.synologyAPIs[source.id] = api },
                 onPasswordSaved: { await sourceManager.refreshConnector(for: source.id) }

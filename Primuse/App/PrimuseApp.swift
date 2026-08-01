@@ -651,9 +651,13 @@ struct PrimuseApp: App {
                 // where a scene is recreated while the shared player already
                 // has a current song, leaving the player on the fallback tint.
                 .task(id: playerService.currentSong?.id) {
+                    let song = playerService.currentSong
                     themeService.updateFromCoverArt(
-                        fileName: playerService.currentSong?.coverArtFileName,
-                        songID: playerService.currentSong?.id
+                        fileName: song?.coverArtFileName,
+                        songID: song?.id,
+                        appleMusicID: song?.sourceID == AppleMusicLibraryService.systemSourceID
+                            ? song?.filePath
+                            : nil
                     )
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidCache)) { note in
@@ -662,7 +666,10 @@ struct PrimuseApp: App {
                           currentSong.id == cachedSongID else { return }
                     themeService.updateFromCoverArt(
                         fileName: currentSong.coverArtFileName,
-                        songID: currentSong.id
+                        songID: currentSong.id,
+                        appleMusicID: currentSong.sourceID == AppleMusicLibraryService.systemSourceID
+                            ? currentSong.filePath
+                            : nil
                     )
                 }
                 // Sync player when library replaces a song (e.g. batch scraping
@@ -683,7 +690,10 @@ struct PrimuseApp: App {
                     playerService.forceRefreshNowPlayingArtwork()
                     themeService.updateFromCoverArt(
                         fileName: updated.coverArtFileName,
-                        songID: updated.id
+                        songID: updated.id,
+                        appleMusicID: updated.sourceID == AppleMusicLibraryService.systemSourceID
+                            ? updated.filePath
+                            : nil
                     )
                 }
                 .onOpenURL { url in

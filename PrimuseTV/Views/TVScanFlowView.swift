@@ -22,7 +22,7 @@ struct TVScanFlowView: View {
     var body: some View {
         ZStack {
             TVAmbientBackdrop(tint: TVColor.brand, tint2: Color(hex: "#1f3a5b"), strength: started ? 0.5 : 0.4)
-            Color.black.opacity(0.5).ignoresSafeArea()
+            TVColor.bg.opacity(0.48).ignoresSafeArea()
             if started {
                 TVScanningView(
                     source: source,
@@ -52,7 +52,7 @@ struct TVScanFlowView: View {
         HStack(alignment: .top, spacing: 80) {
             VStack(alignment: .leading, spacing: 0) {
                 TVEyebrow(text: PMString("ext.tv.scan.step3")).padding(.bottom, 6)
-                Text(PMString("ext.tv.scan.chooseFolders")).font(.system(size: 40, weight: .bold)).foregroundStyle(.white).padding(.bottom, 6)
+                Text(PMString("ext.tv.scan.chooseFolders")).font(.system(size: 40, weight: .bold)).foregroundStyle(TVColor.text).padding(.bottom, 6)
                 Text(breadcrumb).font(.system(size: 18, design: .monospaced)).foregroundStyle(TVColor.textFaint).padding(.bottom, 22)
 
                 ScrollView(.vertical, showsIndicators: false) {
@@ -63,7 +63,7 @@ struct TVScanFlowView: View {
                             }
                         }
                         if loading {
-                            HStack { ProgressView().tint(.white); Text(PMString("ext.tv.scan.loading")).foregroundStyle(TVColor.textFaint) }
+                            HStack { ProgressView().tint(TVColor.brand); Text(PMString("ext.tv.scan.loading")).foregroundStyle(TVColor.textFaint) }
                                 .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 20)
                         } else if let browseError {
                             Text(browseError)
@@ -97,22 +97,22 @@ struct TVScanFlowView: View {
                 if selectable {
                     ZStack {
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .strokeBorder(checked ? .clear : .white.opacity(0.3), lineWidth: 2)
+                            .strokeBorder(checked ? .clear : TVColor.cardBorder, lineWidth: 2)
                             .background(checked ? TVColor.brand : .clear, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                             .frame(width: 28, height: 28)
-                        if checked { Image(systemName: "checkmark").font(.system(size: 16, weight: .bold)).foregroundStyle(.white) }
+                        if checked { Image(systemName: "checkmark").font(.system(size: 16, weight: .bold)).foregroundStyle(TVColor.onBrand) }
                     }
                 }
                 Image(systemName: isUp ? "arrow.up.left" : "folder.fill")
-                    .font(.system(size: 22)).foregroundStyle(checked ? .white : .white.opacity(0.55)).frame(width: 26)
-                Text(name).font(.system(size: 22, weight: checked ? .semibold : .regular)).foregroundStyle(checked ? .white : .white.opacity(0.85)).lineLimit(1)
+                    .font(.system(size: 22)).foregroundStyle(checked ? TVColor.brand : TVColor.textFaint).frame(width: 26)
+                Text(name).font(.system(size: 22, weight: checked ? .semibold : .regular)).foregroundStyle(TVColor.text).lineLimit(1)
                 Spacer(minLength: 0)
                 if selectable {
-                    Text(PMString("ext.tv.scan.open")).font(.system(size: 15)).foregroundStyle(focused ? .white : TVColor.textGhost)
+                    Text(PMString("ext.tv.scan.open")).font(.system(size: 15)).foregroundStyle(focused ? TVColor.text : TVColor.textGhost)
                 }
             }
             .padding(.horizontal, 20).padding(.vertical, 14).frame(maxWidth: .infinity)
-            .background(focused ? Color.white.opacity(0.12) : Color.white.opacity(0.06))
+            .background(focused ? TVColor.surfaceStrong : TVColor.surfaceSubtle)
         }
         .contextMenu {
             if selectable {
@@ -131,19 +131,19 @@ struct TVScanFlowView: View {
                 summaryRow(PMString("ext.tv.scan.playable"), PMString("ext.tv.scan.formats"))
             }
             .padding(26).frame(maxWidth: .infinity)
-            .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .overlay { RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(.white.opacity(0.12), lineWidth: 0.5) }
+            .background(TVColor.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay { RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(TVColor.cardBorder, lineWidth: 0.5) }
 
             TVFocusButton(radius: 16, accent: TVColor.brand, scale: 1.05, lift: 4, action: startScan) { f in
                 Label(PMString("ext.tv.scan.start"), systemImage: "arrow.triangle.2.circlepath")
-                    .font(.system(size: 24, weight: .bold)).foregroundStyle(Color(hex: "#1f1c19"))
+                    .font(.system(size: 24, weight: .bold)).foregroundStyle(TVColor.onBrand)
                     .frame(maxWidth: .infinity).padding(.vertical, 20)
-                    .background(Color.white.opacity(f ? 1 : 0.9), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .background(TVColor.brand.opacity(f ? 1 : 0.88), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
             TVFocusButton(radius: 16, scale: 1.04, lift: 0, action: { dismiss() }) { f in
-                Text(PMString("ext.tv.sources.cancel")).font(.system(size: 20, weight: .medium)).foregroundStyle(.white)
+                Text(PMString("ext.tv.sources.cancel")).font(.system(size: 20, weight: .medium)).foregroundStyle(TVColor.text)
                     .frame(maxWidth: .infinity).padding(.vertical, 14)
-                    .background(Color.white.opacity(f ? 0.14 : 0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .background(f ? TVColor.surfaceStrong : TVColor.surfaceSubtle, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
         }
     }
@@ -152,10 +152,10 @@ struct TVScanFlowView: View {
         HStack {
             Text(k).font(.system(size: 18)).foregroundStyle(TVColor.textFaint)
             Spacer()
-            Text(v).font(.system(size: 18, weight: .semibold)).foregroundStyle(.white)
+            Text(v).font(.system(size: 18, weight: .semibold)).foregroundStyle(TVColor.text)
         }
         .padding(.vertical, 8)
-        .overlay(alignment: .bottom) { Rectangle().fill(.white.opacity(0.08)).frame(height: 0.5) }
+        .overlay(alignment: .bottom) { Rectangle().fill(TVColor.divider).frame(height: 0.5) }
     }
 
     // MARK: 行为
@@ -217,7 +217,7 @@ private struct TVScanningView: View {
         VStack(spacing: 0) {
             ring.padding(.bottom, 40)
             Text(done ? PMString("ext.tv.scan.completedSource", source.name) : PMString("ext.tv.scan.scanningSource", source.name))
-                .font(.system(size: 40, weight: .bold)).foregroundStyle(.white).padding(.bottom, 10)
+                .font(.system(size: 40, weight: .bold)).foregroundStyle(TVColor.text).padding(.bottom, 10)
             Text(currentLine).font(.system(size: 18, design: .monospaced)).foregroundStyle(TVColor.textFaint)
                 .lineLimit(1).truncationMode(.middle).frame(maxWidth: 900).padding(.bottom, 36)
 
@@ -229,16 +229,16 @@ private struct TVScanningView: View {
 
             TVFocusButton(radius: 14, accent: TVColor.brand, scale: 1.05, lift: 5, action: onDone) { f in
                 Text(done ? PMString("ext.tv.scan.listen") : PMString("ext.tv.scan.continueBackground"))
-                    .font(.system(size: 22, weight: .bold)).foregroundStyle(Color(hex: "#1f1c19"))
+                    .font(.system(size: 22, weight: .bold)).foregroundStyle(TVColor.onBrand)
                     .padding(.horizontal, 44).padding(.vertical, 18)
-                    .background(Color.white.opacity(f ? 1 : 0.9), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .background(TVColor.brand.opacity(f ? 1 : 0.88), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
             if !done {
                 TVFocusButton(radius: 14, scale: 1.03, lift: 0, action: onCancel) { focused in
                     Text(PMString("ext.tv.scan.cancelScan"))
-                        .font(.system(size: 19, weight: .medium)).foregroundStyle(.white)
+                        .font(.system(size: 19, weight: .medium)).foregroundStyle(TVColor.text)
                         .padding(.horizontal, 38).padding(.vertical, 14)
-                        .background(Color.white.opacity(focused ? 0.16 : 0.07), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .background(focused ? TVColor.surfaceStrong : TVColor.surfaceSubtle, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
                 .padding(.top, 14)
             }
@@ -254,7 +254,7 @@ private struct TVScanningView: View {
 
     private var ring: some View {
         ZStack {
-            Circle().stroke(.white.opacity(0.12), lineWidth: 14).frame(width: 232, height: 232)
+            Circle().stroke(TVColor.divider, lineWidth: 14).frame(width: 232, height: 232)
             if done {
                 Circle().trim(from: 0, to: 1).stroke(TVColor.ok, style: StrokeStyle(lineWidth: 14, lineCap: .round))
                     .frame(width: 232, height: 232).rotationEffect(.degrees(-90))
@@ -262,7 +262,7 @@ private struct TVScanningView: View {
             } else {
                 SpinnerArc().frame(width: 232, height: 232)
                 VStack(spacing: 4) {
-                    Text("\(store.scanner.indexed)").font(.system(size: 56, weight: .bold, design: .monospaced)).foregroundStyle(.white)
+                    Text("\(store.scanner.indexed)").font(.system(size: 56, weight: .bold, design: .monospaced)).foregroundStyle(TVColor.text)
                     Text(PMString("ext.tv.scan.indexed")).font(.system(size: 16)).foregroundStyle(TVColor.textFaint)
                 }
             }

@@ -178,6 +178,10 @@
 "ext.tv.settings.general"                  = "일반";
 "ext.tv.settings.icloudSync"               = "iCloud 동기화";
 "ext.tv.settings.autoSync"                 = "실행 시 자동 동기화";
+"ext.tv.settings.appearance"               = "외관";
+"ext.tv.settings.appearance.system"        = "Apple TV 설정 따르기";
+"ext.tv.settings.appearance.light"         = "라이트";
+"ext.tv.settings.appearance.dark"          = "다크";
 "ext.tv.settings.library"                  = "보관함";
 "ext.tv.settings.playlists"                = "재생목록";
 "ext.tv.settings.sources"                  = "소스";
@@ -303,3 +307,5 @@
 "ext.tv.scan.interrupted"                 = "스캔 중단됨";
 "ext.tv.scan.totalIndexed"                = "%d곡 인덱싱됨";
 "ext.tv.scan.walking"                     = "폴더 탐색 중…";
+"ext.tv.sources.cred.saveFailedTitle"     = "자격 증명을 저장할 수 없음";
+"ext.tv.sources.cred.saveFailedBody"      = "암호가 이 Apple TV의 키체인에 저장되지 않았습니다. 다시 시도하십시오. 기존 자격 증명은 유지되었습니다.";

@@ -178,6 +178,10 @@
 "ext.tv.settings.general"                  = "Général";
 "ext.tv.settings.icloudSync"               = "Synchronisation iCloud";
 "ext.tv.settings.autoSync"                 = "Synchroniser automatiquement au lancement";
+"ext.tv.settings.appearance"               = "Apparence";
+"ext.tv.settings.appearance.system"        = "Suivre l’Apple TV";
+"ext.tv.settings.appearance.light"         = "Clair";
+"ext.tv.settings.appearance.dark"          = "Sombre";
 "ext.tv.settings.library"                  = "Bibliothèque";
 "ext.tv.settings.playlists"                = "Playlists";
 "ext.tv.settings.sources"                  = "Sources";
@@ -303,3 +307,5 @@
 "ext.tv.scan.interrupted"                 = "Analyse interrompue";
 "ext.tv.scan.totalIndexed"                = "%d titres indexés";
 "ext.tv.scan.walking"                     = "Parcours des dossiers…";
+"ext.tv.sources.cred.saveFailedTitle"     = "Impossible d’enregistrer les identifiants";
+"ext.tv.sources.cred.saveFailedBody"      = "Le mot de passe n’a pas été enregistré dans le trousseau de cette Apple TV. Réessayez. Les identifiants existants ont été conservés.";

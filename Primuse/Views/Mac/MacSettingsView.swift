@@ -3101,6 +3101,7 @@ private struct MacSTSharePickerAnchor: NSViewRepresentable {
 private struct MacSTThemeView: View {
     @State private var preferences = MacUIPreferences.shared
     @Environment(ThemeService.self) private var themeService
+    @Environment(AudioPlayerService.self) private var player
     @State private var autoDetectMaterial = true
 
     private let swatches: [(hex: String, name: String, sub: String, color: Color)] = [
@@ -3159,7 +3160,17 @@ private struct MacSTThemeView: View {
                         get: { preferences.coverDrivenAmbient },
                         set: {
                             preferences.coverDrivenAmbient = $0
-                            if !$0 { themeService.resetToDefault() }
+                            if $0, let song = player.currentSong {
+                                themeService.updateFromCoverArt(
+                                    fileName: song.coverArtFileName,
+                                    songID: song.id,
+                                    appleMusicID: song.sourceID == AppleMusicLibraryService.systemSourceID
+                                        ? song.filePath
+                                        : nil
+                                )
+                            } else if !$0 {
+                                themeService.resetToDefault()
+                            }
                         }
                     ))
                 }

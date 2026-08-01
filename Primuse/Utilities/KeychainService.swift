@@ -80,16 +80,21 @@ enum KeychainService {
             }
         }
 
-        #if targetEnvironment(simulator)
-        // Unsigned QA builds have no application-identifier entitlement, so
-        // Security returns errSecMissingEntitlement for every operation. Use a
-        // simulator-only persistent fallback for exactly that condition. This
-        // code is not compiled into device builds.
+        #if DEBUG && targetEnvironment(simulator)
+        // Unsigned QA builds can lack an application-identifier entitlement.
+        // Persisting real credentials in UserDefaults would expose them as
+        // plaintext, so the fallback is available only for explicitly opted-in
+        // fake QA credentials. Normal simulator runs fail closed.
         if finalStatus == errSecMissingEntitlement {
+            guard simulatorPlaintextFallbackEnabled else {
+                purgeSimulatorPlaintextFallback()
+                plog("⚠️ Keychain unavailable (-34018); plaintext simulator credential fallback is disabled")
+                return false
+            }
             let stored = simulatorFallbackWrite(password, for: account)
             if stored {
                 cacheWrite(password, for: account)
-                plog("🔐 Keychain unavailable (-34018); saved simulator-only persistent credential for account=\(account.prefix(8))…")
+                plog("🔐 Keychain unavailable (-34018); saved explicitly enabled fake QA credential for account=\(account.prefix(8))…")
             } else {
                 plog("⚠️ Simulator credential fallback write failed for account=\(account.prefix(8))…")
             }
@@ -169,7 +174,12 @@ enum KeychainService {
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
 
-        #if targetEnvironment(simulator)
+        #if DEBUG && targetEnvironment(simulator)
+        if status == errSecMissingEntitlement, !simulatorPlaintextFallbackEnabled {
+            purgeSimulatorPlaintextFallback()
+            plog("🔑 Keychain temporarily unavailable; plaintext simulator credential fallback is disabled")
+            return .temporarilyUnavailable(status)
+        }
         if status == errSecMissingEntitlement,
            let password = simulatorFallbackRead(for: account) {
             cacheWrite(password, for: account)
@@ -219,7 +229,7 @@ enum KeychainService {
 
     static func deletePassword(for account: String) {
         cacheWrite(nil, for: account)
-        #if targetEnvironment(simulator)
+        #if DEBUG && targetEnvironment(simulator)
         simulatorFallbackDelete(for: account)
         #endif
         // Always sweep BOTH synchronizable and non-synchronizable variants with
@@ -296,9 +306,22 @@ enum KeychainService {
         return SecItemDelete(query as CFDictionary)
     }
 
-    #if targetEnvironment(simulator)
+    #if DEBUG && targetEnvironment(simulator)
     private static let simulatorFallbackDefaultsKey =
         "\(PrimuseConstants.keychainServiceName).simulatorCredentialFallback"
+
+    /// This unsafe storage exists solely for deterministic UI automation with
+    /// fake credentials in unsigned Debug simulator builds. It cannot be
+    /// enabled persistently from app settings.
+    private static var simulatorPlaintextFallbackEnabled: Bool {
+        ProcessInfo.processInfo.environment[
+            "PRIMUSE_QA_ALLOW_PLAINTEXT_CREDENTIAL_FALLBACK"
+        ] == "1"
+    }
+
+    private static func purgeSimulatorPlaintextFallback() {
+        UserDefaults.standard.removeObject(forKey: simulatorFallbackDefaultsKey)
+    }
 
     private static func simulatorFallbackRead(for account: String) -> String? {
         let values = UserDefaults.standard.dictionary(forKey: simulatorFallbackDefaultsKey)

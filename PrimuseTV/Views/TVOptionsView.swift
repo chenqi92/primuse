@@ -35,15 +35,16 @@ struct TVOptionsView: View {
         let np = store.nowPlaying
         ZStack {
             TVAmbientBackdrop(tint: np.tint, tint2: np.tint2, strength: 0.5)
-            Color.black.opacity(0.55).ignoresSafeArea()
+            TVColor.bg.opacity(0.52).ignoresSafeArea()
 
             VStack {
                 HStack(spacing: 28) {
                     TVArtworkView(coverKey: np.albumID, artist: np.artist, album: np.album,
+                                  songID: np.songID, coverRef: np.coverRef,
                                   tint: np.tint, tint2: np.tint2, glyph: np.glyph, size: 140, radius: 14)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(np.title).font(.system(size: 36, weight: .bold)).foregroundStyle(.white)
-                        Text(np.artist).font(.system(size: 22)).foregroundStyle(.white.opacity(0.7))
+                        Text(np.title).font(.system(size: 36, weight: .bold)).foregroundStyle(TVColor.text)
+                        Text(np.artist).font(.system(size: 22)).foregroundStyle(TVColor.textMuted)
                     }
                     Spacer()
                 }
@@ -63,7 +64,7 @@ struct TVOptionsView: View {
                 }
                 .padding(.horizontal, 100).padding(.bottom, 60)
                 .background(
-                    LinearGradient(colors: [.clear, .black.opacity(0.85)],
+                    LinearGradient(colors: [.clear, TVColor.chrome],
                                    startPoint: .top, endPoint: .bottom)
                 )
             }
@@ -76,12 +77,12 @@ struct TVOptionsView: View {
         TVFocusButton(radius: 16, scale: 1.08, lift: 8, action: { a.run() }) { focused in
             VStack(spacing: 14) {
                 Image(systemName: a.icon).font(.system(size: 40, weight: .regular))
-                    .foregroundStyle(a.on ? TVColor.brand : (focused ? Color(hex: "#1f1c19") : .white))
+                    .foregroundStyle(focused ? TVColor.onBrand : (a.on ? TVColor.brand : TVColor.text))
                 Text(a.label).font(.system(size: 18, weight: focused ? .bold : .medium))
-                    .foregroundStyle(focused ? Color(hex: "#1f1c19") : .white)
+                    .foregroundStyle(focused ? TVColor.onBrand : TVColor.text)
             }
             .frame(width: 150, height: 150)
-            .background(focused ? AnyShapeStyle(.white) : AnyShapeStyle(Color.white.opacity(0.12)))
+            .background(focused ? AnyShapeStyle(TVColor.brand) : AnyShapeStyle(TVColor.surfaceStrong))
         }
     }
 }

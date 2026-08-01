@@ -21,7 +21,7 @@ struct TVPlaylistsView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             TVEyebrow(text: PMString("ext.tv.playlists.eyebrow"))
                             Text(PMString("ext.tv.playlists.title", store.playlists.count))
-                                .font(TVFont.pageTitle).foregroundStyle(.white)
+                                .font(TVFont.pageTitle).foregroundStyle(TVColor.text)
                         }
                         LazyVGrid(columns: Array(repeating: GridItem(.fixed(cell), spacing: gap, alignment: .top), count: cols),
                                   alignment: .leading, spacing: gap) {
@@ -46,13 +46,16 @@ struct TVPlaylistCard: View {
 
     var body: some View {
         let cover = store.album(playlist.coverAlbumID)
+        let coverSong = store.song(playlist.coverSongID)
         let h = width * 0.8
         TVFocusButton(radius: TVRadius.card, scale: 1.08, lift: 12,
                       action: { playTapped() }) { _ in
             VStack(alignment: .leading, spacing: 0) {
                 ZStack {
                     TVArtworkView(coverKey: cover?.id ?? "", artist: cover?.artist ?? "",
-                                  album: cover?.title ?? "", tint: cover?.tint ?? TVColor.brand,
+                                  album: cover?.title ?? "", songID: coverSong?.id ?? playlist.coverSongID,
+                                  coverRef: coverSong?.coverRef ?? playlist.coverRef,
+                                  tint: cover?.tint ?? TVColor.brand,
                                   tint2: cover?.tint2 ?? .black, glyph: cover?.glyph ?? "♪",
                                   size: width, height: h)
                     if playlist.kind == .smart {
@@ -81,7 +84,7 @@ struct TVPlaylistCard: View {
                 .frame(width: width, height: h)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(playlist.name).font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(.white).lineLimit(1)
+                        .foregroundStyle(TVColor.text).lineLimit(1)
                     Text(PMString("ext.tv.songsCount", playlist.count)).font(.system(size: 16))
                         .foregroundStyle(TVColor.textFaint)
                 }

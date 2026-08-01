@@ -621,7 +621,7 @@ struct MacNowPlayingView: View {
             // Heart
             Button { toggleLikedCurrent() } label: {
                 circleIcon(isCurrentLiked ? "heart.fill" : "heart",
-                           tint: isCurrentLiked ? Color.white : nil,
+                           tint: isCurrentLiked ? theme.onAccent : nil,
                            fill: isCurrentLiked ? theme.accentColor : nil)
                     .contentTransition(.symbolEffect(.replace))
             }
@@ -634,7 +634,7 @@ struct MacNowPlayingView: View {
             if player.canPlayMusicVideo, player.currentSong?.isStandaloneMusicVideo != true {
                 Button { player.toggleMusicVideoMode() } label: {
                     circleIcon(player.isMusicVideoModeEnabled ? "play.rectangle.fill" : "play.rectangle",
-                               tint: player.isMusicVideoModeEnabled ? .white : nil,
+                               tint: player.isMusicVideoModeEnabled ? theme.onAccent : nil,
                                fill: player.isMusicVideoModeEnabled ? theme.accentColor.opacity(0.9) : nil)
                         .contentTransition(.symbolEffect(.replace))
                 }
@@ -650,7 +650,7 @@ struct MacNowPlayingView: View {
                 onClose()
             } label: {
                 circleIcon("text.bubble.fill",
-                           tint: Color.white,
+                           tint: theme.onAccent,
                            fill: theme.accentColor.opacity(0.9))
             }
             .buttonStyle(.plain)

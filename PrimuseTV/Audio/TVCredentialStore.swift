@@ -48,21 +48,13 @@ enum TVCredentialStore {
 
     private struct LocalCred: Codable { var u: String; var p: String }
 
-    static func saveLocalCredential(sourceID: String, username: String, password: String) {
+    @discardableResult
+    static func saveLocalCredential(sourceID: String, username: String, password: String) -> Bool {
         let account = localAccount(sourceID)
-        guard let data = try? JSONEncoder().encode(LocalCred(u: username, p: password)) else { return }
-        // 先删后加,保证覆盖。
-        let base: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: PrimuseConstants.keychainServiceName,
-            kSecAttrAccount as String: account,
-            kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
-        ]
-        SecItemDelete(base as CFDictionary)
-        var add = base
-        add[kSecValueData as String] = data
-        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        SecItemAdd(add as CFDictionary, nil)
+        guard let data = try? JSONEncoder().encode(LocalCred(u: username, p: password)) else {
+            return false
+        }
+        return upsert(data: data, account: account)
     }
 
     static func loadLocalCredential(sourceID: String) -> (username: String, password: String)? {
@@ -111,19 +103,42 @@ enum TVCredentialStore {
 
     private static let pairedBundleAccount = "tv-paired-bundle"
 
-    static func savePairedBundle(_ bundle: CredentialBundle) {
-        guard let data = try? bundle.jsonData() else { return }
-        let base: [String: Any] = [
+    @discardableResult
+    static func savePairedBundle(_ bundle: CredentialBundle) -> Bool {
+        guard let data = try? bundle.jsonData() else { return false }
+        return upsert(data: data, account: pairedBundleAccount)
+    }
+
+    /// 先尝试原地更新，只有条目不存在时才新增。写入失败不会删除旧值，避免
+    /// 临时 Keychain 错误把数小时前仍可用的密码一并清掉。
+    private static func upsert(data: Data, account: String) -> Bool {
+        let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: PrimuseConstants.keychainServiceName,
-            kSecAttrAccount as String: pairedBundleAccount,
+            kSecAttrAccount as String: account,
             kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
         ]
-        SecItemDelete(base as CFDictionary)
-        var add = base
+
+        let updateStatus = SecItemUpdate(
+            query as CFDictionary,
+            [kSecValueData as String: data] as CFDictionary
+        )
+        if updateStatus == errSecSuccess { return true }
+        guard updateStatus == errSecItemNotFound else { return false }
+
+        var add = query
         add[kSecValueData as String] = data
         add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        SecItemAdd(add as CFDictionary, nil)
+        let addStatus = SecItemAdd(add as CFDictionary, nil)
+        if addStatus == errSecSuccess { return true }
+        // 极小概率下另一个写入者在 update 与 add 之间创建了条目；重试更新即可。
+        if addStatus == errSecDuplicateItem {
+            return SecItemUpdate(
+                query as CFDictionary,
+                [kSecValueData as String: data] as CFDictionary
+            ) == errSecSuccess
+        }
+        return false
     }
 
     static func loadPairedBundle() -> CredentialBundle? {

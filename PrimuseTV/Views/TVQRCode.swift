@@ -20,8 +20,8 @@ struct TVQRCode: View {
                     .background(.white)
             } else {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(.white.opacity(0.1))
-                    .overlay { Image(systemName: "qrcode").font(.system(size: 48)).foregroundStyle(.white.opacity(0.4)) }
+                    .fill(TVColor.surface)
+                    .overlay { Image(systemName: "qrcode").font(.system(size: 48)).foregroundStyle(TVColor.textGhost) }
             }
         }
         .frame(width: size, height: size)

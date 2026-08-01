@@ -113,10 +113,8 @@ actor SynologySource: MusicSourceConnector {
             )
             guard result.success else {
                 let msg = result.errorMessage ?? "Login failed"
-                // Only actual credential-rejection codes require user input.
-                // Network failures, lockouts/throttling and 2FA must remain
-                // retryable errors instead of presenting a misleading password
-                // prompt that cannot fix them.
+                // 只有 DSM 400 能通过重新输入解决。密码过期/强制修改、锁定、
+                // 网络故障与 2FA 都保留真实错误，不能误导用户反复输入密码。
                 if result.requiresCredentialPrompt {
                     await MainActor.run {
                         SourceAuthAlert.report(sourceID: sourceID, message: msg)

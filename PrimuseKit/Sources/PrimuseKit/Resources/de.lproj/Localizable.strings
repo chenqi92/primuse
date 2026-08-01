@@ -178,6 +178,10 @@
 "ext.tv.settings.general"                  = "Allgemein";
 "ext.tv.settings.icloudSync"               = "iCloud-Synchronisierung";
 "ext.tv.settings.autoSync"                 = "Beim Start automatisch synchronisieren";
+"ext.tv.settings.appearance"               = "Darstellung";
+"ext.tv.settings.appearance.system"        = "Apple TV folgen";
+"ext.tv.settings.appearance.light"         = "Hell";
+"ext.tv.settings.appearance.dark"          = "Dunkel";
 "ext.tv.settings.library"                  = "Mediathek";
 "ext.tv.settings.playlists"                = "Playlists";
 "ext.tv.settings.sources"                  = "Quellen";
@@ -303,3 +307,5 @@
 "ext.tv.scan.interrupted"                 = "Scan unterbrochen";
 "ext.tv.scan.totalIndexed"                = "%d Titel indiziert";
 "ext.tv.scan.walking"                     = "Ordner werden durchsucht…";
+"ext.tv.sources.cred.saveFailedTitle"     = "Anmeldedaten konnten nicht gesichert werden";
+"ext.tv.sources.cred.saveFailedBody"      = "Das Passwort wurde nicht im Schlüsselbund dieses Apple TV gesichert. Versuche es erneut. Vorhandene Anmeldedaten bleiben erhalten.";

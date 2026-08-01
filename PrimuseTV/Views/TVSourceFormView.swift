@@ -29,11 +29,11 @@ struct TVSourceTypePicker: View {
     var body: some View {
         ZStack {
             TVAmbientBackdrop(tint: TVColor.brand, tint2: Color(hex: "#1f3a5b"), strength: 0.4)
-            Color.black.opacity(0.45).ignoresSafeArea()
+            TVColor.bg.opacity(0.42).ignoresSafeArea()
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
                     TVEyebrow(text: "添加新源 · 第 1 步").padding(.bottom, 8)
-                    Text("选择服务类型").font(.system(size: 52, weight: .bold)).foregroundStyle(.white)
+                    Text("选择服务类型").font(.system(size: 52, weight: .bold)).foregroundStyle(TVColor.text)
                         .padding(.bottom, 8)
                     Text("文件型源(SMB/WebDAV/NAS)直接填地址连接 · 云盘类需在 iPhone 上 OAuth 授权后扫码同步过来")
                         .font(.system(size: 20)).foregroundStyle(TVColor.textFaint)
@@ -83,26 +83,26 @@ struct TVSourceTypePicker: View {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .top) {
                     Image(systemName: icon).font(.system(size: 24, weight: .semibold))
-                        .foregroundStyle(.white).frame(width: 52, height: 52)
-                        .background((focused || accentIcon) ? TVColor.brand : Color.white.opacity(0.14),
+                        .foregroundStyle((focused || accentIcon) ? TVColor.onBrand : TVColor.text).frame(width: 52, height: 52)
+                        .background((focused || accentIcon) ? TVColor.brand : TVColor.surfaceStrong,
                                     in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     Spacer(minLength: 0)
                     if let badge {
                         // 内网发现的设备靠这个文字徽标区分协议(SMB/WebDAV 图标相近)。
                         Text(badge).font(.system(size: 14, weight: .heavy))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(TVColor.onBrand)
                             .padding(.horizontal, 11).padding(.vertical, 5)
                             .background(TVColor.brand, in: Capsule())
                     }
                 }
                 Spacer(minLength: 16)
                 Text(label).font(.system(size: 22, weight: .bold))
-                    .foregroundStyle(focused ? Color(hex: "#1f1c19") : .white).lineLimit(1)
+                    .foregroundStyle(TVColor.text).lineLimit(1)
                 Text(hint).font(.system(size: 15, design: .monospaced))
-                    .foregroundStyle((focused ? Color(hex: "#1f1c19") : .white).opacity(0.6)).lineLimit(1)
+                    .foregroundStyle(TVColor.textMuted).lineLimit(1)
             }
             .padding(22).frame(height: 178, alignment: .topLeading).frame(maxWidth: .infinity, alignment: .leading)
-            .background(focused ? Color.white : Color.white.opacity(0.10))
+            .background(focused ? TVColor.cardElev : TVColor.card)
         }
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.58)
@@ -164,6 +164,7 @@ struct TVSourceFormView: View {
     @State private var pathText = ""
     @State private var testResult: String?
     @State private var testing = false
+    @State private var saveFailed = false
 
     private var showsSSL: Bool { type.category == .mediaServer || type.category == .nas || type == .webdav }
     private var showsAuth: Bool { type != .nfs }
@@ -194,7 +195,7 @@ struct TVSourceFormView: View {
     var body: some View {
         ZStack {
             TVAmbientBackdrop(tint: TVColor.brand, tint2: Color(hex: "#1f3a5b"), strength: 0.4)
-            Color.black.opacity(0.45).ignoresSafeArea()
+            TVColor.bg.opacity(0.42).ignoresSafeArea()
             // 只让左列字段在自己列里滚动;右列作为撑满高度的固定侧栏,从任意字段往右都能到达
             //(右侧焦点区 frame 必须满高,否则下方字段往右无候选)。
             HStack(alignment: .top, spacing: 90) {
@@ -213,6 +214,11 @@ struct TVSourceFormView: View {
         .onAppear(perform: prefill)
         .onChange(of: useSsl) { oldValue, newValue in
             updateDefaultPortForSSLChange(from: oldValue, to: newValue)
+        }
+        .alert(PMString("ext.tv.sources.cred.saveFailedTitle"), isPresented: $saveFailed) {
+            Button(PMString("ext.tv.sources.ok"), role: .cancel) {}
+        } message: {
+            Text(PMString("ext.tv.sources.cred.saveFailedBody"))
         }
     }
 
@@ -235,7 +241,7 @@ struct TVSourceFormView: View {
                                 in: RoundedRectangle(cornerRadius: 13, style: .continuous))
                 VStack(alignment: .leading, spacing: 3) {
                     TVEyebrow(text: editing == nil ? "添加新源 · 第 2 步" : "编辑连接信息")
-                    Text("\(type.displayName) · 填写连接信息").font(.system(size: 36, weight: .bold)).foregroundStyle(.white)
+                    Text("\(type.displayName) · 填写连接信息").font(.system(size: 36, weight: .bold)).foregroundStyle(TVColor.text)
                 }
             }
             .padding(.bottom, 8)
@@ -246,19 +252,19 @@ struct TVSourceFormView: View {
             if showsSSL {
                 Toggle(isOn: $useSsl) {
                     Label("使用 HTTPS / SSL", systemImage: "lock.shield")
-                        .font(.system(size: 21, weight: .medium)).foregroundStyle(.white)
+                        .font(.system(size: 21, weight: .medium)).foregroundStyle(TVColor.text)
                 }
                 .padding(.horizontal, 22).padding(.vertical, 14).frame(maxWidth: 720, alignment: .leading)
-                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .background(TVColor.surfaceSubtle, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
             if showsAuth {
                 if type.supportsAnonymous {
                     Toggle(isOn: $useGuestAccess) {
                         Label("访客模式（无需账号密码）", systemImage: "person.crop.circle.badge.checkmark")
-                            .font(.system(size: 21, weight: .medium)).foregroundStyle(.white)
+                            .font(.system(size: 21, weight: .medium)).foregroundStyle(TVColor.text)
                     }
                     .padding(.horizontal, 22).padding(.vertical, 14).frame(maxWidth: 720, alignment: .leading)
-                    .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .background(TVColor.surfaceSubtle, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
                 if !useGuestAccess {
                     TVFormField(label: "用户名", text: $username, mono: true)
@@ -280,15 +286,15 @@ struct TVSourceFormView: View {
     private var rightPanel: some View {
         VStack(spacing: 26) {
             VStack(spacing: 10) {
-                Image(systemName: "keyboard").font(.system(size: 44)).foregroundStyle(.white)
-                Text("用 iPhone 输入").font(.system(size: 24, weight: .bold)).foregroundStyle(.white)
+                Image(systemName: "keyboard").font(.system(size: 44)).foregroundStyle(TVColor.text)
+                Text("用 iPhone 输入").font(.system(size: 24, weight: .bold)).foregroundStyle(TVColor.text)
                 Text("聚焦输入框时,已配对的 iPhone 会弹出输入提示,在手机上打字比遥控器快得多。")
                     .font(.system(size: 16)).foregroundStyle(TVColor.textFaint)
                     .multilineTextAlignment(.center).lineSpacing(4)
             }
             .padding(28).frame(maxWidth: .infinity)
-            .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .overlay { RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(.white.opacity(0.12), lineWidth: 0.5) }
+            .background(TVColor.surface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay { RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(TVColor.cardBorder, lineWidth: 0.5) }
 
             if let testResult {
                 Text(testResult).font(.system(size: 16)).foregroundStyle(TVColor.textMuted)
@@ -298,25 +304,25 @@ struct TVSourceFormView: View {
             HStack(spacing: 14) {
                 if editing != nil {
                     TVFocusButton(radius: 14, scale: 1.04, lift: 0, action: runTest) { f in
-                        Group { if testing { ProgressView().tint(.white) } else { Text("测试连接") } }
-                            .font(.system(size: 20, weight: .medium)).foregroundStyle(.white)
+                        Group { if testing { ProgressView().tint(TVColor.brand) } else { Text("测试连接") } }
+                            .font(.system(size: 20, weight: .medium)).foregroundStyle(TVColor.text)
                             .frame(maxWidth: .infinity).padding(.vertical, 18)
-                            .background(Color.white.opacity(f ? 0.2 : 0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .background(f ? TVColor.surfaceStrong : TVColor.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     }
                 }
                 TVFocusButton(radius: 14, accent: TVColor.brand, scale: 1.05, lift: 0, action: save) { f in
                     Text(editing == nil ? "添加" : "保存")
-                        .font(.system(size: 20, weight: .bold)).foregroundStyle(canSave ? Color(hex: "#1f1c19") : TVColor.textGhost)
+                        .font(.system(size: 20, weight: .bold)).foregroundStyle(canSave ? TVColor.onBrand : TVColor.textGhost)
                         .frame(maxWidth: .infinity).padding(.vertical, 18)
-                        .background(canSave ? Color.white.opacity(f ? 1 : 0.9) : Color.white.opacity(0.1),
+                        .background(canSave ? TVColor.brand.opacity(f ? 1 : 0.88) : TVColor.surface,
                                     in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
                 .disabled(!canSave)
             }
             TVFocusButton(radius: 14, scale: 1.04, lift: 0, action: { dismiss() }) { f in
-                Text("取消").font(.system(size: 19, weight: .medium)).foregroundStyle(.white)
+                Text("取消").font(.system(size: 19, weight: .medium)).foregroundStyle(TVColor.text)
                     .frame(maxWidth: .infinity).padding(.vertical, 14)
-                    .background(Color.white.opacity(f ? 0.14 : 0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .background(f ? TVColor.surfaceStrong : TVColor.surfaceSubtle, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
         }
     }
@@ -371,8 +377,13 @@ struct TVSourceFormView: View {
         src.modifiedAt = Date()
 
         let passwordToSave = useGuestAccess || password.isEmpty ? nil : password
-        if editing == nil { store.addSource(src, password: passwordToSave) }
-        else { store.updateSource(src, password: passwordToSave) }
+        let didSave = editing == nil
+            ? store.addSource(src, password: passwordToSave)
+            : store.updateSource(src, password: passwordToSave)
+        guard didSave else {
+            saveFailed = true
+            return
+        }
         dismiss()
     }
 }
@@ -423,7 +434,7 @@ struct TVOTPEntryView: View {
     var body: some View {
         ZStack {
             TVAmbientBackdrop(tint: TVColor.brand, tint2: Color(hex: "#264a6e"), strength: 0.45)
-            Color.black.opacity(0.4).ignoresSafeArea()
+            TVColor.bg.opacity(0.38).ignoresSafeArea()
             HStack(alignment: .center, spacing: 100) {
                 leftPrompt
                 numberPad
@@ -442,7 +453,7 @@ struct TVOTPEntryView: View {
                             in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .padding(.bottom, 24)
             TVEyebrow(text: "两步验证 · \(source.name)").padding(.bottom, 8)
-            Text("输入验证码").font(.system(size: 44, weight: .bold)).foregroundStyle(.white).padding(.bottom, 16)
+            Text("输入验证码").font(.system(size: 44, weight: .bold)).foregroundStyle(TVColor.text).padding(.bottom, 16)
             Text("打开该 NAS 上的身份验证器 App,输入一次性验证码。登录成功后将记住此 Apple TV。")
                 .font(.system(size: 20)).foregroundStyle(TVColor.textMuted)
                 .frame(maxWidth: 520, alignment: .leading).lineSpacing(5).padding(.bottom, 36)
@@ -452,12 +463,12 @@ struct TVOTPEntryView: View {
                     let ch = i < code.count ? String(Array(code)[i]) : ""
                     Text(ch.isEmpty ? "·" : ch)
                         .font(.system(size: 48, weight: .bold, design: .monospaced))
-                        .foregroundStyle(ch.isEmpty ? TVColor.textGhost : .white)
+                        .foregroundStyle(ch.isEmpty ? TVColor.textGhost : TVColor.text)
                         .frame(width: 72, height: 92)
-                        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .background(TVColor.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                         .overlay {
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .strokeBorder(i == code.count ? TVColor.brand : .white.opacity(0.16),
+                                .strokeBorder(i == code.count ? TVColor.brand : TVColor.cardBorder,
                                               lineWidth: i == code.count ? 3 : 0.5)
                         }
                 }
@@ -465,7 +476,7 @@ struct TVOTPEntryView: View {
             if let error {
                 Text(error).font(.system(size: 17)).foregroundStyle(TVColor.bad).padding(.top, 24)
             } else if busy {
-                HStack(spacing: 12) { ProgressView().tint(.white); Text("验证中…").foregroundStyle(TVColor.textFaint) }
+                HStack(spacing: 12) { ProgressView().tint(TVColor.brand); Text("验证中…").foregroundStyle(TVColor.textFaint) }
                     .padding(.top, 24)
             }
         }
@@ -475,13 +486,13 @@ struct TVOTPEntryView: View {
     private var numberPad: some View {
         LazyVGrid(columns: Array(repeating: GridItem(.fixed(100), spacing: 16), count: 3), spacing: 16) {
             ForEach(keys, id: \.self) { k in
-                TVFocusButton(radius: 50, accent: k == "✓" ? TVColor.brand : .white, scale: 1.12, lift: 6,
+                TVFocusButton(radius: 50, accent: k == "✓" ? TVColor.brand : TVColor.focusRing, scale: 1.12, lift: 6,
                               action: { tap(k) }) { focused in
                     Text(k)
                         .font(.system(size: k.count > 1 ? 30 : 40, weight: .semibold))
-                        .foregroundStyle(focused ? Color(hex: "#1f1c19") : .white)
+                        .foregroundStyle((focused || k == "✓") ? TVColor.onBrand : TVColor.text)
                         .frame(width: 100, height: 100)
-                        .background(focused ? Color.white : (k == "✓" ? TVColor.brand : Color.white.opacity(0.10)),
+                        .background((focused || k == "✓") ? TVColor.brand : TVColor.surface,
                                     in: Circle())
                 }
             }
@@ -518,11 +529,11 @@ struct TVRecycleBinView: View {
     var body: some View {
         ZStack {
             TVAmbientBackdrop(tint: TVColor.brand, tint2: Color(hex: "#1f3a5b"), strength: 0.35)
-            Color.black.opacity(0.4).ignoresSafeArea()
+            TVColor.bg.opacity(0.38).ignoresSafeArea()
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 16) {
                     TVEyebrow(text: "回收站")
-                    Text("最近删除").font(.system(size: 48, weight: .bold)).foregroundStyle(.white).padding(.bottom, 8)
+                    Text("最近删除").font(.system(size: 48, weight: .bold)).foregroundStyle(TVColor.text).padding(.bottom, 8)
                     let deleted = store.deletedSources
                     if deleted.isEmpty {
                         Text("没有最近删除的音乐源。").font(.system(size: 20)).foregroundStyle(TVColor.textGhost)
@@ -535,7 +546,7 @@ struct TVRecycleBinView: View {
                                         .foregroundStyle(.white).frame(width: 46, height: 46)
                                         .background(s.color, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                                     VStack(alignment: .leading, spacing: 3) {
-                                        Text(s.name).font(.system(size: 22, weight: .semibold)).foregroundStyle(.white)
+                                        Text(s.name).font(.system(size: 22, weight: .semibold)).foregroundStyle(TVColor.text)
                                         Text(s.type.uppercased()).font(.system(size: 15, design: .monospaced)).foregroundStyle(TVColor.textFaint)
                                     }
                                     Spacer(minLength: 0)
@@ -544,7 +555,7 @@ struct TVRecycleBinView: View {
                                         .foregroundStyle(focused ? TVColor.ok : TVColor.textFaint)
                                 }
                                 .padding(.horizontal, 22).padding(.vertical, 16).frame(maxWidth: .infinity)
-                                .background(focused ? Color.white.opacity(0.12) : TVColor.card)
+                                .background(focused ? TVColor.surfaceStrong : TVColor.card)
                             }
                         }
                     }

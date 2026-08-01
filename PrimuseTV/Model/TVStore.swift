@@ -15,14 +15,15 @@ struct TVAlbum: Identifiable, Hashable {
     let title: String
     let artist: String
     let year: Int
-    let tint: Color
-    let tint2: Color
+    var tint: Color
+    var tint2: Color
     let glyph: String
 }
 
 struct TVSong: Identifiable, Hashable {
     let id: String
     let albumID: String
+    let coverRef: String?
     let title: String
     let artist: String
     let duration: Double
@@ -51,6 +52,8 @@ struct TVPlaylist: Identifiable, Hashable {
     let kind: TVPlaylistKind
     let count: Int
     let coverAlbumID: String
+    let coverSongID: String
+    let coverRef: String?
     static func == (l: TVPlaylist, r: TVPlaylist) -> Bool { l.id == r.id }
     func hash(into h: inout Hasher) { h.combine(id) }
 }
@@ -94,6 +97,8 @@ struct TVLyricLine: Identifiable, Hashable {
 }
 
 struct TVNowPlaying {
+    var songID: String
+    var coverRef: String?
     var title: String
     var artist: String
     var album: String
@@ -125,7 +130,7 @@ final class TVStore {
 
     var hasRealLibrary: Bool {
         _ = libraryViewRevision
-        return !cachedAlbums.isEmpty
+        return !cachedSongs.isEmpty || !cachedAlbums.isEmpty
     }
 
     /// 选中的歌(tvOS 暂无真实音频,仅展示真实元数据);未选中时不显示底部条/正在播放页。
@@ -181,6 +186,7 @@ final class TVStore {
     @ObservationIgnored private var cachedAlbums: [TVAlbum] = []
     @ObservationIgnored private var cachedArtists: [TVArtist] = []
     @ObservationIgnored private var visibleSongCountsBySource: [String: Int] = [:]
+    @ObservationIgnored private var artworkPalettes: [String: TVArtworkPalette] = [:]
     private var libraryViewRevision = 0
 
     // uploadNow 单飞:串行化改源后的快照上传,避免快速连续切源时
@@ -279,7 +285,8 @@ final class TVStore {
         library.recentlyPlayedSongs(limit: 12).map { self.map($0) }
     }
     var recentlyAddedAlbums: [TVAlbum] {
-        library.recentlyAddedAlbums(limit: 12).map { self.map($0) }
+        _ = libraryViewRevision
+        return library.recentlyAddedAlbums(limit: 12).map { self.map($0) }
     }
     var recommended: [TVAlbum] {
         _ = libraryViewRevision
@@ -294,16 +301,68 @@ final class TVStore {
 
     // MARK: 真实模型 → TV view-model 映射
     //
-    // tvOS 暂未同步封面图(artwork 缓存在扫描设备本地),所以封面用「按 id 派生的
-    // 渐变 + 首字」程序化绘制;标题/艺术家/年份等元数据都是真实的。
+    // 真实封面可由快照同步缓存或源端引用载入；按 id 派生的渐变只作为加载中/
+    // 无封面时的稳定兜底，标题、艺术家、年份等元数据都来自真实曲库。
 
     private func map(_ a: Album) -> TVAlbum {
-        let (t1, t2) = Self.tint(a.id.isEmpty ? a.title : a.id)
+        let fallback = Self.tint(a.id.isEmpty ? a.title : a.id)
+        let palette = artworkPalettes[a.id]
+        let t1 = palette?.primary.color ?? fallback.0
+        let t2 = palette?.secondary.color ?? fallback.1
         return TVAlbum(id: a.id, title: a.title, artist: a.artistName ?? PMString("ext.tv.unknownArtist"),
                        year: a.year ?? 0, tint: t1, tint2: t2, glyph: Self.glyph(a.title))
     }
+
+    /// TVArtworkView 载入真实封面后回写主题色。专辑缓存、查询索引和当前播放态
+    /// 一次更新，所有已经使用 album.tint / nowPlaying.tint 的页面会自动重绘。
+    func applyArtworkPalette(_ palette: TVArtworkPalette, forAlbumID albumID: String) {
+        guard !albumID.isEmpty, artworkPalettes[albumID] != palette else { return }
+        artworkPalettes[albumID] = palette
+        let primary = palette.primary.color
+        let secondary = palette.secondary.color
+
+        var updatedAlbum = false
+        if let index = cachedAlbums.firstIndex(where: { $0.id == albumID }) {
+            cachedAlbums[index].tint = primary
+            cachedAlbums[index].tint2 = secondary
+            albumByID[albumID] = cachedAlbums[index]
+            updatedAlbum = true
+        }
+        if nowPlaying.albumID == albumID {
+            nowPlaying.tint = primary
+            nowPlaying.tint2 = secondary
+        }
+        if updatedAlbum { libraryViewRevision &+= 1 }
+    }
+
+    /// 散曲没有 albumID，调色板按 Song.id 独立缓存；播放器和纯散曲首页都
+    /// 通过同一 revision 立即重绘。
+    /// key 加命名空间，避免极端情况下歌曲 ID 与专辑 ID 相同而串色。
+    func applyArtworkPalette(_ palette: TVArtworkPalette, forSongID songID: String) {
+        guard !songID.isEmpty else { return }
+        let key = Self.songArtworkPaletteKey(songID)
+        guard artworkPalettes[key] != palette else { return }
+        artworkPalettes[key] = palette
+        if nowPlaying.songID == songID, nowPlaying.albumID.isEmpty {
+            nowPlaying.tint = palette.primary.color
+            nowPlaying.tint2 = palette.secondary.color
+        }
+        libraryViewRevision &+= 1
+    }
+
+    func artworkColors(forSongID songID: String) -> (primary: Color, secondary: Color)? {
+        _ = libraryViewRevision
+        guard let palette = artworkPalettes[Self.songArtworkPaletteKey(songID)] else {
+            return nil
+        }
+        return (palette.primary.color, palette.secondary.color)
+    }
+
+    private static func songArtworkPaletteKey(_ songID: String) -> String {
+        "song:\(songID)"
+    }
     private func map(_ s: Song) -> TVSong {
-        TVSong(id: s.id, albumID: s.albumID ?? "", title: s.title,
+        TVSong(id: s.id, albumID: s.albumID ?? "", coverRef: s.coverArtFileName, title: s.title,
                artist: s.artistName ?? PMString("ext.tv.unknownArtist"), duration: s.duration,
                format: s.fileFormat.displayName, bitrate: s.bitRate ?? 0,
                sampleRate: Double(s.sampleRate ?? 0) / 1000,
@@ -317,10 +376,12 @@ final class TVStore {
     private func mapPlaylist(_ p: Playlist, kind: TVPlaylistKind) -> TVPlaylist {
         let s = library.songs(forPlaylist: p.id)
         return TVPlaylist(id: p.id, name: p.name, kind: kind,
-                          count: s.count, coverAlbumID: s.first?.albumID ?? "")
+                          count: s.count, coverAlbumID: s.first?.albumID ?? "",
+                          coverSongID: s.first?.id ?? "", coverRef: s.first?.coverArtFileName)
     }
     private func mapSmart(_ sp: SmartPlaylist) -> TVPlaylist {
-        TVPlaylist(id: sp.id, name: sp.name, kind: .smart, count: 0, coverAlbumID: "")
+        TVPlaylist(id: sp.id, name: sp.name, kind: .smart, count: 0,
+                   coverAlbumID: "", coverSongID: "", coverRef: nil)
     }
     private func map(_ s: MusicSource) -> TVSource {
         let cnt = hasRealLibrary ? (visibleSongCountsBySource[s.id] ?? 0) : s.songCount
@@ -413,12 +474,18 @@ final class TVStore {
     }
 
     /// 保存用户在 TV 上手动输入的账号密码(本地钥匙串),并失效旧会话、刷新徽标。
-    func saveManualCredential(sourceID: String, username: String, password: String) {
-        TVCredentialStore.saveLocalCredential(sourceID: sourceID, username: username, password: password)
+    @discardableResult
+    func saveManualCredential(sourceID: String, username: String, password: String) -> Bool {
+        guard TVCredentialStore.saveLocalCredential(
+            sourceID: sourceID,
+            username: username,
+            password: password
+        ) else { return false }
         sourcesRevision += 1
         if let src = sourcesStore.source(id: sourceID) {
             Task { await StreamResolverRegistry.shared.invalidateSession(for: src) }
         }
+        return true
     }
 
     /// 清除 TV 本地手动输入凭据(回退到同步凭据)。
@@ -517,7 +584,8 @@ final class TVStore {
         guard !pairingStarted else { return }
         pairingStarted = true
         configServer.onReceive = { [weak self] payload in
-            Task { @MainActor in self?.applyLANPayload(payload) }
+            guard let self else { return false }
+            return await self.applyLANPayload(payload)
         }
         configServer.onEndpointReady = { [weak self] link in
             Task { @MainActor in
@@ -537,19 +605,26 @@ final class TVStore {
     }
 
     /// 收到 iPhone 经局域网直传来的整库 + 源 + 凭据:落盘、持久化凭据、合并重载曲库。
-    func applyLANPayload(_ payload: LANSyncPayload) {
+    @discardableResult
+    func applyLANPayload(_ payload: LANSyncPayload) -> Bool {
         let before = library.songs
-        LibrarySnapshotSync.shared.applyLANPayload(payload)
+        var credentialsPersisted = true
         if let creds = payload.credentials, !creds.entries.isEmpty || creds.relay != nil {
             var merged = TVCredentialStore.loadPairedBundle() ?? CredentialBundle()
             for (k, v) in creds.entries { merged.entries[k] = v }
             if let r = creds.relay { merged.relay = r }
-            TVCredentialStore.savePairedBundle(merged)
-            credentialBundle = merged
+            credentialsPersisted = TVCredentialStore.savePairedBundle(merged)
+            if credentialsPersisted {
+                credentialBundle = merged
+            } else {
+                plog("TVStore: unable to persist paired credential bundle")
+            }
         }
+        LibrarySnapshotSync.shared.applyLANPayload(payload)
         reloadMerging(before: before)
         sourcesRevision += 1
-        plog("TVStore: applied LAN payload → sources=\(sourcesStore.sources.count) songs=\(library.songs.count)")
+        plog("TVStore: applied LAN payload → sources=\(sourcesStore.sources.count) songs=\(library.songs.count) credentialsPersisted=\(credentialsPersisted)")
+        return credentialsPersisted
     }
 
     /// 应用手机快照后重载,并把「TV 本机扫的、手机快照里没有的源」的歌合并回来,
@@ -585,23 +660,74 @@ final class TVStore {
 
     #if DEBUG
     /// 截图用:直接注入一条「正在播放」+ 演示歌词,不走真实播放(模拟器无可达源)。
-    func loadDemoNowPlaying() {
-        guard let album = albums.first else { return }
-        let song = songs.first(where: { $0.albumID == album.id })
+    /// `preferSongArtwork` 用来专门覆盖无 albumID 散曲的歌曲缓存/远程封面路径。
+    @discardableResult
+    func loadDemoNowPlaying(preferSongArtwork: Bool = false) async -> Bool {
+        var rawSong: Song?
+        var selectedAlbum: TVAlbum?
+
+        if preferSongArtwork {
+            rawSong = await demoStandaloneArtworkSong()
+            guard rawSong != nil else {
+                plog("TV debug artwork route failed: no standalone song with loadable artwork")
+                return false
+            }
+        }
+        if rawSong == nil,
+           let album = albums.first(where: {
+               MetadataAssetStore.shared.hasAlbumCover(forAlbumID: $0.id)
+           }) ?? albums.first {
+            selectedAlbum = album
+            rawSong = library.visibleSongs.first(where: { $0.albumID == album.id })
+        }
+        if rawSong == nil {
+            rawSong = library.visibleSongs.first
+        }
+        guard let rawSong, let song = song(rawSong.id) else { return false }
+
+        let album = selectedAlbum ?? album(song.albumID)
+        let fallback = Self.tint(song.id)
+        let songPalette = song.albumID.isEmpty
+            ? artworkPalettes[Self.songArtworkPaletteKey(song.id)]
+            : nil
+        let tint = album?.tint ?? songPalette?.primary.color ?? fallback.0
+        let tint2 = album?.tint2 ?? songPalette?.secondary.color ?? fallback.1
         nowPlaying = TVNowPlaying(
-            title: song?.title ?? album.title,
-            artist: album.artist,
-            album: album.title,
-            albumID: album.id,
-            tint: album.tint, tint2: album.tint2, glyph: album.glyph,
-            duration: song?.duration ?? 245,
+            songID: song.id,
+            coverRef: rawSong.coverArtFileName,
+            title: song.title,
+            artist: song.artist,
+            album: album?.title ?? rawSong.albumTitle ?? "",
+            albumID: song.albumID,
+            tint: tint, tint2: tint2, glyph: album?.glyph ?? Self.glyph(song.title),
+            duration: song.duration > 0 ? song.duration : 245,
             currentTime: 0,
-            format: song?.format ?? "FLAC",
-            bitrate: song?.bitrate ?? 1411,
-            sampleRate: song?.sampleRate ?? 96,
+            format: song.format,
+            bitrate: song.bitrate > 0 ? song.bitrate : 1411,
+            sampleRate: song.sampleRate > 0 ? song.sampleRate : 96,
             sourcePath: "")
         hasNowPlaying = true
+        queueUpNextIDs = songs.lazy
+            .filter { $0.id != song.id }
+            .prefix(12)
+            .map(\.id)
         lyrics = Self.demoLyrics
+        return true
+    }
+
+    private func demoStandaloneArtworkSong() async -> Song? {
+        let candidates = library.visibleSongs.filter {
+            $0.albumID?.isEmpty != false && $0.coverArtFileName?.isEmpty == false
+        }
+        for song in candidates {
+            if await TVArtworkLoader.shared.songCover(
+                songID: song.id,
+                coverRef: song.coverArtFileName
+            ) != nil {
+                return song
+            }
+        }
+        return nil
     }
 
     static let demoLyrics: [TVLyricLine] = [
@@ -633,12 +759,15 @@ final class TVStore {
         let recent: [TopShelfPublisher.Draft] = recentlyPlayed.prefix(8).map { s in
             let alb = albumOf(s)
             return .init(id: s.id, title: s.title, subtitle: s.artist, artist: s.artist,
-                         album: alb?.title ?? "", playURL: Self.topShelfLink(host: "play", key: "song", s.id))
+                         album: alb?.title ?? "", coverKey: alb?.id ?? "",
+                         songID: s.id, coverRef: s.coverRef,
+                         playURL: Self.topShelfLink(host: "play", key: "song", s.id))
         }
         let albumList = recentlyAddedAlbums.isEmpty ? albums : recentlyAddedAlbums
         let lib: [TopShelfPublisher.Draft] = albumList.prefix(12).map { a in
             .init(id: a.id, title: a.title, subtitle: a.artist, artist: a.artist,
-                  album: a.title, playURL: Self.topShelfLink(host: "album", key: "id", a.id))
+                  album: a.title, coverKey: a.id, songID: nil, coverRef: nil,
+                  playURL: Self.topShelfLink(host: "album", key: "id", a.id))
         }
         guard !recent.isEmpty || !lib.isEmpty else { return }
         Task.detached { await TopShelfPublisher.publish(recent: recent, albums: lib) }
@@ -744,20 +873,24 @@ final class TVStore {
     ]
 
     /// TV 上新增源:写入 sources + 存本地凭据 + 回传快照。
-    func addSource(_ source: MusicSource, password: String?) {
+    @discardableResult
+    func addSource(_ source: MusicSource, password: String?) -> Bool {
+        guard saveLocalCred(source, password) else { return false }
         sourcesStore.add(source)
-        saveLocalCred(source, password)
         afterSourceMutation()
+        return true
     }
 
     /// TV 上编辑源连接参数:更新 + 失效旧会话 + 回传快照。
-    func updateSource(_ source: MusicSource, password: String?) {
+    @discardableResult
+    func updateSource(_ source: MusicSource, password: String?) -> Bool {
+        guard saveLocalCred(source, password) else { return false }
         sourcesStore.update(source.id) { $0 = source }
-        saveLocalCred(source, password)
         if let s = sourcesStore.source(id: source.id) {
             Task { await StreamResolverRegistry.shared.invalidateSession(for: s) }
         }
         afterSourceMutation()
+        return true
     }
 
     /// 从回收站恢复软删除的源。
@@ -766,14 +899,17 @@ final class TVStore {
         afterSourceMutation()
     }
 
-    private func saveLocalCred(_ source: MusicSource, _ password: String?) {
+    private func saveLocalCred(_ source: MusicSource, _ password: String?) -> Bool {
         if source.authType == .none {
             TVCredentialStore.clearLocalCredential(sourceID: source.id)
-            return
+            return true
         }
-        guard let password, !password.isEmpty else { return }
-        TVCredentialStore.saveLocalCredential(sourceID: source.id,
-                                              username: source.username ?? "", password: password)
+        guard let password, !password.isEmpty else { return true }
+        return TVCredentialStore.saveLocalCredential(
+            sourceID: source.id,
+            username: source.username ?? "",
+            password: password
+        )
     }
 
     private func afterSourceMutation() {
@@ -1000,9 +1136,18 @@ final class TVStore {
     /// 设置展示元数据 + 触发真实解析播放。
     private func startPlaying(_ song: TVSong, resumeTime: Double = 0, autoPlay: Bool = true) {
         let a = albumOf(song)
+        let rawSong = library.song(id: song.id)
+        let fallback = Self.tint(song.id)
+        let songPalette = song.albumID.isEmpty
+            ? artworkPalettes[Self.songArtworkPaletteKey(song.id)]
+            : nil
         nowPlaying = TVNowPlaying(
+            songID: song.id,
+            coverRef: rawSong?.coverArtFileName,
             title: song.title, artist: song.artist, album: a?.title ?? "",
-            albumID: song.albumID, tint: a?.tint ?? TVColor.brand, tint2: a?.tint2 ?? .black,
+            albumID: song.albumID,
+            tint: a?.tint ?? songPalette?.primary.color ?? fallback.0,
+            tint2: a?.tint2 ?? songPalette?.secondary.color ?? fallback.1,
             glyph: a?.glyph ?? "♪", duration: song.duration, currentTime: resumeTime,
             format: song.format, bitrate: song.bitrate, sampleRate: song.sampleRate, sourcePath: "")
         hasNowPlaying = true
@@ -1028,7 +1173,8 @@ final class TVStore {
 extension TVNowPlaying {
     /// 占位「无正在播放」。
     static var none: TVNowPlaying {
-        TVNowPlaying(title: "", artist: "", album: "", albumID: "",
+        TVNowPlaying(songID: "", coverRef: nil,
+                     title: "", artist: "", album: "", albumID: "",
                      tint: TVColor.brand, tint2: .black, glyph: "♪",
                      duration: 0, currentTime: 0, format: "", bitrate: 0,
                      sampleRate: 0, sourcePath: "")

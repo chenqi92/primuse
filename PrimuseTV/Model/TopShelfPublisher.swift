@@ -17,6 +17,9 @@ enum TopShelfPublisher {
         let subtitle: String
         let artist: String
         let album: String
+        let coverKey: String
+        let songID: String?
+        let coverRef: String?
         let playURL: String
     }
 
@@ -41,7 +44,15 @@ enum TopShelfPublisher {
     private static func items(from drafts: [Draft]) async -> [TopShelfItem] {
         var out: [TopShelfItem] = []
         for d in drafts {
-            let file = await cover(key: d.id, artist: d.artist, album: d.album, title: d.title)
+            let file = await cover(
+                key: d.id,
+                coverKey: d.coverKey,
+                songID: d.songID,
+                coverRef: d.coverRef,
+                artist: d.artist,
+                album: d.album,
+                title: d.title
+            )
             out.append(TopShelfItem(id: d.id, title: d.title, subtitle: d.subtitle,
                                     imageFileName: file, playURL: d.playURL))
         }
@@ -51,13 +62,41 @@ enum TopShelfPublisher {
     /// 取封面写入 App Group 封面目录,返回文件名。优先在线真实封面(TVArtworkLoader 内部缓存,
     /// 命中后下次走缓存),取不到则画一张与 app 内卡片一致的程序化占位(渐变 + 唱片纹 + 首字),
     /// 保证 Top Shelf 不出现空白方块。
-    private static func cover(key: String, artist: String, album: String, title: String) async -> String? {
+    private static func cover(
+        key: String,
+        coverKey: String,
+        songID: String?,
+        coverRef: String?,
+        artist: String,
+        album: String,
+        title: String
+    ) async -> String? {
         guard let dir = TopShelfStore.coversDirectory, !key.isEmpty else { return nil }
         let name = SHA256.hash(data: Data(key.utf8)).prefix(16)
             .map { String(format: "%02x", $0) }.joined() + ".jpg"
         let dest = dir.appendingPathComponent(name)
-        if let data = await TVArtworkLoader.shared.cover(key: key, artist: artist, album: album),
-           !data.isEmpty {
+        let data: Data?
+        if !coverKey.isEmpty {
+            if let cached = await MetadataAssetStore.shared.cachedAlbumCover(
+                forAlbumID: coverKey
+            ) {
+                data = cached
+            } else {
+                data = await TVArtworkLoader.shared.cover(
+                    key: coverKey,
+                    artist: artist,
+                    album: album
+                )
+            }
+        } else if let songID, !songID.isEmpty {
+            data = await TVArtworkLoader.shared.songCover(
+                songID: songID,
+                coverRef: coverRef
+            )
+        } else {
+            data = nil
+        }
+        if let data, !data.isEmpty {
             try? data.write(to: dest, options: .atomic)
             return name
         }

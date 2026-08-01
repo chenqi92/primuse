@@ -175,6 +175,10 @@
 "ext.tv.settings.general"                  = "常用";
 "ext.tv.settings.icloudSync"               = "iCloud 同步";
 "ext.tv.settings.autoSync"                 = "启动时自动同步";
+"ext.tv.settings.appearance"               = "外观";
+"ext.tv.settings.appearance.system"        = "跟随 Apple TV";
+"ext.tv.settings.appearance.light"         = "浅色";
+"ext.tv.settings.appearance.dark"          = "深色";
 "ext.tv.settings.library"                  = "曲库";
 "ext.tv.settings.playlists"                = "歌单";
 "ext.tv.settings.sources"                  = "音乐源";
@@ -300,3 +304,5 @@
 "ext.tv.scan.interrupted"                 = "扫描中断";
 "ext.tv.scan.totalIndexed"                = "共索引 %d 首";
 "ext.tv.scan.walking"                     = "正在遍历目录…";
+"ext.tv.sources.cred.saveFailedTitle"     = "无法保存凭据";
+"ext.tv.sources.cred.saveFailedBody"      = "密码未写入此 Apple TV 的钥匙串，请重试。原有凭据仍已保留。";

@@ -37,16 +37,16 @@ struct TVSearchView: View {
             // 不再叠自绘玻璃盒 + 近透明 TextField,避免「大框套小框」和异常高度。
             HStack(spacing: 18) {
                 Image(systemName: "magnifyingglass").font(.system(size: 26, weight: .semibold))
-                    .foregroundStyle(inputActive ? TVColor.brand : .white.opacity(0.55))
+                    .foregroundStyle(inputActive ? TVColor.brand : TVColor.textFaint)
                 TextField(PMString("ext.tv.search.placeholder"), text: $query)
                     .focused($inputActive)
                     .font(.system(size: 28, weight: .semibold))
                     .frame(maxWidth: .infinity)
                 if !trimmed.isEmpty {
                     TVFocusButton(radius: 18, scale: 1.06, lift: 0, action: { query = "" }) { f in
-                        Text("清除").font(.system(size: 17, weight: .medium)).foregroundStyle(.white)
+                        Text("清除").font(.system(size: 17, weight: .medium)).foregroundStyle(TVColor.text)
                             .padding(.horizontal, 16).padding(.vertical, 8)
-                            .background(Color.white.opacity(f ? 0.24 : 0.14), in: Capsule())
+                            .background(f ? TVColor.surfaceStrong : TVColor.surface, in: Capsule())
                     }
                 }
             }
@@ -62,14 +62,14 @@ struct TVSearchView: View {
                     .foregroundStyle(TVColor.textMuted).padding(.bottom, 10)
                 VStack(spacing: 4) {
                     ForEach(suggestions, id: \.self) { s in
-                        TVFocusButton(radius: 10, accent: .white, scale: 1.0, lift: 0,
+                        TVFocusButton(radius: 10, scale: 1.0, lift: 0,
                                       action: { query = s }) { focused in
                             HStack {
-                                Text(s).font(.system(size: 22)).foregroundStyle(.white)
+                                Text(s).font(.system(size: 22)).foregroundStyle(TVColor.text)
                                 Spacer()
                             }
                             .padding(.horizontal, 20).padding(.vertical, 14).frame(maxWidth: .infinity)
-                            .background(focused ? Color.white.opacity(0.14) : Color.white.opacity(0.06))
+                            .background(focused ? TVColor.surfaceStrong : TVColor.surfaceSubtle)
                         }
                     }
                 }
@@ -89,14 +89,14 @@ struct TVSearchView: View {
                     HStack(spacing: 20) {
                         TVCoverArt(tint: artist.tint, tint2: artist.tint2, glyph: artist.glyph, size: 92, radius: 46)
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(artist.name).font(.system(size: 32, weight: .bold)).foregroundStyle(.white)
+                            Text(artist.name).font(.system(size: 32, weight: .bold)).foregroundStyle(TVColor.text)
                             Text(PMString("ext.tv.search.artistMeta", artist.songCount))
                                 .font(.system(size: 18)).foregroundStyle(TVColor.textFaint)
                         }
                         Spacer(minLength: 0)
                     }
                     .padding(20).frame(maxWidth: .infinity)
-                    .background(focused ? Color.white.opacity(0.12) : Color.white.opacity(0.06))
+                    .background(focused ? TVColor.surfaceStrong : TVColor.surfaceSubtle)
                 }
             } else {
                 Text(PMString("ext.tv.search.typeToSearch")).font(.system(size: 22)).foregroundStyle(TVColor.textFaint)
@@ -131,10 +131,11 @@ private struct TVSearchSongRow: View {
                       action: { store.play(song); action() }) { focused in
             HStack(spacing: 16) {
                 TVArtworkView(coverKey: album?.id ?? "", artist: album?.artist ?? song.artist,
-                              album: album?.title ?? "", tint: album?.tint ?? TVColor.brand,
+                              album: album?.title ?? "", songID: song.id, coverRef: song.coverRef,
+                              tint: album?.tint ?? TVColor.brand,
                               tint2: album?.tint2 ?? .black, glyph: album?.glyph ?? "♪", size: 56, radius: 6)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(song.title).font(.system(size: 22, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
+                    Text(song.title).font(.system(size: 22, weight: .semibold)).foregroundStyle(TVColor.text).lineLimit(1)
                     if hit.isLyric, let snippet = hit.lyricSnippet, !snippet.isEmpty {
                         // 歌词命中:展示命中片段,与 iOS/macOS 一致。
                         HStack(spacing: 6) {
@@ -151,7 +152,7 @@ private struct TVSearchSongRow: View {
                 Image(systemName: "play.fill").font(.system(size: 18)).foregroundStyle(TVColor.textFaint)
             }
             .padding(14).frame(maxWidth: .infinity)
-            .background(focused ? Color.white.opacity(0.12) : Color.white.opacity(0.06))
+            .background(focused ? TVColor.surfaceStrong : TVColor.surfaceSubtle)
         }
     }
 }

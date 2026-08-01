@@ -25,7 +25,15 @@ final class CoverTintProvider {
     /// cold launch + extract pass for ~12 visible cards is cheap and
     /// the cache stays warm afterwards.
     private var cache: [String: Color] = [:]
+    /// A valid cover was decoded but contained no representative chromatic
+    /// region. Remembering that negative result avoids re-decoding grayscale
+    /// artwork every time HomeView refreshes.
+    private var noColorCache: Set<String> = []
     private var inFlight: Set<String> = []
+    private var invalidatedWhileInFlight: Set<String> = []
+    /// Latest Home inputs let an artwork cache notification retry immediately
+    /// even when the visible song identity itself did not change.
+    private var knownSongs: [String: Song] = [:]
 
     /// Synchronous read. Returns the cached tint if extraction has
     /// finished. Returns nil while computation is pending — callers
@@ -38,8 +46,13 @@ final class CoverTintProvider {
     /// Schedule background extraction for any songs not already
     /// cached. Idempotent — safe to call on every body re-eval.
     func prepare(_ songs: [Song]) {
+        for song in songs {
+            knownSongs[song.id] = song
+        }
         let pending = songs.filter {
-            cache[$0.id] == nil && !inFlight.contains($0.id)
+            cache[$0.id] == nil
+                && !noColorCache.contains($0.id)
+                && !inFlight.contains($0.id)
         }
         guard !pending.isEmpty else { return }
 
@@ -50,37 +63,81 @@ final class CoverTintProvider {
             // Publishing one completed dictionary avoids re-evaluating the
             // entire HomeView once for every individual cover tint.
             var extracted: [String: Color] = [:]
+            var noColorIDs: Set<String> = []
             extracted.reserveCapacity(pending.count)
             for song in pending {
                 guard !Task.isCancelled else { break }
-                if let color = Self.computeTint(
+                let result = Self.computeTint(
                     songID: song.id,
                     coverFileName: song.coverArtFileName
-                ) {
+                )
+                if let color = result.color {
                     extracted[song.id] = color
+                } else if result.analyzedImage {
+                    noColorIDs.insert(song.id)
                 }
             }
             await MainActor.run { [weak self] in
                 guard let self else { return }
-                if !extracted.isEmpty {
+                let invalidated = self.invalidatedWhileInFlight.intersection(pendingIDs)
+                let validIDs = pendingIDs.subtracting(invalidated)
+                let validExtracted = extracted.filter { validIDs.contains($0.key) }
+                if !validExtracted.isEmpty {
                     var nextCache = self.cache
-                    nextCache.merge(extracted) { _, new in new }
+                    nextCache.merge(validExtracted) { _, new in new }
                     self.cache = nextCache
                 }
+                self.noColorCache.formUnion(noColorIDs.intersection(validIDs))
                 self.inFlight.subtract(pendingIDs)
+                self.invalidatedWhileInFlight.subtract(pendingIDs)
+                if !invalidated.isEmpty {
+                    self.prepare(invalidated.compactMap { self.knownSongs[$0] })
+                }
             }
         }
     }
 
     func clearCache() {
         cache.removeAll(keepingCapacity: false)
+        noColorCache.removeAll(keepingCapacity: false)
+        invalidatedWhileInFlight.formUnion(inFlight)
+    }
+
+    /// Artwork writes and replacements invalidate both positive and negative
+    /// results. Notifications without song identities conservatively clear the
+    /// small session cache because their object may be a legacy filename.
+    func invalidateArtwork(from notification: Notification) {
+        var songIDs = Set(notification.userInfo?["songIDs"] as? [String] ?? [])
+        if let songID = notification.userInfo?["songID"] as? String {
+            songIDs.insert(songID)
+        }
+        if notification.name == .primuseArtworkDidCache,
+           let songID = notification.object as? String {
+            songIDs.insert(songID)
+        }
+        guard !songIDs.isEmpty else {
+            clearCache()
+            prepare(Array(knownSongs.values))
+            return
+        }
+        for songID in songIDs {
+            cache.removeValue(forKey: songID)
+            noColorCache.remove(songID)
+            if inFlight.contains(songID) {
+                invalidatedWhileInFlight.insert(songID)
+            }
+        }
+        prepare(songIDs.compactMap { knownSongs[$0] })
     }
 
     /// Off-main extraction. Mirrors ThemeService's load-then-extract
     /// flow: try songID-derived hashed filename first, fall back to
     /// the legacy filename column. `MetadataAssetStore.readCoverData`
     /// is `nonisolated`, so no actor hop needed.
-    nonisolated private static func computeTint(songID: String, coverFileName: String?) -> Color? {
+    nonisolated private static func computeTint(
+        songID: String,
+        coverFileName: String?
+    ) -> (color: Color?, analyzedImage: Bool) {
         let hashedName = MetadataAssetStore.shared.expectedCoverFileName(for: songID)
         var data = MetadataAssetStore.shared.readCoverData(named: hashedName)
         if data == nil,
@@ -90,7 +147,7 @@ final class CoverTintProvider {
            !coverFileName.contains("://") {
             data = MetadataAssetStore.shared.readCoverData(named: coverFileName)
         }
-        guard let data, let image = PlatformImage(data: data) else { return nil }
-        return ThemeService.extractDominantColor(from: image).accent
+        guard let data, let image = PlatformImage(data: data) else { return (nil, false) }
+        return (ThemeService.extractDominantColor(from: image)?.accent, true)
     }
 }

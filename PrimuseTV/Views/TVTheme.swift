@@ -1,28 +1,60 @@
 #if os(tvOS)
 import SwiftUI
+import UIKit
 
 // MARK: - 设计 token
 //
-// 对应 design/猿音/scenes/tvos.jsx + theme.jsx 的暗色主题。tvOS 全程暗色、
-// 字号放大适配 10ft 观看距离、焦点用 scale + lift + 4pt 内描边高亮 + 辉光。
+// 保留原有 10ft 字号和焦点层级，颜色 token 同时适配 tvOS 浅色与深色外观。
+// 封面色只负责氛围和强调，文字、卡片、分隔线始终由语义色保证对比度。
 
 enum TVColor {
-    static let bg          = Color(hex: "#000000")
-    static let bgDeep      = Color(hex: "#0a0a0a")
-    static let bgElev      = Color(hex: "#1a1715")
-    static let text        = Color(hex: "#f3eee7")
-    static func textAlpha(_ a: Double) -> Color { Color(hex: "#f3eee7").opacity(a) }
+    static let bg = adaptive(light: rgb(0xF2EFEB), dark: rgb(0x000000))
+    static let bgDeep = adaptive(light: rgb(0xE9E4DE), dark: rgb(0x0A0A0A))
+    static let bgElev = adaptive(light: rgb(0xFFFCF8), dark: rgb(0x1A1715))
+    static let text = adaptive(light: rgb(0x1B1816), dark: rgb(0xF3EEE7))
+    static func textAlpha(_ a: Double) -> Color { text.opacity(a) }
     static let textMuted   = textAlpha(0.72)
     static let textFaint   = textAlpha(0.55)
     static let textGhost   = textAlpha(0.40)
-    static let card        = Color.white.opacity(0.06)
-    static let cardElev    = Color.white.opacity(0.10)
-    static let cardBorder  = Color.white.opacity(0.12)
-    static let divider     = Color.white.opacity(0.10)
-    static let brand       = Color(hex: "#c96442")
-    static let ok          = Color(hex: "#7ed187")
-    static let warn        = Color(hex: "#f0b078")
-    static let bad         = Color(hex: "#ff7565")
+    static let card = adaptive(light: UIColor.white.withAlphaComponent(0.70),
+                               dark: UIColor.white.withAlphaComponent(0.06))
+    static let cardElev = adaptive(light: UIColor.white.withAlphaComponent(0.92),
+                                   dark: UIColor.white.withAlphaComponent(0.10))
+    static let cardBorder = adaptive(light: UIColor.black.withAlphaComponent(0.11),
+                                     dark: UIColor.white.withAlphaComponent(0.12))
+    static let divider = adaptive(light: UIColor.black.withAlphaComponent(0.10),
+                                  dark: UIColor.white.withAlphaComponent(0.10))
+    static let surfaceSubtle = adaptive(light: UIColor.black.withAlphaComponent(0.045),
+                                        dark: UIColor.white.withAlphaComponent(0.06))
+    static let surface = adaptive(light: UIColor.black.withAlphaComponent(0.075),
+                                  dark: UIColor.white.withAlphaComponent(0.10))
+    static let surfaceStrong = adaptive(light: UIColor.black.withAlphaComponent(0.13),
+                                        dark: UIColor.white.withAlphaComponent(0.18))
+    static let chrome = adaptive(light: UIColor.white.withAlphaComponent(0.82),
+                                 dark: UIColor.black.withAlphaComponent(0.72))
+    static let focusRing = adaptive(light: rgb(0x8E351F), dark: rgb(0xED9A7B))
+    /// 品牌底色在浅色外观中加深、深色外观中提亮，并提供对应前景色，
+    /// 让 16pt 普通文本和焦点图标都达到稳定对比度。
+    static let brand = adaptive(light: rgb(0xA74429), dark: rgb(0xD97A58))
+    static let onBrand = adaptive(light: rgb(0xFFFFFF), dark: rgb(0x1B1816))
+    static let ok = adaptive(light: rgb(0x287A3B), dark: rgb(0x7ED187))
+    static let warn = adaptive(light: rgb(0x9A551F), dark: rgb(0xF0B078))
+    static let bad = adaptive(light: rgb(0xB8322B), dark: rgb(0xFF7565))
+
+    private static func adaptive(light: UIColor, dark: UIColor) -> Color {
+        Color(uiColor: UIColor { traits in
+            traits.userInterfaceStyle == .dark ? dark : light
+        })
+    }
+
+    private static func rgb(_ value: UInt32) -> UIColor {
+        UIColor(
+            red: CGFloat((value >> 16) & 0xFF) / 255,
+            green: CGFloat((value >> 8) & 0xFF) / 255,
+            blue: CGFloat(value & 0xFF) / 255,
+            alpha: 1
+        )
+    }
 }
 
 enum TVSpace {
@@ -111,7 +143,7 @@ extension View {
     /// tvOS 焦点态: scale + 上抬 + 4pt 内描边(不被父级 overflow 裁切) + 辉光阴影。
     func tvFocusRing(_ focused: Bool,
                      radius: CGFloat = TVRadius.card,
-                     accent: Color = TVColor.brand,
+                     accent: Color = TVColor.focusRing,
                      scale: CGFloat = 1.06,
                      lift: CGFloat = 12) -> some View {
         self
@@ -154,7 +186,7 @@ struct TVFocusButton<Label: View>: View {
     @FocusState private var focused: Bool
 
     init(radius: CGFloat = TVRadius.card,
-         accent: Color = TVColor.brand,
+         accent: Color = TVColor.focusRing,
          scale: CGFloat = 1.06,
          lift: CGFloat = 12,
          ring: Bool = true,
@@ -187,11 +219,13 @@ struct TVFocusButton<Label: View>: View {
 
 // MARK: - Ambient 背景
 
-/// 对应 theme.jsx 的 AmbientBackdrop: 两个被高斯模糊的封面色斑 + 一层暗罩。
+/// 封面双色氛围背景。浅色外观使用柔和色场，深色外观保留沉浸式明暗层次。
 struct TVAmbientBackdrop: View {
     var tint: Color = TVColor.brand
     var tint2: Color = Color(hex: "#1f3a5b")
     var strength: Double = 0.7
+
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         let s = max(0, min(1, strength))
@@ -205,18 +239,23 @@ struct TVAmbientBackdrop: View {
                         .fill(tint)
                         .frame(width: w * 1.1, height: w * 1.1)
                         .blur(radius: 220)
-                        .opacity(0.85 * s)
+                        .opacity((colorScheme == .dark ? 0.82 : 0.42) * s)
                         .offset(x: -w * 0.18, y: -h * 0.28)
                     Circle()
                         .fill(tint2)
                         .frame(width: w * 0.95, height: w * 0.95)
                         .blur(radius: 240)
-                        .opacity(0.75 * s)
+                        .opacity((colorScheme == .dark ? 0.72 : 0.34) * s)
                         .offset(x: w * 0.28, y: h * 0.30)
                 }
             }
-            LinearGradient(colors: [.black.opacity(0.35), .black.opacity(0.62)],
-                           startPoint: .top, endPoint: .bottom)
+            if colorScheme == .dark {
+                LinearGradient(colors: [.black.opacity(0.20), .black.opacity(0.50)],
+                               startPoint: .top, endPoint: .bottom)
+            } else {
+                LinearGradient(colors: [.white.opacity(0.08), TVColor.bg.opacity(0.62)],
+                               startPoint: .top, endPoint: .bottom)
+            }
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)

@@ -9,6 +9,8 @@ struct TVSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     var onNavigate: (TVRoot.Tab) -> Void = { _ in }
     @AppStorage("tvAutoSync") private var autoSync = true
+    @AppStorage(TVAppearancePreference.storageKey)
+    private var appearanceRawValue = TVAppearancePreference.system.rawValue
     @State private var isSyncing = false
     @State private var syncMsg: String?
 
@@ -19,7 +21,7 @@ struct TVSettingsView: View {
         return "\(v.majorVersion).\(v.minorVersion)"
     }
     private var libraryStat: String {
-        store.albums.isEmpty ? PMString("ext.tv.settings.notSynced") :
+        !store.hasRealLibrary ? PMString("ext.tv.settings.notSynced") :
             PMString("ext.tv.settings.libraryStat", TVFmt.count(store.songs.count), store.albums.count, store.artists.count)
     }
     private var syncValue: String {
@@ -33,10 +35,11 @@ struct TVSettingsView: View {
             HStack(alignment: .top, spacing: 80) {
                 VStack(alignment: .leading, spacing: 0) {
                     TVEyebrow(text: PMString("ext.tv.settings.eyebrow")).padding(.bottom, 6)
-                    Text(PMString("ext.tv.settings.general")).font(TVFont.pageTitle).foregroundStyle(.white).padding(.bottom, 24)
+                    Text(PMString("ext.tv.settings.general")).font(TVFont.pageTitle).foregroundStyle(TVColor.text).padding(.bottom, 24)
                     VStack(spacing: 12) {
                         navRow("icloud.fill", PMString("ext.tv.settings.icloudSync"), syncValue, trailing: "arrow.clockwise", action: sync)
                         toggleRow("arrow.triangle.2.circlepath", PMString("ext.tv.settings.autoSync"), isOn: $autoSync)
+                        appearanceRow()
                         navRow("music.note", PMString("ext.tv.settings.library"), libraryStat) { go(.library) }
                         navRow("music.note.list", PMString("ext.tv.settings.playlists"), PMString("ext.tv.countOnly", store.playlists.count)) { go(.playlists) }
                         navRow("server.rack", PMString("ext.tv.settings.sources"), PMString("ext.tv.countOnly", store.sources.count)) { go(.sources) }
@@ -70,7 +73,7 @@ struct TVSettingsView: View {
         Task {
             await store.bootstrap()
             isSyncing = false
-            syncMsg = store.albums.isEmpty ? PMString("ext.tv.settings.noSnapshot") : PMString("ext.tv.settings.synced", TVFmt.count(store.songs.count))
+            syncMsg = !store.hasRealLibrary ? PMString("ext.tv.settings.noSnapshot") : PMString("ext.tv.settings.synced", TVFmt.count(store.songs.count))
         }
     }
 
@@ -79,11 +82,59 @@ struct TVSettingsView: View {
         dismiss()
     }
 
+    private var appearance: TVAppearancePreference {
+        TVAppearancePreference(rawValue: appearanceRawValue) ?? .system
+    }
+
+    private func appearanceTitle(_ preference: TVAppearancePreference) -> String {
+        switch preference {
+        case .system: PMString("ext.tv.settings.appearance.system")
+        case .light: PMString("ext.tv.settings.appearance.light")
+        case .dark: PMString("ext.tv.settings.appearance.dark")
+        }
+    }
+
+    /// 三个选项都可独立聚焦，Siri Remote 无需循环点按即可直接选择外观。
+    private func appearanceRow() -> some View {
+        HStack(spacing: 18) {
+            settingIcon("circle.lefthalf.filled", focused: false)
+            Text(PMString("ext.tv.settings.appearance"))
+                .font(.system(size: 22, weight: .medium))
+                .foregroundStyle(TVColor.text)
+            Spacer(minLength: 12)
+            HStack(spacing: 8) {
+                ForEach(TVAppearancePreference.allCases, id: \.self) { preference in
+                    let isSelected = appearance == preference
+                    TVFocusButton(radius: 10, scale: 1.04, lift: 0) {
+                        appearanceRawValue = preference.rawValue
+                    } label: { focused in
+                        Text(appearanceTitle(preference))
+                            .font(.system(size: 16, weight: isSelected ? .bold : .semibold))
+                            .foregroundStyle(isSelected ? TVColor.onBrand : TVColor.textMuted)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                            .frame(width: 94)
+                            .padding(.vertical, 11)
+                            .background(isSelected ? TVColor.brand : TVColor.cardElev,
+                                        in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .strokeBorder(TVColor.brand.opacity(focused || isSelected ? 0.9 : 0), lineWidth: 2)
+                            }
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 22).padding(.vertical, 12)
+        .frame(maxWidth: .infinity)
+        .background(TVColor.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
     private func settingIcon(_ icon: String, focused: Bool) -> some View {
         Image(systemName: icon).font(.system(size: 20, weight: .semibold))
-            .foregroundStyle(.white)
+            .foregroundStyle(focused ? TVColor.onBrand : TVColor.text)
             .frame(width: 40, height: 40)
-            .background(focused ? AnyShapeStyle(TVColor.brand) : AnyShapeStyle(Color.white.opacity(0.10)),
+            .background(focused ? AnyShapeStyle(TVColor.brand) : AnyShapeStyle(TVColor.surface),
                         in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
@@ -94,15 +145,15 @@ struct TVSettingsView: View {
         TVFocusButton(radius: 14, scale: 1.02, lift: 0, action: action) { focused in
             HStack(spacing: 18) {
                 settingIcon(icon, focused: focused)
-                Text(title).font(.system(size: 22, weight: focused ? .bold : .medium)).foregroundStyle(.white)
+                Text(title).font(.system(size: 22, weight: focused ? .bold : .medium)).foregroundStyle(TVColor.text)
                 Spacer(minLength: 0)
-                Text(value).font(.system(size: 18)).foregroundStyle(.white.opacity(0.62)).lineLimit(1)
+                Text(value).font(.system(size: 18)).foregroundStyle(TVColor.textMuted).lineLimit(1)
                 Image(systemName: trailing).font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white.opacity(focused ? 0.85 : 0.45))
+                    .foregroundStyle(focused ? TVColor.text : TVColor.textGhost)
             }
             .padding(.horizontal, 22).padding(.vertical, 16)
             .frame(maxWidth: .infinity)
-            .background(focused ? Color.white.opacity(0.12) : TVColor.card)
+            .background(focused ? TVColor.surfaceStrong : TVColor.card)
         }
     }
 
@@ -111,11 +162,11 @@ struct TVSettingsView: View {
         TVFocusButton(radius: 14, scale: 1.02, lift: 0, action: { isOn.wrappedValue.toggle() }) { focused in
             HStack(spacing: 18) {
                 settingIcon(icon, focused: focused)
-                Text(title).font(.system(size: 22, weight: focused ? .bold : .medium)).foregroundStyle(.white)
+                Text(title).font(.system(size: 22, weight: focused ? .bold : .medium)).foregroundStyle(TVColor.text)
                 Spacer(minLength: 0)
                 ZStack(alignment: isOn.wrappedValue ? .trailing : .leading) {
                     Capsule().fill(isOn.wrappedValue ? AnyShapeStyle(TVColor.brand)
-                                                     : AnyShapeStyle(Color.white.opacity(0.18)))
+                                                     : AnyShapeStyle(TVColor.surfaceStrong))
                         .frame(width: 62, height: 34)
                     Circle().fill(.white).frame(width: 28, height: 28).padding(3)
                 }
@@ -123,7 +174,7 @@ struct TVSettingsView: View {
             }
             .padding(.horizontal, 22).padding(.vertical, 16)
             .frame(maxWidth: .infinity)
-            .background(focused ? Color.white.opacity(0.12) : TVColor.card)
+            .background(focused ? TVColor.surfaceStrong : TVColor.card)
         }
     }
 
@@ -131,9 +182,9 @@ struct TVSettingsView: View {
     private func infoRow(_ icon: String, _ title: String, _ value: String) -> some View {
         HStack(spacing: 18) {
             settingIcon(icon, focused: false)
-            Text(title).font(.system(size: 22, weight: .medium)).foregroundStyle(.white)
+            Text(title).font(.system(size: 22, weight: .medium)).foregroundStyle(TVColor.text)
             Spacer(minLength: 0)
-            Text(value).font(.system(size: 18)).foregroundStyle(.white.opacity(0.62)).lineLimit(1)
+            Text(value).font(.system(size: 18)).foregroundStyle(TVColor.textMuted).lineLimit(1)
         }
         .padding(.horizontal, 22).padding(.vertical, 16)
         .frame(maxWidth: .infinity)
@@ -147,14 +198,14 @@ private struct TVRemoteHint: View {
     init(_ binding: String, _ label: String) { self.binding = binding; self.label = label }
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 14) {
-            Text(binding).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
+            Text(binding).font(.system(size: 15, weight: .semibold)).foregroundStyle(TVColor.text)
                 .frame(minWidth: 180).padding(.horizontal, 12).padding(.vertical, 6)
-                .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .background(TVColor.surface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(.white.opacity(0.18), lineWidth: 0.5)
+                        .strokeBorder(TVColor.cardBorder, lineWidth: 0.5)
                 }
-            Text(label).font(.system(size: 18)).foregroundStyle(.white.opacity(0.7))
+            Text(label).font(.system(size: 18)).foregroundStyle(TVColor.textMuted)
         }
     }
 }

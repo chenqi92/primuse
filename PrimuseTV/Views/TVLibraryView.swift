@@ -61,7 +61,7 @@ struct TVLibraryView: View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {
                 TVEyebrow(text: PMString("ext.tv.library.eyebrow"))
-                Text(title).font(TVFont.pageTitle).foregroundStyle(.white)
+                Text(title).font(TVFont.pageTitle).foregroundStyle(TVColor.text)
             }
             HStack(spacing: 12) {
                 ForEach(Filter.allCases) { f in
@@ -70,15 +70,15 @@ struct TVLibraryView: View {
                     } label: {
                         Text(f.display)
                             .font(.system(size: 18, weight: f == filter ? .bold : .medium))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(f == filter ? TVColor.onBrand : TVColor.text)
                             .padding(.horizontal, 26).padding(.vertical, 12)
                             .background(f == filter ? AnyShapeStyle(TVColor.brand)
-                                                    : AnyShapeStyle(Color.white.opacity(0.12)),
+                                                    : AnyShapeStyle(TVColor.surfaceStrong),
                                         in: Capsule())
                             .tvFocusRing(
                                 focusedFilter == f,
                                 radius: 28,
-                                accent: .white,
+                                accent: TVColor.focusRing,
                                 scale: 1.06,
                                 lift: 4
                             )
@@ -146,11 +146,12 @@ struct TVSongRow: View {
                       action: { store.play(song); action() }) { focused in
             HStack(spacing: 18) {
                 TVArtworkView(coverKey: album?.id ?? "", artist: album?.artist ?? song.artist,
-                              album: album?.title ?? "", tint: album?.tint ?? TVColor.brand,
+                              album: album?.title ?? "", songID: song.id, coverRef: song.coverRef,
+                              tint: album?.tint ?? TVColor.brand,
                               tint2: album?.tint2 ?? .black, glyph: album?.glyph ?? "♪", size: 64, radius: 8)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(song.title).font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(.white).lineLimit(1)
+                        .foregroundStyle(TVColor.text).lineLimit(1)
                     Text(song.artist).font(.system(size: 18))
                         .foregroundStyle(TVColor.textFaint).lineLimit(1)
                 }
@@ -166,7 +167,7 @@ struct TVSongRow: View {
             }
             .padding(.horizontal, 22).padding(.vertical, 16)
             .frame(maxWidth: .infinity)
-            .background(focused ? Color.white.opacity(0.12) : TVColor.card)
+            .background(focused ? TVColor.surfaceStrong : TVColor.card)
         }
     }
 }

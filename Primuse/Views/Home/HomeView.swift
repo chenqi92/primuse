@@ -85,6 +85,12 @@ struct HomeView: View {
             .onReceive(NotificationCenter.default.publisher(for: .primusePlaybackHistoryDidChange)) { _ in
                 refreshHomeSnapshot(force: true)
             }
+            .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidCache)) { note in
+                tintProvider.invalidateArtwork(from: note)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidInvalidate)) { note in
+                tintProvider.invalidateArtwork(from: note)
+            }
             .onChange(of: quickAccessRawValue) { _, _ in
                 // Quick access is part of the cached home snapshot. Without an
                 // explicit refresh, edits made in Library remained invisible

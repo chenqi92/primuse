@@ -424,9 +424,8 @@ struct ConnectionFlowView: View {
                 }
             }
 
-            // Only structured credential-rejection codes (400/409/410) can be
-            // fixed by entering a password. Lockout/throttling/network errors
-            // keep their real failure state and never masquerade as bad input.
+            // 只有 400（账号不存在或密码错误）能通过重新输入解决。DSM 的
+            // 408/409/410 要求先在 DSM 修改密码，锁定/网络问题也应保留真实失败态。
             if result.requiresCredentialPrompt {
                 await MainActor.run {
                     errorMessage = result.errorMessage ?? String(localized: "password_wrong_hint")

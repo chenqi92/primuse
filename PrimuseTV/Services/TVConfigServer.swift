@@ -11,8 +11,8 @@ import PrimuseKit
 /// 安全:① 载荷必须用二维码里的一次性密钥 AES-GCM 解开,否则 403(密钥即鉴权);
 /// ② body 体积上限防 LAN 端打爆内存;③ 半开连接 idle 超时 + 并发上限防 slow-loris。
 final class TVConfigServer: @unchecked Sendable {
-    /// 解密成功的载荷(回调内自行跳 MainActor,由 TVStore 落盘 + reload)。
-    var onReceive: (@Sendable (LANSyncPayload) -> Void)?
+    /// 解密成功的载荷。只有回调确认快照与凭据均已持久化，HTTP 才返回 200。
+    var onReceive: (@Sendable (LANSyncPayload) async -> Bool)?
     /// 端点就绪(端口在 listener `.ready` 时才分配)。用于刷新二维码内容。
     var onEndpointReady: (@Sendable (LANPairLink?) -> Void)?
 
@@ -148,7 +148,7 @@ final class TVConfigServer: @unchecked Sendable {
         }
     }
 
-    /// 用一次性密钥 AES-GCM 解密 → 解码 LANSyncPayload → 主线程回调落盘。
+    /// 用一次性密钥 AES-GCM 解密 → 解码 LANSyncPayload → 等待回调完成持久化。
     private func process(_ conn: NWConnection, body: Data) {
         guard let plain = LANSyncCrypto.open(body, key: key),
               let payload = LANSyncPayload.decode(plain) else {
@@ -157,11 +157,25 @@ final class TVConfigServer: @unchecked Sendable {
             return
         }
         plog("TVConfigServer: received payload (lib=\(payload.libraryGz?.count ?? 0)B src=\(payload.sourcesGz?.count ?? 0)B creds=\(payload.credentials?.entries.count ?? 0))")
-        // 成功接收后立即换 key + 短码,让二维码里的旧密钥不可复用。
-        rotatePairingSecret()
-        emitEndpoint()
-        onReceive?(payload)
-        Self.respond(conn, status: 200)
+        guard let onReceive else {
+            Self.respond(conn, status: 503)
+            return
+        }
+        Task { [weak self] in
+            let persisted = await onReceive(payload)
+            guard let self else {
+                conn.cancel()
+                return
+            }
+            self.queue.async {
+                // 持久化成功才消费一次性密钥；失败时保留当前二维码，允许手机重试。
+                if persisted {
+                    self.rotatePairingSecret()
+                    self.emitEndpoint()
+                }
+                Self.respond(conn, status: persisted ? 200 : 500)
+            }
+        }
     }
 
     // MARK: - 纯函数 / 工具
@@ -187,7 +201,13 @@ final class TVConfigServer: @unchecked Sendable {
     }
 
     private static func respond(_ conn: NWConnection, status: Int) {
-        let reason = [200: "OK", 400: "Bad Request", 403: "Forbidden"][status] ?? "OK"
+        let reason = [
+            200: "OK",
+            400: "Bad Request",
+            403: "Forbidden",
+            500: "Internal Server Error",
+            503: "Service Unavailable",
+        ][status] ?? "Error"
         let head = "HTTP/1.1 \(status) \(reason)\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
         conn.send(content: Data(head.utf8), completion: .contentProcessed { _ in conn.cancel() })
     }

@@ -56,8 +56,7 @@ actor SynologyAPI {
         var underlyingError: (any Error)?
 
         var requiresCredentialPrompt: Bool {
-            guard let errorCode else { return false }
-            return errorCode == 400 || errorCode == 409 || errorCode == 410
+            errorCode == 400
         }
     }
 
@@ -483,10 +482,10 @@ actor SynologyAPI {
         case 403: return "需要两步验证"
         case 404: return "验证码错误，请重新输入"
         case 406: return "需要强制两步验证"
-        case 407: return "登录尝试次数过多，请稍后再试"
-        case 408: return "IP 已被封锁"
-        case 409: return "密码已过期"
-        case 410: return "密码需要重置"
+        case 407: return "请求来源 IP 已被封锁，请先在 DSM 中解除自动封锁"
+        case 408: return "密码已过期且无法在此修改，请先在 DSM 中重置密码"
+        case 409: return "密码已过期，请先登录 DSM 修改密码"
+        case 410: return "必须先在 DSM 修改密码后再连接"
         default: return "连接失败 (错误码: \(code))"
         }
     }

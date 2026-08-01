@@ -176,6 +176,10 @@
 "ext.tv.settings.general"                  = "General";
 "ext.tv.settings.icloudSync"               = "iCloud Sync";
 "ext.tv.settings.autoSync"                 = "Auto sync on launch";
+"ext.tv.settings.appearance"               = "Appearance";
+"ext.tv.settings.appearance.system"        = "Follow Apple TV";
+"ext.tv.settings.appearance.light"         = "Light";
+"ext.tv.settings.appearance.dark"          = "Dark";
 "ext.tv.settings.library"                  = "Library";
 "ext.tv.settings.playlists"                = "Playlists";
 "ext.tv.settings.sources"                  = "Sources";
@@ -301,3 +305,5 @@
 "ext.tv.scan.interrupted"                 = "Scan Interrupted";
 "ext.tv.scan.totalIndexed"                = "%d songs indexed";
 "ext.tv.scan.walking"                     = "Walking folders…";
+"ext.tv.sources.cred.saveFailedTitle"     = "Couldn’t Save Credentials";
+"ext.tv.sources.cred.saveFailedBody"      = "The password wasn’t written to this Apple TV’s keychain. Try again. Existing credentials were preserved.";

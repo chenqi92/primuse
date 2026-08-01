@@ -2,6 +2,17 @@
 import SwiftUI
 import PrimuseKit
 
+#if DEBUG
+/// 模拟器截图路由。环境变量适合首次启动，`-TVScreen <name>`/UserDefaults
+/// 可跨 tvOS 场景恢复稳定生效，避免连续重启时系统复用上一页。
+enum TVDebugLaunch {
+    static var screen: String? {
+        ProcessInfo.processInfo.environment["TV_SCREEN"]
+            ?? UserDefaults.standard.string(forKey: "TVScreen")
+    }
+}
+#endif
+
 /// tvOS 根布局 — 顶部自定义 tab bar(Apple TV / Apple Music for tvOS 风) + 全屏内容
 /// + 底部常驻「正在播放」条。正在播放 / 队列 / 选项 / 设置都以全屏覆盖呈现。
 struct TVRoot: View {
@@ -20,10 +31,11 @@ struct TVRoot: View {
     init() {
         #if DEBUG
         // 截图预览用:SIMCTL_CHILD_TV_SCREEN=<tab> 直接进入指定页。
-        switch ProcessInfo.processInfo.environment["TV_SCREEN"] {
+        switch TVDebugLaunch.screen {
         case "library": _tab = State(initialValue: .library)
         case "playlists": _tab = State(initialValue: .playlists)
-        case "sources": _tab = State(initialValue: .sources)
+        case "sources", "sourcePicker", "sourceForm", "credentials", "otp", "scan", "recycleBin":
+            _tab = State(initialValue: .sources)
         case "search": _tab = State(initialValue: .search)
         default: break
         }
@@ -65,7 +77,6 @@ struct TVRoot: View {
                 TVBottomBar(openPlayer: { showNowPlaying = true })
             }
         }
-        .preferredColorScheme(.dark)
         .fullScreenCover(isPresented: $showNowPlaying) {
             TVNowPlayingView().environment(store)
         }
@@ -80,29 +91,44 @@ struct TVRoot: View {
         }
         .task {
             #if DEBUG
-            switch ProcessInfo.processInfo.environment["TV_SCREEN"] {
+            switch TVDebugLaunch.screen {
             case "nowPlaying":
-                var tries = 0
-                while store.albums.isEmpty && tries < 25 {
-                    try? await Task.sleep(nanoseconds: 200_000_000); tries += 1
-                }
+                await waitForDemoContent(requireAlbum: true)
                 if let album = store.albums.first { store.play(album: album) }
                 showNowPlaying = true
             case "nowPlayingDemo":   // 截图用:注入演示播放态+歌词,不走真实播放
-                var tries = 0
-                while store.albums.isEmpty && tries < 25 {
-                    try? await Task.sleep(nanoseconds: 200_000_000); tries += 1
-                }
-                store.loadDemoNowPlaying()
+                await waitForDemoContent()
+                await store.loadDemoNowPlaying()
                 showNowPlaying = true
-            case "queue": showQueue = true
-            case "options": showOptions = true
+            case "nowPlayingSongArtwork":
+                await waitForDemoContent()
+                if await store.loadDemoNowPlaying(preferSongArtwork: true) {
+                    showNowPlaying = true
+                }
+            case "queue":
+                await waitForDemoContent()
+                await store.loadDemoNowPlaying()
+                showQueue = true
+            case "options":
+                await waitForDemoContent()
+                await store.loadDemoNowPlaying()
+                showOptions = true
             case "settings": showSettings = true
             default: break
             }
             #endif
         }
     }
+
+    #if DEBUG
+    private func waitForDemoContent(requireAlbum: Bool = false) async {
+        var tries = 0
+        while (requireAlbum ? store.albums.isEmpty : store.songs.isEmpty) && tries < 25 {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            tries += 1
+        }
+    }
+    #endif
 
     @ViewBuilder
     private var content: some View {
@@ -175,7 +201,7 @@ struct TVTabBar: View {
                     .shadow(color: TVColor.brand.opacity(0.28), radius: 12, y: 6)
                 Text(verbatim: PMString("ext.tv.appName"))
                     .font(.system(size: 24, weight: .bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(TVColor.text)
             }
 
             HStack(spacing: 8) {
@@ -212,20 +238,20 @@ struct TVTabBar: View {
             Spacer(minLength: 0)
 
             // 设置入口(原账户头像改为设置按钮)
-            TVFocusButton(radius: 28, accent: .white, scale: 1.08, lift: 0, action: onSettings) { focused in
+            TVFocusButton(radius: 28, scale: 1.08, lift: 0, action: onSettings) { focused in
                 Image(systemName: "gearshape.fill")
                     .font(.system(size: 24, weight: .semibold))
-                    .foregroundStyle(focused ? Color(hex: "#1f1c19") : .white)
+                    .foregroundStyle(focused ? TVColor.onBrand : TVColor.text)
                     .frame(width: 56, height: 56)
-                    .background(focused ? AnyShapeStyle(Color.white)
-                                        : AnyShapeStyle(Color.white.opacity(0.12)), in: Circle())
+                    .background(focused ? AnyShapeStyle(TVColor.brand)
+                                        : AnyShapeStyle(TVColor.surfaceStrong), in: Circle())
             }
         }
         .padding(.horizontal, TVSpace.pageH)
         .frame(height: 110)
         .frame(maxWidth: .infinity)
         .background(
-            LinearGradient(colors: [.black.opacity(0.78), .black.opacity(0.4), .clear],
+            LinearGradient(colors: [TVColor.chrome, TVColor.chrome.opacity(0.45), .clear],
                            startPoint: .top, endPoint: .bottom)
         )
         .focusSection()
@@ -242,13 +268,13 @@ private struct TVTabItem: View {
         Button(action: action) {
             Text(label)
                 .font(.system(size: 26, weight: isActive ? .bold : .medium))
-                .foregroundStyle(isActive || isFocused ? .white : .white.opacity(0.62))
+                .foregroundStyle(isActive || isFocused ? TVColor.text : TVColor.textMuted)
                 .padding(.horizontal, 24).padding(.vertical, 10)
-                .background(isFocused ? Color.white.opacity(0.18) : .clear,
+                .background(isFocused ? TVColor.surfaceStrong : .clear,
                             in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(.white, lineWidth: isFocused ? 3 : 0)
+                        .strokeBorder(TVColor.focusRing, lineWidth: isFocused ? 3 : 0)
                 }
                 .scaleEffect(isFocused ? 1.08 : 1)
                 .animation(.easeOut(duration: 0.18), value: isFocused)
@@ -285,18 +311,19 @@ struct TVBottomBar: View {
             Button(action: openPlayer) {
                 HStack(spacing: 24) {
                     TVArtworkView(coverKey: np.albumID, artist: np.artist, album: np.album,
+                                  songID: np.songID, coverRef: np.coverRef,
                                   tint: np.tint, tint2: np.tint2, glyph: np.glyph, size: 48, radius: 8)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(np.title).font(.system(size: 22, weight: .semibold))
-                            .foregroundStyle(.white).lineLimit(1)
+                            .foregroundStyle(TVColor.text).lineLimit(1)
                         Text("\(np.artist) · \(np.album)").font(.system(size: 16))
-                            .foregroundStyle(.white.opacity(0.62)).lineLimit(1)
+                            .foregroundStyle(TVColor.textMuted).lineLimit(1)
                     }
                     Spacer(minLength: 0)
                     VStack(spacing: 6) {
                         GeometryReader { geo in
                             ZStack(alignment: .leading) {
-                                Capsule().fill(.white.opacity(0.16)).frame(height: 4)
+                                Capsule().fill(TVColor.divider).frame(height: 4)
                                 Capsule().fill(np.tint)
                                     .frame(width: geo.size.width * progress, height: 4)
                             }
@@ -308,7 +335,7 @@ struct TVBottomBar: View {
                             Text(TVFmt.time(store.duration))
                         }
                         .font(.system(size: 14, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.55))
+                        .foregroundStyle(TVColor.textFaint)
                     }
                     .frame(width: 460)
                 }
@@ -316,7 +343,7 @@ struct TVBottomBar: View {
                 .padding(.trailing, 8)
                 .frame(maxWidth: .infinity)
                 .frame(height: 72)
-                .background(focused ? Color.white.opacity(0.06) : .clear)
+                .background(focused ? TVColor.surfaceSubtle : .clear)
             }
             .buttonStyle(TVBareButtonStyle())
             .focused($focused)
@@ -332,7 +359,7 @@ struct TVBottomBar: View {
         .frame(height: 72)
         .frame(maxWidth: .infinity)
         .background(
-            LinearGradient(colors: [.clear, .black.opacity(0.6), .black.opacity(0.85)],
+            LinearGradient(colors: [.clear, TVColor.chrome.opacity(0.72), TVColor.chrome],
                            startPoint: .top, endPoint: .bottom)
         )
         .animation(.easeOut(duration: 0.18), value: focused)
