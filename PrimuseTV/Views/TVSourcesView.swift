@@ -420,7 +420,7 @@ private struct TVCredentialEditorView: View {
                         .focusEffectDisabled()
                 }
                 if isFnMusic {
-                    Text("请使用在飞牛音乐中创建并已授予曲库权限的账号，不是 fnOS 系统账号。")
+                    Text("请使用可登录飞牛音乐并已获曲库权限的账号；以飞牛音乐登录结果为准。")
                         .font(.system(size: 17))
                         .foregroundStyle(TVColor.textFaint)
                 }

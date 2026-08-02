@@ -1945,4 +1945,5 @@
 "credential_save_failed_message" = "密碼未能安全儲存，來源尚未儲存，請重試。";
 "credential_temporarily_unavailable" = "暫時無法讀取密碼，請解鎖裝置後重試。";
 "credential_read_failed" = "無法安全讀取已儲存的密碼，請重試或更新憑證。";
-"fnmusic_account_hint" = "請填寫在飛牛音樂中建立並已授予曲庫權限的帳號，不是 fnOS 系統帳號。";
+"fnmusic_account_hint" = "請填寫可登入飛牛音樂並已獲曲庫權限的帳號；以飛牛音樂登入結果為準。";
+"fnmusic_server_base_path_hint" = "反向代理 URL 子路徑（可選）";

@@ -319,7 +319,7 @@ private final class FnMusicServiceURLProtocol: URLProtocol, @unchecked Sendable 
     nonisolated(unsafe) private static var unsignedAPIRequestCountStorage = 0
     nonisolated(unsafe) private static var encodedCookieCountStorage = 0
     nonisolated(unsafe) private static var unexpectedAccessHeaderCountStorage = 0
-    nonisolated(unsafe) private static var invalidServiceHeaderCountStorage = 0
+    nonisolated(unsafe) private static var unexpectedServiceHeaderCountStorage = 0
 
     static var counts: (
         login: Int,
@@ -327,7 +327,7 @@ private final class FnMusicServiceURLProtocol: URLProtocol, @unchecked Sendable 
         unsignedAPI: Int,
         encodedCookie: Int,
         unexpectedAccessHeader: Int,
-        invalidServiceHeader: Int
+        unexpectedServiceHeader: Int
     ) {
         lock.lock()
         defer { lock.unlock() }
@@ -337,7 +337,7 @@ private final class FnMusicServiceURLProtocol: URLProtocol, @unchecked Sendable 
             unsignedAPIRequestCountStorage,
             encodedCookieCountStorage,
             unexpectedAccessHeaderCountStorage,
-            invalidServiceHeaderCountStorage
+            unexpectedServiceHeaderCountStorage
         )
     }
 
@@ -348,7 +348,7 @@ private final class FnMusicServiceURLProtocol: URLProtocol, @unchecked Sendable 
         unsignedAPIRequestCountStorage = 0
         encodedCookieCountStorage = 0
         unexpectedAccessHeaderCountStorage = 0
-        invalidServiceHeaderCountStorage = 0
+        unexpectedServiceHeaderCountStorage = 0
         lock.unlock()
     }
 
@@ -379,12 +379,8 @@ private final class FnMusicServiceURLProtocol: URLProtocol, @unchecked Sendable 
             }
         }
         if hasUnexpectedAccessHeaders { Self.unexpectedAccessHeaderCountStorage += 1 }
-        let serviceHeader = request.value(forHTTPHeaderField: FnMusicAPIProtocol.serviceHeaderField)
-        if isLogin {
-            if serviceHeader != nil { Self.invalidServiceHeaderCountStorage += 1 }
-        } else if url.path.contains(FnMusicAPIProtocol.apiPath),
-                  serviceHeader != FnMusicAPIProtocol.serviceHeaderValue {
-            Self.invalidServiceHeaderCountStorage += 1
+        if request.value(forHTTPHeaderField: "X-Music-API") != nil {
+            Self.unexpectedServiceHeaderCountStorage += 1
         }
         Self.lock.unlock()
 
@@ -407,6 +403,142 @@ private final class FnMusicServiceURLProtocol: URLProtocol, @unchecked Sendable 
             data = Data(#"{"code":200,"data":{"list":[],"total":0}}"#.utf8)
         } else {
             data = Data()
+        }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        if !data.isEmpty { client?.urlProtocol(self, didLoad: data) }
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
+private final class FnMusicUnauthorizedOnceURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var loginCountStorage = 0
+    nonisolated(unsafe) private static var trackCountStorage = 0
+
+    static var counts: (login: Int, track: Int) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (loginCountStorage, trackCountStorage)
+    }
+
+    static func reset() {
+        lock.lock()
+        loginCountStorage = 0
+        trackCountStorage = 0
+        lock.unlock()
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let url = request.url else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+        let isLogin = url.path.hasSuffix("/music/api/v1/user/password-login")
+        let isTrackList = url.path.hasSuffix("/music/api/v1/track/list")
+        let status: Int
+        let data: Data
+
+        Self.lock.lock()
+        if isLogin {
+            Self.loginCountStorage += 1
+            status = 200
+            data = Data("{\"code\":200,\"data\":{\"userToken\":\"token-\(Self.loginCountStorage)\"}}".utf8)
+        } else if isTrackList {
+            Self.trackCountStorage += 1
+            if Self.trackCountStorage == 1 {
+                status = 401
+                data = Data(#"{"code":401,"msg":"expired"}"#.utf8)
+            } else {
+                status = 200
+                data = Data(#"{"code":200,"data":{"list":[],"total":0}}"#.utf8)
+            }
+        } else {
+            status = 404
+            data = Data()
+        }
+        Self.lock.unlock()
+
+        guard let response = HTTPURLResponse(
+            url: url,
+            statusCode: status,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Content-Type": "application/json"]
+        ) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        if !data.isEmpty { client?.urlProtocol(self, didLoad: data) }
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
+private final class FnMusicRateLimitOnceURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var loginCountStorage = 0
+    nonisolated(unsafe) private static var trackCountStorage = 0
+
+    static var counts: (login: Int, track: Int) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (loginCountStorage, trackCountStorage)
+    }
+
+    static func reset() {
+        lock.lock()
+        loginCountStorage = 0
+        trackCountStorage = 0
+        lock.unlock()
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let url = request.url else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+        let isLogin = url.path.hasSuffix("/music/api/v1/user/password-login")
+        let isTrackList = url.path.hasSuffix("/music/api/v1/track/list")
+        let status: Int
+        let data: Data
+
+        Self.lock.lock()
+        if isLogin {
+            Self.loginCountStorage += 1
+            status = 200
+            data = Data(#"{"code":200,"data":{"userToken":"token"}}"#.utf8)
+        } else if isTrackList {
+            Self.trackCountStorage += 1
+            if Self.trackCountStorage == 1 {
+                status = 429
+                data = Data(#"{"code":429,"msg":"rate limited"}"#.utf8)
+            } else {
+                status = 200
+                data = Data(#"{"code":200,"data":{"list":[],"total":0}}"#.utf8)
+            }
+        } else {
+            status = 404
+            data = Data()
+        }
+        Self.lock.unlock()
+
+        guard let response = HTTPURLResponse(
+            url: url,
+            statusCode: status,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Content-Type": "application/json"]
+        ) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
         }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         if !data.isEmpty { client?.urlProtocol(self, didLoad: data) }
@@ -608,7 +740,66 @@ private final class FnMusicServiceURLProtocol: URLProtocol, @unchecked Sendable 
     #expect(counts.unsignedAPI == 0)
     #expect(counts.encodedCookie == 2)
     #expect(counts.unexpectedAccessHeader == 0)
-    #expect(counts.invalidServiceHeader == 0)
+    #expect(counts.unexpectedServiceHeader == 0)
+}
+
+@Test func fnMusicServiceRefreshesOnlyAnExpiredSession() async throws {
+    FnMusicUnauthorizedOnceURLProtocol.reset()
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [FnMusicUnauthorizedOnceURLProtocol.self]
+    let session = URLSession(configuration: configuration)
+    let source = MusicSource(
+        id: "fnmusic-refresh",
+        name: "Feiniu Music",
+        type: .fnMusic,
+        host: "fnmusic.test",
+        port: 5666,
+        useSsl: false,
+        username: "user"
+    )
+    let client = FnMusicServiceClient(
+        source: source,
+        credential: SourceCredential(username: "user", password: "password"),
+        session: session
+    )
+
+    let total = try await client.validateConnection()
+    let counts = FnMusicUnauthorizedOnceURLProtocol.counts
+
+    #expect(total == 0)
+    #expect(counts.login == 2)
+    #expect(counts.track == 2)
+}
+
+@Test func fnMusicServiceKeepsSessionAfterRateLimit() async throws {
+    FnMusicRateLimitOnceURLProtocol.reset()
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [FnMusicRateLimitOnceURLProtocol.self]
+    let session = URLSession(configuration: configuration)
+    let source = MusicSource(
+        id: "fnmusic-rate-limit",
+        name: "Feiniu Music",
+        type: .fnMusic,
+        host: "fnmusic.test",
+        port: 5666,
+        useSsl: false,
+        username: "user"
+    )
+    let client = FnMusicServiceClient(
+        source: source,
+        credential: SourceCredential(username: "user", password: "password"),
+        session: session
+    )
+
+    await #expect(throws: FnMusicServiceError.badServerResponse(429)) {
+        _ = try await client.validateConnection()
+    }
+    let total = try await client.validateConnection()
+    let counts = FnMusicRateLimitOnceURLProtocol.counts
+
+    #expect(total == 0)
+    #expect(counts.login == 1)
+    #expect(counts.track == 2)
 }
 
 @Test func fnMusicProtocolHashesCredentialsAndKeepsOpaqueReferences() {
@@ -616,8 +807,6 @@ private final class FnMusicServiceURLProtocol: URLProtocol, @unchecked Sendable 
             == "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8")
     #expect(FnMusicAPIProtocol.defaultAuthxSigningPrefix == "NDzZTVxnRKP8Z0jXg1VAMonaG8akvh")
     #expect(FnMusicAPIProtocol.defaultAuthxClientKey == "6D5602D4-A342-4799-A0F0-BB795E7167D0")
-    #expect(FnMusicAPIProtocol.serviceHeaderField == "X-Music-API")
-    #expect(FnMusicAPIProtocol.serviceHeaderValue == "v1")
     #expect(FnMusicAPIProtocol.musicTokenCookie("A+B/C=") == "music-token=A%2BB%2FC%3D")
 
     let path = FnMusicAPIProtocol.trackPath(guid: "track-guid", fileExtension: "FLAC")
@@ -731,6 +920,50 @@ private final class FnMusicServiceURLProtocol: URLProtocol, @unchecked Sendable 
     #expect(song.artistID == "artist-id")
     #expect(song.artistName == "Alternate Artist")
     #expect(song.coverArtFileName == "fnmusic-cover/track-cover")
+}
+
+@Test func fnMusicCatalogTrackMapsGenreCueAndCodecAliases() throws {
+    let track = try #require(FnMusicCatalogTrack(json: [
+        "guid": "cue-track",
+        "trackTitle": "Cue Track",
+        "album": "Cue Album",
+        "albumId": "cue-album",
+        "artist": "Cue Artist",
+        "artistId": "cue-artist",
+        "genres": [["name": "Rock"], ["name": "Live"]],
+        "coverUrl": "/music/api/v1/static/cover?coverId=cue-cover",
+        "isCue": true,
+        "startTime": 12.5,
+        "endTime": 42.75,
+        "trackIndex": 3,
+        "createdAt": 1_725_000_000,
+        "audioSpec": [
+            "format": "cue",
+            "container": "audio",
+            "codec": "pcm_s24le",
+            "duration": 180_000,
+            "bitrate": 320,
+            "sampleRate": 48_000,
+            "bitDepth": 24,
+        ],
+    ]))
+    let song = try #require(track.makeSong(sourceID: "source-1"))
+
+    #expect(track.fileExtension == "wav")
+    #expect(song.fileFormat == .wav)
+    #expect(song.title == "Cue Track")
+    #expect(song.albumID == "cue-album")
+    #expect(song.albumTitle == "Cue Album")
+    #expect(song.artistID == "cue-artist")
+    #expect(song.artistName == "Cue Artist")
+    #expect(song.genre == "Rock, Live")
+    #expect(song.trackNumber == 3)
+    #expect(song.duration == 30.25)
+    #expect(song.bitRate == 320)
+    #expect(song.cueSheetPath == "/fnmusic/cue/cue-track.cue")
+    #expect(song.cueStartTime == 12.5)
+    #expect(song.cueEndTime == 42.75)
+    #expect(song.coverArtFileName == "fnmusic-cover/cue-cover?revision=1725000000")
 }
 
 // MARK: - 云盘:响应解析 + 请求构造

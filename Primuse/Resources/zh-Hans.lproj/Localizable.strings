@@ -2072,4 +2072,5 @@
 "credential_save_failed_message" = "密码未能安全保存，来源尚未保存，请重试。";
 "credential_temporarily_unavailable" = "密码暂时无法读取，请解锁设备后重试。";
 "credential_read_failed" = "无法安全读取已保存的密码，请重试或更新凭据。";
-"fnmusic_account_hint" = "请填写在飞牛音乐中创建并已授予曲库权限的账号，不是 fnOS 系统账号。";
+"fnmusic_account_hint" = "请填写可登录飞牛音乐并已获曲库权限的账号；以飞牛音乐登录结果为准。";
+"fnmusic_server_base_path_hint" = "反向代理 URL 子路径（可选）";

@@ -1797,4 +1797,5 @@
 "credential_save_failed_message" = "The password couldn’t be saved securely. The source was not saved. Please try again.";
 "credential_temporarily_unavailable" = "The password is temporarily unavailable. Unlock your device and try again.";
 "credential_read_failed" = "The saved password couldn’t be read securely. Try again or update the credential.";
-"fnmusic_account_hint" = "Use an account created in Feiniu Music with library permission, not an fnOS system account.";
+"fnmusic_account_hint" = "Use an account that can sign in to Feiniu Music and has library access.";
+"fnmusic_server_base_path_hint" = "Reverse-proxy URL subpath (optional)";

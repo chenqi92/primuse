@@ -1969,4 +1969,5 @@
 "credential_save_failed_message" = "Le mot de passe n’a pas pu être enregistré de façon sécurisée. La source n’a pas été enregistrée. Réessayez.";
 "credential_temporarily_unavailable" = "Le mot de passe est temporairement indisponible. Déverrouillez votre appareil et réessayez.";
 "credential_read_failed" = "Le mot de passe enregistré n’a pas pu être lu de façon sécurisée. Réessayez ou mettez à jour les identifiants.";
-"fnmusic_account_hint" = "Utilisez un compte créé dans Feiniu Music avec l’accès à la bibliothèque, pas un compte système fnOS.";
+"fnmusic_account_hint" = "Utilisez un compte pouvant se connecter à Feiniu Music et accéder à la bibliothèque.";
+"fnmusic_server_base_path_hint" = "Sous-chemin URL du proxy inverse (facultatif)";

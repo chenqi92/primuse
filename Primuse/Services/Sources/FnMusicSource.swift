@@ -94,7 +94,7 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
         try await connect()
         // This is a server catalogue, not a filesystem. The synthetic root is
         // used only by connection diagnostics; scans use scanSongs("/").
-        _ = try await api.trackPage(page: 1, size: 1)
+        _ = try await trackPage(page: 1, size: 1)
         return [
             RemoteFileItem(
                 name: "飞牛音乐",
@@ -117,7 +117,7 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
                     var seenTrackGUIDs: Set<String> = []
                     while true {
                         try Task.checkCancellation()
-                        let result = try await self.api.trackPage(page: page, size: Self.pageSize)
+                        let result = try await self.trackPage(page: page, size: Self.pageSize)
 
                         guard let pageTotal = result.total else {
                             throw SourceError.connectionFailed("飞牛音乐曲目列表缺少总数，已取消本次扫描")
@@ -208,6 +208,15 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
             )
         }
         return ConnectorScannedSong(song: song, displayName: "\(track.title).\(suffix)")
+    }
+
+    private func trackPage(page: Int, size: Int) async throws -> FnMusicTrackPage {
+        do {
+            return try await api.trackPage(page: page, size: size)
+        } catch SourceError.authenticationFailed {
+            try await connect()
+            return try await api.trackPage(page: page, size: size)
+        }
     }
 
     // MARK: - Audio
@@ -329,7 +338,14 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
         guard submission,
               let trackGUID = FnMusicAPIProtocol.trackGUID(from: songPath),
               (try? await connect()) != nil else { return }
-        _ = try? await api.reportPlayback(trackGUID: trackGUID)
+        do {
+            try await api.reportPlayback(trackGUID: trackGUID)
+        } catch SourceError.authenticationFailed {
+            guard (try? await connect()) != nil else { return }
+            _ = try? await api.reportPlayback(trackGUID: trackGUID)
+        } catch {
+            return
+        }
     }
 
 }

@@ -12,7 +12,7 @@
 "src.displayName.pan115" = "115 Drive";
 "src.displayName.pan123" = "123 Pan";
 "src.subtitle.fnos" = "fnOS";
-"src.subtitle.fnMusic" = "Catalogue direct · Expérimental";
+"src.subtitle.fnMusic" = "Catalogue direct · API native";
 "src.subtitle.daoliyu" = "Serveur de musique auto-hébergé · API native";
 "src.subtitle.awaitingPublicAPI" = "API publique en attente · Indisponible";
 "src.subtitle.baiduPan" = "Baidu Pan OAuth";

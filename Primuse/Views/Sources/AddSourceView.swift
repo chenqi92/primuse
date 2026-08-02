@@ -315,7 +315,13 @@ struct AddSourceView: View {
 
         macSection("advanced") {
             if sourceType.isServerLibrary {
-                macTextRow("server_base_path_hint", text: $basePath, focus: .basePath)
+                macTextRow(
+                    sourceType == .fnMusic
+                        ? "fnmusic_server_base_path_hint"
+                        : "server_base_path_hint",
+                    text: $basePath,
+                    focus: .basePath
+                )
             }
             macToggleRow("auto_connect", isOn: $autoConnect)
             if sourceType.supports2FA {
@@ -628,7 +634,12 @@ struct AddSourceView: View {
 
         Section("advanced") {
             if sourceType.isServerLibrary {
-                TextField("server_base_path_hint", text: $basePath)
+                TextField(
+                    sourceType == .fnMusic
+                        ? "fnmusic_server_base_path_hint"
+                        : "server_base_path_hint",
+                    text: $basePath
+                )
                     .focused($focusedField, equals: .basePath)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)

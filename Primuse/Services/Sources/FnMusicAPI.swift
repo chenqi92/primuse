@@ -58,8 +58,7 @@ actor FnMusicAPI {
             method: "POST",
             path: "/user/password-login",
             body: body,
-            includeCookie: false,
-            includeServiceHeader: false
+            includeCookie: false
         )
         try Task.checkCancellation()
         guard sessionGeneration == generation else { throw CancellationError() }
@@ -217,10 +216,10 @@ actor FnMusicAPI {
                 throw SourceError.connectionFailed("飞牛音乐下载 HTTP \(http.statusCode)")
             }
             let prefix = try readPrefix(from: temporaryURL, maximumLength: 512)
-            guard !prefix.isEmpty, !httpMediaResponseLooksLikeErrorBody(http, data: prefix) else {
-                invalidateToken(ifMatching: requestToken)
-                throw SourceError.authenticationFailed
+            guard !prefix.isEmpty else {
+                throw SourceError.connectionFailed("飞牛音乐下载数据为空")
             }
+            try validateMediaPayload(http, data: prefix, requestToken: requestToken)
             return temporaryURL
         } catch {
             try? FileManager.default.removeItem(at: temporaryURL)
@@ -257,10 +256,7 @@ actor FnMusicAPI {
         guard !data.isEmpty else {
             throw SourceError.connectionFailed("飞牛音乐封面数据为空")
         }
-        guard !httpMediaResponseLooksLikeErrorBody(http, data: data) else {
-            invalidateToken(ifMatching: requestToken)
-            throw SourceError.authenticationFailed
-        }
+        try validateMediaPayload(http, data: data, requestToken: requestToken)
         return data
     }
 
@@ -270,8 +266,7 @@ actor FnMusicAPI {
         queryItems: [URLQueryItem] = [],
         body: [String: Any]? = nil,
         includeCookie: Bool = true,
-        cookieToken: String? = nil,
-        includeServiceHeader: Bool = true
+        cookieToken: String? = nil
     ) async throws -> Any {
         guard let baseURL,
               let url = FnMusicAPIProtocol.endpointURL(
@@ -296,9 +291,6 @@ actor FnMusicAPI {
         let requestToken = cookieToken ?? (includeCookie ? token : nil)
         if let requestToken {
             request.setValue(FnMusicAPIProtocol.musicTokenCookie(requestToken), forHTTPHeaderField: "Cookie")
-        }
-        if includeServiceHeader {
-            FnMusicAPIProtocol.applyServiceHeader(to: &request)
         }
         FnMusicAPIProtocol.applyAuthx(to: &request, bodyData: bodyData)
 
@@ -352,7 +344,6 @@ actor FnMusicAPI {
         var request = URLRequest(url: url)
         request.timeoutInterval = 600
         request.setValue(FnMusicAPIProtocol.musicTokenCookie(requestToken), forHTTPHeaderField: "Cookie")
-        FnMusicAPIProtocol.applyServiceHeader(to: &request)
         FnMusicAPIProtocol.applyAuthx(to: &request)
         return (request, requestToken)
     }
@@ -455,6 +446,26 @@ actor FnMusicAPI {
             throw SourceError.connectionFailed("飞牛音乐媒体 HTTP \(http.statusCode)")
         }
         return http
+    }
+
+    private func validateMediaPayload(
+        _ response: HTTPURLResponse,
+        data: Data,
+        requestToken: String
+    ) throws {
+        guard httpMediaResponseLooksLikeErrorBody(response, data: data) else { return }
+        if let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let code = intValue(envelope["code"]) {
+            if code == 120001 || code == 401 || code == 403 {
+                invalidateToken(ifMatching: requestToken)
+                throw SourceError.authenticationFailed
+            }
+            let message = stringValue(envelope["msg"])
+                ?? stringValue(envelope["message"])
+                ?? "业务错误 \(code)"
+            throw SourceError.connectionFailed("飞牛音乐媒体：\(message)")
+        }
+        throw SourceError.connectionFailed("飞牛音乐媒体端点返回了非媒体数据")
     }
 
     private func invalidateToken(ifMatching requestToken: String?) {

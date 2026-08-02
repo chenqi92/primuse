@@ -1969,4 +1969,5 @@
 "credential_save_failed_message" = "Das Passwort konnte nicht sicher gespeichert werden. Die Quelle wurde nicht gespeichert. Versuche es erneut.";
 "credential_temporarily_unavailable" = "Das Passwort ist vorübergehend nicht verfügbar. Entsperre dein Gerät und versuche es erneut.";
 "credential_read_failed" = "Das gespeicherte Passwort konnte nicht sicher gelesen werden. Versuche es erneut oder aktualisiere die Anmeldedaten.";
-"fnmusic_account_hint" = "Verwende ein in Feiniu Music angelegtes Konto mit Bibliothekszugriff, kein fnOS-Systemkonto.";
+"fnmusic_account_hint" = "Verwende ein Konto, das sich bei Feiniu Music anmelden kann und Zugriff auf die Bibliothek hat.";
+"fnmusic_server_base_path_hint" = "URL-Unterpfad des Reverse-Proxys (optional)";

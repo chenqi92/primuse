@@ -53,11 +53,15 @@ public struct FnMusicCatalogTrack: Sendable {
     public let albumName: String?
     public let artistGUID: String?
     public let artistNames: [String]
+    public let genreNames: [String]
     public let fileExtension: String?
     public let fileSize: Int64
     public let bitRate: Int?
     public let sampleRate: Int?
     public let bitDepth: Int?
+    public let cueStartTime: TimeInterval?
+    public let cueEndTime: TimeInterval?
+    public let cueTrackIndex: Int?
 
     public init?(json: [String: Any]) {
         guard let guid = fnMusicFirstNonemptyString(
@@ -65,47 +69,92 @@ public struct FnMusicCatalogTrack: Sendable {
             keys: ["guid", "id", "trackGUID", "trackGuid", "songId"]
         ) else { return nil }
         self.guid = guid
-        self.title = fnMusicFirstNonemptyString(json, keys: ["title", "name"]) ?? "Unknown"
+        self.title = fnMusicFirstNonemptyString(
+            json,
+            keys: ["title", "trackTitle", "filename", "name"]
+        ) ?? "Unknown"
         self.year = fnMusicInt(json["year"])
         self.discNumber = fnMusicInt(json["discNo"])
-        self.trackNumber = fnMusicInt(json["trackNo"])
-        self.isCue = fnMusicBool(json["isCue"]) ?? false
+        self.cueTrackIndex = fnMusicInt(json["trackIndex"])
+            ?? fnMusicInt(json["cueTrackIndex"])
+        self.trackNumber = fnMusicInt(json["trackNo"]) ?? cueTrackIndex
+        self.isCue = fnMusicBool(json["isCue"])
+            ?? (fnMusicNonemptyString(json["cueSheet"]) != nil)
         self.createdAt = fnMusicInt(json["createdAt"])
         self.updatedAt = fnMusicInt(json["updatedAt"])
+        self.cueStartTime = fnMusicDouble(json["startTime"])
+            ?? fnMusicDouble(json["cueStartTime"])
+        self.cueEndTime = fnMusicDouble(json["endTime"])
+            ?? fnMusicDouble(json["cueEndTime"])
 
         let album = fnMusicObject(json["album"])
         self.coverID = fnMusicCoverID(json) ?? fnMusicCoverID(album)
         self.albumGUID = fnMusicFirstNonemptyString(album, keys: ["guid", "id"])
+            ?? fnMusicFirstNonemptyString(json, keys: ["albumGUID", "albumGuid", "albumId"])
         self.albumName = fnMusicFirstNonemptyString(album, keys: ["name", "title"])
+            ?? fnMusicNonemptyString(json["album"])
 
         let artists = json["artists"] as? [[String: Any]] ?? []
         self.artistGUID = artists.compactMap {
             fnMusicFirstNonemptyString($0, keys: ["guid", "id"])
-        }.first
-        self.artistNames = artists.compactMap {
+        }.first ?? fnMusicFirstNonemptyString(
+            json,
+            keys: ["artistGUID", "artistGuid", "artistId"]
+        )
+        let objectArtistNames = artists.compactMap {
             fnMusicFirstNonemptyString($0, keys: ["name", "title"])
         }
+        let stringArtistNames = (json["artists"] as? [String])?
+            .compactMap(fnMusicNonemptyString) ?? []
+        let directArtistName = fnMusicNonemptyString(json["artist"])
+        self.artistNames = !objectArtistNames.isEmpty
+            ? objectArtistNames
+            : (!stringArtistNames.isEmpty ? stringArtistNames : directArtistName.map { [$0] } ?? [])
+
+        let genreObjects = json["genres"] as? [[String: Any]] ?? []
+        let objectGenreNames = genreObjects.compactMap {
+            fnMusicFirstNonemptyString($0, keys: ["name", "title"])
+        }
+        let stringGenreNames = (json["genres"] as? [String])?
+            .compactMap(fnMusicNonemptyString) ?? []
+        let directGenreName = fnMusicNonemptyString(json["genre"])
+        self.genreNames = !objectGenreNames.isEmpty
+            ? objectGenreNames
+            : (!stringGenreNames.isEmpty ? stringGenreNames : directGenreName.map { [$0] } ?? [])
 
         let audio = fnMusicObject(json["audioSpec"])
         let audioDuration = fnMusicInt(audio?["duration"]) ?? 0
-        self.durationMilliseconds = audioDuration != 0
-            ? audioDuration
-            : fnMusicInt(json["duration"])
-        let pathExtension = fnMusicNonemptyString(audio?["path"])
+        if isCue,
+           let cueStartTime,
+           let cueEndTime,
+           cueEndTime > cueStartTime {
+            self.durationMilliseconds = Int(((cueEndTime - cueStartTime) * 1_000).rounded())
+        } else {
+            self.durationMilliseconds = audioDuration != 0
+                ? audioDuration
+                : fnMusicInt(json["duration"])
+        }
+        let audioPathExtension = fnMusicNonemptyString(audio?["path"])
+            .flatMap { fnMusicNonemptyString(($0 as NSString).pathExtension) }
+        let rootPathExtension = fnMusicNonemptyString(json["path"])
             .flatMap { fnMusicNonemptyString(($0 as NSString).pathExtension) }
         self.fileExtension = [
             fnMusicNonemptyString(audio?["extension"]),
             fnMusicNonemptyString(audio?["format"]),
             fnMusicNonemptyString(audio?["container"]),
-            pathExtension,
+            fnMusicNonemptyString(audio?["codec"]),
+            fnMusicNonemptyString(json["extension"]),
+            fnMusicNonemptyString(json["format"]),
+            audioPathExtension,
+            rootPathExtension,
         ]
-            .compactMap { $0 }
-            .first?
-            .lowercased()
-        self.fileSize = fnMusicInt64(audio?["size"]) ?? 0
-        self.bitRate = fnMusicInt(audio?["bitrate"])
-        self.sampleRate = fnMusicInt(audio?["sampleRate"])
-        self.bitDepth = fnMusicInt(audio?["bitDepth"])
+            .lazy
+            .compactMap(fnMusicPlayableAudioExtension)
+            .first
+        self.fileSize = fnMusicInt64(audio?["size"]) ?? fnMusicInt64(json["size"]) ?? 0
+        self.bitRate = fnMusicInt(audio?["bitrate"]) ?? fnMusicInt(json["bitrate"])
+        self.sampleRate = fnMusicInt(audio?["sampleRate"]) ?? fnMusicInt(json["sampleRate"])
+        self.bitDepth = fnMusicInt(audio?["bitDepth"]) ?? fnMusicInt(json["bitDepth"])
     }
 
     /// Builds the same stable Primuse song record on every platform. The
@@ -116,10 +165,15 @@ public struct FnMusicCatalogTrack: Sendable {
         guard let format = AudioFormat.from(fileExtension: suffix) else { return nil }
         let path = FnMusicAPIProtocol.trackPath(guid: guid, fileExtension: suffix)
         let artistName = artistNames.isEmpty ? nil : artistNames.joined(separator: ", ")
+        let genreName = genreNames.isEmpty ? nil : genreNames.joined(separator: ", ")
         let revisionTimestamp = updatedAt ?? createdAt
         let coverReference = coverID.map {
-            FnMusicAPIProtocol.coverReference(coverID: $0, revision: updatedAt)
+            FnMusicAPIProtocol.coverReference(coverID: $0, revision: revisionTimestamp)
         }
+        let hasValidCueRange = isCue
+            && cueStartTime != nil
+            && cueEndTime != nil
+            && cueEndTime! > cueStartTime!
         return Song(
             id: Self.hash("\(sourceID):fnmusic:\(guid)"),
             title: title,
@@ -134,13 +188,17 @@ public struct FnMusicCatalogTrack: Sendable {
             filePath: path,
             sourceID: sourceID,
             fileSize: fileSize,
-            bitRate: bitRate.map { max(1, $0 / 1_000) },
+            bitRate: bitRate.map { $0 >= 10_000 ? max(1, $0 / 1_000) : $0 },
             sampleRate: sampleRate,
             bitDepth: bitDepth,
+            genre: genreName,
             year: year,
             lastModified: Self.date(fromUnixTimestamp: revisionTimestamp),
             dateAdded: Self.date(fromUnixTimestamp: createdAt) ?? Date(),
             coverArtFileName: coverReference,
+            cueSheetPath: hasValidCueRange ? "/fnmusic/cue/\(guid).cue" : nil,
+            cueStartTime: hasValidCueRange ? cueStartTime : nil,
+            cueEndTime: hasValidCueRange ? cueEndTime : nil,
             revision: "fnmusic:\(updatedAt ?? 0):\(fileSize)"
         )
     }
@@ -234,8 +292,7 @@ public actor FnMusicServiceClient {
         guard page > 0, size > 0, size <= 500 else {
             throw FnMusicServiceError.invalidResponse("曲目分页参数无效")
         }
-        try await ensureLoggedIn()
-        let payload = try await requestJSON(
+        let payload = try await authenticatedJSON(
             method: "GET",
             path: "/track/list",
             queryItems: [
@@ -263,7 +320,6 @@ public actor FnMusicServiceClient {
         guard let coverID = FnMusicAPIProtocol.coverID(from: reference) else {
             throw FnMusicServiceError.invalidResponse("封面引用无效")
         }
-        try await ensureLoggedIn()
         var queryItems = [
             URLQueryItem(name: "coverId", value: coverID),
             URLQueryItem(name: "size", value: String(max(64, min(size, 2_048)))),
@@ -271,7 +327,21 @@ public actor FnMusicServiceClient {
         if let revision = FnMusicAPIProtocol.coverRevision(from: reference) {
             queryItems.append(URLQueryItem(name: "t", value: String(revision)))
         }
+        try await ensureLoggedIn()
         guard let requestToken = token else { throw FnMusicServiceError.authenticationFailed }
+        do {
+            return try await fetchCoverData(queryItems: queryItems, token: requestToken)
+        } catch FnMusicServiceError.authenticationFailed {
+            try await ensureLoggedIn()
+            guard let refreshedToken = token else { throw FnMusicServiceError.authenticationFailed }
+            return try await fetchCoverData(queryItems: queryItems, token: refreshedToken)
+        }
+    }
+
+    private func fetchCoverData(
+        queryItems: [URLQueryItem],
+        token requestToken: String
+    ) async throws -> Data {
         let request = try authenticatedRequest(
             path: "/static/cover",
             queryItems: queryItems,
@@ -297,15 +367,7 @@ public actor FnMusicServiceClient {
         guard !data.isEmpty, data.count <= Self.maximumArtworkBytes else {
             throw FnMusicServiceError.invalidResponse("封面数据为空或过大")
         }
-        let mime = http.value(forHTTPHeaderField: "Content-Type")?.lowercased() ?? ""
-        let prefix = String(data: data.prefix(64), encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased() ?? ""
-        guard !mime.contains("json"), !mime.contains("html"),
-              !prefix.hasPrefix("{"), !prefix.hasPrefix("<") else {
-            invalidateToken(ifMatching: requestToken)
-            throw FnMusicServiceError.authenticationFailed
-        }
+        try validateMediaPayload(http, data: data, requestToken: requestToken)
         return data
     }
 
@@ -313,8 +375,7 @@ public actor FnMusicServiceClient {
         guard let trackGUID = FnMusicAPIProtocol.trackGUID(from: trackPath) else {
             throw FnMusicServiceError.invalidResponse("曲目引用无效")
         }
-        try await ensureLoggedIn()
-        let payload = try await requestJSON(
+        let payload = try await authenticatedJSON(
             method: "GET",
             path: "/lyric/list",
             queryItems: [URLQueryItem(name: "trackGUID", value: trackGUID)]
@@ -339,6 +400,34 @@ public actor FnMusicServiceClient {
             return lyrics.first(where: { $0.guid == preferred })?.content
         }
         return lyrics.first?.content
+    }
+
+    /// Retry one authenticated API request after the exact 401/403/session
+    /// business codes used by Feiniu Music. Rate limits and server failures do
+    /// not clear the token and are never turned into misleading login errors.
+    private func authenticatedJSON(
+        method: String,
+        path: String,
+        queryItems: [URLQueryItem] = [],
+        body: [String: Any]? = nil
+    ) async throws -> Any {
+        try await ensureLoggedIn()
+        do {
+            return try await requestJSON(
+                method: method,
+                path: path,
+                queryItems: queryItems,
+                body: body
+            )
+        } catch FnMusicServiceError.authenticationFailed {
+            try await ensureLoggedIn()
+            return try await requestJSON(
+                method: method,
+                path: path,
+                queryItems: queryItems,
+                body: body
+            )
+        }
     }
 
     private func ensureLoggedIn() async throws {
@@ -380,8 +469,7 @@ public actor FnMusicServiceClient {
                 "password": FnMusicAPIProtocol.passwordHash(password),
                 "deviceId": FnMusicAPIProtocol.deviceID(sourceID: sourceID),
             ],
-            includeCookie: false,
-            includeServiceHeader: false
+            includeCookie: false
         )
         try Task.checkCancellation()
         guard sessionGeneration == generation else { throw CancellationError() }
@@ -405,8 +493,7 @@ public actor FnMusicServiceClient {
         path: String,
         queryItems: [URLQueryItem] = [],
         body: [String: Any]? = nil,
-        includeCookie: Bool = true,
-        includeServiceHeader: Bool = true
+        includeCookie: Bool = true
     ) async throws -> Any {
         guard let baseURL,
               let url = FnMusicAPIProtocol.endpointURL(
@@ -434,9 +521,6 @@ public actor FnMusicServiceClient {
         let requestToken = includeCookie ? token : nil
         if let requestToken {
             request.setValue(FnMusicAPIProtocol.musicTokenCookie(requestToken), forHTTPHeaderField: "Cookie")
-        }
-        if includeServiceHeader {
-            FnMusicAPIProtocol.applyServiceHeader(to: &request)
         }
         FnMusicAPIProtocol.applyAuthx(to: &request, bodyData: bodyData)
         let (data, response) = try await session.data(for: request)
@@ -476,7 +560,6 @@ public actor FnMusicServiceClient {
         }
         var request = URLRequest(url: url)
         request.setValue(FnMusicAPIProtocol.musicTokenCookie(token), forHTTPHeaderField: "Cookie")
-        FnMusicAPIProtocol.applyServiceHeader(to: &request)
         FnMusicAPIProtocol.applyAuthx(to: &request)
         return request
     }
@@ -496,6 +579,33 @@ public actor FnMusicServiceClient {
             throw FnMusicServiceError.badServerResponse(http.statusCode)
         }
         return http
+    }
+
+    private func validateMediaPayload(
+        _ response: HTTPURLResponse,
+        data: Data,
+        requestToken: String
+    ) throws {
+        let mime = response.value(forHTTPHeaderField: "Content-Type")?.lowercased() ?? ""
+        let prefix = String(data: data.prefix(64), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? ""
+        guard mime.contains("json") || mime.contains("html")
+                || mime.hasPrefix("text/") || prefix.hasPrefix("{") || prefix.hasPrefix("<") else {
+            return
+        }
+        if let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let code = fnMusicInt(envelope["code"]) {
+            if code == 120001 || code == 401 || code == 403 {
+                invalidateToken(ifMatching: requestToken)
+                throw FnMusicServiceError.authenticationFailed
+            }
+            let message = fnMusicString(envelope["msg"])
+                ?? fnMusicString(envelope["message"])
+                ?? "业务错误 \(code)"
+            throw FnMusicServiceError.invalidResponse("媒体端点：\(message)")
+        }
+        throw FnMusicServiceError.invalidResponse("媒体端点返回了非媒体数据")
     }
 
     private func invalidateToken(ifMatching requestToken: String?) {
@@ -525,6 +635,14 @@ private func fnMusicCoverID(_ dictionary: [String: Any]?) -> String? {
         keys: ["coverId", "coverID", "coverGuid", "coverGUID"]
     ) {
         return direct
+    }
+    if let coverURL = fnMusicFirstNonemptyString(
+        dictionary,
+        keys: ["coverUrl", "coverURL"]
+    ), let components = URLComponents(string: coverURL),
+       let coverID = components.queryItems?.first(where: { $0.name == "coverId" })?.value,
+       let normalized = fnMusicNonemptyString(coverID) {
+        return normalized
     }
     return fnMusicFirstNonemptyString(
         fnMusicObject(dictionary["cover"]),
@@ -558,6 +676,62 @@ private func fnMusicInt64(_ value: Any?) -> Int64? {
         return Int64(value.trimmingCharacters(in: .whitespacesAndNewlines))
     }
     return nil
+}
+
+private func fnMusicDouble(_ value: Any?) -> Double? {
+    if let value = value as? Double, value.isFinite { return value }
+    if let value = value as? Float, value.isFinite { return Double(value) }
+    if let value = value as? NSNumber {
+        let number = value.doubleValue
+        return number.isFinite ? number : nil
+    }
+    if let value = value as? String,
+       let number = Double(value.trimmingCharacters(in: .whitespacesAndNewlines)),
+       number.isFinite {
+        return number
+    }
+    return nil
+}
+
+/// The 0.9.11 service reports a mixture of filename extensions, container
+/// names, codec aliases and MIME-like values. Pick the first value Primuse can
+/// actually decode instead of letting an earlier `cue`/`mpeg`/`pcm_*` alias
+/// hide a valid container later in the response.
+private func fnMusicPlayableAudioExtension(_ rawValue: String?) -> String? {
+    guard var value = fnMusicNonemptyString(rawValue)?.lowercased() else { return nil }
+    value = value.trimmingCharacters(in: CharacterSet(charactersIn: "."))
+
+    let normalized: String?
+    switch value {
+    case "", "audio", "cue", "cue-track":
+        normalized = nil
+    case "mpeg", "audio/mpeg", "audio/mp3":
+        normalized = "mp3"
+    case "mp4a", "audio/mp4", "audio/m4a":
+        normalized = "m4a"
+    case "wave", "audio/wav", "audio/wave", "audio/x-wav", "lpcm", "pcm":
+        normalized = "wav"
+    case let codec where codec.hasPrefix("pcm_"):
+        normalized = "wav"
+    case "vorbis", "audio/ogg", "application/ogg":
+        normalized = "ogg"
+    case "audio/opus":
+        normalized = "opus"
+    case "audio/flac", "x-flac":
+        normalized = "flac"
+    case "aifc", "audio/aiff", "audio/x-aiff":
+        normalized = "aiff"
+    case "monkeys-audio", "audio/ape", "audio/x-ape":
+        normalized = "ape"
+    case "wavpack", "audio/wavpack":
+        normalized = "wv"
+    default:
+        normalized = value
+    }
+    guard let normalized, AudioFormat.from(fileExtension: normalized) != nil else {
+        return nil
+    }
+    return normalized
 }
 
 private func fnMusicBool(_ value: Any?) -> Bool? {

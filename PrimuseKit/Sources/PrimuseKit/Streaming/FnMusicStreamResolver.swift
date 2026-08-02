@@ -50,7 +50,6 @@ public actor FnMusicStreamResolver: StreamResolver {
         let target = try await resolvedTarget(for: song, source: source, credential: credential)
         var headers = [
             "Cookie": FnMusicAPIProtocol.musicTokenCookie(target.token),
-            FnMusicAPIProtocol.serviceHeaderField: FnMusicAPIProtocol.serviceHeaderValue,
         ]
         var signedRequest = URLRequest(url: target.url)
         signedRequest.httpMethod = "GET"
@@ -204,8 +203,20 @@ public actor FnMusicStreamResolver: StreamResolver {
         FnMusicAPIProtocol.applyAuthx(to: &request, bodyData: body)
         let (data, response) = try await session.data(for: request)
         try Self.checkAuth(response)
+        guard let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw StreamResolveError.badServerResponse(200)
+        }
+        let code = (envelope["code"] as? NSNumber)?.intValue
+            ?? Int(envelope["code"] as? String ?? "")
+            ?? -1
+        guard code == 0 || code == 200 else {
+            if code == 120001 || code == 401 || code == 403 {
+                throw StreamResolveError.authFailed
+            }
+            throw StreamResolveError.badServerResponse(code)
+        }
         guard let token = Self.parseFnMusicToken(data) else {
-            throw StreamResolveError.authFailed
+            throw StreamResolveError.badServerResponse(200)
         }
         return token
     }
@@ -222,12 +233,11 @@ public actor FnMusicStreamResolver: StreamResolver {
         request.httpMethod = "GET"
         request.setValue(HTTPRangeProbePolicy.requestHeaderValue, forHTTPHeaderField: "Range")
         request.setValue(FnMusicAPIProtocol.musicTokenCookie(token), forHTTPHeaderField: "Cookie")
-        FnMusicAPIProtocol.applyServiceHeader(to: &request)
         FnMusicAPIProtocol.applyAuthx(to: &request)
 
         let (bytes, response) = try await session.bytes(for: request)
         guard let http = response as? HTTPURLResponse else {
-            throw StreamResolveError.authFailed
+            throw StreamResolveError.badServerResponse(-1)
         }
         if http.statusCode == 401 || http.statusCode == 403 {
             throw StreamResolveError.authFailed
@@ -275,7 +285,9 @@ public actor FnMusicStreamResolver: StreamResolver {
     }
 
     static func checkAuth(_ response: URLResponse) throws {
-        guard let http = response as? HTTPURLResponse else { return }
+        guard let http = response as? HTTPURLResponse else {
+            throw StreamResolveError.badServerResponse(-1)
+        }
         if http.statusCode == 401 || http.statusCode == 403 { throw StreamResolveError.authFailed }
         guard (200...299).contains(http.statusCode) else { throw StreamResolveError.badServerResponse(http.statusCode) }
     }

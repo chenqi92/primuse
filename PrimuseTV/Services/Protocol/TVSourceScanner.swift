@@ -229,7 +229,7 @@ final class TVSourceScanner {
         }
     }
 
-    /// 连接测试直接验证飞牛音乐目录接口，不依赖本地是否已有该源歌曲。
+    /// 连接测试直接验证飞牛音乐曲库接口，不依赖本地是否已有该源歌曲。
     func validateFnMusicConnection(
         source: MusicSource,
         credential: SourceCredential?

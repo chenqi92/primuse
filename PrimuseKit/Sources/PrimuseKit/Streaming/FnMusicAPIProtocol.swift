@@ -8,8 +8,6 @@ import Foundation
 public enum FnMusicAPIProtocol {
     public static let apiPath = "/music/api/v1"
     public static let authxHeaderField = "authx"
-    public static let serviceHeaderField = "X-Music-API"
-    public static let serviceHeaderValue = "v1"
     public static let defaultAuthxSigningPrefix = "NDzZTVxnRKP8Z0jXg1VAMonaG8akvh"
     public static let defaultAuthxClientKey = "6D5602D4-A342-4799-A0F0-BB795E7167D0"
 
@@ -151,13 +149,6 @@ public enum FnMusicAPIProtocol {
             ),
             forHTTPHeaderField: authxHeaderField
         )
-    }
-
-    /// Identifies catalogue and media requests sent to the Feiniu Music
-    /// service. Password login intentionally omits this header because it is
-    /// handled by the fnOS web gateway rather than the music-service socket.
-    public static func applyServiceHeader(to request: inout URLRequest) {
-        request.setValue(serviceHeaderValue, forHTTPHeaderField: serviceHeaderField)
     }
 
     public static func passwordHash(_ password: String) -> String {

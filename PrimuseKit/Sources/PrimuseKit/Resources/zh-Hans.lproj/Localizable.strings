@@ -9,7 +9,7 @@
 "src.displayName.pan123"     = "123 云盘";
 
 "src.subtitle.fnos"          = "飞牛 OS";
-"src.subtitle.fnMusic"       = "直连曲库 · 实验性";
+"src.subtitle.fnMusic"       = "直连曲库 · 官方应用接口";
 "src.subtitle.daoliyu"       = "自部署音乐服务器 · 原生 API";
 "src.subtitle.awaitingPublicAPI" = "等待官方公开 API · 暂未开放";
 "src.subtitle.baiduPan"      = "百度网盘 OAuth";
