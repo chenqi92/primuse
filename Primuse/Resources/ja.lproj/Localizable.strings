@@ -49,7 +49,7 @@
 "onboarding_welcome_title" = "あなたの音楽、あなたのサーバー";
 "onboarding_welcome_subtitle" = "Primuse はあなた自身の NAS、クラウドドライブ、ホームネットワークから音楽を再生します。ファイルをアップロードする必要はありません。";
 "onboarding_sources_title" = "音楽をひとつに";
-"onboarding_sources_nas" = "Synology、QNAP、SMB / NFS 共有（Ugreen / fnOS は公開 API 待ち）";
+"onboarding_sources_nas" = "Synology、QNAP、SMB / NFS 共有（汎用 Ugreen/fnOS ファイル API は未公開、Feiniu Music は別ソース）";
 "onboarding_sources_cloud" = "123 Pan、Baidu Pan、Aliyun Drive など";
 "onboarding_sources_apple_music" = "Apple Music を任意で接続し、ライブラリと一緒に表示";
 "onboarding_sources_network" = "WebDAV、SFTP、Jellyfin、UPnP / DLNA など";
@@ -349,6 +349,7 @@
 "retry" = "再試行";
 "manage_dirs" = "ディレクトリを管理";
 "save_then_connect_hint" = "先に保存してから、ソースをタップして接続し、音楽ディレクトリを選択してください";
+"save_then_scan_library_hint" = "先に保存してから、ソースをタップして接続し、サーバーの全カタログをスキャンしてください";
 "shared_folders" = "共有フォルダ";
 "remember_device_otp" = "このデバイスを記憶";
 "scan_complete" = "スキャン完了";
@@ -1148,7 +1149,7 @@
 "source_diag_advice_oauth_suggestion" = "このクラウドドライブを再接続して、Primuse を再度認証してください。";
 "source_diag_advice_rate_title" = "プロバイダの利用制限";
 "source_diag_advice_rate_message" = "プロバイダが一時的にリクエストを制限しています。";
-"source_diag_advice_rate_suggestion" = "数分待ってから再試行してください。大きなライブラリの場合は、小さいフォルダから先にスキャンしてください。";
+"source_diag_advice_rate_suggestion" = "数分待ってから再試行し、短時間にスキャンや再生を繰り返さないでください。";
 "source_diag_advice_certificate_title" = "証明書の問題";
 "source_diag_advice_certificate_message" = "HTTPS 証明書を信頼できませんでした。";
 "source_diag_advice_certificate_suggestion" = "証明書を確認し、ご自身のサーバーのものである場合にのみ信頼してください。";
@@ -1969,3 +1970,4 @@
 "credential_save_failed_message" = "パスワードを安全に保存できなかったため、ソースは保存されていません。もう一度お試しください。";
 "credential_temporarily_unavailable" = "パスワードを一時的に読み取れません。デバイスのロックを解除してから、もう一度お試しください。";
 "credential_read_failed" = "保存済みのパスワードを安全に読み取れませんでした。もう一度試すか、認証情報を更新してください。";
+"fnmusic_account_hint" = "Use an account created in Feiniu Music with library permission, not an fnOS system account.";

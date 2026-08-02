@@ -413,10 +413,9 @@ final class TVPlaybackCoordinator {
 
     // MARK: 歌词
 
-    /// 加载歌词:先本地缓存(随快照同步下来的 / 之前抓过的),再直接从音乐源读同目录的
-    /// `.lrc` sidecar —— 不再依赖手机端是否抓过(TV 本就连着源、有凭证)。`lyricsFileName`
-    /// 指向源里的歌词文件(NAS 是 `.lrc` 真实路径,云盘是 item ID),复用 stream resolver
-    /// 解出下载地址即可。
+    /// 加载歌词:先本地缓存(随快照同步下来的 / 之前抓过的),飞牛音乐再读取服务端首选歌词，
+    /// 其它来源直接读同目录的 `.lrc` sidecar。`lyricsFileName` 指向源里的歌词文件
+    /// (NAS 是 `.lrc` 真实路径,云盘是 item ID),复用 stream resolver 解出下载地址即可。
     private func loadLyrics(song: Song, source: MusicSource,
                             credential: SourceCredential?, requestID: UUID) {
         Task { [weak self, weak store, song, source, credential] in
@@ -425,10 +424,51 @@ final class TVPlaybackCoordinator {
             let songID = song.id
             if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: songID), !cached.isEmpty {
                 guard self.isCurrent(requestID, store: store) else { return }
-                store.applyLyrics(Self.toTVLyrics(cached), forSongID: songID)
+                store.applyLyrics(
+                    Self.toTVLyrics(cached, duration: song.duration),
+                    forSongID: songID
+                )
                 return
             }
             guard self.isCurrent(requestID, store: store) else { return }
+
+            if source.type == .fnMusic {
+                guard let client = store.fnMusicClient(for: source.id) else { return }
+                do {
+                    guard let text = try await client.preferredLyrics(trackPath: song.filePath),
+                          !text.isEmpty else { return }
+                    try self.ensureCurrent(requestID, store: store)
+                    let lines = LyricsParser.parseText(text)
+                    guard !lines.isEmpty else { return }
+                    let wrote = await MetadataAssetStore.shared.cacheLyrics(
+                        lines,
+                        forSongID: songID,
+                        force: false
+                    )
+                    try self.ensureCurrent(requestID, store: store)
+                    if wrote {
+                        store.applyLyrics(
+                            Self.toTVLyrics(lines, duration: song.duration),
+                            forSongID: songID
+                        )
+                        plog("🎬 TV Feiniu Music lyrics loaded \(lines.count) lines for '\(song.title)'")
+                    } else if let preserved = await MetadataAssetStore.shared.cachedLyrics(forSongID: songID),
+                              !preserved.isEmpty {
+                        try self.ensureCurrent(requestID, store: store)
+                        store.applyLyrics(
+                            Self.toTVLyrics(preserved, duration: song.duration),
+                            forSongID: songID
+                        )
+                    }
+                } catch is CancellationError {
+                    return
+                } catch {
+                    guard self.isCurrent(requestID, store: store) else { return }
+                    plog("🎬 TV Feiniu Music lyrics fetch failed '\(song.title)': \(error)")
+                }
+                return
+            }
+
             // 歌词文件路径:① song.lyricsFileName 指向的源内 .lrc(.json 是本机缓存名,已查过);
             // ② 协议直连源(SMB/NFS/FTP)按音频路径推同名 .lrc —— 即便扫描时没记录歌词,播放时
             //    也能就地从 NAS 同目录读到。
@@ -456,7 +496,10 @@ final class TVPlaybackCoordinator {
                 guard !lines.isEmpty else { return }
                 _ = await MetadataAssetStore.shared.cacheLyrics(lines, forSongID: songID, force: false)
                 try self.ensureCurrent(requestID, store: store)
-                store.applyLyrics(Self.toTVLyrics(lines), forSongID: songID)
+                store.applyLyrics(
+                    Self.toTVLyrics(lines, duration: song.duration),
+                    forSongID: songID
+                )
                 plog("🎬 TV source-lyrics loaded \(lines.count) lines for '\(song.title)'")
             } catch is CancellationError {
                 return
@@ -488,9 +531,23 @@ final class TVPlaybackCoordinator {
         return String(data: data, encoding: .utf8)
     }
 
-    private nonisolated static func toTVLyrics(_ lines: [LyricLine]) -> [TVLyricLine] {
-        lines.map { line in
-            TVLyricLine(time: line.timestamp, text: line.text,
+    private nonisolated static func toTVLyrics(
+        _ lines: [LyricLine],
+        duration: TimeInterval
+    ) -> [TVLyricLine] {
+        let isUntimed = lines.count > 1 && lines.allSatisfy {
+            $0.timestamp <= 0 && ($0.syllables?.isEmpty ?? true)
+        }
+        let untimedStep = duration > 0
+            ? max(1, duration / Double(lines.count))
+            : 5
+
+        return lines.enumerated().map { index, line in
+            // 纯文本歌词没有时间轴；仅在 TV 展示层按曲长均匀推进，缓存仍保留
+            // 服务端原文，避免把估算时间写回共享歌词数据。
+            let displayTime = isUntimed ? Double(index) * untimedStep : line.timestamp
+            return TVLyricLine(time: displayTime,
+                        text: line.text,
                         // start/end 是相对歌曲起点的绝对时间戳;卡拉OK扫词需要每字时长。
                         syllables: (line.syllables ?? []).map { TVSyllable(w: $0.text, d: max(0.001, $0.end - $0.start)) },
                         translation: "")

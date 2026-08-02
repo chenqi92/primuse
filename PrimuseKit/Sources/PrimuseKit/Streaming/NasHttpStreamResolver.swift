@@ -1,18 +1,16 @@
 import Foundation
 
-/// QNAP 与 fnOS(飞牛)NAS 的流式解析。两者都登录拿会话 token/sid → 下载地址把
-/// token/sid 放 query,AVPlayer 直连。song.filePath = 服务端完整文件路径。
-///
-/// (绿联 Ugreen 登录需 RSA 加密密码,单列;此处只接 QNAP/fnOS。)
+/// QNAP NAS streaming resolver. It authenticates with QTS and places the
+/// resulting SID in the QNAP file-manager download URL.
 public actor NasHttpStreamResolver: StreamResolver {
-    private var sessions: [String: String] = [:]   // sourceID → token/sid
+    private var sessions: [String: String] = [:]
     private var sessionTasks: [String: (id: UUID, task: Task<String, Error>)] = [:]
     private let session: URLSession
 
     public init() {
-        let cfg = URLSessionConfiguration.default
-        cfg.timeoutIntervalForRequest = 20
-        self.session = StreamResolverSessionFactory.make(configuration: cfg)
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 20
+        self.session = StreamResolverSessionFactory.make(configuration: configuration)
     }
 
     deinit { session.invalidateAndCancel() }
@@ -22,176 +20,148 @@ public actor NasHttpStreamResolver: StreamResolver {
         sessionTasks.removeValue(forKey: sourceID)?.task.cancel()
     }
 
-    public func streamURL(for song: Song,
-                          source: MusicSource,
-                          credential: SourceCredential?) async throws -> URL {
-        let cred = credential ?? SourceCredential()
-        let username = cred.username ?? source.username ?? ""
-        guard let password = cred.password, !password.isEmpty, !username.isEmpty else {
+    public func streamURL(
+        for song: Song,
+        source: MusicSource,
+        credential: SourceCredential?
+    ) async throws -> URL {
+        guard source.type == .qnap else {
+            throw StreamResolveError.unsupportedSourceType(source.type)
+        }
+        let credential = credential ?? SourceCredential()
+        let username = credential.username ?? source.username ?? ""
+        guard let password = credential.password,
+              !password.isEmpty,
+              !username.isEmpty else {
             throw StreamResolveError.missingCredential
         }
-        guard let base = Self.baseURL(host: source.host ?? "", port: source.port, useSsl: source.useSsl) else {
+        guard let base = Self.baseURL(
+            host: source.host ?? "",
+            port: source.port,
+            useSsl: source.useSsl
+        ) else {
             throw StreamResolveError.cannotBuildURL
         }
-        let token = try await currentSession(source: source, base: base, username: username,
-                                             password: password, type: source.type)
-        let url: URL?
-        switch source.type {
-        case .qnap: url = Self.qnapDownloadURL(base: base, path: song.filePath, sid: token)
-        case .fnos: url = Self.fnosDownloadURL(base: base, path: song.filePath, token: token)
-        default: throw StreamResolveError.unsupportedSourceType(source.type)
+        let sid = try await currentSession(
+            sourceID: source.id,
+            base: base,
+            username: username,
+            password: password
+        )
+        guard let url = Self.qnapDownloadURL(base: base, path: song.filePath, sid: sid) else {
+            throw StreamResolveError.cannotBuildURL
         }
-        guard let url else { throw StreamResolveError.cannotBuildURL }
         return url
     }
 
-    private func currentSession(source: MusicSource, base: URL, username: String,
-                                password: String, type: MusicSourceType) async throws -> String {
-        if let cached = sessions[source.id] { return cached }
-        if let inFlight = sessionTasks[source.id] { return try await inFlight.task.value }
+    private func currentSession(
+        sourceID: String,
+        base: URL,
+        username: String,
+        password: String
+    ) async throws -> String {
+        if let cached = sessions[sourceID] { return cached }
+        if let inFlight = sessionTasks[sourceID] {
+            let sid = try await inFlight.task.value
+            if sessions[sourceID] == sid { return sid }
+            guard sessionTasks[sourceID]?.id == inFlight.id else {
+                throw CancellationError()
+            }
+            sessions[sourceID] = sid
+            sessionTasks[sourceID] = nil
+            return sid
+        }
+
         let taskID = UUID()
         let task = Task<String, Error> { [self] in
-            switch type {
-            case .qnap: return try await qnapLogin(base: base, username: username, password: password)
-            case .fnos: return try await fnosLogin(base: base, username: username, password: password)
-            default: throw StreamResolveError.unsupportedSourceType(type)
-            }
+            try await qnapLogin(base: base, username: username, password: password)
         }
-        sessionTasks[source.id] = (taskID, task)
-        let token: String
+        sessionTasks[sourceID] = (taskID, task)
+
+        let sid: String
         do {
-            token = try await task.value
+            sid = try await task.value
         } catch {
-            if sessionTasks[source.id]?.id == taskID { sessionTasks[source.id] = nil }
+            if sessionTasks[sourceID]?.id == taskID { sessionTasks[sourceID] = nil }
             throw error
         }
-        if sessionTasks[source.id]?.id == taskID {
-            sessions[source.id] = token
-            sessionTasks[source.id] = nil
+        if sessions[sourceID] == sid { return sid }
+        guard sessionTasks[sourceID]?.id == taskID else {
+            throw CancellationError()
         }
-        return token
-    }
-
-    // MARK: - QNAP
-
-    private func qnapLogin(base: URL, username: String, password: String) async throws -> String {
-        var req = URLRequest(url: base.appendingPathComponent("cgi-bin/authLogin.cgi"))
-        req.httpMethod = "POST"
-        req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        req.httpBody = "user=\(Self.formEncode(username))&pwd=\(Self.formEncode(password))&remme=1".data(using: .utf8)
-        let (data, response) = try await session.data(for: req)
-        try Self.checkAuth(response)
-        guard let sid = Self.parseQnapSID(data) else { throw StreamResolveError.authFailed }
+        sessions[sourceID] = sid
+        sessionTasks[sourceID] = nil
         return sid
     }
 
-    // MARK: - fnOS(多种登录端点格式兜底)
-
-    private func fnosLogin(base: URL, username: String, password: String) async throws -> String {
-        let attempts: [(String, [String: Any])] = [
-            ("api/v1/auth/login", ["username": username, "password": password]),
-            ("api/auth/login", ["username": username, "password": password]),
-            ("user/login", ["user": username, "passwd": password]),
-        ]
-        var lastTransportError: Error?
-        var lastServerStatus: Int?
-        var sawAuthenticationRejection = false
-        var sawSuccessfulButInvalidResponse = false
-        for (path, body) in attempts {
-            var req = URLRequest(url: base.appendingPathComponent(path))
-            req.httpMethod = "POST"
-            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            req.httpBody = try? SafeJSONSerialization.data(withJSONObject: body)
-            let data: Data
-            let response: URLResponse
-            do {
-                (data, response) = try await session.data(for: req)
-            } catch {
-                lastTransportError = error
-                continue
-            }
-            guard let http = response as? HTTPURLResponse else {
-                sawSuccessfulButInvalidResponse = true
-                continue
-            }
-            if http.statusCode == 401 || http.statusCode == 403 {
-                sawAuthenticationRejection = true
-                continue
-            }
-            guard (200...299).contains(http.statusCode) else {
-                lastServerStatus = http.statusCode
-                continue
-            }
-            guard let token = Self.parseFnosToken(data) else {
-                sawSuccessfulButInvalidResponse = true
-                continue
-            }
-            return token
+    private func qnapLogin(base: URL, username: String, password: String) async throws -> String {
+        var request = URLRequest(url: base.appendingPathComponent("cgi-bin/authLogin.cgi"))
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.httpBody = "user=\(Self.formEncode(username))&pwd=\(Self.formEncode(password))&remme=1"
+            .data(using: .utf8)
+        let (data, response) = try await session.data(for: request)
+        try Self.checkAuth(response)
+        guard let sid = Self.parseQnapSID(data) else {
+            throw StreamResolveError.authFailed
         }
-        if sawAuthenticationRejection { throw StreamResolveError.authFailed }
-        if let lastServerStatus { throw StreamResolveError.badServerResponse(lastServerStatus) }
-        if let lastTransportError { throw lastTransportError }
-        if sawSuccessfulButInvalidResponse { throw StreamResolveError.badServerResponse(200) }
-        throw StreamResolveError.cannotBuildURL
+        return sid
     }
 
-    // MARK: - 纯函数(可单测)
-
     static func baseURL(host: String, port: Int?, useSsl: Bool) -> URL? {
-        var h = host.trimmingCharacters(in: .whitespaces)
-        guard !h.isEmpty else { return nil }
+        var host = host.trimmingCharacters(in: .whitespaces)
+        guard !host.isEmpty else { return nil }
         var scheme = useSsl ? "https" : "http"
-        if let r = h.range(of: "://") { scheme = String(h[..<r.lowerBound]).lowercased(); h = String(h[r.upperBound...]) }
-        if let slash = h.firstIndex(of: "/") { h = String(h[..<slash]) }
-        var hostPort = h
-        if let port, port > 0, !h.contains(":") { hostPort = "\(h):\(port)" }
+        if let range = host.range(of: "://") {
+            scheme = String(host[..<range.lowerBound]).lowercased()
+            host = String(host[range.upperBound...])
+        }
+        if let slash = host.firstIndex(of: "/") { host = String(host[..<slash]) }
+        var hostPort = host
+        if let port, port > 0, !host.contains(":") { hostPort = "\(host):\(port)" }
         return URL(string: "\(scheme)://\(hostPort)")
     }
 
     static func qnapDownloadURL(base: URL, path: String, sid: String) -> URL? {
-        guard var comp = URLComponents(url: base.appendingPathComponent("cgi-bin/filemanager/utilRequest.cgi"),
-                                       resolvingAgainstBaseURL: false) else { return nil }
-        comp.queryItems = [URLQueryItem(name: "func", value: "download"),
-                           URLQueryItem(name: "source_path", value: path),
-                           URLQueryItem(name: "sid", value: sid)]
-        return comp.url
-    }
-
-    static func fnosDownloadURL(base: URL, path: String, token: String) -> URL? {
-        guard var comp = URLComponents(url: base.appendingPathComponent("api/v1/file/download"),
-                                       resolvingAgainstBaseURL: false) else { return nil }
-        comp.queryItems = [URLQueryItem(name: "path", value: path), URLQueryItem(name: "token", value: token)]
-        return comp.url
+        guard var components = URLComponents(
+            url: base.appendingPathComponent("cgi-bin/filemanager/utilRequest.cgi"),
+            resolvingAgainstBaseURL: false
+        ) else { return nil }
+        components.queryItems = [
+            URLQueryItem(name: "func", value: "download"),
+            URLQueryItem(name: "source_path", value: path),
+            URLQueryItem(name: "sid", value: sid),
+        ]
+        return components.url
     }
 
     static func parseQnapSID(_ data: Data) -> String? {
         if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           (json["authPassed"] as? Int) == 1, let sid = json["authSid"] as? String {
+           (json["authPassed"] as? Int) == 1,
+           let sid = json["authSid"] as? String {
             return sid
         }
-        // XML 兜底:<authPassed>1</authPassed> + <authSid><![CDATA[sid]]></authSid>
         let text = String(data: data, encoding: .utf8) ?? ""
         guard text.contains("<authPassed>1</authPassed>"),
-              let lo = text.range(of: "<authSid><![CDATA["),
-              let hi = text.range(of: "]]></authSid>") else { return nil }
-        return String(text[lo.upperBound..<hi.lowerBound])
+              let lower = text.range(of: "<authSid><![CDATA["),
+              let upper = text.range(of: "]]></authSid>") else { return nil }
+        return String(text[lower.upperBound..<upper.lowerBound])
     }
 
-    static func parseFnosToken(_ data: Data) -> String? {
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-        let code = json["code"] as? Int ?? 0
-        guard code == 200 || code == 0, let d = json["data"] as? [String: Any] else { return nil }
-        return (d["token"] as? String) ?? (d["access_token"] as? String) ?? (d["session_id"] as? String)
-    }
-
-    static func formEncode(_ s: String) -> String {
-        s.addingPercentEncoding(withAllowedCharacters: CharacterSet(charactersIn:
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")) ?? s
+    static func formEncode(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: CharacterSet(charactersIn:
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")) ?? value
     }
 
     static func checkAuth(_ response: URLResponse) throws {
-        guard let http = response as? HTTPURLResponse else { return }
-        if http.statusCode == 401 || http.statusCode == 403 { throw StreamResolveError.authFailed }
-        guard (200...299).contains(http.statusCode) else { throw StreamResolveError.badServerResponse(http.statusCode) }
+        guard let http = response as? HTTPURLResponse else {
+            throw StreamResolveError.authFailed
+        }
+        if http.statusCode == 401 || http.statusCode == 403 {
+            throw StreamResolveError.authFailed
+        }
+        guard (200...299).contains(http.statusCode) else {
+            throw StreamResolveError.badServerResponse(http.statusCode)
+        }
     }
 }

@@ -48,7 +48,7 @@
 "onboarding_welcome_title" = "Votre musique, vos serveurs";
 "onboarding_welcome_subtitle" = "Primuse lit la musique depuis votre NAS, vos services cloud et votre réseau domestique, sans envoyer aucun fichier à qui que ce soit.";
 "onboarding_sources_title" = "Réunissez toute votre musique";
-"onboarding_sources_nas" = "Synology, QNAP et partages SMB / NFS · Ugreen/fnOS attendent des API publiques";
+"onboarding_sources_nas" = "Synology, QNAP et partages SMB / NFS · Les API de fichiers Ugreen/fnOS génériques restent indisponibles ; Feiniu Music est une source distincte";
 "onboarding_sources_cloud" = "123 Pan, Baidu Pan, Aliyun Drive et plus";
 "onboarding_sources_apple_music" = "Connectez Apple Music en option et parcourez-le avec votre bibliothèque";
 "onboarding_sources_network" = "WebDAV, SFTP, Jellyfin, UPnP / DLNA et plus";
@@ -348,6 +348,7 @@
 "retry" = "Réessayer";
 "manage_dirs" = "Gérer les dossiers";
 "save_then_connect_hint" = "Enregistrez d'abord, puis touchez la source pour vous connecter et sélectionner les dossiers de musique";
+"save_then_scan_library_hint" = "Enregistrez d'abord, puis touchez la source pour vous connecter et analyser tout le catalogue du serveur";
 "shared_folders" = "Dossiers partagés";
 "remember_device_otp" = "Mémoriser cet appareil";
 "scan_complete" = "Analyse terminée";
@@ -1147,7 +1148,7 @@
 "source_diag_advice_oauth_suggestion" = "Reconnectez ce service cloud et autorisez de nouveau Primuse.";
 "source_diag_advice_rate_title" = "Limite de débit du fournisseur";
 "source_diag_advice_rate_message" = "Le fournisseur limite temporairement les requêtes.";
-"source_diag_advice_rate_suggestion" = "Patientez quelques minutes, puis réessayez. Pour les grandes bibliothèques, analysez d'abord de plus petits dossiers.";
+"source_diag_advice_rate_suggestion" = "Patientez quelques minutes, puis réessayez, et évitez les analyses ou tentatives de lecture répétées sur une courte période.";
 "source_diag_advice_certificate_title" = "Problème de certificat";
 "source_diag_advice_certificate_message" = "Le certificat HTTPS n'a pas pu être approuvé.";
 "source_diag_advice_certificate_suggestion" = "Vérifiez le certificat, puis approuvez-le uniquement s'il appartient à votre serveur.";
@@ -1968,3 +1969,4 @@
 "credential_save_failed_message" = "Le mot de passe n’a pas pu être enregistré de façon sécurisée. La source n’a pas été enregistrée. Réessayez.";
 "credential_temporarily_unavailable" = "Le mot de passe est temporairement indisponible. Déverrouillez votre appareil et réessayez.";
 "credential_read_failed" = "Le mot de passe enregistré n’a pas pu être lu de façon sécurisée. Réessayez ou mettez à jour les identifiants.";
+"fnmusic_account_hint" = "Utilisez un compte créé dans Feiniu Music avec l’accès à la bibliothèque, pas un compte système fnOS.";

@@ -17,15 +17,32 @@ enum TVCredentialStore {
     /// 中继类型还会附上 iPhone 中继端点(放 extra,供 RelayStreamResolver 拼 URL)。
     static func credential(for source: MusicSource, bundle: CredentialBundle?) -> SourceCredential {
         var cred: SourceCredential
+        let local = loadLocalCredential(sourceID: source.id)
+        let entry = bundle?.entries[source.id]
         if source.authType == .none {
             // 显式访客模式优先级最高：即便 TV 本地、凭据包或同步钥匙串里还留有
             // 旧密码，也不能把它重新附加到匿名 SMB/WebDAV/FTP 请求上。
             cred = SourceCredential()
-        } else if let local = loadLocalCredential(sourceID: source.id), !local.password.isEmpty {
+        } else if source.type == .fnMusic {
+            // A username-only bundle entry must not hide a password available
+            // from the synchronized Keychain. Merge fields independently.
+            cred = entry?.toCredential(defaultUsername: source.username)
+                ?? SourceCredential(username: source.username)
+            if let local, !local.password.isEmpty {
+                cred.username = local.username.isEmpty ? source.username : local.username
+                cred.password = local.password
+            } else if let bundledPassword = entry?.password, !bundledPassword.isEmpty {
+                cred.username = source.username ?? entry?.username
+                cred.password = bundledPassword
+            } else {
+                cred.username = source.username ?? entry?.username
+                cred.password = keychainPassword(account: source.id)
+            }
+        } else if let local, !local.password.isEmpty {
             // 本地输入优先:用户在 TV 上为该源亲手登录过,胜过同步过来的(可能不通用的)凭据。
             cred = SourceCredential(username: local.username.isEmpty ? source.username : local.username,
                                     password: local.password)
-        } else if let entry = bundle?.entries[source.id], !entry.isEmpty {
+        } else if let entry, !entry.isEmpty {
             cred = entry.toCredential(defaultUsername: source.username)
         } else {
             cred = SourceCredential(username: source.username, password: keychainPassword(account: source.id))
@@ -46,18 +63,29 @@ enum TVCredentialStore {
 
     private static func localAccount(_ sourceID: String) -> String { "tv-local-cred." + sourceID }
 
-    private struct LocalCred: Codable { var u: String; var p: String }
+    private struct LocalCred: Codable {
+        var u: String
+        var p: String
+    }
 
     @discardableResult
-    static func saveLocalCredential(sourceID: String, username: String, password: String) -> Bool {
+    static func saveLocalCredential(
+        sourceID: String,
+        username: String,
+        password: String
+    ) -> Bool {
         let account = localAccount(sourceID)
-        guard let data = try? JSONEncoder().encode(LocalCred(u: username, p: password)) else {
+        guard let data = try? JSONEncoder().encode(
+            LocalCred(u: username, p: password)
+        ) else {
             return false
         }
         return upsert(data: data, account: account)
     }
 
-    static func loadLocalCredential(sourceID: String) -> (username: String, password: String)? {
+    static func loadLocalCredential(
+        sourceID: String
+    ) -> (username: String, password: String)? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: PrimuseConstants.keychainServiceName,

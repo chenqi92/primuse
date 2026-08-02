@@ -139,7 +139,7 @@ actor UgreenSource: MusicSourceConnector {
             // 页, 而非二进制音频。把这段错误体切片当 chunk 返回会写进 .partial
             // 缓存并永久损坏它。先按 Content-Type 识别: 非音频体一律抛错并清
             // token 而不是切片。
-            if nasResponseLooksLikeErrorBody(http, data: data) {
+            if httpMediaResponseLooksLikeErrorBody(http, data: data) {
                 await api.invalidateSession()
                 throw SourceError.connectionFailed("Ugreen range returned non-audio body (session expired?)")
             }

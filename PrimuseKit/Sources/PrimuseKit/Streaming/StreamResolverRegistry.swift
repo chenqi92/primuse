@@ -18,6 +18,7 @@ public actor StreamResolverRegistry {
         let baidu = BaiduPanStreamResolver()
         let media = MediaServerStreamResolver()
         let nas = NasHttpStreamResolver()
+        let fnMusic = FnMusicStreamResolver()
         let daoLiYu = DaoLiYuStreamResolver()
         let ugreen = UgreenStreamResolver()
         var map: [MusicSourceType: StreamResolver] = [:]
@@ -29,9 +30,8 @@ public actor StreamResolverRegistry {
         for type in [MusicSourceType.jellyfin, .emby, .plex] {
             map[type] = media
         }
-        for type in [MusicSourceType.qnap, .fnos] {
-            map[type] = nas
-        }
+        map[.qnap] = nas
+        map[.fnMusic] = fnMusic
         map[.daoliyu] = daoLiYu
         map[.ugreen] = ugreen
         // WebDAV / UPnP:tvOS 纯 HTTP 直连(Basic Auth / 直链),不再经中继。
@@ -61,7 +61,7 @@ public actor StreamResolverRegistry {
     /// 必须与 `init` 注册表保持一致:当前唯一没有 resolver 的是 `appleMusicLibrary`
     /// (macOS iTunesLibrary 源)。新增源类型时,这里与 init 一起更新。
     public nonisolated static let tvSupportedTypes: Set<MusicSourceType> =
-        Set(MusicSourceType.allCases).subtracting([.appleMusicLibrary])
+        Set(MusicSourceType.allCases).subtracting([.appleMusicLibrary, .fnos])
 
     public func streamURL(for song: Song,
                           source: MusicSource,

@@ -107,7 +107,7 @@ actor QnapSource: MusicSourceConnector {
         // 先按 Content-Type / 文件首字节嗅探: 非音频体一律抛错, 绝不落缓存。
         let prefix = (try? FileHandle(forReadingFrom: tempURL))
             .map { h -> Data in defer { h.closeFile() }; return h.readData(ofLength: 64) } ?? Data()
-        if nasResponseLooksLikeErrorBody(http, data: prefix) {
+        if httpMediaResponseLooksLikeErrorBody(http, data: prefix) {
             try? FileManager.default.removeItem(at: tempURL)
             await api.invalidateSession()
             throw SourceError.connectionFailed("QNAP download returned non-audio body (session expired?)")
@@ -158,7 +158,7 @@ actor QnapSource: MusicSourceConnector {
             // 登录页, 而非二进制音频。把这段错误体切片当 chunk 返回会写进
             // .partial 缓存并永久损坏它。先按 Content-Type 识别: 非音频体一律
             // 抛错而不是切片。
-            if nasResponseLooksLikeErrorBody(http, data: data) {
+            if httpMediaResponseLooksLikeErrorBody(http, data: data) {
                 await api.invalidateSession()
                 throw SourceError.connectionFailed("QNAP range returned non-audio body (session expired?)")
             }
@@ -220,7 +220,7 @@ actor QnapSource: MusicSourceConnector {
 
 /// 共享判定: NAS download 端点在会话失效时常回 HTTP 200 + JSON / HTML 登录页。
 /// 把这种 body 切片当 chunk 会损坏 .partial 缓存, 所以先嗅探内容类型。
-func nasResponseLooksLikeErrorBody(_ http: HTTPURLResponse, data: Data) -> Bool {
+func httpMediaResponseLooksLikeErrorBody(_ http: HTTPURLResponse, data: Data) -> Bool {
     let contentType = (http.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased()
     if contentType.contains("application/json")
         || contentType.contains("text/html")

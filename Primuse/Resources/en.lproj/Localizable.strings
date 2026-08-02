@@ -211,6 +211,7 @@
 "retry" = "Retry";
 "manage_dirs" = "Manage Directories";
 "save_then_connect_hint" = "Save first, then tap the source to connect and select music directories";
+"save_then_scan_library_hint" = "Save first, then tap the source to connect and scan the complete server catalogue";
 "shared_folders" = "Shared Folders";
 "remember_device_otp" = "Remember this device";
 "scan_complete" = "Scan complete";
@@ -976,7 +977,7 @@
 "onboarding_welcome_title" = "Your music, your servers";
 "onboarding_welcome_subtitle" = "Primuse plays from your NAS, cloud drives, and home network — without uploading a single file to anyone.";
 "onboarding_sources_title" = "Bring your music together";
-"onboarding_sources_nas" = "Synology, QNAP, and SMB / NFS shares · Ugreen/fnOS await public APIs";
+"onboarding_sources_nas" = "Synology, QNAP, and SMB / NFS shares · Generic Ugreen/fnOS file APIs remain unavailable; Feiniu Music is a separate source";
 "onboarding_sources_cloud" = "123 Pan, Baidu Pan, Aliyun Drive, and more";
 "onboarding_sources_apple_music" = "Optionally connect Apple Music and browse it alongside your library";
 "onboarding_sources_network" = "WebDAV, SFTP, Jellyfin, UPnP / DLNA, and more";
@@ -1172,7 +1173,7 @@
 "source_diag_advice_oauth_suggestion" = "Reconnect this cloud drive and authorize Primuse again.";
 "source_diag_advice_rate_title" = "Provider rate limit";
 "source_diag_advice_rate_message" = "The provider is temporarily limiting requests.";
-"source_diag_advice_rate_suggestion" = "Wait a few minutes, then retry. For large libraries, scan smaller folders first.";
+"source_diag_advice_rate_suggestion" = "Wait a few minutes, then retry, and avoid repeated scans or playback attempts in a short period.";
 "source_diag_advice_certificate_title" = "Certificate problem";
 "source_diag_advice_certificate_message" = "The HTTPS certificate could not be trusted.";
 "source_diag_advice_certificate_suggestion" = "Verify the certificate, then trust it only if it belongs to your server.";
@@ -1796,3 +1797,4 @@
 "credential_save_failed_message" = "The password couldn’t be saved securely. The source was not saved. Please try again.";
 "credential_temporarily_unavailable" = "The password is temporarily unavailable. Unlock your device and try again.";
 "credential_read_failed" = "The saved password couldn’t be read securely. Try again or update the credential.";
+"fnmusic_account_hint" = "Use an account created in Feiniu Music with library permission, not an fnOS system account.";

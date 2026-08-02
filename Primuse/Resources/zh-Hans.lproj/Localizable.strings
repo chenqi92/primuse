@@ -211,6 +211,7 @@
 "retry" = "重试";
 "manage_dirs" = "管理目录";
 "save_then_connect_hint" = "保存后，点击该音乐源即可连接并选择音乐目录";
+"save_then_scan_library_hint" = "保存后，点击该音乐源即可连接并扫描服务端完整曲库";
 "shared_folders" = "共享文件夹";
 "remember_device_otp" = "记住此设备（下次跳过验证）";
 "scan_complete" = "扫描完成";
@@ -977,7 +978,7 @@
 "onboarding_welcome_title" = "你的音乐，存在你的服务器";
 "onboarding_welcome_subtitle" = "猿音从你自己的 NAS、云盘和家里的网络播放音乐 —— 不上传任何文件到任何人。";
 "onboarding_sources_title" = "把音乐聚合到一处";
-"onboarding_sources_nas" = "群晖、威联通及 SMB / NFS 共享 · 绿联/飞牛等待官方公开 API";
+"onboarding_sources_nas" = "群晖、威联通及 SMB / NFS 共享 · 通用绿联/fnOS 文件接口等待公开 API，飞牛音乐服务可单独添加";
 "onboarding_sources_cloud" = "123 云盘、百度网盘、阿里云盘等云端音乐";
 "onboarding_sources_apple_music" = "可选连接 Apple Music，一并浏览订阅资料库";
 "onboarding_sources_network" = "WebDAV、SFTP、Jellyfin、UPnP / DLNA 等服务";
@@ -1173,7 +1174,7 @@
 "source_diag_advice_oauth_suggestion" = "重新连接这个云盘，并再次授权猿音访问。";
 "source_diag_advice_rate_title" = "服务限流";
 "source_diag_advice_rate_message" = "服务方正在临时限制请求。";
-"source_diag_advice_rate_suggestion" = "等待几分钟再重试；大曲库建议先分目录扫描。";
+"source_diag_advice_rate_suggestion" = "等待几分钟后重试，并避免短时间内连续扫描或播放。";
 "source_diag_advice_certificate_title" = "证书问题";
 "source_diag_advice_certificate_message" = "HTTPS 证书无法被信任。";
 "source_diag_advice_certificate_suggestion" = "先确认这是你自己的服务器证书，再决定是否信任。";
@@ -2071,3 +2072,4 @@
 "credential_save_failed_message" = "密码未能安全保存，来源尚未保存，请重试。";
 "credential_temporarily_unavailable" = "密码暂时无法读取，请解锁设备后重试。";
 "credential_read_failed" = "无法安全读取已保存的密码，请重试或更新凭据。";
+"fnmusic_account_hint" = "请填写在飞牛音乐中创建并已授予曲库权限的账号，不是 fnOS 系统账号。";

@@ -321,8 +321,8 @@ actor TVArtworkPaletteLoader {
     }
 }
 
-/// tvOS 封面加载:同步/本机缓存优先，专辑可回退 iTunes Search，散曲可回退
-/// Song.coverArtFileName 中安全的 HTTP(S) 引用；取不到时回到程序化封面。
+/// tvOS 封面加载:同步/本机缓存优先，飞牛音乐引用通过共享服务客户端读取，
+/// 专辑可回退 iTunes Search，散曲可回退安全的 HTTP(S) 引用；取不到时回到程序化封面。
 actor TVArtworkLoader {
     static let shared = TVArtworkLoader()
 
@@ -382,16 +382,38 @@ actor TVArtworkLoader {
         return result
     }
 
-    /// 歌曲级封面：歌曲 ID 缓存优先，其次兼容旧本地引用，最后只对
-    /// HTTP(S) 封面引用发起有限大小的请求。源端路径不在这里猜测，避免把未经
-    /// 解析的 NAS 路径当成公网 URL 或绕过源凭据体系。
-    func songCover(songID: String, coverRef: String?) async -> Data? {
+    /// 歌曲级封面：歌曲缓存优先；飞牛音乐按带 revision 的来源引用独立缓存，
+    /// 其次兼容旧本地引用和飞牛音乐的鉴权读取，
+    /// 最后只对 HTTP(S) 封面引用发起有限大小的请求。其它源端路径不在这里猜测，
+    /// 避免把未经解析的 NAS 路径当成公网 URL 或绕过源凭据体系。
+    func songCover(
+        songID: String,
+        coverRef: String?,
+        fnMusicSourceID: String? = nil,
+        fnMusicClient: FnMusicServiceClient? = nil
+    ) async -> Data? {
         guard !songID.isEmpty else { return nil }
-        if let cached = await MetadataAssetStore.shared.cachedCoverData(forSongID: songID) {
+        let ref = coverRef?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let fnMusicRequestKey = FnMusicAPIProtocol.coverID(from: ref).map { _ in
+            "fnmusic-cover:\(fnMusicSourceID ?? songID)|\(ref)"
+        }
+
+        if let fnMusicRequestKey {
+            let disk = diskURL(fnMusicRequestKey)
+            if let data = try? Data(contentsOf: disk) {
+                if Self.isImageData(data) {
+                    let cached = await MetadataAssetStore.shared.cachedCoverData(forSongID: songID)
+                    if cached != data {
+                        await MetadataAssetStore.shared.cacheCover(data, forSongID: songID)
+                    }
+                    return data
+                }
+                try? FileManager.default.removeItem(at: disk)
+            }
+        } else if let cached = await MetadataAssetStore.shared.cachedCoverData(forSongID: songID) {
             return cached
         }
 
-        let ref = coverRef?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !ref.isEmpty else { return nil }
 
         if MetadataAssetStore.shared.isLegacyLocalRef(ref),
@@ -399,6 +421,37 @@ actor TVArtworkLoader {
            Self.isImageData(data) {
             await MetadataAssetStore.shared.cacheCover(data, forSongID: songID)
             return data
+        }
+
+        if let fnMusicRequestKey {
+            guard let fnMusicClient else { return nil }
+            if isTemporarilyNegative(fnMusicRequestKey) { return nil }
+            let task: Task<Data?, Never>
+            if let running = inFlight[fnMusicRequestKey] {
+                task = running
+            } else {
+                task = Task {
+                    guard !Task.isCancelled,
+                          let data = try? await fnMusicClient.coverData(reference: ref),
+                          !Task.isCancelled,
+                          Self.isImageData(data) else {
+                        return nil
+                    }
+                    return data
+                }
+                inFlight[fnMusicRequestKey] = task
+            }
+
+            let result = await task.value
+            inFlight[fnMusicRequestKey] = nil
+            guard let result else {
+                markTemporarilyNegative(fnMusicRequestKey)
+                return nil
+            }
+            negativeUntil.removeValue(forKey: fnMusicRequestKey)
+            try? result.write(to: diskURL(fnMusicRequestKey), options: .atomic)
+            await MetadataAssetStore.shared.cacheCover(result, forSongID: songID)
+            return result
         }
 
         guard let url = URL(string: ref),
@@ -621,7 +674,8 @@ struct TVArtworkView: View {
             paletteAppliedIdentity = nil
             image = nil
 
-            if !coverKey.isEmpty {
+            let hasFnMusicCoverReference = FnMusicAPIProtocol.coverID(from: coverRef ?? "") != nil
+            if !coverKey.isEmpty, !hasFnMusicCoverReference {
                 // ① 优先使用已同步到本地的准确专辑封面。
                 if let data = await MetadataAssetStore.shared.cachedAlbumCover(forAlbumID: coverKey),
                    await accept(data, identity: identity, paletteKey: paletteKey) {
@@ -630,9 +684,13 @@ struct TVArtworkView: View {
             }
             if let songID, !songID.isEmpty {
                 // ② 再查歌曲自身缓存/安全远程引用，避免准确散曲封面被模糊专辑搜索覆盖。
+                let fnMusicSourceID = store.library.song(id: songID)?.sourceID
+                let fnMusicClient = fnMusicSourceID.flatMap(store.fnMusicClient(for:))
                 if let data = await TVArtworkLoader.shared.songCover(
                     songID: songID,
-                    coverRef: coverRef
+                    coverRef: coverRef,
+                    fnMusicSourceID: fnMusicSourceID,
+                    fnMusicClient: fnMusicClient
                 ), await accept(
                     data,
                     identity: identity,
@@ -642,8 +700,9 @@ struct TVArtworkView: View {
                     return
                 }
             }
-            if !coverKey.isEmpty {
+            if !coverKey.isEmpty, !hasFnMusicCoverReference {
                 // ③ 本地准确来源都没有时，最后按 (艺术家, 专辑) 在线搜索封面。
+                // 飞牛引用失败时保留占位并重试，不能让模糊搜索永久盖住准确源封面。
                 if let data = await TVArtworkLoader.shared.cover(
                     key: coverKey,
                     artist: artist,

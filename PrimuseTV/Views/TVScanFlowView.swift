@@ -2,7 +2,7 @@
 import PrimuseKit
 import SwiftUI
 
-/// 添加新源后(或长按源菜单)的扫描流程。目录型源选择目录，道理鱼直接扫描服务端曲库。
+/// 添加新源后(或长按源菜单)的扫描流程。目录型源选择目录，飞牛音乐直接扫描服务端曲库。
 struct TVScanFlowView: View {
     @Environment(TVStore.self) private var store
     @Environment(\.dismiss) private var dismiss
@@ -31,25 +31,27 @@ struct TVScanFlowView: View {
                         dismiss()
                     }
                 )
-            } else if source.type == .daoliyu {
-                daoLiYuPickView
+            } else if source.type == .fnMusic || source.type == .daoliyu {
+                fnMusicPickView
             } else {
                 pickView
             }
         }
-        .onDisappear { loadTask?.cancel() }
+        .onDisappear {
+            loadTask?.cancel()
+        }
         .onAppear {
-            if lister == nil {
+            if source.type != .fnMusic && source.type != .daoliyu, lister == nil {
                 lister = store.makeLister(for: source)
-                if source.type != .daoliyu {
-                    selected = Set(source.scannedDirectories)   // 回填上次扫描勾选的目录
-                    load("/")
-                }
+                selected = Set(source.scannedDirectories)   // 回填上次扫描勾选的目录
+                load("/")
             }
         }
     }
 
-    private var daoLiYuPickView: some View {
+    // MARK: 选目录(第 3 步)
+
+    private var fnMusicPickView: some View {
         VStack(spacing: 28) {
             Image(systemName: source.type.iconName)
                 .font(.system(size: 66, weight: .semibold))
@@ -61,11 +63,11 @@ struct TVScanFlowView: View {
                 Text("扫描服务端音乐曲库")
                     .font(.system(size: 42, weight: .bold))
                     .foregroundStyle(TVColor.text)
-                Text("将通过道理鱼原生 API 导入曲目，无需选择 NAS 文件夹。")
+                Text("将通过\(source.type.displayName)服务导入曲目，无需选择 NAS 文件夹。")
                     .font(.system(size: 20))
                     .foregroundStyle(TVColor.textFaint)
             }
-            TVFocusButton(radius: 16, accent: TVColor.brand, scale: 1.05, lift: 4, action: startDaoLiYuScan) { focused in
+            TVFocusButton(radius: 16, accent: TVColor.brand, scale: 1.05, lift: 4, action: startFnMusicScan) { focused in
                 Label(PMString("ext.tv.scan.start"), systemImage: "arrow.triangle.2.circlepath")
                     .font(.system(size: 24, weight: .bold))
                     .foregroundStyle(TVColor.onBrand)
@@ -84,8 +86,6 @@ struct TVScanFlowView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-
-    // MARK: 选目录(第 3 步)
 
     private var pickView: some View {
         HStack(alignment: .top, spacing: 80) {
@@ -235,10 +235,10 @@ struct TVScanFlowView: View {
         scanTask = Task { await store.runScan(source: source, lister: lister, dirs: dirs) }
     }
 
-    private func startDaoLiYuScan() {
+    private func startFnMusicScan() {
         loadTask?.cancel()
         started = true
-        scanTask = Task { await store.runDaoLiYuScan(source: source) }
+        scanTask = Task { await store.runFnMusicScan(source: source) }
     }
 
     private static func parent(of path: String) -> String {

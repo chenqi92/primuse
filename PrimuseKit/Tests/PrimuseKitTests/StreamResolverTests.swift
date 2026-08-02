@@ -107,7 +107,7 @@ import Testing
     let supported = await StreamResolverRegistry().supportedTypes
     #expect(supported.isSuperset(of: [.subsonic, .navidrome, .airsonic, .gonic, .synology, .s3,
                                       .aliyunDrive, .oneDrive, .dropbox, .pan123,
-                                      .jellyfin, .emby, .plex, .qnap, .fnos, .daoliyu, .ugreen,
+                                      .jellyfin, .emby, .plex, .qnap, .fnMusic, .daoliyu, .ugreen,
                                       .googleDrive, .pan115, .baiduPan]))
     // Phase 3:原生库源经中继也注册了
     #expect(supported.isSuperset(of: [.smb, .sftp, .nfs, .webdav, .local, .appleMusic]))
@@ -312,6 +312,110 @@ private final class CountingLoginURLProtocol: URLProtocol, @unchecked Sendable {
     override func stopLoading() {}
 }
 
+private final class FnMusicServiceURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var loginCountStorage = 0
+    nonisolated(unsafe) private static var trackCountStorage = 0
+    nonisolated(unsafe) private static var unsignedAPIRequestCountStorage = 0
+    nonisolated(unsafe) private static var encodedCookieCountStorage = 0
+    nonisolated(unsafe) private static var unexpectedAccessHeaderCountStorage = 0
+    nonisolated(unsafe) private static var invalidServiceHeaderCountStorage = 0
+
+    static var counts: (
+        login: Int,
+        track: Int,
+        unsignedAPI: Int,
+        encodedCookie: Int,
+        unexpectedAccessHeader: Int,
+        invalidServiceHeader: Int
+    ) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (
+            loginCountStorage,
+            trackCountStorage,
+            unsignedAPIRequestCountStorage,
+            encodedCookieCountStorage,
+            unexpectedAccessHeaderCountStorage,
+            invalidServiceHeaderCountStorage
+        )
+    }
+
+    static func reset() {
+        lock.lock()
+        loginCountStorage = 0
+        trackCountStorage = 0
+        unsignedAPIRequestCountStorage = 0
+        encodedCookieCountStorage = 0
+        unexpectedAccessHeaderCountStorage = 0
+        invalidServiceHeaderCountStorage = 0
+        lock.unlock()
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let url = request.url else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+
+        let isLogin = url.path.hasSuffix("/music/api/v1/user/password-login")
+        let isTrackList = url.path.hasSuffix("/music/api/v1/track/list")
+        let hasAuthx = request.value(forHTTPHeaderField: FnMusicAPIProtocol.authxHeaderField) != nil
+        let hasUnexpectedAccessHeaders = request.value(forHTTPHeaderField: "x-access-code") != nil
+            || request.value(forHTTPHeaderField: "x-access-source") != nil
+
+        Self.lock.lock()
+        if url.path.contains(FnMusicAPIProtocol.apiPath), !hasAuthx {
+            Self.unsignedAPIRequestCountStorage += 1
+        }
+        if isLogin { Self.loginCountStorage += 1 }
+        if isTrackList {
+            Self.trackCountStorage += 1
+            if request.value(forHTTPHeaderField: "Cookie") == "music-token=T%2BA%2FB%3D" {
+                Self.encodedCookieCountStorage += 1
+            }
+        }
+        if hasUnexpectedAccessHeaders { Self.unexpectedAccessHeaderCountStorage += 1 }
+        let serviceHeader = request.value(forHTTPHeaderField: FnMusicAPIProtocol.serviceHeaderField)
+        if isLogin {
+            if serviceHeader != nil { Self.invalidServiceHeaderCountStorage += 1 }
+        } else if url.path.contains(FnMusicAPIProtocol.apiPath),
+                  serviceHeader != FnMusicAPIProtocol.serviceHeaderValue {
+            Self.invalidServiceHeaderCountStorage += 1
+        }
+        Self.lock.unlock()
+
+        if isLogin {
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        guard let response = HTTPURLResponse(
+            url: url,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Content-Type": "application/json"]
+        ) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        let data: Data
+        if isLogin {
+            data = Data(#"{"code":200,"data":{"userToken":"T+A/B="}}"#.utf8)
+        } else if isTrackList {
+            data = Data(#"{"code":200,"data":{"list":[],"total":0}}"#.utf8)
+        } else {
+            data = Data()
+        }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        if !data.isEmpty { client?.urlProtocol(self, didLoad: data) }
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
 // MARK: - 绿联 Ugreen(含 RSA 往返验证)
 
 @Test func ugreenURLAndParse() {
@@ -345,7 +449,7 @@ private final class CountingLoginURLProtocol: URLProtocol, @unchecked Sendable {
     #expect(first != second) // PKCS#1 v1.5 padding must be randomized.
 }
 
-// MARK: - QNAP / fnOS NAS
+// MARK: - QNAP / Feiniu Music
 
 @Test func nasHttpURLs() {
     let qnap = NasHttpStreamResolver.qnapDownloadURL(
@@ -355,21 +459,278 @@ private final class CountingLoginURLProtocol: URLProtocol, @unchecked Sendable {
     #expect(qnap?.path == "/cgi-bin/filemanager/utilRequest.cgi")
     #expect(q["func"] == "download" && q["source_path"] == "/Music/a.flac" && q["sid"] == "S1")
 
-    let fnos = NasHttpStreamResolver.fnosDownloadURL(
-        base: URL(string: "http://fn:5666")!, path: "/m/b.mp3", token: "T1")
+    let fnMusic = FnMusicStreamResolver.fnMusicStreamURL(
+        base: URL(string: "http://fn:5666")!, trackGUID: "track-1")
     let f = Dictionary(uniqueKeysWithValues:
-        (URLComponents(url: fnos!, resolvingAgainstBaseURL: false)?.queryItems ?? []).map { ($0.name, $0.value ?? "") })
-    #expect(fnos?.path == "/api/v1/file/download")
-    #expect(f["path"] == "/m/b.mp3" && f["token"] == "T1")
+        (URLComponents(url: fnMusic!, resolvingAgainstBaseURL: false)?.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+    #expect(fnMusic?.path == "/music/api/v1/track/stream")
+    #expect(f["guid"] == "track-1")
 }
 
 @Test func nasHttpAuthParsing() {
     #expect(NasHttpStreamResolver.parseQnapSID(Data(#"{"authPassed":1,"authSid":"SID9"}"#.utf8)) == "SID9")
     #expect(NasHttpStreamResolver.parseQnapSID(Data("<QDocRoot><authPassed>1</authPassed><authSid><![CDATA[XSID]]></authSid></QDocRoot>".utf8)) == "XSID")
     #expect(NasHttpStreamResolver.parseQnapSID(Data(#"{"authPassed":0}"#.utf8)) == nil)
-    #expect(NasHttpStreamResolver.parseFnosToken(Data(#"{"code":200,"data":{"token":"TK"}}"#.utf8)) == "TK")
-    #expect(NasHttpStreamResolver.parseFnosToken(Data(#"{"code":0,"data":{"access_token":"AT"}}"#.utf8)) == "AT")
-    #expect(NasHttpStreamResolver.parseFnosToken(Data(#"{"code":1001,"data":{}}"#.utf8)) == nil)
+    #expect(FnMusicStreamResolver.parseFnMusicToken(Data(#"{"code":200,"data":{"userToken":"TK"}}"#.utf8)) == "TK")
+    #expect(FnMusicStreamResolver.parseFnMusicToken(Data(#"{"code":200,"data":{"userToken":"  "}}"#.utf8)) == nil)
+    #expect(FnMusicStreamResolver.parseFnMusicToken(Data(#"{"code":0,"data":{"token":"wrong-field"}}"#.utf8)) == nil)
+    #expect(FnMusicStreamResolver.parseFnMusicToken(Data(#"{"code":120001,"data":{}}"#.utf8)) == nil)
+}
+
+@Test func fnMusicProtocolCanonicalizesEndpointQuery() throws {
+    let base = try #require(FnMusicAPIProtocol.serverBaseURL(
+        host: "http://fn.local:5666/proxy",
+        port: nil,
+        useSSL: false
+    ))
+    let url = try #require(FnMusicAPIProtocol.endpointURL(
+        serverBaseURL: base,
+        path: "/search/track",
+        queryItems: [
+            URLQueryItem(name: "q", value: "hello world"),
+            URLQueryItem(name: "page", value: "1"),
+        ]
+    ))
+    #expect(url.path == "/proxy/music/api/v1/search/track")
+    #expect(URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedQuery
+            == "page=1&q=hello%20world")
+    #expect(url.absoluteString.contains("page=1&q=hello%20world"))
+    #expect(FnMusicAPIProtocol.authxPath(for: url) == "/music/api/v1/search/track")
+    #expect(FnMusicAPIProtocol.authxPath(
+        for: try #require(URL(string: "https://fn.local/proxy/music/api/v1"))
+    ) == "/music/api/v1")
+
+    let officialWebBase = try #require(FnMusicAPIProtocol.serverBaseURL(
+        host: "http://fn.local:5666/music",
+        port: nil,
+        useSSL: false
+    ))
+    let officialWebEndpoint = try #require(FnMusicAPIProtocol.endpointURL(
+        serverBaseURL: officialWebBase,
+        path: "/track/list"
+    ))
+    #expect(officialWebEndpoint.path == "/music/api/v1/track/list")
+}
+
+@Test func fnMusicAuthxMatchesCurrentProtocolVector() {
+    let header = FnMusicAPIProtocol.authxHeader(
+        method: "GET",
+        path: "/music/api/v1/search/track",
+        queryItems: [
+            URLQueryItem(name: "q", value: "hello world"),
+            URLQueryItem(name: "page", value: "1"),
+        ],
+        nonce: "123456",
+        timestampMilliseconds: 1_700_000_000_000,
+        prefix: "prefix",
+        key: "key"
+    )
+
+    #expect(header == "nonce=123456&timestamp=1700000000000&sign=a32d34bb733dfb367391b7fd7e0ce2d7")
+
+    let proxiedURL = URL(string: "https://fn.local/proxy/music/api/v1/search/track?q=hello%20world&page=1")!
+    let proxiedHeader = FnMusicAPIProtocol.authxHeader(
+        method: "GET",
+        path: FnMusicAPIProtocol.authxPath(for: proxiedURL),
+        queryItems: URLComponents(url: proxiedURL, resolvingAgainstBaseURL: false)?.queryItems ?? [],
+        nonce: "123456",
+        timestampMilliseconds: 1_700_000_000_000,
+        prefix: "prefix",
+        key: "key"
+    )
+    #expect(proxiedHeader == header)
+}
+
+@Test func fnMusicAuthxHashesExactNonGetBody() {
+    let body = Data(#"{"username":"u"}"#.utf8)
+    let header = FnMusicAPIProtocol.authxHeader(
+        method: "POST",
+        path: "/music/api/v1/user/password-login",
+        bodyData: body,
+        nonce: "123456",
+        timestampMilliseconds: 1_700_000_000_000,
+        prefix: "prefix",
+        key: "key"
+    )
+
+    #expect(header == "nonce=123456&timestamp=1700000000000&sign=3deb2c59683b5fe5f94cd86555a17cea")
+}
+
+@Test func fnMusicCurrentAuthxUsesSixDigitNonceAndUnixMilliseconds() {
+    let header = FnMusicAPIProtocol.currentAuthxHeader(
+        method: "GET",
+        path: "/music/api/v1/initialization/state",
+        now: Date(timeIntervalSince1970: 1_700_000_000)
+    )
+    let fields: [String: String] = Dictionary(
+        uniqueKeysWithValues: header.split(separator: "&").compactMap { field in
+            let parts = field.split(separator: "=", maxSplits: 1).map(String.init)
+            return parts.count == 2 ? (parts[0], parts[1]) : nil
+        }
+    )
+
+    #expect(fields["nonce"]?.count == 6)
+    #expect(fields["nonce"]?.allSatisfy(\.isNumber) == true)
+    #expect(fields["timestamp"] == "1700000000000")
+    #expect(fields["sign"]?.count == 32)
+}
+
+@Test func fnMusicServiceConcurrentRequestsShareOneSignedLogin() async throws {
+    FnMusicServiceURLProtocol.reset()
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [FnMusicServiceURLProtocol.self]
+    let session = URLSession(configuration: configuration)
+    let source = MusicSource(
+        id: "fnmusic-concurrent",
+        name: "Feiniu Music",
+        type: .fnMusic,
+        host: "fnmusic.test",
+        port: 5666,
+        useSsl: false,
+        username: "user",
+        basePath: "/proxy"
+    )
+    let credential = SourceCredential(
+        username: "user",
+        password: "password"
+    )
+    let client = FnMusicServiceClient(source: source, credential: credential, session: session)
+
+    async let first = client.validateConnection()
+    async let second = client.validateConnection()
+    let totals = try await (first, second)
+    let counts = FnMusicServiceURLProtocol.counts
+
+    #expect(totals.0 == 0)
+    #expect(totals.1 == 0)
+    #expect(counts.login == 1)
+    #expect(counts.track == 2)
+    #expect(counts.unsignedAPI == 0)
+    #expect(counts.encodedCookie == 2)
+    #expect(counts.unexpectedAccessHeader == 0)
+    #expect(counts.invalidServiceHeader == 0)
+}
+
+@Test func fnMusicProtocolHashesCredentialsAndKeepsOpaqueReferences() {
+    #expect(FnMusicAPIProtocol.passwordHash("password")
+            == "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8")
+    #expect(FnMusicAPIProtocol.defaultAuthxSigningPrefix == "NDzZTVxnRKP8Z0jXg1VAMonaG8akvh")
+    #expect(FnMusicAPIProtocol.defaultAuthxClientKey == "6D5602D4-A342-4799-A0F0-BB795E7167D0")
+    #expect(FnMusicAPIProtocol.serviceHeaderField == "X-Music-API")
+    #expect(FnMusicAPIProtocol.serviceHeaderValue == "v1")
+    #expect(FnMusicAPIProtocol.musicTokenCookie("A+B/C=") == "music-token=A%2BB%2FC%3D")
+
+    let path = FnMusicAPIProtocol.trackPath(guid: "track-guid", fileExtension: "FLAC")
+    #expect(path == "/fnmusic/tracks/track-guid.flac")
+    #expect(FnMusicAPIProtocol.trackGUID(from: path) == "track-guid")
+}
+
+@Test func fnMusicProtocolPersistsOneDeviceIDPerDefaultsSuite() throws {
+    let suiteName = "FnMusicAPIProtocolTests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defaults.removePersistentDomain(forName: suiteName)
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+
+    let first = FnMusicAPIProtocol.deviceID(sourceID: "source-1", defaults: defaults)
+    let second = FnMusicAPIProtocol.deviceID(sourceID: "source-2", defaults: defaults)
+    let reopenedDefaults = try #require(UserDefaults(suiteName: suiteName))
+    let reopened = FnMusicAPIProtocol.deviceID(sourceID: "source-3", defaults: reopenedDefaults)
+
+    #expect(first.count == 32)
+    #expect(first == first.lowercased())
+    #expect(first.allSatisfy { $0.isHexDigit })
+    #expect(second == first)
+    #expect(reopened == first)
+}
+
+@Test func fnMusicCoverReferencePreservesRevisionAndParsesCoverID() {
+    let plain = FnMusicAPIProtocol.coverReference(coverID: "cover-guid")
+    let revised = FnMusicAPIProtocol.coverReference(coverID: "cover-guid", revision: 1_725_000_000)
+
+    #expect(plain == "fnmusic-cover/cover-guid")
+    #expect(revised == "fnmusic-cover/cover-guid?revision=1725000000")
+    #expect(plain != revised)
+    #expect(FnMusicAPIProtocol.coverID(from: revised) == "cover-guid")
+    #expect(FnMusicAPIProtocol.coverRevision(from: revised) == 1_725_000_000)
+    #expect(FnMusicAPIProtocol.coverRevision(from: plain) == nil)
+    #expect(!revised.contains("music-token"))
+}
+
+@Test func fnMusicCatalogTrackBuildsStableServiceBackedSong() throws {
+    let json: [String: Any] = [
+        "guid": "track-guid",
+        "title": "Track",
+        "year": 2026,
+        "discNo": 1,
+        "trackNo": 2,
+        "duration": 999_999,
+        "createdAt": 1_725_000_000,
+        "updatedAt": 1_725_000_100,
+        "album": ["guid": "album-guid", "name": "Album", "coverId": "cover-guid"],
+        "artists": [["guid": "artist-guid", "name": "Artist"]],
+        "audioSpec": [
+            "path": "/volume/music/track.bin",
+            "extension": "FLAC",
+            "format": "mp3",
+            "container": "wav",
+            "duration": 123_456,
+            "size": 12_345_678,
+            "bitrate": 1_411_000,
+            "sampleRate": 96_000,
+            "bitDepth": 24,
+        ],
+    ]
+    let track = try #require(FnMusicCatalogTrack(json: json))
+    let first = try #require(track.makeSong(sourceID: "source-1"))
+    let second = try #require(track.makeSong(sourceID: "source-1"))
+
+    #expect(first.id == second.id)
+    #expect(first.filePath == "/fnmusic/tracks/track-guid.flac")
+    #expect(first.filePath != "/volume/music/track.flac")
+    #expect(first.albumID == "album-guid")
+    #expect(first.artistName == "Artist")
+    #expect(first.duration == 123.456)
+    #expect(first.bitRate == 1_411)
+    #expect(first.coverArtFileName == "fnmusic-cover/cover-guid?revision=1725000100")
+}
+
+@Test func fnMusicCatalogTrackUsesCurrentAudioFallbacks() throws {
+    let cases: [([String: Any], String)] = [
+        (["format": "mp3", "path": "/music/wrong.bin"], "mp3"),
+        (["container": "wav", "path": "/music/wrong.bin"], "wav"),
+        (["path": "/music/fallback.ogg"], "ogg"),
+    ]
+
+    for (audioSpec, expectedExtension) in cases {
+        let track = try #require(FnMusicCatalogTrack(json: [
+            "guid": "track-\(expectedExtension)",
+            "title": "Track",
+            "duration": 42_000,
+            "audioSpec": audioSpec,
+        ]))
+        #expect(track.fileExtension == expectedExtension)
+        #expect(track.durationMilliseconds == 42_000)
+    }
+}
+
+@Test func fnMusicCatalogTrackUsesCurrentIdentityAndCoverFallbacks() throws {
+    let track = try #require(FnMusicCatalogTrack(json: [
+        "id": "track-id",
+        "name": "Alternate Track",
+        "cover": ["guid": "track-cover"],
+        "album": ["id": "album-id", "title": "Alternate Album"],
+        "artists": [["id": "artist-id", "title": "Alternate Artist"]],
+        "audioSpec": ["extension": "flac", "duration": 1_000],
+    ]))
+    let song = try #require(track.makeSong(sourceID: "source-1"))
+
+    #expect(track.guid == "track-id")
+    #expect(song.title == "Alternate Track")
+    #expect(song.albumID == "album-id")
+    #expect(song.albumTitle == "Alternate Album")
+    #expect(song.artistID == "artist-id")
+    #expect(song.artistName == "Alternate Artist")
+    #expect(song.coverArtFileName == "fnmusic-cover/track-cover")
 }
 
 // MARK: - 云盘:响应解析 + 请求构造
@@ -502,4 +863,15 @@ private final class CountingLoginURLProtocol: URLProtocol, @unchecked Sendable {
     #expect(bundle.credential(for: "missing", defaultUsername: nil) == nil)
     #expect(CredentialEntry().isEmpty)
     #expect(!CredentialEntry(password: "p").isEmpty)
+    #expect(!CredentialEntry(extra: ["custom": "value"]).isEmpty)
+}
+
+@Test func credentialBundleDecodesEntriesWrittenBeforeExtraWasAdded() throws {
+    let historicalJSON = Data(#"{"version":1,"entries":{"src":{"username":"u","password":"p","token":"t","refreshToken":"r","clientID":"id","clientSecret":"secret"}}}"#.utf8)
+    let decoded = try #require(CredentialBundle.decode(historicalJSON))
+
+    #expect(decoded.entries["src"]?.username == "u")
+    #expect(decoded.entries["src"]?.password == "p")
+    #expect(decoded.entries["src"]?.token == "t")
+    #expect(decoded.entries["src"]?.extra == [:])
 }

@@ -113,7 +113,17 @@ final class ScanService {
         }
 
         let normalizedDirs = normalizedDirectories(dirs)
-        let checkpoint = resumeCheckpoint(for: source.id, directories: normalizedDirs)
+        // Feiniu Music is a fast server-catalogue enumeration with strict
+        // pagination invariants. A partial checkpoint is not resumable (the
+        // next request must restart at page 1), and restoring one would make
+        // an incomplete catalogue visible before the retry has succeeded.
+        let requiresAtomicCatalogCommit = source.type == .fnMusic
+        if requiresAtomicCatalogCommit {
+            removeCheckpoint(for: source.id)
+        }
+        let checkpoint = requiresAtomicCatalogCommit
+            ? nil
+            : resumeCheckpoint(for: source.id, directories: normalizedDirs)
         let resumeSongs = checkpoint?.songs ?? []
         let resumeCount = checkpoint?.songs.count ?? 0
         let resumeTotal = checkpoint?.totalCount ?? 0
@@ -213,7 +223,7 @@ final class ScanService {
             case .smb, .webdav, .ftp, .sftp, .nfs, .upnp,
                  .jellyfin, .emby, .plex,
                  .subsonic, .navidrome, .airsonic, .gonic,
-                 .qnap, .ugreen, .fnos, .daoliyu, .s3,
+                 .qnap, .ugreen, .fnos, .fnMusic, .daoliyu, .s3,
                  .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .pan115, .pan123,
                  .local, .appleMusicLibrary:
                 await scanConnectorSource(
@@ -626,6 +636,7 @@ final class ScanService {
     ) async {
         let connector = sourceManager.connector(for: source)
         let scanner = ConnectorScanner(connector: connector, sourceID: source.id)
+        let requiresAtomicCatalogCommit = source.type == .fnMusic
         // Pass songs from the live library (for this source) as the
         // existing-set, not just resumeSongs. Without this, re-scanning
         // a finished source would walk the full tree and yield every file
@@ -676,7 +687,9 @@ final class ScanService {
                 // 用户能感觉到。
                 let pendingDelta = update.addedCount - lastIncrementalUpdate
                 let timeSinceFlush = Date().timeIntervalSince(lastFlushAt)
-                if pendingDelta >= Self.flushBatchSize || (pendingDelta > 0 && timeSinceFlush >= Self.flushInterval) {
+                let shouldFlushIncrementally = pendingDelta >= Self.flushBatchSize
+                    || (pendingDelta > 0 && timeSinceFlush >= Self.flushInterval)
+                if !requiresAtomicCatalogCommit, shouldFlushIncrementally {
                     // 中间 flush ── lastSongs 是当前累积的部分扫描结果, 还没
                     // 扫到的歌会被 addSongs 临时移除, 下次 flush 又补回。
                     // 这种"伪移除"不该触发缓存清理, 否则扫描中用户的本地

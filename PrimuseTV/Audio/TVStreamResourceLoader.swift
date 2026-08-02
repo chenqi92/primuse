@@ -81,6 +81,7 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
     private let realURL: URL
     private let headers: [String: String]
     private let explicitContentType: String?   // 已知文件格式推得的 UTType id(覆盖服务器误报的 octet-stream)
+    private let enforcesFnMusicRangeResponses: Bool
     private lazy var session: URLSession = {
         let cfg = URLSessionConfiguration.default
         cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
@@ -102,7 +103,9 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
         let offset: Int64
         let length: Int64
         let isInfoRequest: Bool
-        var byteCount: Int = 0
+        var byteCount: Int64 = 0
+        var expectedByteCount: Int64?
+        var terminalErrorReported = false
         var loggedFirstData: Bool = false
 
         init(loadingRequest: AVAssetResourceLoadingRequest,
@@ -151,6 +154,9 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
         self.realURL = realURL
         self.headers = headers
         self.explicitContentType = fileExtension.flatMap { UTType(filenameExtension: $0)?.identifier }
+        let fnMusicStreamPath = "\(FnMusicAPIProtocol.apiPath)/track/stream"
+        self.enforcesFnMusicRangeResponses = headers[FnMusicAPIProtocol.authxHeaderField] != nil
+            && FnMusicAPIProtocol.authxPath(for: realURL) == fnMusicStreamPath
         super.init()
     }
 
@@ -208,6 +214,12 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
             return false
         }
 
+        // 飞牛音乐的 authx 含短时效时间戳。解析阶段给出的首个签名只能用于立即探测，
+        // 长曲播放或稍后 seek 时必须为 AVPlayer 发起的每个 Range 请求重新签名。
+        if enforcesFnMusicRangeResponses {
+            FnMusicAPIProtocol.applyAuthx(to: &req)
+        }
+
         let id = ObjectIdentifier(loadingRequest)
         let isInfoReq = loadingRequest.contentInformationRequest != nil
         let task = session.dataTask(with: req)
@@ -256,6 +268,21 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
             return
         }
 
+        if enforcesFnMusicRangeResponses {
+            do {
+                context.expectedByteCount = try Self.validatedFnMusicRangeResponseLength(
+                    http,
+                    requestedOffset: context.offset,
+                    requestedLength: context.length
+                )
+            } catch {
+                context.terminalErrorReported = true
+                context.loadingRequest.finishLoading(with: error)
+                completionHandler(.cancel)
+                return
+            }
+        }
+
         if let info = context.loadingRequest.contentInformationRequest {
             Self.fillContentInfo(info, from: http, explicit: explicitContentType)
             plog("📺 loader info status=\(http.statusCode) ct=\(info.contentType ?? "nil") len=\(info.contentLength) ranges=\(info.isByteRangeAccessSupported) serverCT=\(http.value(forHTTPHeaderField: "Content-Type") ?? "nil")")
@@ -283,7 +310,20 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
         lock.unlock()
         guard let context else { return }
 
-        context.byteCount += data.count
+        guard !context.terminalErrorReported else { return }
+        let incomingCount = Int64(data.count)
+        if let expectedByteCount = context.expectedByteCount,
+           (context.byteCount > expectedByteCount
+            || incomingCount > expectedByteCount - context.byteCount) {
+            let error = FnMusicRangeResponseError(
+                detail: "响应体超过 Content-Range 声明的 \(expectedByteCount) 字节"
+            )
+            context.terminalErrorReported = true
+            context.loadingRequest.finishLoading(with: error)
+            dataTask.cancel()
+            return
+        }
+        context.byteCount += incomingCount
         if let dataRequest = context.loadingRequest.dataRequest {
             dataRequest.respond(with: data)
             if !context.loggedFirstData {
@@ -307,11 +347,21 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
         lock.unlock()
 
         guard let context else { return }
+        if context.terminalErrorReported { return }
         if let error {
             if (error as NSError).code != NSURLErrorCancelled {
                 plog("📺 loader \(context.isInfoRequest ? "info" : "data") off=\(context.offset) ERROR — \(error.localizedDescription)")
                 context.loadingRequest.finishLoading(with: error)
             }
+            return
+        }
+        if let expectedByteCount = context.expectedByteCount,
+           context.byteCount != expectedByteCount {
+            context.loadingRequest.finishLoading(
+                with: FnMusicRangeResponseError(
+                    detail: "响应体长度为 \(context.byteCount) 字节，预期 \(expectedByteCount) 字节"
+                )
+            )
             return
         }
         if !context.isInfoRequest {
@@ -352,6 +402,99 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
                   let lenStr = http.value(forHTTPHeaderField: "Content-Length"),
                   let len = Int64(lenStr), len >= 0 {
             info.contentLength = len
+        }
+    }
+
+    /// 飞牛音乐的播放端点必须对每个实际 Range 请求返回严格匹配的 206。
+    /// 初始两字节探测不能代替播放期间的校验，尤其是 seek 后的非零起点。
+    private static func validatedFnMusicRangeResponseLength(
+        _ response: HTTPURLResponse,
+        requestedOffset: Int64,
+        requestedLength: Int64
+    ) throws -> Int64 {
+        guard response.statusCode == 206 else {
+            throw FnMusicRangeResponseError(
+                detail: "HTTP \(response.statusCode)，预期 206 Partial Content"
+            )
+        }
+        guard requestedOffset >= 0,
+              let header = response.value(forHTTPHeaderField: "Content-Range") else {
+            throw FnMusicRangeResponseError(detail: "缺少 Content-Range")
+        }
+
+        let unitAndValue = header.split(
+            separator: " ",
+            maxSplits: 1,
+            omittingEmptySubsequences: true
+        )
+        guard unitAndValue.count == 2,
+              unitAndValue[0].lowercased() == "bytes" else {
+            throw FnMusicRangeResponseError(detail: "Content-Range 单位无效")
+        }
+
+        let rangeAndTotal = unitAndValue[1].split(
+            separator: "/",
+            maxSplits: 1,
+            omittingEmptySubsequences: false
+        )
+        guard rangeAndTotal.count == 2,
+              rangeAndTotal[1] != "*",
+              let totalLength = Int64(rangeAndTotal[1]),
+              totalLength > 0 else {
+            throw FnMusicRangeResponseError(detail: "Content-Range 总长度无效")
+        }
+
+        let bounds = rangeAndTotal[0].split(
+            separator: "-",
+            maxSplits: 1,
+            omittingEmptySubsequences: false
+        )
+        guard bounds.count == 2,
+              let start = Int64(bounds[0]),
+              let end = Int64(bounds[1]),
+              start == requestedOffset,
+              end >= start,
+              end < totalLength else {
+            throw FnMusicRangeResponseError(detail: "Content-Range 起止位置无效")
+        }
+
+        let expectedEnd: Int64
+        if requestedLength > 0 {
+            guard let exclusiveEnd = SafeByteRange.exclusiveEnd(
+                offset: requestedOffset,
+                length: requestedLength
+            ), requestedOffset < totalLength else {
+                throw FnMusicRangeResponseError(detail: "请求的 Range 无效")
+            }
+            expectedEnd = min(exclusiveEnd - 1, totalLength - 1)
+        } else {
+            guard requestedOffset < totalLength else {
+                throw FnMusicRangeResponseError(detail: "请求的开放 Range 无效")
+            }
+            expectedEnd = totalLength - 1
+        }
+        guard end == expectedEnd else {
+            throw FnMusicRangeResponseError(
+                detail: "Content-Range 结束位置为 \(end)，预期 \(expectedEnd)"
+            )
+        }
+
+        let responseLength = end - start + 1
+        if let rawContentLength = response.value(forHTTPHeaderField: "Content-Length") {
+            guard let contentLength = Int64(
+                rawContentLength.trimmingCharacters(in: .whitespacesAndNewlines)
+            ), contentLength == responseLength else {
+                throw FnMusicRangeResponseError(detail: "Content-Length 与 Content-Range 不一致")
+            }
+        }
+        return responseLength
+    }
+
+    private struct FnMusicRangeResponseError: LocalizedError {
+        let detail: String
+
+        var errorDescription: String? {
+            "飞牛音乐 Range 响应无效：\(detail)"
         }
     }
 }

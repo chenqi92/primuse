@@ -303,6 +303,10 @@ struct AddSourceView: View {
                     }
                 }
 
+                if sourceType == .fnMusic {
+                    macInfoRow("fnmusic_account_hint")
+                }
+
                 if isEditing && authType != .none {
                     macInfoRow(credentialEditHint)
                 }
@@ -321,7 +325,12 @@ struct AddSourceView: View {
 
         if !isEditing && sourceType.requiresHost {
             macSection(nil) {
-                Label("save_then_connect_hint", systemImage: "info.circle")
+                Label(
+                    sourceType.scansEntireLibrary
+                        ? "save_then_scan_library_hint"
+                        : "save_then_connect_hint",
+                    systemImage: "info.circle"
+                )
                     .font(.system(size: 12))
                     .foregroundStyle(PMColor.textMuted)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -604,6 +613,11 @@ struct AddSourceView: View {
                         .onSubmit { focusedField = nil }
                         .disabled(sourceType == .synology && isEditing)
                 }
+                if sourceType == .fnMusic {
+                    Text("fnmusic_account_hint")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 if isEditing && authType != .none {
                     Text(credentialEditHint)
                         .font(.caption)
@@ -627,7 +641,12 @@ struct AddSourceView: View {
 
         if !isEditing && sourceType.requiresHost {
             Section {
-                Label("save_then_connect_hint", systemImage: "info.circle")
+                Label(
+                    sourceType.scansEntireLibrary
+                        ? "save_then_scan_library_hint"
+                        : "save_then_connect_hint",
+                    systemImage: "info.circle"
+                )
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -791,8 +810,8 @@ struct AddSourceView: View {
             }
         } else {
             name = sourceType.displayName
-            port = "\(sourceType.defaultPort)"
             useSsl = sourceType.defaultSSL
+            port = "\(sourceType.defaultPort(useSsl: useSsl))"
             if sourceType == .plex {
                 authType = .apiKey
             } else if [.local, .appleMusicLibrary, .nfs, .upnp].contains(sourceType) {

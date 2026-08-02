@@ -115,14 +115,16 @@ struct TVSourcesView: View {
                 typePicker = false
                 sourceForm = TVSourceForm(editing: nil, type: type,
                                           prefillHost: prefill?.host, prefillPort: prefill?.port,
-                                          prefillName: prefill?.name)
+                                          prefillName: prefill?.name,
+                                          prefillUseSsl: prefill?.useSsl)
             }
             .environment(store)
         }
         .fullScreenCover(item: $sourceForm) { form in
             TVSourceFormView(editing: form.editing, type: form.type,
                              prefillHost: form.prefillHost, prefillPort: form.prefillPort,
-                             prefillName: form.prefillName).environment(store)
+                             prefillName: form.prefillName,
+                             prefillUseSsl: form.prefillUseSsl).environment(store)
         }
         .fullScreenCover(isPresented: $recycleBin) {
             TVRecycleBinView().environment(store)
@@ -252,7 +254,11 @@ private struct TVSourceRow: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(source.name).font(.system(size: 22, weight: .semibold))
                         .foregroundStyle(TVColor.text).lineLimit(1)
-                    Text(PMString("ext.tv.sources.typeSongs", source.type.uppercased(), TVFmt.count(source.songs)))
+                    Text(PMString(
+                        "ext.tv.sources.typeSongs",
+                        MusicSourceType(rawValue: source.type)?.displayName ?? source.type.uppercased(),
+                        TVFmt.count(source.songs)
+                    ))
                         .font(.system(size: 16, design: .monospaced))
                         .foregroundStyle(TVColor.textFaint)
                     if let availabilityNote = source.availabilityNote {
@@ -379,6 +385,8 @@ private struct TVCredentialEditorView: View {
     @FocusState private var focus: Field?
     private enum Field { case username, password }
 
+    private var isFnMusic: Bool { source.type == MusicSourceType.fnMusic.rawValue }
+
     private var hasLocal: Bool { TVCredentialStore.hasLocalCredential(sourceID: source.id) }
     private var canSave: Bool { !password.trimmingCharacters(in: .whitespaces).isEmpty }
 
@@ -410,6 +418,11 @@ private struct TVCredentialEditorView: View {
                         .font(.system(size: 28, weight: .medium))
                         .foregroundStyle(TVColor.text)
                         .focusEffectDisabled()
+                }
+                if isFnMusic {
+                    Text("请使用在飞牛音乐中创建并已授予曲库权限的账号，不是 fnOS 系统账号。")
+                        .font(.system(size: 17))
+                        .foregroundStyle(TVColor.textFaint)
                 }
 
                 HStack(spacing: 16) {
@@ -467,7 +480,7 @@ private struct TVCredentialEditorView: View {
                 .background(source.color, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             VStack(alignment: .leading, spacing: 4) {
                 Text(PMString("ext.tv.sources.enterCredentials")).font(.system(size: 40, weight: .bold)).foregroundStyle(TVColor.text)
-                Text("\(source.name) · \(source.type.uppercased())")
+                Text("\(source.name) · \(MusicSourceType(rawValue: source.type)?.displayName ?? source.type.uppercased())")
                     .font(.system(size: 18, design: .monospaced)).foregroundStyle(TVColor.textFaint)
             }
         }

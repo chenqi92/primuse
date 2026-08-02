@@ -14,6 +14,7 @@ struct TVSourceForm: Identifiable {
     var prefillHost: String? = nil
     var prefillPort: Int? = nil
     var prefillName: String? = nil
+    var prefillUseSsl: Bool? = nil
 }
 
 // MARK: - 第 1 步:选择服务类型(全屏玻璃态网格)
@@ -21,8 +22,11 @@ struct TVSourceForm: Identifiable {
 struct TVSourceTypePicker: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(TVStore.self) private var store
-    /// (类型, 可选预填 host/port/name) —— 内网发现的设备会带预填。
-    let onPick: (MusicSourceType, (host: String, port: Int, name: String)?) -> Void
+    /// (类型, 可选预填 host/port/name/SSL) —— 内网发现的设备会带预填。
+    let onPick: (
+        MusicSourceType,
+        (host: String, port: Int, name: String, useSsl: Bool?)?
+    ) -> Void
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 24), count: 5)
 
@@ -35,7 +39,7 @@ struct TVSourceTypePicker: View {
                     TVEyebrow(text: "添加新源 · 第 1 步").padding(.bottom, 8)
                     Text("选择服务类型").font(.system(size: 52, weight: .bold)).foregroundStyle(TVColor.text)
                         .padding(.bottom, 8)
-                    Text("文件型源(SMB/WebDAV/NAS)直接填地址连接 · 云盘类需在 iPhone 上 OAuth 授权后扫码同步过来")
+                    Text("文件型源按目录连接 · 飞牛音乐和媒体服务按服务端曲库连接 · 云盘类需在 iPhone 上授权后同步过来")
                         .font(.system(size: 20)).foregroundStyle(TVColor.textFaint)
                         .frame(maxWidth: 1100, alignment: .leading).padding(.bottom, 36)
 
@@ -49,7 +53,7 @@ struct TVSourceTypePicker: View {
                                          badge: d.sourceType.isAwaitingPublicAPI ? "API 待公开" : Self.shortProtocol(d.sourceType),
                                          accentIcon: true,
                                          isEnabled: !d.sourceType.isAwaitingPublicAPI) {
-                                    onPick(d.sourceType, (d.host, d.port, d.name))
+                                    onPick(d.sourceType, (d.host, d.port, d.name, d.preferredUseSsl))
                                 }
                             }
                         }
@@ -118,8 +122,9 @@ struct TVSourceTypePicker: View {
         case .synology: return "Synology"
         case .qnap: return "QNAP"
         case .fnos: return "fnOS"
-        case .ugreen: return "绿联"
+        case .fnMusic: return "飞牛音乐"
         case .daoliyu: return "道理鱼"
+        case .ugreen: return "绿联"
         case .jellyfin: return "Jellyfin"
         case .emby: return "Emby"
         case .plex: return "Plex"
@@ -138,6 +143,7 @@ struct TVSourceTypePicker: View {
         case .nfs: return "NFS 共享"
         case .jellyfin, .emby, .plex: return "媒体服务器"
         case .subsonic, .navidrome, .airsonic, .gonic: return "Subsonic 协议"
+        case .fnMusic: return "飞牛音乐服务直连"
         case .daoliyu: return "道理鱼原生 API"
         case .synology, .qnap, .fnos, .ugreen: return "NAS 音乐套件"
         default: return t.category.rawValue
@@ -155,6 +161,7 @@ struct TVSourceFormView: View {
     var prefillHost: String? = nil
     var prefillPort: Int? = nil
     var prefillName: String? = nil
+    var prefillUseSsl: Bool? = nil
 
     @State private var name = ""
     @State private var host = ""
@@ -180,14 +187,14 @@ struct TVSourceFormView: View {
             && !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && validatedPort != nil
         guard connectionIsValid else { return false }
-        if type.supportsAnonymous && !useGuestAccess {
-            guard !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-            if editing == nil && password.isEmpty { return false }
-        }
-        if type == .daoliyu {
+        if type == .fnMusic || type == .daoliyu {
             guard !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return false
             }
+            if editing == nil && password.isEmpty { return false }
+        }
+        if type.supportsAnonymous && !useGuestAccess {
+            guard !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
             if editing == nil && password.isEmpty { return false }
         }
         return true
@@ -277,9 +284,16 @@ struct TVSourceFormView: View {
                 if !useGuestAccess {
                     TVFormField(label: "用户名", text: $username, mono: true)
                     TVFormField(label: editing == nil ? "密码" : "密码(留空则不修改)", text: $password, secure: true)
+                    if type == .fnMusic {
+                        Text("请填写在飞牛音乐中创建并已授予曲库权限的账号，不是 fnOS 系统账号。")
+                            .font(.system(size: 16))
+                            .foregroundStyle(TVColor.textFaint)
+                    }
                 }
             }
-            TVFormField(label: pathLabel, text: $pathText, mono: true)
+            if type != .fnMusic {
+                TVFormField(label: pathLabel, text: $pathText, mono: true)
+            }
 
             HStack(spacing: 12) {
                 Image(systemName: "lock.fill").font(.system(size: 15)).foregroundStyle(TVColor.brand)
@@ -310,14 +324,13 @@ struct TVSourceFormView: View {
             }
 
             HStack(spacing: 14) {
-                if editing != nil {
-                    TVFocusButton(radius: 14, scale: 1.04, lift: 0, action: runTest) { f in
-                        Group { if testing { ProgressView().tint(TVColor.brand) } else { Text("测试连接") } }
-                            .font(.system(size: 20, weight: .medium)).foregroundStyle(TVColor.text)
-                            .frame(maxWidth: .infinity).padding(.vertical, 18)
-                            .background(f ? TVColor.surfaceStrong : TVColor.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    }
+                TVFocusButton(radius: 14, scale: 1.04, lift: 0, action: runTest) { f in
+                    Group { if testing { ProgressView().tint(TVColor.brand) } else { Text("测试连接") } }
+                        .font(.system(size: 20, weight: .medium)).foregroundStyle(TVColor.text)
+                        .frame(maxWidth: .infinity).padding(.vertical, 18)
+                        .background(f ? TVColor.surfaceStrong : TVColor.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
+                .disabled(!canSave || testing)
                 TVFocusButton(radius: 14, accent: TVColor.brand, scale: 1.05, lift: 0, action: save) { f in
                     Text(editing == nil ? "添加" : "保存")
                         .font(.system(size: 20, weight: .bold)).foregroundStyle(canSave ? TVColor.onBrand : TVColor.textGhost)
@@ -347,20 +360,27 @@ struct TVSourceFormView: View {
             }
         } else {
             host = prefillHost ?? ""
-            portText = String(prefillPort ?? type.defaultPort)
-            useSsl = type.defaultSSL
+            useSsl = prefillUseSsl ?? type.defaultSSL
+            portText = String(prefillPort ?? type.defaultPort(useSsl: useSsl))
             name = prefillName ?? type.displayName
         }
     }
 
     private func runTest() {
-        guard let id = editing?.id else { return }
+        guard canSave, let source = draftSource() else { return }
+        let draftPassword = password.isEmpty ? nil : password
         testing = true; testResult = nil
-        Task { testResult = await store.testConnection(forSourceID: id); testing = false }
+        Task {
+            testResult = await store.testConnection(
+                source: source,
+                password: draftPassword
+            )
+            testing = false
+        }
     }
 
-    private func save() {
-        guard canSave else { return }
+    private func draftSource() -> MusicSource? {
+        guard canSave, let validatedPort else { return nil }
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
         let trimmedHost = host.trimmingCharacters(in: .whitespaces)
         let trimmedUser = username.trimmingCharacters(in: .whitespaces)
@@ -383,6 +403,11 @@ struct TVSourceFormView: View {
         default: src.basePath = trimmedPath.isEmpty ? nil : trimmedPath
         }
         src.modifiedAt = Date()
+        return src
+    }
+
+    private func save() {
+        guard let src = draftSource() else { return }
 
         let passwordToSave = useGuestAccess || password.isEmpty ? nil : password
         let didSave = editing == nil

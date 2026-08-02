@@ -11,6 +11,16 @@ public struct CredentialEntry: Codable, Sendable, Equatable {
     public var clientSecret: String?
     public var extra: [String: String]
 
+    private enum CodingKeys: String, CodingKey {
+        case username
+        case password
+        case token
+        case refreshToken
+        case clientID
+        case clientSecret
+        case extra
+    }
+
     public init(username: String? = nil, password: String? = nil, token: String? = nil,
                 refreshToken: String? = nil, clientID: String? = nil, clientSecret: String? = nil,
                 extra: [String: String] = [:]) {
@@ -23,8 +33,35 @@ public struct CredentialEntry: Codable, Sendable, Equatable {
         self.extra = extra
     }
 
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        username = try container.decodeIfPresent(String.self, forKey: .username)
+        password = try container.decodeIfPresent(String.self, forKey: .password)
+        token = try container.decodeIfPresent(String.self, forKey: .token)
+        refreshToken = try container.decodeIfPresent(String.self, forKey: .refreshToken)
+        clientID = try container.decodeIfPresent(String.self, forKey: .clientID)
+        clientSecret = try container.decodeIfPresent(String.self, forKey: .clientSecret)
+        extra = try container.decodeIfPresent([String: String].self, forKey: .extra) ?? [:]
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(username, forKey: .username)
+        try container.encodeIfPresent(password, forKey: .password)
+        try container.encodeIfPresent(token, forKey: .token)
+        try container.encodeIfPresent(refreshToken, forKey: .refreshToken)
+        try container.encodeIfPresent(clientID, forKey: .clientID)
+        try container.encodeIfPresent(clientSecret, forKey: .clientSecret)
+        try container.encode(extra, forKey: .extra)
+    }
+
     public var isEmpty: Bool {
-        (password ?? "").isEmpty && (token ?? "").isEmpty && (refreshToken ?? "").isEmpty
+        (password ?? "").isEmpty
+            && (token ?? "").isEmpty
+            && (refreshToken ?? "").isEmpty
+            && (clientID ?? "").isEmpty
+            && (clientSecret ?? "").isEmpty
+            && extra.isEmpty
     }
 
     public func toCredential(defaultUsername: String?) -> SourceCredential {

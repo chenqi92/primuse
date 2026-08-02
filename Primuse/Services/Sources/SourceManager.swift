@@ -510,12 +510,18 @@ final class SourceManager {
                 )
             }
         case .fnos:
-            connector = credentialProtectedConnector(for: source) { password in
-                FnOSSource(
+            // Historical fnOS records represented an unpublished generic NAS
+            // file API. Keep them fail-closed instead of silently changing
+            // their meaning to the new Feiniu Music catalogue.
+            connector = UnsupportedSourceConnector(sourceID: source.id, sourceType: .fnos)
+        case .fnMusic:
+            connector = credentialProtectedConnector(for: source) { password -> any MusicSourceConnector in
+                return FnMusicSource(
                     sourceID: source.id,
                     host: source.host ?? "",
-                    port: source.port ?? 5666,
-                    useSsl: source.useSsl,
+                    port: source.port,
+                    useSSL: source.useSsl,
+                    basePath: source.basePath,
                     username: source.username ?? "",
                     password: password
                 )
@@ -612,6 +618,29 @@ final class SourceManager {
                 checks.append(diagnosticCheck(for: error, source: source, title: String(localized: "source_diag_connection_title")))
                 return SourceDiagnosticReport(source: source, startedAt: startedAt, checks: checks)
             }
+        }
+
+        // Feiniu Music is a server catalogue, not a directory tree. Probe the
+        // real track-list route through its synthetic root, then stop before
+        // the generic folder diagnostics can suggest choosing a NAS path.
+        if source.type == .fnMusic {
+            do {
+                _ = try await Self.withTimeout(seconds: 20) {
+                    try await connector.listFiles(at: "/")
+                }
+                checks.append(SourceDiagnosticCheck(
+                    status: .passed,
+                    title: source.type.displayName,
+                    message: String(localized: "source_diag_scan_ready_ok")
+                ))
+            } catch {
+                checks.append(diagnosticCheck(
+                    for: error,
+                    source: source,
+                    title: source.type.displayName
+                ))
+            }
+            return SourceDiagnosticReport(source: source, startedAt: startedAt, checks: checks)
         }
 
         let roots = diagnosticProbeRoots(for: source, explicitDirectories: explicitDirectories)
@@ -887,7 +916,9 @@ final class SourceManager {
             case .timeout:
                 return timeoutAdvice()
             case .pathNotFound(let path), .fileNotFound(let path):
-                return pathAdvice(path: path)
+                return source.type == .fnMusic
+                    ? serverAdvice(message: path)
+                    : pathAdvice(path: path)
             case .connectionFailed(let message):
                 return advice(forMessage: message, source: source)
             }
@@ -960,7 +991,9 @@ final class SourceManager {
             || lower.contains("404")
             || lower.contains("path")
             || lower.contains("不存在") {
-            return pathAdvice(path: message)
+            return source.type == .fnMusic
+                ? serverAdvice(message: message)
+                : pathAdvice(path: message)
         }
         if lower.contains("refused")
             || lower.contains("unreachable")
@@ -2368,6 +2401,7 @@ final class SourceManager {
             caches.appendingPathComponent(videoCacheDirName).appendingPathComponent(sourceID),
             caches.appendingPathComponent("primuse_cloud_cache").appendingPathComponent(sourceID),
             caches.appendingPathComponent("primuse_s3_cache").appendingPathComponent(sourceID),
+            caches.appendingPathComponent("fnmusic_artwork").appendingPathComponent(sourceID),
             temp.appendingPathComponent("primuse_smb_cache").appendingPathComponent(sourceID),
             temp.appendingPathComponent("primuse_sftp_cache").appendingPathComponent(sourceID),
             temp.appendingPathComponent("primuse_ftp_cache").appendingPathComponent(sourceID),
@@ -3229,7 +3263,6 @@ final class SourceManager {
         .synology,
         .qnap,
         .ugreen,
-        .fnos,
     ]
 
     private nonisolated static func isProbablyLocalHost(_ rawHost: String) -> Bool {

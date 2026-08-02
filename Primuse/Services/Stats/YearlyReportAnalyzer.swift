@@ -40,10 +40,11 @@ enum YearlyReportAnalyzer {
         switch type {
         case .local: return "iphone"
         case .synology, .qnap, .ugreen, .fnos: return "externaldrive.fill"
+        case .fnMusic: return "music.note.list"
+        case .daoliyu: return "music.note.house"
         case .smb, .webdav, .ftp, .sftp, .nfs, .upnp: return "network"
         case .baiduPan, .aliyunDrive, .oneDrive, .dropbox, .googleDrive, .pan115, .pan123, .s3: return "icloud.fill"
         case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic: return "play.tv.fill"
-        case .daoliyu: return "music.note.house"
         case .appleMusic, .appleMusicLibrary: return "music.note"
         }
     }

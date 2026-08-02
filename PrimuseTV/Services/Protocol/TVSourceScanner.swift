@@ -18,7 +18,23 @@ protocol TVDirectoryLister: Sendable {
     func list(_ path: String) async throws -> [TVDirEntry]
 }
 
-/// 道理鱼是服务端整库源；根目录浏览只执行真实登录和曲库探测。
+/// 飞牛音乐是服务端整库，不提供文件夹树。扫描流程仍需要一个 lister 来完成
+/// 进入页面时的真实连接校验；返回空目录后 UI 会以当前根目录启动整库扫描。
+actor TVFnMusicLister: TVDirectoryLister {
+    private let client: FnMusicServiceClient
+
+    init(client: FnMusicServiceClient) {
+        self.client = client
+    }
+
+    func list(_ path: String) async throws -> [TVDirEntry] {
+        guard path == "/" else { return [] }
+        _ = try await client.validateConnection()
+        return []
+    }
+}
+
+/// 道理鱼同样是整库源；根目录浏览只执行真实登录和曲库探测。
 actor TVDaoLiYuLister: TVDirectoryLister {
     private let client: DaoLiYuServiceClient
 
@@ -110,12 +126,31 @@ final class TVSourceScanner {
     var indexed: Int = 0
     var currentFile: String = ""
     private static let maximumScanDepth = 64
+    private static let fnMusicPageSize = 50
     private static let daoLiYuPageSize = 100
 
-    /// 构造源对应的目录列举器。道理鱼不提供目录树，lister 只校验真实服务。
-    static func makeLister(source: MusicSource, credential: SourceCredential?) -> TVDirectoryLister? {
+    private struct FnMusicClientConfiguration: Equatable {
+        let host: String?
+        let port: Int?
+        let useSSL: Bool
+        let basePath: String?
+        let sourceUsername: String?
+        let credential: SourceCredential?
+    }
+
+    private struct FnMusicClientCacheEntry {
+        let configuration: FnMusicClientConfiguration
+        let client: FnMusicServiceClient
+    }
+
+    private var fnMusicClients: [String: FnMusicClientCacheEntry] = [:]
+
+    /// 构造源对应的目录列举器。飞牛音乐没有目录树，lister 只校验真实音乐服务。
+    func makeLister(source: MusicSource, credential: SourceCredential?) -> TVDirectoryLister? {
         switch source.type {
         case .smb: return TVSMBLister(source: source, credential: credential)
+        case .fnMusic:
+            return TVFnMusicLister(client: fnMusicClient(source: source, credential: credential))
         case .daoliyu:
             return TVDaoLiYuLister(client: DaoLiYuServiceClient(source: source, credential: credential))
         default: return nil
@@ -143,6 +178,14 @@ final class TVSourceScanner {
         var collected: [(song: Song, siblings: [TVDirEntry])] = []
         var seen = Set<String>()
         do {
+            if source.type == .fnMusic {
+                let songs = try await scanFnMusic(source: source, credential: credential)
+                try Task.checkCancellation()
+                indexed = songs.count
+                currentFile = ""
+                phase = .done
+                return songs
+            }
             if source.type == .daoliyu {
                 let songs = try await scanDaoLiYu(source: source, credential: credential)
                 try Task.checkCancellation()
@@ -186,6 +229,15 @@ final class TVSourceScanner {
         }
     }
 
+    /// 连接测试直接验证飞牛音乐目录接口，不依赖本地是否已有该源歌曲。
+    func validateFnMusicConnection(
+        source: MusicSource,
+        credential: SourceCredential?
+    ) async throws -> Int? {
+        guard source.type == .fnMusic else { throw TVScanError.unsupported }
+        return try await fnMusicClient(source: source, credential: credential).validateConnection()
+    }
+
     func validateDaoLiYuConnection(
         source: MusicSource,
         credential: SourceCredential?
@@ -197,8 +249,91 @@ final class TVSourceScanner {
         ).validateConnection()
     }
 
-    /// 严格分页读取整库；缺页、重复项或总数漂移都会让扫描失败，
-    /// 防止用不完整结果覆盖既有曲库。
+    /// 源地址或凭据变化后丢弃已登录客户端，避免旧 token 被后续测试或扫描复用。
+    func invalidateFnMusicClient(sourceID: String) {
+        guard let entry = fnMusicClients.removeValue(forKey: sourceID) else { return }
+        Task { await entry.client.invalidateSession() }
+    }
+
+    func invalidateFnMusicClients() {
+        let entries = Array(fnMusicClients.values)
+        fnMusicClients.removeAll()
+        for entry in entries {
+            Task { await entry.client.invalidateSession() }
+        }
+    }
+
+    /// 严格分页读取整库。任何缺页、重复项、总数漂移或无法构造 Song 的项目都会
+    /// 让整次扫描失败，调用方因此不会用不完整结果覆盖既有曲库。
+    private func scanFnMusic(
+        source: MusicSource,
+        credential: SourceCredential?
+    ) async throws -> [Song] {
+        let client = fnMusicClient(source: source, credential: credential)
+        var page = 1
+        var received = 0
+        var expectedTotal: Int?
+        var seenTrackGUIDs: Set<String> = []
+        var songs: [Song] = []
+
+        while true {
+            try Task.checkCancellation()
+            let result = try await client.trackPage(page: page, size: Self.fnMusicPageSize)
+            try Task.checkCancellation()
+
+            guard let pageTotal = result.total else {
+                throw FnMusicServiceError.invalidResponse("曲目列表缺少总数，已取消本次扫描")
+            }
+            if let expectedTotal, expectedTotal != pageTotal {
+                throw FnMusicServiceError.invalidResponse("曲目总数在扫描期间发生变化")
+            }
+            expectedTotal = pageTotal
+
+            guard result.rawCount == result.tracks.count,
+                  result.rawCount <= Self.fnMusicPageSize else {
+                throw FnMusicServiceError.invalidResponse("曲目分页数量无效")
+            }
+            if pageTotal == 0 {
+                guard page == 1, result.rawCount == 0 else {
+                    throw FnMusicServiceError.invalidResponse("曲目分页与总数不一致")
+                }
+                break
+            }
+            guard result.rawCount > 0 else {
+                throw FnMusicServiceError.invalidResponse("曲目分页提前结束")
+            }
+            guard result.rawCount <= pageTotal,
+                  received <= pageTotal - result.rawCount else {
+                throw FnMusicServiceError.invalidResponse("曲目分页超过声明总数")
+            }
+
+            for track in result.tracks {
+                try Task.checkCancellation()
+                guard seenTrackGUIDs.insert(track.guid).inserted else {
+                    throw FnMusicServiceError.invalidResponse("曲目分页包含重复项目")
+                }
+                guard let song = track.makeSong(sourceID: source.id) else {
+                    throw FnMusicServiceError.invalidResponse("曲目\(track.title)缺少可识别的音频格式")
+                }
+                songs.append(song)
+                indexed = songs.count
+                currentFile = track.title
+            }
+
+            received += result.rawCount
+            if received == pageTotal { break }
+            guard result.rawCount == Self.fnMusicPageSize else {
+                throw FnMusicServiceError.invalidResponse("曲目分页不完整")
+            }
+            guard page < Int.max else {
+                throw FnMusicServiceError.invalidResponse("曲目页码溢出")
+            }
+            page += 1
+        }
+
+        return songs
+    }
+
     private func scanDaoLiYu(
         source: MusicSource,
         credential: SourceCredential?
@@ -258,6 +393,33 @@ final class TVSourceScanner {
             }
         }
         return songs
+    }
+
+    /// 返回与连接测试和扫描共用的客户端；配置未变化时复用登录会话。
+    func fnMusicClient(
+        source: MusicSource,
+        credential: SourceCredential?
+    ) -> FnMusicServiceClient {
+        let configuration = FnMusicClientConfiguration(
+            host: source.host,
+            port: source.port,
+            useSSL: source.useSsl,
+            basePath: source.basePath,
+            sourceUsername: source.username,
+            credential: credential
+        )
+        if let cached = fnMusicClients[source.id], cached.configuration == configuration {
+            return cached.client
+        }
+        if let stale = fnMusicClients.removeValue(forKey: source.id) {
+            Task { await stale.client.invalidateSession() }
+        }
+        let client = FnMusicServiceClient(source: source, credential: credential)
+        fnMusicClients[source.id] = FnMusicClientCacheEntry(
+            configuration: configuration,
+            client: client
+        )
+        return client
     }
 
     /// 递归遍历:收集每首歌的路径骨架 + 其所在目录的同级文件(供找歌词/封面)。

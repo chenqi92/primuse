@@ -81,7 +81,7 @@ struct TVSource: Identifiable, Hashable {
     let playability: TVPlayability   // 能否在 TV 播放(徽标用)
     let canEnterCredential: Bool     // 是否适合在 TV 上手动输入账号密码(服务端登录类源)
     let supports2FA: Bool            // NAS 类:支持两步验证(可在 TV 上输 OTP 申请受信设备)
-    let canScan: Bool                // 能否在 TV 上浏览目录 + 扫描(目前 SMB)
+    let canScan: Bool                // 能否在 TV 上执行本机扫描(SMB 目录或飞牛音乐整库)
     static func == (l: TVSource, r: TVSource) -> Bool { l.id == r.id }
     func hash(into h: inout Hasher) { h.combine(id) }
 }
@@ -153,7 +153,7 @@ final class TVStore {
     var pairingQRContent: String = "primuse://add-source"   // 服务未起时退回旧的 iCloud 扫码引导串
     var pairingCode: String = ""
 
-    // TV 本机扫描(路径快扫;目前 SMB)。视图观察 scanner.phase/indexed/currentFile。
+    // TV 本机扫描(SMB 路径快扫 / 飞牛音乐整库)。视图观察 scanner.phase/indexed/currentFile。
     @ObservationIgnored let scanner = TVSourceScanner()
 
     // 内网自动发现(Bonjour),与 iOS/macOS 同一实现。
@@ -172,11 +172,12 @@ final class TVStore {
         ]
         if explicit.contains(d.serviceType) { return true }
         // _http/_https:名字含 NAS/媒体关键词,或端口是已知媒体/NAS 端口,才认为是源。
+        // 飞牛必须明确广播为音乐服务；通用 fnOS 名称或 5666 端口不能证明已安装飞牛音乐。
         let n = d.name.lowercased()
-        let keywords = ["synology", "diskstation", "qnap", "ugreen", "fnos", "飞牛", "nas",
+        let keywords = ["synology", "diskstation", "qnap", "ugreen", "fnmusic", "feiniu music", "飞牛音乐", "nas",
                         "jellyfin", "emby", "plex", "navidrome", "subsonic", "airsonic", "truenas"]
         if keywords.contains(where: { n.contains($0) }) { return true }
-        let mediaPorts: Set<Int> = [5000, 5001, 8080, 9999, 5666, 8096, 32400, 4040, 4533, 4747]
+        let mediaPorts: Set<Int> = [5000, 5001, 8080, 9999, 8096, 32400, 4040, 4533, 4747]
         return mediaPorts.contains(d.port)
     }
     private var queue: [String] = []      // 当前队列(真实 Song id)
@@ -399,7 +400,7 @@ final class TVStore {
                          playability: playability(for: s),
                          canEnterCredential: !s.type.isAwaitingPublicAPI && Self.manualCredentialTypes.contains(s.type),
                          supports2FA: !s.type.isAwaitingPublicAPI && s.type.supports2FA,
-                         canScan: s.type == .smb || s.type == .daoliyu)
+                         canScan: s.type == .smb || s.type == .fnMusic || s.type == .daoliyu)
     }
 
     /// NAS 两步验证:用一次性验证码登录,成功则把申请到的「受信设备」令牌(deviceId)存进源,
@@ -434,8 +435,8 @@ final class TVStore {
     /// 用「服务端账号 + 密码」登录、且能在 TV 直连的源类型 —— 适合在 TV 上手动输入凭据。
     /// 云盘(OAuth)、relay 类(凭据在 iPhone 侧)、原生库源不在此列。
     private static let manualCredentialTypes: Set<MusicSourceType> = [
-        .subsonic, .navidrome, .airsonic, .gonic, .daoliyu,
-        .synology, .qnap, .fnos, .ugreen,
+        .subsonic, .navidrome, .airsonic, .gonic, .fnMusic, .daoliyu,
+        .synology, .qnap, .ugreen,
         .jellyfin, .emby, .plex,
     ]
 
@@ -469,6 +470,10 @@ final class TVStore {
 
     /// 是否有可用凭据:TV 本地输入 > 同步凭据包条目 > 同步 iCloud 钥匙串密码。
     private func hasUsableCredential(for s: MusicSource) -> Bool {
+        if s.type == .fnMusic || s.type == .daoliyu {
+            let credential = TVCredentialStore.credential(for: s, bundle: credentialBundle)
+            return credential.username?.isEmpty == false && credential.password?.isEmpty == false
+        }
         if TVCredentialStore.hasLocalCredential(sourceID: s.id) { return true }
         if let e = credentialBundle?.entries[s.id], !e.isEmpty { return true }
         return TVCredentialStore.hasSyncedPassword(sourceID: s.id)
@@ -485,12 +490,17 @@ final class TVStore {
 
     /// 保存用户在 TV 上手动输入的账号密码(本地钥匙串),并失效旧会话、刷新徽标。
     @discardableResult
-    func saveManualCredential(sourceID: String, username: String, password: String) -> Bool {
+    func saveManualCredential(
+        sourceID: String,
+        username: String,
+        password: String
+    ) -> Bool {
         guard TVCredentialStore.saveLocalCredential(
             sourceID: sourceID,
             username: username,
             password: password
         ) else { return false }
+        scanner.invalidateFnMusicClient(sourceID: sourceID)
         sourcesRevision += 1
         if let src = sourcesStore.source(id: sourceID) {
             Task { await StreamResolverRegistry.shared.invalidateSession(for: src) }
@@ -501,6 +511,7 @@ final class TVStore {
     /// 清除 TV 本地手动输入凭据(回退到同步凭据)。
     func clearManualCredential(sourceID: String) {
         TVCredentialStore.clearLocalCredential(sourceID: sourceID)
+        scanner.invalidateFnMusicClient(sourceID: sourceID)
         sourcesRevision += 1
         if let src = sourcesStore.source(id: sourceID) {
             Task { await StreamResolverRegistry.shared.invalidateSession(for: src) }
@@ -510,7 +521,53 @@ final class TVStore {
     /// 「测试连接」:用当前凭据尝试解析该源的一首歌,返回给用户看的结果文案。
     func testConnection(forSourceID id: String) async -> String {
         guard let source = sourcesStore.source(id: id) else { return PMString("ext.tv.test.sourceNotFound") }
-        let cred = TVCredentialStore.credential(for: source, bundle: credentialBundle)
+        let credential = TVCredentialStore.credential(for: source, bundle: credentialBundle)
+        return await testConnection(source: source, credential: credential)
+    }
+
+    /// Test an unsaved edit with the form's host, port and credentials. Blank
+    /// secret fields intentionally keep the currently stored values.
+    func testConnection(
+        source: MusicSource,
+        password: String?
+    ) async -> String {
+        var credential = TVCredentialStore.credential(for: source, bundle: credentialBundle)
+        if source.authType == .none {
+            credential = SourceCredential()
+        } else {
+            if let username = source.username, !username.isEmpty {
+                credential.username = username
+            }
+            if let password, !password.isEmpty {
+                credential.password = password
+            }
+        }
+        return await testConnection(source: source, credential: credential)
+    }
+
+    private func testConnection(
+        source: MusicSource,
+        credential cred: SourceCredential
+    ) async -> String {
+        let id = source.id
+        if source.type == .fnMusic {
+            do {
+                _ = try await scanner.validateFnMusicConnection(source: source, credential: cred)
+                return PMString("ext.tv.test.connectedPrefix")
+                    + (source.host ?? PMString("ext.tv.test.resolved"))
+            } catch let error as FnMusicServiceError {
+                switch error {
+                case .missingCredential:
+                    return PMString("ext.tv.test.missingCredential")
+                case .authenticationFailed:
+                    return PMString("ext.tv.test.authFailed")
+                default:
+                    return PMString("ext.tv.test.failedDetail", error.localizedDescription)
+                }
+            } catch {
+                return PMString("ext.tv.test.failedDetail", error.localizedDescription)
+            }
+        }
         if source.type == .daoliyu {
             do {
                 _ = try await scanner.validateDaoLiYuConnection(source: source, credential: cred)
@@ -546,7 +603,10 @@ final class TVStore {
             }
         }
         do {
-            let resolved = try await StreamResolverRegistry.shared.resolve(for: song, source: source, credential: cred)
+            // Draft credentials must not reuse or replace the playback
+            // registry's cached session for the saved source.
+            let isolatedRegistry = StreamResolverRegistry()
+            let resolved = try await isolatedRegistry.resolve(for: song, source: source, credential: cred)
             return PMString("ext.tv.test.connectedPrefix") + (resolved.url.host ?? PMString("ext.tv.test.resolved"))
         } catch let e as StreamResolveError {
             switch e {
@@ -663,6 +723,7 @@ final class TVStore {
     /// 应用手机快照后重载,并把「TV 本机扫的、手机快照里没有的源」的歌合并回来,
     /// 避免整库覆盖冲掉 TV 扫描结果(song id 确定性派生,addSongs 自动去重)。
     private func reloadMerging(before: [Song]) {
+        scanner.invalidateFnMusicClients()
         library.reloadFromDisk()
         let incomingSources = Set(library.songs.map(\.sourceID))
         let tvOnly = before.filter { !incomingSources.contains($0.sourceID) }
@@ -688,6 +749,7 @@ final class TVStore {
         var bundle = credentialBundle ?? CredentialBundle()
         bundle.entries[parts[0]] = CredentialEntry(username: parts[1], password: parts[2])
         credentialBundle = bundle
+        scanner.invalidateFnMusicClient(sourceID: parts[0])
     }
     #endif
 
@@ -778,6 +840,7 @@ final class TVStore {
 
     /// 仅从本地磁盘重载(不联网),用于关闭自动同步时的启动。
     func reload() {
+        scanner.invalidateFnMusicClients()
         library.reloadFromDisk()
         sourcesStore.reloadFromDisk()
         refreshVisibility()
@@ -839,6 +902,7 @@ final class TVStore {
             incoming: incoming,
             activeSourceIDs: activeSourceIDs
         )
+        scanner.invalidateFnMusicClients()
         return persisted
     }
 
@@ -923,6 +987,7 @@ final class TVStore {
     /// 注意:手机才是源的权威方——若该源在手机上仍存在,下次同步可能回来,
     /// 彻底删除请在手机/电脑上操作。
     func deleteSource(_ id: String) {
+        scanner.invalidateFnMusicClient(sourceID: id)
         sourcesStore.remove(id: id)
         TVCredentialStore.clearLocalCredential(sourceID: id)
         pruneCredentialBundlesToActiveSources()
@@ -957,9 +1022,9 @@ final class TVStore {
     /// 可在 TV 上直接新增的源类型:服务端登录类 + 协议类。云盘(OAuth,TV 无浏览器)、
     /// 本地 / Apple Music 不在内。
     static let addableTypes: [MusicSourceType] = [
-        .subsonic, .navidrome, .airsonic, .gonic, .daoliyu,
+        .subsonic, .navidrome, .airsonic, .gonic, .fnMusic, .daoliyu,
         .jellyfin, .emby, .plex,
-        .synology, .qnap, .fnos, .ugreen,
+        .synology, .qnap, .ugreen,
         .webdav, .smb, .ftp, .sftp, .nfs,
     ]
 
@@ -967,6 +1032,7 @@ final class TVStore {
     @discardableResult
     func addSource(_ source: MusicSource, password: String?) -> Bool {
         guard saveLocalCred(source, password) else { return false }
+        scanner.invalidateFnMusicClient(sourceID: source.id)
         sourcesStore.add(source)
         afterSourceMutation()
         return true
@@ -976,6 +1042,7 @@ final class TVStore {
     @discardableResult
     func updateSource(_ source: MusicSource, password: String?) -> Bool {
         guard saveLocalCred(source, password) else { return false }
+        scanner.invalidateFnMusicClient(sourceID: source.id)
         sourcesStore.update(source.id) { $0 = source }
         if let s = sourcesStore.source(id: source.id) {
             Task { await StreamResolverRegistry.shared.invalidateSession(for: s) }
@@ -986,20 +1053,28 @@ final class TVStore {
 
     /// 从回收站恢复软删除的源。
     func restoreSource(_ id: String) {
+        scanner.invalidateFnMusicClient(sourceID: id)
         sourcesStore.restore(id: id)
         afterSourceMutation()
     }
 
-    private func saveLocalCred(_ source: MusicSource, _ password: String?) -> Bool {
+    private func saveLocalCred(
+        _ source: MusicSource,
+        _ password: String?
+    ) -> Bool {
         if source.authType == .none {
             TVCredentialStore.clearLocalCredential(sourceID: source.id)
             return true
         }
-        guard let password, !password.isEmpty else { return true }
+        let existing = TVCredentialStore.loadLocalCredential(sourceID: source.id)
+        let newPassword = password?.isEmpty == false ? password : nil
+        let storedUsername = source.username ?? ""
+        let usernameChanged = existing.map { $0.username != storedUsername } == true
+        guard newPassword != nil || usernameChanged else { return true }
         return TVCredentialStore.saveLocalCredential(
             sourceID: source.id,
-            username: source.username ?? "",
-            password: password
+            username: storedUsername,
+            password: newPassword ?? existing?.password ?? ""
         )
     }
 
@@ -1009,17 +1084,26 @@ final class TVStore {
         enqueueSnapshotUpload()
     }
 
-    // MARK: TV 本机扫描(选目录 → 路径快扫)
+    // MARK: TV 本机扫描(SMB 选目录 / 飞牛音乐整库)
 
-    /// 该源能否在 TV 上扫描。道理鱼无需浏览文件夹，直接读取服务端整库。
+    /// 该源能否在 TV 上扫描。飞牛音乐不浏览文件夹，直接读取服务端完整曲库。
     func canScanOnTV(_ source: MusicSource) -> Bool {
-        source.type == .smb || source.type == .daoliyu
+        source.type == .smb || source.type == .fnMusic || source.type == .daoliyu
     }
 
     /// 构造目录列举器(供选目录页浏览)。
     func makeLister(for source: MusicSource) -> TVDirectoryLister? {
         let cred = TVCredentialStore.credential(for: source, bundle: credentialBundle)
-        return TVSourceScanner.makeLister(source: source, credential: cred)
+        return scanner.makeLister(source: source, credential: cred)
+    }
+
+    /// 封面和歌词加载复用连接测试/扫描已建立的飞牛音乐会话。
+    func fnMusicClient(for sourceID: String) -> FnMusicServiceClient? {
+        guard let source = sourcesStore.source(id: sourceID), source.type == .fnMusic else {
+            return nil
+        }
+        let credential = TVCredentialStore.credential(for: source, bundle: credentialBundle)
+        return scanner.fnMusicClient(source: source, credential: credential)
     }
 
     /// 走查选中目录扫描,落库(addSongs 按确定性 id 去重合并)+ 持久化 + 记录已扫目录 + 回传源。
@@ -1032,7 +1116,7 @@ final class TVStore {
             $0.songCount = songs.count
             $0.lastScannedAt = Date()
         }
-        if source.type != .daoliyu {
+        if source.type != .fnMusic && source.type != .daoliyu {
             let scannedConfig = MusicSource.encodeScannedDirectories(
                 dirs,
                 into: source.extraConfig,
@@ -1049,9 +1133,9 @@ final class TVStore {
         enqueueSnapshotUpload()
     }
 
-    /// 道理鱼没有目录选择步骤，直接从服务端分页读取完整曲库。
-    func runDaoLiYuScan(source: MusicSource) async {
-        guard source.type == .daoliyu,
+    /// 飞牛音乐没有目录选择步骤，直接从服务端分页读取完整曲库。
+    func runFnMusicScan(source: MusicSource) async {
+        guard source.type == .fnMusic || source.type == .daoliyu,
               let lister = makeLister(for: source) else {
             scanner.phase = .failed(PMString("ext.tv.scan.connectFailed"))
             return

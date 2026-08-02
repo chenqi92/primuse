@@ -198,6 +198,7 @@
 "retry" = "重試";
 "manage_dirs" = "管理目錄";
 "save_then_connect_hint" = "儲存後，點按該音樂來源即可連線並選擇音樂目錄";
+"save_then_scan_library_hint" = "儲存後，點按該音樂來源即可連線並掃描伺服器完整曲庫";
 "shared_folders" = "共享資料夾";
 "remember_device_otp" = "記住此裝置（下次略過驗證）";
 "scan_complete" = "掃描完成";
@@ -885,7 +886,7 @@
 "onboarding_welcome_title" = "你的音樂，存在你的伺服器";
 "onboarding_welcome_subtitle" = "猿音從你自己的 NAS、雲端硬碟和家裡的網路播放音樂 —— 不上傳任何檔案到任何人。";
 "onboarding_sources_title" = "將音樂彙整到一處";
-"onboarding_sources_nas" = "群暉、威聯通及 SMB / NFS 共享 · 綠聯/飛牛等待官方公開 API";
+"onboarding_sources_nas" = "群暉、威聯通及 SMB / NFS 共享 · 通用綠聯/fnOS 檔案介面等待公開 API，飛牛音樂服務可單獨新增";
 "onboarding_sources_cloud" = "123 雲盤、百度網盤、阿里雲盤等雲端音樂";
 "onboarding_sources_apple_music" = "可選擇連接 Apple Music，一併瀏覽訂閱資料庫";
 "onboarding_sources_network" = "WebDAV、SFTP、Jellyfin、UPnP / DLNA 等服務";
@@ -1081,7 +1082,7 @@
 "source_diag_advice_oauth_suggestion" = "重新連線這個雲端硬碟，並再次授權猿音存取。";
 "source_diag_advice_rate_title" = "服務限流";
 "source_diag_advice_rate_message" = "服務方正在暫時限制請求。";
-"source_diag_advice_rate_suggestion" = "等待幾分鐘再重試；大型曲庫建議先分目錄掃描。";
+"source_diag_advice_rate_suggestion" = "等待幾分鐘後重試，並避免短時間內連續掃描或播放。";
 "source_diag_advice_certificate_title" = "憑證問題";
 "source_diag_advice_certificate_message" = "HTTPS 憑證無法被信任。";
 "source_diag_advice_certificate_suggestion" = "先確認這是你自己的伺服器憑證，再決定是否信任。";
@@ -1944,3 +1945,4 @@
 "credential_save_failed_message" = "密碼未能安全儲存，來源尚未儲存，請重試。";
 "credential_temporarily_unavailable" = "暫時無法讀取密碼，請解鎖裝置後重試。";
 "credential_read_failed" = "無法安全讀取已儲存的密碼，請重試或更新憑證。";
+"fnmusic_account_hint" = "請填寫在飛牛音樂中建立並已授予曲庫權限的帳號，不是 fnOS 系統帳號。";

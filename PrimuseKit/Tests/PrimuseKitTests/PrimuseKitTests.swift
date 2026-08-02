@@ -119,22 +119,31 @@ import Testing
     #expect(MusicSourceType.s3.defaultPort(useSsl: false) == 80)
     #expect(MusicSourceType.smb.defaultPort(useSsl: true) == 445)
     #expect(MusicSourceType.smb.defaultPort(useSsl: false) == 445)
+    #expect(MusicSourceType.fnMusic.defaultPort == 5666)
+    #expect(MusicSourceType.fnMusic.defaultPort(useSsl: true) == 5667)
+    #expect(MusicSourceType.fnMusic.defaultPort(useSsl: false) == 5666)
+    #expect(MusicSourceType.fnMusic.defaultSSL == false)
+    #expect(MusicSource(name: "Feiniu Music", type: .fnMusic).port == 5666)
+    #expect(MusicSourceType.fnMusic.category == .mediaServer)
     #expect(MusicSourceType.daoliyu.defaultPort == 4000)
     #expect(MusicSourceType.daoliyu.defaultSSL == false)
     #expect(MusicSource(name: "Daoliyu", type: .daoliyu).port == 4000)
     #expect(MusicSourceType.daoliyu.category == .mediaServer)
+    #expect(MusicSourceType.fnos.category == .nas)
 }
 
 @Test func vendorNASWithoutPublicAPIsRemainMarkedUnavailable() {
     #expect(MusicSourceType.ugreen.isAwaitingPublicAPI)
     #expect(MusicSourceType.fnos.isAwaitingPublicAPI)
+    #expect(MusicSourceType.fnMusic.isAwaitingPublicAPI == false)
+    #expect(MusicSourceType.fnMusic.scansEntireLibrary)
     #expect(MusicSourceType.synology.isAwaitingPublicAPI == false)
     #expect(MusicSourceType.qnap.isAwaitingPublicAPI == false)
 }
 
 @Test func fileDeletionCapabilityExcludesReadOnlyCatalogues() {
     let readOnly: Set<MusicSourceType> = [
-        .upnp, .subsonic, .navidrome, .airsonic, .gonic, .daoliyu,
+        .upnp, .subsonic, .navidrome, .airsonic, .gonic, .fnMusic, .daoliyu,
         .appleMusic, .appleMusicLibrary,
     ]
 
@@ -167,7 +176,7 @@ import Testing
     let entireLibraryTypes: Set<MusicSourceType> = [
         .local, .appleMusicLibrary,
         .jellyfin, .emby, .plex,
-        .subsonic, .navidrome, .airsonic, .gonic, .daoliyu,
+        .subsonic, .navidrome, .airsonic, .gonic, .fnMusic, .daoliyu,
     ]
 
     for sourceType in MusicSourceType.allCases {

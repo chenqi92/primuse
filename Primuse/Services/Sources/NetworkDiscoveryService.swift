@@ -400,6 +400,10 @@ final class NetworkDiscoveryService {
                 if port == 80 { return false }
                 if port == 443 { return true }
                 return sourceType.defaultSSL
+            case .fnMusic:
+                if port == 5666 { return false }
+                if port == 5667 { return true }
+                return sourceType.defaultSSL
             case .jellyfin, .emby, .plex:
                 if port == 443 { return true }
                 if port == 80 || port == 8096 || port == 32400 { return false }
@@ -419,12 +423,21 @@ final class NetworkDiscoveryService {
         if nameLower.contains("jellyfin") { return .jellyfin }
         if nameLower.contains("emby") { return .emby }
         if nameLower.contains("plex") { return .plex }
+        // Generic fnOS HTTP services commonly use 5666/5667 too. Only an
+        // explicitly music-labelled Bonjour service may be inferred here;
+        // otherwise users can add Feiniu Music manually and authenticate the
+        // real `/music/api/v1` endpoint.
+        if nameLower.contains("trim.music")
+            || nameLower.contains("feiniu music")
+            || nameLower.contains("fnmusic")
+            || nameLower.contains("飞牛音乐") {
+            return .fnMusic
+        }
 
         switch port {
         case 5000, 5001: return .synology
         case 8080: return .qnap
         case 9999: return .ugreen
-        case 5666: return .fnos
         case 445: return .smb
         case 443, 80: return .webdav
         case 21: return .ftp
