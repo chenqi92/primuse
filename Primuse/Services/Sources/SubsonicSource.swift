@@ -22,7 +22,8 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
     private let salt: String
     private let token: String         // md5(password + salt)
     private let apiVersion: String
-    private let encodedPassword: String?
+    private let encodedPassword: String
+    private var usesEncodedPassword: Bool
     private let session: URLSession
     private let cacheDirectory: URL
 
@@ -58,7 +59,8 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
             : Self.defaultAPIVersion
         // Airsonic Advanced 的新密码存储不支持 Subsonic 的 MD5 token 校验，
         // 但仍支持规范中的 `p=enc:<UTF-8 hex>` 形式。
-        self.encodedPassword = sourceType == .airsonic ? Self.hexEncoded(password) : nil
+        self.encodedPassword = Self.hexEncoded(password)
+        self.usesEncodedPassword = sourceType == .airsonic
         let salt = Self.randomSalt()
         self.salt = salt
         self.token = Self.md5Hex(password + salt)
@@ -82,7 +84,13 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
         if isConnected { return }
         guard username.isEmpty == false else { throw SourceError.authenticationFailed }
         // requestJSON 已统一校验 envelope status, status != "ok"(含认证 error 40/41)直接抛错。
-        let ping: PingContainer = try await requestJSON("ping")
+        let ping: PingContainer
+        do {
+            ping = try await requestJSON("ping")
+        } catch SubsonicCompatibilityError.tokenAuthenticationUnsupported {
+            usesEncodedPassword = true
+            ping = try await requestJSON("ping")
+        }
         serverType = ping.type
         isOpenSubsonic = ping.openSubsonic ?? false
         isConnected = true
@@ -460,12 +468,26 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
         }
         let (data, response) = try await session.data(from: url)
         try validate(response)
-        let envelope = try JSONDecoder().decode(Envelope<C>.self, from: data)
+        let decoder = JSONDecoder()
+        let envelope: Envelope<C>
+        do {
+            envelope = try decoder.decode(Envelope<C>.self, from: data)
+        } catch {
+            let normalized = try SubsonicResponseCompatibility.normalizedJSONData(data)
+            envelope = try decoder.decode(Envelope<C>.self, from: normalized)
+        }
         let container = envelope.subsonicResponse
         // Subsonic 应用层错误常以 HTTP 200 + status:"failed" 返回。统一在此校验
         // envelope, status != "ok" 时抛错 —— 否则扫描会把 failed 当作"空结果"
         // 静默结束, 触发 ConnectorScanner 的 prune 把整源曲库清空。
         guard container.status == "ok" else {
+            if let errorCode = container.error?.code,
+               SubsonicResponseCompatibility.shouldRetryWithEncodedPassword(
+                   errorCode: errorCode,
+                   alreadyUsingEncodedPassword: usesEncodedPassword
+               ) {
+                throw SubsonicCompatibilityError.tokenAuthenticationUnsupported
+            }
             throw Self.error(from: container.error)
         }
         return container
@@ -498,7 +520,7 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
         var items = [
             URLQueryItem(name: "u", value: username),
         ]
-        if let encodedPassword {
+        if usesEncodedPassword {
             items.append(URLQueryItem(name: "p", value: "enc:\(encodedPassword)"))
         } else {
             items.append(URLQueryItem(name: "t", value: token))
@@ -584,6 +606,10 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
         if error.code == 40 || error.code == 41 { return .authenticationFailed }
         return .connectionFailed(error.message ?? "Subsonic error \(error.code)")
     }
+}
+
+private enum SubsonicCompatibilityError: Error {
+    case tokenAuthenticationUnsupported
 }
 
 // MARK: - Subsonic JSON models

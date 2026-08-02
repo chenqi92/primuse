@@ -1,10 +1,51 @@
 import CryptoKit
 import Foundation
 
+public enum SubsonicResponseCompatibility {
+    /// Some compatible servers serialize XML attributes into an `_attributes`
+    /// object even when `f=json` is requested. Flatten those objects so the
+    /// regular Subsonic models can decode both response shapes.
+    public static func normalizedJSONData(_ data: Data) throws -> Data {
+        let object = try JSONSerialization.jsonObject(with: data)
+        let normalized = normalize(object)
+        return try JSONSerialization.data(withJSONObject: normalized)
+    }
+
+    public static func shouldRetryWithEncodedPassword(
+        errorCode: Int,
+        alreadyUsingEncodedPassword: Bool
+    ) -> Bool {
+        errorCode == 41 && alreadyUsingEncodedPassword == false
+    }
+
+    private static func normalize(_ value: Any) -> Any {
+        if let array = value as? [Any] {
+            return array.map(normalize)
+        }
+
+        guard let dictionary = value as? [String: Any] else {
+            return value
+        }
+
+        var result: [String: Any] = [:]
+        if let attributes = dictionary["_attributes"] as? [String: Any] {
+            for (key, attributeValue) in attributes {
+                result[key] = normalize(attributeValue)
+            }
+        }
+
+        for (key, childValue) in dictionary where key != "_attributes" {
+            result[key] = normalize(childValue)
+        }
+        return result
+    }
+}
+
 /// Subsonic / OpenSubsonic 家族(Subsonic / Navidrome / Airsonic / gonic)的流式解析。
 ///
-/// stream URL 是**无状态**的:通常以 salt + token=md5(password+salt) 鉴权；
-/// Airsonic 兼容模式改用协议规定的 `p=enc:<UTF-8 hex>`。参数直接拼在 query 里,
+/// stream URL 是**无状态**的:Navidrome / gonic 通常以
+/// salt + token=md5(password+salt) 鉴权；通用 Subsonic 与 Airsonic 兼容模式
+/// 使用协议规定的 `p=enc:<UTF-8 hex>`。参数直接拼在 query 里,
 /// 没有会话、不会过期,AVPlayer 可直接播。这是从 iOS `SubsonicSource` 抽出的纯逻辑核心,
 /// 不依赖任何 iOS-only 类型(`NetworkURLBuilder` / `SmartSSLDelegate` 的逻辑在此内联)。
 public struct SubsonicStreamResolver: StreamResolver {
@@ -32,7 +73,13 @@ public struct SubsonicStreamResolver: StreamResolver {
         let salt = Self.randomSalt()
         let token = Self.md5Hex(password + salt)
         let apiVersion = source.type == .airsonic ? Self.airsonicAPIVersion : Self.apiVersion
-        let encodedPassword = source.type == .airsonic ? Self.hexEncoded(password) : nil
+        // `.subsonic` is the compatibility entry point for implementations
+        // that do not advertise a dedicated Primuse source type. Some of them
+        // (including DaoLiYu) reject salted-token authentication with error 41
+        // while accepting the protocol-standard encoded-password form.
+        let encodedPassword = source.type == .airsonic || source.type == .subsonic
+            ? Self.hexEncoded(password)
+            : nil
         // 本地能解的格式取原文件(format=raw);WMA 让服务端转码 mp3 渐进流。
         let transcode = song.fileFormat == .wma
         guard let url = Self.streamURL(base: base, username: username, token: token, salt: salt,

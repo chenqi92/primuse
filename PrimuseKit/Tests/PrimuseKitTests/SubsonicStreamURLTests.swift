@@ -77,6 +77,9 @@ import Testing
         (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []).map { ($0.name, $0.value ?? "") })
     #expect(q["format"] == "mp3")
     #expect(q["maxBitRate"] == "320")
+    #expect(q["p"] == "enc:70")
+    #expect(q["t"] == nil)
+    #expect(q["s"] == nil)
 }
 
 @Test func airsonicUsesCompatibleProtocolVersion() async throws {
