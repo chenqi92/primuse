@@ -1,24 +1,36 @@
 <p align="right"><strong>中文</strong> · <a href="README.en.md">English</a></p>
 
-# Primuse (猿音)
-
-原生 iOS / macOS / Apple TV 音乐播放器，支持从 NAS、媒体服务器、云盘及本地网络源串流播放，具备元数据刮削、歌词显示、跨设备同步和外部播放控制能力。
-
-> 🎉 **现已上架 App Store** — 在中国区 App Store 搜索「猿音」即可免费下载体验。
+# Primuse（猿音）
 
 <p align="center">
+  <a href="https://testflight.apple.com/join/AjbPukaF">
+    <img src="https://img.shields.io/badge/TestFlight-加入公测-0D96F6?logo=apple&logoColor=white&style=for-the-badge" alt="加入 Primuse TestFlight 公测"/>
+  </a>
   <a href="https://apps.apple.com/cn/app/%E7%8C%BF%E9%9F%B3/id6761675450">
-    <img src="https://img.shields.io/badge/App_Store-立即下载-007AFF?logo=apple&logoColor=white&style=for-the-badge" alt="Download on App Store"/>
+    <img src="https://img.shields.io/badge/App_Store-立即下载-007AFF?logo=apple&logoColor=white&style=for-the-badge" alt="在 App Store 下载"/>
   </a>
 </p>
+
+> **体验最新版本：** [加入 TestFlight 公测](https://testflight.apple.com/join/AjbPukaF)
+
+Primuse 是面向 Apple 生态的原生多源音乐播放器。它把本地文件、NAS、媒体服务器、云盘和 Apple Music 汇入同一资料库与播放队列，并提供高保真解码、CUE 分轨、歌词与元数据、跨设备同步以及完整的系统播放控制。
+
+正式版已在 App Store 上架。在中国区 App Store 搜索「猿音」，或使用上方按钮下载。
 
 ## 文档索引
 
 - [中文说明](README.md) · [English README](README.en.md)
 - [中文更新日志](CHANGELOG.md) · [English Changelog](CHANGELOG.en.md)
-- [应用截图](#应用截图) · [macOS 桌面版](#macos-桌面版) · [Apple TV 版](#apple-tv-版)
-- [功能特性](#功能特性) · [快速开始](#快速开始) · [自定义刮削源](#自定义刮削源)
-- [项目结构](#项目结构) · [依赖包](#依赖包) · [架构](#架构)
+- [应用截图](#应用截图) · [macOS 桌面版](#macos-桌面版) · [Apple TV 版](#apple-tv-版) · [Apple Watch 与系统集成](#apple-watch-与系统集成)
+- [音乐源](#音乐源) · [播放与格式](#播放与格式) · [歌词与元数据](#歌词与元数据) · [资料库与同步](#资料库与同步)
+- [快速开始](#快速开始) · [自定义刮削源](#自定义刮削源) · [项目结构](#项目结构) · [架构](#架构)
+
+## iPhone 与 iPad
+
+- **自适应原生界面** — iPhone 使用标签式导航，iPad 提供分栏资料库和横屏双栏播放页，并支持多窗口场景
+- **完整移动资料库** — 导入“文件”App 中的歌曲、连接远程来源、扫描目录，并在本地/NAS/云端之间统一搜索和管理歌单
+- **随身播放器** — 在正在播放页切换封面、歌词和队列，查看格式信息、调整速度与音效、选择 AirPlay 输出并手动修正元数据
+- **后台与系统控制** — 支持后台音频、锁屏/控制中心、耳机和蓝牙按键；iPhone 音量与系统输出音量保持一致
 
 ## 应用截图
 
@@ -39,7 +51,7 @@
 
 ## macOS 桌面版
 
-为 Mac 重新设计的原生桌面客户端，与 iOS 共享同一套音乐库、数据源与 iCloud 同步。
+Mac 客户端采用原生桌面布局，并与 iPhone、iPad 和 Apple TV 共享资料库、音乐源、歌单与 iCloud 同步数据。
 
 <table>
   <tr>
@@ -61,23 +73,19 @@
 
 ### macOS 专属能力
 
-- **原生桌面界面** — 自定义标题栏、可折叠侧边栏、底部播放控制条，专为大屏与鼠标/触控板设计
-- **迷你播放器** — 可收起为浮窗小窗（NSPanel），内含歌词页与播放队列页
-- **菜单栏播放器** — 状态栏弹出窗，随手控制播放
-- **桌面歌词** — 独立悬浮歌词窗口，支持双行 / 单行 / 竖排与锁定点击穿透
-- **外观自定义** — 主题、品牌色、应用图标切换，随专辑封面动态取色，浅色 / 深色模式
-- **桌面小组件** — 正在播放、快速访问等 WidgetKit 小组件，设置内可预览全部尺寸
-- **DLNA 投屏** — 发现局域网内的音响 / 电视并推送播放（CAST 面板）
-- **系统媒体键 / 快捷键** — 支持 Mac 键盘媒体键与自定义播放快捷键
-- **音频输出选择** — 在多个输出设备间切换
-- **完整资料库工具** — 智能歌单编辑、重复歌曲清理、标签编辑、歌单导入、独立元数据刮削窗口
-- **多屏播放** — 外接屏 Now Playing 大封面与大字歌词
-
-其余多源串流、音质处理、元数据刮削、跨设备同步等能力与 iOS 一致，详见下方功能特性。
+- **原生桌面界面** — 自定义标题栏、可折叠侧边栏、底部播放栏，以及面向大曲库优化的表格和搜索体验
+- **迷你播放器与菜单栏播放器** — 在悬浮小窗、菜单栏弹窗和主窗口之间切换，随时查看歌词与队列
+- **桌面歌词** — 独立悬浮歌词窗口，支持双行、单行、竖排、锁定和点击穿透
+- **Apple Music / iTunes 资料库导入** — 读取 Mac 上 Music App 中可访问的歌曲和歌单；本地非 DRM 文件可直接播放
+- **专业输出控制** — 选择音频输出设备，使用应用内音量，并可切换高保真或音效处理链
+- **完整资料库工具** — 智能歌单、重复歌曲清理、标签编辑、歌单导入导出和独立批量刮削窗口
+- **桌面小组件与多屏显示** — 正在播放、歌词、统计等 WidgetKit 小组件，以及外接屏大封面和大字歌词
+- **DLNA 投送与系统控制** — 发现局域网播放器并投送，支持媒体键和自定义播放快捷键
+- **外观自定义** — 浅色/深色模式、主题色、动态封面取色和多套应用图标
 
 ## Apple TV 版
 
-在客厅大屏上播放整座曲库，与 iPhone / Mac 共享同一套音乐库、数据源与 iCloud 同步。
+Apple TV 客户端可以浏览整座曲库、直接连接多种音乐源，并通过 iCloud 或局域网从 iPhone 接收资料库、凭据和播放所需配置。
 
 <table>
   <tr>
@@ -95,110 +103,167 @@
 
 ### Apple TV 专属能力
 
-- **大屏整库浏览** — 专辑 / 艺术家 / 歌单 / 歌曲一览，Siri Remote 流畅操控，支持一键全部播放 / 随机播放整库
-- **逐字歌词** — 满屏滚动的卡拉OK式歌词，支持原文 + 翻译，当前演唱行高亮
-- **顶部展示（Top Shelf）** — 主屏聚焦应用时展示最近播放与推荐
-- **多源直连** — NAS、自建服务器（Navidrome / Subsonic 等）、云盘可在 TV 上直接播放；部分源经 iPhone 中继
-- **多设备同步** — 曲库、歌单、数据源与 iPhone / Mac 经 iCloud 实时同步
-- **多语言界面** — 支持简体中文、繁体中文、英语、德语、法语、日语和韩语，跟随系统语言自动切换
+- **大屏整库浏览** — 浏览专辑、艺术家、歌曲和歌单，支持全部播放、整库随机播放与 Siri Remote 操作
+- **来源直连与中继** — WebDAV、UPnP/DLNA、云盘和服务器源按各自协议解析；SMB、NFS、FTP 支持 TV 本机读取，其他部分来源可使用可选的 iPhone 局域网中继
+- **扫码传输配置** — Apple TV 展示一次性二维码，iPhone 可在局域网内直接发送资料库快照、音乐源和加密凭据，不要求两台设备使用同一 Apple ID
+- **凭据管理** — 支持 iCloud 同步、局域网配对传输，以及直接在 TV 上输入部分服务器账号
+- **同步歌词** — 读取本地缓存、来源 Sidecar 或服务端歌词，显示逐行/逐字进度与翻译
+- **顶部展示** — 在 tvOS 主屏展示最近播放和专辑内容，并通过深层链接回到对应内容
+- **多语言界面** — 支持简体中文、繁体中文、英语、德语、法语、日语和韩语
 
-其余多源串流、音质处理、跨设备同步等能力与 iOS 一致。
+> Apple TV 的可播放路径取决于来源类型、凭据和中继设置。DTS/DTS-CD 的 FFmpeg 兼容解码目前仅面向 iPhone、iPad 和 Mac。
 
-## 功能特性
+## Apple Watch 与系统集成
 
-- **多源串流** — 支持 Synology DSM、QNAP、SMB/CIFS、WebDAV、SFTP、FTP、NFS、S3、UPnP/DLNA、Navidrome/Subsonic、Jellyfin、Emby、Plex、本地文件
-- **NAS API 状态** — 绿联 UGOS 与飞牛 fnOS 正等待厂商提供公开 API，当前暂未实现
-- **云盘接入** — 支持 123 云盘、115、百度网盘、阿里云盘、Google Drive、OneDrive、Dropbox，云端歌曲可边下边播并按需缓存
-- **播放引擎** — 基于 SFBAudioEngine，支持 FLAC、APE、WAV、MP3、AAC、Opus、DSD、TTA、WV 等格式，提供交叉淡入淡出、ReplayGain、睡眠定时、EQ、混响和压缩/限幅
-- **DLNA 接收** — 可在同一 Wi-Fi 下作为 UPnP/AV MediaRenderer 被 VLC、群晖 Audio Station、Plex、Hi-Fi Cast 等控制点发现并投送音频
-- **Apple Music 搜索** — 授权后可在搜索页同时查询 Apple Music 曲库，并通过系统播放器播放订阅内容
-- **元数据刮削** — 内置 iTunes、MusicBrainz 和 LRCLIB 数据源，支持通过 JSON 配置导入自定义刮削源
-- **可配置刮削源** — 用户可通过粘贴 JSON 配置或 URL 导入第三方元数据、封面、歌词数据源
-- **Sidecar 回写** — 刮削的封面 (`-cover.jpg`) 和歌词 (`.lrc`) 自动写回 NAS
-- **歌词体验** — 支持 LRC / 字级歌词、桌面歌词式外接屏显示、歌词翻译缓存和手动刮削校正
-- **资料库管理** — 支持专辑/艺术家归类、普通歌单、智能歌单、M3U8/JSON 歌单导入导出、重复歌曲检测、最近删除
-- **同步与统计** — 支持 iCloud CloudKit 同步源、歌单、播放历史和设置，提供听歌统计、年度报告、Last.fm / ListenBrainz scrobble
-- **系统集成** — 支持实时活动、灵动岛、锁屏控制、主屏幕小组件、Control Widget、Apple Watch、CarPlay、Siri / Shortcuts、Spotlight 搜索、AirPlay、外接屏
+- **Apple Watch 遥控器** — 显示封面、歌曲信息、当前歌词和播放进度，支持播放/暂停、上一首、下一首、拖动进度与队列选歌
+- **表盘复杂功能** — 在表盘显示当前播放状态，并快速回到 Watch App
+- **主屏幕小组件** — 提供正在播放、快速访问、歌词、听歌统计、音乐源和年度回顾等多种尺寸
+- **控制中心组件** — 在 iOS 控制中心执行播放/暂停、随机播放、上一首和下一首
+- **CarPlay** — 浏览最近播放、歌单、专辑与艺术家，并使用车载正在播放界面和系统语音控制
+- **Siri 与快捷指令** — 通过 App Intents 和媒体意图控制播放、随机播放及切歌
+- **Spotlight** — 索引歌曲、专辑和艺术家，从系统搜索直接打开内容
+- **系统播放体验** — 支持锁屏/控制中心媒体控制、耳机与蓝牙按键、AirPlay、外接屏和系统媒体键
+
+## 音乐源
+
+| 类别 | 当前支持 |
+|------|----------|
+| NAS | Synology DSM、QNAP |
+| 文件协议 | SMB/CIFS、WebDAV、FTP、SFTP、NFS、S3、UPnP/DLNA |
+| 音乐服务器 | Subsonic、Navidrome、Airsonic、Gonic、飞牛音乐、道理鱼 |
+| 媒体服务器 | Jellyfin、Emby、Plex |
+| 云盘 | 123 云盘、115、百度网盘、阿里云盘、Google Drive、OneDrive、Dropbox |
+| Apple 与本地 | iPhone/iPad 文件导入、Mac 本地文件夹、Apple Music 资料库与目录 |
+
+- **统一扫描与浏览** — 文件型来源可选择目录，服务器型来源可扫描整库；支持后台扫描、断点恢复、增量更新和元数据回填
+- **按需串流与缓存** — 支持 HTTP Range 的来源边下边播，可设置缓存容量、预热队列并自动清理
+- **安全凭据** — 密码与 OAuth token 存入 Keychain；来源配置、账号和播放凭据可按平台通过 iCloud 或局域网安全传输
+- **受信任连接** — 可为自有 NAS 配置受信任的 TLS 或 HTTP 主机，不会全局放开不安全网络访问
+- **只读来源保护** — Subsonic 系、飞牛音乐、道理鱼、UPnP 和 Apple Music 等目录型来源不会删除远端文件；刮削结果仅写入本地缓存
+- **可写 Sidecar** — 支持的可写来源可将封面和 LRC 歌词回写到音频旁边；不支持写回的来源保持只读
+
+绿联 UGOS 与 fnOS 系统级文件 API 仍在等待厂商提供稳定公开接口，因此不作为已支持的 NAS 来源。飞牛音乐是独立的音乐服务直连，不依赖 fnOS 文件 API。
+
+## 播放与格式
+
+- **双解码路径** — 原生 SFBAudioEngine 负责高保真播放，FFmpeg 兼容路径处理原生解码器不支持或不稳定的格式
+- **广泛格式支持** — 包括 MP3、AAC/M4A、ALAC、FLAC、WAV/AIFF、APE、WavPack、OGG/Opus、WMA、TTA、TAK、Musepack、Shorten、Speex、QOA、DSF/DFF，以及 AC-3、E-AC-3、MLP/TrueHD 等
+- **CUE 分轨** — 读取 UTF-8、UTF-16 和 GB18030 编码的 `.cue`，按 `INDEX 01` 将整轨镜像展开为带独立标题、序号、时间边界和 ReplayGain 的虚拟歌曲
+- **DTS 与 DTS-CD** — iPhone、iPad 和 Mac 支持 `.dts` / DTS-HD，以及 WAV 容器中的 DTS-CD 识别与兼容解码
+- **DSD** — 支持自动、PCM 和 DoP 播放模式，可按设备能力选择路径
+- **无缝与交叉淡化** — 提供 Gapless、1–12 秒 Crossfade、开头/结尾静音跳过和下一首预热；无缝与交叉淡化按设置互斥
+- **播放调整** — ReplayGain（曲目/专辑）、0.5×–2.0× 变速不变调、输出采样率匹配、睡眠定时和播放队列预取
+- **音效链** — 十段均衡器、空间音频与耳机头部跟踪、压缩/限幅、混响和实时可视化
+- **音乐视频** — 识别同名 MP4/M4V/MOV Sidecar，也可将没有同名音频的视频作为独立 MV 播放
+- **混合来源队列** — 本地、NAS、云盘、服务器和 Apple Music 可出现在同一可见队列中，由 Primuse 负责跨来源连续切歌
+
+## 歌词与元数据
+
+- **内嵌与 Sidecar** — 读取音频标签、专辑封面、同名/文件夹封面、`.lrc` 歌词和同名 MV
+- **逐行与逐字歌词** — 支持标准 LRC、增强逐字时间标记、点击跳转、手动浏览后自动跟随，以及 iOS/macOS/tvOS/Watch 多端显示
+- **离线歌词翻译** — 使用 Apple Translation 框架翻译并缓存结果，可选择目标语言和清理缓存
+- **内置刮削源** — Apple Music/iTunes Search、MusicBrainz 和 LRCLIB，按来源能力获取标签、封面或歌词
+- **智能候选排序** — 综合标题、艺术家、专辑和时长排序候选；手动刮削会提示匹配不确定性，避免误写同名版本
+- **批量刮削反馈** — 提供开始确认、实时进度、取消、完成统计与失败原因；适合大曲库长任务
+- **自定义刮削源** — 从 JSON 或 HTTPS URL 导入，支持 GET/POST、请求头、Cookie、限速、TLS 信任域、JavaScript 解析和逐字歌词能力声明
+
+## 资料库与同步
+
+- **统一资料库** — 按歌曲、专辑、艺术家、流派和来源浏览，支持拼音、歌词全文和组合条件搜索
+- **歌单系统** — 普通歌单、智能歌单、快速收藏，以及 M3U8 / Primuse JSON 导入导出；导入时支持自动匹配、手动补配和未匹配 CSV
+- **维护工具** — 重复歌曲检测、只读来源保护、最近删除恢复、标签编辑与来源级重新扫描
+- **听歌统计** — 最近播放、播放次数、时长趋势、音乐性格与年度回顾，可显示在小组件中
+- **Scrobble** — 支持 Last.fm 和 ListenBrainz，失败记录可重试
+- **CloudKit 同步** — 可分别同步歌单、智能歌单、音乐源、云盘账号、刮削器设置、播放历史、统计和偏好设置
+- **家庭共享** — 通过 CloudKit 分享普通歌单、智能歌单和家庭音乐源；个人收藏保持私有
+- **Apple Music** — 同步用户资料库和歌单，搜索 Apple Music 目录；订阅内容由 MusicKit 播放，Mac 上已确认可读的非 DRM 本地项目不依赖订阅
 
 ## 环境要求
 
-- **Xcode 16.0+**
-- **Swift 6.0+**
-- **iOS 18.0+** 部署目标，**watchOS 10.0+** Watch 目标
-- macOS 构建环境（推荐 Apple Silicon）
+| 组件 | 最低要求 |
+|------|----------|
+| 开发工具 | Xcode 26.0+、Swift 6.0+、macOS 开发环境 |
+| iPhone / iPad | iOS / iPadOS 18.0+ |
+| Mac App | macOS 26.0+ |
+| Apple TV | tvOS 17.0+ |
+| Apple Watch | watchOS 10.0+ |
 
 ## 快速开始
 
-### 1. 克隆仓库
+### 1. 克隆并打开项目
 
 ```bash
 git clone git@github.com:chenqi92/primuse.git
 cd primuse
-```
-
-### 2. 打开项目
-
-```bash
 open Primuse.xcodeproj
 ```
 
-首次打开时 Xcode 会自动解析 Swift Package Manager 依赖，可能需要几分钟。
+首次打开时，Xcode 会解析 Swift Package Manager 依赖和仓库内置的 FFmpeg XCFramework。
 
-### 3. 配置签名
+### 2. 配置签名
 
-1. 在 Xcode 中打开 `Primuse.xcodeproj`
-2. 在项目导航器中选择 **Primuse** 项目
-3. 对每个 Target（**Primuse**、**PrimuseKit**、**PrimuseWidgetExtension**、**PrimuseActivityExtension**）：
-   - 进入 **Signing & Capabilities**
-   - 将 **Team** 修改为你的 Apple 开发者账号
-   - Xcode 会自动生成描述文件
-4. 若需要真机使用 DLNA 接收功能，请在 Apple Developer 后台为 App ID 开启 **Multicast Networking** 能力，并确保 provisioning profile 包含 `com.apple.developer.networking.multicast`
+1. 在 Xcode 中选择 **Primuse** 项目。
+2. 为需要构建的 App 与扩展 Target 设置自己的 Apple Developer Team。
+3. iOS 主 App、Widget、Activity、Watch App、Watch Widgets、macOS、tvOS 与 Top Shelf 使用不同的 Bundle/Entitlement 组合，建议保持 Xcode 的自动签名。
+4. 真机使用 DLNA Renderer 时，需要在 Apple Developer 后台为 App ID 开启 Multicast Networking，并确保描述文件包含 `com.apple.developer.networking.multicast`。
 
-也可以修改 `project.yml` 中的 `DEVELOPMENT_TEAM` 后重新生成项目。
+也可以修改 `project.yml` 中的 `DEVELOPMENT_TEAM`，再通过 XcodeGen 重新生成工程。
 
-### 4. 配置本地密钥（可选）
-
-复制 `Config/Secrets.local.xcconfig.example` 为 `Config/Secrets.local.xcconfig`，按需填入云盘 OAuth 或 Last.fm 默认 API key。该文件已被 git 忽略；留空时 Last.fm 会要求用户在设置里粘贴自己的 key。
-
-### 5. 构建运行
-
-选择目标设备/模拟器后按 `Cmd+R`，或使用命令行：
+### 3. 配置本地密钥（可选）
 
 ```bash
-# 模拟器构建
-xcodebuild -scheme Primuse \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
-  build
-
-# 真机构建（需要签名）
-# 先实际试签一个临时 Mach-O，提前发现钥匙串锁定、身份缺失或
-# Apple Development 私钥未授权给 /usr/bin/codesign。
-scripts/check-apple-signing.sh
-
-xcodebuild -scheme Primuse \
-  -destination 'id=你的设备UDID' \
-  build
+cp Config/Secrets.local.xcconfig.example Config/Secrets.local.xcconfig
 ```
 
-### 6. 命令行安装到设备
+按需填入云盘 OAuth 和 Last.fm 配置。`Config/Secrets.local.xcconfig` 已被 Git 忽略；未配置某项内置 OAuth 凭据时，对应服务可能需要开发者自己的客户端配置。
+
+### 4. 构建与运行
 
 ```bash
-# 安装
-xcrun devicectl device install app \
-  --device 你的设备UDID \
-  ~/Library/Developer/Xcode/DerivedData/Primuse-*/Build/Products/Debug-iphoneos/Primuse.app
+# 通用 iOS 模拟器构建
+xcodebuild -project Primuse.xcodeproj \
+  -scheme Primuse \
+  -destination 'generic/platform=iOS Simulator' \
+  build
 
-# 启动
-xcrun devicectl device process launch \
-  --device 你的设备UDID \
-  com.welape.yuanyin
+# Apple TV 模拟器构建
+xcodebuild -project Primuse.xcodeproj \
+  -scheme PrimuseTV \
+  -destination 'generic/platform=tvOS Simulator' \
+  build
+
+# PrimuseKit 测试
+swift test --package-path PrimuseKit
 ```
+
+### 5. 开发工具
+
+仓库提供统一的本地开发脚本：
+
+```bash
+# 交互式选择操作
+scripts/primuse-dev.sh
+
+# 查看可用的 iPhone / iPad
+scripts/primuse-dev.sh devices
+
+# 覆盖安装并保留 App 数据
+scripts/primuse-dev.sh ios-overwrite
+
+# 完全重装；脚本会要求输入 DELETE，设备上的 App 数据会被清除
+scripts/primuse-dev.sh ios-clean
+
+# 构建并启动 Mac App
+scripts/primuse-dev.sh mac
+```
+
+真机构建前可运行 `scripts/check-apple-signing.sh`，提前检查证书私钥和 `codesign` 权限。
 
 ## 自定义刮削源
 
-Primuse 支持通过 JSON 配置导入自定义元数据刮削源。每个配置文件描述了 API 端点、请求格式和 JavaScript 解析脚本。
+Primuse 可通过 JSON 配置描述搜索、详情、封面和歌词端点，并用 JavaScript 解析响应。导入前会显示域名、请求方式、能力、Cookie、TLS 信任域与敏感配置警告，确认后才保存。
 
-### 配置格式
+### 配置示例
 
 ```json
 {
@@ -209,121 +274,156 @@ Primuse 支持通过 JSON 配置导入自定义元数据刮削源。每个配置
   "color": "#FF6600",
   "rateLimit": 500,
   "headers": {
-    "User-Agent": "Mozilla/5.0"
+    "User-Agent": "Primuse"
   },
-  "capabilities": ["metadata", "cover", "lyrics"],
-  "sslTrustDomains": ["example.com"],
+  "capabilities": ["metadata", "cover", "lyrics", "lyricsWordLevel"],
   "search": {
     "url": "https://api.example.com/search",
     "method": "GET",
-    "params": { "q": "{{query}}", "limit": "{{limit}}" },
-    "script": "var items = response.results || []; return items.map(function(s) { return {id: String(s.id), title: s.name, artist: s.artist, album: s.album, durationMs: s.duration, coverUrl: s.cover}; });"
+    "params": {
+      "q": "{{query}}",
+      "artist": "{{artist}}",
+      "album": "{{album}}",
+      "limit": "{{limit}}"
+    },
+    "script": "return (response.results || []).map(function (item) { return { id: String(item.id), title: item.title, artist: item.artist, album: item.album, durationMs: item.durationMs, coverUrl: item.coverUrl }; });"
   },
-  "detail": { "url": "...", "method": "GET", "script": "..." },
-  "cover": { "url": "...", "method": "GET", "script": "..." },
-  "lyrics": { "url": "...", "method": "GET", "script": "..." }
+  "detail": {
+    "url": "https://api.example.com/tracks/{{id}}",
+    "method": "GET",
+    "script": "return response;"
+  },
+  "cover": {
+    "url": "https://api.example.com/tracks/{{id}}/covers",
+    "method": "GET",
+    "script": "return response.covers || [];"
+  },
+  "lyrics": {
+    "url": "https://api.example.com/tracks/{{id}}/lyrics",
+    "method": "GET",
+    "script": "return { lrcContent: response.lrc, wordLevelLrc: response.wordLevelLrc, plainText: response.text };"
+  }
 }
 ```
 
-### 导入方式
+### 导入与脚本约定
 
-1. 打开 **设置 → 元数据刮削 → 导入刮削源**
-2. 选择 **粘贴配置** 或 **从 URL 导入**
-3. 导入后的源会出现在刮削源列表中，可拖动排序、启用/禁用
+1. 打开 **设置 → 元数据刮削 → 导入刮削源**。
+2. 粘贴 JSON 或 HTTPS 配置 URL。
+3. 检查权限预览和安全警告，再确认导入。
+4. 在刮削源列表中排序、启用、停用、编辑或配置 Cookie。
 
-### JS 脚本规范
+脚本可使用：
 
-- `response`：已解析的 JSON 响应对象
+- `response`：已解析的 JSON 响应
 - `responseText`：原始响应文本
-- `externalId`：当前歌曲的外部 ID（detail/cover/lyrics 端点可用）
-- `log(msg)`：调试日志输出
+- `externalId`：详情、封面和歌词端点的当前外部 ID
+- `log(msg)`：调试日志
 
-**search 脚本** 返回 `[{id, title, artist, album, durationMs, coverUrl}]`
+返回值约定：
 
-**detail 脚本** 返回 `{title, artist, album, year, coverUrl, trackNumber, genres}`
+- `search`：`[{id, title, artist, album, year, durationMs, coverUrl, trackNumber, genres}]`
+- `detail`：`{title, artist, albumArtist, album, year, trackNumber, discNumber, durationMs, genres, coverUrl}`
+- `cover`：`[{coverUrl, thumbnailUrl}]`
+- `lyrics`：`{lrcContent, wordLevelLrc, plainText}`
 
-**lyrics 脚本** 返回 `{lrcContent}` 或 `{plainText}`
-
-**cover 脚本** 返回 `[{coverUrl, thumbnailUrl}]`
+不要导入来源不明的配置。自定义脚本会处理远程响应；Cookie、请求头、TLS 信任域和本地 secrets 都属于敏感权限。
 
 ## 项目结构
 
-```
+```text
 primuse/
-├── Primuse/                        # 主应用 Target
-│   ├── App/                        # 应用入口、ContentView
+├── Primuse/                        # iOS 与 macOS 共用的主应用代码
+│   ├── App/                        # App 入口、依赖装配、CarPlay 与外接屏 Scene
 │   ├── Services/
-│   │   ├── Audio/                  # 播放引擎、解码器、均衡器
-│   │   ├── Cloud/                  # iCloud / CloudKit 同步
-│   │   ├── DLNA/                   # UPnP/AV Renderer 接收投送
-│   │   ├── Library/                # 音乐库、数据库
-│   │   ├── Metadata/               # 刮削器、资源存储、Sidecar 写入
-│   │   │   └── Scrapers/           # 可配置刮削器、MusicBrainz、LRCLIB
-│   │   ├── Playlist/               # 歌单导入导出
-│   │   ├── Scrobble/               # Last.fm / ListenBrainz
-│   │   ├── Sources/                # NAS、协议、媒体服务器、云盘连接器
-│   │   └── Stats/                  # 听歌统计与年度报告
-│   ├── Views/
-│   │   ├── Home/                   # 首页（仪表盘）
-│   │   ├── Library/                # 专辑、艺术家、歌曲、播放列表视图
-│   │   ├── NowPlaying/             # 播放器、队列、刮削选项
-│   │   ├── Search/                 # 搜索视图
-│   │   ├── Settings/               # 设置、均衡器、刮削器配置
-│   │   ├── Sources/                # 源管理、连接流程
-│   │   └── Components/             # 可复用 UI 组件
-│   ├── Resources/                  # 本地化（en、zh-Hans、zh-Hant、de、fr、ja、ko）、资源文件
-│   └── Utilities/                  # 日志工具、扩展
-├── PrimuseKit/                     # 共享框架（模型、协议）
-│   └── Sources/PrimuseKit/Models/  # Song、Album、Artist、Playlist 等
-├── PrimuseWidgetExtension/         # 主屏幕小组件
-├── PrimuseActivityExtension/       # 灵动岛 / 实时活动
+│   │   ├── AppleMusic/             # MusicKit 目录、资料库与混合队列
+│   │   ├── Audio/                  # 播放引擎、原生/FFmpeg 解码、缓存与音效
+│   │   ├── Cloud/                  # CloudKit、家庭共享、跨端快照和凭据同步
+│   │   ├── DLNA/                   # UPnP/AV Renderer 与投送
+│   │   ├── Library/                # GRDB 资料库、扫描、Spotlight 与维护工具
+│   │   ├── Metadata/               # 标签、Sidecar、刮削器和歌词翻译
+│   │   ├── Relay/                  # iPhone 到 Apple TV 的局域网中继
+│   │   ├── Sources/                # NAS、协议、服务器和云盘连接器
+│   │   └── Watch/                  # WatchConnectivity 桥接
+│   ├── Views/                      # iOS 与 macOS 界面
+│   └── Resources/                  # 七种本地化、资源和隐私清单
+├── PrimuseKit/                     # 跨 iOS/macOS/tvOS 共享模型、策略与流解析
+├── PrimuseTV/                      # Apple TV App
+├── PrimuseTopShelf/                # tvOS Top Shelf 扩展
 ├── PrimuseWatch/                   # Apple Watch App
-├── PrimuseWatchWidgets/            # Watch Complications
-├── Config/                         # Entitlements、Info.plist 配置
-└── project.yml                     # XcodeGen 项目定义
+├── PrimuseWatchShared/             # Watch App 与复杂功能共享模型
+├── PrimuseWatchWidgets/            # Watch 表盘复杂功能
+├── PrimuseWidgetExtension/         # iOS/macOS 小组件与控制中心组件
+├── PrimuseActivityExtension/       # Live Activity 布局目标（当前未在主 App 启用）
+├── Frameworks/FFmpeg/              # iOS/macOS FFmpeg XCFramework
+├── Config/                         # Entitlements、xcconfig 与 Info 配置
+├── scripts/                        # 构建、安装、签名、FFmpeg 与截图工具
+└── project.yml                     # XcodeGen 工程定义与统一版本号
 ```
 
 ## 依赖包
 
-| 包名 | 用途 |
-|------|------|
-| [SFBAudioEngine](https://github.com/sbooth/SFBAudioEngine) | 音频解码（FLAC、APE、WV、TTA、DSD、MP3、AAC 等） |
-| [GRDB.swift](https://github.com/groue/GRDB.swift) | SQLite 数据库，音乐库持久化 |
-| [AMSMB2](https://github.com/amosavian/AMSMB2) | SMB/CIFS 客户端，NAS 访问 |
-| [FileProvider](https://github.com/amosavian/FileProvider) | FTP/WebDAV 文件操作 |
+| 包或框架 | 用途 |
+|----------|------|
+| [SFBAudioEngine](https://github.com/sbooth/SFBAudioEngine) | 高保真音频解码与 DSD 支持 |
+| FFmpeg 8.1（仓库内动态 XCFramework） | DTS/DTS-CD、多声道降混和兼容格式解码 |
+| [GRDB.swift](https://github.com/groue/GRDB.swift) | SQLite 资料库持久化 |
+| [AMSMB2](https://github.com/amosavian/AMSMB2) | SMB/CIFS 客户端 |
+| [FileProvider](https://github.com/amosavian/FileProvider) | FTP 与 WebDAV 文件操作 |
 | [Citadel](https://github.com/orlandos-nl/Citadel) | SSH/SFTP 客户端 |
 | [NFSKit](https://github.com/alexiscn/NFSKit) | NFS 客户端 |
-| [swift-crypto](https://github.com/apple/swift-crypto) | 加密操作 |
+| [swift-crypto](https://github.com/apple/swift-crypto) | 加密与签名操作 |
 | [swift-nio](https://github.com/apple/swift-nio) | 异步网络基础设施 |
 
-系统框架还使用了 MusicKit、CloudKit、ActivityKit、WidgetKit、WatchConnectivity、CarPlay、MediaPlayer 和 Network.framework。
+系统框架包括 MusicKit、CloudKit、AVFoundation、MediaPlayer、CarPlay、WidgetKit、WatchConnectivity、App Intents、Core Spotlight、Translation 和 Network.framework。
 
 ## 架构
 
 ### 音频管线
 
-```
-音源（本地 / NAS / 媒体服务器 / 云盘）
-  → CloudPlaybackSource / StreamingDownloadDecoder / NativeAudioDecoder
-  → SFBAudioEngine AudioDecoder
-  → AVAudioConverter（采样率 / 格式转换）
-  → AVAudioEngine（PlayerNode → Mixer → EQ → Compressor → Reverb → 输出）
+```text
+本地 / NAS / 协议 / 媒体服务器 / 云盘
+  → SourceManager / StreamResolver / Range Fetcher
+  → CUE Segment 与缓存/预热策略
+  → NativeAudioDecoder（SFBAudioEngine）或 FFmpegAudioDecoder
+  → AVAudioConverter
+  → AVAudioEngine（Player → Mixer → EQ / Dynamics / Reverb → Output）
+
+Apple Music
+  → MusicKit ApplicationMusicPlayer
+  → Primuse 混合队列与系统 Now Playing 状态协调
 ```
 
-### 元数据刮削
+### 元数据与歌词
 
+```text
+扫描来源
+  → 文件标签 + Sidecar + CUE 展开
+  → MetadataBackfillService
+  → GRDB 资料库与 MetadataAssetStore
+
+手动 / 自动 / 批量刮削
+  → ScraperManager
+  → 内置或 JSON + JavaScript 自定义刮削器
+  → 标题/艺术家/专辑/时长候选排序
+  → 本地缓存，或 SidecarWriteService 写回受支持来源
 ```
-用户触发刮削
-  → ScraperManager（按优先级依次尝试已启用的刮削源）
-  → ConfigurableScraper（JSON 配置 + JavaScriptCore 解析）
-  → 封面 + 歌词 + 元数据
-  → SidecarWriteService → NAS（<歌曲名>-cover.jpg、<歌曲名>.lrc）
-  → MetadataAssetStore → 本地缓存
+
+### 跨设备数据
+
+```text
+iPhone / iPad / Mac
+  ↔ CloudKit：歌单、来源、设置、历史、统计、资料库快照
+  ↔ iCloud Keychain / 加密凭据包
+  ↔ Apple TV：CloudKit 同步或局域网二维码直传
+  ↔ Apple Watch：WatchConnectivity 播放状态与控制命令
 ```
 
 ### CI/CD
 
-项目配置了 GitHub Actions 自动构建：
+- **Build** — GitHub Actions 手动工作流，执行品牌检查、Swift Package 解析和 iOS 模拟器构建；版本变化时可生成未签名 IPA Artifact
+- **Release** — 手动归档、签名、导出 IPA，并可选择上传到 TestFlight
 
-- **build**：每次 push/PR 自动触发模拟器构建验证（无需签名）
-- **archive**：仅当 `main` 分支的版本号发生变化时，自动构建未签名 IPA 并上传为 Artifact
+## 说明
+
+Primuse 不提供音乐内容或云存储。你需要使用自己的文件、服务器和第三方账号；各服务的可用性取决于提供商、地区、账号权限和 API 状态。请遵守内容来源的服务条款和适用法律。

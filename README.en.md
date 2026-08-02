@@ -2,23 +2,35 @@
 
 # Primuse
 
-A native iOS / macOS / Apple TV music player that streams from NAS, media servers, cloud drives and local network sources, with metadata scraping, lyrics display, cross-device sync and external playback control.
-
-> 🎉 **Now on the App Store** — search for "Primuse" on the China App Store to download it for free.
-
 <p align="center">
+  <a href="https://testflight.apple.com/join/AjbPukaF">
+    <img src="https://img.shields.io/badge/TestFlight-Join_Beta-0D96F6?logo=apple&logoColor=white&style=for-the-badge" alt="Join the Primuse TestFlight beta"/>
+  </a>
   <a href="https://apps.apple.com/us/app/%E7%8C%BF%E9%9F%B3/id6761675450">
-    <img src="https://img.shields.io/badge/App_Store-Download-007AFF?logo=apple&logoColor=white&style=for-the-badge" alt="Download on App Store"/>
+    <img src="https://img.shields.io/badge/App_Store-Download-007AFF?logo=apple&logoColor=white&style=for-the-badge" alt="Download on the App Store"/>
   </a>
 </p>
+
+> **Try the latest build:** [join the TestFlight beta](https://testflight.apple.com/join/AjbPukaF)
+
+Primuse is a native, multi-source music player for the Apple ecosystem. It brings local files, NAS devices, media servers, cloud drives, and Apple Music into one library and playback queue, with high-fidelity decoding, CUE track splitting, lyrics and metadata, cross-device sync, and system playback controls.
+
+The stable release is available on the App Store. Search for “Primuse” or use the download button above.
 
 ## Documentation
 
 - [中文说明](README.md) · [English README](README.en.md)
 - [中文更新日志](CHANGELOG.md) · [English Changelog](CHANGELOG.en.md)
-- [Screenshots](#screenshots) · [macOS Desktop App](#macos-desktop-app) · [Apple TV App](#apple-tv-app)
-- [Features](#features) · [Getting Started](#getting-started) · [Custom Scraping Sources](#custom-scraping-sources)
-- [Project Structure](#project-structure) · [Dependencies](#dependencies) · [Architecture](#architecture)
+- [Screenshots](#screenshots) · [macOS Desktop App](#macos-desktop-app) · [Apple TV App](#apple-tv-app) · [Apple Watch and System Integration](#apple-watch-and-system-integration)
+- [Music Sources](#music-sources) · [Playback and Formats](#playback-and-formats) · [Lyrics and Metadata](#lyrics-and-metadata) · [Library and Sync](#library-and-sync)
+- [Getting Started](#getting-started) · [Custom Scraping Sources](#custom-scraping-sources) · [Project Structure](#project-structure) · [Architecture](#architecture)
+
+## iPhone and iPad
+
+- **Adaptive native UI** — tab-based navigation on iPhone, a split-view library and two-column landscape player on iPad, plus multiwindow scene support
+- **Complete mobile library** — import songs from the Files app, connect remote sources, scan folders, and search or manage playlists across local, NAS, and cloud content
+- **A full player on the go** — switch between artwork, lyrics, and the queue; inspect format details, tune speed and effects, choose an AirPlay output, and correct metadata manually
+- **Background and system control** — background audio, Lock Screen and Control Center controls, headset/Bluetooth buttons, and iPhone volume synchronized with the system output level
 
 ## Screenshots
 
@@ -39,7 +51,7 @@ A native iOS / macOS / Apple TV music player that streams from NAS, media server
 
 ## macOS Desktop App
 
-A native desktop client redesigned for the Mac, sharing the same music library, data sources and iCloud sync with iOS.
+The Mac client uses a native desktop layout and shares its library, music sources, playlists, and iCloud data with iPhone, iPad, and Apple TV.
 
 <table>
   <tr>
@@ -61,23 +73,19 @@ A native desktop client redesigned for the Mac, sharing the same music library, 
 
 ### macOS-Specific Features
 
-- **Native desktop UI** — custom title bar, collapsible sidebar and bottom playback control bar, designed for large screens and mouse/trackpad input
-- **Mini player** — collapses into a floating panel (NSPanel) with a lyrics page and a playback queue page
-- **Menu bar player** — a status-bar popover for quick playback control
-- **Desktop lyrics** — a standalone floating lyrics window supporting two-line / single-line / vertical layouts and a click-through lock
-- **Appearance customization** — themes, brand color and app icon switching, dynamic color extraction from album art, light / dark mode
-- **Desktop widgets** — WidgetKit widgets such as Now Playing and Quick Access, with all sizes previewable in settings
-- **DLNA casting** — discover speakers / TVs on the local network and push playback to them (CAST panel)
-- **System media keys / shortcuts** — Mac keyboard media keys and customizable playback shortcuts
-- **Audio output selection** — switch between multiple output devices
-- **Full library tooling** — smart playlist editor, duplicate cleanup, tag editor, playlist import and a standalone metadata scraping window
-- **Multi-display playback** — large cover art and large-font lyrics on an external display
-
-All other capabilities — multi-source streaming, audio-quality processing, metadata scraping, cross-device sync, etc. — match iOS; see the feature list below.
+- **Native desktop UI** — a custom title bar, collapsible sidebar, bottom playback bar, and table/search views optimized for large libraries
+- **Mini player and menu bar player** — move between a floating panel, menu bar popover, and the main window while keeping lyrics and the queue close at hand
+- **Desktop lyrics** — a standalone floating lyrics window with two-line, single-line, vertical, locked, and click-through layouts
+- **Apple Music / iTunes library import** — read accessible songs and playlists from the Music app on the Mac; readable local non-DRM files can play directly
+- **Professional output control** — choose an audio output device, use application-level volume, and switch between high-fidelity and effects processing paths
+- **Full library tooling** — smart playlists, duplicate cleanup, tag editing, playlist import/export, and a dedicated batch scraping window
+- **Desktop widgets and multi-display playback** — Now Playing, lyrics, statistics, and other WidgetKit widgets, plus large artwork and lyrics on an external display
+- **DLNA casting and system controls** — discover local renderers and cast to them, with media-key and custom keyboard-shortcut support
+- **Appearance customization** — light/dark modes, themes, dynamic colors derived from artwork, and multiple alternate app icons
 
 ## Apple TV App
 
-Play your whole collection on the big screen in the living room, sharing the same music library, data sources and iCloud sync with iPhone / Mac.
+The Apple TV client can browse the full library, connect to multiple source types, and receive library data, credentials, and playback configuration from an iPhone over iCloud or the local network.
 
 <table>
   <tr>
@@ -95,106 +103,167 @@ Play your whole collection on the big screen in the living room, sharing the sam
 
 ### Apple TV-Specific Features
 
-- **Whole-library browsing on the big screen** — albums / artists / playlists / songs at a glance, smooth Siri Remote control, one-tap Play All / Shuffle All across the entire library
-- **Word-by-word lyrics** — full-screen scrolling karaoke-style lyrics with original text + translation and current-line highlighting
-- **Top Shelf** — shows recently played and recommendations when the app is focused on the Home screen
-- **Direct multi-source access** — NAS, self-hosted servers (Navidrome / Subsonic, etc.) and cloud drives play directly on the TV; some sources are relayed through the iPhone
-- **Multi-device sync** — library, playlists, data sources sync in real time with iPhone / Mac over iCloud
-- **Seven-language UI** — supports English, Simplified and Traditional Chinese, German, French, Japanese, and Korean, following the system language automatically
+- **Whole-library browsing** — browse albums, artists, songs, and playlists, with Play All, Shuffle All, and Siri Remote support
+- **Direct sources and relays** — WebDAV, UPnP/DLNA, cloud drives, and server libraries use their own resolvers; SMB, NFS, and FTP can read on the TV itself, while some other sources can use the optional iPhone LAN relay
+- **QR-code configuration transfer** — Apple TV displays a one-time QR code so an iPhone can securely send a library snapshot, music sources, and encrypted credentials over the LAN, without requiring both devices to use the same Apple ID
+- **Credential management** — use iCloud sync, LAN pairing, or credentials entered directly on the TV for supported server types
+- **Synchronized lyrics** — load lyrics from the local cache, source sidecars, or a server, including line/word progress and translations
+- **Top Shelf** — publish recent items and albums on the tvOS Home screen, with deep links back into their content
+- **Seven-language UI** — English, Simplified and Traditional Chinese, German, French, Japanese, and Korean
 
-All other capabilities — multi-source streaming, audio-quality processing, cross-device sync, etc. — match iOS.
+> Apple TV playback paths depend on the source type, available credentials, and relay configuration. FFmpeg-based DTS/DTS-CD compatibility decoding currently targets iPhone, iPad, and Mac only.
 
-## Features
+## Apple Watch and System Integration
 
-- **Multi-source streaming** — supports Synology DSM, QNAP, SMB/CIFS, WebDAV, SFTP, FTP, NFS, S3, UPnP/DLNA, Navidrome/Subsonic, Jellyfin, Emby, Plex and local files
-- **NAS API status** — UGREEN UGOS and Feiniu fnOS are awaiting vendor-supported public APIs and aren’t implemented yet
-- **Cloud drive access** — supports 123 Cloud Drive, 115, Baidu Netdisk, Aliyun Drive, Google Drive, OneDrive and Dropbox; cloud tracks can play while downloading and cache on demand
-- **Playback engine** — built on SFBAudioEngine, supporting FLAC, APE, WAV, MP3, AAC, Opus, DSD, TTA, WV and more, with crossfade, ReplayGain, sleep timer, EQ, reverb and compression/limiting
-- **DLNA receiver** — acts as a UPnP/AV MediaRenderer on the same Wi-Fi network, so control points such as VLC, Synology Audio Station, Plex and Hi-Fi Cast can discover it and cast audio to it
-- **Apple Music search** — once authorized, search the Apple Music catalog alongside your library and play subscription content through the system player
-- **Metadata scraping** — built-in iTunes, MusicBrainz and LRCLIB sources, with support for importing custom scraping sources via JSON config
-- **Configurable scraping sources** — import third-party metadata, cover and lyrics sources by pasting a JSON config or a URL
-- **Sidecar write-back** — scraped covers (`-cover.jpg`) and lyrics (`.lrc`) are written back to the NAS automatically
-- **Lyrics experience** — LRC / word-level lyrics, desktop-lyrics-style display on an external screen, lyrics translation caching and manual scraping correction
-- **Library management** — album/artist grouping, regular playlists, smart playlists, M3U8/JSON playlist import & export, duplicate detection and Recently Deleted
-- **Sync & stats** — iCloud CloudKit sync for sources, playlists, playback history and settings, plus listening stats, a yearly report and Last.fm / ListenBrainz scrobbling
-- **System integration** — Live Activities, Dynamic Island, Lock Screen controls, Home Screen widgets, Control Widgets, Apple Watch, CarPlay, Siri / Shortcuts, Spotlight search, AirPlay and external displays
+- **Apple Watch companion** — view artwork, track information, the current lyric, and progress; play/pause, skip, seek, and select a track from the active queue
+- **Watch complications** — show the current playback state on the watch face and jump back into the Watch app
+- **Home Screen widgets** — Now Playing, Quick Access, Lyrics, Listening Statistics, Music Sources, and Year in Review in multiple sizes
+- **Control Center widgets** — play/pause, shuffle, previous, and next controls on iOS
+- **CarPlay** — browse recents, playlists, albums, and artists, then use the car's Now Playing UI and system voice controls
+- **Siri and Shortcuts** — App Intents and media intents for playback, shuffle, and track navigation
+- **Spotlight** — index songs, albums, and artists so system search can open them directly
+- **System playback experience** — Lock Screen and Control Center media controls, headset/Bluetooth controls, AirPlay, external displays, and media keys
+
+## Music Sources
+
+| Category | Currently supported |
+|----------|---------------------|
+| NAS | Synology DSM, QNAP |
+| File protocols | SMB/CIFS, WebDAV, FTP, SFTP, NFS, S3, UPnP/DLNA |
+| Music servers | Subsonic, Navidrome, Airsonic, Gonic, Feiniu Music, DaoLiYu |
+| Media servers | Jellyfin, Emby, Plex |
+| Cloud drives | 123 Cloud Drive, 115, Baidu Netdisk, Aliyun Drive, Google Drive, OneDrive, Dropbox |
+| Apple and local | iPhone/iPad file import, local folders on Mac, Apple Music library and catalog |
+
+- **Unified scanning and browsing** — select folders for file-based sources or scan the complete catalog exposed by a server source, with background scans, resume support, incremental updates, and metadata backfill
+- **On-demand streaming and caching** — Range-capable sources stream while downloading, with configurable cache limits, queue prewarming, and automatic cleanup
+- **Secure credentials** — passwords and OAuth tokens live in Keychain; source/account data and playback credentials move between platforms through iCloud or a secure LAN transfer where supported
+- **Trusted connections** — explicitly trust your own NAS TLS or HTTP host without globally disabling network security
+- **Read-only source protection** — Subsonic-family servers, Feiniu Music, DaoLiYu, UPnP, and Apple Music catalogs never delete remote audio; scraped data stays in the local cache
+- **Writable sidecars** — supported writable sources can store artwork and LRC files next to the audio; sources without write support remain read-only
+
+UGREEN UGOS and the legacy fnOS system-level file APIs are still waiting for stable, public vendor interfaces and are not advertised as supported NAS sources. Feiniu Music is a separate, supported music-service integration that does not depend on the fnOS file API.
+
+## Playback and Formats
+
+- **Dual decoding paths** — native SFBAudioEngine handles the high-fidelity path, while the FFmpeg compatibility path covers formats that native decoders do not handle reliably
+- **Broad format support** — MP3, AAC/M4A, ALAC, FLAC, WAV/AIFF, APE, WavPack, OGG/Opus, WMA, TTA, TAK, Musepack, Shorten, Speex, QOA, DSF/DFF, AC-3, E-AC-3, MLP/TrueHD, and more
+- **CUE track splitting** — read UTF-8, UTF-16, and GB18030 `.cue` sheets and use `INDEX 01` entries to expand a continuous album image into virtual tracks with individual titles, numbers, time boundaries, and ReplayGain values
+- **DTS and DTS-CD** — iPhone, iPad, and Mac support `.dts` / DTS-HD and content-aware DTS-CD detection inside WAV containers through compatibility decoding
+- **DSD** — Automatic, PCM, and DoP playback modes, selected according to device capabilities and user preference
+- **Gapless and crossfade** — Gapless playback, 1–12 second crossfades, leading/trailing silence skipping, and next-track prewarming; Gapless and Crossfade are mutually exclusive settings
+- **Playback tuning** — track/album ReplayGain, 0.5×–2.0× pitch-preserving speed, output sample-rate matching, a sleep timer, and configurable queue prefetching
+- **Effects chain** — a 10-band equalizer, Spatial Audio and head tracking, compression/limiting, reverb, and real-time visualization
+- **Music videos** — discover same-name MP4/M4V/MOV sidecars, or treat a video without a matching audio file as a standalone music video
+- **Mixed-source queues** — local, NAS, cloud, server, and Apple Music tracks remain visible in one queue, with Primuse coordinating transitions across provider boundaries
+
+## Lyrics and Metadata
+
+- **Embedded data and sidecars** — read audio tags, embedded artwork, same-name/folder artwork, `.lrc` lyrics, and same-name music videos
+- **Line- and word-synchronized lyrics** — standard LRC, enhanced word timestamps, tap-to-seek, manual browsing with automatic follow recovery, and display across iOS, macOS, tvOS, and Watch
+- **Offline lyric translation** — use Apple's Translation framework and cache results locally, with configurable target languages and cache management
+- **Built-in scrapers** — Apple Music/iTunes Search, MusicBrainz, and LRCLIB, each used according to its metadata, artwork, or lyrics capabilities
+- **Confidence-aware ranking** — rank candidates using title, artist, album, and duration; manual scraping reports uncertainty to reduce incorrect same-name matches
+- **Batch scraping feedback** — start confirmation, live progress, cancellation, completion statistics, and failure details for long-running library tasks
+- **Custom scraping sources** — import JSON directly or over HTTPS, with GET/POST requests, headers, cookies, rate limits, TLS trust domains, JavaScript parsing, and word-level lyrics capability declarations
+
+## Library and Sync
+
+- **Unified library** — browse by song, album, artist, genre, and source; search title, artist, album, Pinyin, full lyric text, and combined criteria
+- **Playlist system** — regular playlists, smart playlists, Quick Favorites, and M3U8 / Primuse JSON import/export, including automatic matching, manual correction, and unmatched-item CSV export
+- **Maintenance tools** — duplicate detection, read-only source protection, Recently Deleted recovery, tag editing, and per-source rescanning
+- **Listening statistics** — recents, play counts, listening-time trends, music personality, and Year in Review, also available in widgets
+- **Scrobbling** — Last.fm and ListenBrainz, with retry support for failed submissions
+- **CloudKit sync** — independently sync playlists, smart playlists, music sources, cloud accounts, scraper settings, play history, listening statistics, and preferences
+- **Family sharing** — share regular playlists, smart playlists, and family music sources through CloudKit while keeping personal favorites private
+- **Apple Music** — sync the user's library and playlists and search the Apple Music catalog; MusicKit plays subscription-backed content, while confirmed readable non-DRM local items on Mac do not require a subscription
 
 ## Requirements
 
-- **Xcode 16.0+**
-- **Swift 6.0+**
-- **iOS 18.0+** deployment target, **watchOS 10.0+** Watch target
-- A macOS build environment (Apple Silicon recommended)
+| Component | Minimum requirement |
+|-----------|---------------------|
+| Development tools | Xcode 26.0+, Swift 6.0+, and a macOS development environment |
+| iPhone / iPad | iOS / iPadOS 18.0+ |
+| Mac app | macOS 26.0+ |
+| Apple TV | tvOS 17.0+ |
+| Apple Watch | watchOS 10.0+ |
 
 ## Getting Started
 
-### 1. Clone the repository
+### 1. Clone and open the project
 
 ```bash
 git clone git@github.com:chenqi92/primuse.git
 cd primuse
-```
-
-### 2. Open the project
-
-```bash
 open Primuse.xcodeproj
 ```
 
-On first open, Xcode resolves the Swift Package Manager dependencies automatically, which may take a few minutes.
+Xcode resolves the Swift Package Manager dependencies on first open. The FFmpeg XCFrameworks are already included in the repository.
 
-### 3. Configure signing
+### 2. Configure code signing
 
-1. Open `Primuse.xcodeproj` in Xcode
-2. Select the **Primuse** project in the project navigator
-3. For each target (**Primuse**, **PrimuseKit**, **PrimuseWidgetExtension**, **PrimuseActivityExtension**):
-   - Go to **Signing & Capabilities**
-   - Change **Team** to your Apple Developer account
-   - Xcode generates the provisioning profiles automatically
-4. To use the DLNA receiver on a physical device, enable the **Multicast Networking** capability for your App ID in the Apple Developer portal and make sure the provisioning profile includes `com.apple.developer.networking.multicast`
+1. Select the **Primuse** project in Xcode.
+2. Set your Apple Developer Team on the app and extension targets you intend to build.
+3. The iOS app, widgets, activity extension, Watch app, Watch widgets, macOS app, tvOS app, and Top Shelf extension use different bundle and entitlement combinations; keeping automatic signing enabled is recommended.
+4. To use the DLNA Renderer on a physical device, enable Multicast Networking for the App ID in the Apple Developer portal and make sure the provisioning profile contains `com.apple.developer.networking.multicast`.
 
-You can also edit `DEVELOPMENT_TEAM` in `project.yml` and regenerate the project.
+You can also change `DEVELOPMENT_TEAM` in `project.yml` and regenerate the project with XcodeGen.
 
-### 4. Configure local secrets (optional)
-
-Copy `Config/Secrets.local.xcconfig.example` to `Config/Secrets.local.xcconfig` and fill in cloud-drive OAuth or a default Last.fm API key as needed. This file is git-ignored; when left empty, Last.fm asks the user to paste their own key in Settings.
-
-### 5. Build & run
-
-Pick a target device/simulator and press `Cmd+R`, or use the command line:
+### 3. Configure local secrets (optional)
 
 ```bash
-# Simulator build
-xcodebuild -scheme Primuse \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
-  build
-
-# Device build (requires signing)
-xcodebuild -scheme Primuse \
-  -destination 'id=YOUR_DEVICE_UDID' \
-  build
+cp Config/Secrets.local.xcconfig.example Config/Secrets.local.xcconfig
 ```
 
-### 6. Install to a device from the command line
+Add cloud-drive OAuth and Last.fm values as needed. `Config/Secrets.local.xcconfig` is ignored by Git. If an integrated OAuth credential is not configured, that service may require the developer's own client configuration.
+
+### 4. Build and test
 
 ```bash
-# Install
-xcrun devicectl device install app \
-  --device YOUR_DEVICE_UDID \
-  ~/Library/Developer/Xcode/DerivedData/Primuse-*/Build/Products/Debug-iphoneos/Primuse.app
+# Generic iOS Simulator build
+xcodebuild -project Primuse.xcodeproj \
+  -scheme Primuse \
+  -destination 'generic/platform=iOS Simulator' \
+  build
 
-# Launch
-xcrun devicectl device process launch \
-  --device YOUR_DEVICE_UDID \
-  com.welape.yuanyin
+# Apple TV Simulator build
+xcodebuild -project Primuse.xcodeproj \
+  -scheme PrimuseTV \
+  -destination 'generic/platform=tvOS Simulator' \
+  build
+
+# PrimuseKit tests
+swift test --package-path PrimuseKit
 ```
+
+### 5. Development helper
+
+The repository includes one local development helper for common build, install, and launch workflows:
+
+```bash
+# Pick an action interactively
+scripts/primuse-dev.sh
+
+# List available iPhones and iPads
+scripts/primuse-dev.sh devices
+
+# Overwrite-install while retaining app data
+scripts/primuse-dev.sh ios-overwrite
+
+# Clean reinstall; the script requires DELETE confirmation and erases app data
+scripts/primuse-dev.sh ios-clean
+
+# Build and launch the Mac app
+scripts/primuse-dev.sh mac
+```
+
+Before a physical-device build, run `scripts/check-apple-signing.sh` to check the signing identity, private-key access, and `codesign` authorization.
 
 ## Custom Scraping Sources
 
-Primuse can import custom metadata scraping sources via JSON config. Each config file describes the API endpoint, request format and a JavaScript parsing script.
+Primuse can describe search, detail, artwork, and lyrics endpoints in JSON and parse responses with JavaScript. Before importing, it shows the domains, HTTP methods, capabilities, cookies, TLS trust domains, and sensitive-configuration warnings for review.
 
-### Config format
+### Configuration example
 
 ```json
 {
@@ -205,121 +274,156 @@ Primuse can import custom metadata scraping sources via JSON config. Each config
   "color": "#FF6600",
   "rateLimit": 500,
   "headers": {
-    "User-Agent": "Mozilla/5.0"
+    "User-Agent": "Primuse"
   },
-  "capabilities": ["metadata", "cover", "lyrics"],
-  "sslTrustDomains": ["example.com"],
+  "capabilities": ["metadata", "cover", "lyrics", "lyricsWordLevel"],
   "search": {
     "url": "https://api.example.com/search",
     "method": "GET",
-    "params": { "q": "{{query}}", "limit": "{{limit}}" },
-    "script": "var items = response.results || []; return items.map(function(s) { return {id: String(s.id), title: s.name, artist: s.artist, album: s.album, durationMs: s.duration, coverUrl: s.cover}; });"
+    "params": {
+      "q": "{{query}}",
+      "artist": "{{artist}}",
+      "album": "{{album}}",
+      "limit": "{{limit}}"
+    },
+    "script": "return (response.results || []).map(function (item) { return { id: String(item.id), title: item.title, artist: item.artist, album: item.album, durationMs: item.durationMs, coverUrl: item.coverUrl }; });"
   },
-  "detail": { "url": "...", "method": "GET", "script": "..." },
-  "cover": { "url": "...", "method": "GET", "script": "..." },
-  "lyrics": { "url": "...", "method": "GET", "script": "..." }
+  "detail": {
+    "url": "https://api.example.com/tracks/{{id}}",
+    "method": "GET",
+    "script": "return response;"
+  },
+  "cover": {
+    "url": "https://api.example.com/tracks/{{id}}/covers",
+    "method": "GET",
+    "script": "return response.covers || [];"
+  },
+  "lyrics": {
+    "url": "https://api.example.com/tracks/{{id}}/lyrics",
+    "method": "GET",
+    "script": "return { lrcContent: response.lrc, wordLevelLrc: response.wordLevelLrc, plainText: response.text };"
+  }
 }
 ```
 
-### How to import
+### Import and script contract
 
-1. Open **Settings → Metadata Scraping → Import Scraping Source**
-2. Choose **Paste Config** or **Import from URL**
-3. The imported source appears in the scraping-source list, where it can be reordered by dragging and enabled/disabled
+1. Open **Settings → Metadata Scraping → Import Scraping Source**.
+2. Paste JSON or an HTTPS manifest URL.
+3. Review permissions and security warnings, then confirm the import.
+4. Reorder, enable, disable, edit, or configure cookies for the imported source.
 
-### JS script reference
+Scripts can access:
 
-- `response`: the parsed JSON response object
-- `responseText`: the raw response text
-- `externalId`: the external ID of the current song (available in the detail/cover/lyrics endpoints)
-- `log(msg)`: debug log output
+- `response`: parsed JSON response
+- `responseText`: raw response text
+- `externalId`: current external ID for detail, artwork, and lyrics endpoints
+- `log(msg)`: debug logging
 
-**search script** returns `[{id, title, artist, album, durationMs, coverUrl}]`
+Expected return values:
 
-**detail script** returns `{title, artist, album, year, coverUrl, trackNumber, genres}`
+- `search`: `[{id, title, artist, album, year, durationMs, coverUrl, trackNumber, genres}]`
+- `detail`: `{title, artist, albumArtist, album, year, trackNumber, discNumber, durationMs, genres, coverUrl}`
+- `cover`: `[{coverUrl, thumbnailUrl}]`
+- `lyrics`: `{lrcContent, wordLevelLrc, plainText}`
 
-**lyrics script** returns `{lrcContent}` or `{plainText}`
-
-**cover script** returns `[{coverUrl, thumbnailUrl}]`
+Do not import configurations from sources you do not trust. Custom scripts process remote responses; cookies, headers, TLS trust domains, and local secrets are sensitive permissions.
 
 ## Project Structure
 
-```
+```text
 primuse/
-├── Primuse/                        # Main app target
-│   ├── App/                        # App entry point, ContentView
+├── Primuse/                        # Shared iOS and macOS application code
+│   ├── App/                        # App entry, dependency wiring, CarPlay and external-display scenes
 │   ├── Services/
-│   │   ├── Audio/                  # Playback engine, decoders, equalizer
-│   │   ├── Cloud/                  # iCloud / CloudKit sync
-│   │   ├── DLNA/                   # UPnP/AV Renderer receiver & casting
-│   │   ├── Library/                # Music library, database
-│   │   ├── Metadata/               # Scrapers, asset storage, Sidecar writing
-│   │   │   └── Scrapers/           # Configurable scraper, MusicBrainz, LRCLIB
-│   │   ├── Playlist/               # Playlist import & export
-│   │   ├── Scrobble/               # Last.fm / ListenBrainz
-│   │   ├── Sources/                # NAS, protocol, media server & cloud connectors
-│   │   └── Stats/                  # Listening stats & yearly report
-│   ├── Views/
-│   │   ├── Home/                   # Home (dashboard)
-│   │   ├── Library/                # Album, artist, song, playlist views
-│   │   ├── NowPlaying/             # Player, queue, scraping options
-│   │   ├── Search/                 # Search view
-│   │   ├── Settings/               # Settings, equalizer, scraper config
-│   │   ├── Sources/                # Source management, connection flow
-│   │   └── Components/             # Reusable UI components
-│   ├── Resources/                  # Localizations (en, zh-Hans, zh-Hant, de, fr, ja, ko), assets
-│   └── Utilities/                  # Logging utilities, extensions
-├── PrimuseKit/                     # Shared framework (models, protocols)
-│   └── Sources/PrimuseKit/Models/  # Song, Album, Artist, Playlist, etc.
-├── PrimuseWidgetExtension/         # Home Screen widgets
-├── PrimuseActivityExtension/       # Dynamic Island / Live Activities
+│   │   ├── AppleMusic/             # MusicKit catalog, library, and mixed queues
+│   │   ├── Audio/                  # Playback, native/FFmpeg decoding, caching, and effects
+│   │   ├── Cloud/                  # CloudKit, family sharing, snapshots, and credential sync
+│   │   ├── DLNA/                   # UPnP/AV Renderer and casting
+│   │   ├── Library/                # GRDB library, scanning, Spotlight, and maintenance
+│   │   ├── Metadata/               # Tags, sidecars, scrapers, and lyric translation
+│   │   ├── Relay/                  # iPhone-to-Apple TV LAN relay
+│   │   ├── Sources/                # NAS, protocol, server, and cloud connectors
+│   │   └── Watch/                  # WatchConnectivity bridge
+│   ├── Views/                      # iOS and macOS interfaces
+│   └── Resources/                  # Seven localizations, assets, and privacy manifests
+├── PrimuseKit/                     # Models, policies, and stream resolvers shared across iOS/macOS/tvOS
+├── PrimuseTV/                      # Apple TV app
+├── PrimuseTopShelf/                # tvOS Top Shelf extension
 ├── PrimuseWatch/                   # Apple Watch app
+├── PrimuseWatchShared/             # Models shared by the Watch app and complications
 ├── PrimuseWatchWidgets/            # Watch complications
-├── Config/                         # Entitlements, Info.plist config
-└── project.yml                     # XcodeGen project definition
+├── PrimuseWidgetExtension/         # iOS/macOS widgets and Control Center widgets
+├── PrimuseActivityExtension/       # Live Activity layout target (not currently enabled by the main app)
+├── Frameworks/FFmpeg/              # iOS/macOS FFmpeg XCFrameworks
+├── Config/                         # Entitlements, xcconfig, and Info configuration
+├── scripts/                        # Build, install, signing, FFmpeg, and screenshot tools
+└── project.yml                     # XcodeGen project definition and unified version source
 ```
 
 ## Dependencies
 
-| Package | Purpose |
-|---------|---------|
-| [SFBAudioEngine](https://github.com/sbooth/SFBAudioEngine) | Audio decoding (FLAC, APE, WV, TTA, DSD, MP3, AAC, etc.) |
-| [GRDB.swift](https://github.com/groue/GRDB.swift) | SQLite database, music library persistence |
-| [AMSMB2](https://github.com/amosavian/AMSMB2) | SMB/CIFS client, NAS access |
-| [FileProvider](https://github.com/amosavian/FileProvider) | FTP/WebDAV file operations |
+| Package or framework | Purpose |
+|----------------------|---------|
+| [SFBAudioEngine](https://github.com/sbooth/SFBAudioEngine) | High-fidelity audio decoding and DSD support |
+| FFmpeg 8.1 (bundled dynamic XCFrameworks) | DTS/DTS-CD, multichannel downmix, and compatibility decoding |
+| [GRDB.swift](https://github.com/groue/GRDB.swift) | SQLite library persistence |
+| [AMSMB2](https://github.com/amosavian/AMSMB2) | SMB/CIFS client |
+| [FileProvider](https://github.com/amosavian/FileProvider) | FTP and WebDAV file operations |
 | [Citadel](https://github.com/orlandos-nl/Citadel) | SSH/SFTP client |
 | [NFSKit](https://github.com/alexiscn/NFSKit) | NFS client |
-| [swift-crypto](https://github.com/apple/swift-crypto) | Cryptographic operations |
+| [swift-crypto](https://github.com/apple/swift-crypto) | Cryptographic and signing operations |
 | [swift-nio](https://github.com/apple/swift-nio) | Asynchronous networking infrastructure |
 
-It also uses the system frameworks MusicKit, CloudKit, ActivityKit, WidgetKit, WatchConnectivity, CarPlay, MediaPlayer and Network.framework.
+System frameworks include MusicKit, CloudKit, AVFoundation, MediaPlayer, CarPlay, WidgetKit, WatchConnectivity, App Intents, Core Spotlight, Translation, and Network.framework.
 
 ## Architecture
 
 ### Audio pipeline
 
-```
-Source (local / NAS / media server / cloud drive)
-  → CloudPlaybackSource / StreamingDownloadDecoder / NativeAudioDecoder
-  → SFBAudioEngine AudioDecoder
-  → AVAudioConverter (sample rate / format conversion)
-  → AVAudioEngine (PlayerNode → Mixer → EQ → Compressor → Reverb → output)
+```text
+Local / NAS / protocol / media server / cloud drive
+  → SourceManager / StreamResolver / Range Fetcher
+  → CUE Segment and cache/prewarm policies
+  → NativeAudioDecoder (SFBAudioEngine) or FFmpegAudioDecoder
+  → AVAudioConverter
+  → AVAudioEngine (Player → Mixer → EQ / Dynamics / Reverb → Output)
+
+Apple Music
+  → MusicKit ApplicationMusicPlayer
+  → Primuse mixed-queue and system Now Playing coordination
 ```
 
-### Metadata scraping
+### Metadata and lyrics
 
+```text
+Source scan
+  → file tags + sidecars + CUE expansion
+  → MetadataBackfillService
+  → GRDB library and MetadataAssetStore
+
+Manual / automatic / batch scrape
+  → ScraperManager
+  → built-in scraper or JSON + JavaScript custom scraper
+  → title/artist/album/duration candidate ranking
+  → local cache, or SidecarWriteService for supported writable sources
 ```
-User triggers a scrape
-  → ScraperManager (tries enabled sources in priority order)
-  → ConfigurableScraper (JSON config + JavaScriptCore parsing)
-  → cover + lyrics + metadata
-  → SidecarWriteService → NAS (<song>-cover.jpg, <song>.lrc)
-  → MetadataAssetStore → local cache
+
+### Cross-device data
+
+```text
+iPhone / iPad / Mac
+  ↔ CloudKit: playlists, sources, settings, history, statistics, library snapshots
+  ↔ iCloud Keychain / encrypted credential bundle
+  ↔ Apple TV: CloudKit sync or QR-code LAN transfer
+  ↔ Apple Watch: WatchConnectivity playback state and control commands
 ```
 
 ### CI/CD
 
-The project is set up with GitHub Actions for automated builds:
+- **Build** — a manually dispatched GitHub Actions workflow runs branding checks, resolves Swift packages, and builds for the iOS Simulator; when the version changes, it can also produce an unsigned IPA artifact
+- **Release** — manually archive, sign, and export the IPA, with an option to upload it to TestFlight
 
-- **build**: every push/PR triggers a simulator build for verification (no signing required)
-- **archive**: only when the version number changes on the `main` branch, an unsigned IPA is built automatically and uploaded as an artifact
+## Notes
+
+Primuse does not provide music or cloud storage. You use your own files, servers, and third-party accounts. Availability depends on each provider, region, account permissions, and API status. Follow the terms of your content sources and all applicable laws.
