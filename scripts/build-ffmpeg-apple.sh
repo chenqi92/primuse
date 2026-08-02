@@ -11,6 +11,7 @@ set -euo pipefail
 readonly FFMPEG_TAG="n8.1"
 readonly FFMPEG_COMMIT="9047fa1b084f76b1b4d065af2d743df1b40dfb56"
 readonly REPOSITORY_URL="https://git.ffmpeg.org/ffmpeg.git"
+readonly BUILD_CONFIGURATION_ID="${FFMPEG_COMMIT}-dwarf-v1"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -89,6 +90,7 @@ configure_and_build() {
   local minimum_flag="$4"
   local build_dir="${BUILD_ROOT}/build/${variant}"
   local stage_dir="${BUILD_ROOT}/stage/${variant}"
+  local build_configuration_file="${stage_dir}/.primuse-build-configuration"
   local sdk_path
   local compiler
   local host_compiler
@@ -104,7 +106,10 @@ configure_and_build() {
     extra_cross_flags+=(--enable-cross-compile)
   fi
 
-  if [[ "${FFMPEG_REUSE_BUILDS:-0}" == "1" && -f "${stage_dir}/lib/libavformat.dylib" ]]; then
+  if [[ "${FFMPEG_REUSE_BUILDS:-0}" == "1" \
+    && -f "${stage_dir}/lib/libavformat.dylib" \
+    && -f "${build_configuration_file}" \
+    && "$(<"${build_configuration_file}")" == "${BUILD_CONFIGURATION_ID}" ]]; then
     echo "Reusing completed FFmpeg build: ${variant}"
     return
   fi
@@ -129,7 +134,8 @@ configure_and_build() {
     --enable-pic
     --disable-programs
     --disable-doc
-    --disable-debug
+    --enable-debug=2
+    --disable-stripping
     --disable-avdevice
     --disable-avfilter
     --disable-swscale
@@ -167,6 +173,7 @@ configure_and_build() {
     "${SOURCE_DIR}/configure" "${configure_args[@]}"
     make -j"${JOBS}" install
   )
+  printf '%s\n' "${BUILD_CONFIGURATION_ID}" > "${build_configuration_file}"
 }
 
 library_binary() {
@@ -268,6 +275,31 @@ merge_frameworks() {
     -output "${universal_framework}/${binary_path}"
 }
 
+framework_binary_path() {
+  local variant="$1"
+  local library="$2"
+  local framework_root="${BUILD_ROOT}/frameworks/${variant}/${library}.framework"
+
+  if [[ "${variant}" == macos-* ]]; then
+    printf '%s\n' "${framework_root}/Versions/A/${library}"
+  else
+    printf '%s\n' "${framework_root}/${library}"
+  fi
+}
+
+create_dsym() {
+  local variant="$1"
+  local library="$2"
+  local binary
+  local dsym="${BUILD_ROOT}/dSYMs/${variant}/${library}.framework.dSYM"
+
+  binary="$(framework_binary_path "${variant}" "${library}")"
+  rm -rf "${dsym}"
+  mkdir -p "$(dirname "${dsym}")"
+  xcrun dsymutil --verify-dwarf=output "${binary}" -o "${dsym}"
+  xcrun strip -x "${binary}"
+}
+
 package_xcframeworks() {
   local library
   rm -rf "${OUTPUT_DIR}"
@@ -283,10 +315,17 @@ package_xcframeworks() {
       ios-simulator-arm64 ios-simulator-x86_64 ios-simulator-universal "${library}"
     merge_frameworks macos-arm64 macos-x86_64 macos-universal "${library}"
 
+    create_dsym ios-arm64 "${library}"
+    create_dsym ios-simulator-universal "${library}"
+    create_dsym macos-universal "${library}"
+
     xcodebuild -create-xcframework \
       -framework "${BUILD_ROOT}/frameworks/ios-arm64/${library}.framework" \
+      -debug-symbols "${BUILD_ROOT}/dSYMs/ios-arm64/${library}.framework.dSYM" \
       -framework "${BUILD_ROOT}/frameworks/ios-simulator-universal/${library}.framework" \
+      -debug-symbols "${BUILD_ROOT}/dSYMs/ios-simulator-universal/${library}.framework.dSYM" \
       -framework "${BUILD_ROOT}/frameworks/macos-universal/${library}.framework" \
+      -debug-symbols "${BUILD_ROOT}/dSYMs/macos-universal/${library}.framework.dSYM" \
       -output "${OUTPUT_DIR}/${library}.xcframework"
   done
 }

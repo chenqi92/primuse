@@ -1,0 +1,5 @@
+---
+triple:          'arm64-apple-darwin'
+binary-path:     '/private/tmp/primuse-ffmpeg-dsym-build.Z3ooen/work/frameworks/ios-arm64/libavutil.framework/libavutil'
+relocations:     []
+...
