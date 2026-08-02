@@ -1753,16 +1753,15 @@ public enum ScrapeMetadataApplicationPolicy {
 }
 
 /// A deterministic rank for scrape candidates. Title compatibility remains
-/// the identity gate. Known durations within a small, adaptive tolerance rank
-/// ahead of unknown durations, while obvious duration mismatches remain last.
-/// Metadata completeness breaks identity ties without allowing a rich but
-/// unrelated result to bypass the title gate.
+/// the identity gate. Within that gate, every usable duration ranks ahead of a
+/// missing duration, then exact duration distance, title, and artist decide the
+/// order. Metadata completeness only breaks remaining identity ties.
 public struct ScrapeCandidateRank: Sendable, Equatable {
     public enum DurationTier: Int, Sendable, Equatable {
         case close = 0
         case plausible = 1
-        case unknown = 2
-        case mismatch = 3
+        case mismatch = 2
+        case unknown = 3
         case unavailable = 4
     }
 
@@ -1895,50 +1894,28 @@ public enum ScrapeCandidateRankingPolicy {
             return lhsTitleCompatible
         }
 
-        if lhsTitleCompatible {
-            let lhsArtistConflict = lhs.artistTier == .conflict
-            let rhsArtistConflict = rhs.artistTier == .conflict
-            if lhsArtistConflict != rhsArtistConflict {
-                return !lhsArtistConflict
-            }
-            if lhs.durationTier != rhs.durationTier {
-                return lhs.durationTier.rawValue < rhs.durationTier.rawValue
-            }
-            if lhs.durationTier == .close {
-                let lhsPrecision = durationPrecisionBucket(lhs.durationDeltaMs)
-                let rhsPrecision = durationPrecisionBucket(rhs.durationDeltaMs)
-                if lhsPrecision != rhsPrecision {
-                    return lhsPrecision < rhsPrecision
-                }
-            }
-            if lhs.titleMatchLevel != rhs.titleMatchLevel {
-                return lhs.titleMatchLevel > rhs.titleMatchLevel
-            }
-            if lhs.metadataCompleteness != rhs.metadataCompleteness {
-                return lhs.metadataCompleteness > rhs.metadataCompleteness
-            }
-            if lhs.artistTier != rhs.artistTier {
-                return lhs.artistTier.rawValue < rhs.artistTier.rawValue
-            }
-            if let lhsDelta = lhs.durationDeltaMs,
-               let rhsDelta = rhs.durationDeltaMs,
-               lhsDelta != rhsDelta {
-                return lhsDelta < rhsDelta
-            }
+        if lhs.durationTier != rhs.durationTier {
+            return lhs.durationTier.rawValue < rhs.durationTier.rawValue
+        }
+        if let lhsDelta = lhs.durationDeltaMs,
+           let rhsDelta = rhs.durationDeltaMs,
+           lhsDelta != rhsDelta {
+            return lhsDelta < rhsDelta
+        }
+        if lhs.titleMatchLevel != rhs.titleMatchLevel {
+            return lhs.titleMatchLevel > rhs.titleMatchLevel
+        }
+        if lhs.artistTier != rhs.artistTier {
+            return lhs.artistTier.rawValue < rhs.artistTier.rawValue
+        }
+        if lhs.metadataCompleteness != rhs.metadataCompleteness {
+            return lhs.metadataCompleteness > rhs.metadataCompleteness
         }
 
         if lhs.confidence != rhs.confidence {
             return lhs.confidence > rhs.confidence
         }
         return false
-    }
-
-    private static func durationPrecisionBucket(_ deltaMs: Int?) -> Int {
-        guard let deltaMs else { return Int.max }
-        if deltaMs < 2_000 { return 0 }
-        if deltaMs < 5_000 { return 1 }
-        if deltaMs < 10_000 { return 2 }
-        return 3
     }
 
     private static func informationCompleteness(

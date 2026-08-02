@@ -22,13 +22,13 @@ struct ScrapeCandidateRankingPolicyTests {
         #expect(unknown.confidence == 0.5)
     }
 
-    @Test("A seven minute result ranks below an unknown-duration result for a four minute song")
-    func clearMismatchRanksLast() {
+    @Test("A known duration remains ahead of a missing duration even when it clearly mismatches")
+    func missingDurationRanksLast() {
         let unknown = rank(candidateDurationMs: nil)
         let sevenMinutes = rank(candidateDurationMs: 7 * 60 * 1_000)
 
         #expect(sevenMinutes.durationTier == .mismatch)
-        #expect(ScrapeCandidateRankingPolicy.isPreferred(unknown, over: sevenMinutes))
+        #expect(ScrapeCandidateRankingPolicy.isPreferred(sevenMinutes, over: unknown))
     }
 
     @Test("A small duration variance ranks ahead of an unknown-duration sparse result")
@@ -84,8 +84,8 @@ struct ScrapeCandidateRankingPolicyTests {
         #expect(ScrapeCandidateRankingPolicy.isPreferred(twoSecondsAway, over: eightSecondsAway))
     }
 
-    @Test("Richer metadata wins within the same duration precision band")
-    func completenessWinsWithinDurationPrecisionBand() {
+    @Test("Exact duration distance wins before metadata completeness")
+    func exactDurationDistancePrecedesCompleteness() {
         let sparse = rank(candidateDurationMs: targetMs + 6_000)
         let rich = rank(
             candidateDurationMs: targetMs + 8_000,
@@ -95,7 +95,7 @@ struct ScrapeCandidateRankingPolicyTests {
         )
 
         #expect(sparse.durationTier == rich.durationTier)
-        #expect(ScrapeCandidateRankingPolicy.isPreferred(rich, over: sparse))
+        #expect(ScrapeCandidateRankingPolicy.isPreferred(sparse, over: rich))
     }
 
     @Test("Near-exact duration wins before completeness from a weaker duration band")
@@ -113,8 +113,8 @@ struct ScrapeCandidateRankingPolicyTests {
         #expect(ScrapeCandidateRankingPolicy.isPreferred(nearExact, over: richButLessPrecise))
     }
 
-    @Test("Exact identity outranks plausible duration from the wrong artist")
-    func identityOutranksPlausibleDuration() {
+    @Test("Known duration precedes artist agreement in candidate ordering")
+    func durationPrecedesArtistAgreement() {
         let exactUnknown = rank(candidateDurationMs: nil)
         let wrongArtist = ScrapeCandidateRankingPolicy.rank(
             requestedTitle: "测试歌曲",
@@ -129,7 +129,7 @@ struct ScrapeCandidateRankingPolicyTests {
 
         #expect(wrongArtist.artistTier == .conflict)
         #expect(wrongArtist.durationTier == .close)
-        #expect(ScrapeCandidateRankingPolicy.isPreferred(exactUnknown, over: wrongArtist))
+        #expect(ScrapeCandidateRankingPolicy.isPreferred(wrongArtist, over: exactUnknown))
     }
 
     @Test("Reliable duration and rich metadata outrank an exact-artist result without duration")
@@ -190,6 +190,39 @@ struct ScrapeCandidateRankingPolicyTests {
         )
 
         #expect(ScrapeCandidateRankingPolicy.isPreferred(compatibleUnknown, over: wrongTitle))
+    }
+
+    @Test("Title precedes artist when duration distance is equal")
+    func titlePrecedesArtist() {
+        let exactTitleWithoutArtist = rank(
+            candidateArtist: nil,
+            candidateDurationMs: targetMs + 1_000
+        )
+        let partialTitleExactArtist = rank(
+            candidateTitle: "测试歌曲（专辑版）",
+            candidateDurationMs: targetMs + 1_000
+        )
+
+        #expect(ScrapeCandidateRankingPolicy.isPreferred(
+            exactTitleWithoutArtist,
+            over: partialTitleExactArtist
+        ))
+    }
+
+    @Test("Artist agreement precedes metadata completeness after duration and title")
+    func artistPrecedesCompleteness() {
+        let exactArtist = rank(candidateDurationMs: targetMs + 1_000)
+        let richWithoutArtist = rank(
+            candidateArtist: nil,
+            candidateDurationMs: targetMs + 1_000,
+            album: "测试专辑",
+            year: 2026,
+            hasArtwork: true,
+            trackNumber: 3,
+            genreCount: 1
+        )
+
+        #expect(ScrapeCandidateRankingPolicy.isPreferred(exactArtist, over: richWithoutArtist))
     }
 
     private func rank(

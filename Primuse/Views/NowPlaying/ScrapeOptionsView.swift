@@ -1353,9 +1353,9 @@ struct ScrapeOptionsView: View {
             }
         }
 
-        // 标题先做身份兼容门槛；标题兼容的候选再按时长分层：10 秒内且
-        // 越接近越优先、无时长其次、明显不符最后。相同层级才比较歌手与
-        // 综合置信度。默认自动选中第一项，因此这里必须保持确定性。
+        // 标题先做身份兼容门槛；标题兼容的候选优先比较是否有时长与实际
+        // 误差，再依次比较歌名、歌手和元数据完整度。无时长候选统一排在
+        // 所有有时长候选之后。默认自动选中第一项，因此这里必须保持确定性。
         aggregatedResults.sort { lhs, rhs in
             if ScrapeCandidateRankingPolicy.isPreferred(lhs.matchRank, over: rhs.matchRank) {
                 return true

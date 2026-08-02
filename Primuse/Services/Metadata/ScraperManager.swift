@@ -159,21 +159,26 @@ actor ScraperManager {
                         query: cleanedTitle, artist: effectiveArtist, album: nil, limit: Self.autoScrapeLimit
                     )
                     plog("🔍 \(config.type.displayName) returned \(searchResult.items.count) results")
+                    // Reject unsafe automatic identities before truncating the
+                    // ranked set. Duration-first presentation must not let a
+                    // same-length wrong artist consume the limited detail slots.
+                    let safeItems = searchResult.items.filter {
+                        Self.isConfidentAutoMatch(
+                            $0,
+                            title: cleanedTitle,
+                            artist: effectiveArtist,
+                            durationMs: durationMs(duration)
+                        )
+                    }
                     let rankedItems = Self.topMatches(
-                        in: searchResult.items,
+                        in: safeItems,
                         title: cleanedTitle,
                         artist: effectiveArtist,
                         durationMs: durationMs(duration),
                         maxCount: Self.autoMetadataCandidatesPerSource
                     )
-                    let confidentCandidates = rankedItems.enumerated().compactMap { searchOrder, item -> PendingMetadataCandidate? in
-                        guard Self.isConfidentAutoMatch(
-                            item,
-                            title: cleanedTitle,
-                            artist: effectiveArtist,
-                            durationMs: durationMs(duration)
-                        ) else { return nil }
-                        return PendingMetadataCandidate(
+                    let confidentCandidates = rankedItems.enumerated().map { searchOrder, item in
+                        PendingMetadataCandidate(
                             config: config,
                             item: item,
                             rank: Self.candidateRank(
@@ -413,26 +418,21 @@ actor ScraperManager {
         artist: String?,
         durationMs targetMs: Int?
     ) -> ScraperSearchItem? {
-        guard let candidate = topMatches(
-            in: items,
+        let safeItems = items.filter {
+            isConfidentAutoMatch(
+                $0,
+                title: title,
+                artist: artist,
+                durationMs: targetMs
+            )
+        }
+        return topMatches(
+            in: safeItems,
             title: title,
             artist: artist,
             durationMs: targetMs,
             maxCount: 1
-        ).first else { return nil }
-
-        // Automatic metadata and artwork are persisted immediately, so a
-        // provider's default first result is not an acceptable fallback when
-        // no identity signal agrees. Require a compatible title, then require
-        // either the supplied artist or a near-exact duration. This prefers a
-        // false negative (leave the user's existing metadata untouched) over
-        // silently assigning another singer's album/cover to a generic title.
-        return isConfidentAutoMatch(
-            candidate,
-            title: title,
-            artist: artist,
-            durationMs: targetMs
-        ) ? candidate : nil
+        ).first
     }
 
     static func isConfidentAutoMatch(
