@@ -18,6 +18,7 @@ public actor StreamResolverRegistry {
         let baidu = BaiduPanStreamResolver()
         let media = MediaServerStreamResolver()
         let nas = NasHttpStreamResolver()
+        let daoLiYu = DaoLiYuStreamResolver()
         let ugreen = UgreenStreamResolver()
         var map: [MusicSourceType: StreamResolver] = [:]
         for type in [MusicSourceType.subsonic, .navidrome, .airsonic, .gonic] {
@@ -31,6 +32,7 @@ public actor StreamResolverRegistry {
         for type in [MusicSourceType.qnap, .fnos] {
             map[type] = nas
         }
+        map[.daoliyu] = daoLiYu
         map[.ugreen] = ugreen
         // WebDAV / UPnP:tvOS 纯 HTTP 直连(Basic Auth / 直链),不再经中继。
         map[.webdav] = WebDavStreamResolver()

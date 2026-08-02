@@ -119,6 +119,7 @@ struct TVSourceTypePicker: View {
         case .qnap: return "QNAP"
         case .fnos: return "fnOS"
         case .ugreen: return "绿联"
+        case .daoliyu: return "道理鱼"
         case .jellyfin: return "Jellyfin"
         case .emby: return "Emby"
         case .plex: return "Plex"
@@ -137,6 +138,7 @@ struct TVSourceTypePicker: View {
         case .nfs: return "NFS 共享"
         case .jellyfin, .emby, .plex: return "媒体服务器"
         case .subsonic, .navidrome, .airsonic, .gonic: return "Subsonic 协议"
+        case .daoliyu: return "道理鱼原生 API"
         case .synology, .qnap, .fnos, .ugreen: return "NAS 音乐套件"
         default: return t.category.rawValue
         }
@@ -180,6 +182,12 @@ struct TVSourceFormView: View {
         guard connectionIsValid else { return false }
         if type.supportsAnonymous && !useGuestAccess {
             guard !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+            if editing == nil && password.isEmpty { return false }
+        }
+        if type == .daoliyu {
+            guard !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return false
+            }
             if editing == nil && password.isEmpty { return false }
         }
         return true

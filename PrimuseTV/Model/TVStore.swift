@@ -399,7 +399,7 @@ final class TVStore {
                          playability: playability(for: s),
                          canEnterCredential: !s.type.isAwaitingPublicAPI && Self.manualCredentialTypes.contains(s.type),
                          supports2FA: !s.type.isAwaitingPublicAPI && s.type.supports2FA,
-                         canScan: s.type == .smb)
+                         canScan: s.type == .smb || s.type == .daoliyu)
     }
 
     /// NAS 两步验证:用一次性验证码登录,成功则把申请到的「受信设备」令牌(deviceId)存进源,
@@ -434,7 +434,7 @@ final class TVStore {
     /// 用「服务端账号 + 密码」登录、且能在 TV 直连的源类型 —— 适合在 TV 上手动输入凭据。
     /// 云盘(OAuth)、relay 类(凭据在 iPhone 侧)、原生库源不在此列。
     private static let manualCredentialTypes: Set<MusicSourceType> = [
-        .subsonic, .navidrome, .airsonic, .gonic,
+        .subsonic, .navidrome, .airsonic, .gonic, .daoliyu,
         .synology, .qnap, .fnos, .ugreen,
         .jellyfin, .emby, .plex,
     ]
@@ -510,10 +510,28 @@ final class TVStore {
     /// 「测试连接」:用当前凭据尝试解析该源的一首歌,返回给用户看的结果文案。
     func testConnection(forSourceID id: String) async -> String {
         guard let source = sourcesStore.source(id: id) else { return PMString("ext.tv.test.sourceNotFound") }
+        let cred = TVCredentialStore.credential(for: source, bundle: credentialBundle)
+        if source.type == .daoliyu {
+            do {
+                _ = try await scanner.validateDaoLiYuConnection(source: source, credential: cred)
+                return PMString("ext.tv.test.connectedPrefix")
+                    + (source.host ?? PMString("ext.tv.test.resolved"))
+            } catch let error as DaoLiYuServiceError {
+                switch error {
+                case .missingCredential:
+                    return PMString("ext.tv.test.missingCredential")
+                case .authenticationFailed:
+                    return PMString("ext.tv.test.authFailed")
+                default:
+                    return PMString("ext.tv.test.failedDetail", error.localizedDescription)
+                }
+            } catch {
+                return PMString("ext.tv.test.failedDetail", error.localizedDescription)
+            }
+        }
         guard let song = library.songs.first(where: { $0.sourceID == id }) else {
             return PMString("ext.tv.test.noSongs")
         }
-        let cred = TVCredentialStore.credential(for: source, bundle: credentialBundle)
         // 协议直连(SMB/NFS/FTP):测真实字节读取器(与播放同路径),不走中继。
         if let reader = TVPlaybackCoordinator.makeDirectReader(source: source, song: song, credential: cred) {
             do {
@@ -939,7 +957,7 @@ final class TVStore {
     /// 可在 TV 上直接新增的源类型:服务端登录类 + 协议类。云盘(OAuth,TV 无浏览器)、
     /// 本地 / Apple Music 不在内。
     static let addableTypes: [MusicSourceType] = [
-        .subsonic, .navidrome, .airsonic, .gonic,
+        .subsonic, .navidrome, .airsonic, .gonic, .daoliyu,
         .jellyfin, .emby, .plex,
         .synology, .qnap, .fnos, .ugreen,
         .webdav, .smb, .ftp, .sftp, .nfs,
@@ -993,8 +1011,10 @@ final class TVStore {
 
     // MARK: TV 本机扫描(选目录 → 路径快扫)
 
-    /// 该源能否在 TV 上浏览目录 + 扫描(目前仅 SMB)。
-    func canScanOnTV(_ source: MusicSource) -> Bool { source.type == .smb }
+    /// 该源能否在 TV 上扫描。道理鱼无需浏览文件夹，直接读取服务端整库。
+    func canScanOnTV(_ source: MusicSource) -> Bool {
+        source.type == .smb || source.type == .daoliyu
+    }
 
     /// 构造目录列举器(供选目录页浏览)。
     func makeLister(for source: MusicSource) -> TVDirectoryLister? {
@@ -1012,19 +1032,31 @@ final class TVStore {
             $0.songCount = songs.count
             $0.lastScannedAt = Date()
         }
-        let scannedConfig = MusicSource.encodeScannedDirectories(
-            dirs,
-            into: source.extraConfig,
-            type: source.type
-        )
-        if scannedConfig != source.extraConfig {
-            sourcesStore.update(source.id) {
-                $0.extraConfig = scannedConfig
+        if source.type != .daoliyu {
+            let scannedConfig = MusicSource.encodeScannedDirectories(
+                dirs,
+                into: source.extraConfig,
+                type: source.type
+            )
+            if scannedConfig != source.extraConfig {
+                sourcesStore.update(source.id) {
+                    $0.extraConfig = scannedConfig
+                }
             }
         }
         refreshVisibility()
         sourcesRevision += 1
         enqueueSnapshotUpload()
+    }
+
+    /// 道理鱼没有目录选择步骤，直接从服务端分页读取完整曲库。
+    func runDaoLiYuScan(source: MusicSource) async {
+        guard source.type == .daoliyu,
+              let lister = makeLister(for: source) else {
+            scanner.phase = .failed(PMString("ext.tv.scan.connectFailed"))
+            return
+        }
+        await runScan(source: source, lister: lister, dirs: [])
     }
 
     /// 串行化 sources 上传:快速连续改源时,前一个上传跑完再发下一个,

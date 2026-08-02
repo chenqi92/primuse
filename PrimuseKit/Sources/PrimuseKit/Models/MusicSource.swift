@@ -57,6 +57,10 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     case airsonic
     case gonic
 
+    /// 道理鱼音乐原生 API。它仅暴露服务端曲库，不按 Subsonic 协议解释，
+    /// 避免将目前只提供 ping 的兼容路由误当成完整 Subsonic 实现。
+    case daoliyu
+
     // Cloud Drives
     case baiduPan
     case aliyunDrive
@@ -95,6 +99,8 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
             return String(localized: "src.displayName.ugreen", bundle: Bundle.primuseKit)
         case .fnos:
             return String(localized: "src.displayName.fnos", bundle: Bundle.primuseKit)
+        case .daoliyu:
+            return String(localized: "src.displayName.daoliyu", bundle: Bundle.primuseKit)
         case .webdav: return "WebDAV"
         case .smb: return "SMB/CIFS"
         case .ftp: return "FTP"
@@ -132,6 +138,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .qnap: return "xserve"
         case .ugreen: return "xserve"
         case .fnos: return "xserve"
+        case .daoliyu: return "music.note.house"
         case .webdav: return "globe"
         case .smb: return "network"
         case .ftp: return "arrow.up.arrow.down.circle"
@@ -174,7 +181,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     /// 系(Navidrome/Airsonic/Gonic)。Apple Music Library 虽也整库扫描, 但
     /// 走 iTunesLibrary 而非 connector "/" 流程, 故不在此列。
     public var isServerLibrary: Bool {
-        isMediaServer || isSubsonicFamily
+        isMediaServer || isSubsonicFamily || self == .daoliyu
     }
 
     /// Whether this source exposes a server/file-system operation that really
@@ -182,7 +189,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     /// be counted as removable duplicates.
     public var supportsFileDeletion: Bool {
         switch self {
-        case .upnp, .subsonic, .navidrome, .airsonic, .gonic,
+        case .upnp, .subsonic, .navidrome, .airsonic, .gonic, .daoliyu,
              .appleMusic, .appleMusicLibrary:
             return false
         default:
@@ -195,7 +202,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     /// directly instead of a "connect & pick directories" flow.
     public var scansEntireLibrary: Bool {
         switch self {
-        case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic: return true   // server-side library
+        case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic, .daoliyu: return true   // server-side library
         case .local, .appleMusicLibrary: return true // already scoped by basePath / library
         default: return false
         }
@@ -205,7 +212,8 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         switch self {
         case .synology, .qnap, .ugreen, .fnos: return .nas
         case .webdav, .smb, .ftp, .sftp, .nfs, .upnp, .s3: return .protocol
-        case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic: return .mediaServer
+        case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic, .daoliyu:
+            return .mediaServer
         case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .pan115, .pan123: return .cloudDrive
         case .appleMusic: return .streaming
         case .local, .appleMusicLibrary: return .local
@@ -218,6 +226,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .qnap: return 8080
         case .ugreen: return 9999
         case .fnos: return 5666
+        case .daoliyu: return 4000
         case .webdav: return 443
         case .smb: return 445
         case .ftp: return 21
@@ -283,6 +292,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
             || self == .qnap
             || self == .ugreen
             || self == .fnos
+            || self == .daoliyu
             || self == .s3
             || self == .smb
             || self == .sftp
@@ -327,6 +337,8 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .qnap: return "QTS/QuTS"
         case .ugreen, .fnos:
             return String(localized: "src.subtitle.awaitingPublicAPI", bundle: Bundle.primuseKit)
+        case .daoliyu:
+            return String(localized: "src.subtitle.daoliyu", bundle: Bundle.primuseKit)
         case .webdav: return "HTTPS/HTTP"
         case .smb: return "SMB2/3, CIFS"
         case .ftp: return "FTP/FTPS/FTPES"

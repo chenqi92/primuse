@@ -1,12 +1,14 @@
 // PrimuseKit framework strings — 简体中文。
 "src.displayName.ugreen"     = "绿联 Ugreen";
 "src.displayName.fnos"       = "飞牛 fnOS";
+"src.displayName.daoliyu"    = "道理鱼";
 "src.displayName.baiduPan"   = "百度网盘";
 "src.displayName.aliyunDrive" = "阿里云盘";
 "src.displayName.pan115"     = "115 网盘";
 "src.displayName.pan123"     = "123 云盘";
 
 "src.subtitle.fnos"          = "飞牛 OS";
+"src.subtitle.daoliyu"       = "自部署音乐服务器 · 原生 API";
 "src.subtitle.awaitingPublicAPI" = "等待官方公开 API · 暂未开放";
 "src.subtitle.baiduPan"      = "百度网盘 OAuth";
 "src.subtitle.aliyunDrive"   = "阿里云盘 PDS";

@@ -359,6 +359,11 @@
 		7C4430806A39B820568C5D47 /* TVSourceFormView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D730FADBA5E272600C03083C /* TVSourceFormView.swift */; };
 		7DDDFFA9F4C5ECBA7324423C /* FnOSSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F7BABA1441A113623307F2B /* FnOSSource.swift */; };
 		7EF2B2A250EA93BDEFFDA5F3 /* StreamResolverRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = F24FFA868034F06D26F041E3 /* StreamResolverRegistry.swift */; };
+		D40200000000000000000001 /* DaoLiYuAPIProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = D40100000000000000000001 /* DaoLiYuAPIProtocol.swift */; };
+		D40200000000000000000002 /* DaoLiYuServiceClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D40100000000000000000002 /* DaoLiYuServiceClient.swift */; };
+		D40200000000000000000003 /* DaoLiYuStreamResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = D40100000000000000000003 /* DaoLiYuStreamResolver.swift */; };
+		D40200000000000000000004 /* DaoLiYuSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D40100000000000000000004 /* DaoLiYuSource.swift */; };
+		D40200000000000000000005 /* DaoLiYuSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D40100000000000000000004 /* DaoLiYuSource.swift */; };
 		8057E3B6274053DAFEA3F8F7 /* RecentAlbumsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C04638250BE3489928491A07 /* RecentAlbumsStore.swift */; };
 		805D574A9EE6E25009EACFE4 /* SourceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2749C2730EE3A6AB4EEFE3FE /* SourceManager.swift */; };
 		80F9BB0920D3B0AC94EC851C /* SimilarTracksService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88F82086EB805A0948919DCF /* SimilarTracksService.swift */; };
@@ -1132,6 +1137,10 @@
 		97F67F7EA254BBF6D2BA74A0 /* libavutil.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = libavutil.xcframework; path = Frameworks/FFmpeg/libavutil.xcframework; sourceTree = "<group>"; };
 		983B4BD41961986660A6E775 /* ScraperConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScraperConfig.swift; sourceTree = "<group>"; };
 		984D9BE82FF301BBD6F0FAD7 /* NasHttpStreamResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NasHttpStreamResolver.swift; sourceTree = "<group>"; };
+		D40100000000000000000001 /* DaoLiYuAPIProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaoLiYuAPIProtocol.swift; sourceTree = "<group>"; };
+		D40100000000000000000002 /* DaoLiYuServiceClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaoLiYuServiceClient.swift; sourceTree = "<group>"; };
+		D40100000000000000000003 /* DaoLiYuStreamResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaoLiYuStreamResolver.swift; sourceTree = "<group>"; };
+		D40100000000000000000004 /* DaoLiYuSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaoLiYuSource.swift; sourceTree = "<group>"; };
 		986B24BF4F85684EE7B21FCE /* FTPByteReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FTPByteReader.swift; sourceTree = "<group>"; };
 		992934DD86AE09796F7BC1A3 /* MusicBrainzScraper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicBrainzScraper.swift; sourceTree = "<group>"; };
 		9AA5AE882AD3B192D6A6764E /* PlaybackLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackLiveActivity.swift; sourceTree = "<group>"; };
@@ -1509,6 +1518,7 @@
 				0A23DCE16E17D3C9AEBAD5AC /* ConnectorScanner.swift */,
 				04E02F82BB81A881C4607BDC /* FnOSAPI.swift */,
 				1F7BABA1441A113623307F2B /* FnOSSource.swift */,
+				D40100000000000000000004 /* DaoLiYuSource.swift */,
 				2A0B5BE8B577AB5EBCBCFB9A /* FTPSource.swift */,
 				0187D5AA8EC6AB3F8B14ECA6 /* LocalBookmarkStore.swift */,
 				2DF35A49EBE68F0FDA253D9A /* LocalFileSource.swift */,
@@ -2292,6 +2302,9 @@
 				13DF5DE888D6B46DD9A60F16 /* BaiduPanStreamResolver.swift */,
 				2CE02EE3CFE1DFDF66C66B7B /* CloudDriveStreamResolver.swift */,
 				2536FC64E50FD6E0FAE8B75B /* CredentialBundle.swift */,
+				D40100000000000000000001 /* DaoLiYuAPIProtocol.swift */,
+				D40100000000000000000002 /* DaoLiYuServiceClient.swift */,
+				D40100000000000000000003 /* DaoLiYuStreamResolver.swift */,
 				8DFB5AEB2960B8723D2E4E8E /* LANSync.swift */,
 				462A1CC2221A693AE52A85E3 /* MediaServerStreamResolver.swift */,
 				984D9BE82FF301BBD6F0FAD7 /* NasHttpStreamResolver.swift */,
@@ -2744,6 +2757,9 @@
 				DE0561DB9A15B686C84CEE8C /* CloudAccount.swift in Sources */,
 				18EF7BC5C1B706CD5A3E761F /* CloudDriveStreamResolver.swift in Sources */,
 				EA28DFE79AF807B40A5B91B4 /* CredentialBundle.swift in Sources */,
+				D40200000000000000000001 /* DaoLiYuAPIProtocol.swift in Sources */,
+				D40200000000000000000002 /* DaoLiYuServiceClient.swift in Sources */,
+				D40200000000000000000003 /* DaoLiYuStreamResolver.swift in Sources */,
 				38A135AAC750CAF0DE89773E /* CueSheetParser.swift in Sources */,
 				6FE53DDA9986F85A3897E582 /* EQPreset.swift in Sources */,
 				4D8C3FF9D79817779D622D03 /* ID3TextMetadataParser.swift in Sources */,
@@ -2896,6 +2912,7 @@
 				5D389057C58B64D16DAE1B46 /* FileMetadataReader.swift in Sources */,
 				4E2AF701883BE301B6436E31 /* FnOSAPI.swift in Sources */,
 				7DDDFFA9F4C5ECBA7324423C /* FnOSSource.swift in Sources */,
+				D40200000000000000000004 /* DaoLiYuSource.swift in Sources */,
 				B26ED4E6532571323A775A66 /* GoogleDriveSource.swift in Sources */,
 				47739E0B4A1BF80DBFEAEACB /* HomeSectionsSettingsView.swift in Sources */,
 				7514AE9FA845FCDE3CE8AE6E /* HomeView.swift in Sources */,
@@ -3192,6 +3209,7 @@
 				83FBC7E697D9FB957F5CFFE7 /* FileMetadataReader.swift in Sources */,
 				B3895BA1B582C6438B5DFC3B /* FnOSAPI.swift in Sources */,
 				D2F2F3E1AC1C81D339E70E7A /* FnOSSource.swift in Sources */,
+				D40200000000000000000005 /* DaoLiYuSource.swift in Sources */,
 				17385B54C3275E7F6DBFC4D0 /* GoogleDriveSource.swift in Sources */,
 				632CD8EEB3DB977BBEF96472 /* HomeSectionsSettingsView.swift in Sources */,
 				BE77E1812F27C8479B2F9EC9 /* HomeView.swift in Sources */,

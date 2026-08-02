@@ -213,7 +213,7 @@ final class ScanService {
             case .smb, .webdav, .ftp, .sftp, .nfs, .upnp,
                  .jellyfin, .emby, .plex,
                  .subsonic, .navidrome, .airsonic, .gonic,
-                 .qnap, .ugreen, .fnos, .s3,
+                 .qnap, .ugreen, .fnos, .daoliyu, .s3,
                  .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .pan115, .pan123,
                  .local, .appleMusicLibrary:
                 await scanConnectorSource(

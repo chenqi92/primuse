@@ -107,7 +107,7 @@ import Testing
     let supported = await StreamResolverRegistry().supportedTypes
     #expect(supported.isSuperset(of: [.subsonic, .navidrome, .airsonic, .gonic, .synology, .s3,
                                       .aliyunDrive, .oneDrive, .dropbox, .pan123,
-                                      .jellyfin, .emby, .plex, .qnap, .fnos, .ugreen,
+                                      .jellyfin, .emby, .plex, .qnap, .fnos, .daoliyu, .ugreen,
                                       .googleDrive, .pan115, .baiduPan]))
     // Phase 3:原生库源经中继也注册了
     #expect(supported.isSuperset(of: [.smb, .sftp, .nfs, .webdav, .local, .appleMusic]))

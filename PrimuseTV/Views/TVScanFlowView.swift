@@ -2,8 +2,7 @@
 import PrimuseKit
 import SwiftUI
 
-/// 添加新源后(或长按源菜单)的「选目录 + 扫描」全屏流程,对照设计 TVPickFolderArtboard /
-/// TVScanningArtboard。目前支持 SMB:浏览共享内的文件夹、勾选要扫的目录、路径快扫建库。
+/// 添加新源后(或长按源菜单)的扫描流程。目录型源选择目录，道理鱼直接扫描服务端曲库。
 struct TVScanFlowView: View {
     @Environment(TVStore.self) private var store
     @Environment(\.dismiss) private var dismiss
@@ -32,6 +31,8 @@ struct TVScanFlowView: View {
                         dismiss()
                     }
                 )
+            } else if source.type == .daoliyu {
+                daoLiYuPickView
             } else {
                 pickView
             }
@@ -40,10 +41,48 @@ struct TVScanFlowView: View {
         .onAppear {
             if lister == nil {
                 lister = store.makeLister(for: source)
-                selected = Set(source.scannedDirectories)   // 回填上次扫描勾选的目录
-                load("/")
+                if source.type != .daoliyu {
+                    selected = Set(source.scannedDirectories)   // 回填上次扫描勾选的目录
+                    load("/")
+                }
             }
         }
+    }
+
+    private var daoLiYuPickView: some View {
+        VStack(spacing: 28) {
+            Image(systemName: source.type.iconName)
+                .font(.system(size: 66, weight: .semibold))
+                .foregroundStyle(TVColor.onBrand)
+                .frame(width: 132, height: 132)
+                .background(TVColor.brand, in: RoundedRectangle(cornerRadius: 30, style: .continuous))
+            VStack(spacing: 10) {
+                TVEyebrow(text: "\(source.type.displayName) · 完整曲库")
+                Text("扫描服务端音乐曲库")
+                    .font(.system(size: 42, weight: .bold))
+                    .foregroundStyle(TVColor.text)
+                Text("将通过道理鱼原生 API 导入曲目，无需选择 NAS 文件夹。")
+                    .font(.system(size: 20))
+                    .foregroundStyle(TVColor.textFaint)
+            }
+            TVFocusButton(radius: 16, accent: TVColor.brand, scale: 1.05, lift: 4, action: startDaoLiYuScan) { focused in
+                Label(PMString("ext.tv.scan.start"), systemImage: "arrow.triangle.2.circlepath")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(TVColor.onBrand)
+                    .padding(.horizontal, 46)
+                    .padding(.vertical, 20)
+                    .background(TVColor.brand.opacity(focused ? 1 : 0.88), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+            TVFocusButton(radius: 16, scale: 1.04, lift: 0, action: { dismiss() }) { focused in
+                Text(PMString("ext.tv.sources.cancel"))
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundStyle(TVColor.text)
+                    .padding(.horizontal, 40)
+                    .padding(.vertical, 14)
+                    .background(focused ? TVColor.surfaceStrong : TVColor.surfaceSubtle, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: 选目录(第 3 步)
@@ -194,6 +233,12 @@ struct TVScanFlowView: View {
         loadTask?.cancel()
         started = true
         scanTask = Task { await store.runScan(source: source, lister: lister, dirs: dirs) }
+    }
+
+    private func startDaoLiYuScan() {
+        loadTask?.cancel()
+        started = true
+        scanTask = Task { await store.runDaoLiYuScan(source: source) }
     }
 
     private static func parent(of path: String) -> String {

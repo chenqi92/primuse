@@ -119,6 +119,10 @@ import Testing
     #expect(MusicSourceType.s3.defaultPort(useSsl: false) == 80)
     #expect(MusicSourceType.smb.defaultPort(useSsl: true) == 445)
     #expect(MusicSourceType.smb.defaultPort(useSsl: false) == 445)
+    #expect(MusicSourceType.daoliyu.defaultPort == 4000)
+    #expect(MusicSourceType.daoliyu.defaultSSL == false)
+    #expect(MusicSource(name: "Daoliyu", type: .daoliyu).port == 4000)
+    #expect(MusicSourceType.daoliyu.category == .mediaServer)
 }
 
 @Test func vendorNASWithoutPublicAPIsRemainMarkedUnavailable() {
@@ -130,7 +134,7 @@ import Testing
 
 @Test func fileDeletionCapabilityExcludesReadOnlyCatalogues() {
     let readOnly: Set<MusicSourceType> = [
-        .upnp, .subsonic, .navidrome, .airsonic, .gonic,
+        .upnp, .subsonic, .navidrome, .airsonic, .gonic, .daoliyu,
         .appleMusic, .appleMusicLibrary,
     ]
 
@@ -163,7 +167,7 @@ import Testing
     let entireLibraryTypes: Set<MusicSourceType> = [
         .local, .appleMusicLibrary,
         .jellyfin, .emby, .plex,
-        .subsonic, .navidrome, .airsonic, .gonic,
+        .subsonic, .navidrome, .airsonic, .gonic, .daoliyu,
     ]
 
     for sourceType in MusicSourceType.allCases {

@@ -520,6 +520,18 @@ final class SourceManager {
                     password: password
                 )
             }
+        case .daoliyu:
+            connector = credentialProtectedConnector(for: source) { password in
+                DaoLiYuSource(
+                    sourceID: source.id,
+                    host: source.host ?? "",
+                    port: source.port,
+                    useSSL: source.useSsl,
+                    basePath: source.basePath,
+                    username: source.username ?? "",
+                    password: password
+                )
+            }
         case .baiduPan:
             connector = BaiduPanSource(sourceID: source.id)
         case .aliyunDrive:

@@ -18,6 +18,21 @@ protocol TVDirectoryLister: Sendable {
     func list(_ path: String) async throws -> [TVDirEntry]
 }
 
+/// 道理鱼是服务端整库源；根目录浏览只执行真实登录和曲库探测。
+actor TVDaoLiYuLister: TVDirectoryLister {
+    private let client: DaoLiYuServiceClient
+
+    init(client: DaoLiYuServiceClient) {
+        self.client = client
+    }
+
+    func list(_ path: String) async throws -> [TVDirEntry] {
+        guard path == "/" else { return [] }
+        _ = try await client.validateConnection()
+        return []
+    }
+}
+
 // MARK: - SMB 目录列举(AMSMB2)
 
 actor TVSMBLister: TVDirectoryLister {
@@ -95,11 +110,14 @@ final class TVSourceScanner {
     var indexed: Int = 0
     var currentFile: String = ""
     private static let maximumScanDepth = 64
+    private static let daoLiYuPageSize = 100
 
-    /// 构造源对应的目录列举器。目前仅 SMB;其它协议返回 nil(UI 据此提示)。
+    /// 构造源对应的目录列举器。道理鱼不提供目录树，lister 只校验真实服务。
     static func makeLister(source: MusicSource, credential: SourceCredential?) -> TVDirectoryLister? {
         switch source.type {
         case .smb: return TVSMBLister(source: source, credential: credential)
+        case .daoliyu:
+            return TVDaoLiYuLister(client: DaoLiYuServiceClient(source: source, credential: credential))
         default: return nil
         }
     }
@@ -125,6 +143,14 @@ final class TVSourceScanner {
         var collected: [(song: Song, siblings: [TVDirEntry])] = []
         var seen = Set<String>()
         do {
+            if source.type == .daoliyu {
+                let songs = try await scanDaoLiYu(source: source, credential: credential)
+                try Task.checkCancellation()
+                indexed = songs.count
+                currentFile = ""
+                phase = .done
+                return songs
+            }
             for dir in dirs {
                 try Task.checkCancellation()
                 try await collect(
@@ -158,6 +184,80 @@ final class TVSourceScanner {
             phase = .failed(message)
             return nil
         }
+    }
+
+    func validateDaoLiYuConnection(
+        source: MusicSource,
+        credential: SourceCredential?
+    ) async throws -> Int {
+        guard source.type == .daoliyu else { throw TVScanError.unsupported }
+        return try await DaoLiYuServiceClient(
+            source: source,
+            credential: credential
+        ).validateConnection()
+    }
+
+    /// 严格分页读取整库；缺页、重复项或总数漂移都会让扫描失败，
+    /// 防止用不完整结果覆盖既有曲库。
+    private func scanDaoLiYu(
+        source: MusicSource,
+        credential: SourceCredential?
+    ) async throws -> [Song] {
+        let client = DaoLiYuServiceClient(source: source, credential: credential)
+        guard let baseURL = DaoLiYuAPIProtocol.serverBaseURL(
+            host: source.host ?? "",
+            port: source.port,
+            useSSL: source.useSsl,
+            basePath: source.basePath
+        ) else {
+            throw DaoLiYuServiceError.invalidURL
+        }
+        var skip = 0
+        var expectedTotal: Int?
+        var seenIDs: Set<String> = []
+        var songs: [Song] = []
+
+        while true {
+            try Task.checkCancellation()
+            let page = try await client.trackPage(skip: skip, take: Self.daoLiYuPageSize)
+            try Task.checkCancellation()
+            if let expectedTotal, expectedTotal != page.total {
+                throw DaoLiYuServiceError.invalidResponse("曲目总数在扫描期间发生变化")
+            }
+            expectedTotal = page.total
+            guard page.skip == skip,
+                  page.rawCount == page.tracks.count,
+                  page.rawCount <= Self.daoLiYuPageSize else {
+                throw DaoLiYuServiceError.invalidResponse("曲目分页位置或数量无效")
+            }
+            if page.total == 0 {
+                guard skip == 0, page.rawCount == 0 else {
+                    throw DaoLiYuServiceError.invalidResponse("曲目分页与总数不一致")
+                }
+                break
+            }
+            guard page.rawCount > 0, skip <= page.total - page.rawCount else {
+                throw DaoLiYuServiceError.invalidResponse("曲目分页提前结束或超过总数")
+            }
+            for track in page.tracks {
+                try Task.checkCancellation()
+                guard seenIDs.insert(track.id).inserted else {
+                    throw DaoLiYuServiceError.invalidResponse("曲目分页包含重复项目")
+                }
+                guard let song = track.makeSong(sourceID: source.id, serverBaseURL: baseURL) else {
+                    throw DaoLiYuServiceError.invalidResponse("曲目\(track.title)缺少可识别的音频格式")
+                }
+                songs.append(song)
+                indexed = songs.count
+                currentFile = track.title
+            }
+            skip += page.rawCount
+            if skip == page.total { break }
+            guard page.rawCount == Self.daoLiYuPageSize else {
+                throw DaoLiYuServiceError.invalidResponse("曲目分页不完整")
+            }
+        }
+        return songs
     }
 
     /// 递归遍历:收集每首歌的路径骨架 + 其所在目录的同级文件(供找歌词/封面)。
