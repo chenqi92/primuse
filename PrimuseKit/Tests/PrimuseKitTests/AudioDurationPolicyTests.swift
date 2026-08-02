@@ -64,6 +64,35 @@ struct AudioDurationPolicyTests {
             format: .mp3
         ) == nil)
     }
+
+    @Test("Playback handoff uses a decoder-updated library duration")
+    func playbackHandoffUsesLatestDuration() {
+        #expect(AudioDurationPolicy.playbackHandoffDuration(
+            snapshot: 0,
+            latestLibrary: 248.028979
+        ) == 248.028979)
+
+        #expect(AudioDurationPolicy.playbackHandoffDuration(
+            snapshot: 300,
+            latestLibrary: 248
+        ) == 248)
+    }
+
+    @Test("Playback handoff preserves a valid snapshot when the library duration is unusable")
+    func playbackHandoffPreservesSnapshot() {
+        #expect(AudioDurationPolicy.playbackHandoffDuration(
+            snapshot: 248,
+            latestLibrary: nil
+        ) == 248)
+        #expect(AudioDurationPolicy.playbackHandoffDuration(
+            snapshot: 248,
+            latestLibrary: 0
+        ) == 248)
+        #expect(AudioDurationPolicy.playbackHandoffDuration(
+            snapshot: .nan,
+            latestLibrary: .infinity
+        ) == 0)
+    }
 }
 
 @Suite("Remote metadata memory policy")

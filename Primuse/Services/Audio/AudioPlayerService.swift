@@ -2568,9 +2568,7 @@ final class AudioPlayerService {
             guard needsRewrite else { return }
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                if self.currentSong?.id == songID {
-                    self.duration = effectiveDuration.sanitizedDuration
-                    self.currentSong?.duration = effectiveDuration
+                if self.applyResolvedDuration(effectiveDuration, toSongID: songID) {
                     self.updateNowPlayingInfo()
                 }
                 if let library = self.library, var existing = library.song(id: songID) {
@@ -2580,6 +2578,41 @@ final class AudioPlayerService {
                 plog(String(format: "🎵 Decoder resolved duration for '%@': %.1fs (was %.1fs) — rewrote library", songTitle, effectiveDuration, storedDuration))
             }
         }
+    }
+
+    /// Preparation stores `Song` by value, so metadata backfill or the decoder
+    /// can update the library without changing the pending handoff snapshot.
+    /// Merge the newest usable duration immediately before playback ownership
+    /// moves to that snapshot.
+    private func songRefreshingLatestDuration(_ song: Song) -> Song {
+        var refreshed = song
+        refreshed.duration = AudioDurationPolicy.playbackHandoffDuration(
+            snapshot: song.duration,
+            latestLibrary: library?.song(id: song.id)?.duration
+        )
+        return refreshed
+    }
+
+    /// Keep every occurrence of a song in the queue aligned with an
+    /// authoritative decoder duration. Returning true tells the caller that
+    /// the active Now Playing state also changed and must be republished.
+    @discardableResult
+    private func applyResolvedDuration(
+        _ resolved: TimeInterval,
+        toSongID songID: String
+    ) -> Bool {
+        let sanitized = resolved.sanitizedDuration
+        guard sanitized > 0 else { return false }
+
+        let updatedCurrentSong = currentSong?.id == songID
+        if updatedCurrentSong {
+            duration = sanitized
+            currentSong?.duration = sanitized
+        }
+        for index in queueEntries.indices where queueEntries[index].song.id == songID {
+            queueEntries[index].song.duration = sanitized
+        }
+        return updatedCurrentSong
     }
 
     private func decodeStream(
@@ -4443,14 +4476,17 @@ final class AudioPlayerService {
     ) {
         guard playID == id else { return }
 
+        let activatedSong = songRefreshingLatestDuration(prepared.song)
+
         if let previous = currentSong {
             sourceManager?.finalizeStreamingSession(for: previous)
         }
 
         audioEngine.markTrackBoundary()
         advanceToNextIndex()
-        currentSong = prepared.song
-        duration = prepared.song.duration.sanitizedDuration
+        currentSong = activatedSong
+        duration = activatedSong.duration.sanitizedDuration
+        applyResolvedDuration(duration, toSongID: activatedSong.id)
         currentTime = 0
         isLoading = false
         isPlaying = true
@@ -4458,20 +4494,20 @@ final class AudioPlayerService {
         crossfadeTriggered = false
         isCrossfading = false
         activeDecoderKind = prepared.decoderKind
-        library?.recordPlayback(of: prepared.song.id)
-        ScrobbleService.shared.handlePlaybackStarted(song: prepared.song)
-        PlayHistoryStore.shared.beginSession(song: prepared.song)
+        library?.recordPlayback(of: activatedSong.id)
+        ScrobbleService.shared.handlePlaybackStarted(song: activatedSong)
+        PlayHistoryStore.shared.beginSession(song: activatedSong)
 
         let settings = playbackSettings.snapshot()
         if shouldApplyReplayGain(settings) {
             Task { [id] in
                 await self.applyReplayGain(
-                    for: prepared.song,
+                    for: activatedSong,
                     url: prepared.url,
                     mode: settings.replayGainMode,
                     allowFileRead: prepared.decoderKind != .cloudStream && prepared.decoderKind != .httpStream,
                     expectedPlayID: id,
-                    expectedSongID: prepared.song.id
+                    expectedSongID: activatedSong.id
                 )
             }
         } else {
@@ -4479,16 +4515,17 @@ final class AudioPlayerService {
         }
 
         if duration <= 0,
-           !prepared.song.isCueTrack,
+           !activatedSong.isCueTrack,
            prepared.decoderKind != .cloudStream,
            prepared.decoderKind != .httpStream {
             Task { [id] in
                 let decoder: any PrimuseAudioDecoder = prepared.decoderKind == .ffmpeg
                     ? self.ffmpegDecoder : self.nativeDecoder
                 if let info = try? await decoder.fileInfo(for: prepared.url) {
-                    guard self.playID == id, self.currentSong?.id == prepared.song.id else { return }
-                    self.duration = info.duration.sanitizedDuration
-                    self.updateNowPlayingInfo()
+                    guard self.playID == id, self.currentSong?.id == activatedSong.id else { return }
+                    if self.applyResolvedDuration(info.duration, toSongID: activatedSong.id) {
+                        self.updateNowPlayingInfo()
+                    }
                 }
             }
         }
@@ -4886,10 +4923,11 @@ final class AudioPlayerService {
             }
             isCrossfading = true
             let nextPlayID = UUID()
+            let activatedSong = songRefreshingLatestDuration(nextSong)
             committedCrossfade = CommittedCrossfade(
                 attemptID: attemptID,
                 playID: nextPlayID,
-                song: nextSong,
+                song: activatedSong,
                 url: nextURL,
                 decoderKind: nextDecoderKind
             )
@@ -4901,12 +4939,13 @@ final class AudioPlayerService {
                 sourceManager?.finalizeStreamingSession(for: previous)
             }
             advanceToNextIndex()
-            currentSong = nextSong
+            currentSong = activatedSong
             currentTime = 0
-            duration = nextSong.duration.sanitizedDuration
-            library?.recordPlayback(of: nextSong.id)
-            ScrobbleService.shared.handlePlaybackStarted(song: nextSong)
-            PlayHistoryStore.shared.beginSession(song: nextSong)
+            duration = activatedSong.duration.sanitizedDuration
+            applyResolvedDuration(duration, toSongID: activatedSong.id)
+            library?.recordPlayback(of: activatedSong.id)
+            ScrobbleService.shared.handlePlaybackStarted(song: activatedSong)
+            PlayHistoryStore.shared.beginSession(song: activatedSong)
             updateNowPlayingInfo()
             updateNowPlayingArtworkIfNeeded()
             updatePlaybackState()

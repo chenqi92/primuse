@@ -26,6 +26,23 @@ public enum AudioDurationPolicy {
         return Double(fileSize) * 8.0 / assumedBitRate
     }
 
+    /// A gapless or crossfade preparation keeps a value snapshot of the next
+    /// song while its decoder may resolve and persist a better duration. At the
+    /// handoff boundary, prefer that newer positive library value without
+    /// discarding a valid snapshot when the library still has no duration.
+    public static func playbackHandoffDuration(
+        snapshot: TimeInterval,
+        latestLibrary: TimeInterval?
+    ) -> TimeInterval {
+        let validSnapshot = snapshot.isFinite && snapshot > 0 ? snapshot : 0
+        guard let latestLibrary,
+              latestLibrary.isFinite,
+              latestLibrary > 0 else {
+            return validSnapshot
+        }
+        return latestLibrary
+    }
+
     public static func shouldIgnoreResolvedDuration(
         resolved: TimeInterval,
         stored: TimeInterval,
