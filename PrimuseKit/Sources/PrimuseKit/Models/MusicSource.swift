@@ -205,6 +205,19 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         }
     }
 
+    /// Whether scraped cover art and lyrics can be written beside the source
+    /// audio file. Read-only catalogues such as DaoLiYu keep scraped assets in
+    /// Primuse's local metadata cache instead.
+    public var supportsSidecarWriting: Bool {
+        switch self {
+        case .synology, .smb, .oneDrive, .dropbox, .googleDrive, .baiduPan,
+             .aliyunDrive, .pan123:
+            return true
+        default:
+            return false
+        }
+    }
+
     /// True for sources whose "scope" is the whole source itself, with no
     /// per-folder selection step. Drives the Sources UI to show "scan now"
     /// directly instead of a "connect & pick directories" flow.

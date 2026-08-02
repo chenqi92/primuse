@@ -3437,12 +3437,7 @@ final class SourceManager {
     }
 
     nonisolated static func supportsSidecarWriting(sourceType: MusicSourceType) -> Bool {
-        switch sourceType {
-        case .synology, .smb, .oneDrive, .dropbox, .googleDrive, .baiduPan, .aliyunDrive, .pan123:
-            return true
-        default:
-            return false
-        }
+        sourceType.supportsSidecarWriting
     }
 
 

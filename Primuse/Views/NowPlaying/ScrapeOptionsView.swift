@@ -99,6 +99,7 @@ struct ScrapeOptionsView: View {
     @State private var macDisplayTitle: String?
     @State private var macSidecarBaseNameOverride: String?
     @State private var macUsesMediaServerWriteback = false
+    @State private var macSupportsSidecarWriteback = false
     /// 当前在左栏选中的候选 id, 用于高亮 + 取中栏封面对比的来源名。
     @State private var selectedItemID: String?
     #endif
@@ -660,13 +661,32 @@ struct ScrapeOptionsView: View {
                         .font(.system(size: 11))
                         .foregroundStyle(PMColor.textFaint)
                         .padding(.top, 4)
-                } else {
+                } else if macSupportsSidecarWriteback {
                     macSectionTitle("Sidecar 回写")
                     macSidecarRow(suffix: "-cover.jpg",
                                   enabled: applyCover && (previewResult?.hasCover ?? false))
                     macSidecarRow(suffix: ".lrc",
                                   enabled: applyLyrics && (previewResult?.hasLyrics ?? false))
                     Text("写入到源目录旁路文件 · 30s 超时 · 非主线程")
+                        .font(.system(size: 11))
+                        .foregroundStyle(PMColor.textFaint)
+                        .padding(.top, 4)
+                } else {
+                    macSectionTitle("仅本地保存")
+                    macServerWritebackRow(
+                        title: "歌曲元数据",
+                        enabled: applyTitle || applyArtist || applyAlbum
+                            || applyYear || applyTrack || applyGenre
+                    )
+                    macServerWritebackRow(
+                        title: "主封面图片",
+                        enabled: applyCover && (previewResult?.hasCover ?? false)
+                    )
+                    macServerWritebackRow(
+                        title: "同步歌词",
+                        enabled: applyLyrics && (previewResult?.hasLyrics ?? false)
+                    )
+                    Text("保存在本机资料库与缓存；不会写回源服务器")
                         .font(.system(size: 11))
                         .foregroundStyle(PMColor.textFaint)
                         .padding(.top, 4)
@@ -806,9 +826,11 @@ struct ScrapeOptionsView: View {
         let title = await scraperService.suggestedScrapeTitle(for: song)
         let sidecarBaseName = await scraperService.suggestedSidecarBaseName(for: song)
         let usesMediaServerWriteback = await sourceManager.supportsMediaServerWriteback(for: song)
+        let supportsSidecarWriteback = await sourceManager.supportsSidecarWriting(for: song)
         macDisplayTitle = title
         macSidecarBaseNameOverride = sidecarBaseName
         macUsesMediaServerWriteback = usesMediaServerWriteback
+        macSupportsSidecarWriteback = supportsSidecarWriteback
         manualMatchTitle = title
         manualSearchQuery = MusicScraperService.searchQuery(title: title, artist: song.artistName)
         await macRunSearch()
@@ -1262,9 +1284,11 @@ struct ScrapeOptionsView: View {
         #if os(macOS)
         let sidecarBaseName = await scraperService.suggestedSidecarBaseName(for: song)
         let usesMediaServerWriteback = await sourceManager.supportsMediaServerWriteback(for: song)
+        let supportsSidecarWriteback = await sourceManager.supportsSidecarWriting(for: song)
         macDisplayTitle = title
         macSidecarBaseNameOverride = sidecarBaseName
         macUsesMediaServerWriteback = usesMediaServerWriteback
+        macSupportsSidecarWriteback = supportsSidecarWriteback
         #endif
         manualMatchTitle = title
         manualSearchQuery = MusicScraperService.searchQuery(title: title, artist: song.artistName)
@@ -1578,7 +1602,7 @@ struct ScrapeOptionsView: View {
             //
             // withTimeout 兜底: 30 秒后强制取消, 即使 NAS 端有 bug 也不会无限期
             // 占用 connector actor。
-            let supportsSidecarWriteback = final.sourceID != AppleMusicLibraryIdentity.sourceID
+            let supportsSidecarWriteback = await sm.supportsSidecarWriting(for: final)
             if supportsSidecarWriteback && !usesMediaServerWriteback && (needsCover || needsLyrics) {
                 let titleSnapshot = final.title
                 let finalSnapshot = final

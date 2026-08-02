@@ -152,6 +152,18 @@ import Testing
     }
 }
 
+@Test func sidecarWritingCapabilityExcludesReadOnlyCatalogues() {
+    let writable: Set<MusicSourceType> = [
+        .synology, .smb, .oneDrive, .dropbox, .googleDrive, .baiduPan,
+        .aliyunDrive, .pan123,
+    ]
+
+    for sourceType in MusicSourceType.allCases {
+        #expect(sourceType.supportsSidecarWriting == writable.contains(sourceType))
+    }
+    #expect(!MusicSourceType.daoliyu.supportsSidecarWriting)
+}
+
 @Test func sourceFileDeletionPolicyKeepsFailedRowsAndIgnoresSidecarWarnings() {
     #expect(SourceFileDeletionPolicy.shouldShowDeleteAction(for: .webdav))
     #expect(SourceFileDeletionPolicy.shouldShowDeleteAction(for: .smb))
