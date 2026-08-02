@@ -2125,6 +2125,24 @@ public enum ArtworkImageCompatibility {
     }
 }
 
+/// Decides whether Now Playing artwork should fall back to reading the cover
+/// through its source connector. Absolute URLs have already used their own
+/// network path; source-relative paths and opaque cloud identifiers still need
+/// the connector so authenticated providers can return the sidecar bytes.
+public enum NowPlayingArtworkFallbackPolicy {
+    public static func shouldFetchFromConnector(
+        reference: String?,
+        directImageLoaded: Bool
+    ) -> Bool {
+        guard !directImageLoaded,
+              let reference,
+              !reference.isEmpty else {
+            return false
+        }
+        return !reference.contains("://")
+    }
+}
+
 /// Validates the non-query portion of an OAuth callback URL.
 ///
 /// Providers that redirect straight back to the app must return the registered

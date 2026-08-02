@@ -5688,8 +5688,8 @@ final class AudioPlayerService {
                     defer { session.finishTasksAndInvalidate() }
                     fetchedData = try? await session.data(from: url).0
                 }
-                // Sidecar path on source (contains "/" but no "://")
-                else if coverRef.contains("/"), let sourceID = capturedSourceID,
+                // Source-side path or opaque cloud reference.
+                else if let sourceID = capturedSourceID,
                         let sourceManager = capturedSourceManager {
                     if let imageURL = await sourceManager.imageURL(for: coverRef, sourceID: sourceID) {
                         let config = URLSessionConfiguration.default
@@ -5699,10 +5699,28 @@ final class AudioPlayerService {
                         fetchedData = try? await session.data(from: imageURL).0
                     }
                 }
-                if let data = fetchedData {
-                    // Cache for next time
+
+                if let data = fetchedData, let image = PlatformImage(data: data) {
                     await store.cacheCover(data, forSongID: songID)
-                    loadedImage = PlatformImage(data: data)
+                    loadedImage = image
+                }
+
+                // Baidu Pan, SMB and other authenticated sources may not expose
+                // a direct image URL. Mirror CachedArtworkView's connector
+                // fallback so system Now Playing receives the same sidecar art
+                // that is already visible inside the app.
+                if NowPlayingArtworkFallbackPolicy.shouldFetchFromConnector(
+                    reference: coverRef,
+                    directImageLoaded: loadedImage != nil
+                ), let sourceID = capturedSourceID,
+                   let sourceManager = capturedSourceManager,
+                   let data = await sourceManager.sidecarData(
+                    for: coverRef,
+                    sourceID: sourceID,
+                    maximumBytes: 8 * 1024 * 1024
+                   ), let image = PlatformImage(data: data) {
+                    await store.cacheCover(data, forSongID: songID)
+                    loadedImage = image
                 }
             }
 
