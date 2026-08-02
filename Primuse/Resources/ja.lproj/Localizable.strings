@@ -228,14 +228,11 @@
 "icon_default" = "折り返し音符";
 "icon_appearance_gray" = "グレー";
 "icon_appearance_hint" = "ホーム画面のライト、ダーク、グレーの外観に合わせてアイコンが自動的に切り替わります。";
-"icon_theme_1" = "マイライブラリ";
-"icon_theme_2" = "ロスレス音質";
-"icon_theme_3" = "レコードコレクション";
+"icon_theme_10" = "レコード・エイプ";
+"icon_theme_11" = "カラーブラシ";
 "icon_theme_4" = "ミュージックパルス";
-"icon_theme_5" = "スピーカー再生";
 "icon_theme_6" = "ソフトノート";
 "icon_theme_7" = "Primuse マーク";
-"icon_theme_8" = "ミューズスパーク";
 "icon_theme_9" = "クラシックアイコン";
 "queue_title" = "再生キュー";
 "queue_empty" = "キューが空です";

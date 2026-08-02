@@ -37,9 +37,9 @@ final class AppIconService {
         let supportsAppearance: Bool
     }
 
-    /// Keep the former default icon immediately after the current primary icon,
-    /// then show the remaining design alternatives in their existing order.
-    private static let themeOrder = [9, 1, 2, 3, 4, 5, 6, 7, 8]
+    /// Keep the classic icon immediately after the current primary icon,
+    /// then show the retained design alternatives in their existing order.
+    private static let themeOrder = [9, 10, 11, 4, 6, 7]
 
     /// Themes that ship only a single visual variant (no dark counterpart in
     /// the asset catalog). Add a theme index here when no dark image exists.
@@ -48,15 +48,12 @@ final class AppIconService {
     /// Brand tints sampled from the shared flat icon palette.
     private static let iconTints: [String: Color] = [
         "":         Color(red: 0.914, green: 0.314, blue: 0.263), // folded note — coral underside
-        "AppIcon1": Color(red: 0.957, green: 0.784, blue: 0.298), // private library — yellow
-        "AppIcon2": Color(red: 0.251, green: 0.765, blue: 0.816), // lossless audio — cyan
-        "AppIcon3": Color(red: 0.788, green: 0.941, blue: 0.353), // turntable — acid lime
+        "AppIcon10": Color(red: 0.827, green: 0.227, blue: 0.173), // vinyl ape — vermilion label
+        "AppIcon11": Color(red: 0.176, green: 0.651, blue: 0.890), // color brush — cyan-blue stroke
         "AppIcon4": Color(red: 0.388, green: 0.902, blue: 0.839), // music note — mint cyan
-        "AppIcon5": Color(red: 1.000, green: 0.373, blue: 0.561), // speaker — vivid pink
         "AppIcon6": Color(red: 0.251, green: 0.835, blue: 0.784), // restored soft note — mint
         "AppIcon7": Color(red: 0.220, green: 0.835, blue: 0.784), // Primuse P — turquoise
-        "AppIcon8": Color(red: 1.000, green: 0.569, blue: 0.482), // Muse spark — coral
-        "AppIcon9": Color(red: 0.063, green: 0.216, blue: 0.251), // classic headphones — deep teal
+        "AppIcon9": Color(red: 0.078, green: 0.490, blue: 0.541), // classic record — cyan teal
     ]
 
     let options: [IconOption] = {
@@ -109,7 +106,7 @@ final class AppIconService {
             self.currentIconID = persistedID
         } else {
             // Normalize a stored selection that no longer exists in the
-            // current nine-icon catalog so UI and tint fall back together.
+            // current icon catalog so UI and tint fall back together.
             storedChoiceID = ""
         }
         // Make sure the widget extension sees the right brand color on first

@@ -227,14 +227,11 @@
 "icon_default" = "Gefaltete Note";
 "icon_appearance_gray" = "Grau";
 "icon_appearance_hint" = "Das Symbol folgt automatisch der hellen, dunklen oder grauen Darstellung des Home-Bildschirms.";
-"icon_theme_1" = "Private Mediathek";
-"icon_theme_2" = "Verlustfreies Audio";
-"icon_theme_3" = "Plattensammlung";
+"icon_theme_10" = "Vinyl-Affe";
+"icon_theme_11" = "Farbpinsel";
 "icon_theme_4" = "Musikpuls";
-"icon_theme_5" = "Lautsprecher";
 "icon_theme_6" = "Sanfte Note";
 "icon_theme_7" = "Primuse-Zeichen";
-"icon_theme_8" = "Muse-Funke";
 "icon_theme_9" = "Klassisches Symbol";
 "queue_title" = "Warteschlange";
 "queue_empty" = "Warteschlange leer";

@@ -31,6 +31,7 @@ usage() {
     cat <<'EOF'
 用法：
   scripts/primuse-dev.sh
+  scripts/primuse-dev.sh install
   scripts/primuse-dev.sh ios-clean
   scripts/primuse-dev.sh ios-overwrite
   scripts/primuse-dev.sh iphone-clean
@@ -39,6 +40,7 @@ usage() {
   scripts/primuse-dev.sh mac
 
 操作：
+  install           先选择 iPhone/iPad，再交互选择安装方式
   ios-clean         编译后卸载并重新安装到 iPhone/iPad，会清除 App 本地数据
   ios-overwrite     编译后直接覆盖安装到 iPhone/iPad，保留 App 本地数据
   iphone-clean      ios-clean 的兼容别名
@@ -360,22 +362,53 @@ select_ios_device() {
         echo
     done
 
-    echo
-    printf "请选择目标设备："
     local selection
-    if ! IFS= read -r selection; then
+    local selected_index=-1
+    local selection_match_count
+    while [[ $selected_index -lt 0 ]]; do
         echo
-        echo "未选择设备，操作已取消。" >&2
-        exit 1
-    fi
-    if [[ ! "$selection" =~ ^[0-9]+$ || \
-          "$selection" -lt 1 || \
-          "$selection" -gt ${#ready_indices[@]} ]]; then
-        echo "无效的设备选项：$selection" >&2
-        exit 1
-    fi
+        printf "请选择目标设备（输入序号、设备名或 UDID，q 退出）："
+        if ! IFS= read -r selection; then
+            echo
+            echo "未选择设备，操作已取消。" >&2
+            exit 1
+        fi
 
-    select_ios_device_at_index "${ready_indices[$((selection - 1))]}"
+        if [[ "$selection" == "q" || "$selection" == "Q" ]]; then
+            echo "操作已取消。"
+            exit 0
+        fi
+
+        if [[ "$selection" =~ ^[0-9]+$ ]]; then
+            if [[ "$selection" -ge 1 && "$selection" -le ${#ready_indices[@]} ]]; then
+                selected_index="${ready_indices[$((selection - 1))]}"
+                break
+            fi
+        else
+            selection_match_count=0
+            for ((index = 0; index < ${#ready_indices[@]}; index++)); do
+                local candidate_index="${ready_indices[$index]}"
+                if [[ "$selection" == "${IOS_DEVICE_NAMES[$candidate_index]}" || \
+                      "$selection" == "${IOS_DEVICE_CORE_IDS[$candidate_index]}" || \
+                      "$selection" == "${IOS_DEVICE_UDIDS[$candidate_index]}" ]]; then
+                    selected_index="$candidate_index"
+                    selection_match_count=$((selection_match_count + 1))
+                fi
+            done
+
+            if [[ $selection_match_count -gt 1 ]]; then
+                selected_index=-1
+                echo "设备名匹配到多台设备，请改用序号或 UDID。" >&2
+                continue
+            fi
+        fi
+
+        if [[ $selected_index -lt 0 ]]; then
+            echo "无法识别设备：${selection}。请输入列表序号、设备名或 UDID。" >&2
+        fi
+    done
+
+    select_ios_device_at_index "$selected_index"
 }
 
 build_ios() {
@@ -421,8 +454,14 @@ launch_ios() {
     return 1
 }
 
+ensure_ios_device_selected() {
+    if [[ -z "$DEVICE_CORE_ID" || -z "$DEVICE_UDID" ]]; then
+        select_ios_device
+    fi
+}
+
 ios_clean_install() {
-    select_ios_device
+    ensure_ios_device_selected
 
     echo
     echo "警告：下一步会卸载 ${BUNDLE_ID}，并删除它在 ${DEVICE_NAME} 上的全部本地数据。"
@@ -455,12 +494,51 @@ ios_clean_install() {
 }
 
 ios_overwrite_install() {
-    select_ios_device
+    ensure_ios_device_selected
     build_ios
 
     # 不执行 uninstall，系统会替换 App 包并保留现有数据容器。
     install_ios
     launch_ios
+}
+
+interactive_ios_install() {
+    select_ios_device
+
+    while true; do
+        echo
+        echo "请选择安装方式："
+        echo "1) 覆盖安装（保留 App 本地数据）"
+        echo "2) 完全重装（清除 App 本地数据）"
+        echo "q) 取消"
+        echo
+        printf "请选择："
+
+        local install_selection
+        if ! IFS= read -r install_selection; then
+            echo
+            echo "未选择安装方式，操作已取消。"
+            return
+        fi
+
+        case "$install_selection" in
+            1)
+                ios_overwrite_install
+                return
+                ;;
+            2)
+                ios_clean_install
+                return
+                ;;
+            q|Q)
+                echo "操作已取消。"
+                return
+                ;;
+            *)
+                echo "无效选项：${install_selection}" >&2
+                ;;
+        esac
+    done
 }
 
 build_and_launch_mac() {
@@ -488,10 +566,9 @@ build_and_launch_mac() {
 interactive_action() {
     echo "Primuse 开发工具"
     echo
-    echo "1) 完全重装到 iPhone/iPad（清除 App 本地数据）"
-    echo "2) 覆盖安装到 iPhone/iPad（保留 App 本地数据）"
-    echo "3) 编译并启动 macOS"
-    echo "4) 检查 iPhone/iPad 连接状态"
+    echo "1) 选择 iPhone/iPad 并安装"
+    echo "2) 编译并启动 macOS"
+    echo "3) 检查 iPhone/iPad 连接状态"
     echo "q) 退出"
     echo
     printf "请选择操作："
@@ -504,10 +581,9 @@ interactive_action() {
     fi
 
     case "$selection" in
-        1) SELECTED_ACTION="ios-clean" ;;
-        2) SELECTED_ACTION="ios-overwrite" ;;
-        3) SELECTED_ACTION="mac" ;;
-        4) SELECTED_ACTION="devices" ;;
+        1) SELECTED_ACTION="install" ;;
+        2) SELECTED_ACTION="mac" ;;
+        3) SELECTED_ACTION="devices" ;;
         q|Q) SELECTED_ACTION="quit" ;;
         *)
             echo "无效选项：$selection" >&2
@@ -544,6 +620,11 @@ main() {
     ensure_project_exists
 
     case "$action" in
+        install)
+            require_command xcrun
+            require_command plutil
+            interactive_ios_install
+            ;;
         ios-clean|iphone-clean)
             require_command xcrun
             require_command plutil

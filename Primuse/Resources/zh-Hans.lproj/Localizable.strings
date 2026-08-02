@@ -81,14 +81,11 @@
 "icon_default" = "折页音符";
 "icon_appearance_gray" = "灰色";
 "icon_appearance_hint" = "图标会随主屏幕的浅色、深色或灰色外观自动切换。";
-"icon_theme_1" = "私人曲库";
-"icon_theme_2" = "无损音质";
-"icon_theme_3" = "唱片收藏";
+"icon_theme_10" = "黑胶猿面";
+"icon_theme_11" = "流彩笔触";
 "icon_theme_4" = "音符律动";
-"icon_theme_5" = "扬声播放";
 "icon_theme_6" = "清新音符";
 "icon_theme_7" = "Primuse 标志";
-"icon_theme_8" = "灵感音符";
 "icon_theme_9" = "经典图标";
 "queue_title" = "播放队列";
 "queue_empty" = "队列为空";

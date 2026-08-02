@@ -81,14 +81,11 @@
 "icon_default" = "Folded Note";
 "icon_appearance_gray" = "Gray";
 "icon_appearance_hint" = "The icon automatically follows the Home Screen's light, dark, or gray appearance.";
-"icon_theme_1" = "Private Library";
-"icon_theme_2" = "Lossless Audio";
-"icon_theme_3" = "Record Collection";
+"icon_theme_10" = "Vinyl Ape";
+"icon_theme_11" = "Color Brush";
 "icon_theme_4" = "Music Pulse";
-"icon_theme_5" = "Speaker Play";
 "icon_theme_6" = "Soft Note";
 "icon_theme_7" = "Primuse Mark";
-"icon_theme_8" = "Muse Spark";
 "icon_theme_9" = "Classic Icon";
 "queue_title" = "Queue";
 "queue_empty" = "Queue Empty";

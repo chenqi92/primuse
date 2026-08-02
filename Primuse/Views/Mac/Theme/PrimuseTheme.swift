@@ -1146,18 +1146,15 @@ struct MacAppIcon: Identifiable, Equatable, Sendable {
     /// 这套图标的品牌色 — 仅用于色环展示, 不强行改全局 accent。
     let tint: Color
 
-    /// 当前默认、原经典图标和 8 套功能方向，跟资源目录里的预览资源一一对应。
+    /// 当前默认、经典图标和 4 套保留方向，跟资源目录里的预览资源一一对应。
     static let all: [MacAppIcon] = [
         MacAppIcon(id: "",         previewAsset: "AppIconPreview",  nameKey: "icon_default", tint: Color(red: 0.914, green: 0.314, blue: 0.263)),
-        MacAppIcon(id: "AppIcon9", previewAsset: "AppIcon9Preview", nameKey: "icon_theme_9", tint: Color(red: 0.063, green: 0.216, blue: 0.251)),
-        MacAppIcon(id: "AppIcon1", previewAsset: "AppIcon1Preview", nameKey: "icon_theme_1", tint: Color(red: 0.957, green: 0.784, blue: 0.298)),
-        MacAppIcon(id: "AppIcon2", previewAsset: "AppIcon2Preview", nameKey: "icon_theme_2", tint: Color(red: 0.251, green: 0.765, blue: 0.816)),
-        MacAppIcon(id: "AppIcon3", previewAsset: "AppIcon3Preview", nameKey: "icon_theme_3", tint: Color(red: 0.788, green: 0.941, blue: 0.353)),
+        MacAppIcon(id: "AppIcon9", previewAsset: "AppIcon9Preview", nameKey: "icon_theme_9", tint: Color(red: 0.078, green: 0.490, blue: 0.541)),
+        MacAppIcon(id: "AppIcon10", previewAsset: "AppIcon10Preview", nameKey: "icon_theme_10", tint: Color(red: 0.827, green: 0.227, blue: 0.173)),
+        MacAppIcon(id: "AppIcon11", previewAsset: "AppIcon11Preview", nameKey: "icon_theme_11", tint: Color(red: 0.176, green: 0.651, blue: 0.890)),
         MacAppIcon(id: "AppIcon4", previewAsset: "AppIcon4Preview", nameKey: "icon_theme_4", tint: Color(red: 0.388, green: 0.902, blue: 0.839)),
-        MacAppIcon(id: "AppIcon5", previewAsset: "AppIcon5Preview", nameKey: "icon_theme_5", tint: Color(red: 1.000, green: 0.373, blue: 0.561)),
         MacAppIcon(id: "AppIcon6", previewAsset: "AppIcon6Preview", nameKey: "icon_theme_6", tint: Color(red: 0.251, green: 0.835, blue: 0.784)),
         MacAppIcon(id: "AppIcon7", previewAsset: "AppIcon7Preview", nameKey: "icon_theme_7", tint: Color(red: 0.220, green: 0.835, blue: 0.784)),
-        MacAppIcon(id: "AppIcon8", previewAsset: "AppIcon8Preview", nameKey: "icon_theme_8", tint: Color(red: 1.000, green: 0.569, blue: 0.482)),
     ]
 
     static func option(for id: String) -> MacAppIcon {

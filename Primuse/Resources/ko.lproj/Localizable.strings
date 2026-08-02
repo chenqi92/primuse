@@ -227,14 +227,11 @@
 "icon_default" = "접힌 음표";
 "icon_appearance_gray" = "회색";
 "icon_appearance_hint" = "홈 화면의 밝게, 다크 또는 회색 스타일에 맞춰 아이콘이 자동으로 전환됩니다.";
-"icon_theme_1" = "개인 라이브러리";
-"icon_theme_2" = "무손실 음질";
-"icon_theme_3" = "레코드 컬렉션";
+"icon_theme_10" = "바이닐 에이프";
+"icon_theme_11" = "컬러 브러시";
 "icon_theme_4" = "뮤직 펄스";
-"icon_theme_5" = "스피커 재생";
 "icon_theme_6" = "소프트 노트";
 "icon_theme_7" = "Primuse 마크";
-"icon_theme_8" = "뮤즈 스파크";
 "icon_theme_9" = "클래식 아이콘";
 "queue_title" = "재생 대기열";
 "queue_empty" = "대기열 비어 있음";
