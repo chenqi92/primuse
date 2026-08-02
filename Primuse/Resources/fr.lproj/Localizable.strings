@@ -1045,7 +1045,9 @@
 "settings_push_to_tv_failed" = "Échec de l'envoi";
 "send_to_tv_title" = "Envoyer à l'Apple TV";
 "send_to_tv_message" = "Envoyez votre bibliothèque, vos sources et vos identifiants (mots de passe / jetons) vers iCloud. Connectez-vous avec le même compte sur l'Apple TV pour les retrouver — rien à ressaisir.";
+"send_to_tv_lan_message" = "Envoyez directement votre bibliothèque, vos sources et vos identifiants à cette Apple TV via le réseau local. iCloud n’est pas utilisé.";
 "send_to_tv_action" = "Envoyer";
+"send_to_tv_confirm_and_send" = "Confirmer et envoyer";
 "send_to_tv_sent" = "Envoyé";
 "send_to_tv_failed" = "Échec de l'envoi — vérifiez votre connexion iCloud et réessayez";
 "send_to_tv_add_source" = "Ajouter plutôt une nouvelle source musicale";

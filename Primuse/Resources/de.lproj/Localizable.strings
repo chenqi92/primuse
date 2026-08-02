@@ -1045,7 +1045,9 @@
 "settings_push_to_tv_failed" = "Senden fehlgeschlagen";
 "send_to_tv_title" = "An Apple TV senden";
 "send_to_tv_message" = "Lade deine Mediathek, Quellen und Anmeldedaten (Passwörter / Tokens) in iCloud hoch. Melde dich mit demselben Account auf dem Apple TV an, um sie zu sehen – nichts erneut einzugeben.";
+"send_to_tv_lan_message" = "Sende deine Mediathek, Quellen und Anmeldedaten über das lokale Netzwerk direkt an dieses Apple TV. iCloud wird nicht verwendet.";
 "send_to_tv_action" = "Jetzt senden";
+"send_to_tv_confirm_and_send" = "Bestätigen und senden";
 "send_to_tv_sent" = "Gesendet";
 "send_to_tv_failed" = "Senden fehlgeschlagen – iCloud-Anmeldung prüfen und erneut versuchen";
 "send_to_tv_add_source" = "Stattdessen eine neue Musikquelle hinzufügen";

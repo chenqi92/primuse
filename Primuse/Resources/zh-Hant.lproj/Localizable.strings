@@ -979,7 +979,9 @@
 "settings_push_to_tv_failed" = "推送失敗";
 "send_to_tv_title" = "傳送到 Apple TV";
 "send_to_tv_message" = "把目前曲庫、音樂來源與憑證(密碼 / token)上傳到 iCloud,Apple TV 上登入同一帳號即可看到,無需重新輸入。";
+"send_to_tv_lan_message" = "透過區域網路將目前曲庫、音樂來源與憑證直接傳送到這台 Apple TV,不使用 iCloud。";
 "send_to_tv_action" = "立即傳送";
+"send_to_tv_confirm_and_send" = "確認並傳送";
 "send_to_tv_sent" = "已傳送";
 "send_to_tv_failed" = "傳送失敗,請檢查 iCloud 登入後重試";
 "send_to_tv_add_source" = "改為加入新的音樂來源";

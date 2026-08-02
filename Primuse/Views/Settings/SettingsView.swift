@@ -948,16 +948,24 @@ private struct AppleTVPushRow: View {
     @Environment(MusicLibrary.self) private var musicLibrary
     @State private var pushing = false
     @State private var result: Bool?   // nil=空闲, true=已推送, false=失败
+    @State private var transferFailure: AppleTVTransferFailure?
 
     var body: some View {
         Button {
             guard !pushing else { return }
             pushing = true; result = nil
-            // 先把最新曲库落盘成快照,否则 uploadNow 会因本地没有 library-cache.json 直接跳过(按钮看似没反应)。
-            musicLibrary.persistNow()
+            transferFailure = nil
             Task {
-                let ok = await LibrarySnapshotSync.shared.uploadNow()
-                pushing = false; result = ok
+                await musicLibrary.persistNowAndWait()
+                let transfer = await LibrarySnapshotSync.shared.uploadNowResult()
+                pushing = false
+                switch transfer {
+                case .success:
+                    result = true
+                case .failure(let failure):
+                    result = false
+                    transferFailure = failure
+                }
                 try? await Task.sleep(for: .seconds(4))
                 result = nil
             }
@@ -977,6 +985,19 @@ private struct AppleTVPushRow: View {
             }
         }
         .disabled(pushing || !iCloudSyncEnabled)
+        .alert(
+            String(localized: "settings_push_to_tv_failed"),
+            isPresented: Binding(
+                get: { transferFailure != nil },
+                set: { if !$0 { transferFailure = nil } }
+            )
+        ) {
+            Button("ok") { transferFailure = nil }
+        } message: {
+            if let transferFailure {
+                Text("\(transferFailure.userFacingMessage)\n\(transferFailure.diagnosticCode)")
+            }
+        }
     }
 }
 

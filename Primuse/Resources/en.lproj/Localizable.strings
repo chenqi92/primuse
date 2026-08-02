@@ -1070,7 +1070,9 @@
 "settings_push_to_tv_failed" = "Send failed";
 "send_to_tv_title" = "Send to Apple TV";
 "send_to_tv_message" = "Upload your library, sources and credentials (passwords / tokens) to iCloud. Sign in with the same account on Apple TV to see them — nothing to re-enter.";
+"send_to_tv_lan_message" = "Send your library, sources and credentials directly to this Apple TV over the local network. iCloud is not used.";
 "send_to_tv_action" = "Send now";
+"send_to_tv_confirm_and_send" = "Confirm and Send";
 "send_to_tv_sent" = "Sent";
 "send_to_tv_failed" = "Send failed — check iCloud sign-in and try again";
 "send_to_tv_add_source" = "Add a new music source instead";

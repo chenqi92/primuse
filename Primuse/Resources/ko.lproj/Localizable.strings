@@ -1045,7 +1045,9 @@
 "settings_push_to_tv_failed" = "보내기 실패";
 "send_to_tv_title" = "Apple TV로 보내기";
 "send_to_tv_message" = "보관함, 소스, 자격 증명(비밀번호 / 토큰)을 iCloud에 업로드합니다. Apple TV에서 같은 계정으로 로그인하면 다시 입력할 필요 없이 볼 수 있습니다.";
+"send_to_tv_lan_message" = "보관함, 소스 및 자격 증명을 로컬 네트워크를 통해 이 Apple TV로 직접 전송합니다. iCloud는 사용하지 않습니다.";
 "send_to_tv_action" = "지금 보내기";
+"send_to_tv_confirm_and_send" = "확인 및 보내기";
 "send_to_tv_sent" = "보냄";
 "send_to_tv_failed" = "보내기 실패 — iCloud 로그인을 확인하고 다시 시도하세요";
 "send_to_tv_add_source" = "대신 새 음악 소스 추가";

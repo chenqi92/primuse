@@ -35,4 +35,23 @@ struct SnapshotTransferCompletionPolicyTests {
             credentialOutcome: .failed
         ))
     }
+
+    @Test("Apple TV transfer failures expose stable diagnostic codes")
+    func transferFailureDiagnosticCodes() {
+        #expect(AppleTVTransferFailure.snapshotMissing.diagnosticCode == "TV-SNAPSHOT-MISSING")
+        #expect(AppleTVTransferFailure.localNetworkFailed(
+            detail: "offline"
+        ).diagnosticCode == "TV-LAN-CONNECTION")
+        #expect(AppleTVTransferFailure.tvRejected(
+            statusCode: 403
+        ).diagnosticCode == "TV-HTTP-403")
+    }
+
+    @Test("Apple TV HTTP failures retain the actual status")
+    func transferFailureHTTPStatusMessage() {
+        let forbidden = AppleTVTransferFailure.tvRejected(statusCode: 403)
+        let unexpected = AppleTVTransferFailure.tvRejected(statusCode: 429)
+        #expect(forbidden.userFacingMessage.contains("403"))
+        #expect(unexpected.userFacingMessage.contains("429"))
+    }
 }

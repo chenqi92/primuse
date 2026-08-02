@@ -1046,7 +1046,9 @@
 "settings_push_to_tv_failed" = "送信に失敗しました";
 "send_to_tv_title" = "Apple TV に送信";
 "send_to_tv_message" = "ライブラリ、ソース、認証情報（パスワード／トークン）を iCloud にアップロードします。Apple TV で同じアカウントにサインインすると表示され、再入力は不要です。";
+"send_to_tv_lan_message" = "ライブラリ、ソース、認証情報をローカルネットワーク経由でこの Apple TV に直接送信します。iCloud は使用しません。";
 "send_to_tv_action" = "今すぐ送信";
+"send_to_tv_confirm_and_send" = "確認して送信";
 "send_to_tv_sent" = "送信しました";
 "send_to_tv_failed" = "送信に失敗しました — iCloud のサインインを確認してやり直してください";
 "send_to_tv_add_source" = "代わりに新しい音楽ソースを追加";

@@ -18,6 +18,7 @@ struct SendToTVSheet: View {
 
     @State private var sending = false
     @State private var result: Bool?
+    @State private var failure: AppleTVTransferFailure?
     @State private var showAddSource = false
 
     /// 局域网直传不依赖 iCloud;仅旧的 iCloud 上传模式才需要开关开启。
@@ -33,7 +34,7 @@ struct SendToTVSheet: View {
                     .foregroundStyle(.tint)
                 Text("send_to_tv_title")
                     .font(.title2.weight(.bold))
-                Text("send_to_tv_message")
+                Text(lanTarget == nil ? "send_to_tv_message" : "send_to_tv_lan_message")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -50,13 +51,13 @@ struct SendToTVSheet: View {
                         .foregroundStyle(.secondary)
 
                         VStack(spacing: 3) {
-                            Text(verbatim: "Pairing Code")
+                            Text(PMString("ext.tv.sources.confirmCode"))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             Text(verbatim: lanTarget.displayPairCode)
                                 .font(.system(.title2, design: .monospaced).weight(.bold))
                                 .textSelection(.enabled)
-                            Text(verbatim: "Confirm this matches the code shown on Apple TV.")
+                            Text(PMString("ext.tv.sources.confirmCodeHint"))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .multilineTextAlignment(.center)
@@ -80,7 +81,9 @@ struct SendToTVSheet: View {
                                 if let result {
                                     Image(systemName: result ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                                 }
-                                Text(result == true ? "send_to_tv_sent" : (lanTarget == nil ? "send_to_tv_action" : "Confirm and Send"))
+                                Text(result == true
+                                     ? "send_to_tv_sent"
+                                     : (lanTarget == nil ? "send_to_tv_action" : "send_to_tv_confirm_and_send"))
                             }
                         }
                     }
@@ -90,11 +93,16 @@ struct SendToTVSheet: View {
                 .controlSize(.large)
                 .disabled(sending || blocked)
 
-                if result == false {
-                    Text("send_to_tv_failed")
-                        .font(.footnote)
-                        .foregroundStyle(.orange)
-                        .multilineTextAlignment(.center)
+                if let failure {
+                    VStack(spacing: 5) {
+                        Text(failure.userFacingMessage)
+                            .font(.footnote)
+                            .multilineTextAlignment(.center)
+                        Text(verbatim: failure.diagnosticCode)
+                            .font(.caption2.monospaced())
+                            .textSelection(.enabled)
+                    }
+                    .foregroundStyle(.orange)
                 }
 
                 Button("send_to_tv_add_source") { showAddSource = true }
@@ -119,20 +127,25 @@ struct SendToTVSheet: View {
         guard !sending else { return }
         sending = true
         result = nil
-        // 先把最新曲库落盘成快照,否则发送会因本地没有 library-cache.json 直接跳过/为空。
-        musicLibrary.persistNow()
+        failure = nil
         Task {
-            let ok: Bool
+            // 等待原子落盘完成，避免首次安装/重装后的发送读取不到快照。
+            await musicLibrary.persistNowAndWait()
+            let transfer: Result<Void, AppleTVTransferFailure>
             if let target = lanTarget {
-                ok = await LibrarySnapshotSync.shared.sendToTVOverLAN(target)
+                transfer = await LibrarySnapshotSync.shared.sendToTVOverLANResult(target)
             } else {
-                ok = await LibrarySnapshotSync.shared.uploadNow()
+                transfer = await LibrarySnapshotSync.shared.uploadNowResult()
             }
             sending = false
-            result = ok
-            if ok {
+            switch transfer {
+            case .success:
+                result = true
                 try? await Task.sleep(for: .seconds(1.2))
                 dismiss()
+            case .failure(let transferFailure):
+                result = false
+                failure = transferFailure
             }
         }
     }

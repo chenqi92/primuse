@@ -7,9 +7,10 @@ import PrimuseKit
 /// and manual sync actions can arrive close together; every caller receives the
 /// same result instead of rebuilding the complete payload again.
 private actor SnapshotUploadSingleFlight {
-    private var inFlight: (id: UUID, task: Task<Bool, Never>)?
+    typealias UploadResult = Result<Void, AppleTVTransferFailure>
+    private var inFlight: (id: UUID, task: Task<UploadResult, Never>)?
 
-    func run(_ operation: @escaping @Sendable () async -> Bool) async -> Bool {
+    func run(_ operation: @escaping @Sendable () async -> UploadResult) async -> UploadResult {
         if let inFlight {
             return await inFlight.task.value
         }
@@ -80,6 +81,12 @@ final class LibrarySnapshotSync: Sendable {
     private var recordID: CKRecord.ID { CKRecord.ID(recordName: recordName) }
     private var credRecordID: CKRecord.ID { CKRecord.ID(recordName: credRecordName) }
 
+    private static func diagnosticDetail(_ error: Error?) -> String {
+        guard let error else { return PMString("send_to_tv_error_no_detail") }
+        let nsError = error as NSError
+        return "\(nsError.localizedDescription) [\(nsError.domain) \(nsError.code)]"
+    }
+
     private enum RecordSaveOutcome {
         case success
         case conflict(CKRecord)
@@ -105,9 +112,16 @@ final class LibrarySnapshotSync: Sendable {
     /// (供 UI 给出真实反馈;失败/跳过都返回 false)。
     @discardableResult
     func uploadNow() async -> Bool {
+        if case .success = await uploadNowResult() { return true }
+        return false
+    }
+
+    /// 与 `uploadNow()` 相同的上传，但保留失败阶段与底层 CloudKit / Keychain
+    /// 详情，供显式用户操作显示真实错误。后台调用仍可继续使用 Bool 兼容入口。
+    func uploadNowResult() async -> Result<Void, AppleTVTransferFailure> {
         await fullUploadSingleFlight.run { [self] in
             await withCloudMutationLock {
-                await self.performUploadNow()
+                await self.performUploadNowResult()
             }
         }
     }
@@ -119,27 +133,27 @@ final class LibrarySnapshotSync: Sendable {
         await fullUploadSingleFlight.cancel()
     }
 
-    private func performUploadNow() async -> Bool {
-        guard !Task.isCancelled else { return false }
+    private func performUploadNowResult() async -> Result<Void, AppleTVTransferFailure> {
+        guard !Task.isCancelled else { return .failure(.cancelled) }
         guard let database else {
             plog("LibrarySnapshotSync: CloudKit unavailable in this build, skip upload")
-            return false
+            return .failure(.cloudUnavailable)
         }
         let fm = FileManager.default
         guard fm.fileExists(atPath: libraryCacheURL.path) else {
             plog("LibrarySnapshotSync: no local library-cache.json, skip upload")
-            return false
+            return .failure(.snapshotMissing)
         }
 
         let record: CKRecord
         do {
             record = try await database.record(for: recordID)
         } catch is CancellationError {
-            return false
+            return .failure(.cancelled)
         } catch {
             record = CKRecord(recordType: recordType, recordID: recordID)
         }
-        guard !Task.isCancelled else { return false }
+        guard !Task.isCancelled else { return .failure(.cancelled) }
 
         // Work on the fetched record (and its change tag) instead of deleting
         // the last known-good snapshot first. Explicitly clear both alternate
@@ -156,7 +170,7 @@ final class LibrarySnapshotSync: Sendable {
             assetKey: "library"
         ) else {
             plog("LibrarySnapshotSync: cannot stage library snapshot, keeping cloud record unchanged")
-            return false
+            return .failure(.snapshotPreparationFailed)
         }
         defer {
             if let stagingURL = libraryAttachment.stagingURL {
@@ -174,7 +188,7 @@ final class LibrarySnapshotSync: Sendable {
             srcInfo += "; lyricsGz=\(lyrics.gz.count)B files=\(lyrics.snapshot.fileCount) skipped=\(lyrics.snapshot.skippedFileCount)"
         }
         record["modifiedAt"] = Date() as CKRecordValue
-        guard !Task.isCancelled else { return false }
+        guard !Task.isCancelled else { return .failure(.cancelled) }
 
         var outcome = await saveChangedRecord(record, in: database)
         if case .conflict(let serverRecord) = outcome {
@@ -186,31 +200,21 @@ final class LibrarySnapshotSync: Sendable {
             }
             outcome = await saveChangedRecord(serverRecord, in: database)
         }
-        let ok: Bool
         switch outcome {
         case .success:
             plog("LibrarySnapshotSync: uploaded snapshot [\(libInfo); \(srcInfo)]")
-            ok = true
         case .conflict:
             plog("LibrarySnapshotSync: upload conflict persisted after retry")
-            ok = false
+            return .failure(.cloudConflict)
         case .failure(let error):
             plog("LibrarySnapshotSync: upload failed — \(error?.localizedDescription ?? "no per-record result")")
-            ok = false
+            return .failure(.cloudUploadFailed(detail: Self.diagnosticDetail(error)))
         }
         #if !os(tvOS)
-        let credentialOutcome: SnapshotCredentialTransferOutcome
-        if Task.isCancelled {
-            credentialOutcome = .failed
-        } else {
-            credentialOutcome = await gatherAndUploadCredentials()
-        }
-        return SnapshotTransferCompletionPolicy.iCloudSucceeded(
-            snapshotUploaded: ok,
-            credentialOutcome: credentialOutcome
-        )
+        guard !Task.isCancelled else { return .failure(.cancelled) }
+        return await gatherAndUploadCredentialsResult()
         #else
-        return ok
+        return .success(())
         #endif
     }
 
@@ -364,9 +368,9 @@ final class LibrarySnapshotSync: Sendable {
         return (cloudError as NSError).userInfo[CKRecordChangedErrorServerRecordKey] as? CKRecord
     }
 
-    private func withCloudMutationLock(
-        _ operation: @escaping @Sendable () async -> Bool
-    ) async -> Bool {
+    private func withCloudMutationLock<Result: Sendable>(
+        _ operation: @escaping @Sendable () async -> Result
+    ) async -> Result {
         await cloudMutationLock.acquire()
         let result = await operation()
         await cloudMutationLock.release()
@@ -909,9 +913,16 @@ final class LibrarySnapshotSync: Sendable {
     /// 秘密的加密空 tombstone，而不是无条件删除整个单例记录。
     @discardableResult
     func uploadCredentials(_ bundle: CredentialBundle) async -> Bool {
+        if case .success = await uploadCredentialsResult(bundle) { return true }
+        return false
+    }
+
+    private func uploadCredentialsResult(
+        _ bundle: CredentialBundle
+    ) async -> Result<Void, AppleTVTransferFailure> {
         guard let database else {
             plog("LibrarySnapshotSync: CloudKit unavailable in this build, skip credential upload")
-            return false
+            return .failure(.cloudUnavailable)
         }
 
         let existingRecord: CKRecord?
@@ -921,17 +932,19 @@ final class LibrarySnapshotSync: Sendable {
             existingRecord = nil
         } catch {
             plog("LibrarySnapshotSync: credential upload preflight failed — \(error)")
-            return false
+            return .failure(.credentialUploadFailed(detail: Self.diagnosticDetail(error)))
         }
 
         guard CredentialBundlePolicy.writeAction(for: bundle) == .deleteRecord else {
-            return await saveCredentialBundle(bundle, existingRecord: existingRecord, in: database)
+            return await saveCredentialBundleResult(bundle, existingRecord: existingRecord, in: database)
         }
-        guard let existingRecord else { return true }
+        guard let existingRecord else { return .success(()) }
         guard let data = existingRecord.encryptedValues["credentials"] as? Data,
               let current = CredentialBundle.decode(data) else {
             plog("LibrarySnapshotSync: empty credential upload skipped; cloud payload unavailable")
-            return false
+            return .failure(.credentialUploadFailed(
+                detail: PMString("send_to_tv_error_existing_credentials_invalid")
+            ))
         }
         let plan = CredentialRemovalPlan(
             sourceIDs: Set(current.entries.keys),
@@ -942,7 +955,7 @@ final class LibrarySnapshotSync: Sendable {
             relayIfMatching: plan.relayIfMatching,
             from: current
         )
-        return await saveCredentialBundle(
+        return await saveCredentialBundleResult(
             updated,
             existingRecord: existingRecord,
             in: database,
@@ -1009,9 +1022,29 @@ final class LibrarySnapshotSync: Sendable {
         removalPlan: CredentialRemovalPlan? = nil,
         conflictRetriesRemaining: Int = 1
     ) async -> Bool {
-        guard let data = try? bundle.jsonData() else {
+        if case .success = await saveCredentialBundleResult(
+            bundle,
+            existingRecord: existingRecord,
+            in: database,
+            removalPlan: removalPlan,
+            conflictRetriesRemaining: conflictRetriesRemaining
+        ) { return true }
+        return false
+    }
+
+    private func saveCredentialBundleResult(
+        _ bundle: CredentialBundle,
+        existingRecord: CKRecord?,
+        in database: CKDatabase,
+        removalPlan: CredentialRemovalPlan? = nil,
+        conflictRetriesRemaining: Int = 1
+    ) async -> Result<Void, AppleTVTransferFailure> {
+        let data: Data
+        do {
+            data = try bundle.jsonData()
+        } catch {
             plog("LibrarySnapshotSync: credential payload encoding failed")
-            return false
+            return .failure(.credentialUploadFailed(detail: Self.diagnosticDetail(error)))
         }
         let record = existingRecord ?? CKRecord(recordType: credRecordType, recordID: credRecordID)
         record.encryptedValues["credentials"] = data
@@ -1025,20 +1058,24 @@ final class LibrarySnapshotSync: Sendable {
             if let removalPlan {
                 guard conflictRetriesRemaining > 0 else {
                     plog("LibrarySnapshotSync: credential removal conflict persisted ids=\(removalPlan.sourceIDs.count)")
-                    return false
+                    return .failure(.credentialUploadFailed(
+                        detail: PMString("send_to_tv_error_credential_conflict")
+                    ))
                 }
                 guard let serverData = serverRecord.encryptedValues["credentials"] as? Data,
                       let serverBundle = CredentialBundle.decode(serverData) else {
                     plog("LibrarySnapshotSync: credential removal conflict payload unavailable")
-                    return false
+                    return .failure(.credentialUploadFailed(
+                        detail: PMString("send_to_tv_error_existing_credentials_invalid")
+                    ))
                 }
                 let rebased = CredentialBundlePolicy.removing(
                     sourceIDs: removalPlan.sourceIDs,
                     relayIfMatching: removalPlan.relayIfMatching,
                     from: serverBundle
                 )
-                guard rebased != serverBundle else { return true }
-                return await saveCredentialBundle(
+                guard rebased != serverBundle else { return .success(()) }
+                return await saveCredentialBundleResult(
                     rebased,
                     existingRecord: serverRecord,
                     in: database,
@@ -1060,13 +1097,15 @@ final class LibrarySnapshotSync: Sendable {
                 ? "empty change-tagged tombstone"
                 : "\(bundle.entries.count) entries"
             plog("LibrarySnapshotSync: uploaded credentials (\(kind))")
-            return true
+            return .success(())
         case .conflict:
             plog("LibrarySnapshotSync: credential upload conflict persisted after retry")
-            return false
+            return .failure(.credentialUploadFailed(
+                detail: PMString("send_to_tv_error_credential_conflict")
+            ))
         case .failure(let error):
             plog("LibrarySnapshotSync: credential upload failed — \(error?.localizedDescription ?? "no per-record result")")
-            return false
+            return .failure(.credentialUploadFailed(detail: Self.diagnosticDetail(error)))
         }
     }
 
@@ -1076,11 +1115,32 @@ final class LibrarySnapshotSync: Sendable {
     /// 「凭据同步」开关;LAN 直传是用户显式扫码发起 + 端到端加密 + 仅本地一跳,故传
     /// false 不受该开关限制(用户既然扫码就是要把源连过去)。
     func gatherCredentialBundle(respectingChannel: Bool) async -> CredentialBundle? {
-        if respectingChannel, !CloudSyncChannel.isEnabled(.credentials) { return CredentialBundle() }
-        guard let data = try? Data(contentsOf: sourcesURL) else { return nil }
+        guard case .success(let bundle) = await gatherCredentialBundleResult(
+            respectingChannel: respectingChannel
+        ) else { return nil }
+        return bundle
+    }
+
+    private func gatherCredentialBundleResult(
+        respectingChannel: Bool
+    ) async -> Result<CredentialBundle, AppleTVTransferFailure> {
+        if respectingChannel, !CloudSyncChannel.isEnabled(.credentials) {
+            return .success(CredentialBundle())
+        }
+        let data: Data
+        do {
+            data = try Data(contentsOf: sourcesURL)
+        } catch {
+            return .failure(.sourceDataUnavailable(detail: Self.diagnosticDetail(error)))
+        }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        guard let sources = try? decoder.decode([MusicSource].self, from: data) else { return nil }
+        let sources: [MusicSource]
+        do {
+            sources = try decoder.decode([MusicSource].self, from: data)
+        } catch {
+            return .failure(.sourceDataUnavailable(detail: Self.diagnosticDetail(error)))
+        }
 
         var entries: [String: CredentialEntry] = [:]
         // 含手机上「停用」的源:Apple TV 可能本地启用某个手机上停用的源来播放,
@@ -1095,10 +1155,20 @@ final class LibrarySnapshotSync: Sendable {
                     break
                 case .temporarilyUnavailable(let status):
                     plog("⏳ LibrarySnapshotSync: skip credential snapshot; Keychain temporarily unavailable source=\(source.id.prefix(8))… status=\(status)")
-                    return nil
+                    return .failure(.credentialReadFailed(
+                        sourceName: source.name,
+                        component: PMString("send_to_tv_credential_password"),
+                        status: status,
+                        temporary: true
+                    ))
                 case .failed(let status):
                     plog("⛔ LibrarySnapshotSync: skip credential snapshot; Keychain read failed source=\(source.id.prefix(8))… status=\(status)")
-                    return nil
+                    return .failure(.credentialReadFailed(
+                        sourceName: source.name,
+                        component: PMString("send_to_tv_credential_password"),
+                        status: status,
+                        temporary: false
+                    ))
                 }
             }
             let tokenManager = CloudTokenManager(sourceID: source.id)
@@ -1111,10 +1181,20 @@ final class LibrarySnapshotSync: Sendable {
                 break
             case .temporarilyUnavailable(let status):
                 plog("⏳ LibrarySnapshotSync: skip credential snapshot; cloud tokens temporarily unavailable source=\(source.id.prefix(8))… status=\(status)")
-                return nil
+                return .failure(.credentialReadFailed(
+                    sourceName: source.name,
+                    component: PMString("send_to_tv_credential_oauth_token"),
+                    status: status,
+                    temporary: true
+                ))
             case .failed(let status):
                 plog("⛔ LibrarySnapshotSync: skip credential snapshot; cloud token read failed source=\(source.id.prefix(8))… status=\(status)")
-                return nil
+                return .failure(.credentialReadFailed(
+                    sourceName: source.name,
+                    component: PMString("send_to_tv_credential_oauth_token"),
+                    status: status,
+                    temporary: false
+                ))
             }
             switch await tokenManager.lookupAppCredentials() {
             case .found(let creds):
@@ -1124,41 +1204,58 @@ final class LibrarySnapshotSync: Sendable {
                 break
             case .temporarilyUnavailable(let status):
                 plog("⏳ LibrarySnapshotSync: skip credential snapshot; cloud app credentials temporarily unavailable source=\(source.id.prefix(8))… status=\(status)")
-                return nil
+                return .failure(.credentialReadFailed(
+                    sourceName: source.name,
+                    component: PMString("send_to_tv_credential_app_credentials"),
+                    status: status,
+                    temporary: true
+                ))
             case .failed(let status):
                 plog("⛔ LibrarySnapshotSync: skip credential snapshot; cloud app credential read failed source=\(source.id.prefix(8))… status=\(status)")
-                return nil
+                return .failure(.credentialReadFailed(
+                    sourceName: source.name,
+                    component: PMString("send_to_tv_credential_app_credentials"),
+                    status: status,
+                    temporary: false
+                ))
             }
             if !entry.isEmpty { entries[source.id] = entry }
         }
         var bundle = CredentialBundle(entries: entries)
         bundle.relay = PhoneRelayServer.shared.endpoint()   // iPhone 中继端点(开启时)
-        return bundle
+        return .success(bundle)
     }
 
     /// CloudKit:采集凭据并加密上传(尊重「凭据同步」开关)。
-    private func gatherAndUploadCredentials() async -> SnapshotCredentialTransferOutcome {
-        guard CloudSyncChannel.isEnabled(.credentials) else { return .skipped }
-        guard let bundle = await gatherCredentialBundle(respectingChannel: true) else {
-            plog("LibrarySnapshotSync: credential snapshot preparation failed")
-            return .failed
+    private func gatherAndUploadCredentialsResult() async -> Result<Void, AppleTVTransferFailure> {
+        guard CloudSyncChannel.isEnabled(.credentials) else { return .success(()) }
+        let prepared = await gatherCredentialBundleResult(respectingChannel: true)
+        switch prepared {
+        case .success(let bundle):
+            return await uploadCredentialsResult(bundle)
+        case .failure(let failure):
+            plog("LibrarySnapshotSync: credential snapshot preparation failed — \(failure.diagnosticCode)")
+            return .failure(failure)
         }
-        return await uploadCredentials(bundle) ? .succeeded : .failed
     }
 
     // MARK: LAN 直传(扫码,绕开 iCloud)
 
     /// 构建与 CloudKit 快照同构的整库 + 源 + 歌词 + 凭据载荷(各 `*Gz` 是同一份压缩字节)。
     func buildLANPayload() async -> LANSyncPayload? {
-        let credentials = await gatherCredentialBundle(respectingChannel: false)
-        let credentialOutcome: SnapshotCredentialTransferOutcome = credentials == nil
-            ? .failed
-            : .succeeded
-        guard SnapshotTransferCompletionPolicy.canSendLAN(
-            credentialOutcome: credentialOutcome
-        ), let credentials else {
-            plog("LibrarySnapshotSync: LAN payload preparation aborted; credentials unavailable")
-            return nil
+        guard case .success(let payload) = await buildLANPayloadResult() else { return nil }
+        return payload
+    }
+
+    private func buildLANPayloadResult() async -> Result<LANSyncPayload, AppleTVTransferFailure> {
+        let prepared = await gatherCredentialBundleResult(respectingChannel: false)
+        let credentials: CredentialBundle
+        switch prepared {
+        case .success(let bundle):
+            credentials = bundle
+        case .failure(let failure):
+            plog("LibrarySnapshotSync: LAN payload preparation aborted — \(failure.diagnosticCode)")
+            return .failure(failure)
         }
 
         var payload = LANSyncPayload()
@@ -1169,16 +1266,38 @@ final class LibrarySnapshotSync: Sendable {
         }
         if let lyrics = Self.gatherLyricsBlob() { payload.lyricsGz = Self.gzip(lyrics.data) }
         payload.credentials = credentials
-        return payload
+        return .success(payload)
     }
 
     /// 把整库 + 源 + 凭据 AES-GCM 加密后直接 POST 给 Apple TV(`primuse://pair` 扫码端点)。
     /// 调用前应先 `MusicLibrary.persistNow()`,否则 library-cache.json 可能不是最新。
     func sendToTVOverLAN(_ link: LANPairLink) async -> Bool {
-        guard let payload = await buildLANPayload(),
-              let json = try? payload.jsonData(),
-              let box = LANSyncCrypto.seal(json, key: link.key),
-              let url = link.configURL else { return false }
+        if case .success = await sendToTVOverLANResult(link) { return true }
+        return false
+    }
+
+    func sendToTVOverLANResult(
+        _ link: LANPairLink
+    ) async -> Result<Void, AppleTVTransferFailure> {
+        let prepared = await buildLANPayloadResult()
+        let payload: LANSyncPayload
+        switch prepared {
+        case .success(let value):
+            payload = value
+        case .failure(let failure):
+            return .failure(failure)
+        }
+
+        let json: Data
+        do {
+            json = try payload.jsonData()
+        } catch {
+            return .failure(.payloadEncodingFailed(detail: Self.diagnosticDetail(error)))
+        }
+        guard let box = LANSyncCrypto.seal(json, key: link.key) else {
+            return .failure(.payloadEncryptionFailed)
+        }
+        guard let url = link.configURL else { return .failure(.invalidPairingLink) }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
@@ -1186,12 +1305,21 @@ final class LibrarySnapshotSync: Sendable {
         req.timeoutInterval = 30
         do {
             let (_, resp) = try await URLSession.shared.upload(for: req, from: box)
-            let ok = (resp as? HTTPURLResponse)?.statusCode == 200
-            plog("LibrarySnapshotSync: LAN send → \(ok ? "OK" : "fail") (\(box.count)B) \(link.host):\(link.port)")
-            return ok
+            guard let http = resp as? HTTPURLResponse else {
+                plog("LibrarySnapshotSync: LAN send failed — non-HTTP response")
+                return .failure(.invalidTVResponse)
+            }
+            guard http.statusCode == 200 else {
+                plog("LibrarySnapshotSync: LAN send rejected HTTP \(http.statusCode) (\(box.count)B) \(link.host):\(link.port)")
+                return .failure(.tvRejected(statusCode: http.statusCode))
+            }
+            plog("LibrarySnapshotSync: LAN send → OK (\(box.count)B) \(link.host):\(link.port)")
+            return .success(())
+        } catch is CancellationError {
+            return .failure(.cancelled)
         } catch {
             plog("LibrarySnapshotSync: LAN send failed — \(error)")
-            return false
+            return .failure(.localNetworkFailed(detail: Self.diagnosticDetail(error)))
         }
     }
     #endif

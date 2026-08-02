@@ -3773,6 +3773,15 @@ final class MusicLibrary {
         }
     }
 
+    /// Persist the current snapshot and wait until its atomic file replacement
+    /// finishes. Explicit export/sync actions use this instead of racing an
+    /// asynchronous `persistNow()` against an immediate file read.
+    func persistNowAndWait() async {
+        persistNow()
+        let task = persistWriteTask
+        await task?.value
+    }
+
     /// Encode + atomically write a snapshot. `nonisolated` so it runs off the
     /// main actor; uses a fresh encoder rather than sharing the main-actor one.
     private nonisolated static func writeSnapshot(_ snapshot: Snapshot, to url: URL, backupURL: URL) {

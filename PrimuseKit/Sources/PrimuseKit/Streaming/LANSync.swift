@@ -25,6 +25,107 @@ public enum SnapshotTransferCompletionPolicy {
     }
 }
 
+/// A user-visible Apple TV transfer failure. The case identifies the failed
+/// stage while `diagnosticCode` gives support a stable value that can be copied
+/// from screenshots regardless of the device language.
+public enum AppleTVTransferFailure: Error, Sendable, Equatable, LocalizedError {
+    case cancelled
+    case cloudUnavailable
+    case snapshotMissing
+    case snapshotPreparationFailed
+    case cloudConflict
+    case cloudUploadFailed(detail: String)
+    case sourceDataUnavailable(detail: String)
+    case credentialReadFailed(
+        sourceName: String,
+        component: String,
+        status: Int32,
+        temporary: Bool
+    )
+    case credentialUploadFailed(detail: String)
+    case invalidPairingLink
+    case payloadEncodingFailed(detail: String)
+    case payloadEncryptionFailed
+    case localNetworkFailed(detail: String)
+    case invalidTVResponse
+    case tvRejected(statusCode: Int)
+
+    public var diagnosticCode: String {
+        switch self {
+        case .cancelled: return "TV-CANCELLED"
+        case .cloudUnavailable: return "TV-ICLOUD-UNAVAILABLE"
+        case .snapshotMissing: return "TV-SNAPSHOT-MISSING"
+        case .snapshotPreparationFailed: return "TV-SNAPSHOT-PREPARE"
+        case .cloudConflict: return "TV-ICLOUD-CONFLICT"
+        case .cloudUploadFailed: return "TV-ICLOUD-UPLOAD"
+        case .sourceDataUnavailable: return "TV-SOURCES-READ"
+        case .credentialReadFailed: return "TV-CREDENTIAL-READ"
+        case .credentialUploadFailed: return "TV-CREDENTIAL-UPLOAD"
+        case .invalidPairingLink: return "TV-PAIRING-LINK"
+        case .payloadEncodingFailed: return "TV-PAYLOAD-ENCODE"
+        case .payloadEncryptionFailed: return "TV-PAYLOAD-ENCRYPT"
+        case .localNetworkFailed: return "TV-LAN-CONNECTION"
+        case .invalidTVResponse: return "TV-LAN-RESPONSE"
+        case .tvRejected(let statusCode): return "TV-HTTP-\(statusCode)"
+        }
+    }
+
+    public var errorDescription: String? { userFacingMessage }
+
+    public var userFacingMessage: String {
+        switch self {
+        case .cancelled:
+            return PMString("send_to_tv_error_cancelled")
+        case .cloudUnavailable:
+            return PMString("send_to_tv_error_cloud_unavailable")
+        case .snapshotMissing:
+            return PMString("send_to_tv_error_snapshot_missing")
+        case .snapshotPreparationFailed:
+            return PMString("send_to_tv_error_snapshot_preparation")
+        case .cloudConflict:
+            return PMString("send_to_tv_error_cloud_conflict")
+        case .cloudUploadFailed(let detail):
+            return PMString("send_to_tv_error_cloud_upload", detail)
+        case .sourceDataUnavailable(let detail):
+            return PMString("send_to_tv_error_source_data", detail)
+        case let .credentialReadFailed(sourceName, component, status, temporary):
+            return PMString(
+                temporary
+                    ? "send_to_tv_error_credential_temporary"
+                    : "send_to_tv_error_credential_read",
+                sourceName,
+                component,
+                String(status)
+            )
+        case .credentialUploadFailed(let detail):
+            return PMString("send_to_tv_error_credential_upload", detail)
+        case .invalidPairingLink:
+            return PMString("send_to_tv_error_pairing_link")
+        case .payloadEncodingFailed(let detail):
+            return PMString("send_to_tv_error_payload_encoding", detail)
+        case .payloadEncryptionFailed:
+            return PMString("send_to_tv_error_payload_encryption")
+        case .localNetworkFailed(let detail):
+            return PMString("send_to_tv_error_local_network", detail)
+        case .invalidTVResponse:
+            return PMString("send_to_tv_error_invalid_response")
+        case .tvRejected(let statusCode):
+            switch statusCode {
+            case 400:
+                return PMString("send_to_tv_error_tv_bad_request")
+            case 403:
+                return PMString("send_to_tv_error_tv_forbidden")
+            case 500:
+                return PMString("send_to_tv_error_tv_persistence")
+            case 503:
+                return PMString("send_to_tv_error_tv_not_ready")
+            default:
+                return PMString("send_to_tv_error_tv_status", String(statusCode))
+            }
+        }
+    }
+}
+
 /// 局域网「扫码直传」的载荷:与 CloudKit 快照同构的整库 + 源 + 歌词 + 凭据,经
 /// AES-GCM 加密后由 iPhone 直接 POST 给 Apple TV。绕开 iCloud —— 不受 Apple ID /
 /// 区域 / Development·Production 环境隔离,只要两台设备在同一局域网即可。
