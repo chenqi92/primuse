@@ -465,11 +465,12 @@ final class MusicScraperService {
     }
 
     nonisolated static func searchQuery(title: String, artist: String?) -> String {
-        var query = ScraperManager.searchTitle(title, artist: artist)
-        if let artist,
-           !artist.isEmpty,
-           ScraperManager.shouldAppendArtist(to: query, artist: artist) {
-            query += " \(artist)"
+        let identity = ScraperManager.searchTitleArtist(title, artist: artist)
+        var query = identity.title
+        if let effectiveArtist = identity.artist,
+           !effectiveArtist.isEmpty,
+           ScraperManager.shouldAppendArtist(to: query, artist: effectiveArtist) {
+            query += " \(effectiveArtist)"
         }
         return query
     }

@@ -137,6 +137,16 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
 /// fields that already contain U+FFFD and therefore cannot be losslessly
 /// recovered from the server response.
 public enum MediaMetadataTextRepair {
+    public struct FileNameIdentity: Sendable, Equatable {
+        public let artist: String
+        public let title: String
+
+        public init(artist: String, title: String) {
+            self.artist = artist
+            self.title = title
+        }
+    }
+
     public static func repaired(_ value: String?) -> String? {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -157,14 +167,45 @@ public enum MediaMetadataTextRepair {
     public static func fileNameTitle(from path: String?) -> String? {
         guard let baseName = fileBaseName(from: path) else { return nil }
         if let numberedTitle = numberedTrackTitle(baseName) { return numberedTitle }
-        return splitArtistAndTitle(baseName)?.title ?? baseName
+        return fileNameIdentity(fromBaseName: baseName)?.title ?? baseName
     }
 
     public static func fileNameArtist(from path: String?) -> String? {
         guard let baseName = fileBaseName(from: path) else { return nil }
         if numberedTrackTitle(baseName) != nil { return nil }
-        guard let parsed = splitArtistAndTitle(baseName) else { return nil }
+        guard let parsed = fileNameIdentity(fromBaseName: baseName) else { return nil }
         return parsed.artist.allSatisfy(\.isNumber) ? nil : parsed.artist
+    }
+
+    /// Parses common NAS base names without treating a bare underscore inside a
+    /// legitimate artist or title as a separator. At least one side of an
+    /// underscore must contain whitespace, so both `Artist _ Title` and the
+    /// inconsistent `Artist _Title_ 20240101` form remain supported.
+    public static func fileNameIdentity(fromBaseName value: String?) -> FileNameIdentity? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let normalizedSeparators = trimmed.replacingOccurrences(
+            of: "\\s+_\\s*|\\s*_\\s+",
+            with: " _ ",
+            options: .regularExpression
+        )
+        let underscoreParts = normalizedSeparators
+            .components(separatedBy: " _ ")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if underscoreParts.count >= 2 {
+            return FileNameIdentity(artist: underscoreParts[0], title: underscoreParts[1])
+        }
+
+        guard let range = trimmed.range(of: "\\s*[–—-]\\s+", options: .regularExpression) else {
+            return nil
+        }
+        let artist = String(trimmed[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = String(trimmed[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !artist.isEmpty, !title.isEmpty else { return nil }
+        return FileNameIdentity(artist: artist, title: title)
     }
 
     private static func fileBaseName(from path: String?) -> String? {
@@ -176,32 +217,6 @@ public enum MediaMetadataTextRepair {
         return baseName.isEmpty ? nil : baseName
     }
 
-    private static func splitArtistAndTitle(_ value: String) -> (artist: String, title: String)? {
-        // A number of NAS music collections use a spaced underscore as a
-        // field separator, for example:
-        //   Artist _ Title _ 20140101 _ [edition] _ source
-        // Only split the explicitly-spaced form. A bare underscore is common
-        // inside legitimate artist/title names and must remain untouched.
-        let underscoreParts = value
-            .components(separatedBy: " _ ")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        if underscoreParts.count >= 2,
-           let artist = underscoreParts.first,
-           let title = underscoreParts.dropFirst().first,
-           !artist.isEmpty,
-           !title.isEmpty {
-            return (artist, title)
-        }
-
-        guard let range = value.range(of: "\\s+[–—-]\\s+", options: .regularExpression) else {
-            return nil
-        }
-        let artist = String(value[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-        let title = String(value[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !artist.isEmpty, !title.isEmpty else { return nil }
-        return (artist, title)
-    }
-
     private static func numberedTrackTitle(_ value: String) -> String? {
         if let dot = value.range(of: ". ") {
             let prefix = value[..<dot.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
@@ -210,7 +225,7 @@ public enum MediaMetadataTextRepair {
                 return title
             }
         }
-        if let parsed = splitArtistAndTitle(value), parsed.artist.allSatisfy(\.isNumber) {
+        if let parsed = fileNameIdentity(fromBaseName: value), parsed.artist.allSatisfy(\.isNumber) {
             return parsed.title
         }
         return nil

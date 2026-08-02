@@ -28,6 +28,18 @@ import Testing
     #expect(MediaMetadataTextRepair.fileNameTitle(from: path) == "伤了心的女人怎么了")
 }
 
+@Test func extractsScrapeIdentityFromInconsistentlySpacedNASFilename() {
+    let baseName = "陈果 _想和你去吹吹风_ 20170721 _【贝壳音乐现场】"
+    let identity = MediaMetadataTextRepair.fileNameIdentity(fromBaseName: baseName)
+
+    #expect(identity?.artist == "陈果")
+    #expect(identity?.title == "想和你去吹吹风")
+}
+
+@Test func preservesBareUnderscoresInScrapeIdentity() {
+    #expect(MediaMetadataTextRepair.fileNameIdentity(fromBaseName: "AC_DC_Live") == nil)
+}
+
 @Test func preservesBareUnderscoresInsideFilename() {
     let path = "/music/AC_DC_Live.flac"
     #expect(MediaMetadataTextRepair.fileNameArtist(from: path) == nil)

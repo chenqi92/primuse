@@ -762,42 +762,31 @@ actor ScraperManager {
         return nil
     }
 
-    static func searchTitle(_ title: String, artist: String?) -> String {
-        let cleanedTitle = cleanTitle(title)
-        let cleanedArtist = normalizeComparableText(artist)
-
-        guard !cleanedArtist.isEmpty,
-              let split = splitTitleAroundDash(cleanedTitle) else {
-            return cleanedTitle
-        }
-
-        if normalizeComparableText(split.left) == cleanedArtist, !split.right.isEmpty {
-            return split.right
-        }
-        if normalizeComparableText(split.right) == cleanedArtist, !split.left.isEmpty {
-            return split.left
-        }
-
-        return cleanedTitle
-    }
-
-    /// 像 `searchTitle`,但当 artist 为空且标题是「歌手 - 标题」(云盘无标签歌曲的
-    /// 文件名常见)时,把歌手也拆出来,返回 (干净标题, 歌手)。已有可信 artist 时沿用。
+    /// 从云盘无标签歌曲的结构化文件名中拆出干净标题和歌手；已有可信 artist
+    /// 时只在分隔符一侧与它一致时拆分，避免把正常歌名误当成「歌手 - 标题」。
     static func searchTitleArtist(_ title: String, artist: String?) -> (title: String, artist: String?) {
         let cleanedArtist = normalizeComparableText(artist)
-        if !cleanedArtist.isEmpty {
-            return (searchTitle(title, artist: artist), artist)
-        }
         let cleaned = cleanTitle(title)
-        if let split = splitTitleAroundDash(cleaned) {
-            let left = split.left.trimmingCharacters(in: .whitespaces)
-            let right = split.right.trimmingCharacters(in: .whitespaces)
-            if !left.isEmpty, !right.isEmpty {
-                // 约定「歌手 - 标题」:左歌手、右标题。
-                return (cleanTitle(right), left)
+        if let split = MediaMetadataTextRepair.fileNameIdentity(fromBaseName: cleaned) {
+            let left = cleanTitle(split.artist)
+            let right = cleanTitle(split.title)
+            guard !left.isEmpty, !right.isEmpty else { return (cleaned, artist) }
+
+            if !cleanedArtist.isEmpty {
+                if normalizeComparableText(left) == cleanedArtist {
+                    return (right, artist)
+                }
+                if normalizeComparableText(right) == cleanedArtist {
+                    return (left, artist)
+                }
+                return (cleaned, artist)
             }
+
+            // 约定「歌手 - 标题」或「歌手 _ 标题 _ 日期」:左歌手、右标题。
+            // 数字左段是曲序而不是歌手，仍可去掉但不能制造一个假歌手。
+            return (right, left.allSatisfy(\.isNumber) ? nil : left)
         }
-        return (cleaned, nil)
+        return (cleaned, artist)
     }
 
     static func shouldAppendArtist(to query: String, artist: String?) -> Bool {
@@ -816,16 +805,6 @@ actor ScraperManager {
         result = result.replacingOccurrences(of: "^\\d+[.\\s]+", with: "", options: .regularExpression)
         result = result.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
         return result.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private static func splitTitleAroundDash(_ title: String) -> (left: String, right: String)? {
-        guard let dashRange = title.range(of: "\\s*[–—-]\\s+", options: .regularExpression) else {
-            return nil
-        }
-        let left = String(title[..<dashRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-        let right = String(title[dashRange.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !left.isEmpty, !right.isEmpty else { return nil }
-        return (left, right)
     }
 
     private static func normalizeComparableText(_ text: String?) -> String {

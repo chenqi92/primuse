@@ -60,10 +60,10 @@ struct ScrapeOptionsView: View {
     @State private var errorMessage: String?
     @State private var manualSearchQuery = ""
     @State private var manualMatchTitle = ""
+    @State private var manualMatchArtist: String?
     /// 手动刮削时每个源单次返回的搜索结果上限,持久化保存,默认 20。
     /// 在选项页"手动刮削"按钮上方可调,避免搜出来不够看 / 拉太多浪费。
-    /// 自动刮削不用这个参数(每个源固定取 first item, 拉 15 候选写死, limit
-    /// 大没意义)。
+    /// 自动刮削不用这个参数（每个源固定搜索 15 项，再按安全门槛选有限候选）。
     @AppStorage("scraperSearchLimit") private var searchLimit: Int = 20
     /// ID of the search-result row currently being fetched. Used to show a
     /// per-row spinner so users see immediate feedback after tapping —
@@ -831,7 +831,9 @@ struct ScrapeOptionsView: View {
         macSidecarBaseNameOverride = sidecarBaseName
         macUsesMediaServerWriteback = usesMediaServerWriteback
         macSupportsSidecarWriteback = supportsSidecarWriteback
-        manualMatchTitle = title
+        let identity = ScraperManager.searchTitleArtist(title, artist: song.artistName)
+        manualMatchTitle = identity.title
+        manualMatchArtist = identity.artist
         manualSearchQuery = MusicScraperService.searchQuery(title: title, artist: song.artistName)
         await macRunSearch()
     }
@@ -1290,7 +1292,9 @@ struct ScrapeOptionsView: View {
         macUsesMediaServerWriteback = usesMediaServerWriteback
         macSupportsSidecarWriteback = supportsSidecarWriteback
         #endif
-        manualMatchTitle = title
+        let identity = ScraperManager.searchTitleArtist(title, artist: song.artistName)
+        manualMatchTitle = identity.title
+        manualMatchArtist = identity.artist
         manualSearchQuery = MusicScraperService.searchQuery(title: title, artist: song.artistName)
         mode = .manual
         await performManualSearch()
@@ -1319,7 +1323,7 @@ struct ScrapeOptionsView: View {
                         : nil
                     let matchRank = ScrapeCandidateRankingPolicy.rank(
                         requestedTitle: manualMatchTitle.isEmpty ? song.title : manualMatchTitle,
-                        requestedArtist: song.artistName,
+                        requestedArtist: manualMatchArtist,
                         targetDurationMs: targetDurationMs,
                         candidateTitle: item.title,
                         candidateArtist: item.artist,
