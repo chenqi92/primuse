@@ -6,6 +6,7 @@ import PrimuseKit
 /// (~100MB), 用户接受后下载完毕后续秒翻译。
 struct LyricsTranslationSettingsView: View {
     @State private var settings = LyricsTranslationSettingsStore.shared
+    @State private var languageCatalog = LyricsTranslationLanguageCatalog.shared
     @State private var cacheCount: Int = 0
     @State private var showClearConfirm = false
 
@@ -20,8 +21,11 @@ struct LyricsTranslationSettingsView: View {
             if settings.isEnabled {
                 Section("lyrics_translation_target_language") {
                     Picker("lyrics_translation_target", selection: $settings.targetLanguageCode) {
-                        ForEach(LyricsTranslationSettingsStore.availableTargetLanguages, id: \.code) { lang in
-                            Text(LocalizedStringKey(lang.displayKey)).tag(lang.code)
+                        ForEach(
+                            languageCatalog.options(including: settings.targetLanguageCode),
+                            id: \.self
+                        ) { code in
+                            Text(languageCatalog.displayName(for: code)).tag(code)
                         }
                     }
                 }
@@ -52,6 +56,9 @@ struct LyricsTranslationSettingsView: View {
         #endif
         .onAppear {
             cacheCount = LyricsTranslationCache.shared.count
+        }
+        .task {
+            await languageCatalog.refresh()
         }
         .confirmationDialog(
             "lyrics_translation_clear_confirm",

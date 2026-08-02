@@ -1838,11 +1838,13 @@ private final class ScraperReorderHandleNSView: NSView {
 
 private struct MacSTLyricsView: View {
     @State private var settings = LyricsTranslationSettingsStore.shared
+    @State private var languageCatalog = LyricsTranslationLanguageCatalog.shared
     @AppStorage("lyricsFontScale") private var lyricsFontScale = 1.0
 
     var body: some View {
         // 删了"离线模型"/"翻译颜色"/"仅 NowPlaying 展开时显示翻译" 三行 —— 这些 mock
-        // 控件没接到任何 Store, 之前是纯视觉占位, 真翻译走的是云端 API (LyricsTranslationSettingsStore)。
+        // 控件没接到任何 Store, 之前是纯视觉占位, 真翻译走的是 Apple 本地
+        // Translation Framework (LyricsTranslationSettingsStore)。
         MacSTSection(Lz("Translate Lyrics")) {
             MacSTGroup {
                 MacSTRow(Lz("Enable Translation"), hint: Lz("L-08 · Two-Line Display"), divider: false) {
@@ -1857,12 +1859,17 @@ private struct MacSTLyricsView: View {
                             get: { settings.targetLanguageCode },
                             set: { settings.targetLanguageCode = $0 }
                         ),
-                        options: LyricsTranslationSettingsStore.availableTargetLanguages.map {
-                            ($0.code, String(localized: String.LocalizationValue($0.displayKey)))
-                        }
+                        options: languageCatalog
+                            .options(including: settings.targetLanguageCode)
+                            .map {
+                                ($0, languageCatalog.displayName(for: $0))
+                            }
                     )
                 }
             }
+        }
+        .task {
+            await languageCatalog.refresh()
         }
 
         MacSTSection(Lz("Display Style")) {

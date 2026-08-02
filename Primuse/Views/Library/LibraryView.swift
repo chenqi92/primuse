@@ -129,6 +129,32 @@ struct LibraryView: View {
             .onChange(of: deepLink) { _, newValue in
                 applyDeepLink(newValue)
             }
+            .task(id: SongListSnapshotVersion(
+                collectionRevision: library.visibleSongCollectionRevision,
+                replacementToken: library.songReplacementToken
+            )) {
+                let version = SongListSnapshotVersion(
+                    collectionRevision: library.visibleSongCollectionRevision,
+                    replacementToken: library.songReplacementToken
+                )
+                let songsSnapshot = library.visibleSongs
+                guard !songsSnapshot.isEmpty else { return }
+                do {
+                    // Coalesce scanner bursts, then prepare the default order
+                    // while the user is still on the library hub. SongListView
+                    // reuses the same in-flight/cached snapshot on navigation.
+                    try await Task.sleep(for: .milliseconds(180))
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else { return }
+                _ = await SongListSnapshotStore.shared.snapshot(
+                    scopeKey: SongListSnapshotStore.libraryScopeKey,
+                    version: version,
+                    order: .title,
+                    songs: songsSnapshot
+                )
+            }
             .sheet(isPresented: $showQuickAccessEditor) {
                 LibraryQuickAccessEditor(pinsRawValue: $quickAccessRawValue)
             }

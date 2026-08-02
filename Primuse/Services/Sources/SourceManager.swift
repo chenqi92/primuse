@@ -1518,16 +1518,28 @@ final class SourceManager {
 
     // MARK: - Audio Cache
 
-    private static let audioCacheDirName = "primuse_audio_cache"
+    private nonisolated static let audioCacheDirName = "primuse_audio_cache"
     private static let offlineBatchConcurrency = 2
     private static let directDownloadUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 
-    private func audioCacheDirectory(for sourceID: String) -> URL {
-        let dir = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
-            .appendingPathComponent(Self.audioCacheDirName)
+    private nonisolated static func audioCacheDirectoryURL(for sourceID: String) -> URL {
+        FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+            .appendingPathComponent(audioCacheDirName)
             .appendingPathComponent(sourceID)
+    }
+
+    private func audioCacheDirectory(for sourceID: String) -> URL {
+        let dir = Self.audioCacheDirectoryURL(for: sourceID)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
+    }
+
+    /// Pure URL construction for UI probes. Unlike `cacheURL(for:)`, this does
+    /// not create directories, stat files, or run legacy migration on the main
+    /// actor.
+    private func audioCacheTargetURL(for song: Song) -> URL {
+        Self.audioCacheDirectoryURL(for: song.sourceID)
+            .appendingPathComponent(cacheFileName(for: song))
     }
 
     /// 缓存文件名使用 filePath 的稳定哈希，并补音频格式扩展名。OneDrive 等的 filePath
@@ -1644,6 +1656,23 @@ final class SourceManager {
         return url
     }
 
+    /// Read-only cache lookup for artwork and other scrolling-adjacent work.
+    /// Legacy migration remains on explicit playback/cache paths; a recycled
+    /// list row must never create directories or synchronously touch disk on
+    /// the main actor.
+    func cachedURLForBackgroundRead(for song: Song) async -> URL? {
+        let target = audioCacheTargetURL(for: song)
+        let expectedSize = song.fileSize
+        let isUsable = await Task.detached(priority: .utility) {
+            Self.isUsableCacheFile(at: target, expectedSize: expectedSize)
+        }.value
+        guard isUsable else { return nil }
+        Task {
+            await AudioCacheManager.shared.recordAccess(path: audioCacheRelativePath(for: song))
+        }
+        return target
+    }
+
     func offlineAudioSnapshot(for song: Song) -> OfflineAudioCacheSnapshot {
         if let snapshot = offlineAudioSnapshots[song.id] {
             return snapshot
@@ -1709,12 +1738,13 @@ final class SourceManager {
     /// well, preventing repeated disk stats when the same row is recycled.
     func ensureOfflineAudioSnapshot(for song: Song) async {
         guard offlineAudioSnapshots[song.id] == nil else { return }
-        let url = cacheURL(for: song)
+        let url = audioCacheTargetURL(for: song)
+        let relativePath = audioCacheRelativePath(for: song)
         let info = await Task.detached(priority: .utility) {
             Self.offlineFileInfo(at: url)
         }.value
         let snapshot = await AudioCacheManager.shared.snapshot(
-            path: audioCacheRelativePath(for: song),
+            path: relativePath,
             fileExists: info.exists,
             byteCount: info.byteCount
         )
@@ -1744,6 +1774,18 @@ final class SourceManager {
             .totalFileAllocatedSize
             .map(Int64.init)
         return (true, size)
+    }
+
+    private nonisolated static func isUsableCacheFile(
+        at url: URL,
+        expectedSize: Int64
+    ) -> Bool {
+        guard FileManager.default.fileExists(atPath: url.path) else { return false }
+        guard expectedSize > 0 else { return true }
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let actualSize = (attributes[.size] as? NSNumber)?.int64Value
+        else { return false }
+        return actualSize >= Int64(Double(expectedSize) * 0.95)
     }
 
     func downloadForOffline(song: Song) {

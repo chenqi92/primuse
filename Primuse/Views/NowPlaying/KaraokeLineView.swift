@@ -24,6 +24,10 @@ struct KaraokeLineView: View {
     let timeAt: (Date) -> TimeInterval
     /// 外层已经有 TimelineView 时传入固定时间，避免嵌套 60Hz 刷新。
     let fixedTime: TimeInterval?
+    /// Inactive word-level rows keep the same flow layout without running a
+    /// Timeline. This prevents active-row takeover from changing wrapping or
+    /// measured height while still avoiding unnecessary 60 Hz updates.
+    let isAnimationEnabled: Bool
     /// 超过该时间后，这一行已经让位给下一行；即使外层 active index 还没刷新，
     /// 也不要继续在旧行上扫光或弹动。
     let deactivationTime: TimeInterval?
@@ -36,6 +40,7 @@ struct KaraokeLineView: View {
         inactiveColor: Color,
         timeAt: @escaping (Date) -> TimeInterval,
         fixedTime: TimeInterval? = nil,
+        isAnimationEnabled: Bool = true,
         deactivationTime: TimeInterval? = nil
     ) {
         self.line = line
@@ -45,6 +50,7 @@ struct KaraokeLineView: View {
         self.inactiveColor = inactiveColor
         self.timeAt = timeAt
         self.fixedTime = fixedTime
+        self.isAnimationEnabled = isAnimationEnabled
         self.deactivationTime = deactivationTime
     }
 
@@ -63,10 +69,20 @@ struct KaraokeLineView: View {
 
     var body: some View {
         if let fixedTime {
-            renderLineRespectingDeactivation(at: fixedTime)
+            if isAnimationEnabled {
+                renderLineRespectingDeactivation(at: fixedTime)
+            } else {
+                renderInactiveLine()
+            }
         } else {
-            TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: false)) { ctx in
-                renderLineRespectingDeactivation(at: timeAt(ctx.date))
+            TimelineView(
+                .animation(minimumInterval: 1.0 / 60.0, paused: !isAnimationEnabled)
+            ) { ctx in
+                if isAnimationEnabled {
+                    renderLineRespectingDeactivation(at: timeAt(ctx.date))
+                } else {
+                    renderInactiveLine()
+                }
             }
         }
     }

@@ -2713,6 +2713,16 @@ final class MusicLibrary {
         return visibleSongByID[id]
     }
 
+    /// O(1) lookup for views whose structural invalidation is driven by
+    /// `visibleSongCollectionRevision` and `songReplacementToken` explicitly.
+    /// Avoiding a read of `visibleSongsReference` prevents one metadata update
+    /// from invalidating an entire large list; existing row models are patched
+    /// through the replacement token, while newly-created rows resolve the
+    /// latest value here.
+    func unobservedVisibleSong(id: String) -> Song? {
+        visibleSongByID[id]
+    }
+
     /// O(1) membership check for UI observers that must distinguish the
     /// enabled/visible library from songs retained under a disabled source.
     func containsVisibleSong(id: String) -> Bool {

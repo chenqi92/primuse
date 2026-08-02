@@ -1,9 +1,10 @@
 import Foundation
 import NaturalLanguage
 import PrimuseKit
+import Translation
 
 /// 歌词翻译设置 — 启用开关 + 目标语言。
-/// 翻译用 Apple 自带 Translation Framework (iOS 17.4+ / macOS 14.4+),
+/// 翻译用 Apple 自带 Translation Framework (iOS 18+ / macOS 15+),
 /// 离线 + 免费 + 不需要任何 API key 注册。
 @MainActor
 @Observable
@@ -22,9 +23,8 @@ final class LyricsTranslationSettingsStore {
         didSet { persist(); LyricsTranslationSettingsStore.notifyChanged() }
     }
 
-    /// 候选目标语言 — 不全列, 只保留主流, 用户选其他可以拓展。
-    /// Apple Translation 实际支持的语言对见 LanguageAvailability, 这里只
-    /// 作 picker UI 候选, 实际翻不出来时由 view 端 fallback (隐藏翻译行)。
+    /// `LanguageAvailability` 尚未返回结果时使用的离线候选。设置界面加载后
+    /// 会改用设备当前真正支持的完整语言列表。
     static let availableTargetLanguages: [(code: String, displayKey: String)] = [
         ("zh-Hans", "lang_zh_hans"),
         ("zh-Hant", "lang_zh_hant"),
@@ -50,29 +50,26 @@ final class LyricsTranslationSettingsStore {
         }
     }
 
-    /// 把 "zh-Hans-CN" / "en-US" 等带 region 的 BCP-47 标识简化为
-    /// 我们 picker 里的候选 ("zh-Hans" / "en")。
+    /// 把带 region 的 BCP-47 标识简化为 Translation 使用的语言身份，同时
+    /// 保留会影响转换结果的 script（例如简体/繁体）。
     static func normalizedLanguageCode(_ raw: String) -> String {
-        // 优先精确匹配
-        if availableTargetLanguages.contains(where: { $0.code == raw }) {
-            return raw
+        let identity = LyricTranslationGroupingPolicy.languageIdentity(raw)
+        return identity.isEmpty ? "zh-Hans" : identity
+    }
+
+    static func detectedLanguageCode(
+        for text: String,
+        minimumConfidence: Double = 0.55
+    ) -> String? {
+        let sample = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sample.isEmpty else { return nil }
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(String(sample.prefix(1_000)))
+        guard let hypothesis = recognizer.languageHypotheses(withMaximum: 1).first,
+              hypothesis.value >= minimumConfidence else {
+            return nil
         }
-        // 处理 zh-Hans-CN → zh-Hans
-        let parts = raw.split(separator: "-")
-        if parts.count >= 2 {
-            let head = "\(parts[0])-\(parts[1])"
-            if availableTargetLanguages.contains(where: { $0.code == head }) {
-                return head
-            }
-        }
-        // 退到主语言 ("en-US" → "en")
-        if let first = parts.first {
-            let primary = String(first)
-            if availableTargetLanguages.contains(where: { $0.code == primary }) {
-                return primary
-            }
-        }
-        return "zh-Hans"
+        return LyricTranslationGroupingPolicy.languageIdentity(hypothesis.key.rawValue)
     }
 
     /// Returns false when the lyric body is confidently already in the target
@@ -95,15 +92,8 @@ final class LyricsTranslationSettingsStore {
               hypothesis.value >= 0.65 else {
             return true
         }
-        return languageIdentity(hypothesis.key.rawValue)
-            != languageIdentity(targetLanguageCode)
-    }
-
-    private static func languageIdentity(_ raw: String) -> String {
-        let lower = raw.lowercased()
-        if lower.hasPrefix("zh-hans") { return "zh-Hans" }
-        if lower.hasPrefix("zh-hant") { return "zh-Hant" }
-        return lower.split(separator: "-").first.map(String.init) ?? lower
+        return LyricTranslationGroupingPolicy.languageIdentity(hypothesis.key.rawValue)
+            != LyricTranslationGroupingPolicy.languageIdentity(targetLanguageCode)
     }
 
     private func persist() {
@@ -120,6 +110,58 @@ final class LyricsTranslationSettingsStore {
     private struct Persisted: Codable {
         let isEnabled: Bool
         let targetLanguageCode: String
+    }
+}
+
+@MainActor
+@Observable
+final class LyricsTranslationLanguageCatalog {
+    static let shared = LyricsTranslationLanguageCatalog()
+
+    private(set) var languageCodes = LyricsTranslationSettingsStore
+        .availableTargetLanguages
+        .map { $0.code }
+    private(set) var hasLoadedDeviceLanguages = false
+
+    private init() {}
+
+    func refresh() async {
+        let supported = await Self.deviceSupportedLanguageIdentifiers()
+        guard !Task.isCancelled else { return }
+
+        var seen = Set<String>()
+        let codes = supported.compactMap { identifier -> String? in
+            let code = LyricsTranslationSettingsStore.normalizedLanguageCode(
+                identifier
+            )
+            guard !code.isEmpty, seen.insert(code).inserted else { return nil }
+            return code
+        }
+        .sorted { lhs, rhs in
+            displayName(for: lhs).localizedStandardCompare(displayName(for: rhs)) == .orderedAscending
+        }
+
+        if !codes.isEmpty {
+            languageCodes = codes
+        }
+        hasLoadedDeviceLanguages = true
+    }
+
+    /// Keep Translation's non-Sendable availability object inside a
+    /// nonisolated operation and return only Sendable language identifiers to
+    /// the main-actor settings model.
+    private nonisolated static func deviceSupportedLanguageIdentifiers() async -> [String] {
+        let supported = await LanguageAvailability().supportedLanguages
+        return supported.map(\.minimalIdentifier)
+    }
+
+    func options(including selectedCode: String) -> [String] {
+        guard !languageCodes.contains(selectedCode) else { return languageCodes }
+        return [selectedCode] + languageCodes
+    }
+
+    func displayName(for code: String) -> String {
+        Locale.autoupdatingCurrent.localizedString(forIdentifier: code) ?? code
     }
 }
 

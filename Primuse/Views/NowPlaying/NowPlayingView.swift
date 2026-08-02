@@ -2830,6 +2830,44 @@ private final class LyricGeometryUpdateCoordinator {
     }
 }
 
+/// Reserves the largest vertical footprint a lyric row can occupy while its
+/// render-layer emphasis animates. `scaleEffect` deliberately does not affect
+/// SwiftUI layout; without this stable envelope a wrapped active row can draw
+/// into the rows above and below even though its measured frame never moved.
+private struct LyricsScaleEnvelopeLayout: Layout {
+    let maximumScale: CGFloat
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) -> CGSize {
+        guard let subview = subviews.first else { return .zero }
+        let childProposal = ProposedViewSize(width: proposal.width, height: nil)
+        let childSize = subview.sizeThatFits(childProposal)
+        return CGSize(
+            width: proposal.width ?? childSize.width,
+            height: childSize.height * max(1, maximumScale)
+        )
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) {
+        guard let subview = subviews.first else { return }
+        let childProposal = ProposedViewSize(width: bounds.width, height: nil)
+        let childSize = subview.sizeThatFits(childProposal)
+        subview.place(
+            at: CGPoint(x: bounds.midX, y: bounds.midY),
+            anchor: .center,
+            proposal: ProposedViewSize(width: bounds.width, height: childSize.height)
+        )
+    }
+}
+
 /// 把歌词渲染抽出来作为独立 View,避免行切换 (`currentLineIndex` 变化) 让
 /// 整个 NowPlayingView 的 body 重算,从而触发 SwiftUI Menu 内嵌的 Picker(.menu)
 /// submenu 在父重算时被强制关闭(选字号弹框还没来得及选就消失)。
@@ -2936,6 +2974,7 @@ struct LyricsScrollView: View {
         }
         .lyricsTranslationTaskIfAvailable(
             songID: songID,
+            lyricsRevision: lyricsRevision,
             lyrics: lyrics,
             settings: translationSettings,
             translatedTextByLineID: $translatedTextByLineID
@@ -3002,13 +3041,17 @@ struct LyricsScrollView: View {
 
                         ForEach(Array(lyrics.enumerated()), id: \.element.id) { index, line in
                             let activity = lineLevelRowVisualActivity(index: index)
-                            lyricsRow(
-                                line: line,
-                                index: index,
-                                dimmedByAmbient: true,
-                                availableWidth: contentWidth,
-                                visualScale: CGFloat(activity.scale)
-                            )
+                            LyricsScaleEnvelopeLayout(
+                                maximumScale: Self.lyricsActiveVisualScale
+                            ) {
+                                lyricsRow(
+                                    line: line,
+                                    index: index,
+                                    dimmedByAmbient: true,
+                                    availableWidth: contentWidth,
+                                    visualScale: CGFloat(activity.scale)
+                                )
+                            }
                                 .id(line.id)
                                 .opacity(activity.opacity)
                                 // Match the word-level path: highlight, scale,
@@ -3114,13 +3157,17 @@ struct LyricsScrollView: View {
                     // 第一个字的 bounce 收尾。当前 active 行内部的 syllable 扫光
                     // 由 KaraokeLineView 自己刷新。
                     let activity = rowVisualActivity(index: index)
-                    lyricsRow(
-                        line: line,
-                        index: index,
-                        dimmedByAmbient: true,
-                        availableWidth: contentWidth,
-                        visualScale: CGFloat(activity.scale)
-                    )
+                    LyricsScaleEnvelopeLayout(
+                        maximumScale: Self.lyricsActiveVisualScale
+                    ) {
+                        lyricsRow(
+                            line: line,
+                            index: index,
+                            dimmedByAmbient: true,
+                            availableWidth: contentWidth,
+                            visualScale: CGFloat(activity.scale)
+                        )
+                    }
                         .id(line.id)
                         .opacity(activity.opacity)
                         // 明暗 + 放大过渡跟滚动用同一条 spring (同时长同曲线),
@@ -3460,7 +3507,13 @@ struct LyricsScrollView: View {
         dimmedByAmbient: Bool = false,
         timelineTime: TimeInterval? = nil
     ) -> some View {
-        if shouldRenderWordTimeline(line: line, index: index, isActive: isActive, dimmedByAmbient: dimmedByAmbient) {
+        if line.isWordLevel {
+            let animatesWords = shouldRenderWordTimeline(
+                line: line,
+                index: index,
+                isActive: isActive,
+                dimmedByAmbient: dimmedByAmbient
+            )
             // dimmedByAmbient 模式: KaraokeLineView 内部用固定 active=1.0 / inactive=0.4
             // 对比, 外层 ambient opacity 接管 row 整体明暗。这样无论 row 处于 future /
             // active / past, syllable 扫光的对比度都一致, 只是整体亮度被 ambient
@@ -3481,6 +3534,7 @@ struct LyricsScrollView: View {
                 inactiveColor: appearance.primary.opacity(inactiveOpacity),
                 timeAt: { date in player.interpolatedTime(at: date) },
                 fixedTime: timelineTime,
+                isAnimationEnabled: animatesWords,
                 deactivationTime: dimmedByAmbient ? wordLevelDeactivationTime(for: index) : nil
             )
         } else {
@@ -3611,6 +3665,7 @@ private extension View {
     @ViewBuilder
     func lyricsTranslationTaskIfAvailable(
         songID: String?,
+        lyricsRevision: UInt,
         lyrics: [LyricLine],
         settings: LyricsTranslationSettingsStore,
         translatedTextByLineID: Binding<[String: String]>
@@ -3619,6 +3674,7 @@ private extension View {
             modifier(
                 LyricsTranslationTaskModifier(
                     songID: songID,
+                    lyricsRevision: lyricsRevision,
                     lyrics: lyrics,
                     settings: settings,
                     translatedTextByLineID: translatedTextByLineID
@@ -3633,127 +3689,240 @@ private extension View {
 @available(iOS 18.0, *)
 private struct LyricsTranslationTaskModifier: ViewModifier {
     let songID: String?
+    let lyricsRevision: UInt
     let lyrics: [LyricLine]
     let settings: LyricsTranslationSettingsStore
     @Binding var translatedTextByLineID: [String: String]
+
     @State private var translationConfig: TranslationSession.Configuration?
+    @State private var preparedGroups: [LyricTranslationGroup] = []
+    @State private var activeGroupIndex = 0
+    @State private var preparedIdentity: TranslationTaskIdentity?
+
+    private struct TranslationTaskIdentity: Hashable {
+        let songID: String?
+        let lyricsRevision: UInt
+        let isEnabled: Bool
+        let targetLanguageCode: String
+    }
+
+    private var translationTaskIdentity: TranslationTaskIdentity {
+        TranslationTaskIdentity(
+            songID: songID,
+            lyricsRevision: lyricsRevision,
+            isEnabled: settings.isEnabled,
+            targetLanguageCode: LyricsTranslationSettingsStore.normalizedLanguageCode(
+                settings.targetLanguageCode
+            )
+        )
+    }
 
     func body(content: Content) -> some View {
         content
-            .onChange(of: songID) { _, _ in
-                translatedTextByLineID = [:]
-                refreshTranslationConfig()
-            }
-            .onChange(of: lyrics.count) { _, _ in
-                translatedTextByLineID = [:]
-                refreshTranslationConfig()
-            }
-            .onChange(of: settings.isEnabled) { _, _ in
-                refreshTranslationConfig()
-            }
-            .onChange(of: settings.targetLanguageCode) { _, _ in
-                translatedTextByLineID = [:]
-                refreshTranslationConfig()
-            }
-            .onAppear {
-                refreshTranslationConfig()
-                primeFromCache()
+            .task(id: translationTaskIdentity) {
+                let identity = translationTaskIdentity
+                await prepareTranslation(for: identity)
             }
             .translationTask(translationConfig) { session in
                 await runTranslation(session: session)
             }
     }
 
-    /// 重置 translationConfig 让 .translationTask 重新触发。
-    /// 设 nil → 设新值, SwiftUI 才会重跑 task。
-    private func refreshTranslationConfig() {
-        guard settings.isEnabled, !lyrics.isEmpty else {
-            translationConfig = nil
-            return
-        }
-        guard LyricsTranslationSettingsStore.lyricsNeedTranslation(
-            lyrics.map(\.text),
-            targetLanguageCode: settings.targetLanguageCode
-        ) else {
-            translationConfig = nil
-            plog("ℹ️ Lyrics translation skipped: lyrics already match target language")
-            return
-        }
-        let target = Locale.Language(identifier: settings.targetLanguageCode)
-        // source: nil 让 framework 自动检测 (英、日、韩混排都能处理)
-        translationConfig = TranslationSession.Configuration(source: nil, target: target)
-    }
+    /// 按检测到的源语言拆分歌词。Translation 的一个 batch 只能对应一个
+    /// source/target 语言对，混合语言放进同一自动检测 batch 会导致整批失败。
+    private func prepareTranslation(for identity: TranslationTaskIdentity) async {
+        translationConfig = nil
+        preparedGroups = []
+        activeGroupIndex = 0
+        preparedIdentity = nil
+        translatedTextByLineID = [:]
 
-    /// 进入歌词或换歌时, 先用 cache 命中的填上, 用户立刻看到已翻译内容。
-    private func primeFromCache() {
-        guard settings.isEnabled else { return }
-        let target = settings.targetLanguageCode
+        guard identity.isEnabled, !lyrics.isEmpty else { return }
+
+        let candidates = lyrics.map { line in
+            LyricTranslationCandidate(
+                id: line.id,
+                text: line.text,
+                sourceLanguageCode: LyricsTranslationSettingsStore.detectedLanguageCode(
+                    for: line.text
+                )
+            )
+        }
+        let groups = LyricTranslationGroupingPolicy.groups(
+            candidates: candidates,
+            targetLanguageCode: identity.targetLanguageCode
+        )
+        guard !groups.isEmpty else { return }
+
         let cache = LyricsTranslationCache.shared
         var hits: [String: String] = [:]
-        for line in lyrics where !line.text.trimmingCharacters(in: .whitespaces).isEmpty {
-            if let t = cache.translation(for: line.text, targetLang: target) {
-                hits[line.id] = t
+        var uncachedGroups: [LyricTranslationGroup] = []
+
+        for group in groups {
+            let pending = group.candidates.filter { candidate in
+                if let translated = cache.translation(
+                    for: candidate.text,
+                    sourceLang: group.sourceLanguageCode,
+                    targetLang: identity.targetLanguageCode
+                ) {
+                    hits[candidate.id] = translated
+                    return false
+                }
+                return true
+            }
+            if !pending.isEmpty {
+                uncachedGroups.append(
+                    LyricTranslationGroup(
+                        id: group.id,
+                        sourceLanguageCode: group.sourceLanguageCode,
+                        candidates: pending
+                    )
+                )
             }
         }
-        if !hits.isEmpty { translatedTextByLineID = hits }
+
+        let target = Locale.Language(identifier: identity.targetLanguageCode)
+        var availableGroups: [LyricTranslationGroup] = []
+        for group in uncachedGroups {
+            guard !Task.isCancelled else { return }
+            do {
+                guard let text = group.candidates.first?.text else { continue }
+                let status = try await Self.translationAvailabilityStatus(
+                    sourceLanguageCode: group.sourceLanguageCode,
+                    sampleText: text,
+                    targetLanguageCode: target.minimalIdentifier
+                )
+
+                switch status {
+                case .installed, .supported:
+                    availableGroups.append(group)
+                case .unsupported:
+                    plog(
+                        "Lyrics translation pair unsupported: "
+                            + "\(group.sourceLanguageCode ?? "auto") -> "
+                            + identity.targetLanguageCode
+                    )
+                @unknown default:
+                    plog("Lyrics translation availability returned an unknown status")
+                }
+            } catch {
+                plog("Lyrics translation language detection failed: \(error.localizedDescription)")
+            }
+        }
+
+        guard !Task.isCancelled, translationTaskIdentity == identity else { return }
+        translatedTextByLineID = hits
+        guard !availableGroups.isEmpty else { return }
+
+        preparedGroups = availableGroups
+        activeGroupIndex = 0
+        preparedIdentity = identity
+        activateGroup(at: 0, identity: identity)
     }
 
-    /// 翻译当前歌全部未翻译过的行, 结果存 cache + 更新 UI。
-    /// 系统第一次用某语言对会触发语言模型下载提示, 用户取消时 throw error,
-    /// 静默丢弃 (此次显示不出翻译, 下次再试)。
-    private func runTranslation(session: TranslationSession) async {
-        let target = settings.targetLanguageCode
-        let cache = LyricsTranslationCache.shared
-        // 找出还没翻译的行 (cache miss + state 里也没)
-        let pending: [(id: String, text: String)] = lyrics.compactMap { line in
-            let t = line.text.trimmingCharacters(in: .whitespaces)
-            guard !t.isEmpty else { return nil }
-            if translatedTextByLineID[line.id] != nil { return nil }
-            if let cached = cache.translation(for: line.text, targetLang: target) {
-                // cache 命中但 state 里漏了, 顺手填上
-                translatedTextByLineID[line.id] = cached
-                return nil
-            }
-            // 24h 内标记过翻译失败的不再重试 — 系统对不支持的语言对/已经
-            // 是目标语言的源文是确定性 throw, 每次播都重试白白吃 CPU。
-            if cache.isMarkedFailed(source: line.text, targetLang: target) {
-                return nil
-            }
-            return (line.id, line.text)
+    /// Translation's availability reference is not Sendable in the current
+    /// SDK. Keep it entirely inside this nonisolated operation and return only
+    /// its Sendable status to the view's main-actor state machine.
+    private nonisolated static func translationAvailabilityStatus(
+        sourceLanguageCode: String?,
+        sampleText: String,
+        targetLanguageCode: String
+    ) async throws -> LanguageAvailability.Status {
+        let availability = LanguageAvailability()
+        let target = Locale.Language(identifier: targetLanguageCode)
+        if let sourceLanguageCode {
+            return await availability.status(
+                from: Locale.Language(identifier: sourceLanguageCode),
+                to: target
+            )
         }
-        guard !pending.isEmpty else { return }
+        return try await availability.status(for: sampleText, to: target)
+    }
 
-        // 批量翻译 — clientIdentifier 用 line.id 让 response 可对回原行
-        let requests = pending.map {
+    /// 为下一组建立 session。连续的未知语言行会得到相同的 nil source，必须
+    /// invalidate 配置版本，才能让 SwiftUI 为下一行重新运行 translationTask。
+    private func activateGroup(at index: Int, identity: TranslationTaskIdentity) {
+        guard preparedIdentity == identity, preparedGroups.indices.contains(index) else {
+            translationConfig = nil
+            return
+        }
+
+        activeGroupIndex = index
+        let group = preparedGroups[index]
+        let source = group.sourceLanguageCode.map { Locale.Language(identifier: $0) }
+        let target = Locale.Language(identifier: identity.targetLanguageCode)
+        var next = TranslationSession.Configuration(source: source, target: target)
+
+        if var current = translationConfig,
+           current.source == next.source,
+           current.target == next.target {
+            current.invalidate()
+            next = current
+        }
+        translationConfig = next
+    }
+
+    /// 一次只翻译同一源语言的行。失败不会写入长时间 negative cache：用户拒绝
+    /// 下载、临时资源错误和真正不支持的语言对不能被混为一谈；语言对支持性已在
+    /// prepareTranslation 中单独检查。
+    private func runTranslation(session: TranslationSession) async {
+        guard let identity = preparedIdentity,
+              identity == translationTaskIdentity,
+              preparedGroups.indices.contains(activeGroupIndex) else {
+            return
+        }
+
+        let groupIndex = activeGroupIndex
+        let group = preparedGroups[groupIndex]
+        let requests = group.candidates.map {
             TranslationSession.Request(sourceText: $0.text, clientIdentifier: $0.id)
         }
-        var newCachePairs: [(source: String, translated: String)] = []
+        guard !requests.isEmpty else { return }
+
+        var newCachePairs: [(source: String, sourceLang: String?, translated: String)] = []
         var newStateUpdates: [String: String] = [:]
         do {
             for try await response in session.translate(batch: requests) {
+                guard !Task.isCancelled else { return }
                 let id = response.clientIdentifier ?? ""
                 let translated = response.targetText
                 if !id.isEmpty { newStateUpdates[id] = translated }
-                newCachePairs.append((response.sourceText, translated))
+                newCachePairs.append(
+                    (
+                        source: response.sourceText,
+                        sourceLang: LyricsTranslationSettingsStore.normalizedLanguageCode(
+                            response.sourceLanguage.minimalIdentifier
+                        ),
+                        translated: translated
+                    )
+                )
             }
         } catch {
-            // 用户拒绝下载语言模型 / 不支持的语言对 / 网络错 (语言下载阶段)
-            // 不弹错, UI 自然不显示翻译就行。把这次没回来的行打上 negative
-            // mark, 24h 内不再 retry 同样的 batch。已经回来的 partial 走下面
-            // bulkSet, 不浪费。
-            plog("⚠️ Lyrics translation failed: \(error.localizedDescription)")
-            let translatedTexts = Set(newCachePairs.map { $0.source })
-            let failed = pending.map { $0.text }.filter { !translatedTexts.contains($0) }
-            if !failed.isEmpty {
-                cache.markFailed(sources: failed, targetLang: target)
-            }
+            guard !Task.isCancelled else { return }
+            plog("Lyrics translation failed: \(error.localizedDescription)")
         }
-        // 即便中途 throw, 已经回来的 partial response 也写进 cache, 不然下次
-        // 播这首歌全部行都得重翻一次。
+
         if !newCachePairs.isEmpty {
-            cache.bulkSet(newCachePairs, targetLang: target)
-            // 一次性 merge state, 避免逐个 setter 触发多次 SwiftUI 重算
+            LyricsTranslationCache.shared.bulkSet(
+                newCachePairs,
+                targetLang: identity.targetLanguageCode
+            )
+        }
+
+        guard !Task.isCancelled,
+              preparedIdentity == identity,
+              translationTaskIdentity == identity,
+              activeGroupIndex == groupIndex else { return }
+
+        if !newStateUpdates.isEmpty {
             translatedTextByLineID.merge(newStateUpdates) { _, new in new }
+        }
+
+        let nextIndex = groupIndex + 1
+        if preparedGroups.indices.contains(nextIndex) {
+            activateGroup(at: nextIndex, identity: identity)
+        } else {
+            translationConfig = nil
         }
     }
 }

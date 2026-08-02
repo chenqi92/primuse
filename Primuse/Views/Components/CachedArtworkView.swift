@@ -557,7 +557,7 @@ struct CachedArtworkView: View {
                 ?? .mp3
             let dummySong = Song(id: "", title: "", fileFormat: inferredFormat, filePath: filePath,
                                  sourceID: sourceID, fileSize: 0, dateAdded: Date())
-            if let cachedURL = sourceManager.cachedURL(for: dummySong) {
+            if let cachedURL = await sourceManager.cachedURLForBackgroundRead(for: dummySong) {
                 let metadata = await FileMetadataReader.read(from: cachedURL)
                 return metadata.coverArtData
             }
