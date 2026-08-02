@@ -156,6 +156,11 @@ final class TVConfigServer: @unchecked Sendable {
             Self.respond(conn, status: 403)
             return
         }
+        guard payload.isCompleteForTransfer else {
+            plog("TVConfigServer: rejected incomplete payload")
+            Self.respond(conn, status: 400)
+            return
+        }
         plog("TVConfigServer: received payload (lib=\(payload.libraryGz?.count ?? 0)B src=\(payload.sourcesGz?.count ?? 0)B creds=\(payload.credentials?.entries.count ?? 0))")
         guard let onReceive else {
             Self.respond(conn, status: 503)

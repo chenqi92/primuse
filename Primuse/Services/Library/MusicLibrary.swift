@@ -3726,7 +3726,7 @@ final class MusicLibrary {
     /// Serializes off-main-actor snapshot writes. Each `persistNow` chains
     /// onto the previous write so the JSON encode + atomic write happen in
     /// order off the main thread, and the latest snapshot always wins.
-    private var persistWriteTask: Task<Void, Never>?
+    private var persistWriteTask: Task<Bool, Never>?
 
     private func persistSnapshot() {
         if isDeferringSceneTransitionPublications {
@@ -3748,9 +3748,13 @@ final class MusicLibrary {
     /// stall the main actor for hundreds of ms every few seconds while encoding
     /// the whole library inline.
     func persistNow() {
+        _ = enqueueSnapshotWrite()
+    }
+
+    private func enqueueSnapshotWrite() -> Task<Bool, Never>? {
         guard !persistenceBlockedByCorruption else {
             plog("⛔ Library persistence skipped because the on-disk snapshot is corrupt")
-            return
+            return nil
         }
         let snapshot = Snapshot(
             songs: songs,
@@ -3765,30 +3769,50 @@ final class MusicLibrary {
         let url = snapshotURL
         let backupURL = backupSnapshotURL
         let previous = persistWriteTask
-        persistWriteTask = Task.detached(priority: .utility) {
+        let task = Task.detached(priority: .utility) {
             // Chain after any in-flight write so the atomic file is updated in
             // call order and we never run two encodes against the same path.
-            await previous?.value
-            Self.writeSnapshot(snapshot, to: url, backupURL: backupURL)
+            _ = await previous?.value
+            return Self.writeSnapshot(snapshot, to: url, backupURL: backupURL)
         }
+        persistWriteTask = task
+        return task
     }
 
     /// Persist the current snapshot and wait until its atomic file replacement
     /// finishes. Explicit export/sync actions use this instead of racing an
     /// asynchronous `persistNow()` against an immediate file read.
-    func persistNowAndWait() async {
-        persistNow()
-        let task = persistWriteTask
-        await task?.value
+    func persistNowAndWait() async -> Result<Void, AppleTVTransferFailure> {
+        guard !Task.isCancelled else { return .failure(.cancelled) }
+        guard let task = enqueueSnapshotWrite() else {
+            return .failure(.snapshotPreparationFailed)
+        }
+        let succeeded = await task.value
+        guard !Task.isCancelled else { return .failure(.cancelled) }
+        guard succeeded else {
+            plog("⛔ Library snapshot persistence failed before transfer")
+            return .failure(.snapshotPreparationFailed)
+        }
+        return .success(())
     }
 
     /// Encode + atomically write a snapshot. `nonisolated` so it runs off the
     /// main actor; uses a fresh encoder rather than sharing the main-actor one.
-    private nonisolated static func writeSnapshot(_ snapshot: Snapshot, to url: URL, backupURL: URL) {
+    private nonisolated static func writeSnapshot(
+        _ snapshot: Snapshot,
+        to url: URL,
+        backupURL: URL
+    ) -> Bool {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
-        guard let data = try? encoder.encode(snapshot) else { return }
+        let data: Data
+        do {
+            data = try encoder.encode(snapshot)
+        } catch {
+            plog("⚠️ Library snapshot encoding failed: \(error.localizedDescription)")
+            return false
+        }
         if let currentData = try? Data(contentsOf: url) {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
@@ -3798,9 +3822,22 @@ final class MusicLibrary {
         }
         do {
             try data.write(to: url, options: .atomic)
+            return true
         } catch {
             plog("⚠️ Library snapshot write failed: \(error.localizedDescription)")
+            return false
         }
+    }
+
+    nonisolated static func isValidSnapshotData(_ data: Data) -> Bool {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return (try? decoder.decode(Snapshot.self, from: data)) != nil
+    }
+
+    nonisolated static func isValidSnapshot(at url: URL) -> Bool {
+        guard let data = try? Data(contentsOf: url) else { return false }
+        return isValidSnapshotData(data)
     }
 
     private func sortPlaylists() {

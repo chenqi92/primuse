@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import PrimuseKit
 
@@ -23,22 +24,47 @@ struct SnapshotTransferCompletionPolicyTests {
         ))
     }
 
-    @Test("LAN never sends a partial payload without prepared credentials")
-    func lanRequiresPreparedCredentials() {
+    @Test("LAN requires both a library snapshot and prepared credentials")
+    func lanRequiresLibraryAndPreparedCredentials() {
         #expect(SnapshotTransferCompletionPolicy.canSendLAN(
+            hasLibrarySnapshot: true,
             credentialOutcome: .succeeded
         ))
         #expect(!SnapshotTransferCompletionPolicy.canSendLAN(
+            hasLibrarySnapshot: false,
+            credentialOutcome: .succeeded
+        ))
+        #expect(!SnapshotTransferCompletionPolicy.canSendLAN(
+            hasLibrarySnapshot: true,
             credentialOutcome: .skipped
         ))
         #expect(!SnapshotTransferCompletionPolicy.canSendLAN(
+            hasLibrarySnapshot: true,
             credentialOutcome: .failed
         ))
+    }
+
+    @Test("LAN payload completeness rejects a missing or empty library")
+    func lanPayloadRequiresNonemptyLibrary() {
+        let credentials = CredentialBundle()
+        #expect(LANSyncPayload(
+            libraryGz: Data([0x01]),
+            credentials: credentials
+        ).isCompleteForTransfer)
+        #expect(!LANSyncPayload(credentials: credentials).isCompleteForTransfer)
+        #expect(!LANSyncPayload(
+            libraryGz: Data(),
+            credentials: credentials
+        ).isCompleteForTransfer)
+        #expect(!LANSyncPayload(
+            libraryGz: Data([0x01])
+        ).isCompleteForTransfer)
     }
 
     @Test("Apple TV transfer failures expose stable diagnostic codes")
     func transferFailureDiagnosticCodes() {
         #expect(AppleTVTransferFailure.snapshotMissing.diagnosticCode == "TV-SNAPSHOT-MISSING")
+        #expect(AppleTVTransferFailure.snapshotPreparationFailed.diagnosticCode == "TV-SNAPSHOT-PREPARE")
         #expect(AppleTVTransferFailure.localNetworkFailed(
             detail: "offline"
         ).diagnosticCode == "TV-LAN-CONNECTION")

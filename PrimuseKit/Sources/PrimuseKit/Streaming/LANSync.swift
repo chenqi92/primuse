@@ -19,9 +19,10 @@ public enum SnapshotTransferCompletionPolicy {
     }
 
     public static func canSendLAN(
+        hasLibrarySnapshot: Bool,
         credentialOutcome: SnapshotCredentialTransferOutcome
     ) -> Bool {
-        credentialOutcome == .succeeded
+        hasLibrarySnapshot && credentialOutcome == .succeeded
     }
 }
 
@@ -149,6 +150,16 @@ public struct LANSyncPayload: Codable, Sendable {
     }
 
     public func jsonData() throws -> Data { try JSONEncoder().encode(self) }
+
+    /// Optional fields remain decodable for compatibility with older payloads,
+    /// but a new transfer is complete only when it carries both the library and
+    /// the prepared credential bundle promised by LAN pairing.
+    public var isCompleteForTransfer: Bool {
+        SnapshotTransferCompletionPolicy.canSendLAN(
+            hasLibrarySnapshot: libraryGz?.isEmpty == false,
+            credentialOutcome: credentials == nil ? .failed : .succeeded
+        )
+    }
 
     public static func decode(_ data: Data) -> LANSyncPayload? {
         try? JSONDecoder().decode(LANSyncPayload.self, from: data)

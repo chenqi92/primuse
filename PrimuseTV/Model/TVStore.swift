@@ -702,8 +702,15 @@ final class TVStore {
     /// 收到 iPhone 经局域网直传来的整库 + 源 + 凭据:落盘、持久化凭据、合并重载曲库。
     @discardableResult
     func applyLANPayload(_ payload: LANSyncPayload) -> Bool {
+        guard payload.isCompleteForTransfer else {
+            plog("TVStore: rejected incomplete LAN payload")
+            return false
+        }
         let before = library.songs
-        LibrarySnapshotSync.shared.applyLANPayload(payload)
+        guard LibrarySnapshotSync.shared.applyLANPayload(payload) else {
+            plog("TVStore: unable to persist or validate LAN library snapshot")
+            return false
+        }
         reloadMerging(before: before)
         var credentialsPersisted = true
         if let credentials = payload.credentials {

@@ -956,7 +956,15 @@ private struct AppleTVPushRow: View {
             pushing = true; result = nil
             transferFailure = nil
             Task {
-                await musicLibrary.persistNowAndWait()
+                switch await musicLibrary.persistNowAndWait() {
+                case .success:
+                    break
+                case .failure(let persistenceFailure):
+                    pushing = false
+                    result = false
+                    transferFailure = persistenceFailure
+                    return
+                }
                 let transfer = await LibrarySnapshotSync.shared.uploadNowResult()
                 pushing = false
                 switch transfer {

@@ -130,7 +130,15 @@ struct SendToTVSheet: View {
         failure = nil
         Task {
             // 等待原子落盘完成，避免首次安装/重装后的发送读取不到快照。
-            await musicLibrary.persistNowAndWait()
+            switch await musicLibrary.persistNowAndWait() {
+            case .success:
+                break
+            case .failure(let persistenceFailure):
+                sending = false
+                result = false
+                failure = persistenceFailure
+                return
+            }
             let transfer: Result<Void, AppleTVTransferFailure>
             if let target = lanTarget {
                 transfer = await LibrarySnapshotSync.shared.sendToTVOverLANResult(target)

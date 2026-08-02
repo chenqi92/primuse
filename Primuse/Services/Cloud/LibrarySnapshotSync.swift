@@ -106,6 +106,32 @@ final class LibrarySnapshotSync: Sendable {
     private var libraryCacheURL: URL { directory.appendingPathComponent("library-cache.json") }
     private var sourcesURL: URL { directory.appendingPathComponent("sources.json") }
 
+    private func validatedLibrarySnapshotData() -> Result<Data, AppleTVTransferFailure> {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: libraryCacheURL.path) else {
+            plog("LibrarySnapshotSync: no local library-cache.json")
+            return .failure(.snapshotMissing)
+        }
+        let values = try? libraryCacheURL.resourceValues(forKeys: [.fileSizeKey])
+        if let size = values?.fileSize,
+           size <= 0 || size > Self.maxLibraryRawBytes {
+            plog("LibrarySnapshotSync: invalid library snapshot size \(size)B")
+            return .failure(.snapshotPreparationFailed)
+        }
+        do {
+            let data = try Data(contentsOf: libraryCacheURL)
+            guard data.count <= Self.maxLibraryRawBytes,
+                  MusicLibrary.isValidSnapshotData(data) else {
+                plog("LibrarySnapshotSync: local library snapshot failed validation")
+                return .failure(.snapshotPreparationFailed)
+            }
+            return .success(data)
+        } catch {
+            plog("LibrarySnapshotSync: cannot read local library snapshot — \(error)")
+            return .failure(.snapshotPreparationFailed)
+        }
+    }
+
     // MARK: 上传(iOS / macOS)
 
     /// 把本地快照覆盖上传到 iCloud。无本地快照则跳过。返回是否真正上传成功
@@ -139,11 +165,14 @@ final class LibrarySnapshotSync: Sendable {
             plog("LibrarySnapshotSync: CloudKit unavailable in this build, skip upload")
             return .failure(.cloudUnavailable)
         }
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: libraryCacheURL.path) else {
-            plog("LibrarySnapshotSync: no local library-cache.json, skip upload")
-            return .failure(.snapshotMissing)
+        let libraryData: Data
+        switch validatedLibrarySnapshotData() {
+        case .success(let data):
+            libraryData = data
+        case .failure(let failure):
+            return .failure(failure)
         }
+        let fm = FileManager.default
 
         let record: CKRecord
         do {
@@ -165,7 +194,7 @@ final class LibrarySnapshotSync: Sendable {
         // 下载失败,而内联 Data(和凭据同通道)稳定可靠。压缩后超 ~800KB 才回退 CKAsset。
         guard let libraryAttachment = attachSnapshot(
             record,
-            fileURL: libraryCacheURL,
+            data: libraryData,
             gzKey: "libraryGz",
             assetKey: "library"
         ) else {
@@ -503,7 +532,13 @@ final class LibrarySnapshotSync: Sendable {
     }
 
     @discardableResult
-    static func gunzipToFile(_ gz: Data, maxOutputBytes: Int, destination: URL, fm: FileManager) -> Int? {
+    static func gunzipToFile(
+        _ gz: Data,
+        maxOutputBytes: Int,
+        destination: URL,
+        fm: FileManager,
+        validate: ((URL) -> Bool)? = nil
+    ) -> Int? {
         let dir = destination.deletingLastPathComponent()
         let tmp = dir.appendingPathComponent(".\(destination.lastPathComponent).tmp-\(UUID().uuidString)")
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -518,9 +553,17 @@ final class LibrarySnapshotSync: Sendable {
                     try handle.write(contentsOf: Data(bytes: base, count: chunk.count))
                 }
             }
-            try? handle.close()
-            try? fm.removeItem(at: destination)
-            try fm.moveItem(at: tmp, to: destination)
+            try handle.close()
+            if let validate, !validate(tmp) {
+                try? fm.removeItem(at: tmp)
+                plog("LibrarySnapshotSync: decompressed snapshot failed validation")
+                return nil
+            }
+            if fm.fileExists(atPath: destination.path) {
+                _ = try fm.replaceItemAt(destination, withItemAt: tmp)
+            } else {
+                try fm.moveItem(at: tmp, to: destination)
+            }
             return written
         } catch {
             try? handle.close()
@@ -639,20 +682,16 @@ final class LibrarySnapshotSync: Sendable {
         let stagingURL: URL?
     }
 
-    /// 把 `fileURL` 的内容压缩后内联进 record;过大则回退 CKAsset。CKAsset 必须
-    /// 指向本次上传独占的稳定副本: library-cache.json 会被持续刮削的持久化任务
-    /// 原子替换,直接引用活文件会让 CloudKit 报 Asset File Modified。
+    /// 把已验证的快照内容压缩后内联进 record;过大则回退 CKAsset。CKAsset 必须
+    /// 指向本次上传独占的稳定副本，不能引用会被持续原子替换的活文件。
     private func attachSnapshot(
         _ record: CKRecord,
-        fileURL: URL,
+        data: Data,
         gzKey: String,
         assetKey: String
     ) -> SnapshotAttachment? {
-        let values = try? fileURL.resourceValues(forKeys: [.fileSizeKey])
-        let size = values?.fileSize
-        if let size, size <= Self.maxInlineSnapshotInputBytes,
-           let raw = try? Data(contentsOf: fileURL),
-           let gz = try? (raw as NSData).compressed(using: .zlib) as Data,
+        if data.count <= Self.maxInlineSnapshotInputBytes,
+           let gz = try? (data as NSData).compressed(using: .zlib) as Data,
            gz.count < Self.inlineGzLimit {
             record[gzKey] = gz as CKRecordValue
             return SnapshotAttachment(info: "\(gzKey)=inline \(gz.count)B", stagingURL: nil)
@@ -665,11 +704,10 @@ final class LibrarySnapshotSync: Sendable {
         )
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try FileManager.default.copyItem(at: fileURL, to: stagingURL)
+            try data.write(to: stagingURL, options: .atomic)
             record[assetKey] = CKAsset(fileURL: stagingURL)
-            let rawDescription = size.map { " raw=\($0)B" } ?? ""
             return SnapshotAttachment(
-                info: "\(assetKey)=asset\(rawDescription)",
+                info: "\(assetKey)=asset raw=\(data.count)B",
                 stagingURL: stagingURL
             )
         } catch {
@@ -727,17 +765,36 @@ final class LibrarySnapshotSync: Sendable {
         if let gzField = record[gzKey] as? Data {
             // CloudKit 返回的 Data 可能是非连续/特殊 backing,先强制连续拷贝再解压。
             let gz = Data(gzField)
-            guard let bytes = Self.gunzipToFile(gz, maxOutputBytes: Self.maxLibraryRawBytes, destination: dest, fm: fm) else {
+            guard let bytes = Self.gunzipToFile(
+                gz,
+                maxOutputBytes: Self.maxLibraryRawBytes,
+                destination: dest,
+                fm: fm,
+                validate: { MusicLibrary.isValidSnapshot(at: $0) }
+            ) else {
                 plog("LibrarySnapshotSync: extract \(gzKey) DECOMPRESS failed (\(gz.count)B)")
                 return false
             }
             plog("LibrarySnapshotSync: extract \(gzKey) OK → \(bytes)B at \(dest.path)")
             return true
         }
-        if let asset = record[assetKey] as? CKAsset, let url = asset.fileURL,
-           fm.fileExists(atPath: url.path) {
-            try? fm.removeItem(at: dest)
-            do { try fm.copyItem(at: url, to: dest); return true } catch { return false }
+        if let asset = record[assetKey] as? CKAsset,
+           let url = asset.fileURL,
+           fm.fileExists(atPath: url.path),
+           let data = try? Data(contentsOf: url),
+           data.count <= Self.maxLibraryRawBytes,
+           MusicLibrary.isValidSnapshotData(data) {
+            do {
+                try fm.createDirectory(
+                    at: dest.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try data.write(to: dest, options: .atomic)
+                return true
+            } catch {
+                plog("LibrarySnapshotSync: write validated asset failed — \(error)")
+                return false
+            }
         }
         return false
     }
@@ -1248,6 +1305,18 @@ final class LibrarySnapshotSync: Sendable {
     }
 
     private func buildLANPayloadResult() async -> Result<LANSyncPayload, AppleTVTransferFailure> {
+        let libraryData: Data
+        switch validatedLibrarySnapshotData() {
+        case .success(let data):
+            libraryData = data
+        case .failure(let failure):
+            return .failure(failure)
+        }
+        guard let libraryGz = Self.gzip(libraryData), !libraryGz.isEmpty else {
+            plog("LibrarySnapshotSync: LAN library snapshot compression failed")
+            return .failure(.snapshotPreparationFailed)
+        }
+
         let prepared = await gatherCredentialBundleResult(respectingChannel: false)
         let credentials: CredentialBundle
         switch prepared {
@@ -1258,14 +1327,17 @@ final class LibrarySnapshotSync: Sendable {
             return .failure(failure)
         }
 
-        var payload = LANSyncPayload()
-        if let raw = try? Data(contentsOf: libraryCacheURL) { payload.libraryGz = Self.gzip(raw) }
+        var payload = LANSyncPayload(libraryGz: libraryGz)
         if let raw = try? Data(contentsOf: sourcesURL),
            let sanitized = Self.sanitizedSourcesData(raw) {
             payload.sourcesGz = Self.gzip(sanitized)
         }
         if let lyrics = Self.gatherLyricsBlob() { payload.lyricsGz = Self.gzip(lyrics.data) }
         payload.credentials = credentials
+        guard payload.isCompleteForTransfer else {
+            plog("LibrarySnapshotSync: LAN payload is incomplete after preparation")
+            return .failure(.snapshotPreparationFailed)
+        }
         return .success(payload)
     }
 
@@ -1326,16 +1398,22 @@ final class LibrarySnapshotSync: Sendable {
 
     #if os(tvOS)
     /// tvOS:把 iPhone 经局域网直传来的载荷落盘(整库 + 源 + 歌词),与 CloudKit
-    /// `download()` 写盘同路。返回整库是否变化(供调用方决定是否重载)。凭据由调用方
+    /// `download()` 写盘同路。返回有效整库是否成功落盘。凭据由调用方
     /// (TVStore)单独经 TVCredentialStore 持久化。
     @discardableResult
     func applyLANPayload(_ payload: LANSyncPayload) -> Bool {
         let fm = FileManager.default
         try? fm.createDirectory(at: directory, withIntermediateDirectories: true)
-        var libraryChanged = false
-        if let gz = payload.libraryGz,
-           Self.gunzipToFile(gz, maxOutputBytes: Self.maxLibraryRawBytes, destination: libraryCacheURL, fm: fm) != nil {
-            libraryChanged = true
+        guard let gz = payload.libraryGz,
+              Self.gunzipToFile(
+                  gz,
+                  maxOutputBytes: Self.maxLibraryRawBytes,
+                  destination: libraryCacheURL,
+                  fm: fm,
+                  validate: { MusicLibrary.isValidSnapshot(at: $0) }
+              ) != nil else {
+            plog("LibrarySnapshotSync: rejected LAN payload without a valid library snapshot")
+            return false
         }
         if let gz = payload.sourcesGz,
            let incoming = Self.gunzip(gz, maxOutputBytes: Self.maxSourcesRawBytes),
@@ -1347,8 +1425,8 @@ final class LibrarySnapshotSync: Sendable {
         if let gz = payload.lyricsGz, let raw = Self.gunzip(gz, maxOutputBytes: Self.maxLyricsBlobRawBytes) {
             Self.writeLyrics(blob: raw, fm: fm)
         }
-        plog("LibrarySnapshotSync: applied LAN payload (library=\(libraryChanged))")
-        return libraryChanged
+        plog("LibrarySnapshotSync: applied LAN payload (library=true)")
+        return true
     }
     #endif
 }
