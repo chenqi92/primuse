@@ -3667,34 +3667,61 @@ final class MusicLibrary {
         if migration.repairedTextCount > 0 {
             plog("📚 repaired legacy Chinese metadata text for \(migration.repairedTextCount) song(s)")
         }
-        if migration.repairedTextCount > 0 || migration.filledDerivedIDCount > 0 {
+        if migration.correctedLegacyDTSDurationCount > 0 {
+            plog("📚 corrected legacy DTS duration for \(migration.correctedLegacyDTSDurationCount) song(s)")
+        }
+        if migration.repairedTextCount > 0
+            || migration.filledDerivedIDCount > 0
+            || migration.correctedLegacyDTSDurationCount > 0 {
             persistNow()
         }
     }
 
     private static func migrateLoadedSongs(
         _ songs: inout [Song]
-    ) -> (repairedTextCount: Int, filledDerivedIDCount: Int) {
+    ) -> (
+        repairedTextCount: Int,
+        filledDerivedIDCount: Int,
+        correctedLegacyDTSDurationCount: Int
+    ) {
         var repairedTextCount = 0
         var filledDerivedIDCount = 0
+        var correctedLegacyDTSDurationCount = 0
 
         for index in songs.indices {
             var song = songs[index]
             let repairedText = repairLegacyChineseMetadataText(in: &song)
+            let correctedLegacyDTSDuration = !song.isCueTrack
+                ? AudioDurationPolicy.correctedLegacyStoredDuration(
+                    stored: song.duration,
+                    fileSize: song.fileSize,
+                    format: song.fileFormat
+                )
+                : nil
             let hasAlbum = song.albumTitle?.isEmpty == false
             let needsDerivedIDs = song.artistID?.isEmpty != false
                 || (hasAlbum && song.albumID?.isEmpty != false)
                 || (!hasAlbum && song.albumID != nil)
 
+            if let correctedLegacyDTSDuration {
+                song.duration = correctedLegacyDTSDuration
+            }
             if repairedText || needsDerivedIDs {
                 fillDerivedIDs(&song)
+            }
+            if repairedText || needsDerivedIDs || correctedLegacyDTSDuration != nil {
                 songs[index] = song
             }
             if repairedText { repairedTextCount += 1 }
             if needsDerivedIDs { filledDerivedIDCount += 1 }
+            if correctedLegacyDTSDuration != nil { correctedLegacyDTSDurationCount += 1 }
         }
 
-        return (repairedTextCount, filledDerivedIDCount)
+        return (
+            repairedTextCount,
+            filledDerivedIDCount,
+            correctedLegacyDTSDurationCount
+        )
     }
 
     private static func repairLegacyChineseMetadataText(in song: inout Song) -> Bool {

@@ -54,6 +54,29 @@ public enum AudioDurationPolicy {
         let estimatedFromFileSize = Double(fileSize) / (Double(effectiveBitRate) * 125.0)
         return estimatedFromFileSize > 30 && resolved < estimatedFromFileSize * 0.5
     }
+
+    /// Repairs the provisional duration written by builds that estimated every
+    /// unparsed lossy file at 192 kbps. Standalone DTS commonly uses a 1,536
+    /// kbps core, so that old estimate is characteristically eight times too
+    /// large. Match the old formula tightly to avoid rewriting authoritative
+    /// decoder/server durations.
+    public static func correctedLegacyStoredDuration(
+        stored: TimeInterval,
+        fileSize: Int64,
+        format: AudioFormat
+    ) -> TimeInterval? {
+        guard format == .dts,
+              fileSize > 0,
+              stored.isFinite,
+              stored > 0 else { return nil }
+
+        let legacyEstimate = Double(fileSize) * 8.0 / 192_000.0
+        let correctedEstimate = fallbackEstimate(fileSize: fileSize, format: format)
+        let tolerance = max(2.0, legacyEstimate * 0.01)
+        guard abs(stored - legacyEstimate) <= tolerance,
+              stored > correctedEstimate * 4 else { return nil }
+        return correctedEstimate
+    }
 }
 
 

@@ -1576,6 +1576,9 @@ final class AudioPlayerService {
         beginPlaybackErrorScope()
         cancelCrossfadeAttempt()
         clearPendingPlaybackRecovery()
+        prefetchTask?.cancel()
+        prefetchTask = nil
+        sourceManager?.cancelBackgroundAudioCaching(keeping: [song.id])
         let callerFile = (caller as NSString).lastPathComponent
         plog("▶️ play(song: \(song.title)) playID=\(id.uuidString.prefix(8)) FROM=\(callerFile):\(callerLine)")
 
@@ -1667,10 +1670,13 @@ final class AudioPlayerService {
 
         let musicVideoStartResult = await startMusicVideoPlaybackIfAvailable(for: song, playID: id)
         if case .started = musicVideoStartResult {
+            sourceManager?.cancelBackgroundAudioCaching(keeping: [])
             return
         }
 
         do {
+            await sourceManager?.waitForBackgroundAudioCache(for: song)
+            guard playID == id else { return }
             let url = try await resolvedURL(for: song)
             // Check if another play was initiated while downloading
             guard playID == id else { return }
@@ -2779,6 +2785,9 @@ final class AudioPlayerService {
         // (4-5s/次), 单首 prefetch chain 来不及, 第 2、3 首切到时 partial
         // 还是空, SFB 现拉 1MB chunk 卡 2-3s。数量由 ST-01 设置页控制。
         let nextSongs = nextSongsInQueue(count: playbackSettings.prewarmQueueCount)
+        var retainedSongIDs = Set(nextSongs.map(\.id))
+        if let currentSong { retainedSongIDs.insert(currentSong.id) }
+        sourceManager?.cancelBackgroundAudioCaching(keeping: retainedSongIDs)
         guard !nextSongs.isEmpty else { return }
 
         prefetchTask = Task {
@@ -2787,7 +2796,10 @@ final class AudioPlayerService {
                 if song.id == currentSong?.id { continue }
                 if sourceManager?.cachedURL(for: song) != nil { continue }
                 plog("⏩ Prefetching next song: \(song.title)")
-                sourceManager?.cacheInBackground(song: song, cacheEnabled: playbackSettings.audioCacheEnabled)
+                await sourceManager?.cacheForUpcomingPlayback(
+                    song: song,
+                    cacheEnabled: playbackSettings.audioCacheEnabled
+                )
             }
         }
     }
@@ -3549,6 +3561,9 @@ final class AudioPlayerService {
         let stopOwnerID = UUID()
         playID = stopOwnerID
         beginPlaybackErrorScope()
+        prefetchTask?.cancel()
+        prefetchTask = nil
+        sourceManager?.cancelBackgroundAudioCaching(keeping: [])
         finishCastingHandoffForStop(ownerID: stopOwnerID)
         if isAppleMusicMode
             || activeAppleMusicRequestID != nil
@@ -3621,6 +3636,9 @@ final class AudioPlayerService {
         if let cur = currentSong {
             sourceManager?.finalizeStreamingSession(for: cur)
         }
+        prefetchTask?.cancel()
+        prefetchTask = nil
+        sourceManager?.cancelBackgroundAudioCaching(keeping: [])
         decodingTask?.cancel()
         decodingTask = nil
         cancelGaplessTasks()

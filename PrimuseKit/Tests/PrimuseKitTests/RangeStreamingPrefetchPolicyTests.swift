@@ -27,4 +27,40 @@ struct RangeStreamingPrefetchPolicyTests {
     func clampsNegativeDefaults() {
         #expect(RangeStreamingPrefetchPolicy.aheadCount(for: .sftp, defaultValue: -1) == 0)
     }
+
+    @Test("Complete-file formats on Range sources are fully prefetched")
+    func completeFileFormatUsesFullPrefetch() {
+        #expect(RangeStreamingPrefetchPolicy.backgroundCacheMode(
+            cacheEnabled: true,
+            supportsRangeStreaming: true,
+            hasKnownFileSize: true,
+            usesRangeStreamingForPlayback: false,
+            requiresCompleteLocalFile: true
+        ) == .completeFile)
+    }
+
+    @Test("Streamable files retain sparse prewarm while plain streams stay demand-driven")
+    func streamableModesRemainDistinct() {
+        #expect(RangeStreamingPrefetchPolicy.backgroundCacheMode(
+            cacheEnabled: true,
+            supportsRangeStreaming: true,
+            hasKnownFileSize: true,
+            usesRangeStreamingForPlayback: true,
+            requiresCompleteLocalFile: false
+        ) == .rangePrewarm)
+        #expect(RangeStreamingPrefetchPolicy.backgroundCacheMode(
+            cacheEnabled: true,
+            supportsRangeStreaming: true,
+            hasKnownFileSize: true,
+            usesRangeStreamingForPlayback: false,
+            requiresCompleteLocalFile: false
+        ) == .disabled)
+        #expect(RangeStreamingPrefetchPolicy.backgroundCacheMode(
+            cacheEnabled: false,
+            supportsRangeStreaming: true,
+            hasKnownFileSize: true,
+            usesRangeStreamingForPlayback: false,
+            requiresCompleteLocalFile: true
+        ) == .disabled)
+    }
 }

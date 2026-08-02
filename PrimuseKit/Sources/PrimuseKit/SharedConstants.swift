@@ -430,6 +430,12 @@ public enum HTTPRangeProbePolicy {
 /// range implementation leaves each control task open until its session is
 /// invalidated. Both use demand-driven reads instead of background prefetch.
 public enum RangeStreamingPrefetchPolicy {
+    public enum BackgroundCacheMode: Sendable, Equatable {
+        case disabled
+        case rangePrewarm
+        case completeFile
+    }
+
     public static func aheadCount(
         for sourceType: MusicSourceType,
         defaultValue: Int
@@ -444,6 +450,25 @@ public enum RangeStreamingPrefetchPolicy {
 
     public static func allowsBackgroundPrewarm(for sourceType: MusicSourceType) -> Bool {
         allowsAutomaticTrailingFill(for: sourceType)
+    }
+
+    /// Selects the cache work for one queued track. A source can advertise
+    /// Range reads while the file format itself still requires a complete,
+    /// seekable local file (for example DTS through FFmpeg). Those tracks must
+    /// be materialized instead of falling through the Range branch without
+    /// doing any work.
+    public static func backgroundCacheMode(
+        cacheEnabled: Bool,
+        supportsRangeStreaming: Bool,
+        hasKnownFileSize: Bool,
+        usesRangeStreamingForPlayback: Bool,
+        requiresCompleteLocalFile: Bool
+    ) -> BackgroundCacheMode {
+        guard cacheEnabled else { return .disabled }
+        guard supportsRangeStreaming, hasKnownFileSize else { return .completeFile }
+        if usesRangeStreamingForPlayback { return .rangePrewarm }
+        if requiresCompleteLocalFile { return .completeFile }
+        return .disabled
     }
 
     /// Whether a foreground range read may schedule completion of the

@@ -58,6 +58,12 @@ private struct OfflineDownloadTaskRecord {
     let task: Task<Void, Never>
 }
 
+private struct BackgroundAudioCacheTaskRecord {
+    let id: UUID
+    let sourceID: String
+    let task: Task<Void, Never>
+}
+
 /// Per-song observation node for the offline badge. A single dictionary on
 /// SourceManager caused every visible SongRowView to refresh whenever one
 /// newly-visible song finished its disk probe or one download advanced.
@@ -312,6 +318,7 @@ final class SourceManager {
     /// not mutate this set; only entering/leaving the downloading state does.
     private(set) var offlineDownloadingSongIDs: Set<String> = []
     private var offlineDownloadTasks: [String: OfflineDownloadTaskRecord] = [:]
+    private var backgroundAudioCacheTasks: [String: BackgroundAudioCacheTaskRecord] = [:]
     private var musicVideoCacheTasks: [String: Task<URL, Error>] = [:]
     private var musicVideoCacheTargets: [String: URL] = [:]
 
@@ -2609,6 +2616,7 @@ final class SourceManager {
     }
 
     func deleteAudioCache(for song: Song) {
+        backgroundAudioCacheTasks[song.id]?.task.cancel()
         let cacheURL = cacheURL(for: song)
         Self.removeCacheFileFamily(at: cacheURL)
         deleteConnectorTempCaches(for: song)
@@ -2626,6 +2634,10 @@ final class SourceManager {
         preserveFreshMetadataAssets: Bool = false
     ) {
         guard songs.isEmpty == false else { return }
+
+        for song in songs {
+            backgroundAudioCacheTasks[song.id]?.task.cancel()
+        }
 
         let cachesRoot = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
         let tempRoot = FileManager.default.temporaryDirectory
@@ -2746,6 +2758,9 @@ final class SourceManager {
     /// directory and still require per-song paths.
     private func deleteLocalCachesForRemovedSources(_ sourceIDs: Set<String>, songs: [Song]) {
         guard !sourceIDs.isEmpty else { return }
+        for record in backgroundAudioCacheTasks.values where sourceIDs.contains(record.sourceID) {
+            record.task.cancel()
+        }
         let songIDs = songs.map(\.id)
         for songID in songIDs {
             removeOfflineAudioSnapshot(for: songID)
@@ -2811,6 +2826,9 @@ final class SourceManager {
 
     func deleteSourceCaches(sourceIDs: Set<String>) {
         guard !sourceIDs.isEmpty else { return }
+        for record in backgroundAudioCacheTasks.values where sourceIDs.contains(record.sourceID) {
+            record.task.cancel()
+        }
         let paths = sourceIDs.flatMap(Self.perSourceCacheDirs(sourceID:))
         Task.detached(priority: .utility) { [paths] in
             let fileManager = FileManager.default
@@ -2835,6 +2853,7 @@ final class SourceManager {
     /// removeItem 是 best-effort 的最后一步。
     @discardableResult
     func clearAudioCache() async -> (freedBytes: Int64, failedCount: Int) {
+        cancelBackgroundAudioCaching(keeping: [])
         let basePath = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
             .appendingPathComponent(Self.audioCacheDirName)
         var freed: Int64 = 0
@@ -2925,6 +2944,9 @@ final class SourceManager {
     /// 回收磁盘, 不然 caches/primuse_audio_cache/<sourceID>/ 里的整本歌
     /// + `.partial` 半成品永远没人动。
     func purgeAudioCache(forSourceID sourceID: String) {
+        for record in backgroundAudioCacheTasks.values where record.sourceID == sourceID {
+            record.task.cancel()
+        }
         let dir = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
             .appendingPathComponent(Self.audioCacheDirName)
             .appendingPathComponent(sourceID)
@@ -2932,71 +2954,203 @@ final class SourceManager {
         Task { await AudioCacheManager.shared.removeAllEntries(forSourcePrefix: "\(sourceID)/") }
     }
 
-    /// Background-cache a song file (generalized for all sources).
-    /// Sources that use connector-backed Range streaming take a different
-    /// path: instead of pre-downloading the whole file (wasteful — they
-    /// stream on demand anyway), we warm the connector's dlink/cache and
-    /// pull the first chunk into the `.partial` cache file. Result: when
-    /// the user hits "next", the first reads are local.
-    /// Pass `cacheEnabled: false` (when the user has Audio Cache off) to
-    /// skip the prewarm/cache write entirely — we'll still play the song
-    /// fine, just without the latency win.
+    /// Starts single-flight cache work for a song without waiting for it.
+    /// Streamable Range formats only seed their sparse head/tail cache. Formats
+    /// that require a complete local file (notably DTS/FFmpeg) materialize the
+    /// canonical audio cache so switching tracks can reuse the finished file.
     func cacheInBackground(song: Song, cacheEnabled: Bool = true) {
-        guard cachedURL(for: song) == nil else { return }
-        Task {
-            do {
-                let sources = try await sourcesProvider()
-                guard let source = sources.first(where: { $0.id == song.sourceID }) else {
-                    plog("⚠️ Cache: source not found for '\(song.title)'")
-                    return
-                }
+        _ = backgroundAudioCacheTask(for: song, cacheEnabled: cacheEnabled)
+    }
 
-                // Local-source audio is already the durable local file. Copying
-                // it into the remote/offline cache only duplicates storage and
-                // can surface stale-container path warnings after reinstall.
-                guard source.type != .local else { return }
+    /// Queue prefetch awaits each song in order so a large complete-file format
+    /// cannot split bandwidth with the second and third queued tracks.
+    func cacheForUpcomingPlayback(song: Song, cacheEnabled: Bool = true) async {
+        guard let task = backgroundAudioCacheTask(for: song, cacheEnabled: cacheEnabled) else { return }
+        await task.value
+    }
 
-                if !RangeStreamingPrefetchPolicy.allowsBackgroundPrewarm(for: source.type) {
-                    plog("⏩ Cache: skip \(source.type.rawValue) prewarm for '\(song.title)' (foreground Range playback keeps priority)")
-                    return
-                }
+    /// If a user selects a song while its prefetch is still running, join that
+    /// transfer instead of starting a duplicate foreground full download.
+    func waitForBackgroundAudioCache(for song: Song) async {
+        guard let task = backgroundAudioCacheTasks[song.id]?.task else { return }
+        plog("↩️ Cache: joining in-flight prefetch for '\(song.title)'")
+        await task.value
+    }
 
-                let conn = connector(for: source)
-                try await conn.connect()
+    func cancelBackgroundAudioCaching(keeping songIDs: Set<String>) {
+        for (songID, record) in backgroundAudioCacheTasks where !songIDs.contains(songID) {
+            record.task.cancel()
+        }
+    }
 
-                if source.supportsRangeStreaming, song.fileSize > 0 {
-                    if cacheEnabled, shouldUseRangeStreamingForPlayback(source: source, song: song) {
-                        await prewarmCloudSong(song: song, connector: conn)
-                    } else if shouldPreferPlainStreamingForPlayback(source: source, song: song) {
-                        plog("⏩ Cache: skip full prefetch for '\(song.title)' (\(source.type.displayName) plain-stream policy)")
-                    }
-                    return
-                }
-                guard cacheEnabled else { return }
+    private func backgroundAudioCacheTask(
+        for song: Song,
+        cacheEnabled: Bool
+    ) -> Task<Void, Never>? {
+        guard cacheEnabled, cachedURL(for: song) == nil else { return nil }
+        if let record = backgroundAudioCacheTasks[song.id] {
+            return record.task
+        }
 
-                guard let streamURL = try await conn.streamingURL(for: song.filePath) else {
-                    plog("⚠️ Cache: no streaming URL for '\(song.title)'")
-                    return
-                }
-                let config = URLSessionConfiguration.default
-                config.timeoutIntervalForRequest = 300
-                let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
-                defer { session.finishTasksAndInvalidate() }
-                let (tempURL, response) = try await session.download(from: streamURL)
-                guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-                    plog("⚠️ Cache: HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0) for '\(song.title)'")
-                    return
-                }
-                let target = cacheURL(for: song)
-                try? FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-                await AudioCacheManager.shared.evictIfNeeded(reserveBytes: song.fileSize)
-                try? FileManager.default.removeItem(at: target)
-                try FileManager.default.moveItem(at: tempURL, to: target)
-                await AudioCacheManager.shared.recordAccess(path: audioCacheRelativePath(for: song))
-                plog("✅ Cache: '\(song.title)' cached successfully")
-            } catch {
+        let runID = UUID()
+        let task = Task(priority: .utility) { @MainActor [weak self] in
+            guard let self else { return }
+            await self.performBackgroundAudioCache(song: song, cacheEnabled: cacheEnabled)
+            self.finishBackgroundAudioCacheTask(songID: song.id, runID: runID)
+        }
+        backgroundAudioCacheTasks[song.id] = BackgroundAudioCacheTaskRecord(
+            id: runID,
+            sourceID: song.sourceID,
+            task: task
+        )
+        return task
+    }
+
+    private func finishBackgroundAudioCacheTask(songID: String, runID: UUID) {
+        guard backgroundAudioCacheTasks[songID]?.id == runID else { return }
+        backgroundAudioCacheTasks[songID] = nil
+    }
+
+    private func performBackgroundAudioCache(song: Song, cacheEnabled: Bool) async {
+        do {
+            try Task.checkCancellation()
+            guard cachedURL(for: song) == nil else { return }
+
+            let sources = try await sourcesProvider()
+            guard let source = sources.first(where: { $0.id == song.sourceID }) else {
+                plog("⚠️ Cache: source not found for '\(song.title)'")
+                return
+            }
+
+            // Local-source audio is already the durable local file. Copying it
+            // into the remote/offline cache only duplicates storage.
+            guard source.type != .local else { return }
+            guard RangeStreamingPrefetchPolicy.allowsBackgroundPrewarm(for: source.type) else {
+                plog("⏩ Cache: skip \(source.type.rawValue) prewarm for '\(song.title)' (foreground Range playback keeps priority)")
+                return
+            }
+
+            let usesRangeStreaming = shouldUseRangeStreamingForPlayback(source: source, song: song)
+            let mode = RangeStreamingPrefetchPolicy.backgroundCacheMode(
+                cacheEnabled: cacheEnabled,
+                supportsRangeStreaming: source.supportsRangeStreaming,
+                hasKnownFileSize: song.fileSize > 0,
+                usesRangeStreamingForPlayback: usesRangeStreaming,
+                requiresCompleteLocalFile: FileFormatRouter.requiresCompleteLocalFile(song.fileFormat)
+            )
+            guard mode != .disabled else {
+                plog("⏩ Cache: skip full prefetch for '\(song.title)' (\(source.type.displayName) demand-stream policy)")
+                return
+            }
+
+            let conn = connector(for: source)
+            try await conn.connect()
+            try Task.checkCancellation()
+
+            switch mode {
+            case .disabled:
+                return
+            case .rangePrewarm:
+                await prewarmCloudSong(song: song, connector: conn)
+            case .completeFile:
+                try await cacheCompleteFile(song: song, connector: conn)
+            }
+        } catch {
+            if Task.isCancelled || (error as? URLError)?.code == .cancelled {
+                plog("↩️ Cache prefetch cancelled for '\(song.title)'")
+            } else {
                 plog("⚠️ Cache failed for '\(song.title)': \(error.localizedDescription)")
             }
+        }
+    }
+
+    private func cacheCompleteFile(
+        song: Song,
+        connector: any MusicSourceConnector
+    ) async throws {
+        guard cachedURL(for: song) == nil else { return }
+        let target = cacheURL(for: song)
+        let reserveBytes = max(song.fileSize, 10_485_760)
+        await AudioCacheManager.shared.evictIfNeeded(reserveBytes: reserveBytes)
+        try Task.checkCancellation()
+
+        if let streamURL = try await connector.streamingURL(for: song.filePath) {
+            let config = URLSessionConfiguration.default
+            config.timeoutIntervalForRequest = 300
+            config.timeoutIntervalForResource = 60 * 60
+            config.networkServiceType = .background
+            let session = URLSession(
+                configuration: config,
+                delegate: SmartSSLDelegate(),
+                delegateQueue: nil
+            )
+            defer { session.finishTasksAndInvalidate() }
+            let (tempURL, response) = try await session.download(from: streamURL)
+            if let http = response as? HTTPURLResponse,
+               !(200...299).contains(http.statusCode) {
+                throw SourceError.connectionFailed("HTTP \(http.statusCode)")
+            }
+            try Task.checkCancellation()
+            try Self.validateCompleteCacheFile(at: tempURL, expectedSize: song.fileSize)
+            if cachedURL(for: song) == nil {
+                try await Task.detached(priority: .utility) {
+                    try Self.installCacheFile(from: tempURL, to: target, move: true)
+                }.value
+            }
+        } else {
+            let localURL = try await connector.localURL(for: song.filePath)
+            try Task.checkCancellation()
+            try Self.validateCompleteCacheFile(at: localURL, expectedSize: song.fileSize)
+            if cachedURL(for: song) == nil {
+                try await Task.detached(priority: .utility) {
+                    try Self.installCacheFile(from: localURL, to: target, move: false)
+                }.value
+            }
+        }
+
+        try Task.checkCancellation()
+        try Self.validateCompleteCacheFile(at: target, expectedSize: song.fileSize)
+        let byteCount = byteSize(at: target)
+        let relativePath = audioCacheRelativePath(for: song)
+        await AudioCacheManager.shared.recordAccess(path: relativePath)
+        if offlineAudioSnapshot(for: song).state != .pinned {
+            setOfflineAudioSnapshot(OfflineAudioCacheSnapshot(
+                state: .cached,
+                progress: nil,
+                byteCount: byteCount,
+                errorMessage: nil
+            ), for: song.id)
+        }
+        plog("✅ Cache: '\(song.title)' complete file cached successfully")
+    }
+
+    private nonisolated static func validateCompleteCacheFile(
+        at url: URL,
+        expectedSize: Int64
+    ) throws {
+        guard expectedSize > 0 else { return }
+        let actualSize = ((try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? Int64) ?? 0
+        let minimumSize = Int64(Double(expectedSize) * 0.95)
+        guard actualSize >= minimumSize else {
+            throw SourceError.connectionFailed("Incomplete background cache: \(actualSize)/\(expectedSize)")
+        }
+    }
+
+    private nonisolated static func installCacheFile(
+        from source: URL,
+        to target: URL,
+        move: Bool
+    ) throws {
+        try FileManager.default.createDirectory(
+            at: target.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        guard !FileManager.default.fileExists(atPath: target.path) else { return }
+        if source.standardizedFileURL == target.standardizedFileURL { return }
+        if move {
+            try FileManager.default.moveItem(at: source, to: target)
+        } else {
+            try FileManager.default.copyItem(at: source, to: target)
         }
     }
 
@@ -3032,9 +3186,14 @@ final class SourceManager {
                 )
                 : Data()
             let (head, tail) = try await (headData, tailData)
+            try Task.checkCancellation()
             seedPrewarmCache(song: song, head: head, tail: tail, fileSize: fileSize)
         } catch {
-            plog("⚠️ Prewarm failed for '\(song.title)': \(error.localizedDescription)")
+            if Task.isCancelled {
+                plog("↩️ Prewarm cancelled for '\(song.title)'")
+            } else {
+                plog("⚠️ Prewarm failed for '\(song.title)': \(error.localizedDescription)")
+            }
         }
     }
 

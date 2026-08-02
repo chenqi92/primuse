@@ -36,6 +36,34 @@ struct AudioDurationPolicyTests {
             formatRequiresCompleteLocalFile: false
         ))
     }
+
+    @Test("Legacy 192 kbps DTS estimates migrate to the full-rate estimate")
+    func legacyDTSEstimateIsCorrected() throws {
+        let fileSize: Int64 = 43_165_697
+        let legacy = Double(fileSize) * 8.0 / 192_000.0
+        let corrected = try #require(AudioDurationPolicy.correctedLegacyStoredDuration(
+            stored: legacy,
+            fileSize: fileSize,
+            format: .dts
+        ))
+        #expect(abs(corrected - legacy / 8.0) < 0.001)
+    }
+
+    @Test("Authoritative and non-DTS durations are not migrated")
+    func validDurationsArePreserved() {
+        let fileSize: Int64 = 43_165_697
+        let correctedEstimate = AudioDurationPolicy.fallbackEstimate(fileSize: fileSize, format: .dts)
+        #expect(AudioDurationPolicy.correctedLegacyStoredDuration(
+            stored: correctedEstimate,
+            fileSize: fileSize,
+            format: .dts
+        ) == nil)
+        #expect(AudioDurationPolicy.correctedLegacyStoredDuration(
+            stored: correctedEstimate * 8,
+            fileSize: fileSize,
+            format: .mp3
+        ) == nil)
+    }
 }
 
 @Suite("Remote metadata memory policy")
