@@ -1684,7 +1684,8 @@ final class AudioPlayerService {
             showPlaybackError(String(localized: "playback_error_connection"))
             isLoading = false
             if isSourceWideResolutionFailure(error) {
-                plog("⏹️ Source-wide playback failure; keeping queue position instead of auto-advancing")
+                plog("⏭️ Source-wide playback failure; skipping unavailable entries from source \(song.sourceID.prefix(8))")
+                await autoAdvanceAfterFailure(skippingSourceID: song.sourceID)
                 return
             }
             await autoAdvanceAfterFailure()
@@ -5285,7 +5286,7 @@ final class AudioPlayerService {
     ///   track failed, repeat-off), stop so the player exits the
     ///   half-broken loading/streaming state cleanly instead of
     ///   leaving the engine wedged with currentSong still set.
-    private func autoAdvanceAfterFailure() async {
+    private func autoAdvanceAfterFailure(skippingSourceID failedSourceID: String? = nil) async {
         if isDLNACast(currentSong) {
             stop()
             return
@@ -5313,6 +5314,27 @@ final class AudioPlayerService {
             stop()
             return
         }
+
+        if let failedSourceID {
+            var skippedCount = 0
+            while let candidate = nextSongInQueue(),
+                  SourceFailureAdvancePolicy.shouldSkipCandidate(
+                    failedSourceID: failedSourceID,
+                    candidateSourceID: candidate.sourceID
+                  ) {
+                guard skippedCount < queue.count else {
+                    plog("⏹️ No playable provider remains after source-wide failure")
+                    stop()
+                    return
+                }
+                advanceToNextIndex()
+                skippedCount += 1
+            }
+            if skippedCount > 0 {
+                plog("⏭️ Skipped \(skippedCount) queued entr\(skippedCount == 1 ? "y" : "ies") from unavailable source")
+            }
+        }
+
         if nextSongInQueue() != nil {
             await Task.yield()
             await next()
@@ -5322,8 +5344,8 @@ final class AudioPlayerService {
     }
 
     /// Authentication, connection and timeout failures normally affect every
-    /// track from the same remote source. Advancing to the next item only creates
-    /// an error storm and can unexpectedly fall through into another provider.
+    /// track from the same remote source. The failure path skips queued entries
+    /// from that source before continuing with the next available provider.
     private func isSourceWideResolutionFailure(_ error: Error) -> Bool {
         if let sourceError = error as? SourceError {
             switch sourceError {

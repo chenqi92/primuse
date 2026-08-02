@@ -174,3 +174,22 @@ struct QueueTraversalPolicyTests {
         #expect(previous == 0)
     }
 }
+
+@Suite("Source failure queue advance")
+struct SourceFailureAdvancePolicyTests {
+    @Test("Entries from the failed source are skipped")
+    func failedSourceEntriesAreSkipped() {
+        #expect(SourceFailureAdvancePolicy.shouldSkipCandidate(
+            failedSourceID: "offline-source",
+            candidateSourceID: "offline-source"
+        ))
+    }
+
+    @Test("A different provider remains eligible")
+    func differentProviderCanContinue() {
+        #expect(!SourceFailureAdvancePolicy.shouldSkipCandidate(
+            failedSourceID: "offline-source",
+            candidateSourceID: "healthy-source"
+        ))
+    }
+}

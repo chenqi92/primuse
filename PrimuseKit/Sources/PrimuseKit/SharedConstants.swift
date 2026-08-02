@@ -1628,6 +1628,19 @@ public enum ManualQueueAdvancePolicy {
     }
 }
 
+/// A source-wide authentication or connection failure makes every immediately
+/// following entry from that source unavailable. Those entries can be skipped
+/// without attempting more requests, while the first different provider stays
+/// eligible so a mixed-source queue can continue playing.
+public enum SourceFailureAdvancePolicy {
+    public static func shouldSkipCandidate(
+        failedSourceID: String,
+        candidateSourceID: String
+    ) -> Bool {
+        failedSourceID == candidateSourceID
+    }
+}
+
 /// Shared predicate for the background metadata pipeline. A scanner can mark
 /// only the title inspection as complete while still leaving duration or MP3
 /// artwork work eligible for backfill.
