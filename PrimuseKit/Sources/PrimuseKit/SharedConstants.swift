@@ -1658,6 +1658,18 @@ public enum MetadataBackfillEligibilityPolicy {
     }
 }
 
+/// Stops a background metadata session after a complete round produces no
+/// observable progress. The songs remain eligible on the next launch; parking
+/// only suppresses an endless spinner and repeated network work in this run.
+public enum MetadataBackfillStallPolicy {
+    public static func shouldParkRepeatedSnapshot(
+        previousIDs: Set<String>,
+        currentIDs: Set<String>
+    ) -> Bool {
+        !previousIDs.isEmpty && previousIDs == currentIDs
+    }
+}
+
 /// Protects the identity supplied by a CUE sheet when metadata is scraped from
 /// the shared physical audio file. A forced scrape may replace ordinary-track
 /// text, but it must not collapse every virtual segment to one file-level name.

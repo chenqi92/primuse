@@ -804,8 +804,16 @@ final class MetadataBackfillService {
             // infinite loop, and surface the diagnostic so we can
             // pinpoint where the round-trip drops the duration.
             let snapIDs = Set(snapshot.map(\.id))
-            if !lastSnapshotIDs.isEmpty, snapIDs == lastSnapshotIDs {
-                plog("⚠️ Backfill: pickNextBatch returned the same \(snapIDs.count) IDs after a full round — aborting (writes aren't sticking; check 'duration=' in prior done lines)")
+            if MetadataBackfillStallPolicy.shouldParkRepeatedSnapshot(
+                previousIDs: lastSnapshotIDs,
+                currentIDs: snapIDs
+            ) {
+                sessionGivenUpIDs.formUnion(snapIDs)
+                for parkedID in snapIDs {
+                    transientFailureCounts[parkedID] = nil
+                }
+                refreshRemainingCounts(force: true)
+                plog("⚠️ Backfill: pickNextBatch returned the same \(snapIDs.count) IDs after a full round — parked for this session")
                 break
             }
             lastSnapshotIDs = snapIDs
@@ -1001,7 +1009,8 @@ final class MetadataBackfillService {
         if error is URLError { return true }
         if error is CancellationError { return true }
         switch error {
-        case SourceError.connectionFailed, SourceError.authenticationFailed, SourceError.timeout:
+        case SourceError.connectionFailed, SourceError.credentialUnavailable,
+             SourceError.authenticationFailed, SourceError.timeout:
             return true
         case SourceError.pathNotFound, SourceError.fileNotFound:
             return false // 文件确实不在了 —— 永久
@@ -1022,10 +1031,12 @@ final class MetadataBackfillService {
     /// transient (never persisted as a bad song), but should trip the
     /// per-session source circuit breaker immediately.
     static func isSourceUnavailableBackfillError(_ error: Error) -> Bool {
-        if case SourceError.authenticationFailed = error {
+        switch error {
+        case SourceError.authenticationFailed, SourceError.credentialUnavailable:
             return true
+        default:
+            return false
         }
-        return false
     }
 
     /// Outcome of one backfill attempt. `song` is the merged result to

@@ -919,6 +919,12 @@ final class SourceManager {
                 return source.type == .fnMusic
                     ? serverAdvice(message: path)
                     : pathAdvice(path: path)
+            case .credentialUnavailable(let message):
+                return SourceDiagnosticAdvice(
+                    title: String(localized: "source_diag_auth_title"),
+                    message: message,
+                    suggestion: ""
+                )
             case .connectionFailed(let message):
                 return advice(forMessage: message, source: source)
             }

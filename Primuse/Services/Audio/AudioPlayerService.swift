@@ -5349,7 +5349,8 @@ final class AudioPlayerService {
     private func isSourceWideResolutionFailure(_ error: Error) -> Bool {
         if let sourceError = error as? SourceError {
             switch sourceError {
-            case .authenticationFailed, .connectionFailed, .timeout:
+            case .authenticationFailed, .credentialUnavailable,
+                 .connectionFailed, .timeout:
                 return true
             case .pathNotFound, .fileNotFound:
                 return false

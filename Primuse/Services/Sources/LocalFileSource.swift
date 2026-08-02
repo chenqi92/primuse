@@ -490,6 +490,7 @@ enum SourceError: Error, LocalizedError {
     case pathNotFound(String)
     case fileNotFound(String)
     case connectionFailed(String)
+    case credentialUnavailable(String)
     case authenticationFailed
     case timeout
 
@@ -498,6 +499,7 @@ enum SourceError: Error, LocalizedError {
         case .pathNotFound(let path): return "Path not found: \(path)"
         case .fileNotFound(let path): return "File not found: \(path)"
         case .connectionFailed(let msg): return "Connection failed: \(msg)"
+        case .credentialUnavailable(let msg): return msg
         case .authenticationFailed: return "Authentication failed"
         case .timeout: return "Connection timed out"
         }

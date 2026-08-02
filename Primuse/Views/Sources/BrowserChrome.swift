@@ -78,7 +78,8 @@ enum DirectoryBrowserNetworkRetry {
         switch error {
         case SourceError.connectionFailed, SourceError.timeout:
             return true
-        case SourceError.pathNotFound, SourceError.fileNotFound, SourceError.authenticationFailed:
+        case SourceError.pathNotFound, SourceError.fileNotFound,
+             SourceError.credentialUnavailable, SourceError.authenticationFailed:
             return false
         default:
             break

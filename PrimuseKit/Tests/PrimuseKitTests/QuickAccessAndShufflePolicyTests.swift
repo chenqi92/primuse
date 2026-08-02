@@ -156,3 +156,26 @@ struct MetadataBackfillEligibilityPolicyTests {
         ))
     }
 }
+
+@Suite("Metadata backfill stall handling")
+struct MetadataBackfillStallPolicyTests {
+    @Test("An unchanged nonempty snapshot is parked for this session")
+    func repeatedSnapshotIsParked() {
+        #expect(MetadataBackfillStallPolicy.shouldParkRepeatedSnapshot(
+            previousIDs: ["ftp-1", "sftp-1"],
+            currentIDs: ["sftp-1", "ftp-1"]
+        ))
+    }
+
+    @Test("The first or a progressing snapshot continues")
+    func freshOrProgressingSnapshotContinues() {
+        #expect(!MetadataBackfillStallPolicy.shouldParkRepeatedSnapshot(
+            previousIDs: [],
+            currentIDs: ["ftp-1"]
+        ))
+        #expect(!MetadataBackfillStallPolicy.shouldParkRepeatedSnapshot(
+            previousIDs: ["ftp-1", "sftp-1"],
+            currentIDs: ["sftp-1"]
+        ))
+    }
+}

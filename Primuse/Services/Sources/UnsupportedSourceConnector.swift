@@ -64,9 +64,9 @@ actor CredentialUnavailableSourceConnector: MusicSourceConnector {
     private var unavailableError: SourceError {
         switch failure {
         case .temporarilyUnavailable:
-            return .connectionFailed(String(localized: "credential_temporarily_unavailable"))
+            return .credentialUnavailable(String(localized: "credential_temporarily_unavailable"))
         case .failed:
-            return .connectionFailed(String(localized: "credential_read_failed"))
+            return .credentialUnavailable(String(localized: "credential_read_failed"))
         }
     }
 }
