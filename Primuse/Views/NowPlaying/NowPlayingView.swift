@@ -116,6 +116,8 @@ struct NowPlayingView: View {
     @State private var showLyrics = false
     @State private var showQueue = false
     @State private var lyrics: [LyricLine] = []
+    @State private var lyricsRevision: UInt = 0
+    @State private var lyricsLoadRevision: UInt = 0
     @State private var isScrapingCurrentSong = false
     @State private var scrapeAlertMessage: String?
     /// Freeze the canonical song identity used by the scrape sheet. MusicKit
@@ -1150,6 +1152,7 @@ struct NowPlayingView: View {
     private var lyricsFullView: some View {
         LyricsScrollView(
             lyrics: lyrics,
+            lyricsRevision: lyricsRevision,
             player: player,
             songID: player.currentSong?.id,
             isScrapingCurrentSong: isScrapingCurrentSong,
@@ -1223,6 +1226,8 @@ struct NowPlayingView: View {
     }
 
     private func loadLyrics() async {
+        lyricsLoadRevision &+= 1
+        let loadRevision = lyricsLoadRevision
         guard let song = player.currentSong else { setLyrics([]); return }
         let loadStart = Date()
 
@@ -1236,17 +1241,18 @@ struct NowPlayingView: View {
                !cached.isEmpty {
                 plog(String(format: "📜 Apple Music lyrics cache hit '%@' (%d lines)",
                             song.title, cached.count))
-                setLyricsIfCurrent(cached, for: song)
+                setLyricsIfCurrent(cached, for: song, loadRevision: loadRevision)
                 return
             }
             do {
                 if let lyrics = try await AppServices.shared.appleMusicLibrary
                     .fetchLyrics(forAmID: song.filePath),
                    !lyrics.isEmpty {
+                    guard isCurrentLyricsLoad(loadRevision, songID: song.id) else { return }
                     _ = await MetadataAssetStore.shared.cacheLyrics(lyrics, forSongID: song.id, force: true)
                     plog(String(format: "📜 Apple Music lyrics fetched '%@' in %.0fms (%d lines)",
                                 song.title, Date().timeIntervalSince(loadStart) * 1000, lyrics.count))
-                    setLyricsIfCurrent(lyrics, for: song)
+                    setLyricsIfCurrent(lyrics, for: song, loadRevision: loadRevision)
                     return
                 } else {
                     plog("📜 Apple Music lyrics: no official lyrics for '\(song.title)'")
@@ -1254,7 +1260,7 @@ struct NowPlayingView: View {
             } catch {
                 plog("⚠️Apple Music lyrics fetch failed for '\(song.title)': \(error.localizedDescription)")
             }
-            setLyricsIfCurrent([], for: song)
+            setLyricsIfCurrent([], for: song, loadRevision: loadRevision)
             return
         }
 
@@ -1263,11 +1269,15 @@ struct NowPlayingView: View {
         // 在根源上修复, 这里允许 cache hit 立即显示, 后台再校验。
         if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id), !cached.isEmpty {
             plog(String(format: "📜 loadLyrics '%@' Tier1a hit (songID hash) in %.0fms (%d lines)", song.title, Date().timeIntervalSince(loadStart) * 1000, cached.count))
-            guard setLyricsIfCurrent(cached, for: song) else { return }
+            guard setLyricsIfCurrent(cached, for: song, loadRevision: loadRevision) else { return }
             // NAS path 时, 后台校验 cache 是否 stale (NAS sidecar 才是真相)。
             // 静默成功 = no-op; 若发现差异会 update UI + cache。
             if (song.lyricsFileName ?? "").contains("/") {
-                runLyricsTier3Fetch(song: song, currentCache: cached)
+                runLyricsTier3Fetch(
+                    song: song,
+                    currentCache: cached,
+                    loadRevision: loadRevision
+                )
             }
             return
         }
@@ -1277,29 +1287,35 @@ struct NowPlayingView: View {
         // Tier 1b: legacy named ref (only for non-NAS path)
         if !lyricsRefIsRemote,
            let cached = await MetadataAssetStore.shared.lyrics(named: song.lyricsFileName) {
+            guard isCurrentLyricsLoad(loadRevision, songID: song.id) else { return }
             await MetadataAssetStore.shared.cacheLyrics(cached, forSongID: song.id)
             plog(String(format: "📜 loadLyrics '%@' Tier1b hit (named ref) in %.0fms (%d lines)", song.title, Date().timeIntervalSince(loadStart) * 1000, cached.count))
-            setLyricsIfCurrent(cached, for: song); return
+            setLyricsIfCurrent(cached, for: song, loadRevision: loadRevision); return
         }
 
         // Tier 2: Check local audio cache for sidecar .lrc (filesystem only, zero network)
         if let cachedAudioURL = sourceManager.cachedURL(for: song),
            let lrcURL = SidecarMetadataLoader.findLyrics(for: cachedAudioURL),
            let parsed = try? LyricsParser.parse(from: lrcURL), !parsed.isEmpty {
+            guard isCurrentLyricsLoad(loadRevision, songID: song.id) else { return }
             await MetadataAssetStore.shared.cacheLyrics(parsed, forSongID: song.id)
             plog(String(format: "📜 loadLyrics '%@' Tier2 hit (audio cache sidecar) in %.0fms (%d lines)", song.title, Date().timeIntervalSince(loadStart) * 1000, parsed.count))
-            setLyricsIfCurrent(parsed, for: song); return
+            setLyricsIfCurrent(parsed, for: song, loadRevision: loadRevision); return
         }
 
         // Tier 3: 首次必走 (无 cache, 无本地 sidecar)
-        guard setLyricsIfCurrent([], for: song) else { return }
+        guard setLyricsIfCurrent([], for: song, loadRevision: loadRevision) else { return }
         plog(String(format: "📜 loadLyrics '%@' miss Tier1+2, falling to Tier3 (NAS fetch)", song.title))
-        runLyricsTier3Fetch(song: song, currentCache: nil)
+        runLyricsTier3Fetch(song: song, currentCache: nil, loadRevision: loadRevision)
     }
 
     /// Tier 3 NAS fetch + 校验。currentCache != nil 时为 stale-while-revalidate
     /// 模式: 已 setLyrics(currentCache), 这里只在 fingerprint 不一致时 update UI。
-    private func runLyricsTier3Fetch(song: Song, currentCache: [LyricLine]?) {
+    private func runLyricsTier3Fetch(
+        song: Song,
+        currentCache: [LyricLine]?,
+        loadRevision: UInt
+    ) {
         let capturedSourceManager = sourceManager
         let capturedScraperService = scraperService
         let songID = song.id
@@ -1309,7 +1325,9 @@ struct NowPlayingView: View {
         Task {
             let tier3Start = Date()
             do {
+                guard isCurrentLyricsLoad(loadRevision, songID: songID) else { return }
                 let connector = try await capturedSourceManager.auxiliaryConnector(for: song)
+                guard isCurrentLyricsLoad(loadRevision, songID: songID) else { return }
                 let connectMs = Date().timeIntervalSince(tier3Start) * 1000
 
                 // 服务端歌词 (Subsonic getLyricsBySongId 等) —— 服务端曲库源不是
@@ -1318,6 +1336,7 @@ struct NowPlayingView: View {
                 // (对 Subsonic 那会拉到音频流, 既浪费又解析失败)。
                 if let server = connector as? ServerLyricsConnector {
                     if let raw = await server.fetchServerLyrics(for: song.filePath) {
+                        guard isCurrentLyricsLoad(loadRevision, songID: songID) else { return }
                         let parsed = LyricsParser.parseText(raw)
                         if !parsed.isEmpty {
                             if let currentCache,
@@ -1326,7 +1345,7 @@ struct NowPlayingView: View {
                             }
                             _ = await MetadataAssetStore.shared.cacheLyrics(parsed, forSongID: songID)
                             plog(String(format: "📜 loadLyrics '%@' server-lyrics OK in %.0fms (%d lines)", songTitle, Date().timeIntervalSince(tier3Start) * 1000, parsed.count))
-                            if player.currentSong?.id == songID {
+                            if isCurrentLyricsLoad(loadRevision, songID: songID) {
                                 setLyrics(parsed)
                             }
                             return
@@ -1345,13 +1364,14 @@ struct NowPlayingView: View {
                         album: song.albumTitle,
                         duration: song.duration > 0 ? song.duration : nil
                     ), !online.isEmpty {
+                        guard isCurrentLyricsLoad(loadRevision, songID: songID) else { return }
                         _ = await MetadataAssetStore.shared.cacheLyrics(
                             online,
                             forSongID: songID,
                             force: true
                         )
                         plog(String(format: "📜 loadLyrics '%@' online fallback OK in %.0fms (%d lines)", songTitle, Date().timeIntervalSince(tier3Start) * 1000, online.count))
-                        if player.currentSong?.id == songID {
+                        if isCurrentLyricsLoad(loadRevision, songID: songID) {
                             setLyrics(online)
                         }
                     }
@@ -1374,6 +1394,7 @@ struct NowPlayingView: View {
                     length: 256 * 1024,
                     priority: .background
                 )
+                guard isCurrentLyricsLoad(loadRevision, songID: songID) else { return }
                 let fetchMs = Date().timeIntervalSince(fetchStart) * 1000
                 guard let lrcContent = String(data: lrcData, encoding: .utf8) else {
                     plog(String(format: "📜 loadLyrics '%@' Tier3 .lrc not utf8 (connect=%.0fms fetch=%.0fms)", songTitle, connectMs, fetchMs))
@@ -1404,10 +1425,11 @@ struct NowPlayingView: View {
                 } else {
                     plog(String(format: "📜 loadLyrics '%@' Tier3 OK in %.0fms (connect=%.0fms fetch=%.0fms %dB %d lines)", songTitle, Date().timeIntervalSince(tier3Start) * 1000, connectMs, fetchMs, lrcData.count, parsed.count))
                 }
-                if player.currentSong?.id == songID {
+                if isCurrentLyricsLoad(loadRevision, songID: songID) {
                     setLyrics(parsed)
                 }
             } catch {
+                guard isCurrentLyricsLoad(loadRevision, songID: songID) else { return }
                 if isRefresh {
                     // refresh 失败不影响 user, 已经显示了 cache
                     plog(String(format: "📜 lyrics refresh '%@' FAILED in %.0fms (cache still shown): %@", songTitle, Date().timeIntervalSince(tier3Start) * 1000, error.localizedDescription))
@@ -1428,18 +1450,28 @@ struct NowPlayingView: View {
 
     /// loadLyrics 的同步 tier (Tier1a/1b/2 + Apple Music) 在 await 之后写歌词
     /// 前的统一守卫: 切歌时 .task(id:) 会 cancel 旧任务, 但取消是协作式的, actor
-    /// 跳跃的 await 不是取消点, 旧任务恢复后仍会跑完。这里校验任务未被取消且
-    /// song 仍是 currentSong, 避免先发出但后完成的旧任务用旧歌缓存/空数组覆盖
-    /// 已显示的新歌歌词。与 Tier3 的 `player.currentSong?.id == songID` 守卫一致。
+    /// 跳跃的 await 不是取消点。除 song identity 外还校验 load revision，避免同一
+    /// 首歌的旧 Tier 3 请求晚到后覆盖刚刮削出来的新歌词。
     @discardableResult
-    private func setLyricsIfCurrent(_ value: [LyricLine], for song: Song) -> Bool {
-        guard !Task.isCancelled, player.currentSong?.id == song.id else { return false }
+    private func setLyricsIfCurrent(
+        _ value: [LyricLine],
+        for song: Song,
+        loadRevision: UInt
+    ) -> Bool {
+        guard isCurrentLyricsLoad(loadRevision, songID: song.id) else { return false }
         setLyrics(value)
         return true
     }
 
+    private func isCurrentLyricsLoad(_ loadRevision: UInt, songID: String) -> Bool {
+        !Task.isCancelled
+            && lyricsLoadRevision == loadRevision
+            && player.currentSong?.id == songID
+    }
+
     private func setLyrics(_ value: [LyricLine]) {
         lyrics = value
+        lyricsRevision &+= 1
         let wordLevelCount = value.filter { $0.isWordLevel }.count
         plog("📜 setLyrics: lines=\(value.count) wordLevelLines=\(wordLevelCount) firstSyllables=\(value.first?.syllables?.count ?? -1)")
         // currentLineIndex / hasWordLevelLyrics 已迁移到 LyricsScrollView 子 view,
@@ -1513,6 +1545,10 @@ struct NowPlayingView: View {
         guard let displayedSong = player.currentSong,
               !isScrapingCurrentSong else { return }
 
+        // Invalidate an in-flight Tier 3 lookup for this same song before the
+        // scraper starts. Otherwise that older request can finish after the
+        // freshly scraped cache write and replace the new lyrics.
+        lyricsLoadRevision &+= 1
         isScrapingCurrentSong = true
         Task { @MainActor in
             defer { isScrapingCurrentSong = false }
@@ -1558,7 +1594,11 @@ struct NowPlayingView: View {
                 player.forceRefreshNowPlayingArtwork()
 
                 if player.currentSong?.id == updatedSong.id {
-                    await loadLyrics()
+                    if let scrapedLyrics, !scrapedLyrics.isEmpty {
+                        setLyrics(scrapedLyrics)
+                    } else {
+                        await loadLyrics()
+                    }
                 }
                 scrapeAlertMessage = automaticScrapeSummary(
                     original: song,
@@ -2798,6 +2838,7 @@ private final class LyricGeometryUpdateCoordinator {
 /// 父 view 的 Menu / sheet 不受影响。
 struct LyricsScrollView: View {
     let lyrics: [LyricLine]
+    let lyricsRevision: UInt
     let player: AudioPlayerService
     let songID: String?
     let isScrapingCurrentSong: Bool
@@ -2867,7 +2908,7 @@ struct LyricsScrollView: View {
                 lineLevelLyricsView
             }
         }
-        .task(id: player.isPlaying) {
+        .task(id: playbackFollowTaskIdentity) {
             updateCurrentLine()
             guard player.isPlaying else { return }
             while !Task.isCancelled {
@@ -3043,13 +3084,12 @@ struct LyricsScrollView: View {
                     scheduleLineAutoFollowResume(proxy: proxy, delay: 0)
                 }
                 .task(id: lineLevelScrollIdentity) {
-                    // Wait for the rows to enter the ScrollViewReader before
-                    // the first positioning request. This also covers opening
-                    // lyrics while playback is already in the middle of a song.
+                    let targetIndex = updateCurrentLine()
+                    // Publish the active row first, then allow SwiftUI to lay
+                    // out that state before issuing the initial scroll request.
                     await Task.yield()
-                    guard !Task.isCancelled else { return }
-                    updateCurrentLine()
-                    scrollLine(to: currentLineIndex, proxy: proxy, animated: false)
+                    guard !Task.isCancelled, let targetIndex else { return }
+                    scrollLine(to: targetIndex, proxy: proxy, animated: false)
                 }
                 .onDisappear {
                     lineAutoFollowResumeTask?.cancel()
@@ -3112,6 +3152,12 @@ struct LyricsScrollView: View {
                 updateWordAutoOffset(viewportHeight: geo.size.height, animated: true)
             }
             .onChange(of: geo.size.height) { _, _ in
+                updateWordAutoOffset(viewportHeight: geo.size.height, animated: false)
+            }
+            .task(id: lyricsPresentationIdentity) {
+                updateCurrentLine()
+                await Task.yield()
+                guard !Task.isCancelled else { return }
                 updateWordAutoOffset(viewportHeight: geo.size.height, animated: false)
             }
             .contentShape(Rectangle())
@@ -3199,7 +3245,25 @@ struct LyricsScrollView: View {
     }
 
     private var lineLevelScrollIdentity: String {
-        "\(songID ?? "")|\(lyrics.first?.id ?? "")|\(lyrics.last?.id ?? "")|\(lyrics.count)"
+        lyricsPresentationIdentity
+    }
+
+    private var lyricsPresentationIdentity: String {
+        "\(songID ?? "")|\(lyricsRevision)"
+    }
+
+    private struct PlaybackFollowTaskIdentity: Hashable {
+        let songID: String?
+        let lyricsRevision: UInt
+        let isPlaying: Bool
+    }
+
+    private var playbackFollowTaskIdentity: PlaybackFollowTaskIdentity {
+        PlaybackFollowTaskIdentity(
+            songID: songID,
+            lyricsRevision: lyricsRevision,
+            isPlaying: player.isPlaying
+        )
     }
 
     private func beginLineManualBrowsing() {
@@ -3524,29 +3588,18 @@ struct LyricsScrollView: View {
     /// 仍落在 24pt 水平 padding 内, 不会被外层 .clipped() 切到。再大就要防裁切。
     private static let lyricsActiveVisualScale: CGFloat = 1.08
 
-    private func updateCurrentLine() {
-        guard !lyrics.isEmpty else { return }
+    @discardableResult
+    private func updateCurrentLine() -> Int? {
         let time = player.interpolatedTime()
-        let activeIndex = lineIndex(at: time, lookahead: hasWordLevelLyrics ? Self.wordLevelLineLookahead : Self.lineLevelLookahead)
+        guard let activeIndex = LyricPlaybackPositionPolicy.activeLineIndex(
+            in: lyrics,
+            at: time,
+            lookahead: hasWordLevelLyrics
+                ? Self.wordLevelLineLookahead
+                : Self.lineLevelLookahead
+        ) else { return nil }
         if currentLineIndex != activeIndex { currentLineIndex = activeIndex }
-    }
-
-    private func lineIndex(at time: TimeInterval, lookahead: TimeInterval) -> Int {
-        // The timer runs while lyrics are visible, so use binary search rather
-        // than rescanning from the end on every tick (especially costly near
-        // the beginning of long word-level lyric files).
-        let target = time + lookahead
-        var lower = 0
-        var upper = lyrics.count
-        while lower < upper {
-            let middle = lower + (upper - lower) / 2
-            if lyrics[middle].timestamp <= target {
-                lower = middle + 1
-            } else {
-                upper = middle
-            }
-        }
-        return max(0, lower - 1)
+        return activeIndex
     }
 }
 

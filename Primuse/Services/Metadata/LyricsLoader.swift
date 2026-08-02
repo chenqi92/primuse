@@ -12,11 +12,14 @@ import PrimuseKit
 enum LyricsLoader {
     static func load(for song: Song, sourceManager: SourceManager) async -> [LyricLine] {
         if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) {
+            guard !Task.isCancelled else { return [] }
             logLoaded(cached, song: song, tier: "Tier1a")
             return cached
         }
         if let cached = await MetadataAssetStore.shared.lyrics(named: song.lyricsFileName) {
+            guard !Task.isCancelled else { return [] }
             await MetadataAssetStore.shared.cacheLyrics(cached, forSongID: song.id)
+            guard !Task.isCancelled else { return [] }
             logLoaded(cached, song: song, tier: "Tier1b")
             return cached
         }
@@ -24,21 +27,26 @@ enum LyricsLoader {
         if let cachedAudioURL = sourceManager.cachedURL(for: song),
            let lrcURL = SidecarMetadataLoader.findLyrics(for: cachedAudioURL),
            let parsed = try? LyricsParser.parse(from: lrcURL), !parsed.isEmpty {
+            guard !Task.isCancelled else { return [] }
             await MetadataAssetStore.shared.cacheLyrics(parsed, forSongID: song.id)
+            guard !Task.isCancelled else { return [] }
             logLoaded(parsed, song: song, tier: "Tier2")
             return parsed
         }
 
         do {
             let connector = try await sourceManager.auxiliaryConnector(for: song)
+            guard !Task.isCancelled else { return [] }
 
             // Tier 2.5: 服务端歌词 (Subsonic getLyricsBySongId 等)。服务端不是
             // "同目录 .lrc" 模型, 走 connector 的 ServerLyricsConnector 能力。
             if let server = connector as? ServerLyricsConnector,
                let raw = await server.fetchServerLyrics(for: song.filePath) {
+                guard !Task.isCancelled else { return [] }
                 let parsed = LyricsParser.parseText(raw)
                 if !parsed.isEmpty {
                     await MetadataAssetStore.shared.cacheLyrics(parsed, forSongID: song.id)
+                    guard !Task.isCancelled else { return [] }
                     logLoaded(parsed, song: song, tier: "Tier2c-server")
                     return parsed
                 }
@@ -55,11 +63,13 @@ enum LyricsLoader {
                    album: song.albumTitle,
                    duration: song.duration > 0 ? song.duration : nil
                ), !online.isEmpty {
+                guard !Task.isCancelled else { return [] }
                 _ = await MetadataAssetStore.shared.cacheLyrics(
                     online,
                     forSongID: song.id,
                     force: true
                 )
+                guard !Task.isCancelled else { return [] }
                 logLoaded(online, song: song, tier: "Tier2d-online")
                 return online
             }
@@ -78,16 +88,19 @@ enum LyricsLoader {
                 length: 256 * 1024,
                 priority: .background
             )
+            guard !Task.isCancelled else { return [] }
             guard let lrcContent = String(data: lrcData, encoding: .utf8) else {
                 return []
             }
             let parsed = LyricsParser.parse(lrcContent)
             if !parsed.isEmpty {
                 await MetadataAssetStore.shared.cacheLyrics(parsed, forSongID: song.id)
+                guard !Task.isCancelled else { return [] }
                 logLoaded(parsed, song: song, tier: "Tier3")
                 return parsed
             }
         } catch {
+            guard !Task.isCancelled else { return [] }
             // No .lrc — quietly return empty.
         }
         plog("📜 LyricsLoader '\(song.title)' empty")

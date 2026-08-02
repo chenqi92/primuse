@@ -25,6 +25,8 @@ struct DesktopLyricsView: View {
     @Environment(SourceManager.self) private var sourceManager
     @State private var lyrics: [LyricLine] = []
     @State private var currentIndex: Int = 0
+    @State private var lyricsLoadRevision: UInt = 0
+    @State private var pendingLyricsOverride: PendingLyricsOverride?
     @State private var isHovering = false
     @State private var colorPaletteShown = false
     @State private var settingsShown = false
@@ -108,14 +110,17 @@ struct DesktopLyricsView: View {
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) { isHovering = hovering }
         }
-        .task(id: player.currentSong?.id) { await reloadLyrics() }
+        .task(id: lyricsLoadTaskIdentity) { await refreshLyrics() }
         .background {
             DesktopLyricsTimeObserver { updateIndex(time: $0) }
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseLyricsDidChange)) { note in
             guard let songID = note.object as? String,
                   songID == player.currentSong?.id else { return }
-            Task { await reloadLyrics() }
+            pendingLyricsOverride = (note.userInfo?["lyrics"] as? [LyricLine]).map {
+                PendingLyricsOverride(songID: songID, lyrics: $0)
+            }
+            lyricsLoadRevision &+= 1
         }
         // 切到/出 vertical 时把 panel 整块改成竖窄/横宽。
         .onChange(of: layoutRaw) { _, _ in
@@ -571,29 +576,52 @@ struct DesktopLyricsView: View {
         return lyrics[next]
     }
 
+    private struct LyricsLoadTaskIdentity: Hashable {
+        let songID: String?
+        let revision: UInt
+    }
+
+    private struct PendingLyricsOverride {
+        let songID: String
+        let lyrics: [LyricLine]
+    }
+
+    private var lyricsLoadTaskIdentity: LyricsLoadTaskIdentity {
+        LyricsLoadTaskIdentity(
+            songID: player.currentSong?.id,
+            revision: lyricsLoadRevision
+        )
+    }
+
+    private func refreshLyrics() async {
+        if let pendingLyricsOverride,
+           pendingLyricsOverride.songID == player.currentSong?.id {
+            self.pendingLyricsOverride = nil
+            lyrics = pendingLyricsOverride.lyrics
+            _ = updateIndex(time: player.currentTime)
+            return
+        }
+        pendingLyricsOverride = nil
+        await reloadLyrics()
+    }
+
     private func reloadLyrics() async {
         guard let song = player.currentSong else { lyrics = []; currentIndex = 0; return }
         lyrics = []; currentIndex = 0
         let loaded = await LyricsLoader.load(for: song, sourceManager: sourceManager)
-        guard player.currentSong?.id == song.id else { return }
+        guard !Task.isCancelled, player.currentSong?.id == song.id else { return }
         lyrics = loaded
-        updateIndex(time: player.currentTime)
+        _ = updateIndex(time: player.currentTime)
     }
 
-    private func updateIndex(time: TimeInterval) {
-        guard !lyrics.isEmpty else { return }
-        var low = 0
-        var high = lyrics.count
-        while low < high {
-            let middle = low + (high - low) / 2
-            if lyrics[middle].timestamp <= time {
-                low = middle + 1
-            } else {
-                high = middle
-            }
-        }
-        let index = max(0, low - 1)
+    @discardableResult
+    private func updateIndex(time: TimeInterval) -> Int? {
+        guard let index = LyricPlaybackPositionPolicy.activeLineIndex(
+            in: lyrics,
+            at: time
+        ) else { return nil }
         if currentIndex != index { currentIndex = index }
+        return index
     }
 }
 

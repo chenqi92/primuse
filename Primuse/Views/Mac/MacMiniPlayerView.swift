@@ -19,6 +19,8 @@ struct MacMiniPlayerView: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var lyrics: [LyricLine] = []
     @State private var currentIndex: Int = 0
+    @State private var lyricsLoadRevision: UInt = 0
+    @State private var pendingLyricsOverride: PendingLyricsOverride?
     @State private var lastManualLyricsScroll = Date.distantPast
     @State private var lyricsAutoFollowTask: Task<Void, Never>?
     @State private var airPlayShown = false
@@ -74,7 +76,7 @@ struct MacMiniPlayerView: View {
         )
         .pmWindowDragRegion()
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .task(id: player.currentSong?.id) { await reloadLyrics() }
+        .task(id: lyricsLoadTaskIdentity) { await refreshLyrics() }
         .background {
             MacMiniPlayerTimeObserver { updateIndex(time: $0) }
         }
@@ -82,7 +84,10 @@ struct MacMiniPlayerView: View {
         .onReceive(NotificationCenter.default.publisher(for: .primuseLyricsDidChange)) { note in
             guard let songID = note.object as? String,
                   songID == player.currentSong?.id else { return }
-            Task { await reloadLyrics() }
+            pendingLyricsOverride = (note.userInfo?["lyrics"] as? [LyricLine]).map {
+                PendingLyricsOverride(songID: songID, lyrics: $0)
+            }
+            lyricsLoadRevision &+= 1
         }
     }
 
@@ -543,10 +548,10 @@ struct MacMiniPlayerView: View {
                     }
             )
             .task(id: lyricsScrollIdentity) {
+                let targetIndex = updateIndex(time: player.currentTime)
                 await Task.yield()
-                guard !Task.isCancelled else { return }
-                updateIndex(time: player.currentTime)
-                scrollLyrics(to: currentIndex, proxy: proxy, animated: false)
+                guard !Task.isCancelled, let targetIndex else { return }
+                scrollLyrics(to: targetIndex, proxy: proxy, animated: false)
             }
             .onDisappear {
                 lyricsAutoFollowTask?.cancel()
@@ -557,7 +562,24 @@ struct MacMiniPlayerView: View {
     }
 
     private var lyricsScrollIdentity: String {
-        "\(player.currentSong?.id ?? "")|\(lyrics.first?.id ?? "")|\(lyrics.count)"
+        "\(player.currentSong?.id ?? "")|\(lyricsLoadRevision)|\(lyrics.first?.id ?? "")|\(lyrics.count)"
+    }
+
+    private struct LyricsLoadTaskIdentity: Hashable {
+        let songID: String?
+        let revision: UInt
+    }
+
+    private struct PendingLyricsOverride {
+        let songID: String
+        let lyrics: [LyricLine]
+    }
+
+    private var lyricsLoadTaskIdentity: LyricsLoadTaskIdentity {
+        LyricsLoadTaskIdentity(
+            songID: player.currentSong?.id,
+            revision: lyricsLoadRevision
+        )
     }
 
     private func scheduleLyricsAutoFollow(proxy: ScrollViewProxy) {
@@ -609,31 +631,37 @@ struct MacMiniPlayerView: View {
         return isActive || abs(index - currentIndex) == 1
     }
 
+    private func refreshLyrics() async {
+        if let pendingLyricsOverride,
+           pendingLyricsOverride.songID == player.currentSong?.id {
+            self.pendingLyricsOverride = nil
+            lyrics = pendingLyricsOverride.lyrics
+            _ = updateIndex(time: player.currentTime)
+            return
+        }
+        pendingLyricsOverride = nil
+        await reloadLyrics()
+    }
+
     private func reloadLyrics() async {
         guard let song = player.currentSong else {
             lyrics = []; currentIndex = 0; return
         }
         lyrics = []; currentIndex = 0
         let loaded = await LyricsLoader.load(for: song, sourceManager: sourceManager)
-        guard player.currentSong?.id == song.id else { return }
+        guard !Task.isCancelled, player.currentSong?.id == song.id else { return }
         lyrics = loaded
-        updateIndex(time: player.currentTime)
+        _ = updateIndex(time: player.currentTime)
     }
 
-    private func updateIndex(time: TimeInterval) {
-        guard !lyrics.isEmpty else { return }
-        var low = 0
-        var high = lyrics.count
-        while low < high {
-            let middle = low + (high - low) / 2
-            if lyrics[middle].timestamp <= time {
-                low = middle + 1
-            } else {
-                high = middle
-            }
-        }
-        let index = max(0, low - 1)
+    @discardableResult
+    private func updateIndex(time: TimeInterval) -> Int? {
+        guard let index = LyricPlaybackPositionPolicy.activeLineIndex(
+            in: lyrics,
+            at: time
+        ) else { return nil }
         if currentIndex != index { currentIndex = index }
+        return index
     }
 }
 

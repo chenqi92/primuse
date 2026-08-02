@@ -278,7 +278,8 @@ struct MacContentView: View {
                 // reads the same song-ID cache on its next appearance.
                 NotificationCenter.default.post(
                     name: .primuseLyricsDidChange,
-                    object: updatedSong.id
+                    object: updatedSong.id,
+                    userInfo: lyricsChangeUserInfo(scrapedLyrics)
                 )
                 lyricsScrapeAlertMessage = String(localized: scrapedLyrics?.isEmpty == false
                     ? "scrape_song_success"
@@ -287,6 +288,13 @@ struct MacContentView: View {
                 lyricsScrapeAlertMessage = String(localized: "scrape_song_failed")
             }
         }
+    }
+
+    private func lyricsChangeUserInfo(
+        _ lyrics: [LyricLine]?
+    ) -> [AnyHashable: Any]? {
+        guard let lyrics, !lyrics.isEmpty else { return nil }
+        return ["lyrics": lyrics]
     }
 
     private func selectRoute(_ route: MacRoute) {

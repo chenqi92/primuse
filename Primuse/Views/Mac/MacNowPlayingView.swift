@@ -30,6 +30,8 @@ struct MacNowPlayingView: View {
 
     @State private var lyrics: [LyricLine] = []
     @State private var currentIndex: Int = 0
+    @State private var lyricsLoadRevision: UInt = 0
+    @State private var pendingLyricsOverride: PendingLyricsOverride?
     @State private var lastManualLyricsScroll = Date.distantPast
     @State private var lyricsAutoFollowTask: Task<Void, Never>?
     @State private var hostWindow: NSWindow?
@@ -131,7 +133,7 @@ struct MacNowPlayingView: View {
                 }
             }
         }
-        .task(id: player.currentSong?.id) { await reloadLyrics() }
+        .task(id: lyricsLoadTaskIdentity) { await refreshLyrics() }
         .background {
             MacNowPlayingTimeObserver { updateIndex(time: $0) }
         }
@@ -141,7 +143,10 @@ struct MacNowPlayingView: View {
         .onReceive(NotificationCenter.default.publisher(for: .primuseLyricsDidChange)) { note in
             guard let songID = note.object as? String,
                   songID == player.currentSong?.id else { return }
-            Task { await reloadLyrics() }
+            pendingLyricsOverride = (note.userInfo?["lyrics"] as? [LyricLine]).map {
+                PendingLyricsOverride(songID: songID, lyrics: $0)
+            }
+            lyricsLoadRevision &+= 1
         }
         // 监听主窗口进入/退出全屏(macOS NSWindow 通知),切换布局。
         // 校验通知来源窗口是本视图所在的 hostWindow,避免多开主窗口或设置等
@@ -429,10 +434,10 @@ struct MacNowPlayingView: View {
                     }
             )
             .task(id: lyricsScrollIdentity) {
+                let targetIndex = updateIndex(time: player.currentTime)
                 await Task.yield()
-                guard !Task.isCancelled else { return }
-                updateIndex(time: player.currentTime)
-                scrollLyrics(to: currentIndex, proxy: proxy, animated: false)
+                guard !Task.isCancelled, let targetIndex else { return }
+                scrollLyrics(to: targetIndex, proxy: proxy, animated: false)
             }
             .onDisappear {
                 lyricsAutoFollowTask?.cancel()
@@ -441,7 +446,24 @@ struct MacNowPlayingView: View {
     }
 
     private var lyricsScrollIdentity: String {
-        "\(player.currentSong?.id ?? "")|\(lyrics.first?.id ?? "")|\(lyrics.count)"
+        "\(player.currentSong?.id ?? "")|\(lyricsLoadRevision)|\(lyrics.first?.id ?? "")|\(lyrics.count)"
+    }
+
+    private struct LyricsLoadTaskIdentity: Hashable {
+        let songID: String?
+        let revision: UInt
+    }
+
+    private struct PendingLyricsOverride {
+        let songID: String
+        let lyrics: [LyricLine]
+    }
+
+    private var lyricsLoadTaskIdentity: LyricsLoadTaskIdentity {
+        LyricsLoadTaskIdentity(
+            songID: player.currentSong?.id,
+            revision: lyricsLoadRevision
+        )
     }
 
     private func scheduleLyricsAutoFollow(proxy: ScrollViewProxy) {
@@ -806,6 +828,18 @@ struct MacNowPlayingView: View {
 
     // MARK: - Lyrics loading
 
+    private func refreshLyrics() async {
+        if let pendingLyricsOverride,
+           pendingLyricsOverride.songID == player.currentSong?.id {
+            self.pendingLyricsOverride = nil
+            lyrics = pendingLyricsOverride.lyrics
+            _ = updateIndex(time: player.currentTime)
+            return
+        }
+        pendingLyricsOverride = nil
+        await reloadLyrics()
+    }
+
     private func reloadLyrics() async {
         guard let song = player.currentSong else {
             lyrics = []; currentIndex = 0; return
@@ -817,31 +851,23 @@ struct MacNowPlayingView: View {
         // 异步等待期间用户可能跳到了下一首,这时把当前结果写回去就会
         // 把"上一首的歌词"显示在新歌上。`task(id:)` 理论上会取消旧任务
         // 但 LyricsLoader 内部网络拉取不一定及时响应取消,做一道防御。
-        guard player.currentSong?.id == song.id else { return }
+        guard !Task.isCancelled, player.currentSong?.id == song.id else { return }
         lyrics = loaded
-        updateIndex(time: player.currentTime)
+        _ = updateIndex(time: player.currentTime)
     }
 
-    private func updateIndex(time: TimeInterval) {
-        guard !lyrics.isEmpty else { return }
-        // Use the same timing policy as iOS. A 10 Hz interpolated clock plus a
-        // small lookahead starts the smooth transition just before the vocal
-        // arrives; observing the coarse published currentTime made takeovers
-        // late and visually abrupt.
+    @discardableResult
+    private func updateIndex(time: TimeInterval) -> Int? {
         let hasWordLevelLyrics = lyrics.contains { $0.isWordLevel }
-        let target = time + (hasWordLevelLyrics ? Self.wordLevelLookahead : Self.lineLevelLookahead)
-        var low = 0
-        var high = lyrics.count
-        while low < high {
-            let middle = low + (high - low) / 2
-            if lyrics[middle].timestamp <= target {
-                low = middle + 1
-            } else {
-                high = middle
-            }
-        }
-        let index = max(0, low - 1)
+        guard let index = LyricPlaybackPositionPolicy.activeLineIndex(
+            in: lyrics,
+            at: time,
+            lookahead: hasWordLevelLyrics
+                ? Self.wordLevelLookahead
+                : Self.lineLevelLookahead
+        ) else { return nil }
         if currentIndex != index { currentIndex = index }
+        return index
     }
 
     // 删除歌曲流程已移到 PlayerMoreMenu,这里不再保留 deleteCurrentSong。
