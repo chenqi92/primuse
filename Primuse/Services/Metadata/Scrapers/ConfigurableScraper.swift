@@ -922,6 +922,167 @@ enum PlainHTTPClient {
         }
     }
 
+    private struct ParsedResponseHeader {
+        let response: HTTPURLResponse
+        let contentLength: Int?
+        let isChunked: Bool
+    }
+
+    private final class DownloadStateBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var didResume = false
+        private var headerBuffer = Data()
+        private var parsedHeader: ParsedResponseHeader?
+        private var bodyBytes = 0
+        private var fileHandle: FileHandle?
+        private var returnedFile = false
+        let fileURL: URL
+
+        init() throws {
+            fileURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("Primuse-HTTP-\(UUID().uuidString).download")
+            guard FileManager.default.createFile(atPath: fileURL.path, contents: nil) else {
+                throw ScraperError.networkError("Unable to create HTTP download file")
+            }
+            fileHandle = try FileHandle(forWritingTo: fileURL)
+        }
+
+        func consume(_ data: Data, responseURL: URL) throws -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+
+            if parsedHeader == nil {
+                headerBuffer.append(data)
+                let separator = Data("\r\n\r\n".utf8)
+                guard let headerRange = headerBuffer.range(of: separator) else {
+                    guard headerBuffer.count <= 64 * 1024 else {
+                        throw ScraperError.networkError("HTTP response headers too large")
+                    }
+                    return false
+                }
+
+                let headerData = Data(headerBuffer[..<headerRange.lowerBound])
+                let parsed = try PlainHTTPClient.parseResponseHeader(headerData, for: responseURL)
+                parsedHeader = parsed
+                let initialBody = Data(headerBuffer[headerRange.upperBound...])
+                headerBuffer.removeAll(keepingCapacity: false)
+                try appendBody(initialBody)
+            } else {
+                try appendBody(data)
+            }
+
+            guard let parsedHeader, !parsedHeader.isChunked,
+                  let contentLength = parsedHeader.contentLength else { return false }
+            return bodyBytes >= contentLength
+        }
+
+        func finalize() throws -> (URL, URLResponse) {
+            lock.lock()
+            defer { lock.unlock() }
+            guard let parsedHeader else {
+                throw ScraperError.networkError("Invalid HTTP response")
+            }
+            if let contentLength = parsedHeader.contentLength,
+               !parsedHeader.isChunked,
+               bodyBytes < contentLength {
+                throw ScraperError.networkError("Truncated HTTP response")
+            }
+
+            if let contentLength = parsedHeader.contentLength,
+               !parsedHeader.isChunked,
+               bodyBytes > contentLength {
+                try fileHandle?.truncate(atOffset: UInt64(contentLength))
+            }
+            try fileHandle?.close()
+            fileHandle = nil
+
+            let completedURL: URL
+            if parsedHeader.isChunked {
+                completedURL = try PlainHTTPClient.decodeChunkedFile(fileURL)
+            } else {
+                completedURL = fileURL
+            }
+            returnedFile = true
+            return (completedURL, parsedHeader.response)
+        }
+
+        func markResumed() -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            guard !didResume else { return false }
+            didResume = true
+            return true
+        }
+
+        func cleanup() {
+            lock.lock()
+            defer { lock.unlock() }
+            try? fileHandle?.close()
+            fileHandle = nil
+            if !returnedFile {
+                try? FileManager.default.removeItem(at: fileURL)
+            }
+        }
+
+        private func appendBody(_ data: Data) throws {
+            guard !data.isEmpty else { return }
+            try fileHandle?.write(contentsOf: data)
+            bodyBytes += data.count
+        }
+    }
+
+    private struct FileStreamReader {
+        let handle: FileHandle
+        var buffer = Data()
+
+        mutating func readLine() throws -> Data {
+            let lineBreak = Data("\r\n".utf8)
+            while true {
+                if let range = buffer.range(of: lineBreak) {
+                    let line = Data(buffer[..<range.lowerBound])
+                    buffer.removeFirst(range.upperBound)
+                    return line
+                }
+                guard buffer.count <= 64 * 1024 else {
+                    throw ScraperError.networkError("Invalid chunked HTTP response")
+                }
+                guard let next = try handle.read(upToCount: 64 * 1024), !next.isEmpty else {
+                    throw ScraperError.networkError("Truncated chunked HTTP response")
+                }
+                buffer.append(next)
+            }
+        }
+
+        mutating func copyExactly(_ count: Int, to output: FileHandle) throws {
+            var remaining = count
+            while remaining > 0 {
+                if buffer.isEmpty {
+                    guard let next = try handle.read(upToCount: min(64 * 1024, remaining)), !next.isEmpty else {
+                        throw ScraperError.networkError("Truncated chunked HTTP response")
+                    }
+                    buffer.append(next)
+                }
+                let amount = min(remaining, buffer.count)
+                try output.write(contentsOf: Data(buffer.prefix(amount)))
+                buffer.removeFirst(amount)
+                remaining -= amount
+            }
+        }
+
+        mutating func consumeChunkTerminator() throws {
+            while buffer.count < 2 {
+                guard let next = try handle.read(upToCount: 64 * 1024), !next.isEmpty else {
+                    throw ScraperError.networkError("Missing chunk terminator")
+                }
+                buffer.append(next)
+            }
+            guard buffer.prefix(2).elementsEqual([13, 10]) else {
+                throw ScraperError.networkError("Missing chunk terminator")
+            }
+            buffer.removeFirst(2)
+        }
+    }
+
     static func data(for request: URLRequest, maxBytes: Int = defaultMaxBytes) async throws -> (Data, URLResponse) {
         guard let url = request.url,
               url.scheme == "http",
@@ -1009,6 +1170,91 @@ enum PlainHTTPClient {
         }
     }
 
+    /// Disk-backed download for large cleartext responses. The returned file
+    /// has the same temporary lifetime contract as URLSession.download(for:).
+    static func download(for request: URLRequest) async throws -> (URL, URLResponse) {
+        guard let url = request.url,
+              url.scheme?.lowercased() == "http",
+              let host = url.host,
+              let rawPort = UInt16(exactly: url.port ?? 80),
+              let port = NWEndpoint.Port(rawValue: rawPort) else {
+            throw ScraperError.networkError("Invalid HTTP URL: \(request.url?.absoluteString ?? "nil")")
+        }
+
+        let connection = NWConnection(host: NWEndpoint.Host(host), port: port, using: .tcp)
+        let queue = DispatchQueue(label: "Primuse.PlainHTTPDownload.\(UUID().uuidString)")
+        let timeout = request.timeoutInterval > 0 ? request.timeoutInterval : 300
+        let stateBox = try DownloadStateBox()
+
+        return try await withCheckedThrowingContinuation { continuation in
+            @Sendable func finish(_ result: Result<(URL, URLResponse), Error>) {
+                guard stateBox.markResumed() else { return }
+                connection.cancel()
+                if case .failure = result { stateBox.cleanup() }
+                continuation.resume(with: result)
+            }
+
+            queue.asyncAfter(deadline: .now() + timeout) {
+                finish(.failure(ScraperError.networkError("HTTP download timed out after \(timeout.finiteInt())s")))
+            }
+
+            @Sendable func completeDownload() {
+                do {
+                    finish(.success(try stateBox.finalize()))
+                } catch {
+                    finish(.failure(error))
+                }
+            }
+
+            @Sendable func receiveLoop() {
+                connection.receive(minimumIncompleteLength: 1, maximumLength: 256 * 1024) { data, _, isComplete, error in
+                    if let error {
+                        finish(.failure(error))
+                        return
+                    }
+                    do {
+                        if let data, !data.isEmpty,
+                           try stateBox.consume(data, responseURL: url) {
+                            completeDownload()
+                            return
+                        }
+                    } catch {
+                        finish(.failure(error))
+                        return
+                    }
+
+                    if isComplete || data?.isEmpty == true {
+                        completeDownload()
+                    } else {
+                        receiveLoop()
+                    }
+                }
+            }
+
+            connection.stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    do {
+                        let payload = try buildRequestData(for: request)
+                        connection.send(content: payload, completion: .contentProcessed { error in
+                            if let error { finish(.failure(error)) } else { receiveLoop() }
+                        })
+                    } catch {
+                        finish(.failure(error))
+                    }
+                case .failed(let error):
+                    finish(.failure(error))
+                case .cancelled:
+                    finish(.failure(ScraperError.networkError("HTTP connection cancelled")))
+                default:
+                    break
+                }
+            }
+
+            connection.start(queue: queue)
+        }
+    }
+
     private static func buildRequestData(for request: URLRequest) throws -> Data {
         guard let url = request.url,
               let host = url.host else {
@@ -1016,11 +1262,15 @@ enum PlainHTTPClient {
         }
 
         let method = request.httpMethod ?? "GET"
-        let path = url.path.isEmpty ? "/" : url.path
-        let pathWithQuery = path + (url.query.map { "?\($0)" } ?? "")
+        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        let encodedPath = components?.percentEncodedPath ?? url.path
+        let path = encodedPath.isEmpty ? "/" : encodedPath
+        let encodedQuery = components?.percentEncodedQuery ?? url.query
+        let pathWithQuery = path + (encodedQuery.map { "?\($0)" } ?? "")
 
         var headers = request.allHTTPHeaderFields ?? [:]
-        headers["Host"] = host
+        let bracketedHost = host.contains(":") ? "[\(host)]" : host
+        headers["Host"] = url.port == nil || url.port == 80 ? bracketedHost : "\(bracketedHost):\(url.port!)"
         headers["Connection"] = "close"
         headers["Accept-Encoding"] = "identity"
         if let body = request.httpBody, headers["Content-Length"] == nil {
@@ -1049,21 +1299,30 @@ enum PlainHTTPClient {
             throw ScraperError.networkError("Invalid HTTP response")
         }
 
-        let headerData = responseData[..<headerRange.lowerBound]
+        let headerData = Data(responseData[..<headerRange.lowerBound])
         var body = Data(responseData[headerRange.upperBound...])
-        let headerText = String(decoding: headerData, as: UTF8.self)
-        let lines = headerText.components(separatedBy: "\r\n")
+        let parsedHeader = try parseResponseHeader(headerData, for: url)
+        if parsedHeader.isChunked {
+            body = try decodeChunked(body)
+        }
+        return (body, parsedHeader.response)
+    }
 
+    private static func parseResponseHeader(_ headerData: Data, for url: URL) throws -> ParsedResponseHeader {
+        let headerText = String(data: headerData, encoding: .isoLatin1)
+            ?? String(decoding: headerData, as: UTF8.self)
+        let lines = headerText.components(separatedBy: "\r\n")
         guard let statusLine = lines.first else {
             throw ScraperError.networkError("Missing HTTP status line")
         }
-
         let statusParts = statusLine.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
         guard statusParts.count >= 2, let statusCode = Int(statusParts[1]) else {
             throw ScraperError.networkError("Invalid HTTP status line: \(statusLine)")
         }
 
         var headerFields: [String: String] = [:]
+        var contentLength: Int?
+        var isChunked = false
         for line in lines.dropFirst() {
             guard let separatorIndex = line.firstIndex(of: ":") else { continue }
             let key = String(line[..<separatorIndex]).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1073,12 +1332,18 @@ enum PlainHTTPClient {
             } else {
                 headerFields[key] = value
             }
+            switch key.lowercased() {
+            case "content-length":
+                guard let parsed = Int(value), parsed >= 0 else {
+                    throw ScraperError.networkError("Invalid Content-Length")
+                }
+                contentLength = parsed
+            case "transfer-encoding":
+                isChunked = value.localizedCaseInsensitiveContains("chunked")
+            default:
+                break
+            }
         }
-
-        if headerFields["Transfer-Encoding"]?.localizedCaseInsensitiveContains("chunked") == true {
-            body = try decodeChunked(body)
-        }
-
         guard let response = HTTPURLResponse(
             url: url,
             statusCode: statusCode,
@@ -1087,8 +1352,41 @@ enum PlainHTTPClient {
         ) else {
             throw ScraperError.networkError("Failed to construct HTTPURLResponse")
         }
+        return ParsedResponseHeader(response: response, contentLength: contentLength, isChunked: isChunked)
+    }
 
-        return (body, response)
+    private static func decodeChunkedFile(_ inputURL: URL) throws -> URL {
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Primuse-HTTP-\(UUID().uuidString).download")
+        guard FileManager.default.createFile(atPath: outputURL.path, contents: nil) else {
+            throw ScraperError.networkError("Unable to create decoded HTTP download file")
+        }
+
+        let input = try FileHandle(forReadingFrom: inputURL)
+        let output = try FileHandle(forWritingTo: outputURL)
+        do {
+            var reader = FileStreamReader(handle: input)
+            while true {
+                let sizeLine = String(decoding: try reader.readLine(), as: UTF8.self)
+                let hexPart = sizeLine.split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false).first ?? ""
+                guard let chunkSize = Int(hexPart.trimmingCharacters(in: .whitespacesAndNewlines), radix: 16),
+                      chunkSize >= 0 else {
+                    throw ScraperError.networkError("Invalid chunk size: \(sizeLine)")
+                }
+                if chunkSize == 0 { break }
+                try reader.copyExactly(chunkSize, to: output)
+                try reader.consumeChunkTerminator()
+            }
+            try input.close()
+            try output.close()
+            try FileManager.default.removeItem(at: inputURL)
+            return outputURL
+        } catch {
+            try? input.close()
+            try? output.close()
+            try? FileManager.default.removeItem(at: outputURL)
+            throw error
+        }
     }
 
     private static func decodeChunked(_ data: Data) throws -> Data {

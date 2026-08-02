@@ -610,6 +610,16 @@
 "dont_trust" = "Ne pas faire confiance";
 "add_trusted_domain" = "Ajouter un domaine de confiance";
 "add_trusted_domain_message" = "Saisissez un nom de domaine (par ex. nas.example.com). La vérification du certificat SSL sera ignorée pour ce domaine.";
+"https_certificate_trust" = "Confiance des certificats HTTPS";
+"insecure_http_domains" = "Hôtes autorisés en HTTP";
+"no_insecure_http_domains" = "Aucun hôte public autorisé en HTTP";
+"insecure_http_domains_footer" = "Seuls ces hôtes publics peuvent utiliser HTTP en clair. Les identifiants, sessions et médias peuvent être interceptés. Privilégiez HTTPS.";
+"add_insecure_http_domain" = "Autoriser un hôte HTTP";
+"add_insecure_http_domain_message" = "Saisissez uniquement l’hôte, par exemple nas.example.com ou une adresse IP publique, sans protocole, port ni chemin. Le trafic HTTP vers cet hôte ne sera pas chiffré.";
+"insecure_http_trust_title" = "Autoriser une connexion HTTP non sécurisée ?";
+"insecure_http_trust_message %@" = "L’hôte « %@ » utilise HTTP sans chiffrement. Une personne sur le réseau pourrait lire ou modifier vos identifiants, votre session et vos données musicales. L’autoriser quand même ?";
+"allow_insecure_http" = "Autoriser HTTP quand même";
+"insecure_http_permission_required %@" = "L’hôte « %@ » n’est pas autorisé à utiliser HTTP public. Utilisez HTTPS ou autorisez explicitement cet hôte dans les réglages de sécurité.";
 "domain_placeholder" = "Domaine";
 "add" = "Ajouter";
 "security" = "Sécurité";

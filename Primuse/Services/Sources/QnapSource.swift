@@ -93,7 +93,11 @@ actor QnapSource: MusicSourceConnector {
         config.timeoutIntervalForRequest = 300; config.timeoutIntervalForResource = 600
         let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
-        let (tempURL, response) = try await session.download(from: url)
+        let (tempURL, response) = try await TrustedHTTPTransport.download(
+            from: url,
+            session: session,
+            timeout: 300
+        )
         guard let http = response as? HTTPURLResponse else {
             try? FileManager.default.removeItem(at: tempURL)
             throw SourceError.connectionFailed("Invalid QNAP download response")
@@ -119,7 +123,10 @@ actor QnapSource: MusicSourceConnector {
 
     func streamingURL(for path: String) async throws -> URL? {
         try await connect()
-        return await api.downloadURL(path: path)
+        guard let url = await api.downloadURL(path: path) else { return nil }
+        // Public cleartext URLs must stay inside the connector so playback
+        // cannot escape to an ATS-enforced URLSession without the host gate.
+        return TrustedHTTPTransport.requiresPlainSocket(for: url) ? nil : url
     }
 
     func deleteFile(at path: String) async throws {
@@ -146,7 +153,13 @@ actor QnapSource: MusicSourceConnector {
         request.setValue(rangeHeader, forHTTPHeaderField: "Range")
         request.timeoutInterval = 60
 
-        let (data, response) = try await rangeSession.data(for: request)
+        let maxBytes = Int(clamping: max(length, 0))
+        let responseLimit = maxBytes > Int.max - 64 * 1024 ? Int.max : maxBytes + 64 * 1024
+        let (data, response) = try await TrustedHTTPTransport.data(
+            for: request,
+            session: rangeSession,
+            maxBytes: max(PlainHTTPClient.defaultMaxBytes, responseLimit)
+        )
         guard let http = response as? HTTPURLResponse else {
             throw SourceError.connectionFailed("Invalid QNAP range response")
         }

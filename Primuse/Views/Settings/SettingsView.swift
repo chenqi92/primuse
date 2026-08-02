@@ -133,7 +133,7 @@ struct SettingsView: View {
                         HStack {
                             Label("trusted_domains", systemImage: "lock.shield")
                             Spacer()
-                            Text("\(SSLTrustStore.shared.trustedDomains.count)")
+                            Text("\(SSLTrustStore.shared.trustedDomains.count + SSLTrustStore.shared.insecureHTTPDomains.count)")
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -1491,7 +1491,8 @@ struct StorageManagementView: View {
 
 struct TrustedDomainsView: View {
     @State private var newDomain = ""
-    @State private var showAddAlert = false
+    @State private var showAddSSLAlert = false
+    @State private var showAddHTTPAlert = false
 
     var body: some View {
         List {
@@ -1510,8 +1511,37 @@ struct TrustedDomainsView: View {
                     Text("no_trusted_domains")
                         .foregroundStyle(.secondary)
                 }
+            } header: {
+                Text("https_certificate_trust")
             } footer: {
                 Text("trusted_domains_footer")
+            }
+
+            Section {
+                ForEach(SSLTrustStore.shared.insecureHTTPDomains, id: \.self) { domain in
+                    HStack {
+                        Text(domain)
+                        Spacer()
+                        Text(verbatim: "HTTP")
+                            .font(.caption.monospaced().weight(.semibold))
+                            .foregroundStyle(.orange)
+                    }
+                }
+                .onDelete { indexSet in
+                    let domains = SSLTrustStore.shared.insecureHTTPDomains
+                    for index in indexSet {
+                        SSLTrustStore.shared.disallowInsecureHTTP(domain: domains[index])
+                    }
+                }
+
+                if SSLTrustStore.shared.insecureHTTPDomains.isEmpty {
+                    Text("no_insecure_http_domains")
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("insecure_http_domains")
+            } footer: {
+                Text("insecure_http_domains_footer")
             }
         }
         .navigationTitle("trusted_domains")
@@ -1520,21 +1550,26 @@ struct TrustedDomainsView: View {
         #endif
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    newDomain = ""
-                    showAddAlert = true
+                Menu {
+                    Button("add_trusted_domain") {
+                        newDomain = ""
+                        showAddSSLAlert = true
+                    }
+                    Button("add_insecure_http_domain") {
+                        newDomain = ""
+                        showAddHTTPAlert = true
+                    }
                 } label: {
                     Image(systemName: "plus")
                 }
             }
         }
-        .alert("add_trusted_domain", isPresented: $showAddAlert) {
+        .alert("add_trusted_domain", isPresented: $showAddSSLAlert) {
             TextField("domain_placeholder", text: $newDomain)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
             Button("add") {
-                let domain = newDomain.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                if !domain.isEmpty {
+                if let domain = InsecureHTTPHostPolicy.normalizedHost(newDomain) {
                     SSLTrustStore.shared.trust(domain: domain)
                 }
                 newDomain = ""
@@ -1542,6 +1577,20 @@ struct TrustedDomainsView: View {
             Button("cancel", role: .cancel) { newDomain = "" }
         } message: {
             Text("add_trusted_domain_message")
+        }
+        .alert("add_insecure_http_domain", isPresented: $showAddHTTPAlert) {
+            TextField("domain_placeholder", text: $newDomain)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            Button("allow_insecure_http", role: .destructive) {
+                if let domain = InsecureHTTPHostPolicy.normalizedHost(newDomain) {
+                    SSLTrustStore.shared.allowInsecureHTTP(domain: domain)
+                }
+                newDomain = ""
+            }
+            Button("cancel", role: .cancel) { newDomain = "" }
+        } message: {
+            Text("add_insecure_http_domain_message")
         }
     }
 }

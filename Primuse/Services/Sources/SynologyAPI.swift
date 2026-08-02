@@ -253,7 +253,7 @@ actor SynologyAPI {
         ]
         guard let url = components.url else { throw SynologyError.invalidURL }
 
-        let (data, response) = try await sharedSession.data(from: url)
+        let (data, response) = try await TrustedHTTPTransport.data(from: url, session: sharedSession)
         try validateDownloadResponse(data: data, response: response)
         return data
     }
@@ -276,7 +276,12 @@ actor SynologyAPI {
         request.setValue("bytes=0-\(maxBytes - 1)", forHTTPHeaderField: "Range")
         request.timeoutInterval = 30
 
-        let (data, response) = try await sharedSession.data(for: request)
+        let responseLimit = maxBytes > Int.max - 64 * 1024 ? Int.max : maxBytes + 64 * 1024
+        let (data, response) = try await TrustedHTTPTransport.data(
+            for: request,
+            session: sharedSession,
+            maxBytes: max(PlainHTTPClient.defaultMaxBytes, responseLimit)
+        )
         try validateDownloadResponse(data: data, response: response)
         // Some reverse proxies strip Range and return the whole file. Keep the
         // scanner's memory contract even in that configuration.
@@ -304,7 +309,12 @@ actor SynologyAPI {
         request.setValue("bytes=\(offset)-\(end.partialValue)", forHTTPHeaderField: "Range")
         request.timeoutInterval = 30
 
-        let (data, response) = try await sharedSession.data(for: request)
+        let responseLimit = length > Int.max - 64 * 1024 ? Int.max : length + 64 * 1024
+        let (data, response) = try await TrustedHTTPTransport.data(
+            for: request,
+            session: sharedSession,
+            maxBytes: max(PlainHTTPClient.defaultMaxBytes, responseLimit)
+        )
         try validateDownloadResponse(data: data, response: response)
         guard let http = response as? HTTPURLResponse else { throw SynologyError.invalidResponse }
 
@@ -402,7 +412,7 @@ actor SynologyAPI {
 
         request.httpBody = body
 
-        let (responseData, response) = try await sharedSession.data(for: request)
+        let (responseData, response) = try await TrustedHTTPTransport.data(for: request, session: sharedSession)
 
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw SynologyError.httpError((response as? HTTPURLResponse)?.statusCode ?? 0)
@@ -467,7 +477,7 @@ actor SynologyAPI {
             urlRequest = req
         }
 
-        let (data, response) = try await sharedSession.data(for: urlRequest)
+        let (data, response) = try await TrustedHTTPTransport.data(for: urlRequest, session: sharedSession)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw SynologyError.httpError((response as? HTTPURLResponse)?.statusCode ?? 0)
         }

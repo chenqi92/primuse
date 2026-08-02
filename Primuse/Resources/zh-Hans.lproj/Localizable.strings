@@ -503,6 +503,16 @@
 "dont_trust" = "不信任";
 "add_trusted_domain" = "添加受信域名";
 "add_trusted_domain_message" = "输入域名（如 nas.example.com）。将跳过该域名的 SSL 证书验证。";
+"https_certificate_trust" = "HTTPS 证书信任";
+"insecure_http_domains" = "允许 HTTP 的主机";
+"no_insecure_http_domains" = "没有允许使用 HTTP 的公网主机";
+"insecure_http_domains_footer" = "仅这些公网主机可使用明文 HTTP。连接不会加密，账号、密码、会话和媒体数据可能被截获；请优先使用 HTTPS。";
+"add_insecure_http_domain" = "添加允许 HTTP 的主机";
+"add_insecure_http_domain_message" = "只输入 host，例如 nas.example.com 或公网 IP，不要包含协议、端口或路径。允许后，与该主机的 HTTP 通信不会加密。";
+"insecure_http_trust_title" = "允许不安全的 HTTP 连接？";
+"insecure_http_trust_message %@" = "主机「%@」使用未加密的 HTTP。账号、密码、会话和音乐数据可能被网络中的其他人读取或篡改。是否仍然允许？";
+"allow_insecure_http" = "仍然允许 HTTP";
+"insecure_http_permission_required %@" = "主机「%@」尚未获准使用公网 HTTP。请改用 HTTPS，或在安全设置中明确允许该主机。";
 "domain_placeholder" = "域名";
 "add" = "添加";
 "security" = "安全";

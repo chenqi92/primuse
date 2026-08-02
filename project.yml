@@ -614,6 +614,8 @@ targets:
     platform: tvOS
     sources:
       - path: PrimuseTopShelf
+        excludes:
+          - "Info.plist"
     dependencies:
       - target: PrimuseKit
       - package: GRDB

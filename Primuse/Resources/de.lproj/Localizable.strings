@@ -610,6 +610,16 @@
 "dont_trust" = "Nicht vertrauen";
 "add_trusted_domain" = "Vertrauenswürdige Domain hinzufügen";
 "add_trusted_domain_message" = "Gib einen Domainnamen ein (z. B. nas.example.com). Bei dieser Domain wird die Überprüfung des SSL-Zertifikats übersprungen.";
+"https_certificate_trust" = "HTTPS-Zertifikatsvertrauen";
+"insecure_http_domains" = "Für HTTP zugelassene Hosts";
+"no_insecure_http_domains" = "Keine öffentlichen Hosts für HTTP zugelassen";
+"insecure_http_domains_footer" = "Nur diese öffentlichen Hosts dürfen unverschlüsseltes HTTP verwenden. Zugangsdaten, Sitzungen und Medien können abgefangen werden. Bevorzuge HTTPS.";
+"add_insecure_http_domain" = "HTTP-Host zulassen";
+"add_insecure_http_domain_message" = "Gib nur den Host ein, etwa nas.example.com oder eine öffentliche IP-Adresse, ohne Protokoll, Port oder Pfad. HTTP-Datenverkehr zu diesem Host ist unverschlüsselt.";
+"insecure_http_trust_title" = "Unsichere HTTP-Verbindung zulassen?";
+"insecure_http_trust_message %@" = "Der Host „%@“ verwendet unverschlüsseltes HTTP. Andere im Netzwerk könnten Zugangsdaten, Sitzung und Musikdaten lesen oder verändern. Trotzdem zulassen?";
+"allow_insecure_http" = "HTTP trotzdem zulassen";
+"insecure_http_permission_required %@" = "Der Host „%@“ ist nicht für öffentliches HTTP zugelassen. Verwende HTTPS oder erlaube den Host ausdrücklich in den Sicherheitseinstellungen.";
 "domain_placeholder" = "Domain";
 "add" = "Hinzufügen";
 "security" = "Sicherheit";

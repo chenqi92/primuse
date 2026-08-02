@@ -27,6 +27,8 @@ struct ConnectionFlowView: View {
     @FocusState private var passwordFocused: Bool
     @State private var sslTrustDomain: String?
     @State private var sslTrustContinuation: CheckedContinuation<Bool, Never>?
+    @State private var insecureHTTPTrustHost: String?
+    @State private var insecureHTTPTrustContinuation: CheckedContinuation<Bool, Never>?
 
     enum FlowStep { case connecting, otp, password, browsing, failed }
 
@@ -62,6 +64,24 @@ struct ConnectionFlowView: View {
         } message: {
             if let domain = sslTrustDomain {
                 Text("ssl_trust_message \(domain)")
+            }
+        }
+        .alert(
+            String(localized: "insecure_http_trust_title"),
+            isPresented: Binding(
+                get: { insecureHTTPTrustHost != nil },
+                set: { if !$0 { resolveInsecureHTTPTrust(approved: false) } }
+            )
+        ) {
+            Button(String(localized: "allow_insecure_http"), role: .destructive) {
+                resolveInsecureHTTPTrust(approved: true)
+            }
+            Button(String(localized: "cancel"), role: .cancel) {
+                resolveInsecureHTTPTrust(approved: false)
+            }
+        } message: {
+            if let host = insecureHTTPTrustHost {
+                Text("insecure_http_trust_message \(host)")
             }
         }
     }
@@ -150,6 +170,24 @@ struct ConnectionFlowView: View {
         return await withCheckedContinuation { continuation in
             sslTrustDomain = domain
             sslTrustContinuation = continuation
+        }
+    }
+
+    private func resolveInsecureHTTPTrust(approved: Bool) {
+        if approved, let host = insecureHTTPTrustHost {
+            SSLTrustStore.shared.allowInsecureHTTP(domain: host)
+        }
+        let continuation = insecureHTTPTrustContinuation
+        insecureHTTPTrustHost = nil
+        insecureHTTPTrustContinuation = nil
+        continuation?.resume(returning: approved)
+    }
+
+    private func promptInsecureHTTPTrust(host: String) async -> Bool {
+        if SSLTrustStore.shared.allowsInsecureHTTP(domain: host) { return true }
+        return await withCheckedContinuation { continuation in
+            insecureHTTPTrustHost = host
+            insecureHTTPTrustContinuation = continuation
         }
     }
 
@@ -354,6 +392,22 @@ struct ConnectionFlowView: View {
             useSsl: source.useSsl
         )
         synologyAPI = api
+
+        if let baseURL = URL(string: await api.baseURLString),
+           TrustedHTTPTransport.requiresPlainSocket(for: baseURL),
+           let host = baseURL.host,
+           !SSLTrustStore.shared.allowsInsecureHTTP(domain: host) {
+            let approved = await promptInsecureHTTPTrust(host: host)
+            guard approved else {
+                pendingPasswordCandidate = nil
+                errorMessage = String(
+                    format: String(localized: "insecure_http_permission_required %@"),
+                    host
+                )
+                withAnimation { step = .failed }
+                return
+            }
+        }
 
         // overridePassword 不为空时直接用刚输入的明文,绕开 keychain
         // 读写中任何潜在的字节损失;否则才回落到 keychain 里上次保存的值。

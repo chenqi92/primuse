@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import PrimuseKit
 import Security
 
 /// Manages a set of trusted domains whose SSL certificate errors should be ignored.
@@ -11,9 +12,14 @@ final class SSLTrustStore {
 
     nonisolated private static let defaultsKey = "primuse_trusted_ssl_domains"
     nonisolated private static let certificateDefaultsKey = "primuse_trusted_ssl_certificates_v1"
+    nonisolated private static let insecureHTTPDefaultsKey = "primuse_trusted_insecure_http_domains_v1"
 
     private(set) var trustedDomains: [String] = []
     private(set) var trustedCertificates: [TrustedCertificateInfo] = []
+    /// Public hosts the user explicitly allowed for cleartext HTTP. This is
+    /// intentionally separate from HTTPS certificate trust so an old SSL
+    /// decision can never silently authorize an unencrypted downgrade.
+    private(set) var insecureHTTPDomains: [String] = []
 
     // MARK: - SSL Trust Request (for UI alert flow)
 
@@ -108,6 +114,27 @@ final class SSLTrustStore {
         saveToDefaults()
     }
 
+    func allowsInsecureHTTP(domain: String) -> Bool {
+        guard let normalized = InsecureHTTPHostPolicy.normalizedHost(domain) else { return false }
+        return insecureHTTPDomains.contains(normalized)
+    }
+
+    func allowInsecureHTTP(domain: String) {
+        guard let normalized = InsecureHTTPHostPolicy.normalizedHost(domain),
+              !InsecureHTTPHostPolicy.isLocalNetworkHost(normalized) else { return }
+        if !insecureHTTPDomains.contains(normalized) {
+            insecureHTTPDomains.append(normalized)
+            insecureHTTPDomains.sort()
+            saveToDefaults()
+        }
+    }
+
+    func disallowInsecureHTTP(domain: String) {
+        guard let normalized = InsecureHTTPHostPolicy.normalizedHost(domain) else { return }
+        insecureHTTPDomains.removeAll { $0 == normalized }
+        saveToDefaults()
+    }
+
     func certificateInfo(for domain: String) -> TrustedCertificateInfo? {
         let normalized = Self.normalizeDomain(domain)
         return trustedCertificates.first { $0.domain == normalized }
@@ -118,6 +145,14 @@ final class SSLTrustStore {
     nonisolated static func isTrustedSync(domain: String) -> Bool {
         let normalized = normalizeDomain(domain)
         let domains = UserDefaults.standard.stringArray(forKey: defaultsKey) ?? []
+        return domains.contains(normalized)
+    }
+
+    /// Thread-safe synchronous check used before bypassing ATS with the
+    /// lower-level cleartext HTTP transport.
+    nonisolated static func allowsInsecureHTTPHostSync(domain: String) -> Bool {
+        guard let normalized = InsecureHTTPHostPolicy.normalizedHost(domain) else { return false }
+        let domains = UserDefaults.standard.stringArray(forKey: insecureHTTPDefaultsKey) ?? []
         return domains.contains(normalized)
     }
 
@@ -262,6 +297,12 @@ final class SSLTrustStore {
         var seenDomains = Set<String>()
         trustedDomains = rawDomains.filter { seenDomains.insert($0).inserted }
 
+        let rawHTTPDomains = (UserDefaults.standard.stringArray(forKey: Self.insecureHTTPDefaultsKey) ?? [])
+            .compactMap(InsecureHTTPHostPolicy.normalizedHost)
+            .filter { !InsecureHTTPHostPolicy.isLocalNetworkHost($0) }
+        var seenHTTPDomains = Set<String>()
+        insecureHTTPDomains = rawHTTPDomains.filter { seenHTTPDomains.insert($0).inserted }
+
         if let data = UserDefaults.standard.data(forKey: Self.certificateDefaultsKey),
            let decoded = try? JSONDecoder().decode([TrustedCertificateInfo].self, from: data) {
             // 归一化后去重:同一域名只保留一条,优先带指纹/信息更全的那条,避免 ForEach id 冲突。
@@ -298,6 +339,7 @@ final class SSLTrustStore {
         }
         trustedDomains.sort()
         trustedCertificates.sort { $0.domain < $1.domain }
+        insecureHTTPDomains.sort()
         // 把归一化/去重后的结果写回 UserDefaults,使静态同步路径
         // (isTrustedSync / pinnedFingerprintSync) 读到与内存一致的干净数据。
         saveToDefaults()
@@ -322,6 +364,7 @@ final class SSLTrustStore {
 
     private func saveToDefaults() {
         UserDefaults.standard.set(trustedDomains, forKey: Self.defaultsKey)
+        UserDefaults.standard.set(insecureHTTPDomains, forKey: Self.insecureHTTPDefaultsKey)
         if let data = try? JSONEncoder().encode(trustedCertificates) {
             UserDefaults.standard.set(data, forKey: Self.certificateDefaultsKey)
         }

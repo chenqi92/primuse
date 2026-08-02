@@ -157,23 +157,7 @@ actor SynologySource: MusicSourceConnector {
             return fileURL
         }
 
-        // Must be online to download
-        try await connect()
-
-        guard let sid = await api.sid else { throw SynologyError.notLoggedIn }
-
-        // Build download URL
-        let baseURL = await api.baseURLString
-        var components = URLComponents(string: "\(baseURL)/webapi/entry.cgi")!
-        components.queryItems = [
-            URLQueryItem(name: "api", value: "SYNO.FileStation.Download"),
-            URLQueryItem(name: "version", value: "2"),
-            URLQueryItem(name: "method", value: "download"),
-            URLQueryItem(name: "path", value: path),
-            URLQueryItem(name: "mode", value: "download"),
-            URLQueryItem(name: "_sid", value: sid),
-        ]
-        guard let url = components.url else { throw SynologyError.invalidURL }
+        let url = try await authenticatedDownloadURL(for: path)
 
         // Download to temp file first, then move to cache
         let config = URLSessionConfiguration.default
@@ -182,7 +166,11 @@ actor SynologySource: MusicSourceConnector {
         let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
 
-        let (tempURL, response) = try await session.download(from: url)
+        let (tempURL, response) = try await TrustedHTTPTransport.download(
+            from: url,
+            session: session,
+            timeout: 300
+        )
 
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             throw SynologyError.httpError((response as? HTTPURLResponse)?.statusCode ?? 0)
@@ -196,6 +184,15 @@ actor SynologySource: MusicSourceConnector {
     }
 
     func streamingURL(for path: String) async throws -> URL? {
+        let url = try await authenticatedDownloadURL(for: path)
+        // ATS cannot dynamically authorize a user-provided public HTTP host.
+        // Keep those URLs inside the connector so every byte goes through the
+        // explicit-trust lower-level transport instead of escaping to the
+        // player as a URLSession-backed direct URL.
+        return TrustedHTTPTransport.requiresPlainSocket(for: url) ? nil : url
+    }
+
+    private func authenticatedDownloadURL(for path: String) async throws -> URL {
         try await connect()
         guard let sid = await api.sid else { throw SynologyError.notLoggedIn }
 
@@ -209,7 +206,8 @@ actor SynologySource: MusicSourceConnector {
             URLQueryItem(name: "mode", value: "download"),
             URLQueryItem(name: "_sid", value: sid),
         ]
-        return components.url
+        guard let url = components.url else { throw SynologyError.invalidURL }
+        return url
     }
 
     /// HTTP Range GET on FileStation Download API. NAS 原生支持 Range header,
@@ -231,15 +229,19 @@ actor SynologySource: MusicSourceConnector {
         guard let rangeHeader = SafeByteRange.httpHeader(offset: offset, length: length) else {
             return Data()
         }
-        guard let url = try await streamingURL(for: path) else {
-            throw SynologyError.invalidURL
-        }
+        let url = try await authenticatedDownloadURL(for: path)
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue(rangeHeader, forHTTPHeaderField: "Range")
         request.timeoutInterval = 60
 
-        let (data, response) = try await rangeSession.data(for: request)
+        let maxBytes = Int(clamping: max(length, 0))
+        let responseLimit = maxBytes > Int.max - 64 * 1024 ? Int.max : maxBytes + 64 * 1024
+        let (data, response) = try await TrustedHTTPTransport.data(
+            for: request,
+            session: rangeSession,
+            maxBytes: max(PlainHTTPClient.defaultMaxBytes, responseLimit)
+        )
         guard let http = response as? HTTPURLResponse else {
             throw SynologyError.httpError(0)
         }
@@ -296,7 +298,7 @@ actor SynologySource: MusicSourceConnector {
         let fileURL = cacheDirectory.appendingPathComponent(cacheName)
         guard !FileManager.default.fileExists(atPath: fileURL.path) else { return }
 
-        guard let url = try await streamingURL(for: path) else { return }
+        let url = try await authenticatedDownloadURL(for: path)
 
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 300
@@ -304,7 +306,11 @@ actor SynologySource: MusicSourceConnector {
         let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
 
-        let (tempURL, response) = try await session.download(from: url)
+        let (tempURL, response) = try await TrustedHTTPTransport.download(
+            from: url,
+            session: session,
+            timeout: 300
+        )
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return }
 
         try? FileManager.default.removeItem(at: fileURL)

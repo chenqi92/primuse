@@ -220,9 +220,7 @@ enum CloudKVSKey {
     static let scraperSettings = "primuse_scraper_settings_v3"
     static let lyricsFontScale = "lyricsFontScale"
     static let recentSearches = "search_recent_queries"
-    // SSL trusted domains are intentionally NOT synced: trust is a per-
-    // device decision (user approving a self-signed NAS on their phone
-    // shouldn't auto-trust the same cert on an iPad they hand to a friend).
-    // SSLTrustStore persists these in UserDefaults under
-    // "primuse_trusted_ssl_domains" and stays device-local.
+    // Certificate trust and public cleartext-HTTP permissions are intentionally
+    // NOT synced: both are per-device security decisions. SSLTrustStore keeps
+    // them in local UserDefaults only.
 }

@@ -610,6 +610,16 @@
 "dont_trust" = "신뢰 안 함";
 "add_trusted_domain" = "신뢰하는 도메인 추가";
 "add_trusted_domain_message" = "도메인 이름을 입력하세요(예: nas.example.com). 이 도메인에 대해서는 SSL 인증서 확인을 건너뜁니다.";
+"https_certificate_trust" = "HTTPS 인증서 신뢰";
+"insecure_http_domains" = "HTTP 허용 호스트";
+"no_insecure_http_domains" = "HTTP가 허용된 공용 호스트 없음";
+"insecure_http_domains_footer" = "이 공용 호스트만 암호화되지 않은 HTTP를 사용할 수 있습니다. 계정 정보, 세션 및 미디어가 노출될 수 있으므로 HTTPS를 우선 사용하세요.";
+"add_insecure_http_domain" = "HTTP 호스트 허용";
+"add_insecure_http_domain_message" = "nas.example.com 또는 공용 IP 주소처럼 호스트만 입력하고 프로토콜, 포트, 경로는 제외하세요. 이 호스트와의 HTTP 통신은 암호화되지 않습니다.";
+"insecure_http_trust_title" = "안전하지 않은 HTTP 연결을 허용할까요?";
+"insecure_http_trust_message %@" = "호스트 ‘%@’에서 암호화되지 않은 HTTP를 사용합니다. 네트워크의 다른 사용자가 계정 정보, 세션 및 음악 데이터를 읽거나 변경할 수 있습니다. 그래도 허용할까요?";
+"allow_insecure_http" = "HTTP 계속 허용";
+"insecure_http_permission_required %@" = "호스트 ‘%@’에는 공용 HTTP 사용 권한이 없습니다. HTTPS를 사용하거나 보안 설정에서 이 호스트를 명시적으로 허용하세요.";
 "domain_placeholder" = "도메인";
 "add" = "추가";
 "security" = "보안";

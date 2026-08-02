@@ -22,31 +22,54 @@ struct ConnectorDirectoryBrowserView: View {
     @State private var hasLoadedRoot = false
     @State private var sslTrustDomain: String?
     @State private var sslTrustContinuation: CheckedContinuation<Bool, Never>?
+    @State private var insecureHTTPTrustHost: String?
+    @State private var insecureHTTPTrustContinuation: CheckedContinuation<Bool, Never>?
     @State private var loadTask: Task<Void, Never>?
 
     var body: some View {
-        #if os(macOS)
-        MacDirTreeBrowser(
-            title: "浏览 \(source.type.displayName) · \(source.name)",
-            subtitle: macConnectionString,
-            rootTitle: source.basePath ?? source.name,
-            selectedDirectories: policySelectedDirectories,
-            load: { path in
-                try await connector.connect()
-                return try await connector.listFiles(at: path)
-            },
-            rootPath: SourceDirectorySelectionPolicy.connectorPath(
-                for: source.type,
-                browserPath: "/"
-            ),
-            selectableRootPath: SourceDirectorySelectionPolicy.selectableRootPath(
-                for: source.type,
-                browserPath: "/"
+        Group {
+            #if os(macOS)
+            MacDirTreeBrowser(
+                title: "浏览 \(source.type.displayName) · \(source.name)",
+                subtitle: macConnectionString,
+                rootTitle: source.basePath ?? source.name,
+                selectedDirectories: policySelectedDirectories,
+                load: { path in
+                    try await ensureInsecureHTTPAccess()
+                    try await connector.connect()
+                    return try await connector.listFiles(at: path)
+                },
+                rootPath: SourceDirectorySelectionPolicy.connectorPath(
+                    for: source.type,
+                    browserPath: "/"
+                ),
+                selectableRootPath: SourceDirectorySelectionPolicy.selectableRootPath(
+                    for: source.type,
+                    browserPath: "/"
+                )
             )
-        )
-        #else
-        iosBody
-        #endif
+            #else
+            iosBody
+            #endif
+        }
+        .alert(
+            String(localized: "insecure_http_trust_title"),
+            isPresented: Binding(
+                get: { insecureHTTPTrustHost != nil },
+                set: { if !$0 { resolveInsecureHTTPTrust(approved: false) } }
+            )
+        ) {
+            Button(String(localized: "allow_insecure_http"), role: .destructive) {
+                resolveInsecureHTTPTrust(approved: true)
+            }
+            Button(String(localized: "cancel"), role: .cancel) {
+                resolveInsecureHTTPTrust(approved: false)
+            }
+        } message: {
+            if let host = insecureHTTPTrustHost {
+                Text("insecure_http_trust_message \(host)")
+            }
+        }
     }
 
     #if os(macOS)
@@ -282,8 +305,46 @@ struct ConnectorDirectoryBrowserView: View {
             browserPath: path
         )
         return try await DirectoryBrowserNetworkRetry.loadWithLocalNetworkAuthorizationGrace {
+            try await ensureInsecureHTTPAccess()
             try await connector.connect()
             return try await connector.listFiles(at: connectorPath)
+        }
+    }
+
+    private func ensureInsecureHTTPAccess() async throws {
+        guard source.type == .qnap,
+              let url = NetworkURLBuilder.baseURL(
+                  host: source.host ?? "",
+                  scheme: source.useSsl ? "https" : "http",
+                  port: source.port
+              ),
+              TrustedHTTPTransport.requiresPlainSocket(for: url),
+              let host = url.host,
+              !SSLTrustStore.shared.allowsInsecureHTTP(domain: host) else {
+            return
+        }
+
+        let approved = await promptInsecureHTTPTrust(host: host)
+        guard approved else {
+            throw TrustedHTTPTransportError.permissionRequired(host: host)
+        }
+    }
+
+    private func resolveInsecureHTTPTrust(approved: Bool) {
+        if approved, let host = insecureHTTPTrustHost {
+            SSLTrustStore.shared.allowInsecureHTTP(domain: host)
+        }
+        let continuation = insecureHTTPTrustContinuation
+        insecureHTTPTrustHost = nil
+        insecureHTTPTrustContinuation = nil
+        continuation?.resume(returning: approved)
+    }
+
+    private func promptInsecureHTTPTrust(host: String) async -> Bool {
+        if SSLTrustStore.shared.allowsInsecureHTTP(domain: host) { return true }
+        return await withCheckedContinuation { continuation in
+            insecureHTTPTrustHost = host
+            insecureHTTPTrustContinuation = continuation
         }
     }
 

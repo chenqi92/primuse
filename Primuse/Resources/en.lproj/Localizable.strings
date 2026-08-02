@@ -503,6 +503,16 @@
 "dont_trust" = "Don't Trust";
 "add_trusted_domain" = "Add Trusted Domain";
 "add_trusted_domain_message" = "Enter a domain name (e.g. nas.example.com). SSL certificate verification will be skipped for this domain.";
+"https_certificate_trust" = "HTTPS Certificate Trust";
+"insecure_http_domains" = "Hosts Allowed to Use HTTP";
+"no_insecure_http_domains" = "No public hosts are allowed to use HTTP";
+"insecure_http_domains_footer" = "Only these public hosts may use cleartext HTTP. The connection is not encrypted, so account credentials, sessions, and media may be intercepted. Prefer HTTPS.";
+"add_insecure_http_domain" = "Allow an HTTP Host";
+"add_insecure_http_domain_message" = "Enter only the host, such as nas.example.com or a public IP address. Do not include a scheme, port, or path. HTTP traffic to this host will not be encrypted.";
+"insecure_http_trust_title" = "Allow an Insecure HTTP Connection?";
+"insecure_http_trust_message %@" = "The host “%@” uses unencrypted HTTP. Someone on the network could read or alter your account credentials, session, and music data. Allow it anyway?";
+"allow_insecure_http" = "Allow HTTP Anyway";
+"insecure_http_permission_required %@" = "The host “%@” has not been allowed to use public HTTP. Use HTTPS or explicitly allow this host in Security settings.";
 "domain_placeholder" = "Domain";
 "add" = "Add";
 "security" = "Security";

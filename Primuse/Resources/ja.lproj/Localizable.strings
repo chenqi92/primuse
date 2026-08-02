@@ -611,6 +611,16 @@
 "dont_trust" = "信頼しない";
 "add_trusted_domain" = "信頼するドメインを追加";
 "add_trusted_domain_message" = "ドメイン名を入力してください（例: nas.example.com）。このドメインでは SSL 証明書の検証がスキップされます。";
+"https_certificate_trust" = "HTTPS 証明書の信頼";
+"insecure_http_domains" = "HTTP を許可するホスト";
+"no_insecure_http_domains" = "HTTP を許可した公開ホストはありません";
+"insecure_http_domains_footer" = "平文 HTTP を使用できるのは、ここに登録した公開ホストだけです。認証情報、セッション、メディアが傍受される可能性があるため、HTTPS を優先してください。";
+"add_insecure_http_domain" = "HTTP ホストを許可";
+"add_insecure_http_domain_message" = "nas.example.com または公開 IP アドレスのようにホストだけを入力し、スキーム、ポート、パスは含めないでください。このホストへの HTTP 通信は暗号化されません。";
+"insecure_http_trust_title" = "安全でない HTTP 接続を許可しますか？";
+"insecure_http_trust_message %@" = "ホスト「%@」は暗号化されていない HTTP を使用します。ネットワーク上の第三者が認証情報、セッション、音楽データを読み取ったり改ざんしたりする可能性があります。それでも許可しますか？";
+"allow_insecure_http" = "HTTP を許可する";
+"insecure_http_permission_required %@" = "ホスト「%@」には公開 HTTP の使用が許可されていません。HTTPS を使用するか、セキュリティ設定でこのホストを明示的に許可してください。";
 "domain_placeholder" = "ドメイン";
 "add" = "追加";
 "security" = "セキュリティ";

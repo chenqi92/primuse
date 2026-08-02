@@ -57,7 +57,7 @@ actor QnapAPI {
             req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
             req.timeoutInterval = 15
 
-            let (data, _) = try await session().data(for: req)
+            let (data, _) = try await TrustedHTTPTransport.data(for: req, session: session())
             // QNAP returns XML sometimes, try JSON first
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 let authPassed = (json["authPassed"] as? Int) == 1
@@ -100,7 +100,9 @@ actor QnapAPI {
             return
         }
         components.queryItems = [URLQueryItem(name: "sid", value: sid)]
-        if let url = components.url { _ = try? await session().data(from: url) }
+        if let url = components.url {
+            _ = try? await TrustedHTTPTransport.data(from: url, session: session())
+        }
         self.sid = nil
     }
 
@@ -147,7 +149,10 @@ actor QnapAPI {
             .init(name: "sort", value: "filename"), .init(name: "dir", value: "ASC"),
             .init(name: "is_iso", value: "0"),
         ]
-        let (data, response) = try await session().data(from: comps.url!)
+        let (data, response) = try await TrustedHTTPTransport.data(
+            from: comps.url!,
+            session: session()
+        )
         if let http = response as? HTTPURLResponse, http.statusCode == 401 || http.statusCode == 403 {
             invalidateSession()
             throw SourceError.authenticationFailed
@@ -218,7 +223,10 @@ actor QnapAPI {
             .init(name: "v", value: "1"),
             .init(name: "force", value: "0"),
         ]
-        let (data, response) = try await session().data(from: comps.url!)
+        let (data, response) = try await TrustedHTTPTransport.data(
+            from: comps.url!,
+            session: session()
+        )
         if let http = response as? HTTPURLResponse,
            http.statusCode == 401 || http.statusCode == 403 {
             invalidateSession()

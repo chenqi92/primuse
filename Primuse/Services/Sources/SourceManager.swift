@@ -3410,6 +3410,20 @@ final class SourceManager {
         guard Self.nasAPIPlainStreamingTypes.contains(source.type),
               song.fileFormat == .mp3 else { return false }
 
+        // A user-approved public cleartext host must stay inside its connector:
+        // a direct URL would escape to the player's URLSession and be rejected
+        // by ATS. Connector-backed Range reads use TrustedHTTPTransport instead.
+        if Self.publicHTTPConnectorStreamingTypes.contains(source.type),
+           let host = source.host,
+           let url = NetworkURLBuilder.baseURL(
+               host: host,
+               scheme: source.useSsl ? "https" : "http",
+               port: source.port
+           ),
+           TrustedHTTPTransport.requiresPlainSocket(for: url) {
+            return false
+        }
+
         // On cellular / Low Data Mode, prefer a plain HTTP URL over the
         // connector fetchRange path. The player still uses Range reads when
         // fileSize is known, but it avoids connector/API work per chunk.
@@ -3428,6 +3442,11 @@ final class SourceManager {
         .synology,
         .qnap,
         .ugreen,
+    ]
+
+    private static let publicHTTPConnectorStreamingTypes: Set<MusicSourceType> = [
+        .synology,
+        .qnap,
     ]
 
     private nonisolated static func isProbablyLocalHost(_ rawHost: String) -> Bool {

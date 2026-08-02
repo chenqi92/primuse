@@ -465,6 +465,16 @@
 "dont_trust" = "不信任";
 "add_trusted_domain" = "加入受信任網域";
 "add_trusted_domain_message" = "輸入網域（如 nas.example.com）。將略過該網域的 SSL 憑證驗證。";
+"https_certificate_trust" = "HTTPS 憑證信任";
+"insecure_http_domains" = "允許 HTTP 的主機";
+"no_insecure_http_domains" = "沒有允許使用 HTTP 的公網主機";
+"insecure_http_domains_footer" = "僅這些公網主機可使用明文 HTTP。連線不會加密，帳號、密碼、工作階段和媒體資料可能被截取；請優先使用 HTTPS。";
+"add_insecure_http_domain" = "加入允許 HTTP 的主機";
+"add_insecure_http_domain_message" = "只輸入 host，例如 nas.example.com 或公網 IP，不要包含通訊協定、連接埠或路徑。允許後，與該主機的 HTTP 通訊不會加密。";
+"insecure_http_trust_title" = "允許不安全的 HTTP 連線？";
+"insecure_http_trust_message %@" = "主機「%@」使用未加密的 HTTP。帳號、密碼、工作階段和音樂資料可能被網路中的其他人讀取或竄改。是否仍要允許？";
+"allow_insecure_http" = "仍然允許 HTTP";
+"insecure_http_permission_required %@" = "主機「%@」尚未獲准使用公網 HTTP。請改用 HTTPS，或在安全設定中明確允許該主機。";
 "domain_placeholder" = "網域";
 "add" = "加入";
 "security" = "安全性";
