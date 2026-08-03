@@ -392,6 +392,7 @@ final class SourceManager {
                 host: source.host ?? "",
                 port: source.port ?? 5001,
                 useSsl: source.useSsl,
+                connectionMode: source.effectiveSynologyConnectionMode,
                 username: source.username ?? "",
                 rememberDevice: source.rememberDevice,
                 deviceId: source.deviceId

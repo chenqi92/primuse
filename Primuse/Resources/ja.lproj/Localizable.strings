@@ -284,6 +284,12 @@
 "credentials" = "認証情報";
 "source_name" = "名前";
 "host_address" = "ホストアドレス";
+"synology_connection_method" = "接続方法";
+"synology_connection_quickconnect" = "QuickConnect";
+"synology_connection_address" = "サーバーアドレス";
+"synology_quickconnect_id" = "QuickConnect ID";
+"synology_address" = "ドメインまたは IP アドレス";
+"synology_quickconnect_hint" = "DSM の QuickConnect ID を入力すると、Primuse が直接接続、Smart DNS、リレーを自動的に選択します。";
 "port" = "ポート";
 "port_optional" = "ポート（任意）";
 "use_ssl" = "SSL/TLS を使用";

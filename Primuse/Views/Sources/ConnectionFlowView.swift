@@ -389,11 +389,21 @@ struct ConnectionFlowView: View {
         let api = SynologyAPI(
             host: source.host ?? "",
             port: source.port ?? 5001,
-            useSsl: source.useSsl
+            useSsl: source.useSsl,
+            connectionMode: source.effectiveSynologyConnectionMode
         )
         synologyAPI = api
 
-        if let baseURL = URL(string: await api.baseURLString),
+        let baseURL: URL
+        do {
+            baseURL = try await api.resolveBaseURL()
+        } catch {
+            pendingPasswordCandidate = nil
+            errorMessage = error.localizedDescription
+            withAnimation { step = .failed }
+            return
+        }
+        if
            TrustedHTTPTransport.requiresPlainSocket(for: baseURL),
            let host = baseURL.host,
            !SSLTrustStore.shared.allowsInsecureHTTP(domain: host) {

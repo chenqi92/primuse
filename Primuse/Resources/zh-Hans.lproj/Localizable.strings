@@ -119,6 +119,12 @@
 "credentials" = "凭据";
 "source_name" = "名称";
 "host_address" = "主机地址";
+"synology_connection_method" = "连接方式";
+"synology_connection_quickconnect" = "QuickConnect";
+"synology_connection_address" = "服务器地址";
+"synology_quickconnect_id" = "QuickConnect ID";
+"synology_address" = "域名或 IP 地址";
+"synology_quickconnect_hint" = "只需输入 DSM 控制面板中的 QuickConnect ID；猿音会自动选择直连、Smart DNS 或中继。";
 "port" = "端口";
 "port_optional" = "端口（可选）";
 "use_ssl" = "使用 SSL/TLS";

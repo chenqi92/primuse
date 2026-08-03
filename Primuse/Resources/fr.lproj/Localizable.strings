@@ -283,6 +283,12 @@
 "credentials" = "Identifiants";
 "source_name" = "Nom";
 "host_address" = "Adresse de l'hôte";
+"synology_connection_method" = "Mode de connexion";
+"synology_connection_quickconnect" = "QuickConnect";
+"synology_connection_address" = "Adresse du serveur";
+"synology_quickconnect_id" = "ID QuickConnect";
+"synology_address" = "Domaine ou adresse IP";
+"synology_quickconnect_hint" = "Saisissez l’ID QuickConnect de DSM. Primuse choisit automatiquement l’accès direct, Smart DNS ou le relais.";
 "port" = "Port";
 "port_optional" = "Port (facultatif)";
 "use_ssl" = "Utiliser SSL/TLS";

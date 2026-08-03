@@ -348,3 +348,14 @@
 "drime_connect_title" = "Connect to Drime";
 "drime_connect_description" = "Paste the API access token created in Drime Settings → Developer. Primuse validates it before opening your drive.";
 "drime_connect_button" = "Connect to Drime";
+"synology_connection_method" = "接続方法";
+"synology_connection_quickconnect" = "QuickConnect";
+"synology_connection_address" = "サーバーアドレス";
+"synology_quickconnect_id" = "QuickConnect ID";
+"synology_address" = "ドメインまたは IP アドレス";
+"synology_quickconnect_hint" = "DSM に表示される QuickConnect ID を入力すると、Primuse が直接接続、Smart DNS、リレーを自動的に選択します。";
+"ext.synology.quickconnect.error.invalidID" = "QuickConnect ID の形式が正しくありません。";
+"ext.synology.quickconnect.error.serverNotFound" = "この QuickConnect ID が見つかりません。";
+"ext.synology.quickconnect.error.serviceUnavailable" = "この NAS では DSM QuickConnect が有効になっていません。";
+"ext.synology.quickconnect.error.invalidResponse" = "QuickConnect から認識できない応答が返されました。";
+"ext.synology.quickconnect.error.unreachable" = "QuickConnect で接続を確立できませんでした。";

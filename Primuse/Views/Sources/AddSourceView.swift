@@ -24,6 +24,7 @@ struct AddSourceView: View {
     @State private var host = ""
     @State private var port = ""
     @State private var useSsl = false
+    @State private var synologyConnectionMode: SynologyConnectionMode = .quickConnect
     @State private var username = ""
     @State private var password = ""
     @State private var basePath = ""
@@ -57,9 +58,14 @@ struct AddSourceView: View {
         if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return false
         }
-        if sourceType.requiresHost,
-           (host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || validatedPort == nil) {
-            return false
+        if sourceType.requiresHost {
+            let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedHost.isEmpty else { return false }
+            if sourceType == .synology, synologyConnectionMode == .quickConnect {
+                guard SynologyQuickConnectResolver.isValidQuickConnectID(trimmedHost) else { return false }
+            } else if validatedPort == nil {
+                return false
+            }
         }
 
         guard sourceType.requiresCredentials else {
@@ -114,6 +120,11 @@ struct AddSourceView: View {
         .onChange(of: useSsl) { oldValue, newValue in
             updateDefaultPortForSSLChange(from: oldValue, to: newValue)
         }
+        .onChange(of: synologyConnectionMode) { _, newValue in
+            guard sourceType == .synology, newValue == .quickConnect else { return }
+            useSsl = true
+            port = String(MusicSourceType.synology.defaultPort(useSsl: true))
+        }
         .alert(String(localized: "credential_save_failed_title"), isPresented: $showCredentialSaveError) {
             Button("ok", role: .cancel) {}
         } message: {
@@ -139,6 +150,28 @@ struct AddSourceView: View {
         let trimmed = port.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.isEmpty || trimmed == String(oldDefault) else { return }
         port = String(newDefault)
+    }
+
+    private var synologyHostLabel: LocalizedStringKey {
+        guard sourceType == .synology else { return "host_address" }
+        switch synologyConnectionMode {
+        case .quickConnect: return "synology_quickconnect_id"
+        case .address: return "synology_address"
+        }
+    }
+
+    @ViewBuilder
+    private var synologyConnectionModeOptions: some View {
+        Text("synology_connection_quickconnect").tag(SynologyConnectionMode.quickConnect)
+        Text("synology_connection_address").tag(SynologyConnectionMode.address)
+    }
+
+    private var synologyConnectionModePicker: some View {
+        Picker("", selection: $synologyConnectionMode) {
+            synologyConnectionModeOptions
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
     }
 
     #if os(iOS)
@@ -238,10 +271,24 @@ struct AddSourceView: View {
 
         if sourceType.requiresHost {
             macSection("connection_info") {
-                macTextRow("host_address", text: $host, focus: .host)
-                macTextRow("port", text: $port, focus: .port, width: 120)
-                if ![MusicSourceType.smb, .ftp, .sftp, .nfs].contains(sourceType) {
-                    macToggleRow("use_ssl", isOn: $useSsl)
+                if sourceType == .synology {
+                    macCustomRow("synology_connection_method") {
+                        synologyConnectionModePicker
+                            .frame(maxWidth: 320)
+                    }
+                    macTextRow(synologyHostLabel, text: $host, focus: .host)
+                    if synologyConnectionMode == .quickConnect {
+                        macInfoRow("synology_quickconnect_hint")
+                    } else {
+                        macTextRow("port", text: $port, focus: .port, width: 120)
+                        macToggleRow("use_ssl", isOn: $useSsl)
+                    }
+                } else {
+                    macTextRow("host_address", text: $host, focus: .host)
+                    macTextRow("port", text: $port, focus: .port, width: 120)
+                    if ![MusicSourceType.smb, .ftp, .sftp, .nfs].contains(sourceType) {
+                        macToggleRow("use_ssl", isOn: $useSsl)
+                    }
                 }
             }
         }
@@ -565,18 +612,34 @@ struct AddSourceView: View {
 
         if sourceType.requiresHost {
             Section("connection_info") {
-                TextField("host_address", text: $host)
+                if sourceType == .synology {
+                    Picker("synology_connection_method", selection: $synologyConnectionMode) {
+                        synologyConnectionModeOptions
+                    }
+                    .pickerStyle(.segmented)
+                }
+                TextField(synologyHostLabel, text: $host)
                     .focused($focusedField, equals: .host)
                     .keyboardType(.URL)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
                     .submitLabel(.next)
-                    .onSubmit { focusedField = .port }
-                TextField("port", text: $port)
-                    .focused($focusedField, equals: .port)
-                    .keyboardType(.numberPad)
-                if ![MusicSourceType.smb, .ftp, .sftp, .nfs].contains(sourceType) {
-                    Toggle("use_ssl", isOn: $useSsl)
+                    .onSubmit {
+                        focusedField = sourceType == .synology && synologyConnectionMode == .quickConnect
+                            ? .username
+                            : .port
+                    }
+                if sourceType == .synology, synologyConnectionMode == .quickConnect {
+                    Text("synology_quickconnect_hint")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    TextField("port", text: $port)
+                        .focused($focusedField, equals: .port)
+                        .keyboardType(.numberPad)
+                    if ![MusicSourceType.smb, .ftp, .sftp, .nfs].contains(sourceType) {
+                        Toggle("use_ssl", isOn: $useSsl)
+                    }
                 }
             }
         }
@@ -818,6 +881,9 @@ struct AddSourceView: View {
         if let s = editingSource {
             name = s.name; host = s.host ?? ""; port = "\(s.port ?? sourceType.defaultPort)"
             useSsl = s.useSsl; username = s.username ?? ""; basePath = s.basePath ?? ""
+            if sourceType == .synology {
+                synologyConnectionMode = s.effectiveSynologyConnectionMode
+            }
             shareName = s.shareName ?? ""; exportPath = s.exportPath ?? ""
             authType = s.authType; autoConnect = s.autoConnect; rememberDevice = s.rememberDevice
             // 兼容旧版“账号密码都留空即匿名”的来源记录。旧记录的 authType
@@ -837,6 +903,9 @@ struct AddSourceView: View {
             host = device.host
             port = "\(device.port)"
             useSsl = device.preferredUseSsl ?? sourceType.defaultSSL
+            if sourceType == .synology {
+                synologyConnectionMode = .address
+            }
             if sourceType == .plex {
                 authType = .apiKey
             } else if [.local, .appleMusicLibrary, .nfs, .upnp].contains(sourceType) {
@@ -846,6 +915,11 @@ struct AddSourceView: View {
             name = sourceType.displayName
             useSsl = sourceType.defaultSSL
             port = "\(sourceType.defaultPort(useSsl: useSsl))"
+            if sourceType == .synology {
+                synologyConnectionMode = .quickConnect
+                useSsl = true
+                port = "\(sourceType.defaultPort(useSsl: true))"
+            }
             if sourceType == .plex {
                 authType = .apiKey
             } else if [.local, .appleMusicLibrary, .nfs, .upnp].contains(sourceType) {
@@ -893,7 +967,12 @@ struct AddSourceView: View {
             finalShareName = nil
             finalUsername = sourceType == .drime ? nil : (username.isEmpty ? nil : username)  // client_id
         } else {
-            finalHost = sourceType.requiresHost ? host : nil
+            if sourceType == .synology, synologyConnectionMode == .quickConnect {
+                finalHost = SynologyQuickConnectResolver.quickConnectID(from: host)
+            } else {
+                let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+                finalHost = sourceType.requiresHost ? trimmedHost : nil
+            }
             finalBasePath = basePath.isEmpty ? nil : basePath
             finalShareName = shareName.isEmpty ? nil : shareName
             finalUsername = sourceType.requiresCredentials && authType != .apiKey && authType != .none
@@ -904,7 +983,14 @@ struct AddSourceView: View {
         let source = MusicSource(
             id: editingSource?.id ?? UUID().uuidString,
             name: name, type: sourceType,
-            host: finalHost, port: sourceType.requiresHost ? validatedPort : nil, useSsl: useSsl,
+            host: finalHost,
+            port: sourceType.requiresHost
+                ? (sourceType == .synology && synologyConnectionMode == .quickConnect
+                    ? MusicSourceType.synology.defaultPort(useSsl: true)
+                    : validatedPort)
+                : nil,
+            useSsl: sourceType == .synology && synologyConnectionMode == .quickConnect ? true : useSsl,
+            synologyConnectionMode: sourceType == .synology ? synologyConnectionMode : nil,
             username: finalUsername,
             basePath: finalBasePath,
             shareName: finalShareName,

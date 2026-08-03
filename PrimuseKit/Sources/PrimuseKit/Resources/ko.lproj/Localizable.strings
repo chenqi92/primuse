@@ -348,3 +348,14 @@
 "drime_connect_title" = "Drime 연결";
 "drime_connect_description" = "Drime 설정 → Developer에서 만든 API 액세스 토큰을 붙여넣으세요. Primuse가 검증한 후 드라이브를 엽니다.";
 "drime_connect_button" = "Drime 연결";
+"synology_connection_method" = "연결 방식";
+"synology_connection_quickconnect" = "QuickConnect";
+"synology_connection_address" = "서버 주소";
+"synology_quickconnect_id" = "QuickConnect ID";
+"synology_address" = "도메인 또는 IP 주소";
+"synology_quickconnect_hint" = "DSM에 표시된 QuickConnect ID를 입력하면 Primuse가 직접 연결, Smart DNS 또는 릴레이를 자동으로 선택합니다.";
+"ext.synology.quickconnect.error.invalidID" = "QuickConnect ID 형식이 올바르지 않습니다.";
+"ext.synology.quickconnect.error.serverNotFound" = "이 QuickConnect ID를 찾을 수 없습니다.";
+"ext.synology.quickconnect.error.serviceUnavailable" = "이 NAS에서 DSM QuickConnect가 활성화되어 있지 않습니다.";
+"ext.synology.quickconnect.error.invalidResponse" = "QuickConnect가 인식할 수 없는 응답을 반환했습니다.";
+"ext.synology.quickconnect.error.unreachable" = "QuickConnect가 연결을 설정할 수 없습니다.";

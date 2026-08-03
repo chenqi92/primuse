@@ -5,15 +5,14 @@ actor SynologyAPI {
     private let host: String
     private let port: Int
     private let useSsl: Bool
+    private let connectionMode: SynologyConnectionMode
+    private var resolvedEndpoint: SynologyResolvedEndpoint?
     private(set) var sid: String?
 
-    var baseURLString: String {
+    private var directBaseURL: URL? {
         let scheme = useSsl ? "https" : "http"
-        return NetworkURLBuilder.baseURLString(host: host, scheme: scheme, port: port)
-            ?? "\(scheme)://localhost:\(port)"
+        return NetworkURLBuilder.baseURL(host: host, scheme: scheme, port: port)
     }
-
-    private var baseURL: String { baseURLString }
 
     var isLoggedIn: Bool { sid != nil }
 
@@ -22,12 +21,21 @@ actor SynologyAPI {
     func invalidateSession(ifMatches rejectedSID: String?) {
         guard rejectedSID == nil || sid == rejectedSID else { return }
         sid = nil
+        if connectionMode == .quickConnect {
+            resolvedEndpoint = nil
+        }
     }
 
-    init(host: String, port: Int, useSsl: Bool) {
+    init(
+        host: String,
+        port: Int,
+        useSsl: Bool,
+        connectionMode: SynologyConnectionMode = .address
+    ) {
         self.host = host
         self.port = port
         self.useSsl = useSsl
+        self.connectionMode = connectionMode
     }
 
     /// 长生命周期 session 复用所有 API 请求 (list / download / upload / head)。
@@ -41,6 +49,39 @@ actor SynologyAPI {
         config.timeoutIntervalForResource = 600
         return URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
     }()
+
+    /// QuickConnect discovery itself always uses system TLS validation. A NAS
+    /// endpoint with a certificate problem is returned only as a final fallback;
+    /// the regular session then asks the user to trust that exact hostname and
+    /// pins its leaf certificate through `SmartSSLDelegate`.
+    private lazy var quickConnectSession: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 8
+        config.timeoutIntervalForResource = 30
+        return URLSession(configuration: config)
+    }()
+
+    func resolveBaseURL() async throws -> URL {
+        if let resolvedEndpoint { return resolvedEndpoint.baseURL }
+        guard connectionMode == .quickConnect else {
+            guard let directBaseURL else { throw SynologyError.invalidURL }
+            return directBaseURL
+        }
+
+        let endpoint = try await SynologyQuickConnectResolver(session: quickConnectSession)
+            .resolve(host)
+        resolvedEndpoint = endpoint
+        plog(
+            "☁️ Synology QuickConnect resolved id=\(redactedHost(host)) "
+                + "route=\(endpoint.route.rawValue) host=\(redactedHost(endpoint.baseURL.host ?? ""))"
+        )
+        return endpoint.baseURL
+    }
+
+    func resolvedBaseURLString() async throws -> String {
+        let url = try await resolveBaseURL()
+        return url.absoluteString.replacingOccurrences(of: "/$", with: "", options: .regularExpression)
+    }
 
     // MARK: - Login
 
@@ -242,6 +283,7 @@ actor SynologyAPI {
     func downloadFile(path: String) async throws -> Data {
         guard let sid else { throw SynologyError.notLoggedIn }
 
+        let baseURL = try await resolvedBaseURLString()
         var components = URLComponents(string: "\(baseURL)/webapi/entry.cgi")!
         components.queryItems = [
             URLQueryItem(name: "api", value: "SYNO.FileStation.Download"),
@@ -261,6 +303,7 @@ actor SynologyAPI {
     func downloadFileHead(path: String, maxBytes: Int = 4 * 1024 * 1024) async throws -> Data {
         guard let sid else { throw SynologyError.notLoggedIn }
 
+        let baseURL = try await resolvedBaseURLString()
         var components = URLComponents(string: "\(baseURL)/webapi/entry.cgi")!
         components.queryItems = [
             URLQueryItem(name: "api", value: "SYNO.FileStation.Download"),
@@ -292,6 +335,7 @@ actor SynologyAPI {
         guard let sid else { throw SynologyError.notLoggedIn }
         guard offset >= 0, length > 0 else { throw SynologyError.invalidResponse }
 
+        let baseURL = try await resolvedBaseURLString()
         var components = URLComponents(string: "\(baseURL)/webapi/entry.cgi")!
         components.queryItems = [
             URLQueryItem(name: "api", value: "SYNO.FileStation.Download"),
@@ -359,7 +403,11 @@ actor SynologyAPI {
     /// Get thumbnail URL for a file
     func thumbnailURL(path: String, size: String = "small") -> URL? {
         guard let sid else { return nil }
-        var components = URLComponents(string: "\(baseURL)/webapi/entry.cgi")!
+        guard let baseURL = resolvedEndpoint?.baseURL ?? directBaseURL else { return nil }
+        var components = URLComponents(
+            url: baseURL.appendingPathComponent("webapi/entry.cgi"),
+            resolvingAgainstBaseURL: false
+        )!
         components.queryItems = [
             URLQueryItem(name: "api", value: "SYNO.FileStation.Thumb"),
             URLQueryItem(name: "version", value: "2"),
@@ -377,6 +425,7 @@ actor SynologyAPI {
         guard let sid else { throw SynologyError.notLoggedIn }
 
         let boundary = "Boundary-\(UUID().uuidString)"
+        let baseURL = try await resolvedBaseURLString()
         var components = URLComponents(string: "\(baseURL)/webapi/entry.cgi")!
         components.queryItems = [
             URLQueryItem(name: "_sid", value: sid),
@@ -449,6 +498,7 @@ actor SynologyAPI {
     // MARK: - HTTP
 
     private func request(path: String, params: [String: String], usePost: Bool = false) async throws -> Data {
+        let baseURL = try await resolvedBaseURLString()
         let urlRequest: URLRequest
         if usePost {
             guard let url = URL(string: "\(baseURL)\(path)") else { throw SynologyError.invalidURL }

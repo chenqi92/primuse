@@ -167,6 +167,7 @@ struct TVSourceFormView: View {
     @State private var host = ""
     @State private var portText = ""
     @State private var useSsl = false
+    @State private var synologyConnectionMode: SynologyConnectionMode = .quickConnect
     @State private var username = ""
     @State private var password = ""
     @State private var useGuestAccess = false
@@ -185,7 +186,9 @@ struct TVSourceFormView: View {
     private var canSave: Bool {
         let connectionIsValid = !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && validatedPort != nil
+            && (type == .synology && synologyConnectionMode == .quickConnect
+                ? SynologyQuickConnectResolver.isValidQuickConnectID(host)
+                : validatedPort != nil)
         guard connectionIsValid else { return false }
         if type == .fnMusic || type == .daoliyu {
             guard !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -204,6 +207,14 @@ struct TVSourceFormView: View {
         case .smb: return "共享名 (Share)"
         case .nfs: return "导出路径 (Export)"
         default: return "基础路径(可选)"
+        }
+    }
+    private var connectionAddressLabel: String {
+        if type == .nfs { return "服务器地址" }
+        guard type == .synology else { return "主机 / IP" }
+        switch synologyConnectionMode {
+        case .quickConnect: return PMString("synology_quickconnect_id")
+        case .address: return PMString("synology_address")
         }
     }
 
@@ -229,6 +240,11 @@ struct TVSourceFormView: View {
         .onAppear(perform: prefill)
         .onChange(of: useSsl) { oldValue, newValue in
             updateDefaultPortForSSLChange(from: oldValue, to: newValue)
+        }
+        .onChange(of: synologyConnectionMode) { _, newValue in
+            guard type == .synology, newValue == .quickConnect else { return }
+            useSsl = true
+            portText = String(MusicSourceType.synology.defaultPort(useSsl: true))
         }
         .alert(PMString("ext.tv.sources.cred.saveFailedTitle"), isPresented: $saveFailed) {
             Button(PMString("ext.tv.sources.ok"), role: .cancel) {}
@@ -262,9 +278,26 @@ struct TVSourceFormView: View {
             .padding(.bottom, 8)
 
             TVFormField(label: "名称", text: $name, autofocus: true)
-            TVFormField(label: type == .nfs ? "服务器地址" : "主机 / IP", text: $host, mono: true)
-            TVFormField(label: "端口", text: $portText, mono: true)
-            if showsSSL {
+            if type == .synology {
+                Picker(PMString("synology_connection_method"), selection: $synologyConnectionMode) {
+                    Text(PMString("synology_connection_quickconnect"))
+                        .tag(SynologyConnectionMode.quickConnect)
+                    Text(PMString("synology_connection_address"))
+                        .tag(SynologyConnectionMode.address)
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 720)
+            }
+            TVFormField(label: connectionAddressLabel, text: $host, mono: true)
+            if type == .synology, synologyConnectionMode == .quickConnect {
+                Text(PMString("synology_quickconnect_hint"))
+                    .font(.system(size: 16))
+                    .foregroundStyle(TVColor.textFaint)
+                    .frame(maxWidth: 720, alignment: .leading)
+            } else {
+                TVFormField(label: "端口", text: $portText, mono: true)
+            }
+            if showsSSL && !(type == .synology && synologyConnectionMode == .quickConnect) {
                 Toggle(isOn: $useSsl) {
                     Label("使用 HTTPS / SSL", systemImage: "lock.shield")
                         .font(.system(size: 21, weight: .medium)).foregroundStyle(TVColor.text)
@@ -352,6 +385,9 @@ struct TVSourceFormView: View {
         if let e = editing {
             name = e.name; host = e.host ?? ""; portText = String(e.port ?? type.defaultPort)
             useSsl = e.useSsl; username = e.username ?? ""
+            if type == .synology {
+                synologyConnectionMode = e.effectiveSynologyConnectionMode
+            }
             useGuestAccess = type.supportsAnonymous && e.authType == .none
             switch type {
             case .smb: pathText = e.shareName ?? ""
@@ -363,6 +399,15 @@ struct TVSourceFormView: View {
             useSsl = prefillUseSsl ?? type.defaultSSL
             portText = String(prefillPort ?? type.defaultPort(useSsl: useSsl))
             name = prefillName ?? type.displayName
+            if type == .synology {
+                if let prefillHost, !prefillHost.isEmpty {
+                    synologyConnectionMode = .address
+                } else {
+                    synologyConnectionMode = .quickConnect
+                    useSsl = true
+                    portText = String(type.defaultPort(useSsl: true))
+                }
+            }
         }
     }
 
@@ -380,7 +425,7 @@ struct TVSourceFormView: View {
     }
 
     private func draftSource() -> MusicSource? {
-        guard canSave, let validatedPort else { return nil }
+        guard canSave else { return nil }
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
         let trimmedHost = host.trimmingCharacters(in: .whitespaces)
         let trimmedUser = username.trimmingCharacters(in: .whitespaces)
@@ -388,9 +433,16 @@ struct TVSourceFormView: View {
 
         var src = editing ?? MusicSource(name: trimmedName, type: type)
         src.name = trimmedName
-        src.host = trimmedHost
-        src.port = validatedPort
-        src.useSsl = showsSSL ? useSsl : type.defaultSSL
+        src.host = type == .synology && synologyConnectionMode == .quickConnect
+            ? SynologyQuickConnectResolver.quickConnectID(from: trimmedHost)
+            : trimmedHost
+        src.port = type == .synology && synologyConnectionMode == .quickConnect
+            ? type.defaultPort(useSsl: true)
+            : validatedPort
+        src.useSsl = type == .synology && synologyConnectionMode == .quickConnect
+            ? true
+            : (showsSSL ? useSsl : type.defaultSSL)
+        src.synologyConnectionMode = type == .synology ? synologyConnectionMode : nil
         if showsAuth {
             src.username = useGuestAccess ? nil : (trimmedUser.isEmpty ? nil : trimmedUser)
             src.authType = useGuestAccess ? .none : .password

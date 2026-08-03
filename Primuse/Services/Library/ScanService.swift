@@ -425,7 +425,8 @@ final class ScanService {
             let created = SynologyAPI(
                 host: source.host ?? "",
                 port: source.port ?? 5001,
-                useSsl: source.useSsl
+                useSsl: source.useSsl,
+                connectionMode: source.effectiveSynologyConnectionMode
             )
             synologyAPIs[source.id] = created
             api = created

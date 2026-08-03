@@ -33,11 +33,17 @@ actor SynologySource: MusicSourceConnector {
 
     init(
         sourceID: String, host: String, port: Int, useSsl: Bool,
+        connectionMode: SynologyConnectionMode,
         username: String,
         rememberDevice: Bool, deviceId: String?
     ) {
         self.sourceID = sourceID
-        self.api = SynologyAPI(host: host, port: port, useSsl: useSsl)
+        self.api = SynologyAPI(
+            host: host,
+            port: port,
+            useSsl: useSsl,
+            connectionMode: connectionMode
+        )
         self.username = username
         self.rememberDevice = rememberDevice
         self.deviceId = deviceId
@@ -196,7 +202,7 @@ actor SynologySource: MusicSourceConnector {
         try await connect()
         guard let sid = await api.sid else { throw SynologyError.notLoggedIn }
 
-        let baseURL = await api.baseURLString
+        let baseURL = try await api.resolvedBaseURLString()
         var components = URLComponents(string: "\(baseURL)/webapi/entry.cgi")!
         components.queryItems = [
             URLQueryItem(name: "api", value: "SYNO.FileStation.Download"),

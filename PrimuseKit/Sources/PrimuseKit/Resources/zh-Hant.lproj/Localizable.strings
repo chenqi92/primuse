@@ -345,3 +345,14 @@
 "drime_connect_title" = "連線 Drime";
 "drime_connect_description" = "貼上在 Drime 設定 → Developer 中建立的 API 存取權杖。Primuse 驗證成功後會開啟雲端硬碟目錄。";
 "drime_connect_button" = "連線 Drime";
+"synology_connection_method" = "連線方式";
+"synology_connection_quickconnect" = "QuickConnect";
+"synology_connection_address" = "伺服器位址";
+"synology_quickconnect_id" = "QuickConnect ID";
+"synology_address" = "網域或 IP 位址";
+"synology_quickconnect_hint" = "輸入 DSM 控制台中的 QuickConnect ID，猿音會自動選擇直連、Smart DNS 或中繼。";
+"ext.synology.quickconnect.error.invalidID" = "QuickConnect ID 格式不正確。";
+"ext.synology.quickconnect.error.serverNotFound" = "找不到這個 QuickConnect ID。";
+"ext.synology.quickconnect.error.serviceUnavailable" = "此 NAS 未啟用 DSM QuickConnect 服務。";
+"ext.synology.quickconnect.error.invalidResponse" = "QuickConnect 傳回了無法識別的回應。";
+"ext.synology.quickconnect.error.unreachable" = "QuickConnect 暫時無法建立可用連線。";

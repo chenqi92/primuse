@@ -524,6 +524,10 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
     public var host: String?
     public var port: Int?
     public var useSsl: Bool
+    /// Synology connection entry chosen by the user. `nil` means a legacy
+    /// direct host record, so snapshots from older releases keep their exact
+    /// connection behavior instead of being reinterpreted as QuickConnect.
+    public var synologyConnectionMode: SynologyConnectionMode?
     public var username: String?
     // Password stored in Keychain
     public var basePath: String?
@@ -560,6 +564,7 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
         host: String? = nil,
         port: Int? = nil,
         useSsl: Bool? = nil,
+        synologyConnectionMode: SynologyConnectionMode? = nil,
         username: String? = nil,
         basePath: String? = nil,
         shareName: String? = nil,
@@ -586,6 +591,7 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
         let resolvedUseSSL = useSsl ?? type.defaultSSL
         self.port = port ?? type.defaultPort(useSsl: resolvedUseSSL)
         self.useSsl = resolvedUseSSL
+        self.synologyConnectionMode = synologyConnectionMode
         self.username = username
         self.basePath = basePath
         self.shareName = shareName
@@ -618,6 +624,10 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
         self.host = try c.decodeIfPresent(String.self, forKey: .host)
         self.port = try c.decodeIfPresent(Int.self, forKey: .port)
         self.useSsl = try c.decode(Bool.self, forKey: .useSsl)
+        self.synologyConnectionMode = try c.decodeIfPresent(
+            SynologyConnectionMode.self,
+            forKey: .synologyConnectionMode
+        )
         self.username = try c.decodeIfPresent(String.self, forKey: .username)
         self.basePath = try c.decodeIfPresent(String.self, forKey: .basePath)
         self.shareName = try c.decodeIfPresent(String.self, forKey: .shareName)
@@ -641,6 +651,14 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
         // cleanly with cloudAccountID = nil. The migration in stage 4
         // will populate this for existing OAuth sources.
         self.cloudAccountID = try c.decodeIfPresent(String.self, forKey: .cloudAccountID)
+    }
+}
+
+public extension MusicSource {
+    /// Legacy Synology sources had only host/port/SSL, so they remain direct.
+    var effectiveSynologyConnectionMode: SynologyConnectionMode {
+        if let synologyConnectionMode { return synologyConnectionMode }
+        return .address
     }
 }
 

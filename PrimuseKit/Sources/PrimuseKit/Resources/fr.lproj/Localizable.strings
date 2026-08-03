@@ -348,3 +348,14 @@
 "drime_connect_title" = "Se connecter à Drime";
 "drime_connect_description" = "Collez le jeton d’accès API créé dans Réglages Drime → Developer. Primuse le vérifie avant d’ouvrir votre espace.";
 "drime_connect_button" = "Se connecter à Drime";
+"synology_connection_method" = "Mode de connexion";
+"synology_connection_quickconnect" = "QuickConnect";
+"synology_connection_address" = "Adresse du serveur";
+"synology_quickconnect_id" = "ID QuickConnect";
+"synology_address" = "Domaine ou adresse IP";
+"synology_quickconnect_hint" = "Saisissez l’identifiant QuickConnect indiqué dans DSM. Primuse choisit automatiquement l’accès direct, Smart DNS ou le relais.";
+"ext.synology.quickconnect.error.invalidID" = "L’identifiant QuickConnect n’est pas valide.";
+"ext.synology.quickconnect.error.serverNotFound" = "Cet identifiant QuickConnect est introuvable.";
+"ext.synology.quickconnect.error.serviceUnavailable" = "DSM QuickConnect n’est pas activé sur ce NAS.";
+"ext.synology.quickconnect.error.invalidResponse" = "QuickConnect a renvoyé une réponse non reconnue.";
+"ext.synology.quickconnect.error.unreachable" = "QuickConnect n’a pas pu établir de connexion.";

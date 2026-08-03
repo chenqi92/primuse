@@ -8,20 +8,22 @@ import Foundation
 /// 会在登录失败时报 `.authFailed`(请在手机上勾选「记住此设备」后再同步)。
 public actor SynologyStreamResolver: StreamResolver {
     private var sessions: [String: String] = [:]   // sourceID → _sid
+    private var endpoints: [String: URL] = [:]     // sourceID → resolved direct/relay endpoint
     private var sessionTasks: [String: (id: UUID, task: Task<String, Error>)] = [:]
     private let session: URLSession
 
-    public init() {
+    public init(session: URLSession? = nil) {
         let cfg = URLSessionConfiguration.default
         cfg.timeoutIntervalForRequest = 20
         cfg.httpAdditionalHeaders = ["User-Agent": "Primuse/1.0"]
-        self.session = StreamResolverSessionFactory.make(configuration: cfg)
+        self.session = session ?? StreamResolverSessionFactory.make(configuration: cfg)
     }
 
     deinit { session.invalidateAndCancel() }
 
     public func invalidateSession(sourceID: String) {
         sessions[sourceID] = nil
+        endpoints[sourceID] = nil
         sessionTasks.removeValue(forKey: sourceID)?.task.cancel()
     }
 
@@ -32,9 +34,7 @@ public actor SynologyStreamResolver: StreamResolver {
         guard let password = credential?.password, !password.isEmpty, !username.isEmpty else {
             throw StreamResolveError.missingCredential
         }
-        guard let base = Self.baseURL(host: source.host ?? "", port: source.port, useSsl: source.useSsl) else {
-            throw StreamResolveError.cannotBuildURL
-        }
+        let base = try await resolvedBaseURL(for: source)
         let sid = try await currentSID(for: source, base: base, username: username, password: password)
         guard let url = Self.downloadURL(base: base, path: song.filePath, sid: sid) else {
             throw StreamResolveError.cannotBuildURL
@@ -76,15 +76,35 @@ public actor SynologyStreamResolver: StreamResolver {
         guard let password = credential?.password, !password.isEmpty, !username.isEmpty else {
             throw StreamResolveError.missingCredential
         }
-        guard let base = Self.baseURL(host: source.host ?? "", port: source.port, useSsl: source.useSsl) else {
-            throw StreamResolveError.cannotBuildURL
-        }
+        let base = try await resolvedBaseURL(for: source)
         sessionTasks.removeValue(forKey: source.id)?.task.cancel()
         sessions[source.id] = nil
         let (sid, did) = try await performLogin(base: base, username: username, password: password,
                                                 deviceID: source.deviceId, otp: otp)
         sessions[source.id] = sid
         return did
+    }
+
+    private func resolvedBaseURL(for source: MusicSource) async throws -> URL {
+        guard source.effectiveSynologyConnectionMode == .quickConnect else {
+            guard let base = Self.baseURL(
+                host: source.host ?? "",
+                port: source.port,
+                useSsl: source.useSsl
+            ) else {
+                throw StreamResolveError.cannotBuildURL
+            }
+            return base
+        }
+        if let cached = endpoints[source.id] { return cached }
+        do {
+            let endpoint = try await SynologyQuickConnectResolver(session: session)
+                .resolve(source.host ?? "")
+            endpoints[source.id] = endpoint.baseURL
+            return endpoint.baseURL
+        } catch {
+            throw StreamResolveError.cannotBuildURL
+        }
     }
 
     /// 执行登录。`otp` 非空时附带 `otp_code` + `enable_device_token` 申请受信设备。

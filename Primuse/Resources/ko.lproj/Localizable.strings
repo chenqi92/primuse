@@ -283,6 +283,12 @@
 "credentials" = "자격 증명";
 "source_name" = "이름";
 "host_address" = "호스트 주소";
+"synology_connection_method" = "연결 방식";
+"synology_connection_quickconnect" = "QuickConnect";
+"synology_connection_address" = "서버 주소";
+"synology_quickconnect_id" = "QuickConnect ID";
+"synology_address" = "도메인 또는 IP 주소";
+"synology_quickconnect_hint" = "DSM의 QuickConnect ID를 입력하면 Primuse가 직접 연결, Smart DNS 또는 릴레이를 자동으로 선택합니다.";
 "port" = "포트";
 "port_optional" = "포트(선택 사항)";
 "use_ssl" = "SSL/TLS 사용";
