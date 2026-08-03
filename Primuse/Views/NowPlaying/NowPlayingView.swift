@@ -114,6 +114,7 @@ struct NowPlayingView: View {
         return AppServices.shared.appleMusicLibrary.catalogURL(for: song)
     }
     @State private var showLyrics = false
+    @State private var isLyricsImmersive = true
     @State private var showQueue = false
     @State private var lyrics: [LyricLine] = []
     @State private var lyricsRevision: UInt = 0
@@ -230,7 +231,11 @@ struct NowPlayingView: View {
                 // Dynamic background from cover colors — fully opaque
                 backgroundGradient.ignoresSafeArea()
 
-                if shouldUseWideLayout(geo: geo) {
+                if showLyrics, geo.size.width > geo.size.height {
+                    landscapeLyricsLayout()
+                } else if showLyrics {
+                    portraitLayout(geo: geo, artSize: artSize)
+                } else if shouldUseWideLayout(geo: geo) {
                     wideLandscapeLayout(geo: geo)
                 } else {
                     portraitLayout(geo: geo, artSize: artSize)
@@ -367,6 +372,11 @@ struct NowPlayingView: View {
         .onChange(of: lyricsFontScale) { _, _ in
             CloudKVSSync.shared.markChanged(key: CloudKVSKey.lyricsFontScale)
         }
+        .onChange(of: showLyrics) { _, isVisible in
+            if isVisible {
+                isLyricsImmersive = true
+            }
+        }
         // Handoff —— 用户在当前设备播,旁边的 Mac / iPad 在 Spotlight / 任务
         // 切换器底部出现"在 Primuse 中继续"的 chip。打开后通过 ContentView
         // 的 onContinueUserActivity 拿到完整队列上下文,在另一台设备上无缝接
@@ -420,10 +430,10 @@ struct NowPlayingView: View {
 
     // MARK: - iPad 横屏 layout (左封面 / 右歌词)
     //
-    // 横屏时 showLyrics 状态不参与判断,封面 + 歌词永远并排显示。封面这一侧
-    // 复用原 portrait 模式的所有控件子组件(PlaybackProgressBar, ctrlBtn,
-    // VolumeSlider, AirPlayButton, moreMenu), 只是改成一个独立 VStack
-    // 钉到左半屏。歌词复用 `lyricsFullView`。
+    // 常规横屏下封面 + 歌词并排显示；用户点按右侧歌词后进入全屏歌词模式。
+    // 封面这一侧复用原 portrait 模式的所有控件子组件(PlaybackProgressBar,
+    // ctrlBtn, VolumeSlider, AirPlayButton, moreMenu), 只是改成一个独立
+    // VStack 钉到左半屏。歌词复用 `lyricsFullView`。
 
     @ViewBuilder
     private func wideLandscapeLayout(geo: GeometryProxy) -> some View {
@@ -617,6 +627,87 @@ struct NowPlayingView: View {
         }
     }
 
+    @ViewBuilder
+    private func landscapeLyricsLayout() -> some View {
+        ZStack {
+            lyricsFullView
+
+            if !isLyricsImmersive {
+                VStack(spacing: 0) {
+                    HStack(spacing: 10) {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.3)) { showLyrics = false }
+                        } label: {
+                            HStack(spacing: 10) {
+                                CachedArtworkView(
+                                    coverRef: player.currentSong?.coverArtFileName,
+                                    songID: player.currentSong?.id ?? "",
+                                    size: 40,
+                                    cornerRadius: 6,
+                                    sourceID: player.currentSong?.sourceID,
+                                    filePath: player.currentSong?.filePath,
+                                    fileFormat: player.currentSong?.fileFormat,
+                                    revisionToken: player.coverRevision
+                                )
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(player.currentSong?.title ?? "")
+                                        .font(.subheadline)
+                                        .fontWeight(.semibold)
+                                        .lineLimit(1)
+                                    Text(player.currentSong?.artistName ?? "")
+                                        .font(.caption)
+                                        .foregroundStyle(appearance.secondary)
+                                        .lineLimit(1)
+                                }
+                            }
+                            .foregroundStyle(appearance.primary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(Text("a11y_close_lyrics"))
+
+                        Spacer()
+                        musicVideoToggleButton(font: .title3, trailing: 4)
+                        Button { toggleLikedCurrent() } label: {
+                            Image(systemName: isCurrentLiked ? "heart.fill" : "heart")
+                                .font(.title3)
+                                .foregroundStyle(isCurrentLiked ? .red : appearance.secondary)
+                        }
+                        .disabled(player.currentSong == nil)
+                        .accessibilityLabel(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
+                        moreMenu
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+                    .background(.ultraThinMaterial)
+
+                    Spacer()
+
+                    HStack(spacing: 28) {
+                        Button { Task { await player.previous() } } label: {
+                            Image(systemName: "backward.fill")
+                        }
+                        Button { player.togglePlayPause() } label: {
+                            Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                                .font(.system(size: 42))
+                                .contentTransition(.symbolEffect(.replace))
+                        }
+                        .disabled(player.isLoading)
+                        Button { Task { await player.next() } } label: {
+                            Image(systemName: "forward.fill")
+                        }
+                    }
+                    .font(.title3)
+                    .foregroundStyle(appearance.primary)
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 8)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .padding(.bottom, 12)
+                }
+                .transition(.opacity)
+            }
+        }
+    }
+
     // MARK: - 原 portrait layout (iPhone + iPad 竖屏 + 分屏小窗)
 
     @ViewBuilder
@@ -629,14 +720,17 @@ struct NowPlayingView: View {
 
         VStack(spacing: 0) {
                     // Grabber handle (system-matching dimensions)
-                    Capsule()
-                        .fill(appearance.tertiary)
-                        .frame(width: 48, height: 5)
-                        .padding(.top, topSafeArea + 6)
-                        .padding(.bottom, 10)
+                    if !showLyrics || !isLyricsImmersive {
+                        Capsule()
+                            .fill(appearance.tertiary)
+                            .frame(width: 48, height: 5)
+                            .padding(.top, topSafeArea + 6)
+                            .padding(.bottom, 10)
+                    }
 
                     // Playback error toast
-                    if let error = player.lastPlaybackError {
+                    if (!showLyrics || !isLyricsImmersive),
+                       let error = player.lastPlaybackError {
                         Text(error)
                             .font(.caption).fontWeight(.medium)
                             .foregroundStyle(.white)
@@ -647,7 +741,8 @@ struct NowPlayingView: View {
 
                     if showLyrics {
                         // LYRICS MODE: compact header at top
-                        HStack(spacing: 10) {
+                        if !isLyricsImmersive {
+                            HStack(spacing: 10) {
                             // Explicit button rather than a hidden tap gesture:
                             // the artwork itself is now a discoverable way back.
                             Button {
@@ -702,8 +797,9 @@ struct NowPlayingView: View {
 
                             // More menu
                             moreMenu
+                            }
+                            .padding(.horizontal, 20).padding(.bottom, 6)
                         }
-                        .padding(.horizontal, 20).padding(.bottom, 6)
 
                         // Full screen lyrics
                         lyricsFullView
@@ -775,11 +871,12 @@ struct NowPlayingView: View {
                     // 重算,避免触发父 body re-render(进而让 toolbar Menu 的 submenu
                     // 被强制关闭)。SwiftUI Observation 是 per-body 追踪——子 view
                     // 自己读 player.currentTime,父 view body 完全不读高频属性。
-                    PlaybackProgressBar()
-                        .padding(.horizontal, 26).padding(.top, 8)
+                    if !showLyrics || !isLyricsImmersive {
+                        PlaybackProgressBar()
+                            .padding(.horizontal, 26).padding(.top, 8)
 
-                    // Controls
-                    HStack(spacing: 0) {
+                        // Controls
+                        HStack(spacing: 0) {
                         Spacer()
                         ctrlBtn("shuffle", active: player.shuffleEnabled) { player.shuffleEnabled.toggle() }
                         Spacer()
@@ -824,11 +921,11 @@ struct NowPlayingView: View {
                             }
                         }
                         Spacer()
-                    }
-                    .padding(.top, 12)
+                        }
+                        .padding(.top, 12)
 
-                    // Volume
-                    HStack(spacing: 8) {
+                        // Volume
+                        HStack(spacing: 8) {
                         Image(systemName: "speaker.fill").font(.caption2).foregroundStyle(appearance.tertiary)
                         #if os(iOS) && !targetEnvironment(simulator)
                         SystemVolumeSlider()
@@ -842,11 +939,11 @@ struct NowPlayingView: View {
                         ))
                         #endif
                         Image(systemName: "speaker.wave.3.fill").font(.caption2).foregroundStyle(appearance.tertiary)
-                    }
-                    .padding(.horizontal, 26).padding(.top, 10)
+                        }
+                        .padding(.horizontal, 26).padding(.top, 10)
 
-                    // Bottom bar
-                    HStack {
+                        // Bottom bar
+                        HStack {
                         Button { withAnimation(.easeInOut(duration: 0.3)) { showLyrics.toggle() } } label: {
                             Image(systemName: showLyrics ? "photo" : "quote.bubble")
                                 .foregroundStyle(showLyrics ? appearance.primary : appearance.tertiary)
@@ -859,22 +956,23 @@ struct NowPlayingView: View {
                         Button { showQueue = true } label: {
                             Image(systemName: "list.bullet").foregroundStyle(appearance.tertiary)
                         }
-                    }
-                    .font(.body).padding(.horizontal, 46).padding(.top, 12)
-
-                    // Format & source
-                    if let song = player.currentSong {
-                        HStack(spacing: 4) {
-                            Text(song.fileFormat.displayName)
-                            if let sr = song.sampleRate { Text("·"); Text("\(sr / 1000)kHz") }
-                            if sourcesStore.sources.count > 1,
-                               let source = sourcesStore.source(id: song.sourceID) {
-                                Text("·")
-                                Image(systemName: source.type.iconName)
-                                Text(source.name)
-                            }
                         }
-                        .font(.caption2).foregroundStyle(appearance.faint).padding(.top, 4).padding(.bottom, 6)
+                        .font(.body).padding(.horizontal, 46).padding(.top, 12)
+
+                        // Format & source
+                        if let song = player.currentSong {
+                            HStack(spacing: 4) {
+                                Text(song.fileFormat.displayName)
+                                if let sr = song.sampleRate { Text("·"); Text("\(sr / 1000)kHz") }
+                                if sourcesStore.sources.count > 1,
+                                   let source = sourcesStore.source(id: song.sourceID) {
+                                    Text("·")
+                                    Image(systemName: source.type.iconName)
+                                    Text(source.name)
+                                }
+                            }
+                            .font(.caption2).foregroundStyle(appearance.faint).padding(.top, 4).padding(.bottom, 6)
+                        }
                     }
                 }
     }
@@ -1158,7 +1256,14 @@ struct NowPlayingView: View {
             isScrapingCurrentSong: isScrapingCurrentSong,
             onAutomaticScrape: { startAutomaticLyricsScrape() },
             onBackgroundTap: {
-                withAnimation(.easeInOut(duration: 0.3)) { showLyrics = false }
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    if showLyrics {
+                        isLyricsImmersive.toggle()
+                    } else {
+                        showLyrics = true
+                        isLyricsImmersive = true
+                    }
+                }
             }
         )
     }
