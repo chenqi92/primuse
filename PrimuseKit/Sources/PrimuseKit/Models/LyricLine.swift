@@ -22,6 +22,10 @@ public struct LyricLine: Identifiable, Hashable, Sendable {
     public var id: String
     public var timestamp: TimeInterval
     public var text: String
+    /// Whether tapping and playback time may drive this line. Plain-text
+    /// lyrics intentionally keep every line unsynchronized even though their
+    /// compatibility timestamp is zero.
+    public var isSynchronized: Bool
     /// 字级数据；nil 表示行级歌词。
     public var syllables: [LyricSyllable]?
     /// 声部归属，默认主声部。
@@ -33,6 +37,7 @@ public struct LyricLine: Identifiable, Hashable, Sendable {
         id: String = UUID().uuidString,
         timestamp: TimeInterval,
         text: String,
+        isSynchronized: Bool? = nil,
         syllables: [LyricSyllable]? = nil,
         voice: LyricVoice = .primary,
         background: [LyricLine]? = nil
@@ -40,6 +45,7 @@ public struct LyricLine: Identifiable, Hashable, Sendable {
         self.id = id
         self.timestamp = timestamp
         self.text = text
+        self.isSynchronized = isSynchronized ?? (timestamp > 0 || syllables?.isEmpty == false)
         self.syllables = syllables
         self.voice = voice
         self.background = background
@@ -55,7 +61,7 @@ public struct LyricLine: Identifiable, Hashable, Sendable {
 
 extension LyricLine: Codable {
     private enum CodingKeys: String, CodingKey {
-        case id, timestamp, text, syllables, voice, background
+        case id, timestamp, text, isSynchronized, syllables, voice, background
     }
 
     public init(from decoder: Decoder) throws {
@@ -64,6 +70,8 @@ extension LyricLine: Codable {
         self.timestamp = try c.decode(TimeInterval.self, forKey: .timestamp)
         self.text = try c.decode(String.self, forKey: .text)
         self.syllables = try c.decodeIfPresent([LyricSyllable].self, forKey: .syllables)
+        self.isSynchronized = try c.decodeIfPresent(Bool.self, forKey: .isSynchronized)
+            ?? (timestamp > 0 || syllables?.isEmpty == false)
         self.voice = try c.decodeIfPresent(LyricVoice.self, forKey: .voice) ?? .primary
         self.background = try c.decodeIfPresent([LyricLine].self, forKey: .background)
     }
@@ -74,6 +82,10 @@ extension LyricLine: Codable {
         try c.encode(timestamp, forKey: .timestamp)
         try c.encode(text, forKey: .text)
         try c.encodeIfPresent(syllables, forKey: .syllables)
+        let inferredSynchronization = timestamp > 0 || syllables?.isEmpty == false
+        if isSynchronized != inferredSynchronization {
+            try c.encode(isSynchronized, forKey: .isSynchronized)
+        }
         // voice / background 仅在非默认值时写入，避免老歌词缓存膨胀
         if voice != .primary { try c.encode(voice, forKey: .voice) }
         try c.encodeIfPresent(background, forKey: .background)

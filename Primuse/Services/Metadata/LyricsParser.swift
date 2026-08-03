@@ -27,7 +27,7 @@ enum LyricsParser {
                 } else {
                     let text = body.trimmingCharacters(in: .whitespaces)
                     guard !text.isEmpty else { continue }
-                    lines.append(LyricLine(timestamp: lineStart, text: text))
+                    lines.append(LyricLine(timestamp: lineStart, text: text, isSynchronized: true))
                 }
                 continue
             }
@@ -44,7 +44,7 @@ enum LyricsParser {
                 } else {
                     let text = body.trimmingCharacters(in: .whitespaces)
                     guard !text.isEmpty else { continue }
-                    lines.append(LyricLine(timestamp: lineStart, text: text))
+                    lines.append(LyricLine(timestamp: lineStart, text: text, isSynchronized: true))
                 }
             }
         }
@@ -93,7 +93,12 @@ enum LyricsParser {
         let trimmed = plain.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return nil }
 
-        return LyricLine(timestamp: lineStart, text: plain, syllables: syllables)
+        return LyricLine(
+            timestamp: lineStart,
+            text: plain,
+            isSynchronized: true,
+            syllables: syllables
+        )
     }
 
     /// Parse KRC/QRC-style word tags where each word uses a millisecond
@@ -139,7 +144,12 @@ enum LyricsParser {
         let trimmed = plain.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return nil }
 
-        return LyricLine(timestamp: lineStart, text: plain, syllables: syllables)
+        return LyricLine(
+            timestamp: lineStart,
+            text: plain,
+            isSynchronized: true,
+            syllables: syllables
+        )
     }
 
     private static func parseTimestamp(min: Substring, sec: Substring, frac: Substring?) -> TimeInterval? {

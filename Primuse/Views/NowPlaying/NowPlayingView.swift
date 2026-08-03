@@ -2936,6 +2936,10 @@ struct LyricsScrollView: View {
         lyrics.contains { $0.isWordLevel }
     }
 
+    private var hasSynchronizedLyrics: Bool {
+        lyrics.contains { $0.isSynchronized }
+    }
+
     var body: some View {
         Group {
             if lyrics.isEmpty {
@@ -2947,6 +2951,10 @@ struct LyricsScrollView: View {
             }
         }
         .task(id: playbackFollowTaskIdentity) {
+            guard hasSynchronizedLyrics else {
+                currentLineIndex = -1
+                return
+            }
             updateCurrentLine()
             guard player.isPlaying else { return }
             while !Task.isCancelled {
@@ -2956,7 +2964,7 @@ struct LyricsScrollView: View {
             }
         }
         .onChange(of: player.currentTime) { _, _ in
-            if !player.isPlaying { updateCurrentLine() }
+            if hasSynchronizedLyrics, !player.isPlaying { updateCurrentLine() }
         }
         .onChange(of: songID) { _, _ in
             // 切歌时把行索引清零 + 让自动滚动重新 anchor
@@ -3493,6 +3501,7 @@ struct LyricsScrollView: View {
     }
 
     private func seekToLyricLine(_ line: LyricLine) {
+        guard line.isSynchronized else { return }
         lastLyricRowTapAt = Date()
         player.seek(to: line.timestamp)
     }
@@ -3582,6 +3591,9 @@ struct LyricsScrollView: View {
     /// 行级歌词保留原有的过去/未来明暗层次，只把离散字号切换改成与
     /// 逐字歌词一致的渲染层缩放。这样不改变布局，也能让切句三种动效同步。
     private func lineLevelRowVisualActivity(index: Int) -> RowActivity {
+        guard hasSynchronizedLyrics else {
+            return RowActivity(opacity: 1.0, scale: 1.0)
+        }
         guard index >= 0, index < lyrics.count else {
             return RowActivity(opacity: appearance.futureLyricOpacity, scale: 1.0)
         }
@@ -3644,6 +3656,10 @@ struct LyricsScrollView: View {
 
     @discardableResult
     private func updateCurrentLine() -> Int? {
+        guard hasSynchronizedLyrics else {
+            if currentLineIndex != -1 { currentLineIndex = -1 }
+            return nil
+        }
         let time = player.interpolatedTime()
         guard let activeIndex = LyricPlaybackPositionPolicy.activeLineIndex(
             in: lyrics,
