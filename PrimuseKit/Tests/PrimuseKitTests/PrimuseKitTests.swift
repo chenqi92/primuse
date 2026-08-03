@@ -143,7 +143,7 @@ import Testing
 
 @Test func fileDeletionCapabilityExcludesReadOnlyCatalogues() {
     let readOnly: Set<MusicSourceType> = [
-        .upnp, .subsonic, .navidrome, .airsonic, .gonic, .fnMusic, .daoliyu, .drime,
+        .upnp, .subsonic, .navidrome, .airsonic, .gonic, .fnMusic, .daoliyu,
         .appleMusic, .appleMusicLibrary,
     ]
 
@@ -155,7 +155,7 @@ import Testing
 @Test func sidecarWritingCapabilityExcludesReadOnlyCatalogues() {
     let writable: Set<MusicSourceType> = [
         .synology, .smb, .oneDrive, .dropbox, .googleDrive, .baiduPan,
-        .aliyunDrive, .pan123,
+        .aliyunDrive, .pan123, .drime,
     ]
 
     for sourceType in MusicSourceType.allCases {

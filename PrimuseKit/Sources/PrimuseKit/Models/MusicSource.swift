@@ -200,7 +200,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     /// be counted as removable duplicates.
     public var supportsFileDeletion: Bool {
         switch self {
-        case .upnp, .subsonic, .navidrome, .airsonic, .gonic, .fnMusic, .daoliyu, .drime,
+        case .upnp, .subsonic, .navidrome, .airsonic, .gonic, .fnMusic, .daoliyu,
              .appleMusic, .appleMusicLibrary:
             return false
         default:
@@ -214,7 +214,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     public var supportsSidecarWriting: Bool {
         switch self {
         case .synology, .smb, .oneDrive, .dropbox, .googleDrive, .baiduPan,
-             .aliyunDrive, .pan123:
+             .aliyunDrive, .pan123, .drime:
             return true
         default:
             return false

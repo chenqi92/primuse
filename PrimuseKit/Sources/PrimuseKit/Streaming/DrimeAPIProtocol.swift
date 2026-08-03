@@ -10,9 +10,44 @@ public enum DrimeAPIProtocol {
     public static let apiBaseURL = URL(string: "https://app.drime.cloud/api/v1/")!
     public static let defaultWorkspaceID = 0
     public static let defaultPageSize = 200
+    public static let multipartThreshold = 5 * 1_024 * 1_024
+    public static let multipartPartSize = 5 * 1_024 * 1_024
+    public static let maximumMultipartPartCount = 10_000
 
     public static var loggedUserURL: URL {
         apiBaseURL.appending(path: "cli/loggedUser")
+    }
+
+    public static var uploadsURL: URL {
+        apiBaseURL.appending(path: "uploads")
+    }
+
+    public static var deleteEntriesURL: URL {
+        apiBaseURL.appending(path: "file-entries/delete")
+    }
+
+    public static var restoreEntriesURL: URL {
+        apiBaseURL.appending(path: "file-entries/restore")
+    }
+
+    public static var multipartCreateURL: URL {
+        apiBaseURL.appending(path: "s3/multipart/create")
+    }
+
+    public static var multipartSignPartsURL: URL {
+        apiBaseURL.appending(path: "s3/multipart/batch-sign-part-urls")
+    }
+
+    public static var multipartCompleteURL: URL {
+        apiBaseURL.appending(path: "s3/multipart/complete")
+    }
+
+    public static var multipartAbortURL: URL {
+        apiBaseURL.appending(path: "s3/multipart/abort")
+    }
+
+    public static var createS3EntryURL: URL {
+        apiBaseURL.appending(path: "s3/entries")
     }
 
     public static func listingURL(
@@ -66,6 +101,65 @@ public enum DrimeAPIProtocol {
         return normalized
     }
 
+    /// ID-based cloud sources receive sidecar paths such as
+    /// `485529678-cover.jpg` and `485529678.lrc`. Keep the accepted grammar
+    /// deliberately narrow so a crafted path can never escape into another
+    /// file operation.
+    public static func sidecarReference(from path: String) -> DrimeSidecarReference? {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.contains("/") && !trimmed.contains("\\") else {
+            return nil
+        }
+
+        let suffix: String
+        if trimmed.hasSuffix("-cover.jpg") {
+            suffix = "-cover.jpg"
+        } else if trimmed.hasSuffix(".lrc") {
+            suffix = ".lrc"
+        } else {
+            return nil
+        }
+        let sourceID = String(trimmed.dropLast(suffix.count))
+        guard let normalizedID = normalizedEntryID(sourceID) else { return nil }
+        return DrimeSidecarReference(sourceEntryID: normalizedID, suffix: suffix)
+    }
+
+    public static func uploadMetadata(for fileName: String) -> DrimeUploadMetadata? {
+        let safeName = fileName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !safeName.isEmpty,
+              !safeName.contains("/"),
+              !safeName.contains("\\"),
+              !safeName.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7F }) else {
+            return nil
+        }
+        let fileExtension = (safeName as NSString).pathExtension.lowercased()
+        guard !fileExtension.isEmpty else { return nil }
+
+        let mimeType: String
+        switch fileExtension {
+        case "jpg", "jpeg": mimeType = "image/jpeg"
+        case "lrc", "txt": mimeType = "text/plain; charset=utf-8"
+        case "png": mimeType = "image/png"
+        default: mimeType = "application/octet-stream"
+        }
+        return DrimeUploadMetadata(
+            fileName: safeName,
+            fileExtension: fileExtension,
+            mimeType: mimeType
+        )
+    }
+
+    public static func confirmsSuccess(_ data: Data) -> Bool {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              (json["status"] as? String)?.lowercased() == "success" else {
+            return false
+        }
+        if let errors = json["errors"] as? [String: Any], !errors.isEmpty {
+            return false
+        }
+        return true
+    }
+
     public static func decodeListing(_ data: Data) throws -> DrimeFileListing {
         try JSONDecoder().decode(DrimeFileListing.self, from: data)
     }
@@ -76,6 +170,28 @@ public enum DrimeAPIProtocol {
 
     public static func decodeLoggedUser(_ data: Data) throws -> DrimeLoggedUserResponse {
         try JSONDecoder().decode(DrimeLoggedUserResponse.self, from: data)
+    }
+}
+
+public struct DrimeSidecarReference: Sendable, Equatable {
+    public let sourceEntryID: String
+    public let suffix: String
+
+    public init(sourceEntryID: String, suffix: String) {
+        self.sourceEntryID = sourceEntryID
+        self.suffix = suffix
+    }
+}
+
+public struct DrimeUploadMetadata: Sendable, Equatable {
+    public let fileName: String
+    public let fileExtension: String
+    public let mimeType: String
+
+    public init(fileName: String, fileExtension: String, mimeType: String) {
+        self.fileName = fileName
+        self.fileExtension = fileExtension
+        self.mimeType = mimeType
     }
 }
 

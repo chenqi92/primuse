@@ -96,4 +96,59 @@ struct DrimeAPIProtocolTests {
         #expect(response.user.id == "15843")
         #expect(response.user.displayName == "Listener")
     }
+
+    @Test("Mutation endpoints stay inside the documented API base")
+    func mutationURLs() {
+        #expect(DrimeAPIProtocol.uploadsURL.absoluteString
+                == "https://app.drime.cloud/api/v1/uploads")
+        #expect(DrimeAPIProtocol.deleteEntriesURL.absoluteString
+                == "https://app.drime.cloud/api/v1/file-entries/delete")
+        #expect(DrimeAPIProtocol.restoreEntriesURL.absoluteString
+                == "https://app.drime.cloud/api/v1/file-entries/restore")
+        #expect(DrimeAPIProtocol.multipartCreateURL.absoluteString
+                == "https://app.drime.cloud/api/v1/s3/multipart/create")
+        #expect(DrimeAPIProtocol.multipartSignPartsURL.absoluteString
+                == "https://app.drime.cloud/api/v1/s3/multipart/batch-sign-part-urls")
+        #expect(DrimeAPIProtocol.multipartCompleteURL.absoluteString
+                == "https://app.drime.cloud/api/v1/s3/multipart/complete")
+        #expect(DrimeAPIProtocol.multipartAbortURL.absoluteString
+                == "https://app.drime.cloud/api/v1/s3/multipart/abort")
+        #expect(DrimeAPIProtocol.createS3EntryURL.absoluteString
+                == "https://app.drime.cloud/api/v1/s3/entries")
+    }
+
+    @Test("Sidecar pseudo paths map only numeric source IDs")
+    func sidecarReferences() throws {
+        #expect(DrimeAPIProtocol.sidecarReference(from: "485529678-cover.jpg")
+                == DrimeSidecarReference(sourceEntryID: "485529678", suffix: "-cover.jpg"))
+        #expect(DrimeAPIProtocol.sidecarReference(from: "485529678.lrc")
+                == DrimeSidecarReference(sourceEntryID: "485529678", suffix: ".lrc"))
+        #expect(DrimeAPIProtocol.sidecarReference(from: "../485529678.lrc") == nil)
+        #expect(DrimeAPIProtocol.sidecarReference(from: "track.lrc") == nil)
+        #expect(DrimeAPIProtocol.sidecarReference(from: "485529678.jpg") == nil)
+    }
+
+    @Test("Upload metadata preserves Unicode and rejects header injection")
+    func uploadMetadata() throws {
+        let cover = try #require(DrimeAPIProtocol.uploadMetadata(for: "周杰伦-cover.jpg"))
+        #expect(cover.fileExtension == "jpg")
+        #expect(cover.mimeType == "image/jpeg")
+
+        let lyrics = try #require(DrimeAPIProtocol.uploadMetadata(for: "晴天.lrc"))
+        #expect(lyrics.fileExtension == "lrc")
+        #expect(lyrics.mimeType == "text/plain; charset=utf-8")
+
+        #expect(DrimeAPIProtocol.uploadMetadata(for: "bad\r\nname.lrc") == nil)
+        #expect(DrimeAPIProtocol.uploadMetadata(for: "../name.lrc") == nil)
+        #expect(DrimeAPIProtocol.multipartThreshold == 5_242_880)
+        #expect(DrimeAPIProtocol.multipartPartSize == 5_242_880)
+    }
+
+    @Test("Mutation bodies require an explicit success without item errors")
+    func mutationSuccessConfirmation() {
+        #expect(DrimeAPIProtocol.confirmsSuccess(Data(#"{"status":"success"}"#.utf8)))
+        #expect(!DrimeAPIProtocol.confirmsSuccess(Data(#"{"status":"error"}"#.utf8)))
+        #expect(!DrimeAPIProtocol.confirmsSuccess(Data(#"{"status":"success","errors":{"1":"denied"}}"#.utf8)))
+        #expect(!DrimeAPIProtocol.confirmsSuccess(Data("{}".utf8)))
+    }
 }
