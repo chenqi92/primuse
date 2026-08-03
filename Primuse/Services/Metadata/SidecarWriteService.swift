@@ -72,7 +72,7 @@ actor SidecarWriteService {
 
         // 2. Write <basename>.lrc next to audio file
         if !result.sourceUnavailable, let lyricsLines, !lyricsLines.isEmpty {
-            let lrcContent = lyricsLinesToLRC(lyricsLines)
+            let lrcContent = LyricsContentParser.serialize(lyricsLines)
             if let lrcData = lrcContent.data(using: .utf8) {
                 let lrcPath = (songDir as NSString).appendingPathComponent("\(baseNameNoExt).lrc")
                 do {
@@ -100,18 +100,6 @@ actor SidecarWriteService {
             return true
         }
         return false
-    }
-
-    /// Convert parsed LyricLines back to standard LRC format
-    private func lyricsLinesToLRC(_ lines: [LyricLine]) -> String {
-        var output = ""
-        for line in lines {
-            let totalSeconds = line.timestamp
-            let minutes = Int(totalSeconds) / 60
-            let seconds = totalSeconds - Double(minutes * 60)
-            output += String(format: "[%02d:%05.2f]%@\n", minutes, seconds, line.text)
-        }
-        return output
     }
 
     /// Re-encodes an arbitrary image blob (PNG, HEIC, JPEG…) as JPEG at

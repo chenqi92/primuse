@@ -83,7 +83,18 @@
 "tag_editor_disc" = "디스크 번호";
 "tag_editor_reset" = "원래대로 되돌리기";
 "tag_editor_reset_confirm" = "편집 내용을 취소하시겠습니까?";
-"tag_editor_footer" = "편집 내용은 Primuse 내에만 적용되며 iCloud를 통해 동기화됩니다. 원본 파일은 수정되지 않습니다.";
+"tag_editor_footer" = "태그와 커버 변경은 Primuse에만 저장됩니다. 가사는 위에 표시된 소스 쓰기 상태를 따릅니다.";
+"tag_editor_lyrics_section" = "가사";
+"tag_editor_lyrics_placeholder" = "일반 텍스트, LRC 또는 ELRC 가사를 입력하세요…";
+"tag_editor_lyrics_format_hint" = "일반 텍스트, LRC [mm:ss.xxx], ELRC <mm:ss.xxx>단어 형식을 지원하며 기존 타임스탬프를 유지합니다.";
+"tag_editor_lyrics_writeback_checking" = "음악 소스 쓰기 권한 확인 중…";
+"tag_editor_lyrics_writeback_sidecar" = "Primuse에 저장하고 오디오 옆에 같은 이름의 .lrc 파일을 씁니다.";
+"tag_editor_lyrics_writeback_server" = "Primuse에 저장하고 가사를 미디어 서버에 다시 씁니다.";
+"tag_editor_lyrics_writeback_read_only" = "읽기 전용 소스: 변경 사항은 Primuse에 저장되어 iCloud로 동기화되지만 소스에 직접 쓸 수 없습니다.";
+"tag_editor_lyrics_error_title" = "가사를 저장할 수 없음";
+"tag_editor_lyrics_empty_error" = "가사는 비워 둘 수 없습니다. 소스 가사 삭제는 아직 지원하지 않습니다.";
+"tag_editor_lyrics_invalid_error" = "유효한 가사 줄을 찾지 못했습니다.";
+"tag_editor_lyrics_write_failed" = "가사를 다시 쓸 수 없습니다: %@";
 
 // VoiceOver / a11y
 "a11y_shuffle" = "셔플";

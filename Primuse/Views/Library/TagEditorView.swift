@@ -15,10 +15,19 @@ import AppKit
 /// 自动刮削回写 tag 走 ScrapeOptionsView; 这里是给"刮削抓不到 / 抓错了 /
 /// 想自定义命名 / 自己用一张图当封面"场景兜底,完全手工。
 struct TagEditorView: View {
+    private enum LyricsWritebackMode: Equatable {
+        case checking
+        case sidecar
+        case mediaServer
+        case localOnly
+    }
+
     let song: Song
     var onSave: ((Song) -> Void)? = nil
 
     @Environment(MusicLibrary.self) private var library
+    @Environment(SourceManager.self) private var sourceManager
+    @Environment(SourcesStore.self) private var sourcesStore
     @Environment(\.dismiss) private var dismiss
 
     @State private var title: String
@@ -28,6 +37,12 @@ struct TagEditorView: View {
     @State private var yearText: String
     @State private var trackText: String
     @State private var discText: String
+    @State private var lyricsText = ""
+    @State private var originalLyricsText = ""
+    @State private var lyricsLoading = true
+    @State private var lyricsWritebackMode: LyricsWritebackMode = .checking
+    @State private var lyricsErrorMessage: String?
+    @State private var isSaving = false
 
     @State private var showResetConfirm = false
     /// 选中但还没保存的新封面。nil 表示"维持原 song.coverArtFileName"。
@@ -49,11 +64,27 @@ struct TagEditorView: View {
     }
 
     var body: some View {
-        #if os(macOS)
-        macBody
-        #else
-        legacyBody
-        #endif
+        Group {
+            #if os(macOS)
+            macBody
+            #else
+            legacyBody
+            #endif
+        }
+        .task(id: song.id) {
+            await loadLyricsEditor()
+        }
+        .alert(
+            String(localized: "tag_editor_lyrics_error_title"),
+            isPresented: Binding(
+                get: { lyricsErrorMessage != nil },
+                set: { if !$0 { lyricsErrorMessage = nil } }
+            )
+        ) {
+            Button(String(localized: "done"), role: .cancel) {}
+        } message: {
+            Text(lyricsErrorMessage ?? "")
+        }
     }
 
     private var legacyBody: some View {
@@ -76,6 +107,8 @@ struct TagEditorView: View {
                     }
                 }
 
+                lyricsEditorSection
+
                 Section {
                     Button(role: .destructive) {
                         showResetConfirm = true
@@ -93,10 +126,17 @@ struct TagEditorView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(String(localized: "cancel")) { dismiss() }
+                        .disabled(isSaving)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(String(localized: "save")) { Task { await save() } }
-                        .disabled(!hasChanges)
+                    Button { Task { await save() } } label: {
+                        if isSaving {
+                            ProgressView()
+                        } else {
+                            Text(String(localized: "save"))
+                        }
+                    }
+                    .disabled(!hasChanges || lyricsLoading || isSaving)
                 }
             }
             .confirmationDialog(
@@ -173,6 +213,8 @@ struct TagEditorView: View {
                         macField(String(localized: "tag_editor_disc"), text: $discText, original: song.discNumber.map(String.init) ?? "")
                     }
 
+                    macLyricsEditor
+
                     macReadOnlyField(String(localized: "tag_editor_field_file_size"), value: macFileSizeText)
                     macReadOnlyField(String(localized: "tag_editor_field_duration"), value: macDurationText)
                     macReadOnlyField(String(localized: "tag_editor_field_location"), value: song.filePath, monospace: true)
@@ -219,7 +261,7 @@ struct TagEditorView: View {
                         .background(PMColor.glassBtn, in: .rect(cornerRadius: 5))
                 }
                 .buttonStyle(.plain)
-                .disabled(!hasChanges)
+                .disabled(!hasChanges || lyricsLoading || isSaving)
 
                 Button {
                     dismiss()
@@ -231,20 +273,27 @@ struct TagEditorView: View {
                         .padding(.horizontal, 14)
                 }
                 .buttonStyle(.plain)
+                .disabled(isSaving)
 
                 Button {
                     Task { await save() }
                 } label: {
-                    Text(String(localized: "tag_editor_mac_save"))
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(height: 26)
-                        .padding(.horizontal, 14)
-                        .background(hasChanges ? PMColor.brand : PMColor.textFaint.opacity(0.45),
-                                    in: .rect(cornerRadius: 5))
+                    Group {
+                        if isSaving {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Text(String(localized: "tag_editor_mac_save"))
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.white)
+                        }
+                    }
+                    .frame(height: 26)
+                    .padding(.horizontal, 14)
+                    .background(hasChanges ? PMColor.brand : PMColor.textFaint.opacity(0.45),
+                                in: .rect(cornerRadius: 5))
                 }
                 .buttonStyle(.plain)
-                .disabled(!hasChanges)
+                .disabled(!hasChanges || lyricsLoading || isSaving)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
@@ -350,7 +399,50 @@ struct TagEditorView: View {
         if fieldChanged(yearText, song.year.map(String.init) ?? "") { count += 1 }
         if fieldChanged(trackText, song.trackNumber.map(String.init) ?? "") { count += 1 }
         if fieldChanged(discText, song.discNumber.map(String.init) ?? "") { count += 1 }
+        if hasLyricsChanges { count += 1 }
         return count
+    }
+
+    private var macLyricsEditor: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(String(localized: "tag_editor_lyrics_section"))
+                    .font(PMFont.bodyS)
+                    .foregroundStyle(PMColor.textMuted)
+                Spacer()
+                lyricsWritebackStatus
+            }
+
+            ZStack(alignment: .topLeading) {
+                TextEditor(text: $lyricsText)
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .scrollContentBackground(.hidden)
+                    .padding(6)
+                    .disabled(lyricsLoading || isSaving)
+                if lyricsLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if lyricsText.isEmpty {
+                    Text(String(localized: "tag_editor_lyrics_placeholder"))
+                        .font(.system(size: 11.5, design: .monospaced))
+                        .foregroundStyle(PMColor.textFaint)
+                        .padding(12)
+                        .allowsHitTesting(false)
+                }
+            }
+            .frame(minHeight: 170)
+            .background(PMColor.bgElev, in: .rect(cornerRadius: 6))
+            .overlay {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(hasLyricsChanges ? PMColor.brand.opacity(0.55) : PMColor.dividerStrong, lineWidth: 0.5)
+            }
+
+            Text(String(localized: "tag_editor_lyrics_format_hint"))
+                .font(PMFont.caption)
+                .foregroundStyle(PMColor.textFaint)
+        }
+        .padding(.top, 6)
     }
 
     private var macAudioSpec: String {
@@ -409,6 +501,51 @@ struct TagEditorView: View {
             }
         } header: {
             Text(String(localized: "tag_editor_cover_section"))
+        }
+    }
+
+    private var lyricsEditorSection: some View {
+        Section {
+            ZStack(alignment: .topLeading) {
+                TextEditor(text: $lyricsText)
+                    .font(.system(.body, design: .monospaced))
+                    .frame(minHeight: 180)
+                    .disabled(lyricsLoading || isSaving)
+                if lyricsLoading {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if lyricsText.isEmpty {
+                    Text(String(localized: "tag_editor_lyrics_placeholder"))
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 8)
+                        .allowsHitTesting(false)
+                }
+            }
+            lyricsWritebackStatus
+        } header: {
+            Text(String(localized: "tag_editor_lyrics_section"))
+        } footer: {
+            Text(String(localized: "tag_editor_lyrics_format_hint"))
+        }
+    }
+
+    @ViewBuilder
+    private var lyricsWritebackStatus: some View {
+        switch lyricsWritebackMode {
+        case .checking:
+            Label(String(localized: "tag_editor_lyrics_writeback_checking"), systemImage: "hourglass")
+                .foregroundStyle(.secondary)
+        case .sidecar:
+            Label(String(localized: "tag_editor_lyrics_writeback_sidecar"), systemImage: "externaldrive.badge.checkmark")
+                .foregroundStyle(.secondary)
+        case .mediaServer:
+            Label(String(localized: "tag_editor_lyrics_writeback_server"), systemImage: "server.rack")
+                .foregroundStyle(.secondary)
+        case .localOnly:
+            Label(String(localized: "tag_editor_lyrics_writeback_read_only"), systemImage: "lock")
+                .foregroundStyle(.orange)
         }
     }
 
@@ -515,10 +652,20 @@ struct TagEditorView: View {
             || y != song.year
             || tn != song.trackNumber
             || dn != song.discNumber
+            || hasLyricsChanges
+    }
+
+    private var hasLyricsChanges: Bool {
+        guard !lyricsLoading else { return false }
+        return normalizedLyricsText(lyricsText) != normalizedLyricsText(originalLyricsText)
     }
 
     @MainActor
     private func save() async {
+        guard !isSaving else { return }
+        isSaving = true
+        defer { isSaving = false }
+
         var updated = song
         updated.title = title.trimmingCharacters(in: .whitespacesAndNewlines)
         if updated.title.isEmpty {
@@ -531,6 +678,34 @@ struct TagEditorView: View {
         updated.year = Int(yearText.trimmingCharacters(in: .whitespacesAndNewlines))
         updated.trackNumber = Int(trackText.trimmingCharacters(in: .whitespacesAndNewlines))
         updated.discNumber = Int(discText.trimmingCharacters(in: .whitespacesAndNewlines))
+
+        if hasLyricsChanges {
+            let content = normalizedLyricsText(lyricsText)
+            guard !content.isEmpty else {
+                lyricsErrorMessage = String(localized: "tag_editor_lyrics_empty_error")
+                return
+            }
+            let lines = LyricsContentParser.parseText(content)
+            guard !lines.isEmpty else {
+                lyricsErrorMessage = String(localized: "tag_editor_lyrics_invalid_error")
+                return
+            }
+
+            let mode = lyricsWritebackMode == .checking
+                ? await resolveLyricsWritebackMode()
+                : lyricsWritebackMode
+            if let error = await writeLyricsBack(lines, for: updated, mode: mode) {
+                lyricsErrorMessage = String(
+                    format: String(localized: "tag_editor_lyrics_write_failed"),
+                    error
+                )
+                return
+            }
+
+            _ = await MetadataAssetStore.shared.cacheLyrics(lines, forSongID: song.id, force: true)
+            updated.lyricsFileName = MetadataAssetStore.shared.expectedLyricsFileName(for: song.id)
+            updated.lyricsText = lines.map(\.text).joined(separator: "\n")
+        }
 
         // 新封面 → 写到 MetadataAssetStore,文件名作为新 coverArtFileName。
         // storeCover 内部 dedupe by content hash,同一张图重复存只占一份空间。
@@ -546,8 +721,74 @@ struct TagEditorView: View {
         }
 
         library.replaceSong(updated)
+        if hasLyricsChanges {
+            NotificationCenter.default.post(name: .primuseLyricsDidChange, object: updated.id)
+        }
         onSave?(updated)
         dismiss()
+    }
+
+    @MainActor
+    private func loadLyricsEditor() async {
+        lyricsLoading = true
+        async let loadedLines = LyricsLoader.load(for: song, sourceManager: sourceManager)
+        _ = await resolveLyricsWritebackMode()
+        let text = LyricsContentParser.serialize(await loadedLines)
+        lyricsText = text
+        originalLyricsText = text
+        lyricsLoading = false
+    }
+
+    @MainActor
+    private func resolveLyricsWritebackMode() async -> LyricsWritebackMode {
+        let mode: LyricsWritebackMode
+        if await sourceManager.supportsSidecarWriting(for: song) {
+            mode = .sidecar
+        } else if sourcesStore.source(id: song.sourceID)?.type == .jellyfin {
+            mode = .mediaServer
+        } else {
+            mode = .localOnly
+        }
+        lyricsWritebackMode = mode
+        return mode
+    }
+
+    private func writeLyricsBack(
+        _ lines: [LyricLine],
+        for updated: Song,
+        mode: LyricsWritebackMode
+    ) async -> String? {
+        switch mode {
+        case .checking, .localOnly:
+            return nil
+        case .sidecar:
+            do {
+                let result = try await MusicScraperService.writeSidecarWithTimeout(
+                    seconds: 30,
+                    sourceManager: sourceManager,
+                    for: updated,
+                    coverData: nil,
+                    lyricsLines: lines
+                )
+                guard result.lyricsWritten else {
+                    return result.errors.joined(separator: "\n")
+                }
+                return nil
+            } catch {
+                return error.localizedDescription
+            }
+        case .mediaServer:
+            let result = await sourceManager.writeScrapedMetadataToMediaServer(
+                original: updated,
+                updated: updated,
+                coverData: nil,
+                lyricsLines: lines
+            )
+            guard result.lyricsWritten else {
+                return (result.errors + result.unsupported).joined(separator: "\n")
+            }
+            return nil
+        }
     }
 
     private func resetFromOriginal() {
@@ -558,6 +799,7 @@ struct TagEditorView: View {
         yearText = song.year.map { String($0) } ?? ""
         trackText = song.trackNumber.map { String($0) } ?? ""
         discText = song.discNumber.map { String($0) } ?? ""
+        lyricsText = originalLyricsText
         pickedCoverData = nil
         coverPickerItem = nil
     }
@@ -565,6 +807,11 @@ struct TagEditorView: View {
     private func trimmedOrNil(_ s: String) -> String? {
         let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
         return t.isEmpty ? nil : t
+    }
+
+    private func normalizedLyricsText(_ text: String) -> String {
+        text.replacingOccurrences(of: "\r\n", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

@@ -1837,7 +1837,7 @@ final class MusicScraperService {
         return merged
     }
 
-    private nonisolated static func writeSidecarWithTimeout(
+    nonisolated static func writeSidecarWithTimeout(
         seconds: TimeInterval,
         sourceManager: SourceManager,
         for song: Song,

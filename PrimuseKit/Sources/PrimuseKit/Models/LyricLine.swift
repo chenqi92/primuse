@@ -170,6 +170,28 @@ public enum LyricsContentParser {
             .map { LyricLine(timestamp: 0, text: $0.element, isSynchronized: false) }
     }
 
+    /// Convert editable lyric models back to a text representation without
+    /// flattening synchronization data. Plain lyrics remain plain, line-level
+    /// lyrics use LRC timestamps, and syllable lyrics use ELRC word markers.
+    public static func serialize(_ lines: [LyricLine]) -> String {
+        lines.map { line in
+            guard line.isSynchronized else { return line.text }
+
+            let lineHead = "[\(formatTimestamp(line.timestamp))]"
+            guard let syllables = line.syllables, !syllables.isEmpty else {
+                return lineHead + line.text
+            }
+
+            var body = syllables.map {
+                "<\(formatTimestamp($0.start))>\($0.text)"
+            }.joined()
+            if let end = syllables.last?.end, end > syllables.last!.start {
+                body += "<\(formatTimestamp(end))>"
+            }
+            return lineHead + body
+        }.joined(separator: "\n")
+    }
+
     private static func parseWordLevelLine(
         body: String,
         lineStart: TimeInterval
@@ -281,5 +303,13 @@ public enum LyricsContentParser {
         let result = minutes * 60 + seconds + fraction / divisor
         guard result.isFinite, result <= 7 * 24 * 3600 else { return nil }
         return result
+    }
+
+    private static func formatTimestamp(_ time: TimeInterval) -> String {
+        let milliseconds = max(0, (time * 1_000).rounded()).finiteInt()
+        let minutes = milliseconds / 60_000
+        let seconds = (milliseconds % 60_000) / 1_000
+        let fraction = milliseconds % 1_000
+        return String(format: "%02d:%02d.%03d", minutes, seconds, fraction)
     }
 }

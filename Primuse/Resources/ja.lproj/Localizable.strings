@@ -84,7 +84,18 @@
 "tag_editor_disc" = "ディスク番号";
 "tag_editor_reset" = "元に戻す";
 "tag_editor_reset_confirm" = "編集内容を破棄しますか？";
-"tag_editor_footer" = "編集内容は Primuse 内のみで有効で、iCloud で同期されます。元のファイルは変更されません。";
+"tag_editor_footer" = "Tag and cover edits stay within Primuse. Lyrics follow the source writeback status shown above.";
+"tag_editor_lyrics_section" = "Lyrics";
+"tag_editor_lyrics_placeholder" = "Enter plain lyrics, LRC, or ELRC…";
+"tag_editor_lyrics_format_hint" = "Supports plain text, LRC [mm:ss.xxx], and ELRC <mm:ss.xxx>word. Existing timestamps are preserved.";
+"tag_editor_lyrics_writeback_checking" = "Checking source write access…";
+"tag_editor_lyrics_writeback_sidecar" = "Saves to Primuse and writes a same-name .lrc file beside the audio.";
+"tag_editor_lyrics_writeback_server" = "Saves to Primuse and writes lyrics back to the media server.";
+"tag_editor_lyrics_writeback_read_only" = "Read-only source: saves in Primuse and syncs via iCloud, but cannot be written back directly.";
+"tag_editor_lyrics_error_title" = "Couldn’t Save Lyrics";
+"tag_editor_lyrics_empty_error" = "Lyrics cannot be empty. Removing source lyrics is not supported yet.";
+"tag_editor_lyrics_invalid_error" = "No valid lyric lines were found.";
+"tag_editor_lyrics_write_failed" = "Lyrics could not be written back: %@";
 
 // VoiceOver / a11y
 "a11y_shuffle" = "シャッフル";

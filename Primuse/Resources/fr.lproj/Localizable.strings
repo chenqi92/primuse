@@ -83,7 +83,18 @@
 "tag_editor_disc" = "N° de disque";
 "tag_editor_reset" = "Rétablir l'original";
 "tag_editor_reset_confirm" = "Abandonner vos modifications ?";
-"tag_editor_footer" = "Les modifications restent dans Primuse et sont synchronisées via iCloud. Le fichier source n'est pas modifié.";
+"tag_editor_footer" = "Les tags et la pochette restent dans Primuse. Pour les paroles, consultez l’état de réécriture affiché ci-dessus.";
+"tag_editor_lyrics_section" = "Paroles";
+"tag_editor_lyrics_placeholder" = "Saisissez des paroles en texte brut, LRC ou ELRC…";
+"tag_editor_lyrics_format_hint" = "Prend en charge le texte brut, LRC [mm:ss.xxx] et ELRC <mm:ss.xxx>mot. Les horodatages existants sont conservés.";
+"tag_editor_lyrics_writeback_checking" = "Vérification de l’accès en écriture…";
+"tag_editor_lyrics_writeback_sidecar" = "Enregistre dans Primuse et écrit un fichier .lrc du même nom à côté de l’audio.";
+"tag_editor_lyrics_writeback_server" = "Enregistre dans Primuse et renvoie les paroles au serveur multimédia.";
+"tag_editor_lyrics_writeback_read_only" = "Source en lecture seule : les modifications sont enregistrées dans Primuse et synchronisées via iCloud, sans écriture directe sur la source.";
+"tag_editor_lyrics_error_title" = "Impossible d’enregistrer les paroles";
+"tag_editor_lyrics_empty_error" = "Les paroles ne peuvent pas être vides. Leur suppression de la source n’est pas encore prise en charge.";
+"tag_editor_lyrics_invalid_error" = "Aucune ligne de paroles valide n’a été trouvée.";
+"tag_editor_lyrics_write_failed" = "Impossible de réécrire les paroles : %@";
 
 // VoiceOver / a11y
 "a11y_shuffle" = "Aléatoire";

@@ -83,7 +83,18 @@
 "tag_editor_disc" = "CD-Nummer";
 "tag_editor_reset" = "Auf Original zurücksetzen";
 "tag_editor_reset_confirm" = "Deine Änderungen verwerfen?";
-"tag_editor_footer" = "Änderungen bleiben in Primuse und werden über iCloud synchronisiert. Die Originaldatei wird nicht verändert.";
+"tag_editor_footer" = "Tag- und Coveränderungen bleiben in Primuse. Für Songtexte gilt der oben angezeigte Rückschreibstatus.";
+"tag_editor_lyrics_section" = "Songtext";
+"tag_editor_lyrics_placeholder" = "Songtext als Klartext, LRC oder ELRC eingeben…";
+"tag_editor_lyrics_format_hint" = "Unterstützt Klartext, LRC [mm:ss.xxx] und ELRC <mm:ss.xxx>Wort. Vorhandene Zeitstempel bleiben erhalten.";
+"tag_editor_lyrics_writeback_checking" = "Schreibzugriff der Quelle wird geprüft…";
+"tag_editor_lyrics_writeback_sidecar" = "Speichert in Primuse und schreibt eine gleichnamige .lrc-Datei neben die Audiodatei.";
+"tag_editor_lyrics_writeback_server" = "Speichert in Primuse und schreibt den Songtext auf den Medienserver zurück.";
+"tag_editor_lyrics_writeback_read_only" = "Schreibgeschützte Quelle: Änderungen werden in Primuse gespeichert und über iCloud synchronisiert, können aber nicht direkt zurückgeschrieben werden.";
+"tag_editor_lyrics_error_title" = "Songtext konnte nicht gespeichert werden";
+"tag_editor_lyrics_empty_error" = "Der Songtext darf nicht leer sein. Das Entfernen aus der Quelle wird noch nicht unterstützt.";
+"tag_editor_lyrics_invalid_error" = "Keine gültigen Songtextzeilen gefunden.";
+"tag_editor_lyrics_write_failed" = "Songtext konnte nicht zurückgeschrieben werden: %@";
 
 // VoiceOver / a11y
 "a11y_shuffle" = "Zufall";

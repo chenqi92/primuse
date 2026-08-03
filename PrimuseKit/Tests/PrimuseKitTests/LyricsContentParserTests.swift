@@ -46,4 +46,25 @@ struct LyricsContentParserTests {
         #expect(lines.count == 2)
         #expect(lines.allSatisfy { !$0.isSynchronized })
     }
+
+    @Test("Plain, LRC and ELRC serialization keeps their synchronization level")
+    func serializesEveryEditableFormat() throws {
+        let plain = LyricsContentParser.parseText("First\nSecond")
+        #expect(LyricsContentParser.serialize(plain) == "First\nSecond")
+
+        let lrc = LyricsContentParser.parseText("[00:00.000]Opening\n[01:02.345]Verse")
+        let lrcText = LyricsContentParser.serialize(lrc)
+        #expect(lrcText == "[00:00.000]Opening\n[01:02.345]Verse")
+        let reparsedLRC = LyricsContentParser.parse(lrcText)
+        #expect(reparsedLRC.map(\.timestamp) == lrc.map(\.timestamp))
+        #expect(reparsedLRC.map(\.text) == lrc.map(\.text))
+
+        let elrc = LyricsContentParser.parse(issue15ELRC)
+        let elrcText = LyricsContentParser.serialize(elrc)
+        let reparsed = LyricsContentParser.parse(elrcText)
+        #expect(LyricsFormat.detect(elrcText) == .wordLevel)
+        #expect(reparsed.map(\.timestamp) == elrc.map(\.timestamp))
+        #expect(reparsed.map(\.text) == elrc.map(\.text))
+        #expect(reparsed.map { $0.syllables?.map(\.start) } == elrc.map { $0.syllables?.map(\.start) })
+    }
 }
