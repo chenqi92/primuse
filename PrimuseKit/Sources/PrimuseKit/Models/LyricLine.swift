@@ -114,3 +114,172 @@ public enum LyricsFormat: String, Codable, Sendable, CaseIterable {
 
     public var isSynced: Bool { self != .plain }
 }
+
+public enum LyricsContentParser {
+    nonisolated(unsafe) private static let lineHeadPattern = /\[(\d+):(\d{2})(?:[.:](\d{1,3}))?\]/
+    nonisolated(unsafe) private static let relativeLineHeadPattern = /^\[(\d+),(\d+)\]/
+    nonisolated(unsafe) private static let inlineWordPattern = /<(\d+):(\d{2})(?:[.:](\d{1,3}))?>/
+    nonisolated(unsafe) private static let relativeWordPattern = /<(\d+),(\d+)(?:,\d+)?>/
+
+    public static func parse(_ content: String) -> [LyricLine] {
+        var lines: [LyricLine] = []
+
+        for raw in content.components(separatedBy: .newlines) {
+            let heads = raw.matches(of: lineHeadPattern)
+            if heads.isEmpty {
+                guard let head = raw.firstMatch(of: relativeLineHeadPattern) else { continue }
+                let lineStart = (Double(head.1) ?? 0) / 1000
+                let body = String(raw[head.range.upperBound...])
+                if let parsed = parseWordLevelLine(body: body, lineStart: lineStart) {
+                    lines.append(parsed)
+                } else {
+                    let text = body.trimmingCharacters(in: .whitespaces)
+                    guard !text.isEmpty else { continue }
+                    lines.append(LyricLine(timestamp: lineStart, text: text, isSynchronized: true))
+                }
+                continue
+            }
+
+            guard let lastHead = heads.last else { continue }
+            let body = String(raw[lastHead.range.upperBound...])
+            for head in heads {
+                guard let lineStart = parseTimestamp(min: head.1, sec: head.2, frac: head.3) else {
+                    continue
+                }
+                if let parsed = parseWordLevelLine(body: body, lineStart: lineStart) {
+                    lines.append(parsed)
+                } else {
+                    let text = body.trimmingCharacters(in: .whitespaces)
+                    guard !text.isEmpty else { continue }
+                    lines.append(LyricLine(timestamp: lineStart, text: text, isSynchronized: true))
+                }
+            }
+        }
+
+        return lines.sorted { $0.timestamp < $1.timestamp }
+    }
+
+    public static func parseText(_ text: String) -> [LyricLine] {
+        let synchronized = parse(text)
+        if !synchronized.isEmpty { return synchronized }
+
+        return text.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .enumerated()
+            .map { LyricLine(timestamp: 0, text: $0.element, isSynchronized: false) }
+    }
+
+    private static func parseWordLevelLine(
+        body: String,
+        lineStart: TimeInterval
+    ) -> LyricLine? {
+        let marks = body.matches(of: inlineWordPattern)
+        guard !marks.isEmpty else {
+            return parseRelativeWordLevelLine(body: body, lineStart: lineStart)
+        }
+
+        var syllables: [LyricSyllable] = []
+        for (index, mark) in marks.enumerated() {
+            guard let start = parseTimestamp(min: mark.1, sec: mark.2, frac: mark.3) else {
+                continue
+            }
+            let textStart = mark.range.upperBound
+            let textEnd = index + 1 < marks.count ? marks[index + 1].range.lowerBound : body.endIndex
+            let chunk = String(body[textStart..<textEnd])
+            if chunk.isEmpty {
+                if let last = syllables.last {
+                    syllables[syllables.count - 1] = LyricSyllable(
+                        text: last.text,
+                        start: last.start,
+                        end: max(last.end, start)
+                    )
+                }
+                continue
+            }
+            syllables.append(LyricSyllable(text: chunk, start: start, end: start))
+        }
+
+        guard !syllables.isEmpty else { return nil }
+        for index in 0..<(syllables.count - 1) {
+            syllables[index].end = max(syllables[index].end, syllables[index + 1].start)
+        }
+        if let lastIndex = syllables.indices.last,
+           syllables[lastIndex].end <= syllables[lastIndex].start {
+            syllables[lastIndex].end = syllables[lastIndex].start + 0.4
+        }
+
+        return makeWordLevelLine(lineStart: lineStart, syllables: syllables)
+    }
+
+    private static func parseRelativeWordLevelLine(
+        body: String,
+        lineStart: TimeInterval
+    ) -> LyricLine? {
+        let marks = body.matches(of: relativeWordPattern)
+        guard !marks.isEmpty else { return nil }
+
+        var syllables: [LyricSyllable] = []
+        for (index, mark) in marks.enumerated() {
+            let offset = (Double(mark.1) ?? 0) / 1000
+            let duration = (Double(mark.2) ?? 0) / 1000
+            let start = lineStart + offset
+            let end = duration > 0 ? start + duration : start
+            let textStart = mark.range.upperBound
+            let textEnd = index + 1 < marks.count ? marks[index + 1].range.lowerBound : body.endIndex
+            let chunk = String(body[textStart..<textEnd])
+            if chunk.isEmpty {
+                if let last = syllables.last {
+                    syllables[syllables.count - 1] = LyricSyllable(
+                        text: last.text,
+                        start: last.start,
+                        end: max(last.end, end)
+                    )
+                }
+                continue
+            }
+            syllables.append(LyricSyllable(text: chunk, start: start, end: end))
+        }
+
+        guard !syllables.isEmpty else { return nil }
+        for index in 0..<(syllables.count - 1) where syllables[index].end <= syllables[index].start {
+            syllables[index].end = syllables[index + 1].start
+        }
+        if let lastIndex = syllables.indices.last,
+           syllables[lastIndex].end <= syllables[lastIndex].start {
+            syllables[lastIndex].end = syllables[lastIndex].start + 0.4
+        }
+
+        return makeWordLevelLine(lineStart: lineStart, syllables: syllables)
+    }
+
+    private static func makeWordLevelLine(
+        lineStart: TimeInterval,
+        syllables: [LyricSyllable]
+    ) -> LyricLine? {
+        let text = syllables.map(\.text).joined()
+        guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        return LyricLine(
+            timestamp: lineStart,
+            text: text,
+            isSynchronized: true,
+            syllables: syllables
+        )
+    }
+
+    private static func parseTimestamp(
+        min: Substring,
+        sec: Substring,
+        frac: Substring?
+    ) -> TimeInterval? {
+        guard let minutes = Double(min), minutes.isFinite, minutes >= 0,
+              let seconds = Double(sec), seconds.isFinite, (0..<60).contains(seconds),
+              let fraction = Double(frac ?? "0"), fraction.isFinite else {
+            return nil
+        }
+        let divisor = pow(10, Double(frac?.count ?? 2))
+        let result = minutes * 60 + seconds + fraction / divisor
+        guard result.isFinite, result <= 7 * 24 * 3600 else { return nil }
+        return result
+    }
+}

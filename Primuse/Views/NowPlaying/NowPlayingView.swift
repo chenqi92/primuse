@@ -2786,50 +2786,6 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
 
 // MARK: - LyricsScrollView (隔离的歌词渲染子 view)
 
-/// Word-level rows can emit several geometry changes while SwiftUI resolves
-/// one render pass. Keep those measurements outside view state and apply only
-/// the last stable batch, so measuring a row never invalidates that same row.
-@MainActor
-private final class LyricGeometryUpdateCoordinator {
-    private var rowFrameTask: Task<Void, Never>?
-    private var rowFrames: [String: CGRect] = [:]
-    private var hasAppliedRowFrames = false
-
-    func scheduleRowFrame(
-        id: String,
-        frame: CGRect,
-        validIDs: Set<String>,
-        apply: @escaping @MainActor ([String: CGRect], Bool) -> Void
-    ) {
-        rowFrames = LyricRowFrameBatchPolicy.merging(
-            id: id,
-            frame: frame,
-            into: rowFrames,
-            retaining: validIDs
-        )
-        rowFrameTask?.cancel()
-        rowFrameTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(20))
-            guard !Task.isCancelled else { return }
-            let shouldAnimate = hasAppliedRowFrames
-            hasAppliedRowFrames = true
-            apply(rowFrames, shouldAnimate)
-            rowFrameTask = nil
-        }
-    }
-
-    func frame(for id: String) -> CGRect? {
-        rowFrames[id]
-    }
-
-    func reset() {
-        rowFrameTask?.cancel()
-        rowFrameTask = nil
-        rowFrames = [:]
-        hasAppliedRowFrames = false
-    }
-}
-
 /// Reserves the largest vertical footprint a lyric row can occupy while its
 /// render-layer emphasis animates. `scaleEffect` deliberately does not affect
 /// SwiftUI layout; without this stable envelope a wrapped active row can draw
@@ -2890,22 +2846,15 @@ struct LyricsScrollView: View {
     @State private var lyricsPinchScale: CGFloat = 1.0
     @State private var isPinchingLyrics = false
     @State private var currentLineIndex = 0
-    @State private var wordAutoOffset: CGFloat = 0
     /// 行点击与父级空白点击是 simultaneous gestures。记录行点击时刻并在
     /// 下一次主线程调度时仲裁，避免为每行持续发布全局 geometry preference。
     @State private var lastLyricRowTapAt: Date = .distantPast
-    @State private var geometryUpdateCoordinator = LyricGeometryUpdateCoordinator()
 
     // 用户手动拖动歌词时, 暂时冻结自动滚动 ── 否则刚拖到想看的位置, 下一帧
     // auto follow 又把视图拽回当前行, 等于不能浏览。lastUserScrollTime 静止
     // 超过 manualScrollGracePeriod 后恢复 auto follow。
     @State private var lastUserScrollTime: Date = .distantPast
-    /// 字级模式下, 用户手动拖出的偏移。nil 表示当前由 auto follow 接管。
-    @State private var manualWordOffset: CGFloat? = nil
-    /// 拖动 session 开始时的偏移基准 (用于把 translation.height 累加上去)。
-    @State private var wordDragStartOffset: CGFloat = 0
-    @State private var wordAutoFollowResumeTask: Task<Void, Never>? = nil
-    /// 行级歌词在手动浏览保护期结束时必须主动归位。旧实现只在歌词索引
+    /// 歌词在手动浏览保护期结束时必须主动归位。旧实现只在歌词索引
     /// 下一次变化时尝试 scrollTo，遇到长句/间奏就会长期停在错误位置。
     @State private var lineAutoFollowResumeTask: Task<Void, Never>? = nil
     private static let manualScrollGracePeriod: TimeInterval = 3.0
@@ -2969,16 +2918,11 @@ struct LyricsScrollView: View {
         .onChange(of: songID) { _, _ in
             // 切歌时把行索引清零 + 让自动滚动重新 anchor
             currentLineIndex = 0
-            wordAutoOffset = 0
             lastLyricRowTapAt = .distantPast
-            manualWordOffset = nil
-            wordDragStartOffset = 0
             lastUserScrollTime = .distantPast
             lyricsPinchScale = 1
             isPinchingLyrics = false
-            wordAutoFollowResumeTask?.cancel()
             lineAutoFollowResumeTask?.cancel()
-            geometryUpdateCoordinator.reset()
         }
         .lyricsTranslationTaskIfAvailable(
             songID: songID,
@@ -3152,74 +3096,77 @@ struct LyricsScrollView: View {
     private var smoothWordLyricsView: some View {
         GeometryReader { geo in
             let contentWidth = lyricContentWidth(in: geo.size.width)
-            let validRowIDs = Set(lyrics.lazy.map(\.id))
+            ScrollViewReader { proxy in
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Spacer().frame(height: geo.size.height * Self.lyricsVisualAnchor)
 
-            VStack(alignment: .leading, spacing: 12) {
-                Spacer().frame(height: 20)
+                        wordLevelBadge
 
-                wordLevelBadge
-
-                ForEach(Array(lyrics.enumerated()), id: \.element.id) { index, line in
-                    // 字级模式不再用外层 Timeline 驱动整页。行滚动跟 active 行
-                    // (currentLineIndex) 同步, 切到新句的同时滚动到位; 再由新句
-                    // 第一个字的 bounce 收尾。当前 active 行内部的 syllable 扫光
-                    // 由 KaraokeLineView 自己刷新。
-                    let activity = rowVisualActivity(index: index)
-                    LyricsScaleEnvelopeLayout(
-                        maximumScale: Self.lyricsActiveVisualScale
-                    ) {
-                        lyricsRow(
-                            line: line,
-                            index: index,
-                            dimmedByAmbient: true,
-                            availableWidth: contentWidth,
-                            visualScale: CGFloat(activity.scale)
-                        )
-                    }
-                        .id(line.id)
-                        .opacity(activity.opacity)
-                        // 明暗 + 放大过渡跟滚动用同一条 spring (同时长同曲线),
-                        // active 行边长大边滑到中央, 上一句边缩小变暗边滑走 ──
-                        // 不是大小先到位、位置后到位的割裂感。上一句的缩小因此是
-                        // 一段短暂渐变, 而非瞬间还原。
-                        .animation(.smooth(duration: Self.lyricsTransitionDuration, extraBounce: 0), value: currentLineIndex)
-                        .padding(.vertical, 2)
-                        .onGeometryChange(for: CGRect.self) { proxy in
-                            proxy.frame(in: .named(SmoothWordLyricsCoordinateSpace.name))
-                        } action: { frame in
-                            scheduleWordRowFrame(
-                                id: line.id,
-                                frame: frame,
-                                validIDs: validRowIDs,
-                                viewportHeight: geo.size.height
+                        ForEach(Array(lyrics.enumerated()), id: \.element.id) { index, line in
+                            let activity = rowVisualActivity(index: index)
+                            LyricsScaleEnvelopeLayout(
+                                maximumScale: Self.lyricsActiveVisualScale
+                            ) {
+                                lyricsRow(
+                                    line: line,
+                                    index: index,
+                                    dimmedByAmbient: true,
+                                    availableWidth: contentWidth,
+                                    visualScale: CGFloat(activity.scale)
+                                )
+                            }
+                            .id(line.id)
+                            .opacity(activity.opacity)
+                            .animation(
+                                .smooth(duration: Self.lyricsTransitionDuration, extraBounce: 0),
+                                value: currentLineIndex
                             )
+                            .padding(.vertical, 2)
                         }
-                }
 
-                Spacer().frame(height: 80)
-            }
-            .frame(width: contentWidth, alignment: .topLeading)
-            .padding(.horizontal, Self.lyricsHorizontalPadding)
-            .coordinateSpace(name: SmoothWordLyricsCoordinateSpace.name)
-            .offset(y: displayWordOffset(autoOffset: wordAutoOffset))
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-            .onChange(of: currentLineIndex) { _, _ in
-                updateWordAutoOffset(viewportHeight: geo.size.height, animated: true)
-            }
-            .onChange(of: geo.size.height) { _, _ in
-                updateWordAutoOffset(viewportHeight: geo.size.height, animated: false)
-            }
-            .task(id: lyricsPresentationIdentity) {
-                updateCurrentLine()
-                await Task.yield()
-                guard !Task.isCancelled else { return }
-                updateWordAutoOffset(viewportHeight: geo.size.height, animated: false)
-            }
-            .contentShape(Rectangle())
-            .simultaneousGesture(wordDragGesture())
-            .onDisappear {
-                wordAutoFollowResumeTask?.cancel()
-                geometryUpdateCoordinator.reset()
+                        Spacer().frame(height: geo.size.height * (1 - Self.lyricsVisualAnchor))
+                    }
+                    .frame(width: contentWidth, alignment: .topLeading)
+                    .padding(.horizontal, Self.lyricsHorizontalPadding)
+                }
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 4)
+                        .onChanged { _ in beginLineManualBrowsing() }
+                        .onEnded { _ in endLineManualBrowsing(proxy: proxy) }
+                )
+                .onScrollPhaseChange { oldPhase, newPhase in
+                    switch newPhase {
+                    case .tracking, .interacting, .decelerating:
+                        beginLineManualBrowsing()
+                    case .idle:
+                        if oldPhase == .tracking
+                            || oldPhase == .interacting
+                            || oldPhase == .decelerating {
+                            endLineManualBrowsing(proxy: proxy)
+                        }
+                    case .animating:
+                        break
+                    }
+                }
+                .onChange(of: currentLineIndex) { _, idx in
+                    guard !isPinchingLyrics,
+                          Date().timeIntervalSince(lastUserScrollTime) >= Self.manualScrollGracePeriod
+                    else { return }
+                    scrollLine(to: idx, proxy: proxy, animated: true)
+                }
+                .onChange(of: lyricsFontScale) { _, _ in
+                    scheduleLineAutoFollowResume(proxy: proxy, delay: 0)
+                }
+                .task(id: lyricsPresentationIdentity) {
+                    let targetIndex = updateCurrentLine()
+                    await Task.yield()
+                    guard !Task.isCancelled, let targetIndex else { return }
+                    scrollLine(to: targetIndex, proxy: proxy, animated: false)
+                }
+                .onDisappear {
+                    lineAutoFollowResumeTask?.cancel()
+                }
             }
         }
         .clipped()
@@ -3251,52 +3198,6 @@ struct LyricsScrollView: View {
                     isPinchingLyrics = false
                 }
         )
-    }
-
-    /// 决定字级歌词视图当前应该用哪个 offset:
-    /// - 用户拖动后 grace period 内 → 用手动偏移
-    /// - 否则 → 用 auto follow 偏移
-    private func displayWordOffset(autoOffset: CGFloat) -> CGFloat {
-        if let manual = manualWordOffset { return manual }
-        return autoOffset
-    }
-
-    private func wordDragGesture() -> some Gesture {
-        DragGesture(minimumDistance: 4)
-            .onChanged { value in
-                wordAutoFollowResumeTask?.cancel()
-                if manualWordOffset == nil {
-                    wordDragStartOffset = wordAutoOffset
-                    manualWordOffset = wordAutoOffset
-                }
-                manualWordOffset = wordDragStartOffset + value.translation.height
-                lastUserScrollTime = Date()
-                // Keep a watchdog armed even if the system cancels the gesture
-                // and SwiftUI never calls onEnded. The latest movement wins.
-                scheduleWordAutoFollowResume()
-            }
-            .onEnded { _ in
-                if let cur = manualWordOffset {
-                    wordDragStartOffset = cur
-                }
-                lastUserScrollTime = Date()
-                scheduleWordAutoFollowResume()
-            }
-    }
-
-    private func scheduleWordAutoFollowResume() {
-        wordAutoFollowResumeTask?.cancel()
-        wordAutoFollowResumeTask = Task { @MainActor in
-            let nanoseconds = (Self.manualScrollGracePeriod * 1_000_000_000)
-                .finiteUInt64(or: 1_000_000_000)
-            try? await Task.sleep(nanoseconds: nanoseconds)
-            guard !Task.isCancelled else { return }
-            guard Date().timeIntervalSince(lastUserScrollTime) >= Self.manualScrollGracePeriod else { return }
-            wordDragStartOffset = wordAutoOffset
-            withAnimation(.smooth(duration: Self.lyricsTransitionDuration, extraBounce: 0)) {
-                manualWordOffset = nil
-            }
-        }
     }
 
     private var lineLevelScrollIdentity: String {
@@ -3377,61 +3278,6 @@ struct LyricsScrollView: View {
         .padding(.horizontal, 8).padding(.vertical, 3)
         .background(Capsule().fill(appearance.primary.opacity(0.10)))
         .padding(.bottom, 4)
-    }
-
-    private func scheduleWordRowFrame(
-        id: String,
-        frame: CGRect,
-        validIDs: Set<String>,
-        viewportHeight: CGFloat
-    ) {
-        geometryUpdateCoordinator.scheduleRowFrame(
-            id: id,
-            frame: frame,
-            validIDs: validIDs
-        ) { frames, shouldAnimate in
-            updateWordAutoOffset(
-                viewportHeight: viewportHeight,
-                animated: shouldAnimate,
-                frames: frames
-            )
-        }
-    }
-
-    private func targetWordContentOffset(
-        for index: Int,
-        viewportHeight: CGFloat,
-        frames: [String: CGRect]? = nil
-    ) -> CGFloat {
-        guard !lyrics.isEmpty else { return 0 }
-        let safeIndex = min(max(index, 0), lyrics.count - 1)
-        let rowID = lyrics[safeIndex].id
-        guard let frame = frames?[rowID] ?? geometryUpdateCoordinator.frame(for: rowID) else {
-            return wordAutoOffset
-        }
-        let visualAnchor = viewportHeight * Self.lyricsVisualAnchor
-        return visualAnchor - frame.midY
-    }
-
-    private func updateWordAutoOffset(
-        viewportHeight: CGFloat,
-        animated: Bool,
-        frames: [String: CGRect]? = nil
-    ) {
-        let next = targetWordContentOffset(
-            for: currentLineIndex,
-            viewportHeight: viewportHeight,
-            frames: frames
-        )
-        guard abs(next - wordAutoOffset) > 0.5 else { return }
-        let update = { wordAutoOffset = next }
-        guard animated, !isPinchingLyrics else {
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            withTransaction(transaction, update)
-            return
-        }
-        withAnimation(.smooth(duration: Self.lyricsTransitionDuration, extraBounce: 0), update)
     }
 
     /// dimmedByAmbient: 统一动效模式调用时传 true ── 表明行整体明暗由外层
@@ -3671,10 +3517,6 @@ struct LyricsScrollView: View {
         if currentLineIndex != activeIndex { currentLineIndex = activeIndex }
         return activeIndex
     }
-}
-
-private enum SmoothWordLyricsCoordinateSpace {
-    static let name = "smoothWordLyricsContent"
 }
 
 private extension View {
