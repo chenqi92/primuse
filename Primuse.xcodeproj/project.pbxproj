@@ -45,6 +45,7 @@
 		0C2D861EA2C1F6534529CE43 /* DaoLiYuSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82FEDDB18A0292FEC6CB614B /* DaoLiYuSource.swift */; };
 		0C5962333D3B2CEDE959469C /* TVLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CBB2FFF8359202218FA16DB /* TVLibraryView.swift */; };
 		0D872E56924B184F3C3F15B6 /* DropboxSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC2D3494E7475F44773698F9 /* DropboxSource.swift */; };
+		D14D00000000000000000002 /* DrimeSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14D00000000000000000001 /* DrimeSource.swift */; };
 		0DE424D06481AD17229FF9F0 /* LRCLIBScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AE8A78DAC80BEED65803A6B /* LRCLIBScraper.swift */; };
 		0E1B2F74C7EE8A384BE87E73 /* NetworkDiscoveryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 491A850F03AC46FECF60ADFD /* NetworkDiscoveryService.swift */; };
 		0E6463926D749078CF6E3C2F /* LyricsParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3853774B80EC7B89FE6982B /* LyricsParser.swift */; };
@@ -78,6 +79,7 @@
 		18D8E338807049AEFD675052 /* ByteRangeReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BE978C7C25D46717630E668 /* ByteRangeReader.swift */; };
 		18D9115DD587058F8DADE067 /* PrimuseWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0079EF685D04AD5701F7F80F /* PrimuseWatchApp.swift */; };
 		18EF7BC5C1B706CD5A3E761F /* CloudDriveStreamResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CE02EE3CFE1DFDF66C66B7B /* CloudDriveStreamResolver.swift */; };
+		D14D00000000000000000005 /* DrimeAPIProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14D00000000000000000004 /* DrimeAPIProtocol.swift */; };
 		193463D65D5D8855FB50984D /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 449E8C72C7990DCAAE0C289F /* Localizable.strings */; };
 		195625F2567DFD42CB036420 /* AppleMusicNowPlayingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCADF5909EF82CB7F02FB896 /* AppleMusicNowPlayingView.swift */; };
 		19741E9B55DE0BA9BE5F2FDB /* CloudSyncChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD05C51C265711C2B7239F9B /* CloudSyncChannel.swift */; };
@@ -192,6 +194,7 @@
 		418FDE4C3C9F303227153879 /* AppServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F85E53FF87D6A322E1A0A7 /* AppServices.swift */; };
 		41A4BF2A4ED3D7C20BC2924A /* AudioQuality.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83F26AFF21D6618168FD2742 /* AudioQuality.swift */; };
 		41E2CB041331ED42FF45E5CD /* DropboxSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC2D3494E7475F44773698F9 /* DropboxSource.swift */; };
+		D14D00000000000000000003 /* DrimeSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14D00000000000000000001 /* DrimeSource.swift */; };
 		423E3BC26C84850AC13B5919 /* libswresample.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 8F8034D1C470B837DB46D3E0 /* libswresample.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		4260958BD2DEFA5C80D86EEE /* SimilarTracksService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88F82086EB805A0948919DCF /* SimilarTracksService.swift */; };
 		42786BA198C03F835DBF49EC /* SourcesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E43D86A7277FFD6BA412DECF /* SourcesStore.swift */; };
@@ -938,6 +941,7 @@
 		21727E0AB276B85CA9B19BE9 /* CloudDriveConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDriveConnectionView.swift; sourceTree = "<group>"; };
 		21957BB2BE1463BE4D9884FB /* NowPlayingWatchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingWatchView.swift; sourceTree = "<group>"; };
 		22F902B402DE1BC8F053FF24 /* FnMusicAPIProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FnMusicAPIProtocol.swift; sourceTree = "<group>"; };
+		D14D00000000000000000004 /* DrimeAPIProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrimeAPIProtocol.swift; sourceTree = "<group>"; };
 		2307E7F4A6A9B42D29CB7F9D /* ListenBrainzProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListenBrainzProvider.swift; sourceTree = "<group>"; };
 		234F77E6A0C27BA007ACD7C8 /* fr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = fr; path = fr.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		23CA6DF05BAC0E0F38218C88 /* RevealableSecureField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RevealableSecureField.swift; sourceTree = "<group>"; };
@@ -1181,6 +1185,7 @@
 		AAE593077B230AED26E36FAF /* ScrapeWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrapeWindowController.swift; sourceTree = "<group>"; };
 		ABB95B932C07091233475361 /* TrustedHTTPTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrustedHTTPTransport.swift; sourceTree = "<group>"; };
 		AC2D3494E7475F44773698F9 /* DropboxSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DropboxSource.swift; sourceTree = "<group>"; };
+		D14D00000000000000000001 /* DrimeSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrimeSource.swift; sourceTree = "<group>"; };
 		ACACC8DFC2348B923ACAB6E5 /* ConnectorDirectoryBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectorDirectoryBrowserView.swift; sourceTree = "<group>"; };
 		AE41DF2E4D5B75A369E0159B /* ScraperManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScraperManager.swift; sourceTree = "<group>"; };
 		AF23E2C32C29F875836D06BE /* FFmpegDecoderBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FFmpegDecoderBridge.m; sourceTree = "<group>"; };
@@ -2211,6 +2216,7 @@
 				94FE18AA29D7F79EE4D6BDE5 /* CloudDriveBase.swift */,
 				C28F9B371297DF55837BAB92 /* CloudTokenManager.swift */,
 				AC2D3494E7475F44773698F9 /* DropboxSource.swift */,
+				D14D00000000000000000001 /* DrimeSource.swift */,
 				6FF18B2B6584B7988608C004 /* GoogleDriveSource.swift */,
 				3C85D6EDF29DAED03773957A /* OAuthService.swift */,
 				3E648713A25DB3912120693A /* OneDriveSource.swift */,
@@ -2320,6 +2326,7 @@
 				6522627B000671EA9055B5D5 /* BaiduFileManagerBatchResponse.swift */,
 				13DF5DE888D6B46DD9A60F16 /* BaiduPanStreamResolver.swift */,
 				2CE02EE3CFE1DFDF66C66B7B /* CloudDriveStreamResolver.swift */,
+				D14D00000000000000000004 /* DrimeAPIProtocol.swift */,
 				2536FC64E50FD6E0FAE8B75B /* CredentialBundle.swift */,
 				49599E6563DECC420DE66CF4 /* DaoLiYuAPIProtocol.swift */,
 				A33B7C9895A3CC7E7CCD3DD0 /* DaoLiYuServiceClient.swift */,
@@ -2779,6 +2786,7 @@
 				67D45D818469B9D73A8AB157 /* BundleToken.swift in Sources */,
 				DE0561DB9A15B686C84CEE8C /* CloudAccount.swift in Sources */,
 				18EF7BC5C1B706CD5A3E761F /* CloudDriveStreamResolver.swift in Sources */,
+				D14D00000000000000000005 /* DrimeAPIProtocol.swift in Sources */,
 				EA28DFE79AF807B40A5B91B4 /* CredentialBundle.swift in Sources */,
 				38A135AAC750CAF0DE89773E /* CueSheetParser.swift in Sources */,
 				06145D06EE30908CD141E72E /* DaoLiYuAPIProtocol.swift in Sources */,
@@ -2924,6 +2932,7 @@
 				C5017C7E189A5C943BF203B0 /* DesktopLyricsWindowController.swift in Sources */,
 				2DA70339408A4A2E8669B492 /* DiagnosticReportsView.swift in Sources */,
 				0D872E56924B184F3C3F15B6 /* DropboxSource.swift in Sources */,
+				D14D00000000000000000002 /* DrimeSource.swift in Sources */,
 				78616119FFF315EF497B0127 /* DuplicateCleanupService.swift in Sources */,
 				5775567CC35C0C5ECD9AA1D1 /* DuplicateDetector.swift in Sources */,
 				D8EBD25096403908B40EDC03 /* DuplicateSongsView.swift in Sources */,
@@ -3222,6 +3231,7 @@
 				BCF4B55BA0E5976EF2EDA3EB /* DesktopLyricsWindowController.swift in Sources */,
 				AAFF7692A7D7CD5704F7DC64 /* DiagnosticReportsView.swift in Sources */,
 				41E2CB041331ED42FF45E5CD /* DropboxSource.swift in Sources */,
+				D14D00000000000000000003 /* DrimeSource.swift in Sources */,
 				934398001C4D2407DF0F2BD7 /* DuplicateCleanupService.swift in Sources */,
 				8457016E2EBE033A08C38A33 /* DuplicateDetector.swift in Sources */,
 				F6252DF57585604301CB0CF7 /* DuplicateSongsView.swift in Sources */,

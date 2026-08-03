@@ -40,7 +40,7 @@ public actor CloudDriveStreamResolver: StreamResolver {
         }
     }
 
-    // MARK: - resolve(含需自定义播放头的 Google / 115)
+    // MARK: - resolve(含需自定义播放头的 Google / 115 / Drime)
 
     static let pan115UA = "Mozilla/5.0 Primuse/1.0"
 
@@ -68,6 +68,10 @@ public actor CloudDriveStreamResolver: StreamResolver {
                 let url = try await mint115(pickCode: song.filePath, token: fresh)
                 return ResolvedStream(url: url, headers: ["User-Agent": Self.pan115UA])
             }
+        case .drime:
+            let token = try await accessToken(for: source, cred: cred, forceRefresh: false)
+            let url = try await mint(type: .drime, fileID: song.filePath, token: token, cred: cred)
+            return ResolvedStream(url: url, headers: ["Authorization": "Bearer \(token)"])
         default:
             throw StreamResolveError.unsupportedSourceType(source.type)
         }
@@ -99,6 +103,10 @@ public actor CloudDriveStreamResolver: StreamResolver {
             switch source.type {
             case .pan123:
                 return try await mint123Token(cred: cred)   // 123 是 client-credentials,无 refresh_token
+            case .drime:
+                guard let token = cred.token?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !token.isEmpty else { throw StreamResolveError.missingCredential }
+                return token
             default:
                 if !forceRefresh, let token = cred.token, !token.isEmpty { return token }
                 return try await refreshOAuthToken(type: source.type, cred: cred)
@@ -144,6 +152,13 @@ public actor CloudDriveStreamResolver: StreamResolver {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             req.setValue("open_platform", forHTTPHeaderField: "Platform")
             return try await send(req, bodyAuthCodes: [401, 403], parse: Self.parse123URL)
+        case .drime:
+            guard let url = DrimeAPIProtocol.entryURL(id: fileID) else {
+                throw StreamResolveError.cannotBuildURL
+            }
+            var req = URLRequest(url: url)
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            return try await send(req, parse: Self.parseDrimeURL)
         default:
             throw StreamResolveError.unsupportedSourceType(type)
         }
@@ -270,6 +285,11 @@ public actor CloudDriveStreamResolver: StreamResolver {
     static func parseAliyunURL(_ data: Data) -> URL? { stringURL(data, key: "url") }
     static func parseOneDriveURL(_ data: Data) -> URL? { stringURL(data, key: "@microsoft.graph.downloadUrl") }
     static func parseDropboxURL(_ data: Data) -> URL? { stringURL(data, key: "link") }
+
+    static func parseDrimeURL(_ data: Data) -> URL? {
+        guard let response = try? DrimeAPIProtocol.decodeEntry(data) else { return nil }
+        return DrimeAPIProtocol.mediaURL(reference: response.fileEntry.url)
+    }
 
     static func parse123URL(_ data: Data) -> URL? {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

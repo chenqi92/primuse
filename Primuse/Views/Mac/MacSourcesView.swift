@@ -570,7 +570,7 @@ struct MacSourcesView: View {
                 connector: sourceManager.connector(for: source),
                 selectedDirectories: selectedDirectories
             )
-        case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .pan115, .pan123:
+        case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .drime, .pan115, .pan123:
             CloudDriveConnectionView(source: source, selectedDirectories: selectedDirectories)
         default:
             ContentUnavailableView(

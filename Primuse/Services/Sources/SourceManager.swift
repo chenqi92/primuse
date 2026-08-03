@@ -555,6 +555,8 @@ final class SourceManager {
             connector = OneDriveSource(sourceID: source.id)
         case .dropbox:
             connector = DropboxSource(sourceID: source.id)
+        case .drime:
+            connector = DrimeSource(sourceID: source.id)
         case .pan115:
             connector = U115Source(sourceID: source.id)
         case .pan123:

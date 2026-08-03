@@ -336,3 +336,11 @@
 "send_to_tv_credential_password" = "密碼";
 "send_to_tv_credential_oauth_token" = "OAuth token";
 "send_to_tv_credential_app_credentials" = "OAuth App 憑證";
+"drime_token_section" = "Drime API";
+"drime_access_token" = "API 存取權杖";
+"drime_token_hint" = "請在 Drime 設定 → Developer 中建立權杖並貼到這裡。權杖會安全存入鑰匙圈。";
+"drime_token_edit_hint" = "留空會保留現有 Drime 權杖；輸入新權杖則會取代。";
+"drime_auth_subtitle" = "使用 Drime API 存取權杖連線";
+"drime_connect_title" = "連線 Drime";
+"drime_connect_description" = "貼上在 Drime 設定 → Developer 中建立的 API 存取權杖。Primuse 驗證成功後會開啟雲端硬碟目錄。";
+"drime_connect_button" = "連線 Drime";

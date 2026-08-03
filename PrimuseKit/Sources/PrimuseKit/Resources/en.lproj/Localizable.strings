@@ -337,3 +337,11 @@
 "send_to_tv_credential_password" = "password";
 "send_to_tv_credential_oauth_token" = "OAuth token";
 "send_to_tv_credential_app_credentials" = "OAuth app credentials";
+"drime_token_section" = "Drime API";
+"drime_access_token" = "API access token";
+"drime_token_hint" = "Create a token in Drime Settings → Developer, then paste it here. The token is stored securely in Keychain.";
+"drime_token_edit_hint" = "Leave blank to keep the existing Drime token, or enter a new token to replace it.";
+"drime_auth_subtitle" = "Connect with a Drime API access token";
+"drime_connect_title" = "Connect to Drime";
+"drime_connect_description" = "Paste the API access token created in Drime Settings → Developer. Primuse validates it before opening your drive.";
+"drime_connect_button" = "Connect to Drime";

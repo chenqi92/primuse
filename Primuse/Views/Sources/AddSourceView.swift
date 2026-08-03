@@ -422,6 +422,15 @@ struct AddSourceView: View {
                 }
                 macToggleRow("use_ssl", isOn: $useSsl)
             }
+        case .drime:
+            macSection("drime_token_section") {
+                macCustomRow("drime_access_token") {
+                    RevealableSecureField(title: "drime_access_token", text: $password)
+                        .focused($focusedField, equals: .password)
+                        .frame(maxWidth: 280)
+                }
+                macInfoRow(isEditing ? "drime_token_edit_hint" : "drime_token_hint")
+            }
         case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .pan115, .pan123:
             macSection("cloud_oauth_config") {
                 if BuiltInCloudCredentials.hasBuiltIn(for: sourceType) {
@@ -754,6 +763,16 @@ struct AddSourceView: View {
                     .focused($focusedField, equals: .password)
                 Toggle("use_ssl", isOn: $useSsl)
             }
+        case .drime:
+            Section("drime_token_section") {
+                RevealableSecureField(title: "drime_access_token", text: $password)
+                    .focused($focusedField, equals: .password)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                Label(isEditing ? "drime_token_edit_hint" : "drime_token_hint", systemImage: "key.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .pan115, .pan123:
             Section("cloud_oauth_config") {
                 if BuiltInCloudCredentials.hasBuiltIn(for: sourceType) {
@@ -868,7 +887,7 @@ struct AddSourceView: View {
             finalHost = nil
             finalBasePath = basePath.isEmpty ? nil : basePath
             finalShareName = nil
-            finalUsername = username.isEmpty ? nil : username  // client_id
+            finalUsername = sourceType == .drime ? nil : (username.isEmpty ? nil : username)  // client_id
         } else {
             finalHost = sourceType.requiresHost ? host : nil
             finalBasePath = basePath.isEmpty ? nil : basePath
@@ -886,7 +905,7 @@ struct AddSourceView: View {
             basePath: finalBasePath,
             shareName: finalShareName,
             exportPath: exportPath.isEmpty ? nil : exportPath,
-            authType: sourceType.isCloudDrive ? .oauth : authType,
+            authType: sourceType == .drime ? .apiKey : (sourceType.isCloudDrive ? .oauth : authType),
             ftpEncryption: sourceType == .ftp ? ftpEncryption : nil,
             nfsVersion: sourceType == .nfs ? nfsVersion : nil,
             autoConnect: autoConnect, rememberDevice: rememberDevice,
@@ -903,7 +922,27 @@ struct AddSourceView: View {
         )
 
         // Save credentials
-        if sourceType.isCloudDrive {
+        if sourceType == .drime {
+            let tm = CloudTokenManager(sourceID: source.id)
+            let token = password.trimmingCharacters(in: .whitespacesAndNewlines)
+            Task { @MainActor in
+                let persisted: Bool
+                if !token.isEmpty {
+                    persisted = await tm.saveTokens(.init(accessToken: token))
+                } else if editingSource == nil {
+                    persisted = await tm.deleteTokens()
+                } else {
+                    persisted = true
+                }
+                guard persisted else {
+                    showCredentialSaveError = true
+                    return
+                }
+                onSave(source)
+                dismiss()
+            }
+            return
+        } else if sourceType.isCloudDrive {
             // Store client_id + client_secret via CloudTokenManager
             let tm = CloudTokenManager(sourceID: source.id)
             Task { @MainActor in

@@ -143,7 +143,7 @@ import Testing
 
 @Test func fileDeletionCapabilityExcludesReadOnlyCatalogues() {
     let readOnly: Set<MusicSourceType> = [
-        .upnp, .subsonic, .navidrome, .airsonic, .gonic, .fnMusic, .daoliyu,
+        .upnp, .subsonic, .navidrome, .airsonic, .gonic, .fnMusic, .daoliyu, .drime,
         .appleMusic, .appleMusicLibrary,
     ]
 

@@ -339,3 +339,11 @@
 "send_to_tv_credential_password" = "mot de passe";
 "send_to_tv_credential_oauth_token" = "jeton OAuth";
 "send_to_tv_credential_app_credentials" = "identifiants d’app OAuth";
+"drime_token_section" = "API Drime";
+"drime_access_token" = "Jeton d’accès API";
+"drime_token_hint" = "Créez un jeton dans Réglages Drime → Developer, puis collez-le ici. Le jeton est stocké en toute sécurité dans le trousseau.";
+"drime_token_edit_hint" = "Laissez ce champ vide pour conserver le jeton Drime actuel, ou saisissez-en un nouveau pour le remplacer.";
+"drime_auth_subtitle" = "Connexion avec un jeton d’accès API Drime";
+"drime_connect_title" = "Se connecter à Drime";
+"drime_connect_description" = "Collez le jeton d’accès API créé dans Réglages Drime → Developer. Primuse le vérifie avant d’ouvrir votre espace.";
+"drime_connect_button" = "Se connecter à Drime";

@@ -13,6 +13,7 @@ struct CloudDriveConnectionView: View {
     @State private var step: FlowStep = .checking
     @State private var errorMessage = ""
     @State private var isAuthorizing = false
+    @State private var directAccessToken = ""
 
     enum FlowStep {
         case checking     // Checking if credentials/token exist
@@ -57,7 +58,11 @@ struct CloudDriveConnectionView: View {
         case .checking:
             checkingView
         case .needsSetup:
-            setupGuideView
+            if source.type == .drime {
+                drimeTokenSetupView
+            } else {
+                setupGuideView
+            }
         case .readyToAuth:
             authPromptView
         case .authorizing:
@@ -78,10 +83,10 @@ struct CloudDriveConnectionView: View {
             HStack(spacing: 12) {
                 PMWindowTrafficLights(closeOnly: true)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(verbatim: "\(source.type.displayName) · OAuth")
+                    Text(verbatim: "\(source.type.displayName) · \(source.type == .drime ? "API" : "OAuth")")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(PMColor.text)
-                    Text(String(localized: "cloud_oauth_browser_subtitle"))
+                    Text(String(localized: source.type == .drime ? "drime_auth_subtitle" : "cloud_oauth_browser_subtitle"))
                         .font(.system(size: 11))
                         .foregroundStyle(PMColor.textFaint)
                 }
@@ -167,6 +172,49 @@ struct CloudDriveConnectionView: View {
                 Spacer().frame(height: 40)
             }
         }
+    }
+
+    private var drimeTokenSetupView: some View {
+        VStack(spacing: 22) {
+            Spacer()
+
+            Image(systemName: "key.fill")
+                .font(.system(size: 46))
+                .foregroundStyle(.blue.gradient)
+
+            VStack(spacing: 8) {
+                Text("drime_connect_title")
+                    .font(.title3).fontWeight(.semibold)
+                Text("drime_connect_description")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 430)
+            }
+
+            RevealableSecureField(title: "drime_access_token", text: $directAccessToken)
+                .textContentType(.password)
+                .frame(maxWidth: 430)
+
+            Button {
+                connectDrime()
+            } label: {
+                Label("drime_connect_button", systemImage: "link.badge.plus")
+                    .frame(maxWidth: 240)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(directAccessToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+            Text("drime_token_hint")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 430)
+
+            Spacer()
+        }
+        .padding(.horizontal, 30)
     }
 
     /// 115 暂未对普通用户开放的说明横幅:告知正在申请官方接入资质。
@@ -440,7 +488,13 @@ struct CloudDriveConnectionView: View {
                 .padding(.horizontal, 40)
 
             HStack(spacing: 16) {
-                Button { startOAuth() } label: {
+                Button {
+                    if source.type == .drime {
+                        withAnimation { step = .needsSetup }
+                    } else {
+                        startOAuth()
+                    }
+                } label: {
                     Label(String(localized: "cloud_retry_auth"), systemImage: "arrow.clockwise")
                         .fontWeight(.medium)
                 }
@@ -464,6 +518,30 @@ struct CloudDriveConnectionView: View {
 
         Task {
             let tokenManager = CloudTokenManager(sourceID: source.id)
+
+            if source.type == .drime {
+                switch await tokenManager.lookupTokens() {
+                case .found:
+                    do {
+                        await sourceManager.refreshConnector(for: source.id)
+                        try await sourceManager.connector(for: source).connect()
+                        await linkMountToCloudAccount()
+                        withAnimation { step = .browsing }
+                    } catch {
+                        errorMessage = error.localizedDescription
+                        withAnimation { step = .failed }
+                    }
+                case .notFound:
+                    withAnimation { step = .needsSetup }
+                case .temporarilyUnavailable:
+                    errorMessage = String(localized: "credential_temporarily_unavailable")
+                    withAnimation { step = .failed }
+                case .failed:
+                    errorMessage = String(localized: "credential_read_failed")
+                    withAnimation { step = .failed }
+                }
+                return
+            }
 
             // Check if we already have valid tokens
             switch await tokenManager.lookupTokens() {
@@ -500,6 +578,32 @@ struct CloudDriveConnectionView: View {
             } catch let error as CloudDriveError {
                 errorMessage = credentialMessage(for: error)
                 withAnimation { step = .failed }
+            } catch {
+                errorMessage = error.localizedDescription
+                withAnimation { step = .failed }
+            }
+        }
+    }
+
+    private func connectDrime() {
+        let token = directAccessToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else { return }
+        step = .checking
+        errorMessage = ""
+
+        Task {
+            let tokenManager = CloudTokenManager(sourceID: source.id)
+            guard await tokenManager.saveTokens(.init(accessToken: token)) else {
+                errorMessage = String(localized: "credential_save_failed_message")
+                withAnimation { step = .failed }
+                return
+            }
+            do {
+                await sourceManager.refreshConnector(for: source.id)
+                try await sourceManager.connector(for: source).connect()
+                await linkMountToCloudAccount()
+                directAccessToken = ""
+                withAnimation { step = .browsing }
             } catch {
                 errorMessage = error.localizedDescription
                 withAnimation { step = .failed }

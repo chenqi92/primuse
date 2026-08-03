@@ -108,7 +108,7 @@ import Testing
     #expect(supported.isSuperset(of: [.subsonic, .navidrome, .airsonic, .gonic, .synology, .s3,
                                       .aliyunDrive, .oneDrive, .dropbox, .pan123,
                                       .jellyfin, .emby, .plex, .qnap, .fnMusic, .daoliyu, .ugreen,
-                                      .googleDrive, .pan115, .baiduPan]))
+                                      .googleDrive, .pan115, .baiduPan, .drime]))
     // Phase 3:原生库源经中继也注册了
     #expect(supported.isSuperset(of: [.smb, .sftp, .nfs, .webdav, .local, .appleMusic]))
     #expect(!supported.contains(.appleMusicLibrary))   // macOS-only,不接

@@ -17,6 +17,12 @@ struct SourcePermanentDeletionPolicyTests {
         )
         #expect(cloudOnly == [.cloudCredentials])
 
+        let drimeTokenOnly = SourcePermanentDeletionPolicy.requiredCredentialStores(
+            for: .drime,
+            authType: .apiKey
+        )
+        #expect(drimeTokenOnly == [.cloudCredentials])
+
         let credentialless = SourcePermanentDeletionPolicy.requiredCredentialStores(
             for: .local,
             authType: .none
