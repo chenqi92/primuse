@@ -38,6 +38,7 @@ struct CachedArtworkView: View {
     var artistID: String? = nil
     var artistName: String? = nil
     var placeholderIcon: String = "music.note"
+    var showsPlaceholder: Bool = true
     /// 当外部数据源 (e.g. AudioPlayerService.coverRevision) 想强制 view 重新加载,
     /// 但 coverRef / songID 这些 key 字段没变, onChange 不会触发时使用。
     /// 调用方传 player.coverRevision, 任意 bump 都会让本 view 重 loadImage。
@@ -109,6 +110,7 @@ struct CachedArtworkView: View {
     init(coverFileName: String?, size: CGFloat? = nil, cornerRadius: CGFloat = 12,
          sourceID: String? = nil, filePath: String? = nil,
          fileFormat: AudioFormat? = nil,
+         showsPlaceholder: Bool = true,
          revisionToken: Int = 0) {
         self.coverRef = coverFileName
         self.size = size
@@ -116,6 +118,7 @@ struct CachedArtworkView: View {
         self.sourceID = sourceID
         self.filePath = filePath
         self.fileFormat = fileFormat
+        self.showsPlaceholder = showsPlaceholder
         self.revisionToken = revisionToken
     }
 
@@ -124,6 +127,7 @@ struct CachedArtworkView: View {
          sourceID: String? = nil, filePath: String? = nil,
          fileFormat: AudioFormat? = nil,
          placeholderIcon: String = "music.note",
+         showsPlaceholder: Bool = true,
          revisionToken: Int = 0) {
         self.coverRef = coverRef
         self.songID = songID
@@ -133,12 +137,14 @@ struct CachedArtworkView: View {
         self.filePath = filePath
         self.fileFormat = fileFormat
         self.placeholderIcon = placeholderIcon
+        self.showsPlaceholder = showsPlaceholder
         self.revisionToken = revisionToken
     }
 
     // Album cover init — fetches via ArtworkFetchService if not cached
     init(albumID: String, albumTitle: String, artistName: String?,
-         size: CGFloat? = nil, cornerRadius: CGFloat = 12) {
+         size: CGFloat? = nil, cornerRadius: CGFloat = 12,
+         showsPlaceholder: Bool = true) {
         self.coverRef = nil
         self.albumID = albumID
         self.albumTitle = albumTitle
@@ -146,17 +152,20 @@ struct CachedArtworkView: View {
         self.size = size
         self.cornerRadius = cornerRadius
         self.placeholderIcon = "square.stack"
+        self.showsPlaceholder = showsPlaceholder
     }
 
     // Artist image init — fetches via ArtworkFetchService if not cached
     init(artistID: String, artistName: String,
-         size: CGFloat? = nil, cornerRadius: CGFloat = 12) {
+         size: CGFloat? = nil, cornerRadius: CGFloat = 12,
+         showsPlaceholder: Bool = true) {
         self.coverRef = nil
         self.artistID = artistID
         self.artistName = artistName
         self.size = size
         self.cornerRadius = cornerRadius
         self.placeholderIcon = "music.mic"
+        self.showsPlaceholder = showsPlaceholder
     }
 
     var body: some View {
@@ -205,8 +214,10 @@ struct CachedArtworkView: View {
             Image(platformImage: image)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
-        } else {
+        } else if showsPlaceholder {
             placeholderView
+        } else {
+            Color.clear
         }
     }
 

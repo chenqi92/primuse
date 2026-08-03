@@ -66,13 +66,19 @@ struct HomeView: View {
         NavigationStack {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 20) {
-                    if hasContent {
+                    if !hasPreparedInitialSnapshot {
+                        initialLoadingView
+                            .transition(.opacity)
+                    } else if hasContent {
                         contentView
+                            .transition(.opacity)
                     } else {
                         emptyView
+                            .transition(.opacity)
                     }
                 }
                 .padding(.bottom, 100)
+                .animation(.easeOut(duration: 0.24), value: hasPreparedInitialSnapshot)
             }
             .task {
                 await refreshHomeSnapshotAfterPresentationIfNeeded()
@@ -143,6 +149,7 @@ struct HomeView: View {
     @AppStorage(LibraryPinStorage.defaultsKey) private var quickAccessRawValue = ""
     @State private var homeSnapshot = HomeSnapshot()
     @State private var lastHomeSnapshotSignature: HomeSnapshotSignature?
+    @State private var hasPreparedInitialSnapshot = false
     // Debounce for `searchRevision`-driven refreshes. MusicLibrary bumps
     // `searchRevision` on *every* upsert batch during a scan, so a large
     // library scan would otherwise fire refreshHomeSnapshot(force:) dozens
@@ -213,6 +220,12 @@ struct HomeView: View {
         var playlists: [HomePlaylistTile] = []
         var quickItems: [HomeQuickItem] = []
         var likedPlaylist: Playlist?
+    }
+
+    private struct InitialHomeSnapshotPayload: Sendable {
+        let heroCoverSongs: [Song]
+        let recentlyAddedAlbums: [HomeAlbumTile]
+        let forYouResults: [MusicDiscoveryResult]
     }
 
     private var homeSectionOrder: [HomeSectionKind] {
@@ -306,11 +319,94 @@ struct HomeView: View {
     /// 直接在这里做全库计算，导致导航动画必须等计算结束才显示首页。
     private func refreshHomeSnapshotAfterPresentationIfNeeded() async {
         await Task.yield()
-        if homeSnapshot.hasContent {
-            try? await Task.sleep(for: .milliseconds(180))
+        guard !Task.isCancelled else { return }
+
+        if !hasPreparedInitialSnapshot {
+            await prepareInitialHomeSnapshot()
+            return
         }
+
+        try? await Task.sleep(for: .milliseconds(180))
         guard !Task.isCancelled else { return }
         refreshHomeSnapshot(force: false)
+    }
+
+    /// The first frame should never claim the library is empty while the home
+    /// snapshot is still being assembled. Build the expensive highlights and
+    /// recommendations off the main actor, then publish the complete initial
+    /// page once so sections do not successively push the layout downward.
+    private func prepareInitialHomeSnapshot() async {
+        let signature = homeSnapshotSignature
+        let visibleSongs = library.visibleSongs
+        let visibleAlbums = library.visibleAlbums
+        let recommendationInput = showForYou
+            ? MusicDiscoveryEngine.recommendationInput(in: library)
+            : nil
+        var snapshot = makeHomeSnapshot(
+            forYouResults: [],
+            heroCoverSongs: [],
+            recentlyAddedAlbums: []
+        )
+        let recentSongs = snapshot.recentSongs
+
+        let payload = await Task.detached(priority: .utility) {
+            InitialHomeSnapshotPayload(
+                heroCoverSongs: Self.makeHeroCoverSongs(
+                    songs: visibleSongs,
+                    recentSongs: recentSongs
+                ),
+                recentlyAddedAlbums: Self.makeRecentlyAddedAlbumTiles(
+                    songs: visibleSongs,
+                    albums: visibleAlbums,
+                    limit: 12
+                ),
+                forYouResults: recommendationInput.map {
+                    MusicDiscoveryEngine.dailyRecommendations(from: $0, limit: 12)
+                } ?? []
+            )
+        }.value
+
+        guard !Task.isCancelled else { return }
+        snapshot.heroCoverSongs = payload.heroCoverSongs
+        snapshot.recentlyAddedAlbums = payload.recentlyAddedAlbums
+        snapshot.forYouResults = payload.forYouResults
+        homeSnapshot = snapshot
+        lastHomeSnapshotSignature = signature
+        tintProvider.prepare(snapshot.forYouResults.map(\.song))
+        tintProvider.prepare(Array(snapshot.recentSongs.prefix(15)))
+        hasPreparedInitialSnapshot = true
+
+        if homeSnapshotSignature != signature {
+            scheduleDebouncedHomeRefresh()
+        }
+    }
+
+    private var initialLoadingView: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(homeCardSurface)
+                .frame(height: 154)
+                .padding(.horizontal, 16)
+
+            VStack(alignment: .leading, spacing: 12) {
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(Color.secondary.opacity(0.14))
+                    .frame(width: 116, height: 20)
+
+                HStack(spacing: 12) {
+                    ForEach(0..<3, id: \.self) { _ in
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(homeCardSurface)
+                            .frame(maxWidth: .infinity)
+                            .aspectRatio(0.9, contentMode: .fit)
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+        }
+        .opacity(0.72)
+        .accessibilityHidden(true)
+        .allowsHitTesting(false)
     }
 
     private func refreshHomeSnapshot(force: Bool) {

@@ -427,22 +427,32 @@ struct LibraryView: View {
                 )
             }
         case .albums:
-            overlappingPreview(Array(albums.prefix(3))) { album in
+            artworkPreview(
+                Array(albums.prefix(3)),
+                placeholderIcon: "square.stack",
+                cornerRadius: 7
+            ) { album in
                 CachedArtworkView(
                     albumID: album.id,
                     albumTitle: album.title,
                     artistName: album.artistName,
                     size: 36,
-                    cornerRadius: 7
+                    cornerRadius: 7,
+                    showsPlaceholder: false
                 )
             }
         case .artists:
-            overlappingPreview(Array(artists.prefix(3))) { artist in
+            artworkPreview(
+                Array(artists.prefix(3)),
+                placeholderIcon: "music.mic",
+                cornerRadius: 18
+            ) { artist in
                 CachedArtworkView(
                     artistID: artist.id,
                     artistName: artist.name,
                     size: 36,
-                    cornerRadius: 18
+                    cornerRadius: 18,
+                    showsPlaceholder: false
                 )
             }
         case .playlists:
@@ -472,6 +482,31 @@ struct LibraryView: View {
             }
         }
         .frame(width: 68, alignment: .trailing)
+    }
+
+    private func artworkPreview<Item: Identifiable, Content: View>(
+        _ items: [Item],
+        placeholderIcon: String,
+        cornerRadius: CGFloat,
+        @ViewBuilder content: @escaping (Item) -> Content
+    ) -> some View {
+        ZStack(alignment: .trailing) {
+            ZStack {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(Color.secondary.opacity(0.1))
+                Image(systemName: placeholderIcon)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.tertiary)
+            }
+            .frame(width: 36, height: 36)
+
+            HStack(spacing: -10) {
+                ForEach(items) { item in
+                    content(item)
+                }
+            }
+        }
+        .frame(width: 68, height: 36, alignment: .trailing)
     }
 
     @ViewBuilder
