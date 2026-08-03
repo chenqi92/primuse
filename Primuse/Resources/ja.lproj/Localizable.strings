@@ -90,12 +90,23 @@
 "tag_editor_lyrics_format_hint" = "Supports plain text, LRC [mm:ss.xxx], and ELRC <mm:ss.xxx>word. Existing timestamps are preserved.";
 "tag_editor_lyrics_writeback_checking" = "Checking source write access…";
 "tag_editor_lyrics_writeback_sidecar" = "Saves to Primuse and writes a same-name .lrc file beside the audio.";
+"tag_editor_lyrics_writeback_sidecar_new" = "Target checked. A new %@ will be written beside the audio.";
+"tag_editor_lyrics_writeback_sidecar_replace" = "Target checked. The existing %@ will be updated.";
 "tag_editor_lyrics_writeback_server" = "Saves to Primuse and writes lyrics back to the media server.";
 "tag_editor_lyrics_writeback_read_only" = "Read-only source: saves in Primuse and syncs via iCloud, but cannot be written back directly.";
+"tag_editor_lyrics_writeback_unavailable" = "The music source is not currently writable: %@";
+"tag_editor_lyrics_server_unsupported" = "This media server does not support lyrics writeback.";
 "tag_editor_lyrics_error_title" = "Couldn’t Save Lyrics";
-"tag_editor_lyrics_empty_error" = "Lyrics cannot be empty. Removing source lyrics is not supported yet.";
+"tag_editor_lyrics_empty_error" = "Confirm whether to remove the existing lyrics.";
 "tag_editor_lyrics_invalid_error" = "No valid lyric lines were found.";
 "tag_editor_lyrics_write_failed" = "Lyrics could not be written back: %@";
+"tag_editor_lyrics_verify_failed" = "The lyrics read back after saving did not match the edited content. Check source permissions and try again.";
+"tag_editor_lyrics_format_empty" = "Empty lyrics";
+"tag_editor_lyrics_clear" = "Clear";
+"tag_editor_lyrics_invalid_lines_format" = "Invalid or out-of-order timestamps on lines: %@";
+"tag_editor_lyrics_delete_confirm_title" = "Remove lyrics for this song?";
+"tag_editor_lyrics_delete_confirm_message" = "The same-name lyric file will also be removed from writable sources. Read-only sources only remove Primuse’s cached lyrics.";
+"tag_editor_lyrics_delete" = "Remove Lyrics";
 
 // VoiceOver / a11y
 "a11y_shuffle" = "シャッフル";

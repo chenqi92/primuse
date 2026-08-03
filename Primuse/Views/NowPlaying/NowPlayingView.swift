@@ -3040,7 +3040,9 @@ struct LyricsScrollView: View {
         .simultaneousGesture(
             SpatialTapGesture()
                 .onEnded { _ in
-                    guard !lyrics.isEmpty, !isPinchingLyrics else { return }
+                    // Keep the immersive view escapable after playback ends or
+                    // lyrics are removed while this screen is still visible.
+                    guard !isPinchingLyrics else { return }
                     let eventTime = Date()
                     Task { @MainActor in
                         await Task.yield()

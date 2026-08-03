@@ -10,6 +10,66 @@ import PrimuseKit
 /// Tier 3: fetch `.lrc` from the source via an auxiliary connector
 @MainActor
 enum LyricsLoader {
+    /// Loads the closest available representation of the original editable
+    /// document. Source text wins so LRC/ELRC metadata and blank lines survive
+    /// editing; cached line models remain the offline fallback.
+    static func loadEditableText(for song: Song, sourceManager: SourceManager) async -> String {
+        if let sourceText = await loadSourceText(for: song, sourceManager: sourceManager) {
+            return normalizedEditableText(sourceText)
+        }
+        return LyricsContentParser.serialize(await load(for: song, sourceManager: sourceManager))
+    }
+
+    /// Fetches only the authoritative source document. This deliberately does
+    /// not fall back to local caches so callers can use it for conflict checks
+    /// and post-write readback verification.
+    static func loadSourceText(for song: Song, sourceManager: SourceManager) async -> String? {
+        do {
+            let connector = try await sourceManager.auxiliaryConnector(for: song)
+            guard !Task.isCancelled else { return nil }
+
+            if let server = connector as? ServerLyricsConnector,
+               let raw = await server.fetchServerLyrics(for: song.filePath),
+               !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return raw
+            }
+
+            let songDir = (song.filePath as NSString).deletingLastPathComponent
+            let baseName = ((song.filePath as NSString).lastPathComponent as NSString)
+                .deletingPathExtension
+            let lrcPath: String
+            if let ref = song.lyricsFileName, ref.contains("/") {
+                lrcPath = ref
+            } else {
+                lrcPath = (songDir as NSString).appendingPathComponent("\(baseName).lrc")
+            }
+            let data = try await connector.fetchRange(
+                path: lrcPath,
+                offset: 0,
+                length: 256 * 1024,
+                priority: .background
+            )
+            guard !Task.isCancelled,
+                  let raw = String(data: data, encoding: .utf8),
+                  !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return nil
+            }
+            return raw
+        } catch {
+            // Fall through to a locally materialized source sidecar. This is
+            // the authoritative document for local/imported sources and an
+            // offline best effort for remote sources.
+        }
+
+        if let cachedAudioURL = sourceManager.cachedURL(for: song),
+           let lrcURL = SidecarMetadataLoader.findLyrics(for: cachedAudioURL),
+           let text = try? String(contentsOf: lrcURL, encoding: .utf8),
+           !text.isEmpty {
+            return text
+        }
+        return nil
+    }
+
     static func load(for song: Song, sourceManager: SourceManager) async -> [LyricLine] {
         if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) {
             guard !Task.isCancelled else { return [] }
@@ -110,5 +170,11 @@ enum LyricsLoader {
     private static func logLoaded(_ lines: [LyricLine], song: Song, tier: String) {
         let wordLevelCount = lines.filter { $0.isWordLevel }.count
         plog("📜 LyricsLoader '\(song.title)' \(tier) lines=\(lines.count) wordLevelLines=\(wordLevelCount) firstSyllables=\(lines.first?.syllables?.count ?? -1)")
+    }
+
+    private static func normalizedEditableText(_ text: String) -> String {
+        text.replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

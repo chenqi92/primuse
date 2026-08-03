@@ -17,9 +17,10 @@ import AppKit
 struct TagEditorView: View {
     private enum LyricsWritebackMode: Equatable {
         case checking
-        case sidecar
+        case sidecar(fileName: String, replacesExistingFile: Bool)
         case mediaServer
         case localOnly
+        case unavailable(String)
     }
 
     let song: Song
@@ -43,6 +44,7 @@ struct TagEditorView: View {
     @State private var lyricsWritebackMode: LyricsWritebackMode = .checking
     @State private var lyricsErrorMessage: String?
     @State private var isSaving = false
+    @State private var showLyricsDeleteConfirm = false
 
     @State private var showResetConfirm = false
     /// 选中但还没保存的新封面。nil 表示"维持原 song.coverArtFileName"。
@@ -84,6 +86,18 @@ struct TagEditorView: View {
             Button(String(localized: "done"), role: .cancel) {}
         } message: {
             Text(lyricsErrorMessage ?? "")
+        }
+        .confirmationDialog(
+            String(localized: "tag_editor_lyrics_delete_confirm_title"),
+            isPresented: $showLyricsDeleteConfirm,
+            titleVisibility: .visible
+        ) {
+            Button(String(localized: "tag_editor_lyrics_delete"), role: .destructive) {
+                Task { await save(allowLyricsRemoval: true) }
+            }
+            Button(String(localized: "cancel"), role: .cancel) {}
+        } message: {
+            Text(String(localized: "tag_editor_lyrics_delete_confirm_message"))
         }
     }
 
@@ -129,14 +143,14 @@ struct TagEditorView: View {
                         .disabled(isSaving)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button { Task { await save() } } label: {
+                    Button { requestSave() } label: {
                         if isSaving {
                             ProgressView()
                         } else {
                             Text(String(localized: "save"))
                         }
                     }
-                    .disabled(!hasChanges || lyricsLoading || isSaving)
+                    .disabled(!canSubmitChanges)
                 }
             }
             .confirmationDialog(
@@ -276,7 +290,7 @@ struct TagEditorView: View {
                 .disabled(isSaving)
 
                 Button {
-                    Task { await save() }
+                    requestSave()
                 } label: {
                     Group {
                         if isSaving {
@@ -293,7 +307,7 @@ struct TagEditorView: View {
                                 in: .rect(cornerRadius: 5))
                 }
                 .buttonStyle(.plain)
-                .disabled(!hasChanges || lyricsLoading || isSaving)
+                .disabled(!canSubmitChanges)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
@@ -438,6 +452,8 @@ struct TagEditorView: View {
                     .strokeBorder(hasLyricsChanges ? PMColor.brand.opacity(0.55) : PMColor.dividerStrong, lineWidth: 0.5)
             }
 
+            lyricsEditorControls
+
             Text(String(localized: "tag_editor_lyrics_format_hint"))
                 .font(PMFont.caption)
                 .foregroundStyle(PMColor.textFaint)
@@ -523,6 +539,7 @@ struct TagEditorView: View {
                         .allowsHitTesting(false)
                 }
             }
+            lyricsEditorControls
             lyricsWritebackStatus
         } header: {
             Text(String(localized: "tag_editor_lyrics_section"))
@@ -537,8 +554,14 @@ struct TagEditorView: View {
         case .checking:
             Label(String(localized: "tag_editor_lyrics_writeback_checking"), systemImage: "hourglass")
                 .foregroundStyle(.secondary)
-        case .sidecar:
-            Label(String(localized: "tag_editor_lyrics_writeback_sidecar"), systemImage: "externaldrive.badge.checkmark")
+        case .sidecar(let fileName, let replacesExistingFile):
+            let template = replacesExistingFile
+                ? String(localized: "tag_editor_lyrics_writeback_sidecar_replace")
+                : String(localized: "tag_editor_lyrics_writeback_sidecar_new")
+            Label(
+                String(format: template, fileName),
+                systemImage: "externaldrive.badge.checkmark"
+            )
                 .foregroundStyle(.secondary)
         case .mediaServer:
             Label(String(localized: "tag_editor_lyrics_writeback_server"), systemImage: "server.rack")
@@ -546,6 +569,52 @@ struct TagEditorView: View {
         case .localOnly:
             Label(String(localized: "tag_editor_lyrics_writeback_read_only"), systemImage: "lock")
                 .foregroundStyle(.orange)
+        case .unavailable(let reason):
+            Label(
+                String(
+                    format: String(localized: "tag_editor_lyrics_writeback_unavailable"),
+                    reason
+                ),
+                systemImage: "exclamationmark.triangle"
+            )
+            .foregroundStyle(.red)
+        }
+    }
+
+    @ViewBuilder
+    private var lyricsEditorControls: some View {
+        let validation = currentLyricsValidation
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 8) {
+                Label(lyricsFormatLabel(validation?.format), systemImage: lyricsFormatIcon(validation?.format))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(validation?.issues.isEmpty == false ? .red : .secondary)
+                Spacer()
+                if !normalizedLyricsText(lyricsText).isEmpty {
+                    Button(role: .destructive) {
+                        lyricsText = ""
+                    } label: {
+                        Label(String(localized: "tag_editor_lyrics_clear"), systemImage: "trash")
+                            .font(.caption)
+                    }
+                    #if os(macOS)
+                    .buttonStyle(.plain)
+                    #endif
+                    .disabled(isSaving)
+                }
+            }
+
+            if let validation, !validation.issues.isEmpty {
+                let lineNumbers = validation.issues.map(\.lineNumber)
+                Text(
+                    String(
+                        format: String(localized: "tag_editor_lyrics_invalid_lines_format"),
+                        lineNumbers.map(String.init).joined(separator: ", ")
+                    )
+                )
+                .font(.caption)
+                .foregroundStyle(.red)
+            }
         }
     }
 
@@ -660,8 +729,52 @@ struct TagEditorView: View {
         return normalizedLyricsText(lyricsText) != normalizedLyricsText(originalLyricsText)
     }
 
+    private var currentLyricsValidation: LyricsEditableValidation? {
+        let content = normalizedLyricsText(lyricsText)
+        return content.isEmpty ? nil : LyricsContentParser.validateEditableText(content)
+    }
+
+    private var canSubmitChanges: Bool {
+        guard hasChanges, !lyricsLoading, !isSaving else { return false }
+        guard hasLyricsChanges else { return true }
+        let content = normalizedLyricsText(lyricsText)
+        if content.isEmpty {
+            return !normalizedLyricsText(originalLyricsText).isEmpty
+        }
+        return currentLyricsValidation?.isValid == true
+    }
+
+    private func lyricsFormatLabel(_ format: LyricsFormat?) -> String {
+        switch format {
+        case .plain: return "Plain"
+        case .lineLevel: return "LRC"
+        case .wordLevel: return "ELRC"
+        case nil: return String(localized: "tag_editor_lyrics_format_empty")
+        }
+    }
+
+    private func lyricsFormatIcon(_ format: LyricsFormat?) -> String {
+        switch format {
+        case .plain: return "text.alignleft"
+        case .lineLevel: return "clock"
+        case .wordLevel: return "waveform"
+        case nil: return "text.badge.minus"
+        }
+    }
+
     @MainActor
-    private func save() async {
+    private func requestSave() {
+        if hasLyricsChanges,
+           normalizedLyricsText(lyricsText).isEmpty,
+           !normalizedLyricsText(originalLyricsText).isEmpty {
+            showLyricsDeleteConfirm = true
+            return
+        }
+        Task { await save() }
+    }
+
+    @MainActor
+    private func save(allowLyricsRemoval: Bool = false) async {
         guard !isSaving else { return }
         isSaving = true
         defer { isSaving = false }
@@ -681,30 +794,49 @@ struct TagEditorView: View {
 
         if hasLyricsChanges {
             let content = normalizedLyricsText(lyricsText)
-            guard !content.isEmpty else {
-                lyricsErrorMessage = String(localized: "tag_editor_lyrics_empty_error")
-                return
-            }
-            let lines = LyricsContentParser.parseText(content)
-            guard !lines.isEmpty else {
-                lyricsErrorMessage = String(localized: "tag_editor_lyrics_invalid_error")
-                return
-            }
+            let mode = await resolveLyricsWritebackMode()
+            if content.isEmpty {
+                guard allowLyricsRemoval else {
+                    lyricsErrorMessage = String(localized: "tag_editor_lyrics_empty_error")
+                    return
+                }
+                if let error = await removeLyricsBack(for: updated, mode: mode) {
+                    lyricsErrorMessage = String(
+                        format: String(localized: "tag_editor_lyrics_write_failed"),
+                        error
+                    )
+                    return
+                }
+                await MetadataAssetStore.shared.invalidateLyricsCache(forSongID: song.id)
+                updated.lyricsFileName = nil
+                updated.lyricsText = nil
+            } else {
+                let validation = LyricsContentParser.validateEditableText(content)
+                guard validation.isValid else {
+                    lyricsErrorMessage = String(localized: "tag_editor_lyrics_invalid_error")
+                    return
+                }
+                if let error = await writeLyricsBack(
+                    validation.lines,
+                    content: validation.normalizedContent,
+                    for: updated,
+                    mode: mode
+                ) {
+                    lyricsErrorMessage = String(
+                        format: String(localized: "tag_editor_lyrics_write_failed"),
+                        error
+                    )
+                    return
+                }
 
-            let mode = lyricsWritebackMode == .checking
-                ? await resolveLyricsWritebackMode()
-                : lyricsWritebackMode
-            if let error = await writeLyricsBack(lines, for: updated, mode: mode) {
-                lyricsErrorMessage = String(
-                    format: String(localized: "tag_editor_lyrics_write_failed"),
-                    error
+                _ = await MetadataAssetStore.shared.cacheLyrics(
+                    validation.lines,
+                    forSongID: song.id,
+                    force: true
                 )
-                return
+                updated.lyricsFileName = MetadataAssetStore.shared.expectedLyricsFileName(for: song.id)
+                updated.lyricsText = validation.lines.map(\.text).joined(separator: "\n")
             }
-
-            _ = await MetadataAssetStore.shared.cacheLyrics(lines, forSongID: song.id, force: true)
-            updated.lyricsFileName = MetadataAssetStore.shared.expectedLyricsFileName(for: song.id)
-            updated.lyricsText = lines.map(\.text).joined(separator: "\n")
         }
 
         // 新封面 → 写到 MetadataAssetStore,文件名作为新 coverArtFileName。
@@ -731,9 +863,8 @@ struct TagEditorView: View {
     @MainActor
     private func loadLyricsEditor() async {
         lyricsLoading = true
-        async let loadedLines = LyricsLoader.load(for: song, sourceManager: sourceManager)
+        let text = await LyricsLoader.loadEditableText(for: song, sourceManager: sourceManager)
         _ = await resolveLyricsWritebackMode()
-        let text = LyricsContentParser.serialize(await loadedLines)
         lyricsText = text
         originalLyricsText = text
         lyricsLoading = false
@@ -743,9 +874,28 @@ struct TagEditorView: View {
     private func resolveLyricsWritebackMode() async -> LyricsWritebackMode {
         let mode: LyricsWritebackMode
         if await sourceManager.supportsSidecarWriting(for: song) {
-            mode = .sidecar
+            do {
+                let preflight = try await MusicScraperService.preflightLyricsWriteWithTimeout(
+                    seconds: 10,
+                    sourceManager: sourceManager,
+                    for: song
+                )
+                mode = .sidecar(
+                    fileName: preflight.fileName,
+                    replacesExistingFile: preflight.replacesExistingFile
+                )
+            } catch {
+                mode = .unavailable(error.localizedDescription)
+            }
         } else if sourcesStore.source(id: song.sourceID)?.type == .jellyfin {
-            mode = .mediaServer
+            do {
+                let connector = try await sourceManager.connectorForSong(song)
+                mode = connector is any MediaServerWritebackConnector
+                    ? .mediaServer
+                    : .unavailable(String(localized: "tag_editor_lyrics_server_unsupported"))
+            } catch {
+                mode = .unavailable(error.localizedDescription)
+            }
         } else {
             mode = .localOnly
         }
@@ -755,12 +905,17 @@ struct TagEditorView: View {
 
     private func writeLyricsBack(
         _ lines: [LyricLine],
+        content: String,
         for updated: Song,
         mode: LyricsWritebackMode
     ) async -> String? {
         switch mode {
-        case .checking, .localOnly:
+        case .localOnly:
             return nil
+        case .checking:
+            return String(localized: "tag_editor_lyrics_writeback_checking")
+        case .unavailable(let reason):
+            return reason
         case .sidecar:
             do {
                 let result = try await MusicScraperService.writeSidecarWithTimeout(
@@ -768,10 +923,14 @@ struct TagEditorView: View {
                     sourceManager: sourceManager,
                     for: updated,
                     coverData: nil,
-                    lyricsLines: lines
+                    lyricsLines: lines,
+                    lyricsContent: content
                 )
                 guard result.lyricsWritten else {
                     return result.errors.joined(separator: "\n")
+                }
+                guard await verifySidecarWriteback(content: content, song: updated) else {
+                    return String(localized: "tag_editor_lyrics_verify_failed")
                 }
                 return nil
             } catch {
@@ -782,13 +941,101 @@ struct TagEditorView: View {
                 original: updated,
                 updated: updated,
                 coverData: nil,
-                lyricsLines: lines
+                lyricsLines: lines,
+                lyricsContent: content
             )
             guard result.lyricsWritten else {
                 return (result.errors + result.unsupported).joined(separator: "\n")
             }
+            guard await verifyMediaServerWriteback(expectedLines: lines, song: updated) else {
+                return String(localized: "tag_editor_lyrics_verify_failed")
+            }
             return nil
         }
+    }
+
+    private func removeLyricsBack(
+        for updated: Song,
+        mode: LyricsWritebackMode
+    ) async -> String? {
+        switch mode {
+        case .localOnly:
+            return nil
+        case .checking:
+            return String(localized: "tag_editor_lyrics_writeback_checking")
+        case .unavailable(let reason):
+            return reason
+        case .sidecar:
+            do {
+                let result = try await MusicScraperService.removeLyricsSidecarWithTimeout(
+                    seconds: 30,
+                    sourceManager: sourceManager,
+                    for: updated
+                )
+                guard result.lyricsRemoved else {
+                    return result.errors.joined(separator: "\n")
+                }
+                guard await verifySidecarRemoval(song: updated) else {
+                    return String(localized: "tag_editor_lyrics_verify_failed")
+                }
+                return nil
+            } catch {
+                return error.localizedDescription
+            }
+        case .mediaServer:
+            let result = await sourceManager.removeLyricsFromMediaServer(for: updated)
+            guard result.lyricsRemoved else {
+                return (result.errors + result.unsupported).joined(separator: "\n")
+            }
+            guard await verifyMediaServerRemoval(song: updated) else {
+                return String(localized: "tag_editor_lyrics_verify_failed")
+            }
+            return nil
+        }
+    }
+
+    private func verifySidecarWriteback(
+        content: String,
+        song: Song
+    ) async -> Bool {
+        guard let readback = await LyricsLoader.loadSourceText(for: song, sourceManager: sourceManager) else {
+            return false
+        }
+        return normalizedLyricsText(readback) == normalizedLyricsText(content)
+    }
+
+    private func verifyMediaServerWriteback(
+        expectedLines: [LyricLine],
+        song: Song
+    ) async -> Bool {
+        guard let connector = try? await sourceManager.connectorForSong(song),
+              let server = connector as? any ServerLyricsConnector,
+              let readback = await server.fetchServerLyrics(for: song.filePath) else {
+            return false
+        }
+        return LyricsContentParser.areSemanticallyEquivalent(
+            expectedLines,
+            LyricsContentParser.parseText(readback)
+        )
+    }
+
+    private func verifySidecarRemoval(song: Song) async -> Bool {
+        guard let preflight = try? await MusicScraperService.preflightLyricsWriteWithTimeout(
+            seconds: 10,
+            sourceManager: sourceManager,
+            for: song
+        ) else {
+            return false
+        }
+        return !preflight.replacesExistingFile
+    }
+
+    private func verifyMediaServerRemoval(song: Song) async -> Bool {
+        guard let connector = try? await sourceManager.connectorForSong(song),
+              let server = connector as? any ServerLyricsConnector else {
+            return false
+        }
+        return await server.fetchServerLyrics(for: song.filePath) == nil
     }
 
     private func resetFromOriginal() {

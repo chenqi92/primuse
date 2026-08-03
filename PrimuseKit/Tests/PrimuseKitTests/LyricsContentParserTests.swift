@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import PrimuseKit
 
@@ -66,5 +67,61 @@ struct LyricsContentParserTests {
         #expect(reparsed.map(\.timestamp) == elrc.map(\.timestamp))
         #expect(reparsed.map(\.text) == elrc.map(\.text))
         #expect(reparsed.map { $0.syllables?.map(\.start) } == elrc.map { $0.syllables?.map(\.start) })
+    }
+
+    @Test("ELRC metadata survives parse, cache encoding and serialization")
+    func preservesDocumentMetadata() throws {
+        let parsed = LyricsContentParser.parse(issue15ELRC)
+        #expect(parsed.first?.metadataLines == [
+            "[ti:I See Her]",
+            "[ar:]",
+            "[la:en]",
+            "[by:Converted to ELRC]",
+        ])
+
+        let encoded = try JSONEncoder().encode(parsed)
+        let decoded = try JSONDecoder().decode([LyricLine].self, from: encoded)
+        let serialized = LyricsContentParser.serialize(decoded)
+        #expect(serialized.hasPrefix("[ti:I See Her]\n[ar:]\n[la:en]\n[by:Converted to ELRC]\n"))
+        #expect(LyricsContentParser.parse(serialized).first?.metadataLines == parsed.first?.metadataLines)
+    }
+
+    @Test("Editable validation reports malformed and decreasing timestamps")
+    func validatesStructuredLyrics() {
+        let valid = LyricsContentParser.validateEditableText(issue15ELRC)
+        #expect(valid.isValid)
+        #expect(valid.format == .wordLevel)
+        #expect(valid.issues.isEmpty)
+
+        let malformed = LyricsContentParser.validateEditableText("""
+        [00:10.00]First
+        [00:09.00]Second
+        [00:12.00]<00:bad>Third
+        """)
+        #expect(!malformed.isValid)
+        #expect(malformed.issues.contains {
+            $0.lineNumber == 2 && $0.kind == .nonMonotonicTimestamp
+        })
+        #expect(malformed.issues.contains {
+            $0.lineNumber == 3 && $0.kind == .invalidWordTimestamp
+        })
+    }
+
+    @Test("Plain lyrics may contain angle brackets without becoming invalid ELRC")
+    func validatesPlainAngleBrackets() {
+        let validation = LyricsContentParser.validateEditableText("I <3 this song\nSecond line")
+        #expect(validation.isValid)
+        #expect(validation.format == .plain)
+    }
+
+    @Test("Semantic readback comparison covers line and word timestamps")
+    func comparesWritebackReadback() {
+        let expected = LyricsContentParser.parse(issue15ELRC)
+        let roundTrip = LyricsContentParser.parse(LyricsContentParser.serialize(expected))
+        #expect(LyricsContentParser.areSemanticallyEquivalent(expected, roundTrip))
+
+        var changed = roundTrip
+        changed[0].syllables?[0].start += 0.1
+        #expect(!LyricsContentParser.areSemanticallyEquivalent(expected, changed))
     }
 }

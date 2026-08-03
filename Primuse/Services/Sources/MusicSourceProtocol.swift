@@ -405,6 +405,7 @@ struct MediaServerWritebackResult: Sendable {
     var metadataWritten = false
     var coverWritten = false
     var lyricsWritten = false
+    var lyricsRemoved = false
     var unsupported: [String] = []
     var errors: [String] = []
 
@@ -421,8 +422,11 @@ protocol MediaServerWritebackConnector: MusicSourceConnector {
         original: Song,
         updated: Song,
         coverData: Data?,
-        lyricsLines: [LyricLine]?
+        lyricsLines: [LyricLine]?,
+        lyricsContent: String?
     ) async -> MediaServerWritebackResult
+
+    func removeLyrics(for song: Song) async -> MediaServerWritebackResult
 }
 
 /// 服务端曲库源(Subsonic / Navidrome 等)向服务器回报播放的能力。

@@ -3658,7 +3658,8 @@ final class SourceManager {
         original: Song,
         updated: Song,
         coverData: Data?,
-        lyricsLines: [LyricLine]?
+        lyricsLines: [LyricLine]?,
+        lyricsContent: String? = nil
     ) async -> MediaServerWritebackResult {
         do {
             let connector = try await connectorForSong(updated)
@@ -3671,8 +3672,23 @@ final class SourceManager {
                 original: original,
                 updated: updated,
                 coverData: coverData,
-                lyricsLines: lyricsLines
+                lyricsLines: lyricsLines,
+                lyricsContent: lyricsContent
             )
+        } catch {
+            return MediaServerWritebackResult(errors: [error.localizedDescription])
+        }
+    }
+
+    func removeLyricsFromMediaServer(for song: Song) async -> MediaServerWritebackResult {
+        do {
+            let connector = try await connectorForSong(song)
+            guard let writer = connector as? any MediaServerWritebackConnector else {
+                return MediaServerWritebackResult(
+                    unsupported: ["This media server connector does not support lyrics removal"]
+                )
+            }
+            return await writer.removeLyrics(for: song)
         } catch {
             return MediaServerWritebackResult(errors: [error.localizedDescription])
         }

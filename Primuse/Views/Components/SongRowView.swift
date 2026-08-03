@@ -158,6 +158,12 @@ struct SongRowView: View {
                         }
 
                         Button {
+                            showTagEditor = true
+                        } label: {
+                            Label(String(localized: "tag_editor_menu"), systemImage: "tag")
+                        }
+
+                        Button {
                             showAddToPlaylist = true
                         } label: {
                             Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")

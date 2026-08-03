@@ -2,7 +2,7 @@ import CryptoKit
 import Foundation
 import PrimuseKit
 
-actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackConnector {
+actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackConnector, ServerLyricsConnector {
     enum Kind: Sendable {
         case jellyfin
         case emby
@@ -381,7 +381,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         original: Song,
         updated: Song,
         coverData: Data?,
-        lyricsLines: [LyricLine]?
+        lyricsLines: [LyricLine]?,
+        lyricsContent: String?
     ) async -> MediaServerWritebackResult {
         var result = MediaServerWritebackResult()
 
@@ -433,7 +434,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                     try await uploadJellyfinLyrics(
                         itemID: itemID,
                         title: updated.title,
-                        lines: lyricsLines
+                        lines: lyricsLines,
+                        content: lyricsContent
                     )
                     result.lyricsWritten = true
                 } catch {
@@ -447,6 +449,44 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         }
 
         return result
+    }
+
+    func removeLyrics(for song: Song) async -> MediaServerWritebackResult {
+        var result = MediaServerWritebackResult()
+        do {
+            try await connect()
+            guard let itemID = itemID(from: song.filePath) else {
+                result.errors.append("Invalid media-server item path: \(song.filePath)")
+                return result
+            }
+            switch kind {
+            case .jellyfin:
+                _ = try await performRequest(
+                    path: "/Audio/\(itemID)/Lyrics",
+                    method: "DELETE"
+                )
+                result.lyricsRemoved = true
+            case .emby:
+                result.unsupported.append("Emby does not expose a lyrics deletion API")
+            case .plex:
+                result.unsupported.append("Plex requires deleting the same-name .lrc file in the media directory")
+            }
+        } catch {
+            result.errors.append("Lyrics: \(error.localizedDescription)")
+        }
+        return result
+    }
+
+    func fetchServerLyrics(for path: String) async -> String? {
+        guard kind == .jellyfin, let itemID = itemID(from: path) else { return nil }
+        do {
+            try await connect()
+            let data = try await performRequest(path: "/Audio/\(itemID)/Lyrics")
+            let response = try decoder.decode(JellyfinLyricResponse.self, from: data)
+            return response.editableContent
+        } catch {
+            return nil
+        }
     }
 
     private func fetchLibraries() async throws -> [Library] {
@@ -781,13 +821,15 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     private func uploadJellyfinLyrics(
         itemID: String,
         title: String,
-        lines: [LyricLine]
+        lines: [LyricLine],
+        content: String?
     ) async throws {
         let safeTitle = title
             .replacingOccurrences(of: "/", with: " - ")
             .replacingOccurrences(of: ":", with: " - ")
-        let content = Self.lyricsToLRC(lines)
-        guard let data = content.data(using: .utf8) else {
+        let uploadContent = content?.trimmingCharacters(in: .newlines)
+            ?? LyricsContentParser.serialize(lines)
+        guard let data = uploadContent.data(using: .utf8) else {
             throw SourceError.connectionFailed("Unable to encode lyrics")
         }
         _ = try await performRequest(
@@ -797,15 +839,6 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             body: data,
             contentType: "text/plain; charset=utf-8"
         )
-    }
-
-    private static func lyricsToLRC(_ lines: [LyricLine]) -> String {
-        lines.map { line in
-            let minutes = line.timestamp.finiteInt() / 60
-            let seconds = line.timestamp - Double(minutes * 60)
-            return String(format: "[%02d:%05.2f]%@", minutes, seconds, line.text)
-        }
-        .joined(separator: "\n") + "\n"
     }
 
     private func headers(requiresAuth: Bool) -> [String: String] {
@@ -1350,6 +1383,138 @@ private struct AudioMediaSource: Decodable {
         case size = "Size"
         case container = "Container"
         case path = "Path"
+    }
+}
+
+private struct JellyfinLyricResponse: Decodable {
+    let metadata: JellyfinLyricMetadata?
+    let lyrics: [JellyfinLyricLine]?
+
+    enum CodingKeys: String, CodingKey {
+        case metadata = "Metadata"
+        case lyrics = "Lyrics"
+    }
+
+    var editableContent: String? {
+        let lyricLines = (lyrics ?? []).compactMap(\.editableLine)
+        guard !lyricLines.isEmpty else { return nil }
+        var output = metadata?.lrcHeaders ?? []
+        if !output.isEmpty { output.append("") }
+        output.append(contentsOf: lyricLines)
+        return output.joined(separator: "\n")
+    }
+}
+
+private struct JellyfinLyricMetadata: Decodable {
+    let artist: String?
+    let album: String?
+    let title: String?
+    let author: String?
+    let by: String?
+    let creator: String?
+    let length: Int64?
+    let offset: Int64?
+
+    enum CodingKeys: String, CodingKey {
+        case artist = "Artist"
+        case album = "Album"
+        case title = "Title"
+        case author = "Author"
+        case by = "By"
+        case creator = "Creator"
+        case length = "Length"
+        case offset = "Offset"
+    }
+
+    var lrcHeaders: [String] {
+        var values: [String] = []
+        if let artist, !artist.isEmpty { values.append("[ar:\(artist)]") }
+        if let album, !album.isEmpty { values.append("[al:\(album)]") }
+        if let title, !title.isEmpty { values.append("[ti:\(title)]") }
+        if let author, !author.isEmpty { values.append("[author:\(author)]") }
+        if let by, !by.isEmpty { values.append("[by:\(by)]") }
+        if let creator, !creator.isEmpty { values.append("[re:\(creator)]") }
+        if let length, length > 0 {
+            values.append("[length:\(Self.formatTimestamp(Double(length) / 10_000_000))]")
+        }
+        if let offset, offset != 0 {
+            values.append("[offset:\(offset / 10_000)]")
+        }
+        return values
+    }
+
+    private static func formatTimestamp(_ seconds: TimeInterval) -> String {
+        let milliseconds = max(0, (seconds * 1_000).rounded()).finiteInt()
+        return String(
+            format: "%02d:%02d.%03d",
+            milliseconds / 60_000,
+            (milliseconds % 60_000) / 1_000,
+            milliseconds % 1_000
+        )
+    }
+}
+
+private struct JellyfinLyricLine: Decodable {
+    let text: String?
+    let start: Int64?
+    let cues: [JellyfinLyricCue]?
+
+    enum CodingKeys: String, CodingKey {
+        case text = "Text"
+        case start = "Start"
+        case cues = "Cues"
+    }
+
+    var editableLine: String? {
+        guard let text, !text.isEmpty else { return nil }
+        let orderedCues = (cues ?? []).sorted { ($0.position ?? 0) < ($1.position ?? 0) }
+        if !orderedCues.isEmpty {
+            let characters = Array(text)
+            var body = ""
+            for (index, cue) in orderedCues.enumerated() {
+                guard let cueStart = cue.start else { continue }
+                let startIndex = min(max(0, cue.position ?? 0), characters.count)
+                let fallbackEnd = index + 1 < orderedCues.count
+                    ? orderedCues[index + 1].position ?? characters.count
+                    : characters.count
+                let endIndex = min(max(startIndex, cue.endPosition ?? fallbackEnd), characters.count)
+                guard startIndex < endIndex else { continue }
+                body += "<\(Self.formatTicks(cueStart))>"
+                body += String(characters[startIndex..<endIndex])
+            }
+            if let end = orderedCues.last?.end {
+                body += "<\(Self.formatTicks(end))>"
+            }
+            guard !body.isEmpty else { return nil }
+            let lineStart = start ?? orderedCues.first?.start ?? 0
+            return "[\(Self.formatTicks(lineStart))]" + body
+        }
+        guard let start else { return text }
+        return "[\(Self.formatTicks(start))]" + text
+    }
+
+    private static func formatTicks(_ ticks: Int64) -> String {
+        let milliseconds = max(0, (Double(ticks) / 10_000).rounded()).finiteInt()
+        return String(
+            format: "%02d:%02d.%03d",
+            milliseconds / 60_000,
+            (milliseconds % 60_000) / 1_000,
+            milliseconds % 1_000
+        )
+    }
+}
+
+private struct JellyfinLyricCue: Decodable {
+    let position: Int?
+    let endPosition: Int?
+    let start: Int64?
+    let end: Int64?
+
+    enum CodingKeys: String, CodingKey {
+        case position = "Position"
+        case endPosition = "EndPosition"
+        case start = "Start"
+        case end = "End"
     }
 }
 

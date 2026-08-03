@@ -18,11 +18,41 @@ actor SidecarWriteService {
     struct WriteResult: Sendable {
         var coverWritten: Bool = false
         var lyricsWritten: Bool = false
+        var lyricsRemoved: Bool = false
         /// A credential/permission failure applies to the whole source, not
         /// only this asset. Batch scraping uses this to stop the remaining
         /// queued writes while keeping the locally cached metadata.
         var sourceUnavailable: Bool = false
         var errors: [String] = []
+    }
+
+    struct LyricsPreflightResult: Sendable, Equatable {
+        let targetPath: String
+        let fileName: String
+        let replacesExistingFile: Bool
+    }
+
+    /// Non-mutating source/file preflight used by the editor before enabling
+    /// remote writeback. A successful directory listing proves current
+    /// authentication and target reachability; the provider still performs
+    /// the definitive ACL check when `writeFile` executes.
+    func preflightLyricsWrite(
+        for song: Song,
+        using connector: any MusicSourceConnector
+    ) async throws -> LyricsPreflightResult {
+        guard connector.supportsSidecarWriting else {
+            throw SourceError.connectionFailed("Source does not support sidecar writing")
+        }
+        let target = Self.lyricsTargetPath(for: song)
+        let directory = (target as NSString).deletingLastPathComponent
+        let items = try await connector.listFiles(at: directory.isEmpty ? "/" : directory)
+        let targetName = (target as NSString).lastPathComponent
+        let exists = items.contains { !$0.isDirectory && $0.name.caseInsensitiveCompare(targetName) == .orderedSame }
+        return LyricsPreflightResult(
+            targetPath: target,
+            fileName: targetName,
+            replacesExistingFile: exists
+        )
     }
 
     /// Write sidecar files for a song after scraping.
@@ -35,7 +65,8 @@ actor SidecarWriteService {
         for song: Song,
         using connector: any MusicSourceConnector,
         coverData: Data?,
-        lyricsLines: [LyricLine]?
+        lyricsLines: [LyricLine]?,
+        lyricsContent: String? = nil
     ) async -> WriteResult {
         var result = WriteResult()
         guard connector.supportsSidecarWriting else {
@@ -72,9 +103,10 @@ actor SidecarWriteService {
 
         // 2. Write <basename>.lrc next to audio file
         if !result.sourceUnavailable, let lyricsLines, !lyricsLines.isEmpty {
-            let lrcContent = LyricsContentParser.serialize(lyricsLines)
+            let lrcContent = lyricsContent?.trimmingCharacters(in: .newlines)
+                ?? LyricsContentParser.serialize(lyricsLines)
             if let lrcData = lrcContent.data(using: .utf8) {
-                let lrcPath = (songDir as NSString).appendingPathComponent("\(baseNameNoExt).lrc")
+                let lrcPath = Self.lyricsTargetPath(for: song)
                 do {
                     try await connector.writeFile(
                         data: lrcData,
@@ -92,6 +124,57 @@ actor SidecarWriteService {
         }
 
         return result
+    }
+
+    func removeLyrics(
+        for song: Song,
+        using connector: any MusicSourceConnector
+    ) async -> WriteResult {
+        var result = WriteResult()
+        guard connector.supportsSidecarWriting else {
+            result.errors.append("Source does not support sidecar writing")
+            return result
+        }
+
+        let target = Self.lyricsTargetPath(for: song)
+        let directory = (target as NSString).deletingLastPathComponent
+        let targetName = (target as NSString).lastPathComponent
+        do {
+            let items = try await connector.listFiles(at: directory.isEmpty ? "/" : directory)
+            guard items.contains(where: {
+                !$0.isDirectory && $0.name.caseInsensitiveCompare(targetName) == .orderedSame
+            }) else {
+                result.lyricsRemoved = true
+                return result
+            }
+            try await connector.deleteFile(at: target)
+            result.lyricsRemoved = true
+            plog("📁 Sidecar: \(targetName) removed from \(directory)")
+        } catch {
+            result.errors.append("Lyrics: \(error.localizedDescription)")
+            result.sourceUnavailable = Self.isSourceUnavailable(error)
+            plog("⚠️ Sidecar: Failed to remove \(targetName): \(error)")
+        }
+        return result
+    }
+
+    private nonisolated static func lyricsTargetPath(for song: Song) -> String {
+        let songDir = (song.filePath as NSString).deletingLastPathComponent
+        let songBase = ((song.filePath as NSString).lastPathComponent as NSString)
+            .deletingPathExtension
+
+        if let ref = song.lyricsFileName, ref.contains("/") {
+            let refDir = (ref as NSString).deletingLastPathComponent
+            let refName = (ref as NSString).lastPathComponent
+            let refBase = (refName as NSString).deletingPathExtension
+            let refExtension = (refName as NSString).pathExtension
+            if refDir == songDir,
+               refBase.caseInsensitiveCompare(songBase) == .orderedSame,
+               refExtension.caseInsensitiveCompare("lrc") == .orderedSame {
+                return ref
+            }
+        }
+        return (songDir as NSString).appendingPathComponent("\(songBase).lrc")
     }
 
     private nonisolated static func isSourceUnavailable(_ error: Error) -> Bool {

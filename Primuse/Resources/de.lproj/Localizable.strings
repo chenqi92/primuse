@@ -89,12 +89,23 @@
 "tag_editor_lyrics_format_hint" = "Unterstützt Klartext, LRC [mm:ss.xxx] und ELRC <mm:ss.xxx>Wort. Vorhandene Zeitstempel bleiben erhalten.";
 "tag_editor_lyrics_writeback_checking" = "Schreibzugriff der Quelle wird geprüft…";
 "tag_editor_lyrics_writeback_sidecar" = "Speichert in Primuse und schreibt eine gleichnamige .lrc-Datei neben die Audiodatei.";
+"tag_editor_lyrics_writeback_sidecar_new" = "Ziel geprüft. Eine neue Datei %@ wird neben der Audiodatei erstellt.";
+"tag_editor_lyrics_writeback_sidecar_replace" = "Ziel geprüft. Die vorhandene Datei %@ wird aktualisiert.";
 "tag_editor_lyrics_writeback_server" = "Speichert in Primuse und schreibt den Songtext auf den Medienserver zurück.";
 "tag_editor_lyrics_writeback_read_only" = "Schreibgeschützte Quelle: Änderungen werden in Primuse gespeichert und über iCloud synchronisiert, können aber nicht direkt zurückgeschrieben werden.";
+"tag_editor_lyrics_writeback_unavailable" = "Die Musikquelle ist derzeit nicht beschreibbar: %@";
+"tag_editor_lyrics_server_unsupported" = "Dieser Medienserver unterstützt das Zurückschreiben von Songtexten nicht.";
 "tag_editor_lyrics_error_title" = "Songtext konnte nicht gespeichert werden";
-"tag_editor_lyrics_empty_error" = "Der Songtext darf nicht leer sein. Das Entfernen aus der Quelle wird noch nicht unterstützt.";
+"tag_editor_lyrics_empty_error" = "Bitte das Entfernen des vorhandenen Songtexts bestätigen.";
 "tag_editor_lyrics_invalid_error" = "Keine gültigen Songtextzeilen gefunden.";
 "tag_editor_lyrics_write_failed" = "Songtext konnte nicht zurückgeschrieben werden: %@";
+"tag_editor_lyrics_verify_failed" = "Der nach dem Speichern gelesene Songtext stimmt nicht mit der Bearbeitung überein. Bitte Quellenrechte prüfen und erneut versuchen.";
+"tag_editor_lyrics_format_empty" = "Leerer Songtext";
+"tag_editor_lyrics_clear" = "Leeren";
+"tag_editor_lyrics_invalid_lines_format" = "Ungültige oder falsch sortierte Zeitstempel in Zeilen: %@";
+"tag_editor_lyrics_delete_confirm_title" = "Songtext dieses Titels entfernen?";
+"tag_editor_lyrics_delete_confirm_message" = "Bei beschreibbaren Quellen wird auch die gleichnamige Songtextdatei entfernt. Bei schreibgeschützten Quellen wird nur der Primuse-Cache gelöscht.";
+"tag_editor_lyrics_delete" = "Songtext entfernen";
 
 // VoiceOver / a11y
 "a11y_shuffle" = "Zufall";

@@ -32,6 +32,11 @@ public struct LyricLine: Identifiable, Hashable, Sendable {
     public var voice: LyricVoice
     /// 背景和声子行（同一时间窗内附唱）。`background` 内的 background 应永远为 nil。
     public var background: [LyricLine]?
+    /// Leading LRC/ELRC document metadata such as `[ti:]`, `[ar:]` and
+    /// `[by:]`. Only the first parsed lyric line carries this value so the
+    /// existing line-oriented cache and CloudKit snapshot remain compatible
+    /// while editable documents can still round-trip their headers.
+    public var metadataLines: [String]?
 
     public init(
         id: String = UUID().uuidString,
@@ -40,7 +45,8 @@ public struct LyricLine: Identifiable, Hashable, Sendable {
         isSynchronized: Bool? = nil,
         syllables: [LyricSyllable]? = nil,
         voice: LyricVoice = .primary,
-        background: [LyricLine]? = nil
+        background: [LyricLine]? = nil,
+        metadataLines: [String]? = nil
     ) {
         self.id = id
         self.timestamp = timestamp
@@ -49,6 +55,7 @@ public struct LyricLine: Identifiable, Hashable, Sendable {
         self.syllables = syllables
         self.voice = voice
         self.background = background
+        self.metadataLines = metadataLines
     }
 
     /// 行结束时间。字级行用最后一字的 end；行级行无信息，外部需要靠下一行 timestamp 推。
@@ -61,7 +68,7 @@ public struct LyricLine: Identifiable, Hashable, Sendable {
 
 extension LyricLine: Codable {
     private enum CodingKeys: String, CodingKey {
-        case id, timestamp, text, isSynchronized, syllables, voice, background
+        case id, timestamp, text, isSynchronized, syllables, voice, background, metadataLines
     }
 
     public init(from decoder: Decoder) throws {
@@ -74,6 +81,7 @@ extension LyricLine: Codable {
             ?? (timestamp > 0 || syllables?.isEmpty == false)
         self.voice = try c.decodeIfPresent(LyricVoice.self, forKey: .voice) ?? .primary
         self.background = try c.decodeIfPresent([LyricLine].self, forKey: .background)
+        self.metadataLines = try c.decodeIfPresent([String].self, forKey: .metadataLines)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -89,6 +97,7 @@ extension LyricLine: Codable {
         // voice / background 仅在非默认值时写入，避免老歌词缓存膨胀
         if voice != .primary { try c.encode(voice, forKey: .voice) }
         try c.encodeIfPresent(background, forKey: .background)
+        try c.encodeIfPresent(metadataLines, forKey: .metadataLines)
     }
 }
 
@@ -100,13 +109,13 @@ public enum LyricsFormat: String, Codable, Sendable, CaseIterable {
     /// 通过扫描内容探测歌词格式。仅看是否存在字级 / 行级时间标记。
     public static func detect(_ content: String?) -> LyricsFormat {
         guard let content, !content.isEmpty else { return .plain }
-        if content.range(of: #"<\d+:\d+(\.\d+)?>"#, options: .regularExpression) != nil {
+        if content.range(of: #"<\d+:\d+(?:[.:]\d+)?>"#, options: .regularExpression) != nil {
             return .wordLevel
         }
         if content.range(of: #"<\d+,\d+(,\d+)?>"#, options: .regularExpression) != nil {
             return .wordLevel
         }
-        if content.range(of: #"\[\d+:\d+(\.\d+)?\]"#, options: .regularExpression) != nil {
+        if content.range(of: #"\[\d+:\d+(?:[.:]\d+)?\]"#, options: .regularExpression) != nil {
             return .lineLevel
         }
         return .plain
@@ -115,19 +124,73 @@ public enum LyricsFormat: String, Codable, Sendable, CaseIterable {
     public var isSynced: Bool { self != .plain }
 }
 
+public enum LyricsValidationIssueKind: String, Codable, Sendable, Hashable {
+    case invalidTimestamp
+    case invalidWordTimestamp
+    case emptyTimedLine
+    case nonMonotonicTimestamp
+}
+
+public struct LyricsValidationIssue: Codable, Sendable, Hashable {
+    public let lineNumber: Int
+    public let kind: LyricsValidationIssueKind
+
+    public init(lineNumber: Int, kind: LyricsValidationIssueKind) {
+        self.lineNumber = lineNumber
+        self.kind = kind
+    }
+}
+
+public struct LyricsEditableValidation: Sendable, Hashable {
+    public let normalizedContent: String
+    public let format: LyricsFormat
+    public let lines: [LyricLine]
+    public let issues: [LyricsValidationIssue]
+
+    public var isValid: Bool {
+        !normalizedContent.isEmpty && !lines.isEmpty && issues.isEmpty
+    }
+
+    public init(
+        normalizedContent: String,
+        format: LyricsFormat,
+        lines: [LyricLine],
+        issues: [LyricsValidationIssue]
+    ) {
+        self.normalizedContent = normalizedContent
+        self.format = format
+        self.lines = lines
+        self.issues = issues
+    }
+}
+
 public enum LyricsContentParser {
     nonisolated(unsafe) private static let lineHeadPattern = /\[(\d+):(\d{2})(?:[.:](\d{1,3}))?\]/
     nonisolated(unsafe) private static let relativeLineHeadPattern = /^\[(\d+),(\d+)\]/
     nonisolated(unsafe) private static let inlineWordPattern = /<(\d+):(\d{2})(?:[.:](\d{1,3}))?>/
     nonisolated(unsafe) private static let relativeWordPattern = /<(\d+),(\d+)(?:,\d+)?>/
+    nonisolated(unsafe) private static let metadataPattern = /^\[[A-Za-z][A-Za-z0-9_-]*:.*\]\s*$/
 
     public static func parse(_ content: String) -> [LyricLine] {
         var lines: [LyricLine] = []
+        var metadataLines: [String] = []
+        var isLeadingMetadataRegion = true
 
         for raw in content.components(separatedBy: .newlines) {
+            if isLeadingMetadataRegion, raw.firstMatch(of: metadataPattern) != nil {
+                metadataLines.append(raw)
+                continue
+            }
+            if isLeadingMetadataRegion, raw.trimmingCharacters(in: .whitespaces).isEmpty,
+               !metadataLines.isEmpty {
+                metadataLines.append(raw)
+                continue
+            }
+
             let heads = raw.matches(of: lineHeadPattern)
             if heads.isEmpty {
                 guard let head = raw.firstMatch(of: relativeLineHeadPattern) else { continue }
+                isLeadingMetadataRegion = false
                 let lineStart = (Double(head.1) ?? 0) / 1000
                 let body = String(raw[head.range.upperBound...])
                 if let parsed = parseWordLevelLine(body: body, lineStart: lineStart) {
@@ -140,6 +203,7 @@ public enum LyricsContentParser {
                 continue
             }
 
+            isLeadingMetadataRegion = false
             guard let lastHead = heads.last else { continue }
             let body = String(raw[lastHead.range.upperBound...])
             for head in heads {
@@ -156,7 +220,11 @@ public enum LyricsContentParser {
             }
         }
 
-        return lines.sorted { $0.timestamp < $1.timestamp }
+        lines.sort { $0.timestamp < $1.timestamp }
+        if !metadataLines.isEmpty, !lines.isEmpty {
+            lines[0].metadataLines = metadataLines
+        }
+        return lines
     }
 
     public static func parseText(_ text: String) -> [LyricLine] {
@@ -174,7 +242,7 @@ public enum LyricsContentParser {
     /// flattening synchronization data. Plain lyrics remain plain, line-level
     /// lyrics use LRC timestamps, and syllable lyrics use ELRC word markers.
     public static func serialize(_ lines: [LyricLine]) -> String {
-        lines.map { line in
+        let body = lines.map { line in
             guard line.isSynchronized else { return line.text }
 
             let lineHead = "[\(formatTimestamp(line.timestamp))]"
@@ -190,6 +258,110 @@ public enum LyricsContentParser {
             }
             return lineHead + body
         }.joined(separator: "\n")
+        guard let metadata = lines.first?.metadataLines, !metadata.isEmpty else {
+            return body
+        }
+        return (metadata + [body]).joined(separator: "\n")
+    }
+
+    /// Validates the raw structured-text editor without rewriting it. Valid
+    /// metadata and blank lines are kept in `normalizedContent`; malformed
+    /// time markers are reported with their original 1-based line numbers.
+    public static func validateEditableText(_ text: String) -> LyricsEditableValidation {
+        let normalized = text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let format = LyricsFormat.detect(normalized)
+        let parsedLines = parseText(normalized)
+        guard !normalized.isEmpty else {
+            return LyricsEditableValidation(
+                normalizedContent: normalized,
+                format: format,
+                lines: [],
+                issues: []
+            )
+        }
+
+        var issues: [LyricsValidationIssue] = []
+        var previousTimestamp: TimeInterval?
+        for (offset, raw) in normalized.components(separatedBy: .newlines).enumerated() {
+            let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty, raw.firstMatch(of: metadataPattern) == nil else { continue }
+
+            let looksTimed = trimmed.hasPrefix("[")
+                && trimmed.dropFirst().first?.isNumber == true
+            let containsWordDelimiters = (trimmed.contains("<") || trimmed.contains(">"))
+                && (looksTimed || format == .wordLevel)
+            guard looksTimed || containsWordDelimiters else { continue }
+
+            let parsed = parse(raw)
+            if parsed.isEmpty {
+                let kind: LyricsValidationIssueKind = containsWordDelimiters
+                    ? .invalidWordTimestamp
+                    : .invalidTimestamp
+                issues.append(.init(lineNumber: offset + 1, kind: kind))
+                continue
+            }
+
+            if looksTimed,
+               parsed.allSatisfy({ $0.text.trimmingCharacters(in: .whitespaces).isEmpty }) {
+                issues.append(.init(lineNumber: offset + 1, kind: .emptyTimedLine))
+            }
+            if containsWordDelimiters,
+               parsed.contains(where: { !$0.isWordLevel }) {
+                issues.append(.init(lineNumber: offset + 1, kind: .invalidWordTimestamp))
+            }
+
+            for line in parsed {
+                if let previousTimestamp, line.timestamp < previousTimestamp {
+                    issues.append(.init(lineNumber: offset + 1, kind: .nonMonotonicTimestamp))
+                    break
+                }
+                previousTimestamp = line.timestamp
+            }
+        }
+
+        return LyricsEditableValidation(
+            normalizedContent: normalized,
+            format: format,
+            lines: parsedLines,
+            issues: Array(Set(issues)).sorted {
+                if $0.lineNumber == $1.lineNumber { return $0.kind.rawValue < $1.kind.rawValue }
+                return $0.lineNumber < $1.lineNumber
+            }
+        )
+    }
+
+    public static func areSemanticallyEquivalent(
+        _ lhs: [LyricLine],
+        _ rhs: [LyricLine],
+        tolerance: TimeInterval = 0.002
+    ) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        for (left, right) in zip(lhs, rhs) {
+            guard left.text == right.text,
+                  left.isSynchronized == right.isSynchronized,
+                  abs(left.timestamp - right.timestamp) <= tolerance else {
+                return false
+            }
+            switch (left.syllables, right.syllables) {
+            case (nil, nil):
+                continue
+            case (.some(let leftWords), .some(let rightWords)):
+                guard leftWords.count == rightWords.count else { return false }
+                for (leftWord, rightWord) in zip(leftWords, rightWords) {
+                    guard leftWord.text == rightWord.text,
+                          abs(leftWord.start - rightWord.start) <= tolerance,
+                          abs(leftWord.end - rightWord.end) <= tolerance else {
+                        return false
+                    }
+                }
+            default:
+                return false
+            }
+        }
+        return true
     }
 
     private static func parseWordLevelLine(

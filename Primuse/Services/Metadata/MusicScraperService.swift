@@ -1842,7 +1842,8 @@ final class MusicScraperService {
         sourceManager: SourceManager,
         for song: Song,
         coverData: Data?,
-        lyricsLines: [LyricLine]?
+        lyricsLines: [LyricLine]?,
+        lyricsContent: String? = nil
     ) async throws -> SidecarWriteService.WriteResult {
         try await withThrowingTaskGroup(of: SidecarWriteService.WriteResult.self) { group in
             defer { group.cancelAll() }
@@ -1853,7 +1854,8 @@ final class MusicScraperService {
                     for: song,
                     using: connector,
                     coverData: coverData,
-                    lyricsLines: lyricsLines
+                    lyricsLines: lyricsLines,
+                    lyricsContent: lyricsContent
                 )
                 if writeResult.coverWritten || writeResult.lyricsWritten {
                     await sourceManager.invalidateDownloadCacheAfterSidecarWrite(for: song)
@@ -1870,6 +1872,57 @@ final class MusicScraperService {
             guard let result = try await group.next() else {
                 throw CancellationError()
             }
+            return result
+        }
+    }
+
+    nonisolated static func preflightLyricsWriteWithTimeout(
+        seconds: TimeInterval,
+        sourceManager: SourceManager,
+        for song: Song
+    ) async throws -> SidecarWriteService.LyricsPreflightResult {
+        try await withThrowingTaskGroup(of: SidecarWriteService.LyricsPreflightResult.self) { group in
+            defer { group.cancelAll() }
+            group.addTask {
+                let connector = try await sourceManager.sidecarWriteConnector(for: song)
+                return try await SidecarWriteService.shared.preflightLyricsWrite(
+                    for: song,
+                    using: connector
+                )
+            }
+            group.addTask {
+                let nanoseconds = (max(0.1, seconds) * 1_000_000_000)
+                    .finiteUInt64(or: 100_000_000)
+                try await Task.sleep(nanoseconds: nanoseconds)
+                throw CancellationError()
+            }
+            guard let result = try await group.next() else { throw CancellationError() }
+            return result
+        }
+    }
+
+    nonisolated static func removeLyricsSidecarWithTimeout(
+        seconds: TimeInterval,
+        sourceManager: SourceManager,
+        for song: Song
+    ) async throws -> SidecarWriteService.WriteResult {
+        try await withThrowingTaskGroup(of: SidecarWriteService.WriteResult.self) { group in
+            defer { group.cancelAll() }
+            group.addTask {
+                let connector = try await sourceManager.sidecarWriteConnector(for: song)
+                let result = await SidecarWriteService.shared.removeLyrics(for: song, using: connector)
+                if result.lyricsRemoved {
+                    await sourceManager.invalidateDownloadCacheAfterSidecarWrite(for: song)
+                }
+                return result
+            }
+            group.addTask {
+                let nanoseconds = (max(0.1, seconds) * 1_000_000_000)
+                    .finiteUInt64(or: 100_000_000)
+                try await Task.sleep(nanoseconds: nanoseconds)
+                throw CancellationError()
+            }
+            guard let result = try await group.next() else { throw CancellationError() }
             return result
         }
     }
