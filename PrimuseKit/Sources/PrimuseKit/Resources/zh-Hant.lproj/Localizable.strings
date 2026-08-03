@@ -339,6 +339,7 @@
 "drime_token_section" = "Drime API";
 "drime_access_token" = "API 存取權杖";
 "drime_token_hint" = "請在 Drime 設定 → Developer 中建立權杖並貼到這裡。權杖會安全存入鑰匙圈。";
+"drime_token_permission_hint" = "權限說明：全部權限可播放、寫入和刪除；Read Only 可瀏覽和播放；Restricted 至少需要「檔案：讀取」，寫入封面／歌詞及刪除還需要「檔案：寫入」。";
 "drime_token_edit_hint" = "留空會保留現有 Drime 權杖；輸入新權杖則會取代。";
 "drime_auth_subtitle" = "使用 Drime API 存取權杖連線";
 "drime_connect_title" = "連線 Drime";

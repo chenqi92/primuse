@@ -212,6 +212,12 @@ struct CloudDriveConnectionView: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 430)
 
+            Text("drime_token_permission_hint")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 430)
+
             Spacer()
         }
         .padding(.horizontal, 30)
@@ -600,10 +606,19 @@ struct CloudDriveConnectionView: View {
             }
             do {
                 await sourceManager.refreshConnector(for: source.id)
-                try await sourceManager.connector(for: source).connect()
+                let connector = sourceManager.connector(for: source)
+                try await connector.connect()
+                // Authentication alone does not prove that a restricted token
+                // can access files. Drime permits account access and file access
+                // to be scoped independently, while Primuse requires file reads
+                // for browsing and playback.
+                _ = try await connector.listFiles(at: "/")
                 await linkMountToCloudAccount()
                 directAccessToken = ""
                 withAnimation { step = .browsing }
+            } catch let error as CloudDriveError {
+                errorMessage = credentialMessage(for: error)
+                withAnimation { step = .failed }
             } catch {
                 errorMessage = error.localizedDescription
                 withAnimation { step = .failed }

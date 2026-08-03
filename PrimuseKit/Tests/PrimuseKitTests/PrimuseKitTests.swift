@@ -62,6 +62,12 @@ import Testing
     #expect(CacheFileNamePolicy.make(path: "item-id", preferredExtension: "FLAC").hasSuffix(".flac"))
 }
 
+@Test func opaqueMediaPathsCarryDecoderExtensionWithoutChangingNamedFiles() {
+    #expect(MediaDecodingPathPolicy.make(path: "807776640", preferredExtension: "WAV") == "807776640.wav")
+    #expect(MediaDecodingPathPolicy.make(path: "/music/song.flac", preferredExtension: "WAV") == "/music/song.flac")
+    #expect(MediaDecodingPathPolicy.make(path: "807776640", preferredExtension: "../wav") == "807776640")
+}
+
 @Test func tokenRefreshPolicyKeepsTemporaryFailuresRetryable() {
     #expect(CloudTokenRefreshPolicy.disposition(statusCode: 429) == .transient)
     #expect(CloudTokenRefreshPolicy.disposition(statusCode: 503) == .transient)

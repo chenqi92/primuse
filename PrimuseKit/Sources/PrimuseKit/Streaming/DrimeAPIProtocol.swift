@@ -14,6 +14,23 @@ public enum DrimeAPIProtocol {
     public static let multipartPartSize = 5 * 1_024 * 1_024
     public static let maximumMultipartPartCount = 10_000
 
+    public enum HTTPFailureKind: Sendable, Equatable {
+        case invalidToken
+        case insufficientPermissions
+        case rateLimited
+        case other(Int)
+    }
+
+    public static func failureKind(forHTTPStatusCode statusCode: Int) -> HTTPFailureKind? {
+        guard !(200...299).contains(statusCode) else { return nil }
+        switch statusCode {
+        case 401: return .invalidToken
+        case 403: return .insufficientPermissions
+        case 429: return .rateLimited
+        default: return .other(statusCode)
+        }
+    }
+
     public static var loggedUserURL: URL {
         apiBaseURL.appending(path: "cli/loggedUser")
     }
@@ -68,15 +85,25 @@ public enum DrimeAPIProtocol {
             URLQueryItem(name: "orderDir", value: "asc"),
         ]
         if let folderID = normalizedEntryID(folderID) {
-            queryItems.append(URLQueryItem(name: "folderId", value: folderID))
+            queryItems.append(URLQueryItem(name: "parentIds", value: folderID))
         }
         components?.queryItems = queryItems
         return components?.url
     }
 
-    public static func entryURL(id: String) -> URL? {
+    public static func entryURL(
+        id: String,
+        workspaceID: Int = defaultWorkspaceID
+    ) -> URL? {
         guard let id = normalizedEntryID(id) else { return nil }
-        return apiBaseURL.appending(path: "file-entries").appending(path: id)
+        var components = URLComponents(
+            url: apiBaseURL.appending(path: "file-entries").appending(path: id),
+            resolvingAgainstBaseURL: false
+        )
+        components?.queryItems = [
+            URLQueryItem(name: "workspaceId", value: String(workspaceID)),
+        ]
+        return components?.url
     }
 
     public static func mediaURL(reference: String?) -> URL? {
@@ -292,7 +319,7 @@ public struct DrimeFileEntry: Decodable, Sendable, Equatable {
 }
 
 public struct DrimeLoggedUserResponse: Decodable, Sendable, Equatable {
-    public let user: DrimeUser
+    public let user: DrimeUser?
 }
 
 public struct DrimeUser: Decodable, Sendable, Equatable {

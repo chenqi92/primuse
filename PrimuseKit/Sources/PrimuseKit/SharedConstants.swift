@@ -70,6 +70,23 @@ public enum CacheFileNamePolicy {
     }
 }
 
+/// Gives an opaque provider item ID a media extension for decoder sniffing.
+/// The returned path is only a type hint; connectors continue to fetch bytes
+/// with the original provider path.
+public enum MediaDecodingPathPolicy {
+    public static func make(path: String, preferredExtension: String?) -> String {
+        guard (path as NSString).pathExtension.isEmpty,
+              let preferredExtension else { return path }
+        let normalized = preferredExtension
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            .lowercased()
+        guard !normalized.isEmpty,
+              normalized.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) })
+        else { return path }
+        return "\(path).\(normalized)"
+    }
+}
+
 /// Distinguishes retryable OAuth token-endpoint failures from credentials that
 /// are definitively unusable. Callers must not delete or merge account data
 /// merely because a provider is temporarily unavailable.
@@ -2689,9 +2706,12 @@ public enum SourceDirectorySelectionPolicy {
         for sourceType: MusicSourceType,
         browserPath: String
     ) -> String? {
-        guard sourceType == .s3,
-              browserPath.isEmpty || browserPath == "/" else { return nil }
-        return ""
+        guard browserPath.isEmpty || browserPath == "/" else { return nil }
+        switch sourceType {
+        case .s3: return ""
+        case .drime: return "/"
+        default: return nil
+        }
     }
 
     /// Selecting the S3 bucket root covers all child prefixes, so it is kept
@@ -2700,7 +2720,13 @@ public enum SourceDirectorySelectionPolicy {
         _ directories: [String],
         for sourceType: MusicSourceType
     ) -> [String] {
-        guard sourceType == .s3, directories.contains("") else { return directories }
-        return [""]
+        switch sourceType {
+        case .s3 where directories.contains(""):
+            return [""]
+        case .drime where directories.contains("/"):
+            return ["/"]
+        default:
+            return directories
+        }
     }
 }

@@ -1967,3 +1967,17 @@
 "credential_read_failed" = "無法安全讀取已儲存的密碼，請重試或更新憑證。";
 "fnmusic_account_hint" = "請填寫可登入飛牛音樂並已獲曲庫權限的帳號；以飛牛音樂登入結果為準。";
 "fnmusic_server_base_path_hint" = "反向代理 URL 子路徑（可選）";
+"cloud_permission_account_access" = "目前 Drime 權杖無權存取帳號資訊。";
+"cloud_permission_file_read" = "目前 Drime 權杖無法讀取檔案。";
+"cloud_permission_file_write" = "目前 Drime 權杖為唯讀，或沒有寫入及刪除檔案的權限。";
+"source_diag_advice_permission_title" = "權限不足";
+"source_diag_advice_permission_suggestion" = "請在 Drime 設定 → Developer 中調整權杖權限後重新連線：瀏覽和播放至少需要「檔案：讀取」，側寫寫入和刪除需要「檔案：寫入」。";
+"drime_token_section" = "Drime API";
+"drime_access_token" = "API 存取權杖";
+"drime_token_hint" = "請在 Drime 設定 → Developer 中建立權杖並貼到這裡。權杖會安全存入鑰匙圈。";
+"drime_token_permission_hint" = "權限說明：全部權限可播放、寫入和刪除；Read Only 可瀏覽和播放；Restricted 至少需要「檔案：讀取」，寫入封面／歌詞及刪除還需要「檔案：寫入」。";
+"drime_token_edit_hint" = "留空會保留現有 Drime 權杖；輸入新權杖則會取代。";
+"drime_auth_subtitle" = "使用 Drime API 存取權杖連線";
+"drime_connect_title" = "連線 Drime";
+"drime_connect_description" = "貼上在 Drime 設定 → Developer 中建立的 API 存取權杖。Primuse 驗證成功後會開啟雲端硬碟目錄。";
+"drime_connect_button" = "連線 Drime";

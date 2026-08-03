@@ -342,6 +342,7 @@
 "drime_token_section" = "Drime API";
 "drime_access_token" = "API 액세스 토큰";
 "drime_token_hint" = "Drime 설정 → Developer에서 토큰을 만든 후 여기에 붙여넣으세요. 토큰은 키체인에 안전하게 저장됩니다.";
+"drime_token_permission_hint" = "권한 안내: All은 재생, 쓰기, 삭제를 지원하고 Read Only는 탐색과 재생을 지원합니다. Restricted는 파일 읽기가 필요하며 사이드카 쓰기와 삭제에는 파일 쓰기도 필요합니다.";
 "drime_token_edit_hint" = "기존 Drime 토큰을 유지하려면 비워 두고, 교체하려면 새 토큰을 입력하세요.";
 "drime_auth_subtitle" = "Drime API 액세스 토큰으로 연결";
 "drime_connect_title" = "Drime 연결";

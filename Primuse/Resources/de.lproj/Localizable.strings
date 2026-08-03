@@ -1991,3 +1991,17 @@
 "credential_read_failed" = "Das gespeicherte Passwort konnte nicht sicher gelesen werden. Versuche es erneut oder aktualisiere die Anmeldedaten.";
 "fnmusic_account_hint" = "Verwende ein Konto, das sich bei Feiniu Music anmelden kann und Zugriff auf die Bibliothek hat.";
 "fnmusic_server_base_path_hint" = "URL-Unterpfad des Reverse-Proxys (optional)";
+"cloud_permission_account_access" = "Das aktuelle Drime-Token kann nicht auf Kontoinformationen zugreifen.";
+"cloud_permission_file_read" = "Das aktuelle Drime-Token kann keine Dateien lesen.";
+"cloud_permission_file_write" = "Das aktuelle Drime-Token ist schreibgeschützt oder darf keine Dateien schreiben und löschen.";
+"source_diag_advice_permission_title" = "Unzureichende Berechtigungen";
+"source_diag_advice_permission_suggestion" = "Passen Sie das Token unter Drime Einstellungen → Developer an und verbinden Sie es erneut. Durchsuchen und Wiedergabe benötigen Dateien: Lesen; Sidecar-Schreibvorgänge und Löschen benötigen Dateien: Schreiben.";
+"drime_token_section" = "Drime API";
+"drime_access_token" = "API-Zugriffstoken";
+"drime_token_hint" = "Erstellen Sie unter Drime Einstellungen → Developer ein Token und fügen Sie es hier ein. Das Token wird sicher im Schlüsselbund gespeichert.";
+"drime_token_permission_hint" = "Berechtigungen: All unterstützt Wiedergabe, Schreiben und Löschen; Read Only unterstützt Durchsuchen und Wiedergabe; Restricted benötigt Dateien: Lesen sowie Dateien: Schreiben für Sidecars und Löschen.";
+"drime_token_edit_hint" = "Leer lassen, um das vorhandene Drime-Token zu behalten, oder ein neues Token zum Ersetzen eingeben.";
+"drime_auth_subtitle" = "Mit einem Drime-API-Zugriffstoken verbinden";
+"drime_connect_title" = "Mit Drime verbinden";
+"drime_connect_description" = "Fügen Sie das unter Drime Einstellungen → Developer erstellte API-Zugriffstoken ein. Primuse prüft es, bevor das Laufwerk geöffnet wird.";
+"drime_connect_button" = "Mit Drime verbinden";

@@ -342,6 +342,7 @@
 "drime_token_section" = "Drime API";
 "drime_access_token" = "API-Zugriffstoken";
 "drime_token_hint" = "Erstellen Sie unter Drime Einstellungen → Developer ein Token und fügen Sie es hier ein. Das Token wird sicher im Schlüsselbund gespeichert.";
+"drime_token_permission_hint" = "Berechtigungen: All unterstützt Wiedergabe, Schreiben und Löschen; Read Only unterstützt Durchsuchen und Wiedergabe; Restricted benötigt Dateien: Lesen sowie Dateien: Schreiben für Sidecars und Löschen.";
 "drime_token_edit_hint" = "Leer lassen, um das vorhandene Drime-Token zu behalten, oder ein neues Token zum Ersetzen eingeben.";
 "drime_auth_subtitle" = "Mit einem Drime-API-Zugriffstoken verbinden";
 "drime_connect_title" = "Mit Drime verbinden";

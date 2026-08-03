@@ -12,10 +12,16 @@ struct DrimeAPIProtocolTests {
 
         #expect(components.path == "/api/v1/drive/file-entries")
         #expect(query["workspaceId"] == "0")
-        #expect(query["folderId"] == "4815")
+        #expect(query["parentIds"] == "4815")
+        #expect(query["folderId"] == nil)
         #expect(query["page"] == "2")
         #expect(query["perPage"] == "75")
         #expect(DrimeAPIProtocol.entryURL(id: "../token") == nil)
+
+        let entryURL = try #require(DrimeAPIProtocol.entryURL(id: "4815"))
+        let entryComponents = try #require(URLComponents(url: entryURL, resolvingAgainstBaseURL: false))
+        #expect(entryComponents.path == "/api/v1/file-entries/4815")
+        #expect(entryComponents.queryItems == [URLQueryItem(name: "workspaceId", value: "0")])
     }
 
     @Test("Listing response accepts Drime numeric fields")
@@ -93,8 +99,14 @@ struct DrimeAPIProtocolTests {
         """#.utf8)
 
         let response = try DrimeAPIProtocol.decodeLoggedUser(data)
-        #expect(response.user.id == "15843")
-        #expect(response.user.displayName == "Listener")
+        #expect(response.user?.id == "15843")
+        #expect(response.user?.displayName == "Listener")
+    }
+
+    @Test("Logged user accepts the null response used for rejected API keys")
+    func decodeRejectedLoggedUser() throws {
+        let response = try DrimeAPIProtocol.decodeLoggedUser(Data(#"{"user":null}"#.utf8))
+        #expect(response.user == nil)
     }
 
     @Test("Mutation endpoints stay inside the documented API base")
@@ -150,5 +162,15 @@ struct DrimeAPIProtocolTests {
         #expect(!DrimeAPIProtocol.confirmsSuccess(Data(#"{"status":"error"}"#.utf8)))
         #expect(!DrimeAPIProtocol.confirmsSuccess(Data(#"{"status":"success","errors":{"1":"denied"}}"#.utf8)))
         #expect(!DrimeAPIProtocol.confirmsSuccess(Data("{}".utf8)))
+    }
+
+    @Test("HTTP failures distinguish authentication, permissions and throttling")
+    func httpFailureKinds() {
+        #expect(DrimeAPIProtocol.failureKind(forHTTPStatusCode: 200) == nil)
+        #expect(DrimeAPIProtocol.failureKind(forHTTPStatusCode: 201) == nil)
+        #expect(DrimeAPIProtocol.failureKind(forHTTPStatusCode: 401) == .invalidToken)
+        #expect(DrimeAPIProtocol.failureKind(forHTTPStatusCode: 403) == .insufficientPermissions)
+        #expect(DrimeAPIProtocol.failureKind(forHTTPStatusCode: 429) == .rateLimited)
+        #expect(DrimeAPIProtocol.failureKind(forHTTPStatusCode: 500) == .other(500))
     }
 }

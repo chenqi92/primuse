@@ -259,7 +259,11 @@ enum CloudPlaybackSource {
         var components = URLComponents()
         components.scheme = scheme
         components.host = song.sourceID
-        components.path = song.filePath.hasPrefix("/") ? song.filePath : "/" + song.filePath
+        let decodingPath = MediaDecodingPathPolicy.make(
+            path: song.filePath,
+            preferredExtension: song.fileFormat.rawValue
+        )
+        components.path = decodingPath.hasPrefix("/") ? decodingPath : "/" + decodingPath
         return components.url
     }
 

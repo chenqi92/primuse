@@ -41,6 +41,22 @@ struct SourceDirectorySelectionPolicyTests {
         ) == [""])
     }
 
+    @Test("Drime root is a selectable scan scope")
+    func selectsDrimeRoot() {
+        #expect(SourceDirectorySelectionPolicy.connectorPath(
+            for: .drime,
+            browserPath: "/"
+        ) == "/")
+        #expect(SourceDirectorySelectionPolicy.selectableRootPath(
+            for: .drime,
+            browserPath: "/"
+        ) == "/")
+        #expect(SourceDirectorySelectionPolicy.normalizedSelections(
+            ["4815", "/"],
+            for: .drime
+        ) == ["/"])
+    }
+
     @Test("Other protocols keep root and selected paths unchanged")
     func preservesOtherProtocols() {
         let selected = ["/Music", "/Archive"]

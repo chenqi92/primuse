@@ -1991,3 +1991,17 @@
 "credential_read_failed" = "저장된 암호를 안전하게 읽을 수 없습니다. 다시 시도하거나 자격 증명을 업데이트해 주세요.";
 "fnmusic_account_hint" = "Feiniu Music에 로그인할 수 있고 라이브러리 접근 권한이 있는 계정을 사용하세요.";
 "fnmusic_server_base_path_hint" = "리버스 프록시 URL 하위 경로(선택 사항)";
+"cloud_permission_account_access" = "현재 Drime 토큰은 계정 정보에 접근할 수 없습니다.";
+"cloud_permission_file_read" = "현재 Drime 토큰은 파일을 읽을 수 없습니다.";
+"cloud_permission_file_write" = "현재 Drime 토큰은 읽기 전용이거나 파일 쓰기 및 삭제 권한이 없습니다.";
+"source_diag_advice_permission_title" = "권한 부족";
+"source_diag_advice_permission_suggestion" = "Drime 설정 → Developer에서 토큰 권한을 조정한 뒤 다시 연결하세요. 탐색 및 재생에는 파일 읽기 권한이, 사이드카 쓰기 및 삭제에는 파일 쓰기 권한이 필요합니다.";
+"drime_token_section" = "Drime API";
+"drime_access_token" = "API 액세스 토큰";
+"drime_token_hint" = "Drime 설정 → Developer에서 토큰을 만든 후 여기에 붙여넣으세요. 토큰은 키체인에 안전하게 저장됩니다.";
+"drime_token_permission_hint" = "권한 안내: All은 재생, 쓰기, 삭제를 지원하고 Read Only는 탐색과 재생을 지원합니다. Restricted는 파일 읽기가 필요하며 사이드카 쓰기와 삭제에는 파일 쓰기도 필요합니다.";
+"drime_token_edit_hint" = "기존 Drime 토큰을 유지하려면 비워 두고, 교체하려면 새 토큰을 입력하세요.";
+"drime_auth_subtitle" = "Drime API 액세스 토큰으로 연결";
+"drime_connect_title" = "Drime 연결";
+"drime_connect_description" = "Drime 설정 → Developer에서 만든 API 액세스 토큰을 붙여넣으세요. Primuse가 검증한 후 드라이브를 엽니다.";
+"drime_connect_button" = "Drime 연결";

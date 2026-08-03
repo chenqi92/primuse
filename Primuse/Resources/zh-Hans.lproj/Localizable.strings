@@ -2094,3 +2094,17 @@
 "credential_read_failed" = "无法安全读取已保存的密码，请重试或更新凭据。";
 "fnmusic_account_hint" = "请填写可登录飞牛音乐并已获曲库权限的账号；以飞牛音乐登录结果为准。";
 "fnmusic_server_base_path_hint" = "反向代理 URL 子路径（可选）";
+"cloud_permission_account_access" = "当前 Drime 令牌无权访问账号信息。";
+"cloud_permission_file_read" = "当前 Drime 令牌无法读取文件。";
+"cloud_permission_file_write" = "当前 Drime 令牌为只读，或没有写入及删除文件的权限。";
+"source_diag_advice_permission_title" = "权限不足";
+"source_diag_advice_permission_suggestion" = "请在 Drime 设置 → Developer 中调整令牌权限后重新连接：浏览和播放至少需要“文件：读取”，侧写写入和删除需要“文件：写入”。";
+"drime_token_section" = "Drime API";
+"drime_access_token" = "API 访问令牌";
+"drime_token_hint" = "请在 Drime 设置 → Developer 中创建令牌并粘贴到这里。令牌会安全存入钥匙串。";
+"drime_token_permission_hint" = "权限说明：全部权限可播放、写入和删除；Read Only 可浏览和播放；Restricted 至少需要“文件：读取”，写入封面/歌词及删除还需要“文件：写入”。";
+"drime_token_edit_hint" = "留空会保留现有 Drime 令牌；输入新令牌则会替换。";
+"drime_auth_subtitle" = "使用 Drime API 访问令牌连接";
+"drime_connect_title" = "连接 Drime";
+"drime_connect_description" = "粘贴在 Drime 设置 → Developer 中创建的 API 访问令牌。Primuse 验证成功后会打开网盘目录。";
+"drime_connect_button" = "连接 Drime";

@@ -49,6 +49,12 @@ struct CloudOAuthConfig: Sendable {
 }
 
 /// Common errors for cloud drive operations
+enum CloudDrivePermission: Sendable {
+    case accountAccess
+    case fileRead
+    case fileWrite
+}
+
 enum CloudDriveError: Error, LocalizedError {
     case notAuthenticated
     case credentialTemporarilyUnavailable(Int32)
@@ -56,6 +62,7 @@ enum CloudDriveError: Error, LocalizedError {
     case tokenExpired
     case tokenRefreshFailed(String)
     case tokenPersistenceFailed
+    case permissionDenied(CloudDrivePermission)
     case apiError(Int, String)
     case invalidResponse
     case fileNotFound(String)
@@ -71,6 +78,15 @@ enum CloudDriveError: Error, LocalizedError {
         case .tokenExpired: return "Token expired"
         case .tokenRefreshFailed(let msg): return "Token refresh failed: \(msg)"
         case .tokenPersistenceFailed: return "Refreshed token could not be stored securely"
+        case .permissionDenied(let permission):
+            switch permission {
+            case .accountAccess:
+                return String(localized: "cloud_permission_account_access")
+            case .fileRead:
+                return String(localized: "cloud_permission_file_read")
+            case .fileWrite:
+                return String(localized: "cloud_permission_file_write")
+            }
         case .apiError(let code, let msg): return "API error \(code): \(msg)"
         case .invalidResponse: return "Invalid response"
         case .fileNotFound(let path): return "File not found: \(path)"
@@ -309,6 +325,7 @@ struct CloudDriveHelper: Sendable {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let contentType {
             request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         }

@@ -339,6 +339,7 @@
 "drime_token_section" = "Drime API";
 "drime_access_token" = "API 访问令牌";
 "drime_token_hint" = "请在 Drime 设置 → Developer 中创建令牌并粘贴到这里。令牌会安全存入钥匙串。";
+"drime_token_permission_hint" = "权限说明：全部权限可播放、写入和删除；Read Only 可浏览和播放；Restricted 至少需要“文件：读取”，写入封面/歌词及删除还需要“文件：写入”。";
 "drime_token_edit_hint" = "留空会保留现有 Drime 令牌；输入新令牌则会替换。";
 "drime_auth_subtitle" = "使用 Drime API 访问令牌连接";
 "drime_connect_title" = "连接 Drime";

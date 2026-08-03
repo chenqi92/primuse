@@ -1016,7 +1016,7 @@ final class MetadataBackfillService {
             return false // 文件确实不在了 —— 永久
         case CloudDriveError.notAuthenticated, CloudDriveError.tokenExpired,
              CloudDriveError.tokenRefreshFailed, CloudDriveError.rateLimited,
-             CloudDriveError.invalidResponse:
+             CloudDriveError.invalidResponse, CloudDriveError.permissionDenied:
             return true
         case CloudDriveError.fileNotFound:
             return false
@@ -1032,7 +1032,8 @@ final class MetadataBackfillService {
     /// per-session source circuit breaker immediately.
     static func isSourceUnavailableBackfillError(_ error: Error) -> Bool {
         switch error {
-        case SourceError.authenticationFailed, SourceError.credentialUnavailable:
+        case SourceError.authenticationFailed, SourceError.credentialUnavailable,
+             CloudDriveError.permissionDenied:
             return true
         default:
             return false

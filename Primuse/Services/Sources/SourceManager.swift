@@ -900,6 +900,12 @@ final class SourceManager {
                     message: String(localized: "source_diag_advice_oauth_message"),
                     suggestion: String(localized: "source_diag_advice_oauth_suggestion")
                 )
+            case .permissionDenied:
+                return SourceDiagnosticAdvice(
+                    title: String(localized: "source_diag_advice_permission_title"),
+                    message: cloudError.localizedDescription,
+                    suggestion: String(localized: "source_diag_advice_permission_suggestion")
+                )
             case .rateLimited:
                 return SourceDiagnosticAdvice(
                     title: String(localized: "source_diag_advice_rate_title"),
@@ -909,7 +915,15 @@ final class SourceManager {
             case .fileNotFound(let path):
                 return pathAdvice(path: path)
             case .apiError(let code, let message):
-                if code == 401 || code == 403 { return authAdvice() }
+                if code == 401 { return authAdvice() }
+                if code == 403, source.type == .drime {
+                    return SourceDiagnosticAdvice(
+                        title: String(localized: "source_diag_advice_permission_title"),
+                        message: String(localized: "cloud_permission_file_read"),
+                        suggestion: String(localized: "source_diag_advice_permission_suggestion")
+                    )
+                }
+                if code == 403 { return authAdvice() }
                 if code == 404 { return pathAdvice(path: message) }
                 if code == 429 { return Self.advice(for: CloudDriveError.rateLimited, source: source) }
                 return serverAdvice(message: "HTTP \(code) \(message)")

@@ -430,6 +430,7 @@ struct AddSourceView: View {
                         .frame(maxWidth: 280)
                 }
                 macInfoRow(isEditing ? "drime_token_edit_hint" : "drime_token_hint")
+                macInfoRow("drime_token_permission_hint")
             }
         case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .pan115, .pan123:
             macSection("cloud_oauth_config") {
@@ -770,6 +771,9 @@ struct AddSourceView: View {
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
                 Label(isEditing ? "drime_token_edit_hint" : "drime_token_hint", systemImage: "key.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Label("drime_token_permission_hint", systemImage: "lock.shield.fill")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
