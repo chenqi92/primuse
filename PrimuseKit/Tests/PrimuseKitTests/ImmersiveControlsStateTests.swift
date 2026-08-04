@@ -83,3 +83,38 @@ struct NowPlayingLandscapePolicyTests {
         ) == .none)
     }
 }
+
+@Suite("Lyrics background tap policy")
+struct LyricsBackgroundTapPolicyTests {
+    @Test("Unused lyric space can switch the normal surface")
+    func unusedSpaceIsHandled() {
+        #expect(LyricsBackgroundTapPolicy.shouldHandle(
+            hasLyrics: true,
+            isPinching: false,
+            rowTapTimeDistance: 1
+        ))
+    }
+
+    @Test("A lyric row tap is not also treated as a background tap")
+    func rowTapIsSuppressed() {
+        #expect(!LyricsBackgroundTapPolicy.shouldHandle(
+            hasLyrics: true,
+            isPinching: false,
+            rowTapTimeDistance: 0.04
+        ))
+    }
+
+    @Test("Pinching and empty lyrics do not switch surfaces")
+    func nonTapInteractionsAreIgnored() {
+        #expect(!LyricsBackgroundTapPolicy.shouldHandle(
+            hasLyrics: true,
+            isPinching: true,
+            rowTapTimeDistance: 1
+        ))
+        #expect(!LyricsBackgroundTapPolicy.shouldHandle(
+            hasLyrics: false,
+            isPinching: false,
+            rowTapTimeDistance: 1
+        ))
+    }
+}

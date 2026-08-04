@@ -2351,6 +2351,23 @@ public enum NowPlayingLandscapePolicy {
     }
 }
 
+/// Separates taps on rendered lyric rows from taps on unused lyric-surface
+/// space. SwiftUI delivers the child and parent gestures in the same event
+/// cycle, so a short window prevents a row seek from also switching surfaces.
+public enum LyricsBackgroundTapPolicy {
+    public static let rowSuppressionInterval: TimeInterval = 0.08
+
+    public static func shouldHandle(
+        hasLyrics: Bool,
+        isPinching: Bool,
+        rowTapTimeDistance: TimeInterval
+    ) -> Bool {
+        hasLyrics
+            && !isPinching
+            && abs(rowTapTimeDistance) > rowSuppressionInterval
+    }
+}
+
 /// Decides whether Now Playing artwork should fall back to reading the cover
 /// through its source connector. Absolute URLs have already used their own
 /// network path; source-relative paths and opaque cloud identifiers still need

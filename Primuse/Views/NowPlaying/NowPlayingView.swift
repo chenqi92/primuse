@@ -1571,7 +1571,14 @@ struct NowPlayingView: View {
             player: player,
             songID: player.currentSong?.id,
             isScrapingCurrentSong: isScrapingCurrentSong,
-            onAutomaticScrape: { startAutomaticLyricsScrape() }
+            onAutomaticScrape: { startAutomaticLyricsScrape() },
+            onBackgroundTap: {
+                // Normal lyrics retain the familiar artwork/lyrics toggle.
+                // Immersive lyrics own the same tap at the outer surface so it
+                // can reveal or hide chrome without unexpectedly leaving full screen.
+                guard !isLyricsImmersive else { return }
+                setStandardLyricsVisible(false)
+            }
         )
     }
 
@@ -3261,6 +3268,7 @@ struct LyricsScrollView: View {
     let songID: String?
     let isScrapingCurrentSong: Bool
     let onAutomaticScrape: () -> Void
+    let onBackgroundTap: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
@@ -3269,6 +3277,10 @@ struct LyricsScrollView: View {
     @State private var lyricsPinchScale: CGFloat = 1.0
     @State private var isPinchingLyrics = false
     @State private var currentLineIndex = 0
+    /// Row taps and the surface tap are simultaneous gestures. Remember the
+    /// row event briefly so tapping lyrics seeks only, while tapping unused
+    /// space can switch the normal Now Playing surface back to artwork.
+    @State private var lastLyricRowTapAt: Date = .distantPast
 
     // 用户手动拖动歌词时, 暂时冻结自动滚动 ── 否则刚拖到想看的位置, 下一帧
     // auto follow 又把视图拽回当前行, 等于不能浏览。lastUserScrollTime 静止
@@ -3338,6 +3350,7 @@ struct LyricsScrollView: View {
         .onChange(of: songID) { _, _ in
             // 切歌时把行索引清零 + 让自动滚动重新 anchor
             currentLineIndex = 0
+            lastLyricRowTapAt = .distantPast
             lastUserScrollTime = .distantPast
             lyricsPinchScale = 1
             isPinchingLyrics = false
@@ -3349,6 +3362,22 @@ struct LyricsScrollView: View {
             lyrics: lyrics,
             settings: translationSettings,
             translatedTextByLineID: $translatedTextByLineID
+        )
+        .contentShape(Rectangle())
+        .simultaneousGesture(
+            SpatialTapGesture()
+                .onEnded { _ in
+                    let eventTime = Date()
+                    Task { @MainActor in
+                        await Task.yield()
+                        guard LyricsBackgroundTapPolicy.shouldHandle(
+                            hasLyrics: !lyrics.isEmpty,
+                            isPinching: isPinchingLyrics,
+                            rowTapTimeDistance: lastLyricRowTapAt.timeIntervalSince(eventTime)
+                        ) else { return }
+                        onBackgroundTap()
+                    }
+                }
         )
     }
 
@@ -3748,6 +3777,7 @@ struct LyricsScrollView: View {
     }
 
     private func seekToLyricLine(_ line: LyricLine) {
+        lastLyricRowTapAt = Date()
         guard line.isSynchronized else { return }
         player.seek(to: line.timestamp)
     }
