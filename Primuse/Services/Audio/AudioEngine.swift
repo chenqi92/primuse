@@ -20,6 +20,9 @@ final class AudioEngine {
     private(set) var timePitchNode: AVAudioUnitTimePitch?
 
     private(set) var isPlaying = false
+    var isActuallyPlaying: Bool {
+        engine?.isRunning == true && playerNode?.isPlaying == true
+    }
     private(set) var outputFormat: AVAudioFormat?
     private(set) var spatialAudioEnabled = false
     private(set) var spatialHeadTrackingEnabled = false
@@ -552,23 +555,30 @@ final class AudioEngine {
 
     // MARK: - Playback Control
 
-    func play() {
+    @discardableResult
+    func play() -> Bool {
         if engine == nil || !isSetUp {
             do { try setUp() } catch {
                 plog("Failed to set up engine: \(error)")
-                return
+                isPlaying = false
+                return false
             }
         }
-        guard let engine else { return }
+        guard let engine else {
+            isPlaying = false
+            return false
+        }
         applySpatialAudioConfiguration()
         if !engine.isRunning {
             do { try engine.start() } catch {
                 plog("Failed to start engine: \(error)")
-                return
+                isPlaying = false
+                return false
             }
         }
         playerNode?.play()
-        isPlaying = true
+        isPlaying = engine.isRunning && (playerNode?.isPlaying ?? false)
+        return isPlaying
     }
 
     func pause() {
@@ -577,21 +587,28 @@ final class AudioEngine {
         isPlaying = false
     }
 
-    func resume() {
+    @discardableResult
+    func resume() -> Bool {
         // After audio interruption (e.g. phone call, other app), the engine stops.
         // Restart it before resuming playback.
         applySpatialAudioConfiguration()
         if let engine, !engine.isRunning {
             do { try engine.start() } catch {
                 plog("Failed to restart engine after interruption: \(error)")
-                return
+                isPlaying = false
+                return false
             }
+        }
+        guard let engine, engine.isRunning else {
+            isPlaying = false
+            return false
         }
         playerNode?.play()
         if (crossfadePlayerNode?.volume ?? 0) > 0 {
             crossfadePlayerNode?.play()
         }
-        isPlaying = true
+        isPlaying = playerNode?.isPlaying ?? false
+        return isPlaying
     }
 
     func stopPlayback() {
@@ -601,15 +618,25 @@ final class AudioEngine {
     }
 
     /// Restart the engine and player node if they were stopped (e.g. by a configuration change).
-    func restartIfNeeded() {
-        guard let engine, !engine.isRunning else { return }
-        do {
-            applySpatialAudioConfiguration()
-            try engine.start()
-            playerNode?.play()
-        } catch {
-            plog("Failed to restart engine: \(error)")
+    @discardableResult
+    func restartIfNeeded() -> Bool {
+        guard let engine else {
+            isPlaying = false
+            return false
         }
+        if !engine.isRunning {
+            do {
+                applySpatialAudioConfiguration()
+                try engine.start()
+            } catch {
+                plog("Failed to restart engine: \(error)")
+                isPlaying = false
+                return false
+            }
+        }
+        playerNode?.play()
+        isPlaying = engine.isRunning && (playerNode?.isPlaying ?? false)
+        return isPlaying
     }
 
     // MARK: - Playback Rate

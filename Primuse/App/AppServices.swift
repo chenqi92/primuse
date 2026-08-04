@@ -160,6 +160,7 @@ final class AppServices {
         library.updateDisabledSourceIDs(
             Set(store.sources.filter { !$0.isEnabled }.map(\.id))
         )
+        player.restorePlaybackSessionIfAvailable()
 
         // Wire the library's tombstone identity resolver. Maps a song's
         // mount UUID → its CloudAccount id (when available) so deletion

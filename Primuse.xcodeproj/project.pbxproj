@@ -65,6 +65,8 @@
 		14679BA5BB14B1054E5D6265 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 769C39487B88BFC43377D781 /* WidgetKit.framework */; };
 		152D4F76DC785ACF53D9B854 /* AudioVisualizerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEEDF841710389644E89A3A1 /* AudioVisualizerService.swift */; };
 		1534D0AB0F81ED8041B9B75E /* SongListSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A81E711713C594D6D24C5BF /* SongListSnapshot.swift */; };
+		16A0B1C2D3E4F50617283940 /* NowPlayingPlaybackProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16A0B1C2D3E4F50617283942 /* NowPlayingPlaybackProjection.swift */; };
+		16A0B1C2D3E4F50617283941 /* PlaybackSessionSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16A0B1C2D3E4F50617283943 /* PlaybackSessionSnapshot.swift */; };
 		1577AE3DDCA5E24E6C433DFA /* CloudAccountMigrationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 767EFEC3E3EDDF4D07DBB168 /* CloudAccountMigrationService.swift */; };
 		15D68850E066D89C71F3C9A4 /* PlayHistoryArchiver.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDF2C1C93E3F66742DB829CA /* PlayHistoryArchiver.swift */; };
 		15DBB04327A405ACF38C9162 /* NowPlayingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A65207E9AE0A7B6C259E92C /* NowPlayingView.swift */; };
@@ -897,6 +899,8 @@
 		0A23DCE16E17D3C9AEBAD5AC /* ConnectorScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectorScanner.swift; sourceTree = "<group>"; };
 		0A682DE882BF7C18268F9428 /* DesktopLyricsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopLyricsWindowController.swift; sourceTree = "<group>"; };
 		0A81E711713C594D6D24C5BF /* SongListSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongListSnapshot.swift; sourceTree = "<group>"; };
+		16A0B1C2D3E4F50617283942 /* NowPlayingPlaybackProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingPlaybackProjection.swift; sourceTree = "<group>"; };
+		16A0B1C2D3E4F50617283943 /* PlaybackSessionSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSessionSnapshot.swift; sourceTree = "<group>"; };
 		0B7EF9080A3A41EE3BE9D8E0 /* SongListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongListView.swift; sourceTree = "<group>"; };
 		0BD72FDEA97CCB49402DA288 /* ko */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ko; path = ko.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		0BE82C5DF65A566D6D3CDE4E /* AppleMusicLibrarySource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMusicLibrarySource.swift; sourceTree = "<group>"; };
@@ -1643,6 +1647,8 @@
 				FDB241B3B766B215DDC46009 /* LyricRowFrameBatchPolicy.swift */,
 				3381F1A37A98DB25B41EEF83 /* LyricsSnapshotEncoder.swift */,
 				F8AA31CCFC7ADFC3CD1CD903 /* LyricTranslationGroupingPolicy.swift */,
+				16A0B1C2D3E4F50617283942 /* NowPlayingPlaybackProjection.swift */,
+				16A0B1C2D3E4F50617283943 /* PlaybackSessionSnapshot.swift */,
 				136A0C5EFAF6D7C7056C69A4 /* SharedConstants.swift */,
 				C239241684E81EFF2E2AB9A0 /* SimulatorCredentialFallbackPolicy.swift */,
 				0A81E711713C594D6D24C5BF /* SongListSnapshot.swift */,
@@ -2812,6 +2818,8 @@
 				91A91048C81EFDD2DC5181BA /* MediaServerStreamResolver.swift in Sources */,
 				5D6F48597B8F49A11600BC25 /* MusicSource.swift in Sources */,
 				8212296C00137741AFC8C091 /* NasHttpStreamResolver.swift in Sources */,
+				16A0B1C2D3E4F50617283940 /* NowPlayingPlaybackProjection.swift in Sources */,
+				16A0B1C2D3E4F50617283941 /* PlaybackSessionSnapshot.swift in Sources */,
 				F7AF165E4C4ABC46FAECC7C0 /* PinyinTransformer.swift in Sources */,
 				C17A3B3D7E8B0D1508A0022B /* PlaybackActivityAttributes.swift in Sources */,
 				574266CAE3D7A5B6DE1E1103 /* PlaybackState.swift in Sources */,

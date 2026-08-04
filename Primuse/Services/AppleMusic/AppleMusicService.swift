@@ -442,27 +442,51 @@ final class AppleMusicService {
         }
     }
 
-    /// 暂停 / 恢复 Apple Music 系统侧播放。Mini player 控制转发用。
-    func togglePlayPauseAppleMusic() {
+    /// Explicit commands stay idempotent when Lock Screen sends Play or Pause
+    /// after MusicKit's state changed independently of Primuse's last mirror.
+    @discardableResult
+    func pauseAppleMusic() -> Bool {
+        guard activePlaybackRequestID != nil else { return false }
         if ApplicationMusicPlayer.shared.state.playbackStatus == .playing {
             ApplicationMusicPlayer.shared.pause()
-            isAppleMusicPlaying = false
-            wasPausedByUser = true
-        } else {
-            guard let requestID = activePlaybackRequestID else { return }
+        }
+        isAppleMusicPlaying = false
+        wasPausedByUser = true
+        return true
+    }
+
+    @discardableResult
+    func resumeAppleMusic() -> Bool {
+        guard let requestID = activePlaybackRequestID else { return false }
+        if ApplicationMusicPlayer.shared.state.playbackStatus == .playing {
+            isAppleMusicPlaying = true
             wasPausedByUser = false
             isPlaybackInterrupted = false
-            Task { @MainActor [weak self] in
-                // Task 内重新取 shared 引用, 避免 Swift 6 报 non-Sendable 跨边界。
-                do { try await ApplicationMusicPlayer.shared.play() } catch {
-                    guard self?.isPlaybackRequestActive(requestID) == true,
-                          !Task.isCancelled else { return }
-                    plog("⚠️Apple Music resume failed: \(error.localizedDescription)")
-                }
+            return true
+        }
+        wasPausedByUser = false
+        isPlaybackInterrupted = false
+        Task { @MainActor [weak self] in
+            // Task 内重新取 shared 引用, 避免 Swift 6 报 non-Sendable 跨边界。
+            do { try await ApplicationMusicPlayer.shared.play() } catch {
                 guard self?.isPlaybackRequestActive(requestID) == true,
                       !Task.isCancelled else { return }
-                self?.isAppleMusicPlaying = ApplicationMusicPlayer.shared.state.playbackStatus == .playing
+                plog("⚠️Apple Music resume failed: \(error.localizedDescription)")
             }
+            guard self?.isPlaybackRequestActive(requestID) == true,
+                  !Task.isCancelled else { return }
+            self?.isAppleMusicPlaying = ApplicationMusicPlayer.shared.state.playbackStatus == .playing
+        }
+        return true
+    }
+
+    /// Mini-player toggle delegates to the same explicit operations used by
+    /// remote Play and Pause commands.
+    func togglePlayPauseAppleMusic() {
+        if ApplicationMusicPlayer.shared.state.playbackStatus == .playing {
+            _ = pauseAppleMusic()
+        } else {
+            _ = resumeAppleMusic()
         }
     }
 
