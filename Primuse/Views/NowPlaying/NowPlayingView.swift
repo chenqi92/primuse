@@ -114,7 +114,7 @@ struct NowPlayingView: View {
         return AppServices.shared.appleMusicLibrary.catalogURL(for: song)
     }
     @State private var showLyrics = false
-    @State private var isLyricsImmersive = true
+    @State private var isLyricsImmersive = false
     @State private var showQueue = false
     @State private var lyrics: [LyricLine] = []
     @State private var lyricsRevision: UInt = 0
@@ -201,6 +201,32 @@ struct NowPlayingView: View {
         library.toggleLiked(songID: songID)
     }
 
+    private func presentImmersiveLyrics() {
+        withAnimation(.easeInOut(duration: 0.3)) {
+            showLyrics = true
+            isLyricsImmersive = true
+        }
+    }
+
+    private func dismissImmersiveLyrics() {
+        withAnimation(.easeInOut(duration: 0.3)) {
+            isLyricsImmersive = false
+        }
+    }
+
+    @ViewBuilder
+    private func lyricsFullScreenButton(font: Font, trailing: CGFloat = 0) -> some View {
+        Button { presentImmersiveLyrics() } label: {
+            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                .font(font)
+                .foregroundStyle(appearance.secondary)
+        }
+        .frame(width: 44, height: 44)
+        .disabled(player.currentSong == nil)
+        .padding(.trailing, trailing)
+        .accessibilityLabel(Text("lyrics_full_screen"))
+    }
+
 
     /// Top safe area height (dynamic island / status bar)
     private var topSafeArea: CGFloat {
@@ -232,7 +258,7 @@ struct NowPlayingView: View {
                 backgroundGradient.ignoresSafeArea()
 
                 if showLyrics, geo.size.width > geo.size.height {
-                    landscapeLyricsLayout()
+                    landscapeLyricsLayout(geo: geo)
                 } else if showLyrics {
                     portraitLayout(geo: geo, artSize: artSize)
                 } else if shouldUseWideLayout(geo: geo) {
@@ -499,15 +525,7 @@ struct NowPlayingView: View {
                 }
                 Spacer()
                 musicVideoToggleButton(font: .title2, trailing: 6)
-                Button { openScrapeForCurrentSong() } label: {
-                    Image(systemName: isScrapingCurrentSong ? "wand.and.stars.inverse" : "wand.and.stars")
-                        .font(.title2)
-                        .foregroundStyle(isScrapingCurrentSong ? appearance.faint : appearance.secondary)
-                        .symbolEffect(.pulse, options: .repeating, isActive: isScrapingCurrentSong)
-                }
-                .disabled(player.currentSong == nil || isScrapingCurrentSong)
-                .padding(.trailing, 6)
-                .accessibilityLabel(Text("scrape_song"))
+                lyricsFullScreenButton(font: .title2, trailing: 2)
                 Button { toggleLikedCurrent() } label: {
                     Image(systemName: isCurrentLiked ? "heart.fill" : "heart")
                         .font(.title2)
@@ -628,83 +646,106 @@ struct NowPlayingView: View {
     }
 
     @ViewBuilder
-    private func landscapeLyricsLayout() -> some View {
-        ZStack {
-            lyricsFullView
+    private func landscapeLyricsLayout(geo: GeometryProxy) -> some View {
+        let playerWidth = min(max(geo.size.width * 0.42, 300), 480)
+        let artSize = min(max(0, playerWidth - 88), geo.size.height * 0.42)
 
-            if !isLyricsImmersive {
-                VStack(spacing: 0) {
-                    HStack(spacing: 10) {
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.3)) { showLyrics = false }
-                        } label: {
-                            HStack(spacing: 10) {
-                                CachedArtworkView(
-                                    coverRef: player.currentSong?.coverArtFileName,
-                                    songID: player.currentSong?.id ?? "",
-                                    size: 40,
-                                    cornerRadius: 6,
-                                    sourceID: player.currentSong?.sourceID,
-                                    filePath: player.currentSong?.filePath,
-                                    fileFormat: player.currentSong?.fileFormat,
-                                    revisionToken: player.coverRevision
-                                )
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(player.currentSong?.title ?? "")
-                                        .font(.subheadline)
-                                        .fontWeight(.semibold)
-                                        .lineLimit(1)
-                                    Text(player.currentSong?.artistName ?? "")
-                                        .font(.caption)
-                                        .foregroundStyle(appearance.secondary)
-                                        .lineLimit(1)
-                                }
-                            }
+        HStack(spacing: 0) {
+            VStack(spacing: 0) {
+                HStack {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            showLyrics = false
+                            isLyricsImmersive = false
+                        }
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(appearance.primary)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(Text("a11y_close_lyrics"))
-
-                        Spacer()
-                        musicVideoToggleButton(font: .title3, trailing: 4)
-                        Button { toggleLikedCurrent() } label: {
-                            Image(systemName: isCurrentLiked ? "heart.fill" : "heart")
-                                .font(.title3)
-                                .foregroundStyle(isCurrentLiked ? .red : appearance.secondary)
-                        }
-                        .disabled(player.currentSong == nil)
-                        .accessibilityLabel(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
-                        moreMenu
+                            .frame(width: 44, height: 44)
+                            .background(.ultraThinMaterial, in: Circle())
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 10)
-                    .background(.ultraThinMaterial)
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text("lyrics_exit_full_screen"))
 
                     Spacer()
 
-                    HStack(spacing: 28) {
-                        Button { Task { await player.previous() } } label: {
-                            Image(systemName: "backward.fill")
-                        }
-                        Button { player.togglePlayPause() } label: {
-                            Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                                .font(.system(size: 42))
-                                .contentTransition(.symbolEffect(.replace))
-                        }
-                        .disabled(player.isLoading)
-                        Button { Task { await player.next() } } label: {
-                            Image(systemName: "forward.fill")
-                        }
+                    Button { toggleLikedCurrent() } label: {
+                        Image(systemName: isCurrentLiked ? "heart.fill" : "heart")
+                            .font(.title3)
+                            .foregroundStyle(isCurrentLiked ? .red : appearance.secondary)
+                            .frame(width: 44, height: 44)
                     }
-                    .font(.title3)
-                    .foregroundStyle(appearance.primary)
-                    .padding(.horizontal, 28)
-                    .padding(.vertical, 8)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .padding(.bottom, 12)
+                    .disabled(player.currentSong == nil)
+                    .accessibilityLabel(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
+
+                    moreMenu
+                        .frame(width: 44, height: 44)
                 }
-                .transition(.opacity)
+                .padding(.horizontal, 22)
+                .padding(.top, max(topSafeArea, 10))
+
+                Spacer(minLength: 4)
+
+                artworkOrMusicVideo(size: artSize, cornerRadius: 14)
+                    .scaleEffect(player.isMusicVideoPlaybackActive || player.isPlaying ? 1 : 0.94)
+                    .shadow(color: .black.opacity(0.32), radius: 18, y: 8)
+                    .animation(.spring(response: 0.5, dampingFraction: 0.75), value: player.isPlaying)
+
+                Spacer(minLength: 8)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(player.currentSong?.title ?? "")
+                        .font(.headline)
+                        .fontWeight(.bold)
+                        .lineLimit(1)
+                        .foregroundStyle(appearance.primary)
+                    nowPlayingMetadataLinks(font: .subheadline)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 30)
+
+                PlaybackProgressBar()
+                    .padding(.horizontal, 30)
+                    .padding(.top, 6)
+
+                HStack(spacing: 34) {
+                    Button { Task { await player.previous() } } label: {
+                        Image(systemName: "backward.fill")
+                    }
+                    .accessibilityLabel("a11y_previous_track")
+
+                    Button { player.togglePlayPause() } label: {
+                        Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                            .font(.system(size: 46))
+                            .contentTransition(.symbolEffect(.replace))
+                    }
+                    .disabled(player.isLoading)
+                    .accessibilityLabel(player.isPlaying
+                        ? String(localized: "a11y_pause")
+                        : String(localized: "a11y_play"))
+
+                    Button { Task { await player.next() } } label: {
+                        Image(systemName: "forward.fill")
+                    }
+                    .accessibilityLabel("a11y_next_track")
+                }
+                .font(.title3)
+                .foregroundStyle(appearance.primary)
+                .padding(.top, 4)
+
+                Spacer(minLength: 10)
             }
+            .frame(width: playerWidth)
+
+            Rectangle()
+                .fill(appearance.divider)
+                .frame(width: 1)
+                .padding(.vertical, 26)
+
+            lyricsFullView
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -775,16 +816,7 @@ struct NowPlayingView: View {
                             Spacer()
 
                             musicVideoToggleButton(font: .title3, trailing: 4)
-
-                            Button { openScrapeForCurrentSong() } label: {
-                                Image(systemName: isScrapingCurrentSong ? "wand.and.stars.inverse" : "wand.and.stars")
-                                    .font(.title3)
-                                    .foregroundStyle(isScrapingCurrentSong ? appearance.faint : appearance.secondary)
-                                    .symbolEffect(.pulse, options: .repeating, isActive: isScrapingCurrentSong)
-                            }
-                            .disabled(player.currentSong == nil || isScrapingCurrentSong)
-                            .padding(.trailing, 4)
-                            .accessibilityLabel(Text("scrape_song"))
+                            lyricsFullScreenButton(font: .title3)
 
                             Button { toggleLikedCurrent() } label: {
                                 Image(systemName: isCurrentLiked ? "heart.fill" : "heart")
@@ -802,7 +834,14 @@ struct NowPlayingView: View {
                         }
 
                         // Full screen lyrics
-                        lyricsFullView
+                        if isLyricsImmersive {
+                            ZStack {
+                                lyricsFullView
+                                immersiveLyricsChrome
+                            }
+                        } else {
+                            lyricsFullView
+                        }
                     } else {
                         // PLAYER MODE
                         Spacer()
@@ -838,17 +877,7 @@ struct NowPlayingView: View {
                             Spacer()
 
                             musicVideoToggleButton(font: .title2, trailing: 6)
-
-                            // Scrape button (主屏抽出, 不再藏在 ··· 菜单里)
-                            Button { openScrapeForCurrentSong() } label: {
-                                Image(systemName: isScrapingCurrentSong ? "wand.and.stars.inverse" : "wand.and.stars")
-                                    .font(.title2)
-                                    .foregroundStyle(isScrapingCurrentSong ? appearance.faint : appearance.secondary)
-                                    .symbolEffect(.pulse, options: .repeating, isActive: isScrapingCurrentSong)
-                            }
-                            .disabled(player.currentSong == nil || isScrapingCurrentSong)
-                            .padding(.trailing, 6)
-                            .accessibilityLabel(Text("scrape_song"))
+                            lyricsFullScreenButton(font: .title2, trailing: 2)
 
                             // Like button
                             Button { toggleLikedCurrent() } label: {
@@ -975,6 +1004,43 @@ struct NowPlayingView: View {
                         }
                     }
                 }
+    }
+
+    private var immersiveLyricsChrome: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Button { dismissImmersiveLyrics() } label: {
+                    Image(systemName: "arrow.down.right.and.arrow.up.left")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(appearance.primary)
+                        .frame(width: 44, height: 44)
+                        .background(.ultraThinMaterial, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("lyrics_exit_full_screen"))
+
+                Spacer()
+
+                Button { toggleLikedCurrent() } label: {
+                    Image(systemName: isCurrentLiked ? "heart.fill" : "heart")
+                        .font(.title3)
+                        .foregroundStyle(isCurrentLiked ? .red : appearance.secondary)
+                        .frame(width: 44, height: 44)
+                        .background(.ultraThinMaterial, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .disabled(player.currentSong == nil)
+                .accessibilityLabel(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
+
+                moreMenu
+                    .frame(width: 44, height: 44)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, topSafeArea + 8)
+
+            Spacer()
+        }
+        .allowsHitTesting(true)
     }
 
     @ViewBuilder
@@ -1123,6 +1189,7 @@ struct NowPlayingView: View {
         let snapshot = NowPlayingMoreMenuSnapshot(
             songID: player.currentSong?.id,
             hasSong: player.currentSong != nil,
+            isScrapingCurrentSong: isScrapingCurrentSong,
             isAppleMusicMode: player.isAppleMusicMode,
             canDeleteSourceFile: player.currentSong.map {
                 SourceFileDeletionPolicy.shouldShowDeleteAction(
@@ -1153,6 +1220,7 @@ struct NowPlayingView: View {
                 set: { playbackSettings.playbackRate = $0 }
             ),
             onAddToPlaylist: { showAddToPlaylist = true },
+            onScrape: { openScrapeForCurrentSong() },
             onShowSimilarSongs: { showSimilarSongs = true },
             onEditTags: { showTagEditor = true },
             onShowSongInfo: { showSongInfo = true },
@@ -1254,17 +1322,7 @@ struct NowPlayingView: View {
             player: player,
             songID: player.currentSong?.id,
             isScrapingCurrentSong: isScrapingCurrentSong,
-            onAutomaticScrape: { startAutomaticLyricsScrape() },
-            onBackgroundTap: {
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    if showLyrics {
-                        isLyricsImmersive.toggle()
-                    } else {
-                        showLyrics = true
-                        isLyricsImmersive = true
-                    }
-                }
-            }
+            onAutomaticScrape: { startAutomaticLyricsScrape() }
         )
     }
 
@@ -2691,6 +2749,7 @@ struct AirPlayButton: View {
 private struct NowPlayingMoreMenuSnapshot: Equatable {
     let songID: String?
     let hasSong: Bool
+    let isScrapingCurrentSong: Bool
     let isAppleMusicMode: Bool
     let canDeleteSourceFile: Bool
     let appleMusicCatalogURL: URL?
@@ -2718,6 +2777,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     @Binding var playbackRate: Float
 
     let onAddToPlaylist: () -> Void
+    let onScrape: () -> Void
     let onShowSimilarSongs: () -> Void
     let onEditTags: () -> Void
     let onShowSongInfo: () -> Void
@@ -2747,6 +2807,11 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                     Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
                 }
                 .disabled(!snapshot.hasSong)
+
+                Button(action: onScrape) {
+                    Label(String(localized: "scrape_song"), systemImage: "wand.and.stars")
+                }
+                .disabled(!snapshot.hasSong || snapshot.isScrapingCurrentSong)
 
                 Button(action: onShowSimilarSongs) {
                     Label(String(localized: "similar_songs"), systemImage: "sparkles")
@@ -2942,7 +3007,6 @@ struct LyricsScrollView: View {
     let songID: String?
     let isScrapingCurrentSong: Bool
     let onAutomaticScrape: () -> Void
-    let onBackgroundTap: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
@@ -2951,9 +3015,6 @@ struct LyricsScrollView: View {
     @State private var lyricsPinchScale: CGFloat = 1.0
     @State private var isPinchingLyrics = false
     @State private var currentLineIndex = 0
-    /// 行点击与父级空白点击是 simultaneous gestures。记录行点击时刻并在
-    /// 下一次主线程调度时仲裁，避免为每行持续发布全局 geometry preference。
-    @State private var lastLyricRowTapAt: Date = .distantPast
 
     // 用户手动拖动歌词时, 暂时冻结自动滚动 ── 否则刚拖到想看的位置, 下一帧
     // auto follow 又把视图拽回当前行, 等于不能浏览。lastUserScrollTime 静止
@@ -3023,7 +3084,6 @@ struct LyricsScrollView: View {
         .onChange(of: songID) { _, _ in
             // 切歌时把行索引清零 + 让自动滚动重新 anchor
             currentLineIndex = 0
-            lastLyricRowTapAt = .distantPast
             lastUserScrollTime = .distantPast
             lyricsPinchScale = 1
             isPinchingLyrics = false
@@ -3035,26 +3095,6 @@ struct LyricsScrollView: View {
             lyrics: lyrics,
             settings: translationSettings,
             translatedTextByLineID: $translatedTextByLineID
-        )
-        .contentShape(Rectangle())
-        .simultaneousGesture(
-            SpatialTapGesture()
-                .onEnded { _ in
-                    // Keep the immersive view escapable after playback ends or
-                    // lyrics are removed while this screen is still visible.
-                    guard !isPinchingLyrics else { return }
-                    let eventTime = Date()
-                    Task { @MainActor in
-                        await Task.yield()
-                        // Child row gestures may be delivered immediately
-                        // before or after this parent callback. Either order
-                        // lands within the same short arbitration window.
-                        guard abs(lastLyricRowTapAt.timeIntervalSince(eventTime)) > 0.08 else {
-                            return
-                        }
-                        onBackgroundTap()
-                    }
-                }
         )
     }
 
@@ -3455,7 +3495,6 @@ struct LyricsScrollView: View {
 
     private func seekToLyricLine(_ line: LyricLine) {
         guard line.isSynchronized else { return }
-        lastLyricRowTapAt = Date()
         player.seek(to: line.timestamp)
     }
 

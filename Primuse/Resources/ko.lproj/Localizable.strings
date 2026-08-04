@@ -1284,6 +1284,8 @@
 "dup_show_all_format" = "나머지 %d개 그룹 표시";
 "dup_show_all_hint" = "UI 반응성을 유지하기 위해 처음 100개 그룹만 표시합니다. 위의 “모두 정리”를 사용해 명백한 중복부터 먼저 처리하세요.";
 "full_screen_player" = "전체 화면";
+"lyrics_full_screen" = "전체 화면 가사";
+"lyrics_exit_full_screen" = "전체 화면 가사 종료";
 "show_lyrics_background" = "가사 배경 표시";
 "hide_lyrics_background" = "가사 배경 숨기기";
 "single_line_lyrics" = "한 줄 가사";

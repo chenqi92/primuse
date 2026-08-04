@@ -1284,6 +1284,8 @@
 "dup_show_all_format" = "Verbleibende %d Gruppen anzeigen";
 "dup_show_all_hint" = "Es werden zunächst nur die ersten 100 Gruppen angezeigt, um die Oberfläche reaktionsfähig zu halten. Nutze oben „Alle bereinigen“, um offensichtliche Duplikate zuerst zu behandeln.";
 "full_screen_player" = "Vollbild";
+"lyrics_full_screen" = "Songtext im Vollbild";
+"lyrics_exit_full_screen" = "Vollbild-Songtext schließen";
 "show_lyrics_background" = "Liedtexthintergrund anzeigen";
 "hide_lyrics_background" = "Liedtexthintergrund ausblenden";
 "single_line_lyrics" = "Einzeiliger Liedtext";

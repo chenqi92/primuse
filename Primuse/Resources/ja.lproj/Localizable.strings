@@ -1285,6 +1285,8 @@
 "dup_show_all_format" = "残り %d グループを表示";
 "dup_show_all_hint" = "表示の応答性を保つため、最初の 100 グループのみ表示しています。まずは上の「すべてクリーンアップ」で明らかな重複を処理してください。";
 "full_screen_player" = "フルスクリーン";
+"lyrics_full_screen" = "歌詞を全画面表示";
+"lyrics_exit_full_screen" = "全画面歌詞を終了";
 "show_lyrics_background" = "歌詞の背景を表示";
 "hide_lyrics_background" = "歌詞の背景を非表示";
 "single_line_lyrics" = "1 行歌詞";

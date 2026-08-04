@@ -1284,6 +1284,8 @@
 "dup_show_all_format" = "Afficher les %d groupes restants";
 "dup_show_all_hint" = "Seuls les 100 premiers groupes sont affichés pour garder l'interface réactive. Utilisez « Tout nettoyer » ci-dessus pour traiter d'abord les doublons évidents.";
 "full_screen_player" = "Plein écran";
+"lyrics_full_screen" = "Paroles en plein écran";
+"lyrics_exit_full_screen" = "Quitter les paroles en plein écran";
 "show_lyrics_background" = "Afficher l'arrière-plan des paroles";
 "hide_lyrics_background" = "Masquer l'arrière-plan des paroles";
 "single_line_lyrics" = "Paroles sur une ligne";
