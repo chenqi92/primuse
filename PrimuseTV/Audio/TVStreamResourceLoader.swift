@@ -141,6 +141,26 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
             owner?.urlSession(session, task: task, didCompleteWithError: error)
         }
 
+        func urlSession(
+            _ session: URLSession,
+            task: URLSessionTask,
+            willPerformHTTPRedirection response: HTTPURLResponse,
+            newRequest request: URLRequest,
+            completionHandler: @escaping @Sendable (URLRequest?) -> Void
+        ) {
+            guard let owner else {
+                completionHandler(nil)
+                return
+            }
+            owner.urlSession(
+                session,
+                task: task,
+                willPerformHTTPRedirection: response,
+                newRequest: request,
+                completionHandler: completionHandler
+            )
+        }
+
         func urlSession(_ session: URLSession,
                         didReceive challenge: URLAuthenticationChallenge,
                         completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
@@ -368,6 +388,32 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
             plog("📺 loader data done off=\(context.offset) bytes=\(context.byteCount)")
         }
         context.loadingRequest.finishLoading()
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+        guard enforcesFnMusicRangeResponses else {
+            completionHandler(request)
+            return
+        }
+        let redirectCount = Int(task.taskDescription ?? "0") ?? 0
+        guard redirectCount < FnMusicRedirectPolicy.maximumRedirects,
+              let currentRequest = task.currentRequest ?? task.originalRequest else {
+            completionHandler(nil)
+            return
+        }
+        task.taskDescription = String(redirectCount + 1)
+        completionHandler(
+            FnMusicRedirectPolicy.redirectedRequest(
+                from: currentRequest,
+                to: request
+            )
+        )
     }
 
     /// TLS 信任:公网证书走系统默认校验,仅对局域网 / 私有主机的自签证书放行。

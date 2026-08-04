@@ -8,6 +8,22 @@ public actor FnMusicStreamResolver: StreamResolver {
         let server: String
         let username: String
         let passwordHash: String
+        let accessCodeHash: String
+        let usesRelay: Bool
+    }
+
+    private struct EndpointIdentity: Hashable, Sendable {
+        let host: String?
+        let port: Int?
+        let useSSL: Bool
+        let basePath: String?
+        let connectionMode: FnMusicConnectionMode
+        let accessCodeHash: String
+    }
+
+    private struct EndpointCacheEntry {
+        let identity: EndpointIdentity
+        let provider: FnMusicEndpointProvider
     }
 
     private struct CachedSession: Sendable {
@@ -23,12 +39,16 @@ public actor FnMusicStreamResolver: StreamResolver {
 
     private var sessions: [String: CachedSession] = [:]
     private var sessionTasks: [String: LoginOperation] = [:]
+    private var endpointProviders: [String: EndpointCacheEntry] = [:]
     private let session: URLSession
 
     public init() {
         let cfg = URLSessionConfiguration.default
         cfg.timeoutIntervalForRequest = 20
-        self.session = StreamResolverSessionFactory.make(configuration: cfg)
+        self.session = StreamResolverSessionFactory.make(
+            configuration: cfg,
+            fnMusicRedirects: true
+        )
     }
 
     deinit { session.invalidateAndCancel() }
@@ -36,6 +56,7 @@ public actor FnMusicStreamResolver: StreamResolver {
     public func invalidateSession(sourceID: String) {
         sessions[sourceID] = nil
         sessionTasks.removeValue(forKey: sourceID)?.task.cancel()
+        endpointProviders[sourceID] = nil
     }
 
     public func streamURL(for song: Song,
@@ -48,9 +69,16 @@ public actor FnMusicStreamResolver: StreamResolver {
                         source: MusicSource,
                         credential: SourceCredential?) async throws -> ResolvedStream {
         let target = try await resolvedTarget(for: song, source: source, credential: credential)
-        var headers = [
-            "Cookie": FnMusicAPIProtocol.musicTokenCookie(target.token),
-        ]
+        var headers: [String: String] = [:]
+        if let cookie = FnMusicAPIProtocol.authenticationCookie(
+            token: target.token,
+            usesRelay: target.endpoint.usesRelay
+        ) {
+            headers["Cookie"] = cookie
+        }
+        for (name, value) in FnMusicAPIProtocol.accessCodeHeaders(target.accessCode) {
+            headers[name] = value
+        }
         var signedRequest = URLRequest(url: target.url)
         signedRequest.httpMethod = "GET"
         FnMusicAPIProtocol.applyAuthx(to: &signedRequest)
@@ -64,7 +92,26 @@ public actor FnMusicStreamResolver: StreamResolver {
         for song: Song,
         source: MusicSource,
         credential: SourceCredential?
-    ) async throws -> (url: URL, token: String) {
+    ) async throws -> (url: URL, token: String, endpoint: FnMusicResolvedEndpoint, accessCode: String?) {
+        do {
+            return try await resolvedTargetOnce(for: song, source: source, credential: credential)
+        } catch {
+            guard source.effectiveFnMusicConnectionMode == .fnConnect,
+                  FnMusicAPIProtocol.isRouteFailure(error) else { throw error }
+            sessions[source.id] = nil
+            sessionTasks.removeValue(forKey: source.id)?.task.cancel()
+            let accessCode = credential?.extra[FnMusicAPIProtocol.fnConnectAccessCodeCredentialKey]
+            let provider = endpointProvider(for: source, accessCode: accessCode)
+            await provider.invalidate()
+            return try await resolvedTargetOnce(for: song, source: source, credential: credential)
+        }
+    }
+
+    private func resolvedTargetOnce(
+        for song: Song,
+        source: MusicSource,
+        credential: SourceCredential?
+    ) async throws -> (url: URL, token: String, endpoint: FnMusicResolvedEndpoint, accessCode: String?) {
         guard source.type == .fnMusic else {
             throw StreamResolveError.unsupportedSourceType(source.type)
         }
@@ -73,20 +120,17 @@ public actor FnMusicStreamResolver: StreamResolver {
         guard let password = cred.password, !password.isEmpty, !username.isEmpty else {
             throw StreamResolveError.missingCredential
         }
-        let base = FnMusicAPIProtocol.serverBaseURL(
-            host: source.host ?? "",
-            port: source.port,
-            useSSL: source.useSsl,
-            basePath: source.basePath
-        )
-        guard let base else {
-            throw StreamResolveError.cannotBuildURL
-        }
+        let accessCode = cred.extra[FnMusicAPIProtocol.fnConnectAccessCodeCredentialKey]
+        let provider = endpointProvider(for: source, accessCode: accessCode)
+        let endpoint = try await provider.endpoint()
+        let base = endpoint.baseURL
         var token = try await currentSession(
             source: source,
             base: base,
             username: username,
-            password: password
+            password: password,
+            accessCode: accessCode,
+            usesRelay: endpoint.usesRelay
         )
         guard let guid = FnMusicAPIProtocol.trackGUID(from: song.filePath) else {
             throw StreamResolveError.cannotBuildURL
@@ -94,7 +138,12 @@ public actor FnMusicStreamResolver: StreamResolver {
         let url = Self.fnMusicStreamURL(base: base, trackGUID: guid)
         guard let url else { throw StreamResolveError.cannotBuildURL }
         do {
-            try await validateFnMusicStream(url: url, token: token)
+            try await validateFnMusicStream(
+                url: url,
+                token: token,
+                accessCode: accessCode,
+                usesRelay: endpoint.usesRelay
+            )
         } catch StreamResolveError.authFailed {
             // Only evict the token that actually failed. Another resolve may
             // already have replaced it while this probe was suspended.
@@ -105,19 +154,29 @@ public actor FnMusicStreamResolver: StreamResolver {
                 source: source,
                 base: base,
                 username: username,
-                password: password
+                password: password,
+                accessCode: accessCode,
+                usesRelay: endpoint.usesRelay
             )
-            try await validateFnMusicStream(url: url, token: token)
+            try await validateFnMusicStream(
+                url: url,
+                token: token,
+                accessCode: accessCode,
+                usesRelay: endpoint.usesRelay
+            )
         }
-        return (url, token)
+        return (url, token, endpoint, accessCode)
     }
 
     private func currentSession(source: MusicSource, base: URL, username: String,
-                                password: String) async throws -> String {
+                                password: String, accessCode: String?,
+                                usesRelay: Bool) async throws -> String {
         let identity = SessionIdentity(
             server: base.absoluteString,
             username: username,
-            passwordHash: FnMusicAPIProtocol.passwordHash(password)
+            passwordHash: FnMusicAPIProtocol.passwordHash(password),
+            accessCodeHash: FnMusicAPIProtocol.passwordHash(accessCode ?? ""),
+            usesRelay: usesRelay
         )
         if let cached = sessions[source.id], cached.identity == identity {
             return cached.token
@@ -149,7 +208,9 @@ public actor FnMusicStreamResolver: StreamResolver {
                 base: base,
                 sourceID: source.id,
                 username: username,
-                password: password
+                password: password,
+                accessCode: accessCode,
+                usesRelay: usesRelay
             )
         }
         let operation = LoginOperation(id: taskID, identity: identity, task: task)
@@ -174,13 +235,39 @@ public actor FnMusicStreamResolver: StreamResolver {
         return token
     }
 
+    private func endpointProvider(
+        for source: MusicSource,
+        accessCode: String?
+    ) -> FnMusicEndpointProvider {
+        let identity = EndpointIdentity(
+            host: source.host,
+            port: source.port,
+            useSSL: source.useSsl,
+            basePath: source.basePath,
+            connectionMode: source.effectiveFnMusicConnectionMode,
+            accessCodeHash: FnMusicAPIProtocol.passwordHash(accessCode ?? "")
+        )
+        if let cached = endpointProviders[source.id], cached.identity == identity {
+            return cached.provider
+        }
+        let provider = FnMusicEndpointProvider(
+            source: source,
+            accessCode: accessCode,
+            session: session
+        )
+        endpointProviders[source.id] = EndpointCacheEntry(identity: identity, provider: provider)
+        return provider
+    }
+
     // MARK: - Feiniu Music
 
     private func fnMusicLogin(
         base: URL,
         sourceID: String,
         username: String,
-        password: String
+        password: String,
+        accessCode: String?,
+        usesRelay: Bool
     ) async throws -> String {
         guard let url = FnMusicAPIProtocol.endpointURL(
             serverBaseURL: base,
@@ -200,6 +287,15 @@ public actor FnMusicStreamResolver: StreamResolver {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("zh-CN", forHTTPHeaderField: "Accept-Language")
         request.httpBody = body
+        if let cookie = FnMusicAPIProtocol.authenticationCookie(
+            token: nil,
+            usesRelay: usesRelay
+        ) {
+            request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        }
+        for (name, value) in FnMusicAPIProtocol.accessCodeHeaders(accessCode) {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
         FnMusicAPIProtocol.applyAuthx(to: &request, bodyData: body)
         let (data, response) = try await session.data(for: request)
         try Self.checkAuth(response)
@@ -227,12 +323,22 @@ public actor FnMusicStreamResolver: StreamResolver {
     /// expired token from remaining cached across every later playback.
     private func validateFnMusicStream(
         url: URL,
-        token: String
+        token: String,
+        accessCode: String?,
+        usesRelay: Bool
     ) async throws {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue(HTTPRangeProbePolicy.requestHeaderValue, forHTTPHeaderField: "Range")
-        request.setValue(FnMusicAPIProtocol.musicTokenCookie(token), forHTTPHeaderField: "Cookie")
+        if let cookie = FnMusicAPIProtocol.authenticationCookie(
+            token: token,
+            usesRelay: usesRelay
+        ) {
+            request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        }
+        for (name, value) in FnMusicAPIProtocol.accessCodeHeaders(accessCode) {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
         FnMusicAPIProtocol.applyAuthx(to: &request)
 
         let (bytes, response) = try await session.bytes(for: request)

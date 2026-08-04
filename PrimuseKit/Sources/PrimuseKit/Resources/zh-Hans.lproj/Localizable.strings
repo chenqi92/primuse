@@ -356,3 +356,10 @@
 "ext.synology.quickconnect.error.serviceUnavailable" = "此 NAS 未开放 DSM QuickConnect 服务。";
 "ext.synology.quickconnect.error.invalidResponse" = "QuickConnect 返回了无法识别的响应。";
 "ext.synology.quickconnect.error.unreachable" = "QuickConnect 暂时无法建立可用连接。";
+"fnmusic_connection_method" = "连接方式";
+"fnmusic_connection_fnconnect" = "FN Connect";
+"fnmusic_connection_address" = "服务器地址";
+"fnmusic_fnid" = "FN ID";
+"fnmusic_fnconnect_hint" = "输入 FN ID；应用会优先直连，并在需要时使用 FN Connect 中继。登录仍使用 NAS 本地账号。";
+"fnmusic_access_code" = "FN Connect 访问码（可选）";
+"fnmusic_access_code_hint" = "若 FN Connect 已启用访问码，请填写；访问码只会安全保存在钥匙串中。";

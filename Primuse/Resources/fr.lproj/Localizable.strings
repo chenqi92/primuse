@@ -2027,3 +2027,10 @@
 "drime_connect_title" = "Se connecter à Drime";
 "drime_connect_description" = "Collez le jeton d’accès API créé dans Réglages Drime → Developer. Primuse le vérifie avant d’ouvrir votre espace.";
 "drime_connect_button" = "Se connecter à Drime";
+"fnmusic_connection_method" = "Mode de connexion";
+"fnmusic_connection_fnconnect" = "FN Connect";
+"fnmusic_connection_address" = "Adresse du serveur";
+"fnmusic_fnid" = "FN ID";
+"fnmusic_fnconnect_hint" = "Saisissez le FN ID. Primuse privilégie une connexion directe et utilise le relais FN Connect si nécessaire. La connexion utilise toujours le compte NAS local.";
+"fnmusic_access_code" = "Code d’accès FN Connect (facultatif)";
+"fnmusic_access_code_hint" = "Saisissez-le uniquement si la protection par code d’accès FN Connect est activée. Il est stocké de façon sécurisée dans le trousseau.";

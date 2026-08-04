@@ -25,8 +25,10 @@ struct AddSourceView: View {
     @State private var port = ""
     @State private var useSsl = false
     @State private var synologyConnectionMode: SynologyConnectionMode = .quickConnect
+    @State private var fnMusicConnectionMode: FnMusicConnectionMode = .fnConnect
     @State private var username = ""
     @State private var password = ""
+    @State private var fnConnectAccessCode = ""
     @State private var basePath = ""
     @State private var shareName = ""
     @State private var exportPath = ""
@@ -63,6 +65,8 @@ struct AddSourceView: View {
             guard !trimmedHost.isEmpty else { return false }
             if sourceType == .synology, synologyConnectionMode == .quickConnect {
                 guard SynologyQuickConnectResolver.isValidQuickConnectID(trimmedHost) else { return false }
+            } else if sourceType == .fnMusic, fnMusicConnectionMode == .fnConnect {
+                guard FnConnectResolver.isValidFNID(trimmedHost) else { return false }
             } else if validatedPort == nil {
                 return false
             }
@@ -125,6 +129,10 @@ struct AddSourceView: View {
             useSsl = true
             port = String(MusicSourceType.synology.defaultPort(useSsl: true))
         }
+        .onChange(of: fnMusicConnectionMode) { _, newValue in
+            guard sourceType == .fnMusic, newValue == .fnConnect else { return }
+            useSsl = true
+        }
         .alert(String(localized: "credential_save_failed_title"), isPresented: $showCredentialSaveError) {
             Button("ok", role: .cancel) {}
         } message: {
@@ -152,12 +160,17 @@ struct AddSourceView: View {
         port = String(newDefault)
     }
 
-    private var synologyHostLabel: LocalizedStringKey {
-        guard sourceType == .synology else { return "host_address" }
-        switch synologyConnectionMode {
-        case .quickConnect: return "synology_quickconnect_id"
-        case .address: return "synology_address"
+    private var connectionHostLabel: LocalizedStringKey {
+        if sourceType == .synology {
+            switch synologyConnectionMode {
+            case .quickConnect: return "synology_quickconnect_id"
+            case .address: return "synology_address"
+            }
         }
+        if sourceType == .fnMusic, fnMusicConnectionMode == .fnConnect {
+            return "fnmusic_fnid"
+        }
+        return "host_address"
     }
 
     @ViewBuilder
@@ -169,6 +182,20 @@ struct AddSourceView: View {
     private var synologyConnectionModePicker: some View {
         Picker("", selection: $synologyConnectionMode) {
             synologyConnectionModeOptions
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+    }
+
+    @ViewBuilder
+    private var fnMusicConnectionModeOptions: some View {
+        Text("fnmusic_connection_fnconnect").tag(FnMusicConnectionMode.fnConnect)
+        Text("fnmusic_connection_address").tag(FnMusicConnectionMode.address)
+    }
+
+    private var fnMusicConnectionModePicker: some View {
+        Picker("", selection: $fnMusicConnectionMode) {
+            fnMusicConnectionModeOptions
         }
         .pickerStyle(.segmented)
         .labelsHidden()
@@ -276,9 +303,21 @@ struct AddSourceView: View {
                         synologyConnectionModePicker
                             .frame(maxWidth: 320)
                     }
-                    macTextRow(synologyHostLabel, text: $host, focus: .host)
+                    macTextRow(connectionHostLabel, text: $host, focus: .host)
                     if synologyConnectionMode == .quickConnect {
                         macInfoRow("synology_quickconnect_hint")
+                    } else {
+                        macTextRow("port", text: $port, focus: .port, width: 120)
+                        macToggleRow("use_ssl", isOn: $useSsl)
+                    }
+                } else if sourceType == .fnMusic {
+                    macCustomRow("fnmusic_connection_method") {
+                        fnMusicConnectionModePicker
+                            .frame(maxWidth: 320)
+                    }
+                    macTextRow(connectionHostLabel, text: $host, focus: .host)
+                    if fnMusicConnectionMode == .fnConnect {
+                        macInfoRow("fnmusic_fnconnect_hint")
                     } else {
                         macTextRow("port", text: $port, focus: .port, width: 120)
                         macToggleRow("use_ssl", isOn: $useSsl)
@@ -352,6 +391,16 @@ struct AddSourceView: View {
 
                 if sourceType == .fnMusic {
                     macInfoRow("fnmusic_account_hint")
+                    if fnMusicConnectionMode == .fnConnect {
+                        macCustomRow("fnmusic_access_code") {
+                            RevealableSecureField(
+                                title: "fnmusic_access_code",
+                                text: $fnConnectAccessCode
+                            )
+                            .frame(maxWidth: 280)
+                        }
+                        macInfoRow("fnmusic_access_code_hint")
+                    }
                 }
 
                 if isEditing && authType != .none {
@@ -361,7 +410,8 @@ struct AddSourceView: View {
         }
 
         macSection("advanced") {
-            if sourceType.isServerLibrary {
+            if sourceType.isServerLibrary
+                && !(sourceType == .fnMusic && fnMusicConnectionMode == .fnConnect) {
                 macTextRow(
                     sourceType == .fnMusic
                         ? "fnmusic_server_base_path_hint"
@@ -618,19 +668,30 @@ struct AddSourceView: View {
                     }
                     .pickerStyle(.segmented)
                 }
-                TextField(synologyHostLabel, text: $host)
+                if sourceType == .fnMusic {
+                    Picker("fnmusic_connection_method", selection: $fnMusicConnectionMode) {
+                        fnMusicConnectionModeOptions
+                    }
+                    .pickerStyle(.segmented)
+                }
+                TextField(connectionHostLabel, text: $host)
                     .focused($focusedField, equals: .host)
                     .keyboardType(.URL)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
                     .submitLabel(.next)
                     .onSubmit {
-                        focusedField = sourceType == .synology && synologyConnectionMode == .quickConnect
+                        focusedField = (sourceType == .synology && synologyConnectionMode == .quickConnect)
+                            || (sourceType == .fnMusic && fnMusicConnectionMode == .fnConnect)
                             ? .username
                             : .port
                     }
                 if sourceType == .synology, synologyConnectionMode == .quickConnect {
                     Text("synology_quickconnect_hint")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else if sourceType == .fnMusic, fnMusicConnectionMode == .fnConnect {
+                    Text("fnmusic_fnconnect_hint")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
@@ -696,6 +757,15 @@ struct AddSourceView: View {
                     Text("fnmusic_account_hint")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    if fnMusicConnectionMode == .fnConnect {
+                        RevealableSecureField(
+                            title: "fnmusic_access_code",
+                            text: $fnConnectAccessCode
+                        )
+                        Text("fnmusic_access_code_hint")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 if isEditing && authType != .none {
                     Text(credentialEditHint)
@@ -706,7 +776,8 @@ struct AddSourceView: View {
         }
 
         Section("advanced") {
-            if sourceType.isServerLibrary {
+            if sourceType.isServerLibrary
+                && !(sourceType == .fnMusic && fnMusicConnectionMode == .fnConnect) {
                 TextField(
                     sourceType == .fnMusic
                         ? "fnmusic_server_base_path_hint"
@@ -884,6 +955,9 @@ struct AddSourceView: View {
             if sourceType == .synology {
                 synologyConnectionMode = s.effectiveSynologyConnectionMode
             }
+            if sourceType == .fnMusic {
+                fnMusicConnectionMode = s.effectiveFnMusicConnectionMode
+            }
             shareName = s.shareName ?? ""; exportPath = s.exportPath ?? ""
             authType = s.authType; autoConnect = s.autoConnect; rememberDevice = s.rememberDevice
             // 兼容旧版“账号密码都留空即匿名”的来源记录。旧记录的 authType
@@ -906,6 +980,9 @@ struct AddSourceView: View {
             if sourceType == .synology {
                 synologyConnectionMode = .address
             }
+            if sourceType == .fnMusic {
+                fnMusicConnectionMode = .address
+            }
             if sourceType == .plex {
                 authType = .apiKey
             } else if [.local, .appleMusicLibrary, .nfs, .upnp].contains(sourceType) {
@@ -919,6 +996,10 @@ struct AddSourceView: View {
                 synologyConnectionMode = .quickConnect
                 useSsl = true
                 port = "\(sourceType.defaultPort(useSsl: true))"
+            }
+            if sourceType == .fnMusic {
+                fnMusicConnectionMode = .fnConnect
+                useSsl = true
             }
             if sourceType == .plex {
                 authType = .apiKey
@@ -969,11 +1050,15 @@ struct AddSourceView: View {
         } else {
             if sourceType == .synology, synologyConnectionMode == .quickConnect {
                 finalHost = SynologyQuickConnectResolver.quickConnectID(from: host)
+            } else if sourceType == .fnMusic, fnMusicConnectionMode == .fnConnect {
+                finalHost = FnConnectResolver.fnID(from: host)
             } else {
                 let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
                 finalHost = sourceType.requiresHost ? trimmedHost : nil
             }
-            finalBasePath = basePath.isEmpty ? nil : basePath
+            finalBasePath = sourceType == .fnMusic && fnMusicConnectionMode == .fnConnect
+                ? nil
+                : (basePath.isEmpty ? nil : basePath)
             finalShareName = shareName.isEmpty ? nil : shareName
             finalUsername = sourceType.requiresCredentials && authType != .apiKey && authType != .none
                 ? (username.isEmpty ? nil : username)
@@ -985,12 +1070,17 @@ struct AddSourceView: View {
             name: name, type: sourceType,
             host: finalHost,
             port: sourceType.requiresHost
-                ? (sourceType == .synology && synologyConnectionMode == .quickConnect
-                    ? MusicSourceType.synology.defaultPort(useSsl: true)
+                ? ((sourceType == .synology && synologyConnectionMode == .quickConnect)
+                    || (sourceType == .fnMusic && fnMusicConnectionMode == .fnConnect)
+                    ? sourceType.defaultPort(useSsl: true)
                     : validatedPort)
                 : nil,
-            useSsl: sourceType == .synology && synologyConnectionMode == .quickConnect ? true : useSsl,
+            useSsl: (sourceType == .synology && synologyConnectionMode == .quickConnect)
+                || (sourceType == .fnMusic && fnMusicConnectionMode == .fnConnect)
+                ? true
+                : useSsl,
             synologyConnectionMode: sourceType == .synology ? synologyConnectionMode : nil,
+            fnMusicConnectionMode: sourceType == .fnMusic ? fnMusicConnectionMode : nil,
             username: finalUsername,
             basePath: finalBasePath,
             shareName: finalShareName,
@@ -1074,6 +1164,18 @@ struct AddSourceView: View {
                     showCredentialSaveError = true
                     return
                 }
+            }
+        }
+
+        if sourceType == .fnMusic,
+           fnMusicConnectionMode == .fnConnect,
+           !fnConnectAccessCode.isEmpty {
+            guard KeychainService.setPassword(
+                fnConnectAccessCode,
+                for: FnMusicAPIProtocol.fnConnectAccessCodeAccount(sourceID: source.id)
+            ) else {
+                showCredentialSaveError = true
+                return
             }
         }
 

@@ -359,3 +359,10 @@
 "ext.synology.quickconnect.error.serviceUnavailable" = "DSM QuickConnect ist auf diesem NAS nicht aktiviert.";
 "ext.synology.quickconnect.error.invalidResponse" = "QuickConnect hat eine unbekannte Antwort zurückgegeben.";
 "ext.synology.quickconnect.error.unreachable" = "QuickConnect konnte keine Verbindung herstellen.";
+"fnmusic_connection_method" = "Verbindungsmethode";
+"fnmusic_connection_fnconnect" = "FN Connect";
+"fnmusic_connection_address" = "Serveradresse";
+"fnmusic_fnid" = "FN ID";
+"fnmusic_fnconnect_hint" = "Gib die FN ID ein. Primuse bevorzugt eine direkte Verbindung und nutzt bei Bedarf das FN-Connect-Relay. Die Anmeldung erfolgt weiterhin mit dem lokalen NAS-Konto.";
+"fnmusic_access_code" = "FN-Connect-Zugriffscode (optional)";
+"fnmusic_access_code_hint" = "Nur eingeben, wenn der Zugriffscode-Schutz von FN Connect aktiviert ist. Der Code wird sicher im Schlüsselbund gespeichert.";

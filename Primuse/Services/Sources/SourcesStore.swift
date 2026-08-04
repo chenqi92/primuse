@@ -230,13 +230,17 @@ final class SourcesStore {
         )
         let passwordDeleted = !requiredStores.contains(.password)
             || KeychainService.deletePassword(for: source.id)
+        let fnConnectAccessCodeDeleted = source.type != .fnMusic
+            || KeychainService.deletePassword(
+                for: FnMusicAPIProtocol.fnConnectAccessCodeAccount(sourceID: source.id)
+            )
         let cloudCredentialsDeleted = !requiredStores.contains(.cloudCredentials)
             || CloudTokenManager.deleteStoredCredentials(for: source.id)
         guard SourcePermanentDeletionPolicy.canRemoveTombstone(
             requiredStores: requiredStores,
             passwordDeleted: passwordDeleted,
             cloudCredentialsDeleted: cloudCredentialsDeleted
-        ) else { return false }
+        ), fnConnectAccessCodeDeleted else { return false }
         #if os(macOS)
         LocalBookmarkStore.remove(sourceID: source.id)
         #endif

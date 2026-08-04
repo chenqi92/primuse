@@ -6,7 +6,9 @@ actor FnMusicAPI {
     private static let maximumArtworkBytes = 8 * 1_024 * 1_024
 
     private let sourceID: String
-    private let baseURL: URL?
+    private let endpointProvider: FnMusicEndpointProvider
+    private let accessCode: String?
+    private let usesFNConnect: Bool
     private let session: URLSession
     private(set) var token: String?
     private var sessionGeneration: UInt64 = 0
@@ -18,25 +20,39 @@ actor FnMusicAPI {
         host: String,
         port: Int?,
         useSSL: Bool,
-        basePath: String?
+        basePath: String?,
+        connectionMode: FnMusicConnectionMode,
+        accessCode: String?
     ) {
         self.sourceID = sourceID
-        self.baseURL = FnMusicAPIProtocol.serverBaseURL(
-            host: host,
-            port: port,
-            useSSL: useSSL,
-            basePath: basePath
-        )
+        self.accessCode = accessCode
+        self.usesFNConnect = connectionMode == .fnConnect
 
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = 30
         configuration.timeoutIntervalForResource = 600
         configuration.httpMaximumConnectionsPerHost = 8
         configuration.httpAdditionalHeaders = ["User-Agent": "Primuse/1.0"]
-        self.session = URLSession(
+        let session = URLSession(
             configuration: configuration,
-            delegate: SmartSSLDelegate(),
+            delegate: SmartSSLDelegate(fnMusicRedirects: true),
             delegateQueue: nil
+        )
+        self.session = session
+        let source = MusicSource(
+            id: sourceID,
+            name: "飞牛音乐",
+            type: .fnMusic,
+            host: host,
+            port: port,
+            useSsl: useSSL,
+            fnMusicConnectionMode: connectionMode,
+            basePath: basePath
+        )
+        self.endpointProvider = FnMusicEndpointProvider(
+            source: source,
+            accessCode: accessCode,
+            session: session
         )
     }
 
@@ -89,6 +105,7 @@ actor FnMusicAPI {
     func invalidateSession() {
         sessionGeneration &+= 1
         token = nil
+        Task { await endpointProvider.invalidate() }
     }
 
     func trackPage(page: Int, size: Int) async throws -> FnMusicTrackPage {
@@ -154,10 +171,20 @@ actor FnMusicAPI {
         )
     }
 
-    func streamURL(trackGUID: String) throws -> URL {
-        guard let baseURL,
-              let url = FnMusicAPIProtocol.endpointURL(
-            serverBaseURL: baseURL,
+    func streamURL(trackGUID: String) async throws -> URL {
+        do {
+            return try await streamURLOnce(trackGUID: trackGUID)
+        } catch {
+            guard usesFNConnect, FnMusicAPIProtocol.isRouteFailure(error) else { throw error }
+            await endpointProvider.invalidate()
+            return try await streamURLOnce(trackGUID: trackGUID)
+        }
+    }
+
+    private func streamURLOnce(trackGUID: String) async throws -> URL {
+        let endpoint = try await endpointProvider.endpoint()
+        guard let url = FnMusicAPIProtocol.endpointURL(
+            serverBaseURL: endpoint.baseURL,
             path: "/track/stream",
             queryItems: [URLQueryItem(name: "guid", value: trackGUID)]
         ) else {
@@ -167,10 +194,24 @@ actor FnMusicAPI {
     }
 
     func fetchRange(trackGUID: String, offset: Int64, length: Int64) async throws -> FnMusicRangeResponse {
+        do {
+            return try await fetchRangeOnce(trackGUID: trackGUID, offset: offset, length: length)
+        } catch {
+            guard usesFNConnect, FnMusicAPIProtocol.isRouteFailure(error) else { throw error }
+            await endpointProvider.invalidate()
+            return try await fetchRangeOnce(trackGUID: trackGUID, offset: offset, length: length)
+        }
+    }
+
+    private func fetchRangeOnce(
+        trackGUID: String,
+        offset: Int64,
+        length: Int64
+    ) async throws -> FnMusicRangeResponse {
         guard let rangeHeader = SafeByteRange.httpHeader(offset: offset, length: length) else {
             return FnMusicRangeResponse(data: Data(), statusCode: 206)
         }
-        let media = try mediaRequest(path: "/track/stream", queryItems: [
+        let media = try await mediaRequest(path: "/track/stream", queryItems: [
             URLQueryItem(name: "guid", value: trackGUID),
         ])
         var request = media.request
@@ -206,7 +247,17 @@ actor FnMusicAPI {
     }
 
     func downloadTrack(trackGUID: String) async throws -> URL {
-        let (request, requestToken) = try mediaRequest(path: "/track/stream", queryItems: [
+        do {
+            return try await downloadTrackOnce(trackGUID: trackGUID)
+        } catch {
+            guard usesFNConnect, FnMusicAPIProtocol.isRouteFailure(error) else { throw error }
+            await endpointProvider.invalidate()
+            return try await downloadTrackOnce(trackGUID: trackGUID)
+        }
+    }
+
+    private func downloadTrackOnce(trackGUID: String) async throws -> URL {
+        let (request, requestToken) = try await mediaRequest(path: "/track/stream", queryItems: [
             URLQueryItem(name: "guid", value: trackGUID),
         ])
         let (temporaryURL, response) = try await session.download(for: request)
@@ -228,6 +279,16 @@ actor FnMusicAPI {
     }
 
     func coverData(coverID: String, size: Int = 640, revision: Int? = nil) async throws -> Data {
+        do {
+            return try await coverDataOnce(coverID: coverID, size: size, revision: revision)
+        } catch {
+            guard usesFNConnect, FnMusicAPIProtocol.isRouteFailure(error) else { throw error }
+            await endpointProvider.invalidate()
+            return try await coverDataOnce(coverID: coverID, size: size, revision: revision)
+        }
+    }
+
+    private func coverDataOnce(coverID: String, size: Int, revision: Int?) async throws -> Data {
         var queryItems = [
             URLQueryItem(name: "coverId", value: coverID),
             URLQueryItem(name: "size", value: String(max(64, min(size, 2_048)))),
@@ -235,7 +296,7 @@ actor FnMusicAPI {
         if let revision, revision > 0 {
             queryItems.append(URLQueryItem(name: "t", value: String(revision)))
         }
-        let (request, requestToken) = try mediaRequest(path: "/static/cover", queryItems: queryItems)
+        let (request, requestToken) = try await mediaRequest(path: "/static/cover", queryItems: queryItems)
         let (bytes, response) = try await session.bytes(for: request)
         let http = try validateMediaResponse(response, requestToken: requestToken)
         if let length = http.value(forHTTPHeaderField: "Content-Length").flatMap(Int.init),
@@ -268,9 +329,40 @@ actor FnMusicAPI {
         includeCookie: Bool = true,
         cookieToken: String? = nil
     ) async throws -> Any {
-        guard let baseURL,
-              let url = FnMusicAPIProtocol.endpointURL(
-            serverBaseURL: baseURL,
+        do {
+            return try await requestJSONOnce(
+                method: method,
+                path: path,
+                queryItems: queryItems,
+                body: body,
+                includeCookie: includeCookie,
+                cookieToken: cookieToken
+            )
+        } catch {
+            guard usesFNConnect, FnMusicAPIProtocol.isRouteFailure(error) else { throw error }
+            await endpointProvider.invalidate()
+            return try await requestJSONOnce(
+                method: method,
+                path: path,
+                queryItems: queryItems,
+                body: body,
+                includeCookie: includeCookie,
+                cookieToken: cookieToken
+            )
+        }
+    }
+
+    private func requestJSONOnce(
+        method: String,
+        path: String,
+        queryItems: [URLQueryItem],
+        body: [String: Any]?,
+        includeCookie: Bool,
+        cookieToken: String?
+    ) async throws -> Any {
+        let endpoint = try await endpointProvider.endpoint()
+        guard let url = FnMusicAPIProtocol.endpointURL(
+            serverBaseURL: endpoint.baseURL,
             path: path,
             queryItems: queryItems
         ) else {
@@ -289,8 +381,14 @@ actor FnMusicAPI {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
         let requestToken = cookieToken ?? (includeCookie ? token : nil)
-        if let requestToken {
-            request.setValue(FnMusicAPIProtocol.musicTokenCookie(requestToken), forHTTPHeaderField: "Cookie")
+        if let cookie = FnMusicAPIProtocol.authenticationCookie(
+            token: requestToken,
+            usesRelay: endpoint.usesRelay
+        ) {
+            request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        }
+        for (name, value) in FnMusicAPIProtocol.accessCodeHeaders(accessCode) {
+            request.setValue(value, forHTTPHeaderField: name)
         }
         FnMusicAPIProtocol.applyAuthx(to: &request, bodyData: bodyData)
 
@@ -331,11 +429,11 @@ actor FnMusicAPI {
     private func mediaRequest(
         path: String,
         queryItems: [URLQueryItem]
-    ) throws -> (request: URLRequest, token: String) {
+    ) async throws -> (request: URLRequest, token: String) {
         guard let requestToken = token else { throw SourceError.authenticationFailed }
-        guard let baseURL,
-              let url = FnMusicAPIProtocol.endpointURL(
-            serverBaseURL: baseURL,
+        let endpoint = try await endpointProvider.endpoint()
+        guard let url = FnMusicAPIProtocol.endpointURL(
+            serverBaseURL: endpoint.baseURL,
             path: path,
             queryItems: queryItems
         ) else {
@@ -343,7 +441,15 @@ actor FnMusicAPI {
         }
         var request = URLRequest(url: url)
         request.timeoutInterval = 600
-        request.setValue(FnMusicAPIProtocol.musicTokenCookie(requestToken), forHTTPHeaderField: "Cookie")
+        if let cookie = FnMusicAPIProtocol.authenticationCookie(
+            token: requestToken,
+            usesRelay: endpoint.usesRelay
+        ) {
+            request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        }
+        for (name, value) in FnMusicAPIProtocol.accessCodeHeaders(accessCode) {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
         FnMusicAPIProtocol.applyAuthx(to: &request)
         return (request, requestToken)
     }

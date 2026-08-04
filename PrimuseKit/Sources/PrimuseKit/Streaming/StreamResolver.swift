@@ -7,18 +7,54 @@ import Security
 /// 但个人 NAS 普遍使用私网自签 HTTPS;仅在私网主机的系统校验失败时接受证书,
 /// 公网主机仍完全交给系统信任链。
 enum StreamResolverSessionFactory {
-    static func make(configuration: URLSessionConfiguration) -> URLSession {
+    static func make(
+        configuration: URLSessionConfiguration,
+        fnMusicRedirects: Bool = false
+    ) -> URLSession {
 #if os(tvOS)
         URLSession(configuration: configuration,
-                   delegate: PrivateNetworkTLSDelegate(), delegateQueue: nil)
+                   delegate: PrivateNetworkTLSDelegate(fnMusicRedirects: fnMusicRedirects),
+                   delegateQueue: nil)
 #else
-        URLSession(configuration: configuration)
+        if fnMusicRedirects {
+            return URLSession(
+                configuration: configuration,
+                delegate: FnMusicRedirectSessionDelegate(),
+                delegateQueue: nil
+            )
+        }
+        return URLSession(configuration: configuration)
 #endif
     }
 }
 
+private final class FnMusicRedirectSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+        let redirectCount = Int(task.taskDescription ?? "0") ?? 0
+        guard redirectCount < FnMusicRedirectPolicy.maximumRedirects,
+              let current = task.currentRequest ?? task.originalRequest else {
+            completionHandler(nil)
+            return
+        }
+        task.taskDescription = String(redirectCount + 1)
+        completionHandler(FnMusicRedirectPolicy.redirectedRequest(from: current, to: request))
+    }
+}
+
 #if os(tvOS)
-private final class PrivateNetworkTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
+private final class PrivateNetworkTLSDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    private let fnMusicRedirects: Bool
+
+    init(fnMusicRedirects: Bool) {
+        self.fnMusicRedirects = fnMusicRedirects
+    }
+
     func urlSession(_ session: URLSession,
                     didReceive challenge: URLAuthenticationChallenge,
                     completionHandler: @escaping @Sendable
@@ -38,6 +74,27 @@ private final class PrivateNetworkTLSDelegate: NSObject, URLSessionDelegate, @un
         } else {
             completionHandler(.cancelAuthenticationChallenge, nil)
         }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+        guard fnMusicRedirects else {
+            completionHandler(request)
+            return
+        }
+        let redirectCount = Int(task.taskDescription ?? "0") ?? 0
+        guard redirectCount < FnMusicRedirectPolicy.maximumRedirects,
+              let current = task.currentRequest ?? task.originalRequest else {
+            completionHandler(nil)
+            return
+        }
+        task.taskDescription = String(redirectCount + 1)
+        completionHandler(FnMusicRedirectPolicy.redirectedRequest(from: current, to: request))
     }
 
     private func isPrivateHost(_ host: String) -> Bool {

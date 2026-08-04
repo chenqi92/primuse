@@ -1037,8 +1037,12 @@ final class TVStore {
 
     /// TV 上新增源:写入 sources + 存本地凭据 + 回传快照。
     @discardableResult
-    func addSource(_ source: MusicSource, password: String?) -> Bool {
-        guard saveLocalCred(source, password) else { return false }
+    func addSource(
+        _ source: MusicSource,
+        password: String?,
+        fnConnectAccessCode: String? = nil
+    ) -> Bool {
+        guard saveLocalCred(source, password, fnConnectAccessCode) else { return false }
         scanner.invalidateFnMusicClient(sourceID: source.id)
         sourcesStore.add(source)
         afterSourceMutation()
@@ -1047,8 +1051,12 @@ final class TVStore {
 
     /// TV 上编辑源连接参数:更新 + 失效旧会话 + 回传快照。
     @discardableResult
-    func updateSource(_ source: MusicSource, password: String?) -> Bool {
-        guard saveLocalCred(source, password) else { return false }
+    func updateSource(
+        _ source: MusicSource,
+        password: String?,
+        fnConnectAccessCode: String? = nil
+    ) -> Bool {
+        guard saveLocalCred(source, password, fnConnectAccessCode) else { return false }
         scanner.invalidateFnMusicClient(sourceID: source.id)
         sourcesStore.update(source.id) { $0 = source }
         if let s = sourcesStore.source(id: source.id) {
@@ -1067,7 +1075,8 @@ final class TVStore {
 
     private func saveLocalCred(
         _ source: MusicSource,
-        _ password: String?
+        _ password: String?,
+        _ fnConnectAccessCode: String?
     ) -> Bool {
         if source.authType == .none {
             TVCredentialStore.clearLocalCredential(sourceID: source.id)
@@ -1075,13 +1084,16 @@ final class TVStore {
         }
         let existing = TVCredentialStore.loadLocalCredential(sourceID: source.id)
         let newPassword = password?.isEmpty == false ? password : nil
+        let newAccessCode = fnConnectAccessCode?.isEmpty == false ? fnConnectAccessCode : nil
         let storedUsername = source.username ?? ""
         let usernameChanged = existing.map { $0.username != storedUsername } == true
-        guard newPassword != nil || usernameChanged else { return true }
+        let accessCodeChanged = newAccessCode != nil && newAccessCode != existing?.accessCode
+        guard newPassword != nil || usernameChanged || accessCodeChanged else { return true }
         return TVCredentialStore.saveLocalCredential(
             sourceID: source.id,
             username: storedUsername,
-            password: newPassword ?? existing?.password ?? ""
+            password: newPassword ?? existing?.password ?? "",
+            accessCode: newAccessCode ?? existing?.accessCode
         )
     }
 

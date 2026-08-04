@@ -2028,3 +2028,10 @@
 "drime_connect_title" = "Connect to Drime";
 "drime_connect_description" = "Paste the API access token created in Drime Settings → Developer. Primuse validates it before opening your drive.";
 "drime_connect_button" = "Connect to Drime";
+"fnmusic_connection_method" = "Connection Method";
+"fnmusic_connection_fnconnect" = "FN Connect";
+"fnmusic_connection_address" = "Server Address";
+"fnmusic_fnid" = "FN ID";
+"fnmusic_fnconnect_hint" = "Enter the FN ID. Primuse prefers a direct route and falls back to the FN Connect relay. Sign-in still uses the local NAS account.";
+"fnmusic_access_code" = "FN Connect Access Code (Optional)";
+"fnmusic_access_code_hint" = "Enter it only when FN Connect access-code protection is enabled. It is stored securely in Keychain.";

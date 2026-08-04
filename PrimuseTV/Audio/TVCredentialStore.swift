@@ -47,6 +47,16 @@ enum TVCredentialStore {
         } else {
             cred = SourceCredential(username: source.username, password: keychainPassword(account: source.id))
         }
+        if source.type == .fnMusic,
+           cred.extra[FnMusicAPIProtocol.fnConnectAccessCodeCredentialKey]?.isEmpty != false {
+            let accessCode = local?.accessCode
+                ?? keychainPassword(
+                    account: FnMusicAPIProtocol.fnConnectAccessCodeAccount(sourceID: source.id)
+                )
+            if let accessCode, !accessCode.isEmpty {
+                cred.extra[FnMusicAPIProtocol.fnConnectAccessCodeCredentialKey] = accessCode
+            }
+        }
         if let relay = bundle?.relay, RelayStreamResolver.relayTypes.contains(source.type) {
             cred.extra["relay_host"] = relay.host
             cred.extra["relay_port"] = String(relay.port)
@@ -66,17 +76,21 @@ enum TVCredentialStore {
     private struct LocalCred: Codable {
         var u: String
         var p: String
+        var a: String?
     }
 
     @discardableResult
     static func saveLocalCredential(
         sourceID: String,
         username: String,
-        password: String
+        password: String,
+        accessCode: String? = nil
     ) -> Bool {
         let account = localAccount(sourceID)
+        let preservedAccessCode = accessCode
+            ?? loadLocalCredential(sourceID: sourceID)?.accessCode
         guard let data = try? JSONEncoder().encode(
-            LocalCred(u: username, p: password)
+            LocalCred(u: username, p: password, a: preservedAccessCode)
         ) else {
             return false
         }
@@ -85,7 +99,7 @@ enum TVCredentialStore {
 
     static func loadLocalCredential(
         sourceID: String
-    ) -> (username: String, password: String)? {
+    ) -> (username: String, password: String, accessCode: String?)? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: PrimuseConstants.keychainServiceName,
@@ -100,7 +114,7 @@ enum TVCredentialStore {
               let cred = try? JSONDecoder().decode(LocalCred.self, from: data) else {
             return nil
         }
-        return (cred.u, cred.p)
+        return (cred.u, cred.p, cred.a)
     }
 
     @discardableResult

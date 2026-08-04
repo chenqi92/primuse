@@ -528,6 +528,10 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
     /// direct host record, so snapshots from older releases keep their exact
     /// connection behavior instead of being reinterpreted as QuickConnect.
     public var synologyConnectionMode: SynologyConnectionMode?
+    /// Feiniu Music connection entry chosen by the user. `nil` means a legacy
+    /// direct address so sources created before FN Connect support never change
+    /// transport behavior after an upgrade.
+    public var fnMusicConnectionMode: FnMusicConnectionMode?
     public var username: String?
     // Password stored in Keychain
     public var basePath: String?
@@ -565,6 +569,7 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
         port: Int? = nil,
         useSsl: Bool? = nil,
         synologyConnectionMode: SynologyConnectionMode? = nil,
+        fnMusicConnectionMode: FnMusicConnectionMode? = nil,
         username: String? = nil,
         basePath: String? = nil,
         shareName: String? = nil,
@@ -592,6 +597,7 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
         self.port = port ?? type.defaultPort(useSsl: resolvedUseSSL)
         self.useSsl = resolvedUseSSL
         self.synologyConnectionMode = synologyConnectionMode
+        self.fnMusicConnectionMode = fnMusicConnectionMode
         self.username = username
         self.basePath = basePath
         self.shareName = shareName
@@ -628,6 +634,10 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
             SynologyConnectionMode.self,
             forKey: .synologyConnectionMode
         )
+        self.fnMusicConnectionMode = try c.decodeIfPresent(
+            FnMusicConnectionMode.self,
+            forKey: .fnMusicConnectionMode
+        )
         self.username = try c.decodeIfPresent(String.self, forKey: .username)
         self.basePath = try c.decodeIfPresent(String.self, forKey: .basePath)
         self.shareName = try c.decodeIfPresent(String.self, forKey: .shareName)
@@ -658,6 +668,13 @@ public extension MusicSource {
     /// Legacy Synology sources had only host/port/SSL, so they remain direct.
     var effectiveSynologyConnectionMode: SynologyConnectionMode {
         if let synologyConnectionMode { return synologyConnectionMode }
+        return .address
+    }
+
+    /// Legacy Feiniu Music sources stored a concrete host/port and remain
+    /// direct. Only an explicit new field enables FN Connect resolution.
+    var effectiveFnMusicConnectionMode: FnMusicConnectionMode {
+        if let fnMusicConnectionMode { return fnMusicConnectionMode }
         return .address
     }
 }

@@ -134,6 +134,7 @@ final class TVSourceScanner {
         let port: Int?
         let useSSL: Bool
         let basePath: String?
+        let connectionMode: FnMusicConnectionMode
         let sourceUsername: String?
         let credential: SourceCredential?
     }
@@ -405,6 +406,7 @@ final class TVSourceScanner {
             port: source.port,
             useSSL: source.useSsl,
             basePath: source.basePath,
+            connectionMode: source.effectiveFnMusicConnectionMode,
             sourceUsername: source.username,
             credential: credential
         )

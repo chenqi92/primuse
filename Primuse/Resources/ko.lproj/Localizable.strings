@@ -2027,3 +2027,10 @@
 "drime_connect_title" = "Drime 연결";
 "drime_connect_description" = "Drime 설정 → Developer에서 만든 API 액세스 토큰을 붙여넣으세요. Primuse가 검증한 후 드라이브를 엽니다.";
 "drime_connect_button" = "Drime 연결";
+"fnmusic_connection_method" = "연결 방식";
+"fnmusic_connection_fnconnect" = "FN Connect";
+"fnmusic_connection_address" = "서버 주소";
+"fnmusic_fnid" = "FN ID";
+"fnmusic_fnconnect_hint" = "FN ID를 입력하세요. Primuse는 직접 연결을 우선하며 필요한 경우 FN Connect 릴레이를 사용합니다. 로그인에는 계속 NAS 로컬 계정을 사용합니다.";
+"fnmusic_access_code" = "FN Connect 액세스 코드(선택 사항)";
+"fnmusic_access_code_hint" = "FN Connect 액세스 코드 보호가 활성화된 경우에만 입력하세요. 코드는 키체인에 안전하게 저장됩니다.";

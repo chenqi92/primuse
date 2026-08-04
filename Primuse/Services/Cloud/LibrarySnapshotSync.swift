@@ -1228,12 +1228,40 @@ final class LibrarySnapshotSync: Sendable {
                     ))
                 }
             }
+            if source.type == .fnMusic,
+               source.effectiveFnMusicConnectionMode == .fnConnect {
+                let account = FnMusicAPIProtocol.fnConnectAccessCodeAccount(sourceID: source.id)
+                switch KeychainService.passwordLookup(for: account) {
+                case .found(let accessCode):
+                    if !accessCode.isEmpty {
+                        entry.extra[FnMusicAPIProtocol.fnConnectAccessCodeCredentialKey] = accessCode
+                    }
+                case .notFound:
+                    break
+                case .temporarilyUnavailable(let status):
+                    return .failure(.credentialReadFailed(
+                        sourceName: source.name,
+                        component: PMString("fnmusic_access_code"),
+                        status: status,
+                        temporary: true
+                    ))
+                case .failed(let status):
+                    return .failure(.credentialReadFailed(
+                        sourceName: source.name,
+                        component: PMString("fnmusic_access_code"),
+                        status: status,
+                        temporary: false
+                    ))
+                }
+            }
             let tokenManager = CloudTokenManager(sourceID: source.id)
             switch await tokenManager.lookupTokens() {
             case .found(let tokens):
                 entry.token = tokens.accessToken
                 entry.refreshToken = tokens.refreshToken
-                entry.extra = tokens.extra ?? [:]
+                if let tokenExtra = tokens.extra {
+                    entry.extra.merge(tokenExtra) { _, newValue in newValue }
+                }
             case .notFound:
                 break
             case .temporarilyUnavailable(let status):

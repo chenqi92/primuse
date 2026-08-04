@@ -228,9 +228,11 @@ public actor FnMusicServiceClient {
     }
 
     private let sourceID: String
-    private let baseURL: URL?
+    private let endpointProvider: FnMusicEndpointProvider
     private let username: String
     private let password: String?
+    private let accessCode: String?
+    private let usesFNConnect: Bool
     private let session: URLSession
     private var token: String?
     private var sessionGeneration: UInt64 = 0
@@ -239,14 +241,10 @@ public actor FnMusicServiceClient {
     public init(source: MusicSource, credential: SourceCredential?) {
         let credential = credential ?? SourceCredential()
         self.sourceID = source.id
-        self.baseURL = FnMusicAPIProtocol.serverBaseURL(
-            host: source.host ?? "",
-            port: source.port,
-            useSSL: source.useSsl,
-            basePath: source.basePath
-        )
         self.username = credential.username ?? source.username ?? ""
         self.password = credential.password
+        self.accessCode = credential.extra[FnMusicAPIProtocol.fnConnectAccessCodeCredentialKey]
+        self.usesFNConnect = source.effectiveFnMusicConnectionMode == .fnConnect
 
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 30
@@ -254,31 +252,42 @@ public actor FnMusicServiceClient {
         configuration.httpMaximumConnectionsPerHost = 4
         configuration.httpCookieStorage = nil
         configuration.urlCredentialStorage = nil
-        self.session = StreamResolverSessionFactory.make(configuration: configuration)
+        let session = StreamResolverSessionFactory.make(
+            configuration: configuration,
+            fnMusicRedirects: true
+        )
+        self.session = session
+        self.endpointProvider = FnMusicEndpointProvider(
+            source: source,
+            accessCode: accessCode,
+            session: session
+        )
     }
 
     /// Module-internal injection point for deterministic URLProtocol tests.
     init(source: MusicSource, credential: SourceCredential?, session: URLSession) {
         let credential = credential ?? SourceCredential()
         self.sourceID = source.id
-        self.baseURL = FnMusicAPIProtocol.serverBaseURL(
-            host: source.host ?? "",
-            port: source.port,
-            useSSL: source.useSsl,
-            basePath: source.basePath
-        )
         self.username = credential.username ?? source.username ?? ""
         self.password = credential.password
+        self.accessCode = credential.extra[FnMusicAPIProtocol.fnConnectAccessCodeCredentialKey]
+        self.usesFNConnect = source.effectiveFnMusicConnectionMode == .fnConnect
         self.session = session
+        self.endpointProvider = FnMusicEndpointProvider(
+            source: source,
+            accessCode: accessCode,
+            session: session
+        )
     }
 
     deinit { session.invalidateAndCancel() }
 
-    public func invalidateSession() {
+    public func invalidateSession() async {
         sessionGeneration &+= 1
         token = nil
         loginOperation?.task.cancel()
         loginOperation = nil
+        await endpointProvider.invalidate()
     }
 
     /// Logs in and validates the real music catalogue route. A generic fnOS
@@ -335,6 +344,10 @@ public actor FnMusicServiceClient {
             try await ensureLoggedIn()
             guard let refreshedToken = token else { throw FnMusicServiceError.authenticationFailed }
             return try await fetchCoverData(queryItems: queryItems, token: refreshedToken)
+        } catch {
+            guard usesFNConnect, FnMusicAPIProtocol.isRouteFailure(error) else { throw error }
+            await endpointProvider.invalidate()
+            return try await fetchCoverData(queryItems: queryItems, token: requestToken)
         }
     }
 
@@ -342,7 +355,7 @@ public actor FnMusicServiceClient {
         queryItems: [URLQueryItem],
         token requestToken: String
     ) async throws -> Data {
-        let request = try authenticatedRequest(
+        let request = try await authenticatedRequest(
             path: "/static/cover",
             queryItems: queryItems,
             token: requestToken
@@ -495,9 +508,37 @@ public actor FnMusicServiceClient {
         body: [String: Any]? = nil,
         includeCookie: Bool = true
     ) async throws -> Any {
-        guard let baseURL,
-              let url = FnMusicAPIProtocol.endpointURL(
-                serverBaseURL: baseURL,
+        do {
+            return try await requestJSONOnce(
+                method: method,
+                path: path,
+                queryItems: queryItems,
+                body: body,
+                includeCookie: includeCookie
+            )
+        } catch {
+            guard usesFNConnect, FnMusicAPIProtocol.isRouteFailure(error) else { throw error }
+            await endpointProvider.invalidate()
+            return try await requestJSONOnce(
+                method: method,
+                path: path,
+                queryItems: queryItems,
+                body: body,
+                includeCookie: includeCookie
+            )
+        }
+    }
+
+    private func requestJSONOnce(
+        method: String,
+        path: String,
+        queryItems: [URLQueryItem],
+        body: [String: Any]?,
+        includeCookie: Bool
+    ) async throws -> Any {
+        let endpoint = try await endpointProvider.endpoint()
+        guard let url = FnMusicAPIProtocol.endpointURL(
+                serverBaseURL: endpoint.baseURL,
                 path: path,
                 queryItems: queryItems
               ) else {
@@ -519,8 +560,14 @@ public actor FnMusicServiceClient {
             bodyData = nil
         }
         let requestToken = includeCookie ? token : nil
-        if let requestToken {
-            request.setValue(FnMusicAPIProtocol.musicTokenCookie(requestToken), forHTTPHeaderField: "Cookie")
+        if let cookie = FnMusicAPIProtocol.authenticationCookie(
+            token: requestToken,
+            usesRelay: endpoint.usesRelay
+        ) {
+            request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        }
+        for (name, value) in FnMusicAPIProtocol.accessCodeHeaders(accessCode) {
+            request.setValue(value, forHTTPHeaderField: name)
         }
         FnMusicAPIProtocol.applyAuthx(to: &request, bodyData: bodyData)
         let (data, response) = try await session.data(for: request)
@@ -549,17 +596,25 @@ public actor FnMusicServiceClient {
         path: String,
         queryItems: [URLQueryItem],
         token: String
-    ) throws -> URLRequest {
-        guard let baseURL,
-              let url = FnMusicAPIProtocol.endpointURL(
-                serverBaseURL: baseURL,
+    ) async throws -> URLRequest {
+        let endpoint = try await endpointProvider.endpoint()
+        guard let url = FnMusicAPIProtocol.endpointURL(
+                serverBaseURL: endpoint.baseURL,
                 path: path,
                 queryItems: queryItems
               ) else {
             throw FnMusicServiceError.invalidURL
         }
         var request = URLRequest(url: url)
-        request.setValue(FnMusicAPIProtocol.musicTokenCookie(token), forHTTPHeaderField: "Cookie")
+        if let cookie = FnMusicAPIProtocol.authenticationCookie(
+            token: token,
+            usesRelay: endpoint.usesRelay
+        ) {
+            request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        }
+        for (name, value) in FnMusicAPIProtocol.accessCodeHeaders(accessCode) {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
         FnMusicAPIProtocol.applyAuthx(to: &request)
         return request
     }

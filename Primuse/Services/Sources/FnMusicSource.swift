@@ -22,6 +22,8 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
         port: Int?,
         useSSL: Bool,
         basePath: String?,
+        connectionMode: FnMusicConnectionMode,
+        accessCode: String?,
         username: String,
         password: String
     ) {
@@ -33,7 +35,9 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
             host: host,
             port: port,
             useSSL: useSSL,
-            basePath: basePath
+            basePath: basePath,
+            connectionMode: connectionMode,
+            accessCode: accessCode
         )
 
         let root = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)

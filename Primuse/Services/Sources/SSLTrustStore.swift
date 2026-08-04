@@ -407,7 +407,13 @@ final class SSLTrustStore {
 
 /// URLSession delegate that only bypasses SSL validation for domains in the trust store.
 /// For untrusted domains, uses the system's default certificate validation.
-final class SmartSSLDelegate: NSObject, URLSessionDelegate, Sendable {
+final class SmartSSLDelegate: NSObject, URLSessionTaskDelegate, Sendable {
+    private let fnMusicRedirects: Bool
+
+    init(fnMusicRedirects: Bool = false) {
+        self.fnMusicRedirects = fnMusicRedirects
+    }
+
     func urlSession(
         _ session: URLSession,
         didReceive challenge: URLAuthenticationChallenge
@@ -448,5 +454,31 @@ final class SmartSSLDelegate: NSObject, URLSessionDelegate, Sendable {
             return (.cancelAuthenticationChallenge, nil)
         }
         return (.performDefaultHandling, nil)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+        guard fnMusicRedirects else {
+            completionHandler(request)
+            return
+        }
+        let redirectCount = Int(task.taskDescription ?? "0") ?? 0
+        guard redirectCount < FnMusicRedirectPolicy.maximumRedirects,
+              let currentRequest = task.currentRequest ?? task.originalRequest else {
+            completionHandler(nil)
+            return
+        }
+        task.taskDescription = String(redirectCount + 1)
+        completionHandler(
+            FnMusicRedirectPolicy.redirectedRequest(
+                from: currentRequest,
+                to: request
+            )
+        )
     }
 }

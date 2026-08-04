@@ -524,12 +524,17 @@ final class SourceManager {
             connector = UnsupportedSourceConnector(sourceID: source.id, sourceType: .fnos)
         case .fnMusic:
             connector = credentialProtectedConnector(for: source) { password -> any MusicSourceConnector in
+                let accessCode = KeychainService.getPassword(
+                    for: FnMusicAPIProtocol.fnConnectAccessCodeAccount(sourceID: source.id)
+                )
                 return FnMusicSource(
                     sourceID: source.id,
                     host: source.host ?? "",
                     port: source.port,
                     useSSL: source.useSsl,
                     basePath: source.basePath,
+                    connectionMode: source.effectiveFnMusicConnectionMode,
+                    accessCode: accessCode,
                     username: source.username ?? "",
                     password: password
                 )
