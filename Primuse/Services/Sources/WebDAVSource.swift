@@ -228,6 +228,7 @@ actor WebDAVSource: MusicSourceConnector {
         var request = URLRequest(url: try fileURL(for: path))
         request.httpMethod = "GET"
         request.setValue(rangeHeader, forHTTPHeaderField: "Range")
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         if !username.isEmpty || !password.isEmpty {
             let credential = Data("\(username):\(password)".utf8).base64EncodedString()
             request.setValue("Basic \(credential)", forHTTPHeaderField: "Authorization")
@@ -240,16 +241,25 @@ actor WebDAVSource: MusicSourceConnector {
         }
         switch http.statusCode {
         case 206:
+            guard HTTPByteRangeResponsePolicy.validatedTotalLength(
+                contentRange: http.value(forHTTPHeaderField: "Content-Range"),
+                contentLength: http.value(forHTTPHeaderField: "Content-Length").flatMap(Int64.init),
+                bodyLength: data.count,
+                requestedOffset: offset,
+                requestedLength: length
+            ) != nil else {
+                throw SourceError.connectionFailed("Invalid WebDAV Content-Range response")
+            }
             return data
         case 200:
-            let totalSize = Int64(data.count)
-            let actualOffset = offset < 0 ? max(0, totalSize + offset) : offset
-            guard actualOffset < totalSize else { return Data() }
-            guard let requestedEnd = SafeByteRange.exclusiveEnd(offset: actualOffset, length: length) else {
-                return Data()
+            guard HTTPByteRangeResponsePolicy.acceptsWholeResourceResponse(
+                bodyLength: data.count,
+                requestedOffset: offset,
+                requestedLength: length
+            ) else {
+                throw SourceError.connectionFailed("WebDAV server ignored the byte Range request")
             }
-            let upper = min(requestedEnd, totalSize)
-            return data.subdata(in: Int(actualOffset)..<Int(upper))
+            return data
         default:
             throw SourceError.connectionFailed("WebDAV range request failed: HTTP \(http.statusCode)")
         }

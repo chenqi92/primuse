@@ -899,11 +899,29 @@ struct NowPlayingView: View {
         VStack(spacing: 0) {
                     // Grabber handle (system-matching dimensions)
                     if !showLyrics || !isLyricsImmersive {
-                        Capsule()
-                            .fill(appearance.tertiary)
-                            .frame(width: 48, height: 5)
-                            .padding(.top, topSafeArea + 6)
-                            .padding(.bottom, 10)
+                        ZStack {
+                            Capsule()
+                                .fill(appearance.tertiary)
+                                .frame(width: 48, height: 5)
+                            if let onMinimize {
+                                HStack {
+                                    Button(action: onMinimize) {
+                                        Image(systemName: "chevron.down")
+                                            .font(.system(size: 17, weight: .semibold))
+                                            .frame(width: 44, height: 44)
+                                            .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel(Text("close"))
+                                    Spacer()
+                                }
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 5)
+                        .padding(.top, topSafeArea + 6)
+                        .padding(.horizontal, 8)
+                        .padding(.bottom, 10)
                     }
 
                     // Playback error toast

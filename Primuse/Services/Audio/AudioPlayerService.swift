@@ -2387,6 +2387,11 @@ final class AudioPlayerService {
                     guard !Task.isCancelled, self.playID == id else { return }
                     midStreamError = true
                     plog("⚠️ Decode error mid-stream for '\(song.title)' (scheduled \(scheduledCount) buffers): \(error.localizedDescription)")
+                    if self.playbackSettings.audioCacheEnabled,
+                       self.activeDecoderKind == .cloudStream || self.activeDecoderKind == .httpStream {
+                        self.beginRemoteMidStreamRecovery(song: song, playID: id)
+                        return
+                    }
                     self.showPlaybackError(String(localized: "playback_error_decode"))
                     if scheduledCount < 3 {
                         // Too little decoded to be worth playing — bail now.
@@ -2431,18 +2436,68 @@ final class AudioPlayerService {
         }
     }
 
-    /// 云盘逐 chunk 流式失败(首缓冲超时 / serve 报错)时的兜底: 用预授权直链
-    /// 整文件渐进下载再试一次, 而不是直接报错跳过。直链解析仅 OneDrive 支持
-    /// (resolveDirectDownloadURL 对其他源返回 nil), 故此兜底天然只对 OneDrive 生效。
+    /// 云盘逐 chunk 流式失败(首缓冲超时 / serve 报错)时的兜底: 优先使用
+    /// OneDrive 预授权直链渐进下载；WebDAV / NAS 等 connector 则通过统一的
+    /// 完整文件缓存下载后重新打开，避免继续重复失败的 Range 请求。
     /// 返回 true 表示已接管(发起了下载或已切歌), 调用方不应再走默认错误分支。
     private func cloudFullDownloadFallback(song: Song, outputFormat: AVAudioFormat, playID id: UUID) async -> Bool {
-        guard let manager = sourceManager,
-              let directURL = await manager.resolveDirectDownloadURL(for: song) else { return false }
+        guard let manager = sourceManager else { return false }
+        if let directURL = await manager.resolveDirectDownloadURL(for: song) {
+            guard playID == id else { return true }
+            plog("↳ cloud chunked-stream failed; falling back to full progressive download (\(song.fileSize / 1_048_576)MB) via \(directURL.host ?? "?")")
+            let cacheURL = playbackSettings.audioCacheEnabled ? manager.cacheURL(for: song) : nil
+            await playWithStreamingDownload(song: song, url: directURL, outputFormat: outputFormat, playID: id, cacheURL: cacheURL)
+            return true
+        }
+
+        guard playbackSettings.audioCacheEnabled else { return false }
+        plog("↳ cloud chunked-stream failed; materializing a complete connector file")
+        guard let cached = await manager.materializeCachedURLForSeeking(for: song) else {
+            return false
+        }
         guard playID == id else { return true }
-        plog("↳ cloud chunked-stream failed; falling back to full progressive download (\(song.fileSize / 1_048_576)MB) via \(directURL.host ?? "?")")
-        let cacheURL = playbackSettings.audioCacheEnabled ? manager.cacheURL(for: song) : nil
-        await playWithStreamingDownload(song: song, url: directURL, outputFormat: outputFormat, playID: id, cacheURL: cacheURL)
+        await play(song: song, from: cached)
         return true
+    }
+
+    /// A connector-backed Range stream may fail after playback has already
+    /// started. Materialize the same song once and resume from the audible
+    /// position instead of converting a transient network timeout into a skip.
+    /// This path is limited to enabled audio caching so it never persists a
+    /// complete file behind the user's back when caching is disabled.
+    private func beginRemoteMidStreamRecovery(song: Song, playID id: UUID) {
+        guard let manager = sourceManager, playID == id else { return }
+        syncPlaybackProgressFromEngine()
+        let resumeTime = max(0, currentTime)
+        plog(String(
+            format: "↳ remote Range stream failed at %.2fs; materializing complete file for one-shot recovery",
+            resumeTime
+        ))
+
+        audioEngine.stopPlayback()
+        stopTimeUpdater()
+        isPlaying = false
+        isLoading = true
+        updateNowPlayingInfo()
+        updatePlaybackState()
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let cached = await manager.materializeCachedURLForSeeking(for: song) else {
+                guard self.playID == id, self.currentSong?.id == song.id else { return }
+                self.isLoading = false
+                self.showPlaybackError(String(localized: "playback_error_connection"))
+                await self.autoAdvanceAfterFailure()
+                return
+            }
+            guard self.playID == id, self.currentSong?.id == song.id else { return }
+
+            self.activeDecoderKind = await self.usesFFmpegDecoder(for: song, url: cached)
+                ? .ffmpeg
+                : .native
+            plog("↳ remote playback recovered from complete local cache; resuming at \(String(format: "%.2f", resumeTime))s")
+            self.seek(to: resumeTime, startPlaying: true)
+        }
     }
 
     /// Full-download fallback for remote URLs whose length is unknown or

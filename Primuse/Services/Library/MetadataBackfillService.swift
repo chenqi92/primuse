@@ -1005,7 +1005,7 @@ final class MetadataBackfillService {
     /// 而非「永久」错误(文件已不存在、4xx 客户端错误)。瞬时错误不标 failed,
     /// 下一轮自动重试,避免重装/启动初期源未就绪时把歌永久钉成「无法读取」。
     static func isTransientBackfillError(_ error: Error) -> Bool {
-        if error is BackfillHardTimeoutError { return false }
+        if error is BackfillHardTimeoutError { return true }
         if error is URLError { return true }
         if error is CancellationError { return true }
         switch error {

@@ -239,6 +239,7 @@ actor SynologySource: MusicSourceConnector {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue(rangeHeader, forHTTPHeaderField: "Range")
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         request.timeoutInterval = 60
 
         let maxBytes = Int(clamping: max(length, 0))
@@ -254,6 +255,15 @@ actor SynologySource: MusicSourceConnector {
 
         switch http.statusCode {
         case 206:
+            guard HTTPByteRangeResponsePolicy.validatedTotalLength(
+                contentRange: http.value(forHTTPHeaderField: "Content-Range"),
+                contentLength: http.value(forHTTPHeaderField: "Content-Length").flatMap(Int64.init),
+                bodyLength: data.count,
+                requestedOffset: offset,
+                requestedLength: length
+            ) != nil else {
+                throw SourceError.connectionFailed("Invalid Synology Content-Range response")
+            }
             return data
         case 200:
             // ⚠️ FileStation Download 的失败响应 (sid 过期 error 119、路径不存在
@@ -268,18 +278,14 @@ actor SynologySource: MusicSourceConnector {
                 }
                 throw SynologyError.apiError(synologyErrorMessage(code: error))
             }
-            // Server ignored Range — slice the returned full body to the
-            // requested window so callers can trust offsets. Without this,
-            // a seek-to-middle would write the start of the file into the
-            // middle of `.partial` and corrupt the cache permanently.
-            let total = Int64(data.count)
-            let actualOffset = offset < 0 ? max(0, total + offset) : offset
-            guard actualOffset < total else { return Data() }
-            guard let requestedEnd = SafeByteRange.exclusiveEnd(offset: actualOffset, length: length) else {
-                return Data()
+            guard HTTPByteRangeResponsePolicy.acceptsWholeResourceResponse(
+                bodyLength: data.count,
+                requestedOffset: offset,
+                requestedLength: length
+            ) else {
+                throw SourceError.connectionFailed("Synology server ignored the byte Range request")
             }
-            let upper = min(requestedEnd, total)
-            return data.subdata(in: Int(actualOffset)..<Int(upper))
+            return data
         case 401:
             // Session expired —— surface as notLoggedIn so fetchRange can
             // reconnect-and-retry (and so it stays distinct from other HTTP

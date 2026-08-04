@@ -13,14 +13,27 @@ struct RangeStreamingPrefetchPolicyTests {
         #expect(!RangeStreamingPrefetchPolicy.allowsAutomaticTrailingFill(for: .oneDrive))
     }
 
+    @Test("WebDAV and Synology keep only one playback request ahead")
+    func httpFileConnectorsLimitBackgroundPrefetch() {
+        #expect(RangeStreamingPrefetchPolicy.aheadCount(for: .webdav, defaultValue: 4) == 1)
+        #expect(RangeStreamingPrefetchPolicy.aheadCount(for: .synology, defaultValue: 4) == 1)
+        #expect(!RangeStreamingPrefetchPolicy.allowsBackgroundPrewarm(for: .webdav))
+        #expect(!RangeStreamingPrefetchPolicy.allowsBackgroundPrewarm(for: .synology))
+        #expect(!RangeStreamingPrefetchPolicy.allowsAutomaticTrailingFill(for: .webdav))
+        #expect(!RangeStreamingPrefetchPolicy.allowsAutomaticTrailingFill(for: .synology))
+        #expect(RangeStreamingPrefetchPolicy.usesSingleTransferForCompleteDownload(for: .webdav))
+        #expect(RangeStreamingPrefetchPolicy.usesSingleTransferForCompleteDownload(for: .synology))
+    }
+
     @Test("Other range connectors retain the configured prefetch count")
     func otherConnectorsKeepDefaultPrefetch() {
         #expect(RangeStreamingPrefetchPolicy.aheadCount(for: .smb, defaultValue: 4) == 4)
-        #expect(RangeStreamingPrefetchPolicy.aheadCount(for: .webdav, defaultValue: 2) == 2)
+        #expect(RangeStreamingPrefetchPolicy.aheadCount(for: .sftp, defaultValue: 2) == 2)
         #expect(RangeStreamingPrefetchPolicy.allowsBackgroundPrewarm(for: .smb))
-        #expect(RangeStreamingPrefetchPolicy.allowsBackgroundPrewarm(for: .webdav))
+        #expect(RangeStreamingPrefetchPolicy.allowsBackgroundPrewarm(for: .sftp))
         #expect(RangeStreamingPrefetchPolicy.allowsAutomaticTrailingFill(for: .smb))
-        #expect(RangeStreamingPrefetchPolicy.allowsAutomaticTrailingFill(for: .webdav))
+        #expect(RangeStreamingPrefetchPolicy.allowsAutomaticTrailingFill(for: .sftp))
+        #expect(!RangeStreamingPrefetchPolicy.usesSingleTransferForCompleteDownload(for: .smb))
     }
 
     @Test("Prefetch counts never become negative")

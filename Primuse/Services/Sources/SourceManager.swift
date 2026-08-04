@@ -1956,6 +1956,10 @@ final class SourceManager {
                     let directURL = try await oneDrive.publicDownloadURL(path: song.filePath, forceRefresh: true)
                     try await downloadOfflineFromDirectURL(directURL, song: song, target: target)
                 }
+            } else if RangeStreamingPrefetchPolicy.usesSingleTransferForCompleteDownload(
+                for: source.type
+            ) {
+                try await cacheCompleteFile(song: song, connector: connector)
             } else if source.supportsRangeStreaming, song.fileSize > 0 {
                 try await downloadOfflineByRanges(song: song, connector: connector, target: target)
             } else if let streamURL = try await connector.streamingURL(for: song.filePath) {
@@ -2029,8 +2033,10 @@ final class SourceManager {
             while offset < song.fileSize {
                 let length = min(chunkSize, song.fileSize - offset)
                 let data = try await connector.fetchRange(path: song.filePath, offset: offset, length: length)
-                guard !data.isEmpty else {
-                    throw SourceError.connectionFailed("Offline download returned an empty chunk")
+                guard Int64(data.count) == length else {
+                    throw SourceError.connectionFailed(
+                        "Offline download returned an invalid chunk: \(data.count)/\(length)"
+                    )
                 }
                 try handle.write(contentsOf: data)
                 offset += Int64(data.count)
@@ -3418,9 +3424,8 @@ final class SourceManager {
         )
         let allowsTrailingFill = RangeStreamingPrefetchPolicy
             .allowsAutomaticTrailingFill(for: source.type)
-        if prefetchAhead == 0,
-           source.type == .oneDrive || source.type == .ftp {
-            plog("☁️ \(source.type.rawValue) streaming: background chunk prefetch disabled for '\(song.title)'")
+        if prefetchAhead < CloudPlaybackSource.prefetchAhead {
+            plog("☁️ \(source.type.rawValue) streaming: background chunk prefetch limited to \(prefetchAhead) for '\(song.title)'")
         }
 
         return CloudPlaybackSource.makeInputSource(

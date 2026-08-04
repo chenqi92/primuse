@@ -277,6 +277,13 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
                 continuation.finish(throwing: AudioDecoderError.converterCreationFailed)
                 return
             }
+            if AudioChannelConversionPolicy.requiresDownmix(
+                sourceChannelCount: Int(sourceFormat.channelCount),
+                outputChannelCount: Int(outputFormat.channelCount)
+            ) {
+                converter.downmix = true
+                plog("🔊 Native decoder downmix enabled: ch\(sourceFormat.channelCount) → ch\(outputFormat.channelCount)")
+            }
             var stallNanos: UInt64 = 0
             while !Task.isCancelled,
                   totalFrames < 0 || decoder.position < totalFrames {

@@ -486,11 +486,13 @@ struct PlayerOverlay: View {
     /// presentation, not before.
     @State private var entered = false
     @State private var dragOffset: CGFloat = 0
+    @State private var edgeDragOffset: CGFloat = 0
     @State private var isDismissing = false
     @State private var dismissScale: CGFloat = 1
     @State private var dismissOpacity: CGFloat = 1
     @State private var screenHeight: CGFloat = UIScreen.main.bounds.height
     @State private var isDismissDragActive = false
+    @State private var isEdgeDismissDragActive = false
 
     /// Device screen corner radius (matches physical display)
     private let deviceCornerRadius: CGFloat = 55
@@ -511,7 +513,11 @@ struct PlayerOverlay: View {
     }
 
     var body: some View {
-        NowPlayingView(onOpenAlbum: onOpenAlbum, onOpenArtist: onOpenArtist)
+        NowPlayingView(
+            onMinimize: dismissPlayer,
+            onOpenAlbum: onOpenAlbum,
+            onOpenArtist: onOpenArtist
+        )
             .background {
                 GeometryReader { geo in
                     Color.clear.onAppear { screenHeight = geo.size.height }
@@ -531,6 +537,7 @@ struct PlayerOverlay: View {
             )
             .opacity(isDismissing ? dismissOpacity : 1)
             .offset(y: entered ? dragOffset : screenHeight + 100)
+            .offset(x: edgeDragOffset)
             .ignoresSafeArea()
             // Only a downward drag that starts in the top chrome may dismiss
             // the player. The previous full-screen exclusive gesture competed
@@ -564,8 +571,34 @@ struct PlayerOverlay: View {
                         }
                     }
             )
+            .simultaneousGesture(
+                DragGesture()
+                    .onChanged { value in
+                        guard !isDismissing, entered else { return }
+                        if !isEdgeDismissDragActive {
+                            let isHorizontal = abs(value.translation.width) > abs(value.translation.height)
+                            guard value.startLocation.x <= 24,
+                                  isHorizontal,
+                                  value.translation.width > 0 else { return }
+                            isEdgeDismissDragActive = true
+                        }
+                        edgeDragOffset = max(0, value.translation.width)
+                    }
+                    .onEnded { value in
+                        guard !isDismissing, entered, isEdgeDismissDragActive else { return }
+                        isEdgeDismissDragActive = false
+                        if edgeDragOffset > 110 || value.predictedEndTranslation.width > 400 {
+                            dismissPlayer()
+                        } else {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) {
+                                edgeDragOffset = 0
+                            }
+                        }
+                    }
+            )
             .animation(.spring(response: 0.45, dampingFraction: 0.92), value: entered)
             .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.86), value: dragOffset)
+            .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.86), value: edgeDragOffset)
             .onAppear {
                 withAnimation(.spring(response: 0.45, dampingFraction: 0.92)) {
                     entered = true
