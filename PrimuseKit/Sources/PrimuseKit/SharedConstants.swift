@@ -2162,6 +2162,79 @@ public enum ArtworkCacheReloadPolicy {
     }
 }
 
+public enum ImmersiveControlsAction: Sendable {
+    case present
+    case contentTap
+    case lock
+    case unlock
+    case autoHide
+    case dismiss
+}
+
+/// Interaction state shared by distraction-free lyrics and media surfaces.
+/// Locking hides the chrome and intercepts content gestures; one content tap
+/// reveals only the unlock affordance so accidental playback changes stay
+/// impossible until the user explicitly unlocks the surface.
+public struct ImmersiveControlsState: Equatable, Sendable {
+    public let isVisible: Bool
+    public let isLocked: Bool
+
+    public static let inactive = Self(isVisible: false, isLocked: false)
+    public static let presented = Self(isVisible: true, isLocked: false)
+
+    public var showsPrimaryControls: Bool {
+        isVisible && !isLocked
+    }
+
+    public var showsUnlockControl: Bool {
+        isVisible && isLocked
+    }
+
+    public func applying(_ action: ImmersiveControlsAction) -> Self {
+        switch action {
+        case .present:
+            return .presented
+        case .contentTap:
+            return isLocked
+                ? Self(isVisible: true, isLocked: true)
+                : Self(isVisible: !isVisible, isLocked: false)
+        case .lock:
+            return Self(isVisible: false, isLocked: true)
+        case .unlock:
+            return .presented
+        case .autoHide:
+            return Self(isVisible: false, isLocked: isLocked)
+        case .dismiss:
+            return .inactive
+        }
+    }
+}
+
+public enum NowPlayingLandscapeMode: Equatable, Sendable {
+    case none
+    case standardLyrics
+    case immersiveLyrics
+    case musicVideo
+}
+
+/// Keeps landscape presentation priority deterministic. Video always owns the
+/// screen while active; lyrics use their immersive composition only after the
+/// explicit full-screen action, never merely because normal lyrics are visible.
+public enum NowPlayingLandscapePolicy {
+    public static func mode(
+        viewportWidth: Double,
+        viewportHeight: Double,
+        isMusicVideoActive: Bool,
+        areLyricsVisible: Bool,
+        areLyricsImmersive: Bool
+    ) -> NowPlayingLandscapeMode {
+        guard viewportWidth > viewportHeight else { return .none }
+        if isMusicVideoActive { return .musicVideo }
+        guard areLyricsVisible else { return .none }
+        return areLyricsImmersive ? .immersiveLyrics : .standardLyrics
+    }
+}
+
 /// Decides whether Now Playing artwork should fall back to reading the cover
 /// through its source connector. Absolute URLs have already used their own
 /// network path; source-relative paths and opaque cloud identifiers still need

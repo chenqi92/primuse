@@ -1225,6 +1225,9 @@
 "full_screen_player" = "全螢幕播放";
 "lyrics_full_screen" = "全螢幕歌詞";
 "lyrics_exit_full_screen" = "退出全螢幕歌詞";
+"immersive_lock_controls" = "鎖定沉浸式控制";
+"immersive_unlock_controls" = "解鎖沉浸式控制";
+"exit_landscape_video" = "退出橫向影片";
 "show_lyrics_background" = "顯示歌詞背板";
 "hide_lyrics_background" = "隱藏歌詞背板";
 "single_line_lyrics" = "單行歌詞";

@@ -1286,6 +1286,9 @@
 "full_screen_player" = "Plein écran";
 "lyrics_full_screen" = "Paroles en plein écran";
 "lyrics_exit_full_screen" = "Quitter les paroles en plein écran";
+"immersive_lock_controls" = "Verrouiller les commandes";
+"immersive_unlock_controls" = "Déverrouiller les commandes";
+"exit_landscape_video" = "Quitter la vidéo en paysage";
 "show_lyrics_background" = "Afficher l'arrière-plan des paroles";
 "hide_lyrics_background" = "Masquer l'arrière-plan des paroles";
 "single_line_lyrics" = "Paroles sur une ligne";

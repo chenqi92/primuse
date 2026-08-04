@@ -115,6 +115,8 @@ struct NowPlayingView: View {
     }
     @State private var showLyrics = false
     @State private var isLyricsImmersive = false
+    @State private var immersiveControlsState = ImmersiveControlsState.inactive
+    @State private var immersiveControlsAutoHideTask: Task<Void, Never>?
     @State private var showQueue = false
     @State private var lyrics: [LyricLine] = []
     @State private var lyricsRevision: UInt = 0
@@ -205,12 +207,70 @@ struct NowPlayingView: View {
         withAnimation(.easeInOut(duration: 0.3)) {
             showLyrics = true
             isLyricsImmersive = true
+            immersiveControlsState = immersiveControlsState.applying(.present)
         }
+        scheduleImmersiveControlsAutoHide()
     }
 
     private func dismissImmersiveLyrics() {
+        immersiveControlsAutoHideTask?.cancel()
         withAnimation(.easeInOut(duration: 0.3)) {
             isLyricsImmersive = false
+            immersiveControlsState = immersiveControlsState.applying(.dismiss)
+        }
+    }
+
+    private func setStandardLyricsVisible(_ isVisible: Bool) {
+        immersiveControlsAutoHideTask?.cancel()
+        withAnimation(.easeInOut(duration: 0.3)) {
+            showLyrics = isVisible
+            isLyricsImmersive = false
+            immersiveControlsState = immersiveControlsState.applying(.dismiss)
+        }
+    }
+
+    private func toggleStandardLyrics() {
+        setStandardLyricsVisible(!showLyrics)
+    }
+
+    private func handleImmersiveContentTap() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            immersiveControlsState = immersiveControlsState.applying(.contentTap)
+        }
+        if immersiveControlsState.isVisible {
+            scheduleImmersiveControlsAutoHide()
+        } else {
+            immersiveControlsAutoHideTask?.cancel()
+        }
+    }
+
+    private func lockImmersiveControls() {
+        immersiveControlsAutoHideTask?.cancel()
+        withAnimation(.easeInOut(duration: 0.2)) {
+            immersiveControlsState = immersiveControlsState.applying(.lock)
+        }
+    }
+
+    private func unlockImmersiveControls() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            immersiveControlsState = immersiveControlsState.applying(.unlock)
+        }
+        scheduleImmersiveControlsAutoHide()
+    }
+
+    private func scheduleImmersiveControlsAutoHide() {
+        immersiveControlsAutoHideTask?.cancel()
+        guard isLyricsImmersive, immersiveControlsState.isVisible else { return }
+        immersiveControlsAutoHideTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .seconds(4))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, isLyricsImmersive else { return }
+            withAnimation(.easeOut(duration: 0.25)) {
+                immersiveControlsState = immersiveControlsState.applying(.autoHide)
+            }
         }
     }
 
@@ -240,6 +300,15 @@ struct NowPlayingView: View {
         #endif
     }
 
+    private var bottomSafeArea: CGFloat {
+        #if os(iOS)
+        (UIApplication.shared.connectedScenes.first as? UIWindowScene)?
+            .keyWindow?.safeAreaInsets.bottom ?? 0
+        #else
+        0
+        #endif
+    }
+
     /// iPad 横屏(regular size class + 宽 > 高)启用左右双栏 —— 左封面 + 控件,
     /// 右常驻歌词。其它(iPhone / iPad 竖屏 / 分屏小窗 compact)还走原来的
     /// 上下结构,showLyrics 切歌词 / 封面模式。
@@ -250,6 +319,13 @@ struct NowPlayingView: View {
     var body: some View {
         GeometryReader { geo in
             let artSize = min(geo.size.width - 60, geo.size.height * 0.38)
+            let landscapeMode = NowPlayingLandscapePolicy.mode(
+                viewportWidth: Double(geo.size.width),
+                viewportHeight: Double(geo.size.height),
+                isMusicVideoActive: player.isMusicVideoPlaybackActive,
+                areLyricsVisible: showLyrics,
+                areLyricsImmersive: isLyricsImmersive
+            )
 
             ZStack {
                 // Opaque base — prevents content bleeding through
@@ -257,14 +333,25 @@ struct NowPlayingView: View {
                 // Dynamic background from cover colors — fully opaque
                 backgroundGradient.ignoresSafeArea()
 
-                if showLyrics, geo.size.width > geo.size.height {
-                    landscapeLyricsLayout(geo: geo)
-                } else if showLyrics {
-                    portraitLayout(geo: geo, artSize: artSize)
-                } else if shouldUseWideLayout(geo: geo) {
-                    wideLandscapeLayout(geo: geo)
-                } else {
-                    portraitLayout(geo: geo, artSize: artSize)
+                switch landscapeMode {
+                case .musicVideo:
+                    if let videoPlayer = player.musicVideoPlayer {
+                        landscapeMusicVideoLayout(videoPlayer: videoPlayer)
+                    } else {
+                        portraitLayout(geo: geo, artSize: artSize)
+                    }
+                case .immersiveLyrics:
+                    immersiveLandscapeLyricsLayout(geo: geo)
+                case .standardLyrics:
+                    standardLandscapeLyricsLayout(geo: geo)
+                case .none:
+                    if showLyrics {
+                        portraitLayout(geo: geo, artSize: artSize)
+                    } else if shouldUseWideLayout(geo: geo) {
+                        wideLandscapeLayout(geo: geo)
+                    } else {
+                        portraitLayout(geo: geo, artSize: artSize)
+                    }
                 }
             }
         }
@@ -399,9 +486,12 @@ struct NowPlayingView: View {
             CloudKVSSync.shared.markChanged(key: CloudKVSKey.lyricsFontScale)
         }
         .onChange(of: showLyrics) { _, isVisible in
-            if isVisible {
-                isLyricsImmersive = true
+            if !isVisible, isLyricsImmersive {
+                dismissImmersiveLyrics()
             }
+        }
+        .onDisappear {
+            immersiveControlsAutoHideTask?.cancel()
         }
         // Handoff —— 用户在当前设备播,旁边的 Mac / iPad 在 Spotlight / 任务
         // 切换器底部出现"在 Primuse 中继续"的 chip。打开后通过 ContentView
@@ -646,107 +736,154 @@ struct NowPlayingView: View {
     }
 
     @ViewBuilder
-    private func landscapeLyricsLayout(geo: GeometryProxy) -> some View {
-        let playerWidth = min(max(geo.size.width * 0.42, 300), 480)
-        let artSize = min(max(0, playerWidth - 88), geo.size.height * 0.42)
+    private func standardLandscapeLyricsLayout(geo: GeometryProxy) -> some View {
+        ZStack {
+            lyricsFullView
+                .padding(.horizontal, max(72, geo.size.width * 0.10))
+                .padding(.top, 56)
+                .padding(.bottom, 88)
 
-        HStack(spacing: 0) {
             VStack(spacing: 0) {
-                HStack {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            showLyrics = false
-                            isLyricsImmersive = false
+                HStack(spacing: 10) {
+                    Button { setStandardLyricsVisible(false) } label: {
+                        HStack(spacing: 10) {
+                            CachedArtworkView(
+                                coverRef: player.currentSong?.coverArtFileName,
+                                songID: player.currentSong?.id ?? "",
+                                size: 40,
+                                cornerRadius: 7,
+                                sourceID: player.currentSong?.sourceID,
+                                filePath: player.currentSong?.filePath,
+                                fileFormat: player.currentSong?.fileFormat,
+                                revisionToken: player.coverRevision
+                            )
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(player.currentSong?.title ?? "")
+                                    .font(.subheadline.weight(.semibold))
+                                    .lineLimit(1)
+                                Text(player.currentSong?.artistName ?? "")
+                                    .font(.caption)
+                                    .foregroundStyle(appearance.secondary)
+                                    .lineLimit(1)
+                            }
                         }
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(appearance.primary)
-                            .frame(width: 44, height: 44)
-                            .background(.ultraThinMaterial, in: Circle())
+                        .foregroundStyle(appearance.primary)
+                        .padding(.trailing, 14)
+                        .background(.ultraThinMaterial, in: Capsule())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(Text("lyrics_exit_full_screen"))
+                    .accessibilityLabel(Text("a11y_close_lyrics"))
 
                     Spacer()
+
+                    lyricsFullScreenButton(font: .title3)
+                        .background(.ultraThinMaterial, in: Circle())
 
                     Button { toggleLikedCurrent() } label: {
                         Image(systemName: isCurrentLiked ? "heart.fill" : "heart")
                             .font(.title3)
                             .foregroundStyle(isCurrentLiked ? .red : appearance.secondary)
                             .frame(width: 44, height: 44)
+                            .background(.ultraThinMaterial, in: Circle())
                     }
+                    .buttonStyle(.plain)
                     .disabled(player.currentSong == nil)
                     .accessibilityLabel(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
 
                     moreMenu
                         .frame(width: 44, height: 44)
+                        .background(.ultraThinMaterial, in: Circle())
                 }
-                .padding(.horizontal, 22)
-                .padding(.top, max(topSafeArea, 10))
+                .padding(.horizontal, max(geo.safeAreaInsets.leading, 18))
+                .padding(.top, max(geo.safeAreaInsets.top, 10))
 
-                Spacer(minLength: 4)
+                Spacer()
 
-                artworkOrMusicVideo(size: artSize, cornerRadius: 14)
-                    .scaleEffect(player.isMusicVideoPlaybackActive || player.isPlaying ? 1 : 0.94)
-                    .shadow(color: .black.opacity(0.32), radius: 18, y: 8)
-                    .animation(.spring(response: 0.5, dampingFraction: 0.75), value: player.isPlaying)
-
-                Spacer(minLength: 8)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(player.currentSong?.title ?? "")
-                        .font(.headline)
-                        .fontWeight(.bold)
-                        .lineLimit(1)
-                        .foregroundStyle(appearance.primary)
-                    nowPlayingMetadataLinks(font: .subheadline)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 30)
-
-                PlaybackProgressBar()
-                    .padding(.horizontal, 30)
-                    .padding(.top, 6)
-
-                HStack(spacing: 34) {
-                    Button { Task { await player.previous() } } label: {
-                        Image(systemName: "backward.fill")
-                    }
-                    .accessibilityLabel("a11y_previous_track")
-
-                    Button { player.togglePlayPause() } label: {
-                        Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                            .font(.system(size: 46))
-                            .contentTransition(.symbolEffect(.replace))
-                    }
-                    .disabled(player.isLoading)
-                    .accessibilityLabel(player.isPlaying
-                        ? String(localized: "a11y_pause")
-                        : String(localized: "a11y_play"))
-
-                    Button { Task { await player.next() } } label: {
-                        Image(systemName: "forward.fill")
-                    }
-                    .accessibilityLabel("a11y_next_track")
-                }
-                .font(.title3)
-                .foregroundStyle(appearance.primary)
-                .padding(.top, 4)
-
-                Spacer(minLength: 10)
+                floatingPlaybackDock
+                    .frame(maxWidth: 420)
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, max(geo.safeAreaInsets.bottom, 10))
             }
-            .frame(width: playerWidth)
-
-            Rectangle()
-                .fill(appearance.divider)
-                .frame(width: 1)
-                .padding(.vertical, 26)
-
-            lyricsFullView
-                .padding(.vertical, 8)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    @ViewBuilder
+    private func immersiveLandscapeLyricsLayout(geo: GeometryProxy) -> some View {
+        let playerWidth = min(max(geo.size.width * 0.34, 260), 410)
+        let artSize = min(max(0, playerWidth - 52), geo.size.height * 0.56)
+
+        immersiveLyricsExperience(isLandscape: true) {
+            HStack(spacing: 28) {
+                VStack(spacing: 18) {
+                    Spacer(minLength: 0)
+
+                    artworkOrMusicVideo(size: artSize, cornerRadius: 18)
+                        .scaleEffect(player.isPlaying ? 1 : 0.96)
+                        .shadow(color: .black.opacity(0.34), radius: 22, y: 10)
+                        .animation(.spring(response: 0.5, dampingFraction: 0.76), value: player.isPlaying)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(player.currentSong?.title ?? "")
+                            .font(.title3.weight(.bold))
+                            .lineLimit(1)
+                            .foregroundStyle(appearance.primary)
+                        nowPlayingMetadataLinks(font: .subheadline)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Spacer(minLength: 0)
+                }
+                .padding(24)
+                .frame(width: playerWidth)
+                .background(
+                    RoundedRectangle(cornerRadius: 30, style: .continuous)
+                        .fill(.ultraThinMaterial)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 30, style: .continuous)
+                        .strokeBorder(appearance.primary.opacity(0.09), lineWidth: 0.5)
+                }
+
+                lyricsFullView
+                    .padding(.horizontal, 8)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .padding(.horizontal, max(geo.safeAreaInsets.leading, 24))
+            .padding(.vertical, max(geo.safeAreaInsets.top, 18))
+        }
+    }
+
+    @ViewBuilder
+    private func landscapeMusicVideoLayout(videoPlayer: AVPlayer) -> some View {
+        ZStack(alignment: .topTrailing) {
+            Color.black.ignoresSafeArea()
+            MusicVideoSurface(player: videoPlayer)
+                .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .ignoresSafeArea()
+
+            #if os(iOS)
+            Button {
+                MusicVideoOrientationController.enterPortrait()
+            } label: {
+                Image(systemName: "arrow.down.right.and.arrow.up.left")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .background(.black.opacity(0.50), in: Circle())
+                    .overlay {
+                        Circle().strokeBorder(.white.opacity(0.20), lineWidth: 0.5)
+                    }
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 16)
+            .padding(.trailing, 20)
+            .accessibilityLabel(Text("exit_landscape_video"))
+            #endif
+        }
+        #if os(iOS)
+        .statusBarHidden(true)
+        #endif
     }
 
     // MARK: - 原 portrait layout (iPhone + iPad 竖屏 + 分屏小窗)
@@ -786,9 +923,7 @@ struct NowPlayingView: View {
                             HStack(spacing: 10) {
                             // Explicit button rather than a hidden tap gesture:
                             // the artwork itself is now a discoverable way back.
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.3)) { showLyrics = false }
-                            } label: {
+                            Button { setStandardLyricsVisible(false) } label: {
                                 HStack(spacing: 10) {
                                     CachedArtworkView(
                                         coverRef: player.currentSong?.coverArtFileName,
@@ -835,9 +970,8 @@ struct NowPlayingView: View {
 
                         // Full screen lyrics
                         if isLyricsImmersive {
-                            ZStack {
+                            immersiveLyricsExperience(isLandscape: false) {
                                 lyricsFullView
-                                immersiveLyricsChrome
                             }
                         } else {
                             lyricsFullView
@@ -859,7 +993,7 @@ struct NowPlayingView: View {
                             // 视频画面本身不再充当「打开歌词」的隐藏入口，避免用户
                             // 想点 MV 时意外切走；封面模式仍保留原交互。
                             guard !player.isMusicVideoPlaybackActive else { return }
-                            withAnimation(.easeInOut(duration: 0.3)) { showLyrics = true }
+                            setStandardLyricsVisible(true)
                         }
 
                         Spacer()
@@ -973,7 +1107,7 @@ struct NowPlayingView: View {
 
                         // Bottom bar
                         HStack {
-                        Button { withAnimation(.easeInOut(duration: 0.3)) { showLyrics.toggle() } } label: {
+                        Button { toggleStandardLyrics() } label: {
                             Image(systemName: showLyrics ? "photo" : "quote.bubble")
                                 .foregroundStyle(showLyrics ? appearance.primary : appearance.tertiary)
                         }
@@ -1006,41 +1140,138 @@ struct NowPlayingView: View {
                 }
     }
 
-    private var immersiveLyricsChrome: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Button { dismissImmersiveLyrics() } label: {
-                    Image(systemName: "arrow.down.right.and.arrow.up.left")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(appearance.primary)
+    @ViewBuilder
+    private func immersiveLyricsExperience<Content: View>(
+        isLandscape: Bool,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        ZStack {
+            content()
+                .contentShape(Rectangle())
+                .onTapGesture { handleImmersiveContentTap() }
+
+            if immersiveControlsState.isLocked {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { handleImmersiveContentTap() }
+            }
+
+            immersiveLyricsChrome(isLandscape: isLandscape)
+        }
+    }
+
+    @ViewBuilder
+    private func immersiveLyricsChrome(isLandscape: Bool) -> some View {
+        if immersiveControlsState.showsPrimaryControls {
+            VStack(spacing: 0) {
+                HStack(spacing: 10) {
+                    Button { lockImmersiveControls() } label: {
+                        Image(systemName: "lock")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(appearance.primary)
+                            .frame(width: 44, height: 44)
+                            .background(.ultraThinMaterial, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text("immersive_lock_controls"))
+
+                    Spacer()
+
+                    Button { toggleLikedCurrent() } label: {
+                        Image(systemName: isCurrentLiked ? "heart.fill" : "heart")
+                            .font(.title3)
+                            .foregroundStyle(isCurrentLiked ? .red : appearance.secondary)
+                            .frame(width: 44, height: 44)
+                            .background(.ultraThinMaterial, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(player.currentSong == nil)
+                    .accessibilityLabel(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
+
+                    moreMenu
                         .frame(width: 44, height: 44)
                         .background(.ultraThinMaterial, in: Circle())
+
+                    Button { dismissImmersiveLyrics() } label: {
+                        Image(systemName: "arrow.down.right.and.arrow.up.left")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(appearance.primary)
+                            .frame(width: 44, height: 44)
+                            .background(.ultraThinMaterial, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text("lyrics_exit_full_screen"))
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Text("lyrics_exit_full_screen"))
+                .padding(.horizontal, isLandscape ? 24 : 20)
+                .padding(.top, max(topSafeArea, 10) + (isLandscape ? 0 : 8))
 
                 Spacer()
 
-                Button { toggleLikedCurrent() } label: {
-                    Image(systemName: isCurrentLiked ? "heart.fill" : "heart")
-                        .font(.title3)
-                        .foregroundStyle(isCurrentLiked ? .red : appearance.secondary)
-                        .frame(width: 44, height: 44)
-                        .background(.ultraThinMaterial, in: Circle())
+                floatingPlaybackDock
+                    .frame(maxWidth: isLandscape ? 440 : 520)
+                    .padding(.horizontal, isLandscape ? 28 : 20)
+                    .padding(.bottom, max(bottomSafeArea, 12) + (isLandscape ? 0 : 8))
+            }
+            .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            .zIndex(2)
+        } else if immersiveControlsState.showsUnlockControl {
+            HStack {
+                Button { unlockImmersiveControls() } label: {
+                    Label("immersive_unlock_controls", systemImage: "lock.open.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(appearance.primary)
+                        .padding(.horizontal, 16)
+                        .frame(height: 46)
+                        .background(.ultraThinMaterial, in: Capsule())
                 }
                 .buttonStyle(.plain)
-                .disabled(player.currentSong == nil)
-                .accessibilityLabel(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
+                .accessibilityLabel(Text("immersive_unlock_controls"))
 
-                moreMenu
-                    .frame(width: 44, height: 44)
+                Spacer()
             }
-            .padding(.horizontal, 20)
-            .padding(.top, topSafeArea + 8)
-
-            Spacer()
+            .padding(.leading, isLandscape ? max(24, topSafeArea) : 20)
+            .transition(.opacity.combined(with: .move(edge: .leading)))
+            .zIndex(2)
         }
-        .allowsHitTesting(true)
+    }
+
+    private var floatingPlaybackDock: some View {
+        VStack(spacing: 8) {
+            PlaybackProgressBar()
+
+            HStack(spacing: 34) {
+                Button { Task { await player.previous() } } label: {
+                    Image(systemName: "backward.fill")
+                        .frame(width: 44, height: 36)
+                }
+                .accessibilityLabel("a11y_previous_track")
+
+                Button { player.togglePlayPause() } label: {
+                    Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                        .font(.system(size: 44))
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .disabled(player.isLoading)
+                .accessibilityLabel(player.isPlaying
+                    ? String(localized: "a11y_pause")
+                    : String(localized: "a11y_play"))
+
+                Button { Task { await player.next() } } label: {
+                    Image(systemName: "forward.fill")
+                        .frame(width: 44, height: 36)
+                }
+                .accessibilityLabel("a11y_next_track")
+            }
+            .font(.title3)
+            .foregroundStyle(appearance.primary)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(appearance.primary.opacity(0.10), lineWidth: 0.5)
+        }
     }
 
     @ViewBuilder
@@ -1659,7 +1890,7 @@ struct NowPlayingView: View {
         if let match = lines.first(where: { $0.text.localizedCaseInsensitiveContains(needle) }) {
             player.seek(to: max(0, match.timestamp - 0.3))
             // 用户来这是为了看歌词上下文, 默认切到歌词面板
-            withAnimation(.easeInOut(duration: 0.3)) { showLyrics = true }
+            setStandardLyricsVisible(true)
         }
         player.clearPendingLyricsJump()
     }
@@ -1907,6 +2138,11 @@ private enum MusicVideoOrientationController {
             restoreMask = mask(for: scene.interfaceOrientation)
         }
         request([.landscapeLeft, .landscapeRight], in: scene)
+    }
+
+    static func enterPortrait() {
+        guard let scene = foregroundWindowScene else { return }
+        request(.portrait, in: scene)
     }
 
     static func restorePreviousOrientation() {

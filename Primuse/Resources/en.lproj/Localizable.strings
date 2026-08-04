@@ -1340,6 +1340,9 @@
 "full_screen_player" = "Full screen";
 "lyrics_full_screen" = "Full-Screen Lyrics";
 "lyrics_exit_full_screen" = "Exit Full-Screen Lyrics";
+"immersive_lock_controls" = "Lock immersive controls";
+"immersive_unlock_controls" = "Unlock immersive controls";
+"exit_landscape_video" = "Exit landscape video";
 "show_lyrics_background" = "Show lyrics background";
 "hide_lyrics_background" = "Hide lyrics background";
 "single_line_lyrics" = "Single-line lyrics";
