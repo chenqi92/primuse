@@ -5802,6 +5802,15 @@ final class AudioPlayerService {
         updateNowPlayingArtworkIfNeeded()
     }
 
+    /// Artwork extraction can finish after playback has already attempted its
+    /// initial lookup. Retry the system Now Playing artwork once the song-ID
+    /// cache becomes available without treating it as an explicit replacement.
+    func retryNowPlayingArtwork(afterCachingSongID songID: String) {
+        guard currentSong?.id == songID else { return }
+        lastArtworkFileName = nil
+        updateNowPlayingArtworkIfNeeded()
+    }
+
     func updateNowPlayingArtwork(_ image: PlatformImage) {
         lastArtworkFileName = currentSong?.coverArtFileName
         let artwork = Self.makeArtwork(from: image)

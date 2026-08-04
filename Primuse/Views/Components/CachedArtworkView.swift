@@ -186,6 +186,15 @@ struct CachedArtworkView: View {
             Self.memoryCache.removeObject(forKey: cacheKey as NSString)
             cacheInvalidationRevision += 1
         }
+        .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidCache)) { note in
+            guard ArtworkCacheReloadPolicy.shouldReload(
+                cachedSongID: note.object as? String,
+                displayedSongID: songID,
+                hasResolvedImage: image != nil
+            ) else { return }
+            Self.failedLoadCache.removeObject(forKey: loadIdentity as NSString)
+            cacheInvalidationRevision &+= 1
+        }
     }
 
     /// body 拆出来 ── 直接写 if/else 链 SwiftUI ResultBuilder 类型推断超时,

@@ -4047,9 +4047,9 @@ extension Notification.Name {
     /// `CachedArtworkView`s whose song/ref matches reload even when the
     /// deterministic cover file name did not change after scraping.
     static let primuseArtworkDidInvalidate = Notification.Name("primuse.artworkDidInvalidate")
-    /// Posted after artwork data is persisted under a song ID. The active
-    /// player uses this to retry cover-driven theme extraction after a remote
-    /// artwork cache miss without forcing visible artwork views to reload.
+    /// Posted after artwork data is persisted under a song ID. Matching
+    /// placeholders and the active player retry their artwork lookup, while
+    /// cover-driven theme extraction refreshes from the same cache entry.
     static let primuseArtworkDidCache = Notification.Name("primuse.artworkDidCache")
     /// Posted when songs leave the library because the user deleted them or a
     /// complete re-scan no longer sees their source files. `userInfo["songs"]`
