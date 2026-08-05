@@ -300,7 +300,20 @@ struct MacSourcesView: View {
 
     @ViewBuilder
     private func cardBody(_ source: MusicSource, scanning: ScanService.ScanState?, displayedSongCount: Int) -> some View {
-        if let scan = scanning, scan.isScanning || scan.canResume {
+        if let failureMessage = scanning?.failureMessage, !failureMessage.isEmpty {
+            VStack(alignment: .leading, spacing: 5) {
+                Label("notify_scan_failed_title", systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                Text(failureMessage)
+                    .font(.system(size: 10.5))
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .foregroundStyle(PMColor.bad)
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(PMColor.bad.opacity(0.08), in: .rect(cornerRadius: 9))
+        } else if let scan = scanning, scan.isScanning || scan.canResume {
             scanBox(scan)
         } else {
             let bare = backfill.remainingCount(forSource: source.id)
@@ -464,7 +477,7 @@ struct MacSourcesView: View {
     /// non-resumable state with a message but zero scanned files.
     private func isAttention(_ source: MusicSource) -> Bool {
         guard source.isEnabled, let s = scanService.scanStates[source.id] else { return false }
-        return !s.isScanning && !s.canResume && s.scannedCount == 0 && s.totalCount == 0 && !s.currentFile.isEmpty
+        return !s.isScanning && s.failureMessage?.isEmpty == false
     }
 
     private func stateColor(_ state: SourceRuntimeState) -> Color {

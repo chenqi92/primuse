@@ -700,7 +700,12 @@ final class SourceManager {
 
     func scanFailureMessage(for error: Error, source: MusicSource) -> String {
         let advice = Self.advice(for: error, source: source)
-        return "\(advice.title): \(advice.message) · \(advice.suggestion)"
+        let actualMessage = Self.actualErrorMessage(for: error)
+        let message = actualMessage.isEmpty ? advice.message : actualMessage
+        guard !advice.suggestion.isEmpty else {
+            return "\(advice.title): \(message)"
+        }
+        return "\(advice.title): \(message) · \(advice.suggestion)"
     }
 
     func scanFailureMessage(for report: SourceDiagnosticReport) -> String {
@@ -1005,6 +1010,18 @@ final class SourceManager {
         }
 
         return advice(forMessage: error.localizedDescription, source: source)
+    }
+
+    private static func actualErrorMessage(for error: Error) -> String {
+        if let sourceError = error as? SourceError {
+            switch sourceError {
+            case .connectionFailed(let message), .credentialUnavailable(let message):
+                return message.trimmingCharacters(in: .whitespacesAndNewlines)
+            default:
+                break
+            }
+        }
+        return error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func advice(forMessage message: String, source: MusicSource) -> SourceDiagnosticAdvice {

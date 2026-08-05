@@ -26,6 +26,7 @@ final class ScanService {
         /// being reprocessed.
         var addedCount: Int = 0
         var totalCount: Int = 0
+        var failureMessage: String?
 
         var progress: Double {
             guard totalCount > 0 else { return 0 }
@@ -196,9 +197,9 @@ final class ScanService {
                     return
                 }
                 if preflight.blockingFailure != nil {
-                    scanStates[source.id] = ScanState(
-                        isScanning: false,
-                        currentFile: sourceManager.scanFailureMessage(for: preflight),
+                    recordScanFailure(
+                        sourceID: source.id,
+                        message: sourceManager.scanFailureMessage(for: preflight),
                         scannedCount: resumeCount,
                         totalCount: resumeTotal
                     )
@@ -438,23 +439,23 @@ final class ScanService {
             case .found(let savedPassword):
                 password = savedPassword
             case .notFound:
-                scanStates[source.id] = ScanState(
-                    isScanning: false,
-                    currentFile: String(localized: "scan_needs_connect")
+                recordScanFailure(
+                    sourceID: source.id,
+                    message: String(localized: "scan_needs_connect")
                 )
                 return
             case .temporarilyUnavailable(let status):
                 plog("⏳ Synology scan deferred: credential temporarily unavailable status=\(status)")
-                scanStates[source.id] = ScanState(
-                    isScanning: false,
-                    currentFile: String(localized: "credential_temporarily_unavailable")
+                recordScanFailure(
+                    sourceID: source.id,
+                    message: String(localized: "credential_temporarily_unavailable")
                 )
                 return
             case .failed(let status):
                 plog("⛔ Synology scan stopped: credential read failed status=\(status)")
-                scanStates[source.id] = ScanState(
-                    isScanning: false,
-                    currentFile: String(localized: "credential_read_failed")
+                recordScanFailure(
+                    sourceID: source.id,
+                    message: String(localized: "credential_read_failed")
                 )
                 return
             }
@@ -468,9 +469,9 @@ final class ScanService {
             guard isCurrentScan(source.id, generation: generation) else { return }
 
             if loginResult.needs2FA {
-                scanStates[source.id] = ScanState(
-                    isScanning: false,
-                    currentFile: String(localized: "scan_needs_connect")
+                recordScanFailure(
+                    sourceID: source.id,
+                    message: loginResult.errorMessage ?? String(localized: "scan_needs_connect")
                 )
                 return
             }
@@ -495,9 +496,9 @@ final class ScanService {
                         return
                     }
                 }
-                scanStates[source.id] = ScanState(
-                    isScanning: false,
-                    currentFile: sourceManager.scanFailureMessage(
+                recordScanFailure(
+                    sourceID: source.id,
+                    message: sourceManager.scanFailureMessage(
                         for: SourceError.connectionFailed(loginResult.errorMessage ?? "Login failed"),
                         source: source
                     )
@@ -615,9 +616,9 @@ final class ScanService {
                 )
                 return
             }
-            scanStates[source.id] = ScanState(
-                isScanning: false,
-                currentFile: sourceManager.scanFailureMessage(for: error, source: source)
+            recordScanFailure(
+                sourceID: source.id,
+                message: sourceManager.scanFailureMessage(for: error, source: source)
             )
             Self.notifyScanFailed(sourceName: source.name, error: error)
         }
@@ -746,9 +747,9 @@ final class ScanService {
                 )
                 return
             }
-            scanStates[source.id] = ScanState(
-                isScanning: false,
-                currentFile: sourceManager.scanFailureMessage(for: error, source: source)
+            recordScanFailure(
+                sourceID: source.id,
+                message: sourceManager.scanFailureMessage(for: error, source: source)
             )
             Self.notifyScanFailed(sourceName: source.name, error: error)
         }
@@ -825,10 +826,29 @@ final class ScanService {
         }
         state.totalCount = totalCount
         state.currentFile = currentFile
+        state.failureMessage = nil
         // One dictionary write produces one observation change instead of
         // publishing each ScanState field independently.
         scanStates[sourceID] = state
         lastPublishedAt = now
+    }
+
+    private func recordScanFailure(
+        sourceID: String,
+        message: String,
+        scannedCount: Int? = nil,
+        totalCount: Int? = nil
+    ) {
+        var state = scanStates[sourceID] ?? ScanState()
+        state.isScanning = false
+        state.failureMessage = message
+        if let scannedCount {
+            state.scannedCount = scannedCount
+        }
+        if let totalCount {
+            state.totalCount = totalCount
+        }
+        scanStates[sourceID] = state
     }
 
     private func loadCheckpoints() {
