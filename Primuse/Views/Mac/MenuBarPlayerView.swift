@@ -23,19 +23,21 @@ struct MenuBarPlayerView: View {
 
             Divider().background(PMColor.divider).padding(.vertical, 2)
 
-            menuRow(icon: "text.bubble",
-                    title: desktopLyricsVisible ? "hide_desktop_lyrics" : "show_desktop_lyrics",
-                    shortcut: "⌘L",
-                    active: desktopLyricsVisible,
-                    showsCheckmark: desktopLyricsVisible) {
-                PrimuseAppDelegate.shared?.toggleDesktopLyrics()
-            }
+            if !player.isLiveRadio {
+                menuRow(icon: "text.bubble",
+                        title: desktopLyricsVisible ? "hide_desktop_lyrics" : "show_desktop_lyrics",
+                        shortcut: "⌘L",
+                        active: desktopLyricsVisible,
+                        showsCheckmark: desktopLyricsVisible) {
+                    PrimuseAppDelegate.shared?.toggleDesktopLyrics()
+                }
 
-            menuRow(icon: desktopLyricsLocked ? "lock.fill" : "lock",
-                    title: "lock_desktop_lyrics",
-                    shortcut: "⌘⇧L",
-                    active: desktopLyricsLocked) {
-                desktopLyricsLocked.toggle()
+                menuRow(icon: desktopLyricsLocked ? "lock.fill" : "lock",
+                        title: "lock_desktop_lyrics",
+                        shortcut: "⌘⇧L",
+                        active: desktopLyricsLocked) {
+                    desktopLyricsLocked.toggle()
+                }
             }
 
             menuRow(icon: "rectangle.inset.filled.on.rectangle",
@@ -106,7 +108,9 @@ struct MenuBarPlayerView: View {
 
     private var artwork: some View {
         Group {
-            if let song = player.currentSong {
+            if player.isLiveRadio, let station = player.currentRadioStation {
+                RadioStationArtworkView(station: station, size: 64, cornerRadius: 8)
+            } else if let song = player.currentSong {
                 CachedArtworkView(
                     coverRef: song.coverArtFileName, songID: song.id,
                     size: 64, cornerRadius: 8,
@@ -138,22 +142,26 @@ struct MenuBarPlayerView: View {
     private var transport: some View {
         HStack(spacing: 12) {
             Spacer()
-            Button { Task { await player.previous() } } label: {
-                Image(systemName: "backward.fill")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(PMColor.text)
-                    .frame(width: 30, height: 30)
-                    .contentShape(Rectangle())
+            if !player.isLiveRadio {
+                Button { Task { await player.previous() } } label: {
+                    Image(systemName: "backward.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(PMColor.text)
+                        .frame(width: 30, height: 30)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
 
             Button { player.togglePlayPause() } label: {
                 ZStack {
                     Circle().fill(PMColor.brand).frame(width: 42, height: 42)
-                    if player.isLoading {
+                    if player.isLoading && !player.isLiveRadio {
                         ProgressView().controlSize(.small).tint(.white)
                     } else {
-                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                        Image(systemName: player.isLiveRadio && (player.isPlaying || player.isLoading)
+                            ? "stop.fill"
+                            : (player.isPlaying ? "pause.fill" : "play.fill"))
                             .font(.system(size: 16, weight: .bold))
                             .foregroundStyle(.white)
                             .contentTransition(.symbolEffect(.replace))
@@ -163,16 +171,21 @@ struct MenuBarPlayerView: View {
                 .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .disabled(player.isLoading)
+            .disabled(player.isLoading && !player.isLiveRadio)
+            .help(Text(player.isLiveRadio && (player.isPlaying || player.isLoading)
+                ? "radio_stop"
+                : (player.isPlaying ? "pause" : "play")))
 
-            Button { Task { await player.next() } } label: {
-                Image(systemName: "forward.fill")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(PMColor.text)
-                    .frame(width: 30, height: 30)
-                    .contentShape(Rectangle())
+            if !player.isLiveRadio {
+                Button { Task { await player.next() } } label: {
+                    Image(systemName: "forward.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(PMColor.text)
+                        .frame(width: 30, height: 30)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
             Spacer()
         }
     }
@@ -188,20 +201,20 @@ struct MenuBarPlayerView: View {
             Slider(
                 value: Binding(
                     get: { Double(engine.volume) },
-                    set: { engine.volume = Float($0) }
+                    set: { player.setPlaybackVolume(Float($0)) }
                 ),
                 in: 0...1
             )
             .controlSize(.mini)
             .tint(PMColor.text.opacity(0.7))
-            .disabled(player.playbackSettings.outputMode == .highFidelity)
+            .disabled(!player.isLiveRadio && player.playbackSettings.outputMode == .highFidelity)
             Text(String(format: "%d", Double(engine.volume * 100).finiteInt()))
                 .font(.system(size: 10, design: .monospaced))
                 .monospacedDigit()
                 .foregroundStyle(PMColor.textFaint)
                 .frame(width: 24, alignment: .trailing)
         }
-        .help(player.playbackSettings.outputMode == .highFidelity
+        .help(!player.isLiveRadio && player.playbackSettings.outputMode == .highFidelity
             ? Text("volume_high_fidelity_system_hint")
             : Text("volume"))
     }
@@ -260,21 +273,35 @@ private struct MenuBarPlayerProgress: View {
     @Environment(AudioPlayerService.self) private var player
 
     var body: some View {
-        VStack(spacing: 4) {
-            MenuBarScrubberLine(
-                value: player.currentTime,
-                total: player.duration,
-                tint: PMColor.brand
-            ) { player.seek(to: $0) }
+        Group {
+            if player.isLiveRadio {
+                HStack(spacing: 7) {
+                    Circle().fill(.red).frame(width: 7, height: 7)
+                    Text("LIVE").fontWeight(.bold)
+                    Spacer()
+                    Text(formatTime(player.currentTime))
+                }
+                .font(.system(size: 10, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(PMColor.textFaint)
+            } else {
+                VStack(spacing: 4) {
+                    MenuBarScrubberLine(
+                        value: player.currentTime,
+                        total: player.duration,
+                        tint: PMColor.brand
+                    ) { player.seek(to: $0) }
 
-            HStack {
-                Text(formatTime(player.currentTime))
-                Spacer()
-                Text(formatTime(player.duration))
+                    HStack {
+                        Text(formatTime(player.currentTime))
+                        Spacer()
+                        Text(formatTime(player.duration))
+                    }
+                    .font(.system(size: 10, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundStyle(PMColor.textFaint)
+                }
             }
-            .font(.system(size: 10, design: .monospaced))
-            .monospacedDigit()
-            .foregroundStyle(PMColor.textFaint)
         }
     }
 

@@ -95,22 +95,34 @@ struct TVHomeView: View {
             }
             .ignoresSafeArea()
 
-            if !store.hasRealLibrary {
+            if !store.hasRealLibrary && store.radioStations.isEmpty {
                 TVEmptyState(icon: "music.note.house", title: PMString("ext.tv.home.empty")).tvPage()
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 30) {
-                    heroZone
-                    if !store.recentlyPlayed.isEmpty {
-                        TVRow(label: PMString("ext.tv.home.recentlyPlayed")) {
-                            ForEach(store.recentlyPlayed) { song in
-                                TVSongCard(song: song, action: openPlayer)
+                    if store.hasRealLibrary {
+                        heroZone
+                        if !store.recentlyPlayed.isEmpty {
+                            TVRow(label: PMString("ext.tv.home.recentlyPlayed")) {
+                                ForEach(store.recentlyPlayed) { song in
+                                    TVSongCard(song: song, action: openPlayer)
+                                }
+                            }
+                        } else if heroAlbum == nil {
+                            TVRow(label: PMString("ext.tv.nav.library")) {
+                                ForEach(Array(store.songs.prefix(15))) { song in
+                                    TVSongCard(song: song, action: openPlayer)
+                                }
                             }
                         }
-                    } else if heroAlbum == nil {
-                        TVRow(label: PMString("ext.tv.nav.library")) {
-                            ForEach(Array(store.songs.prefix(15))) { song in
-                                TVSongCard(song: song, action: openPlayer)
+                    }
+                    if !store.radioStations.isEmpty {
+                        TVRow(
+                            label: PMString("ext.tv.radio.title"),
+                            sub: PMString("ext.tv.radio.stationCount", store.radioStations.count)
+                        ) {
+                            ForEach(store.radioStations) { station in
+                                TVRadioStationCard(station: station, action: openPlayer)
                             }
                         }
                     }

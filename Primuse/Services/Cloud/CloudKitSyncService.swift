@@ -54,6 +54,7 @@ final class CloudKitSyncService {
         static let smartPlaylist = "SmartPlaylist"
         static let musicSource = "MusicSource"
         static let cloudAccount = "CloudAccount"
+        static let radioStation = "RadioStation"
         static let playbackHistory = "PlaybackHistory"
         static let listeningStats = "ListeningStats"
         static let scraperConfig = "ScraperConfig"
@@ -73,7 +74,7 @@ final class CloudKitSyncService {
     nonisolated static func recordTypeIsShareable(_ recordType: String) -> Bool {
         switch recordType {
         case RecordType.playlist, RecordType.smartPlaylist,
-             RecordType.musicSource, RecordType.cloudAccount:
+             RecordType.musicSource, RecordType.cloudAccount, RecordType.radioStation:
             return true
         default:
             return false   // history / stats / scraperConfig 属于个人偏好不共享
@@ -108,6 +109,7 @@ final class CloudKitSyncService {
 
     private let library: MusicLibrary
     private let sourcesStore: SourcesStore
+    private let radioStationsStore: RadioStationsStore
     private let scraperConfigStore: ScraperConfigStore
     private let scraperSettingsStore: ScraperSettingsStore
 
@@ -173,11 +175,13 @@ final class CloudKitSyncService {
     init(
         library: MusicLibrary,
         sourcesStore: SourcesStore,
+        radioStationsStore: RadioStationsStore,
         scraperConfigStore: ScraperConfigStore = .shared,
         scraperSettingsStore: ScraperSettingsStore
     ) {
         self.library = library
         self.sourcesStore = sourcesStore
+        self.radioStationsStore = radioStationsStore
         self.scraperConfigStore = scraperConfigStore
         self.scraperSettingsStore = scraperSettingsStore
         let appSupport = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
@@ -798,6 +802,14 @@ final class CloudKitSyncService {
             guard let id = note.userInfo?["id"] as? String else { return }
             Task { @MainActor in self?.cloudAccountDeleted(id: id) }
         })
+        observerTokens.append(nc.addObserver(forName: .primuseRadioStationsDidChange, object: nil, queue: .main) { [weak self] note in
+            let ids = (note.userInfo?["ids"] as? [String]) ?? []
+            Task { @MainActor in self?.radioStationsChanged(ids: ids) }
+        })
+        observerTokens.append(nc.addObserver(forName: .primuseRadioStationDidDelete, object: nil, queue: .main) { [weak self] note in
+            guard let id = note.userInfo?["id"] as? String else { return }
+            Task { @MainActor in self?.radioStationDeleted(id: id) }
+        })
         observerTokens.append(nc.addObserver(forName: .primuseScraperConfigDidChange, object: nil, queue: .main) { [weak self] note in
             let ids = (note.userInfo?["ids"] as? [String]) ?? []
             Task { @MainActor in self?.scraperConfigsChanged(ids: ids) }
@@ -870,6 +882,30 @@ final class CloudKitSyncService {
     func cloudAccountDeleted(id: String) {
         guard CloudSyncChannel.isEnabled(.sources) else { return }
         enqueueDeletes(recordType: RecordType.cloudAccount, ids: [id])
+    }
+
+    func radioStationsChanged(ids: [String]) {
+        guard CloudSyncChannel.isEnabled(.sources) else { return }
+        var active: [String] = []
+        var deleted: [String] = []
+        for id in Set(ids) {
+            guard let station = radioStationsStore.allStations.first(where: { $0.id == id }) else { continue }
+            if station.isDeleted {
+                deleted.append(id)
+            } else {
+                active.append(id)
+            }
+        }
+        enqueueSaves(recordType: RecordType.radioStation, ids: active)
+        enqueueDeletes(recordType: RecordType.radioStation, ids: deleted)
+        Task {
+            _ = await LibrarySnapshotSync.shared.uploadRadioStationsOnly()
+        }
+    }
+
+    func radioStationDeleted(id: String) {
+        guard CloudSyncChannel.isEnabled(.sources) else { return }
+        enqueueDeletes(recordType: RecordType.radioStation, ids: [id])
     }
 
     func scraperConfigsChanged(ids: [String]) {
@@ -955,6 +991,7 @@ final class CloudKitSyncService {
         case RecordType.smartPlaylist: return .playlists
         case RecordType.musicSource: return .sources
         case RecordType.cloudAccount: return .sources
+        case RecordType.radioStation: return .sources
         case RecordType.playbackHistory: return .playbackHistory
         case RecordType.listeningStats: return .listeningStats
         case RecordType.scraperConfig: return .settings
@@ -1130,6 +1167,7 @@ final class CloudKitSyncService {
         smartPlaylistsChanged(ids: library.allSmartPlaylists.map(\.id))
         sourcesChanged(ids: sourcesStore.allSources.map(\.id))
         cloudAccountsChanged(ids: sourcesStore.allAccounts.map(\.id))
+        radioStationsChanged(ids: radioStationsStore.allStations.map(\.id))
         scraperConfigsChanged(ids: scraperConfigStore.allConfigsIncludingDeleted.map(\.id))
         // Push history at startup too (bypass the 5-min throttle, but still
         // honour the channel toggle).
@@ -1286,6 +1324,8 @@ final class CloudKitSyncService {
             return populateSourceRecord(record, sourceID: id)
         case RecordType.cloudAccount:
             return populateCloudAccountRecord(record, accountID: id)
+        case RecordType.radioStation:
+            return populateRadioStationRecord(record, stationID: id)
         case RecordType.scraperConfig:
             return populateScraperConfigRecord(record, configID: id)
         case RecordType.playbackHistory:
@@ -1319,6 +1359,8 @@ final class CloudKitSyncService {
             applySourceRecord(record)
         case RecordType.cloudAccount:
             applyCloudAccountRecord(record)
+        case RecordType.radioStation:
+            applyRadioStationRecord(record)
         case RecordType.scraperConfig:
             applyScraperConfigRecord(record)
         case RecordType.playbackHistory:
@@ -1416,6 +1458,8 @@ final class CloudKitSyncService {
             sourcesStore.removeFromRemote(id: id)
         case RecordType.cloudAccount:
             sourcesStore.removeAccountFromRemote(id: id)
+        case RecordType.radioStation:
+            radioStationsStore.removeFromRemote(id: id)
         case RecordType.scraperConfig:
             scraperConfigStore.deleteFromRemote(id: id)
         case RecordType.playbackHistory:
@@ -1441,6 +1485,8 @@ final class CloudKitSyncService {
             return sourcesStore.allSources.first(where: { $0.id == id }).map { !$0.isDeleted } ?? false
         case RecordType.cloudAccount:
             return sourcesStore.allAccounts.first(where: { $0.id == id }).map { !$0.isDeleted } ?? false
+        case RecordType.radioStation:
+            return radioStationsStore.allStations.first(where: { $0.id == id }).map { !$0.isDeleted } ?? false
         case RecordType.scraperConfig:
             return scraperConfigStore.allConfigsIncludingDeleted
                 .first(where: { $0.id == id })
@@ -1570,6 +1616,36 @@ final class CloudKitSyncService {
         guard let data = record["payload"] as? Data,
               let account = try? JSONDecoder().decode(CloudAccount.self, from: data) else { return }
         sourcesStore.upsertAccountFromRemote(account)
+    }
+
+    // MARK: - Internet radio mapping
+
+    private func populateRadioStationRecord(_ record: CKRecord, stationID: String) -> Bool {
+        guard var station = radioStationsStore.allStations.first(where: { $0.id == stationID }),
+              !station.isDeleted else {
+            return false
+        }
+        // 最近收听时间只用于当前设备排序，不参与跨设备合并。
+        station.lastPlayedAt = nil
+        let logoData = station.logoData
+        station.logoData = nil
+        guard let data = try? JSONEncoder().encode(station) else { return false }
+        record["payload"] = data
+        record["logoData"] = logoData
+        record["updatedAt"] = station.modifiedAt
+        return true
+    }
+
+    private func applyRadioStationRecord(_ record: CKRecord) {
+        guard let data = record["payload"] as? Data,
+              var station = try? JSONDecoder().decode(RadioStation.self, from: data) else {
+            return
+        }
+        if let logoData = record["logoData"] as? Data,
+           logoData.count <= RadioStationValidation.maximumLogoBytes {
+            station.logoData = logoData
+        }
+        radioStationsStore.upsertFromRemote(station)
     }
 
     // MARK: - Scraper config mapping

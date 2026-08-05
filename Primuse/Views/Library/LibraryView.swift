@@ -2,9 +2,9 @@ import SwiftUI
 import PrimuseKit
 
 enum LibrarySection: String, CaseIterable, Hashable {
-    case playlists, artists, albums, songs
+    case playlists, artists, albums, songs, radio
 
-    static let browserOrder: [LibrarySection] = [.songs, .albums, .artists, .playlists]
+    static let browserOrder: [LibrarySection] = [.songs, .albums, .artists, .playlists, .radio]
 
     var title: LocalizedStringKey {
         switch self {
@@ -12,6 +12,7 @@ enum LibrarySection: String, CaseIterable, Hashable {
         case .artists: return "tab_artists"
         case .albums: return "tab_albums"
         case .songs: return "tab_songs"
+        case .radio: return "radio_title"
         }
     }
 
@@ -21,6 +22,7 @@ enum LibrarySection: String, CaseIterable, Hashable {
         case .artists: return "music.mic"
         case .albums: return "square.stack.fill"
         case .songs: return "music.note"
+        case .radio: return "radio.fill"
         }
     }
 
@@ -30,6 +32,7 @@ enum LibrarySection: String, CaseIterable, Hashable {
         case .artists: return .pink
         case .albums: return .purple
         case .songs: return .blue
+        case .radio: return .orange
         }
     }
 }
@@ -66,6 +69,7 @@ enum LibraryPinStorage {
 
 struct LibraryView: View {
     @Environment(MusicLibrary.self) private var library
+    @Environment(RadioStationsStore.self) private var radioStationsStore
     @Binding private var deepLink: LibraryDeepLink?
     @State private var navigationPath = NavigationPath()
     @State private var showQuickAccessEditor = false
@@ -84,6 +88,7 @@ struct LibraryView: View {
             || !artists.isEmpty
             || !regularPlaylists.isEmpty
             || !library.smartPlaylists.isEmpty
+            || !radioStationsStore.stations.isEmpty
     }
     private var storedPins: [LibraryPinReference] {
         LibraryPinStorage.decode(quickAccessRawValue)
@@ -459,6 +464,10 @@ struct LibraryView: View {
             overlappingPreview(Array(regularPlaylists.prefix(3))) { playlist in
                 playlistArtwork(playlist, size: 36, cornerRadius: 7)
             }
+        case .radio:
+            overlappingPreview(Array(radioStationsStore.stations.prefix(3))) { station in
+                RadioStationArtworkView(station: station, size: 36, cornerRadius: 7)
+            }
         }
     }
 
@@ -539,6 +548,8 @@ struct LibraryView: View {
                 regularPlaylists.count + library.smartPlaylists.count,
                 unitKey: "playlists_count"
             )
+        case .radio:
+            return countText(radioStationsStore.stations.count, unitKey: "radio_stations_count")
         }
     }
 
@@ -557,6 +568,8 @@ struct LibraryView: View {
             ArtistListView(artists: artists)
         case .playlists:
             PlaylistListView()
+        case .radio:
+            RadioStationsView()
         }
     }
 
@@ -566,12 +579,18 @@ struct LibraryView: View {
         } description: {
             Text("welcome_desc")
         } actions: {
-            NavigationLink {
-                SourcesContentView()
-            } label: {
-                Text("manage_sources")
+            VStack(spacing: 10) {
+                NavigationLink {
+                    SourcesContentView()
+                } label: {
+                    Text("manage_sources")
+                }
+                .buttonStyle(.borderedProminent)
+                NavigationLink(value: LibrarySection.radio) {
+                    Text("radio_add")
+                }
+                .buttonStyle(.bordered)
             }
-            .buttonStyle(.borderedProminent)
         }
     }
 

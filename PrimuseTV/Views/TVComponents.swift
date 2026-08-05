@@ -1,6 +1,7 @@
 #if os(tvOS)
 import SwiftUI
 import PrimuseKit
+import UIKit
 
 // MARK: - 横向区块(Apple Music tvOS shelf 风)
 
@@ -84,6 +85,76 @@ struct TVSongCard: View {
                 .frame(width: width, alignment: .leading)
             }
             .frame(width: width, alignment: .leading)
+        }
+    }
+}
+
+// MARK: - 电台卡片
+
+struct TVRadioStationCard: View {
+    @Environment(TVStore.self) private var store
+    let station: RadioStation
+    var width: CGFloat = 220
+    var action: () -> Void = {}
+
+    var body: some View {
+        TVFocusButton(radius: TVRadius.cover, scale: 1.10, lift: 10,
+                      action: { store.play(station); action() }) { _ in
+            VStack(alignment: .leading, spacing: 0) {
+                TVRadioArtworkView(station: station, size: width, radius: TVRadius.cover)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(station.name)
+                        .font(.system(size: 19, weight: .semibold))
+                        .foregroundStyle(TVColor.text)
+                        .lineLimit(1)
+                    Text(station.playbackSubtitle)
+                        .font(.system(size: 14))
+                        .foregroundStyle(TVColor.textFaint)
+                        .lineLimit(1)
+                }
+                .padding(.top, 12)
+                .padding(.horizontal, 2)
+                .frame(width: width, alignment: .leading)
+            }
+            .frame(width: width, alignment: .leading)
+        }
+    }
+}
+
+struct TVRadioArtworkView: View {
+    let station: RadioStation
+    let size: CGFloat
+    var radius: CGFloat = TVRadius.cover
+
+    private var logo: UIImage? {
+        guard let data = station.logoData else { return nil }
+        return UIImage(data: data)
+    }
+
+    var body: some View {
+        Group {
+            if let logo {
+                Image(uiImage: logo)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                LinearGradient(
+                    colors: [TVColor.brand.opacity(0.88), Color.black.opacity(0.88)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .overlay {
+                    Image(systemName: "radio.fill")
+                        .font(.system(size: size * 0.34, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.92))
+                }
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
         }
     }
 }

@@ -105,6 +105,7 @@ final class LibrarySnapshotSync: Sendable {
     }
     private var libraryCacheURL: URL { directory.appendingPathComponent("library-cache.json") }
     private var sourcesURL: URL { directory.appendingPathComponent("sources.json") }
+    private var radioStationsURL: URL { directory.appendingPathComponent("radio-stations.json") }
 
     private func validatedLibrarySnapshotData() -> Result<Data, AppleTVTransferFailure> {
         let fm = FileManager.default
@@ -187,7 +188,7 @@ final class LibrarySnapshotSync: Sendable {
         // Work on the fetched record (and its change tag) instead of deleting
         // the last known-good snapshot first. Explicitly clear both alternate
         // representations so changedKeys removes stale fields atomically.
-        for key in ["libraryGz", "library", "sourcesGz", "sources", "lyricsGz"] {
+        for key in ["libraryGz", "library", "sourcesGz", "sources", "radioStationsGz", "radioStations", "lyricsGz"] {
             record[key] = nil
         }
         // 整库快照走【内联 gzip Data】而非 CKAsset:实测 tvOS 下 CKAsset 的字节经常
@@ -211,6 +212,22 @@ final class LibrarySnapshotSync: Sendable {
         if fm.fileExists(atPath: sourcesURL.path) {
             srcInfo = attachSourcesSnapshot(record, gzKey: "sourcesGz", assetKey: "sources")
         }
+        var radioAttachment: SnapshotAttachment?
+        if let data = validRadioStationsData(at: radioStationsURL) {
+            radioAttachment = attachSnapshot(
+                record,
+                data: data,
+                gzKey: "radioStationsGz",
+                assetKey: "radioStations",
+                inlineLimit: 256_000
+            )
+            srcInfo += "; \(radioAttachment?.info ?? "radioStations=stage-failed")"
+        }
+        defer {
+            if let stagingURL = radioAttachment?.stagingURL {
+                try? fm.removeItem(at: stagingURL)
+            }
+        }
         // 歌词:把本机已抓到的歌词(MetadataAssetStore 里的 .json)随快照传给 TV。
         if let lyrics = Self.gatherInlineLyricsBlob() {
             record["lyricsGz"] = lyrics.gz as CKRecordValue
@@ -224,7 +241,7 @@ final class LibrarySnapshotSync: Sendable {
             // Another device changed the singleton after our fetch. Rebase the
             // complete local snapshot fields onto its current change tag and
             // retry once, preserving any future/unknown server fields.
-            for key in ["libraryGz", "library", "sourcesGz", "sources", "lyricsGz", "modifiedAt"] {
+            for key in ["libraryGz", "library", "sourcesGz", "sources", "radioStationsGz", "radioStations", "lyricsGz", "modifiedAt"] {
                 serverRecord[key] = record[key]
             }
             outcome = await saveChangedRecord(serverRecord, in: database)
@@ -296,6 +313,50 @@ final class LibrarySnapshotSync: Sendable {
             return false
         case .failure(let error):
             plog("LibrarySnapshotSync: sources-only upload failed — \(error?.localizedDescription ?? "no per-record result")")
+            return false
+        }
+    }
+
+    /// Radio is read-only on Apple TV. Keep its station catalogue in the same
+    /// snapshot record so TV can refresh it without linking the full app sync service.
+    @discardableResult
+    func uploadRadioStationsOnly() async -> Bool {
+        await withCloudMutationLock { [self] in
+            guard let database,
+                  let data = validRadioStationsData(at: radioStationsURL) else { return false }
+            let record: CKRecord
+            do {
+                record = try await database.record(for: recordID)
+            } catch {
+                record = CKRecord(recordType: recordType, recordID: recordID)
+            }
+            record["radioStationsGz"] = nil
+            record["radioStations"] = nil
+            guard let attachment = attachSnapshot(
+                record,
+                data: data,
+                gzKey: "radioStationsGz",
+                assetKey: "radioStations",
+                inlineLimit: 256_000
+            ) else { return false }
+            defer {
+                if let stagingURL = attachment.stagingURL {
+                    try? FileManager.default.removeItem(at: stagingURL)
+                }
+            }
+            record["modifiedAt"] = Date() as CKRecordValue
+            var outcome = await saveChangedRecord(record, in: database)
+            if case .conflict(let serverRecord) = outcome {
+                serverRecord["radioStationsGz"] = record["radioStationsGz"]
+                serverRecord["radioStations"] = record["radioStations"]
+                serverRecord["modifiedAt"] = record["modifiedAt"]
+                outcome = await saveChangedRecord(serverRecord, in: database)
+            }
+            if case .success = outcome {
+                plog("LibrarySnapshotSync: uploaded radio stations only [\(attachment.info)]")
+                return true
+            }
+            plog("LibrarySnapshotSync: radio stations-only upload failed")
             return false
         }
     }
@@ -429,6 +490,7 @@ final class LibrarySnapshotSync: Sendable {
                 changed = true
             }
             _ = extractSourcesSnapshot(record, to: sourcesURL, fm: fm)
+            _ = extractRadioStationsSnapshot(record, to: radioStationsURL, fm: fm)
             Self.restoreLyrics(from: record, fm: fm)
             plog("LibrarySnapshotSync: downloaded snapshot (library=\(changed))")
             return changed
@@ -444,6 +506,7 @@ final class LibrarySnapshotSync: Sendable {
     private static let inlineGzLimit = 800_000
     private static let maxLibraryRawBytes = 64 * 1024 * 1024
     private static let maxSourcesRawBytes = 8 * 1024 * 1024
+    private static let maxRadioStationsRawBytes = 16 * 1024 * 1024
     private static let maxLyricsBlobRawBytes = 16 * 1024 * 1024
     private static let maxLyricsUploadRawBytes = 4 * 1024 * 1024
     private static let maxSingleLyricsFileBytes = 1 * 1024 * 1024
@@ -688,11 +751,12 @@ final class LibrarySnapshotSync: Sendable {
         _ record: CKRecord,
         data: Data,
         gzKey: String,
-        assetKey: String
+        assetKey: String,
+        inlineLimit: Int = LibrarySnapshotSync.inlineGzLimit
     ) -> SnapshotAttachment? {
         if data.count <= Self.maxInlineSnapshotInputBytes,
            let gz = try? (data as NSData).compressed(using: .zlib) as Data,
-           gz.count < Self.inlineGzLimit {
+           gz.count < min(inlineLimit, Self.inlineGzLimit) {
             record[gzKey] = gz as CKRecordValue
             return SnapshotAttachment(info: "\(gzKey)=inline \(gz.count)B", stagingURL: nil)
         }
@@ -760,6 +824,23 @@ final class LibrarySnapshotSync: Sendable {
         return try? encoder.encode(sources)
     }
 
+    private func validRadioStationsData(at url: URL) -> Data? {
+        guard let data = try? Data(contentsOf: url),
+              data.count <= Self.maxRadioStationsRawBytes,
+              Self.radioStations(from: data) != nil else { return nil }
+        return data
+    }
+
+    private static func radioStations(from data: Data) -> [RadioStation]? {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let stations = try? decoder.decode([RadioStation].self, from: data),
+              stations.allSatisfy({ station in
+                  station.logoData.map { $0.count <= RadioStationValidation.maximumLogoBytes } ?? true
+              }) else { return nil }
+        return stations
+    }
+
     /// 从 record 还原快照写到 `dest`:先试内联 gzip,再回退 CKAsset。成功返回 true。
     private func extractSnapshot(_ record: CKRecord, gzKey: String, assetKey: String, to dest: URL, fm: FileManager) -> Bool {
         if let gzField = record[gzKey] as? Data {
@@ -815,6 +896,33 @@ final class LibrarySnapshotSync: Sendable {
             return true
         } catch {
             plog("LibrarySnapshotSync: write merged sources failed — \(error)")
+            return false
+        }
+    }
+
+    private func extractRadioStationsSnapshot(_ record: CKRecord, to dest: URL, fm: FileManager) -> Bool {
+        let data: Data?
+        if let gzField = record["radioStationsGz"] as? Data {
+            data = Self.gunzip(Data(gzField), maxOutputBytes: Self.maxRadioStationsRawBytes)
+        } else if let asset = record["radioStations"] as? CKAsset,
+                  let url = asset.fileURL,
+                  fm.fileExists(atPath: url.path),
+                  let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+                  size <= Self.maxRadioStationsRawBytes {
+            data = try? Data(contentsOf: url)
+        } else {
+            data = nil
+        }
+        guard let data, Self.radioStations(from: data) != nil else {
+            return false
+        }
+        do {
+            try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: dest, options: .atomic)
+            plog("LibrarySnapshotSync: restored radio stations (\(data.count)B)")
+            return true
+        } catch {
+            plog("LibrarySnapshotSync: radio stations write failed — \(error)")
             return false
         }
     }
@@ -1360,6 +1468,9 @@ final class LibrarySnapshotSync: Sendable {
            let sanitized = Self.sanitizedSourcesData(raw) {
             payload.sourcesGz = Self.gzip(sanitized)
         }
+        if let raw = validRadioStationsData(at: radioStationsURL) {
+            payload.radioStationsGz = Self.gzip(raw)
+        }
         if let lyrics = Self.gatherLyricsBlob() { payload.lyricsGz = Self.gzip(lyrics.data) }
         payload.credentials = credentials
         guard payload.isCompleteForTransfer else {
@@ -1449,6 +1560,11 @@ final class LibrarySnapshotSync: Sendable {
             try? fm.createDirectory(at: sourcesURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? merged.data.write(to: sourcesURL, options: .atomic)
             plog("LibrarySnapshotSync: merged LAN sources local=\(merged.localCount) incoming=\(merged.incomingCount) total=\(merged.totalCount)")
+        }
+        if let gz = payload.radioStationsGz,
+           let raw = Self.gunzip(gz, maxOutputBytes: Self.maxRadioStationsRawBytes),
+           Self.radioStations(from: raw) != nil {
+            try? raw.write(to: radioStationsURL, options: .atomic)
         }
         if let gz = payload.lyricsGz, let raw = Self.gunzip(gz, maxOutputBytes: Self.maxLyricsBlobRawBytes) {
             Self.writeLyrics(blob: raw, fm: fm)

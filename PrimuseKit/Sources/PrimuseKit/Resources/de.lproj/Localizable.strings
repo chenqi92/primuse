@@ -366,3 +366,8 @@
 "fnmusic_fnconnect_hint" = "Gib die FN ID ein. Primuse bevorzugt eine direkte Verbindung und nutzt bei Bedarf das FN-Connect-Relay. Die Anmeldung erfolgt weiterhin mit dem lokalen NAS-Konto.";
 "fnmusic_access_code" = "FN-Connect-Zugriffscode (optional)";
 "fnmusic_access_code_hint" = "Nur eingeben, wenn der Zugriffscode-Schutz von FN Connect aktiviert ist. Der Code wird sicher im Schlüsselbund gespeichert.";
+"ext.tv.radio.title" = "Radio";
+"ext.tv.radio.stationCount" = "%d Sender";
+"ext.tv.radio.live" = "LIVE";
+"ext.tv.radio.stop" = "Stoppen";
+"ext.tv.radio.play" = "Wiedergabe";

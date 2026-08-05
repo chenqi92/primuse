@@ -93,6 +93,8 @@ struct MacNowPlayingView: View {
                 emptyNowPlaying
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding(.horizontal, 48)
+            } else if player.isLiveRadio {
+                radioNowPlaying
             } else {
                 HStack(alignment: .center, spacing: isWindowFullScreen ? 80 : 40) {
                     artworkPane
@@ -107,7 +109,11 @@ struct MacNowPlayingView: View {
             }
 
             VStack(alignment: .trailing, spacing: 10) {
-                floatingControls
+                if player.isLiveRadio {
+                    radioFloatingControls
+                } else {
+                    floatingControls
+                }
                 if isWindowFullScreen {
                     fullscreenVolumeControl
                 }
@@ -133,7 +139,13 @@ struct MacNowPlayingView: View {
                 }
             }
         }
-        .task(id: lyricsLoadTaskIdentity) { await refreshLyrics() }
+        .task(id: lyricsLoadTaskIdentity) {
+            if player.isLiveRadio {
+                lyrics = []
+            } else {
+                await refreshLyrics()
+            }
+        }
         .background {
             MacNowPlayingTimeObserver { updateIndex(time: $0) }
         }
@@ -185,6 +197,100 @@ struct MacNowPlayingView: View {
                     .lineLimit(2)
             }
             .frame(maxWidth: 520)
+        }
+    }
+
+    private var radioNowPlaying: some View {
+        HStack(spacing: isWindowFullScreen ? 90 : 54) {
+            if let station = player.currentRadioStation {
+                let size: CGFloat = isWindowFullScreen ? 520 : 380
+                RadioStationArtworkView(
+                    station: station,
+                    size: size,
+                    cornerRadius: isWindowFullScreen ? 24 : 18
+                )
+                .shadow(color: .black.opacity(0.30), radius: 28, y: 14)
+            }
+
+            VStack(alignment: .leading, spacing: 18) {
+                Spacer()
+
+                HStack(spacing: 8) {
+                    Circle().fill(.red).frame(width: 9, height: 9)
+                    Text("LIVE")
+                        .font(.system(size: 13, weight: .bold))
+                    if player.currentTime > 0 {
+                        Text("·")
+                        Text(player.currentTime.formattedDuration)
+                            .monospacedDigit()
+                    }
+                }
+                .foregroundStyle(playerSecondaryColor)
+
+                Text(player.currentRadioStation?.name ?? player.currentSong?.title ?? "")
+                    .font(.system(size: isWindowFullScreen ? 48 : 38, weight: .bold))
+                    .foregroundStyle(playerPrimaryColor)
+                    .lineLimit(2)
+
+                Text(player.radioMetadataTitle ?? player.currentSong?.artistName ?? "")
+                    .font(.system(size: isWindowFullScreen ? 24 : 20, weight: .medium))
+                    .foregroundStyle(playerSecondaryColor)
+                    .lineLimit(3)
+
+                Text(radioTechnicalSummary)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(playerFaintColor)
+
+                Button { player.togglePlayPause() } label: {
+                    Label(
+                        (player.isPlaying || player.isLoading)
+                            ? String(localized: "radio_stop")
+                            : String(localized: "a11y_play"),
+                        systemImage: (player.isPlaying || player.isLoading)
+                            ? "stop.circle.fill"
+                            : "play.circle.fill"
+                    )
+                    .font(.system(size: 17, weight: .semibold))
+                    .padding(.horizontal, 20)
+                    .frame(height: 46)
+                    .foregroundStyle(theme.onAccent)
+                    .background(theme.accentColor, in: Capsule())
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+            }
+            .frame(maxWidth: 560, alignment: .leading)
+        }
+        .padding(.horizontal, isWindowFullScreen ? 120 : 72)
+        .padding(.vertical, isWindowFullScreen ? 100 : 72)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var radioTechnicalSummary: String {
+        var parts = [player.radioStreamFormat.displayName]
+        if let bitRate = player.radioBitRate, bitRate > 0 {
+            parts.append("\(bitRate / 1_000) kbps")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private var radioFloatingControls: some View {
+        HStack(spacing: 8) {
+            if let url = player.currentRadioStation?.url {
+                ShareLink(item: url) {
+                    circleIcon("square.and.arrow.up")
+                }
+                .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .help(Text("share"))
+            }
+            if !isWindowFullScreen {
+                Button(action: onClose) { circleIcon("chevron.down") }
+                    .buttonStyle(.plain)
+                    .glassEffect(.regular.interactive(), in: .circle)
+                    .help(Text("close"))
+            }
         }
     }
 
@@ -752,10 +858,10 @@ struct MacNowPlayingView: View {
 
             PMVolumeSlider(value: Binding(
                 get: { Double(engine.volume) },
-                set: { engine.volume = Float($0) }
-            ), isEnabled: player.playbackSettings.outputMode == .effects,
+                set: { player.setPlaybackVolume(Float($0)) }
+            ), isEnabled: player.isLiveRadio || player.playbackSettings.outputMode == .effects,
                accessibilityLabel: String(localized: "volume"),
-               accessibilityHelp: player.playbackSettings.outputMode == .highFidelity
+               accessibilityHelp: !player.isLiveRadio && player.playbackSettings.outputMode == .highFidelity
                    ? String(localized: "volume_high_fidelity_system_hint")
                    : nil)
             .frame(width: 118)
@@ -773,7 +879,7 @@ struct MacNowPlayingView: View {
             Capsule().strokeBorder(playerGlassBorder, lineWidth: 0.5)
         }
         .glassEffect(.regular.interactive(), in: .capsule)
-        .help(player.playbackSettings.outputMode == .highFidelity
+        .help(!player.isLiveRadio && player.playbackSettings.outputMode == .highFidelity
             ? Text("volume_high_fidelity_system_hint")
             : Text("volume"))
     }

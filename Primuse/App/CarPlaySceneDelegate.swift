@@ -70,6 +70,24 @@ private actor CarPlayArtworkDecoder {
         return thumbnail
     }
 
+    func thumbnail(forRadioID radioID: String, data: Data) -> UIImage? {
+        let key = "radio:\(radioID)" as NSString
+        if let cached = thumbnails.object(forKey: key) { return cached }
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: 88
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return nil
+        }
+        let thumbnail = UIImage(cgImage: cgImage)
+        thumbnails.setObject(thumbnail, forKey: key, cost: cgImage.bytesPerRow * cgImage.height)
+        return thumbnail
+    }
+
     private static func fetchPNGVariant(from coverRef: String?) async -> Data? {
         guard let coverRef,
               var components = URLComponents(string: coverRef),
@@ -189,6 +207,7 @@ extension CarPlaySceneDelegate: CPTemplateApplicationSceneDelegate {
 extension CarPlaySceneDelegate: CPNowPlayingTemplateObserver {
     nonisolated func nowPlayingTemplateUpNextButtonTapped(_ nowPlayingTemplate: CPNowPlayingTemplate) {
         Task { @MainActor [weak self] in
+            guard !AppServices.shared.playerService.isLiveRadio else { return }
             self?.pushQueueTemplate()
         }
     }
@@ -196,7 +215,8 @@ extension CarPlaySceneDelegate: CPNowPlayingTemplateObserver {
     nonisolated func nowPlayingTemplateAlbumArtistButtonTapped(_ nowPlayingTemplate: CPNowPlayingTemplate) {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            guard let song = AppServices.shared.playerService.currentSong else { return }
+            let player = AppServices.shared.playerService
+            guard !player.isLiveRadio, let song = player.currentSong else { return }
             let library = AppServices.shared.musicLibrary
             // Prefer the album view; fall back to artist if the song has no album.
             if let albumID = song.albumID,
@@ -431,7 +451,24 @@ extension CarPlaySceneDelegate {
         let items = recent.enumerated().map { idx, song in
             songItem(song, queueProvider: { (recent, idx) })
         }
-        return [searchSection(), CPListSection(items: items)]
+        return [searchSection(), radioEntrySection(), CPListSection(items: items)]
+    }
+
+    private func radioEntrySection() -> CPListSection {
+        let stations = AppServices.shared.radioStationsStore.stations
+        let detail = "\(stations.count) \(String(localized: "radio_stations_count"))"
+        let item = CPListItem(
+            text: String(localized: "radio_title"),
+            detailText: detail,
+            image: Self.symbolImage("radio.fill")
+        )
+        item.handler = { [weak self] _, completion in
+            Task { @MainActor in
+                self?.pushRadioTemplate()
+                completion()
+            }
+        }
+        return CPListSection(items: [item])
     }
 
     private func albumsSections() -> [CPListSection] {
@@ -583,6 +620,47 @@ extension CarPlaySceneDelegate {
         case album(String)   // album.id
         case artist(String)  // artist.id
         case playlist(String) // playlist.id
+        case radio
+    }
+
+    private func pushRadioTemplate() {
+        let template = CPListTemplate(
+            title: String(localized: "radio_title"),
+            sections: [radioStationsSection()]
+        )
+        template.userInfo = DetailContext.radio
+        template.emptyViewTitleVariants = [String(localized: "radio_empty_title")]
+        template.emptyViewSubtitleVariants = [String(localized: "radio_empty_description")]
+        safePush(template, label: "Radio")
+    }
+
+    private func radioStationsSection() -> CPListSection {
+        let stations = AppServices.shared.radioStationsStore.stations
+        let player = AppServices.shared.playerService
+        let items = stations.map { station -> CPListItem in
+            let isCurrent = player.isLiveRadio && player.currentRadioStation?.id == station.id
+            let detail = isCurrent
+                ? (player.radioMetadataTitle ?? station.playbackSubtitle)
+                : station.playbackSubtitle
+            let item = CPListItem(
+                text: station.name,
+                detailText: detail,
+                image: Self.symbolImage("radio")
+            )
+            if isCurrent {
+                item.isPlaying = player.isPlaying
+                item.playingIndicatorLocation = .leading
+            }
+            loadArtwork(for: station, into: item)
+            item.handler = { [weak self] _, completion in
+                Task { @MainActor in
+                    self?.play(station: station, within: stations)
+                    completion()
+                }
+            }
+            return item
+        }
+        return CPListSection(items: items)
     }
 
     private func pushAlbumDetail(_ album: Album) {
@@ -650,6 +728,8 @@ extension CarPlaySceneDelegate {
                 listTemplate.updateSections([artistDetailSection(artistID: id)])
             case .playlist(let id):
                 listTemplate.updateSections([playlistDetailSection(playlistID: id)])
+            case .radio:
+                listTemplate.updateSections([radioStationsSection()])
             }
         }
     }
@@ -717,6 +797,24 @@ extension CarPlaySceneDelegate {
                 self.pushNowPlayingIfNeeded()
             } else {
                 self.presentPlayFailureAlert(songTitle: song.title)
+            }
+        }
+    }
+
+    private func play(station: RadioStation, within stations: [RadioStation]) {
+        let player = AppServices.shared.playerService
+        Task { @MainActor [weak self] in
+            await player.play(station: station, within: stations)
+            let deadline = Date().addingTimeInterval(5)
+            while Date() < deadline {
+                if player.isPlaying || player.isLoading { break }
+                try? await Task.sleep(for: .milliseconds(150))
+            }
+            guard let self else { return }
+            if player.isPlaying || player.isLoading {
+                self.pushNowPlayingIfNeeded()
+            } else {
+                self.presentPlayFailureAlert(songTitle: station.name)
             }
         }
     }
@@ -814,6 +912,18 @@ extension CarPlaySceneDelegate {
         guard let firstSong = library.songs(forAlbum: albumID).first else { return }
         loadArtwork(for: firstSong, into: item)
     }
+
+    private func loadArtwork(for station: RadioStation, into item: CPListItem) {
+        guard let data = station.logoData else { return }
+        let id = UUID()
+        let task = Task { [weak self, weak item] in
+            defer { self?.artworkTasks[id] = nil }
+            let image = await CarPlayArtworkDecoder.shared.thumbnail(forRadioID: station.id, data: data)
+            guard !Task.isCancelled, let image, let item else { return }
+            item.setImage(image)
+        }
+        artworkTasks[id] = task
+    }
 }
 
 // MARK: - Now Playing template configuration
@@ -833,6 +943,13 @@ extension CarPlaySceneDelegate {
     /// shuffleEnabled / repeatMode changes.
     private func refreshNowPlayingButtons() {
         let player = AppServices.shared.playerService
+        let template = CPNowPlayingTemplate.shared
+        template.isUpNextButtonEnabled = !player.isLiveRadio
+        template.isAlbumArtistButtonEnabled = !player.isLiveRadio
+        guard !player.isLiveRadio else {
+            template.updateNowPlayingButtons([])
+            return
+        }
         let shuffleIcon = player.shuffleEnabled ? "shuffle.circle.fill" : "shuffle"
         let repeatIcon: String
         switch player.repeatMode {
@@ -854,7 +971,7 @@ extension CarPlaySceneDelegate {
                 self?.cycleRepeat()
             }
         }
-        CPNowPlayingTemplate.shared.updateNowPlayingButtons([shuffleButton, repeatButton])
+        template.updateNowPlayingButtons([shuffleButton, repeatButton])
     }
 
     /// Resolves an SF Symbol name to a `UIImage`, returning a 1x1 blank
@@ -882,6 +999,7 @@ extension CarPlaySceneDelegate {
 
 extension CarPlaySceneDelegate {
     private func pushQueueTemplate() {
+        guard !AppServices.shared.playerService.isLiveRadio else { return }
         let template = CPListTemplate(
             title: String(localized: "carplay_up_next"),
             sections: [queueSection()]
@@ -951,11 +1069,13 @@ extension CarPlaySceneDelegate {
     /// per change set, so we re-register at the end to keep listening.
     private func observeLibraryChanges() {
         let library = AppServices.shared.musicLibrary
+        let radioStore = AppServices.shared.radioStationsStore
         withObservationTracking {
             _ = library.visibleSongs
             _ = library.visibleAlbums
             _ = library.visibleArtists
             _ = library.allPlaylists  // 包含已删除的 — 影响 playlists 计算
+            _ = radioStore.stations
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -992,11 +1112,16 @@ extension CarPlaySceneDelegate {
             _ = player.repeatMode
             _ = player.currentSong?.id
             _ = player.currentIndex
+            _ = player.isLiveRadio
+            _ = player.currentRadioStation?.id
+            _ = player.radioMetadataTitle
+            _ = player.isPlaying
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.refreshNowPlayingButtons()
                 self.refreshOpenQueueTemplate()
+                self.refreshDrillDownTemplates()
                 self.observePlayerState()
             }
         }

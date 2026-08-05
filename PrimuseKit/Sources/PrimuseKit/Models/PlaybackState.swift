@@ -19,6 +19,10 @@ public struct PlaybackState: Codable, Sendable {
     public var currentTime: TimeInterval
     public var duration: TimeInterval
     public var queueSongIDs: [String]
+    /// Optional for backward-compatible decoding of snapshots written by
+    /// versions before Internet radio support.
+    public var playbackKind: PlaybackKind?
+    public var radioStationID: String?
 
     public init(
         currentSongID: String? = nil,
@@ -31,7 +35,9 @@ public struct PlaybackState: Codable, Sendable {
         isPlaying: Bool = false,
         currentTime: TimeInterval = 0,
         duration: TimeInterval = 0,
-        queueSongIDs: [String] = []
+        queueSongIDs: [String] = [],
+        playbackKind: PlaybackKind? = nil,
+        radioStationID: String? = nil
     ) {
         self.currentSongID = currentSongID
         self.songTitle = songTitle
@@ -44,7 +50,11 @@ public struct PlaybackState: Codable, Sendable {
         self.currentTime = currentTime
         self.duration = duration
         self.queueSongIDs = queueSongIDs
+        self.playbackKind = playbackKind
+        self.radioStationID = radioStationID
     }
+
+    public var isLiveStream: Bool { playbackKind == .liveRadio }
 
     public static func load() -> PlaybackState? {
         guard let defaults = UserDefaults(suiteName: PrimuseConstants.appGroupIdentifier),

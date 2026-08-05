@@ -206,8 +206,13 @@ private struct SmallNowPlayingView: View {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.white.opacity(0.78))
                     .lineLimit(1)
-                ProgressLine(progress: progress)
-                    .padding(.top, 2)
+                if state.isLiveStream {
+                    LiveIndicatorLine(lightText: true)
+                        .padding(.top, 2)
+                } else {
+                    ProgressLine(progress: progress)
+                        .padding(.top, 2)
+                }
             }
             .padding(14)
         }
@@ -244,26 +249,32 @@ private struct MediumNowPlayingView: View {
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(WidgetDesign.secondaryText)
                             .lineLimit(1)
-                        Text(state.albumTitle?.isEmpty == false ? state.albumTitle! : PMString("ext.widget.unknownAlbum"))
+                        Text(secondaryMetadata(state))
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(WidgetDesign.tertiaryText)
                             .lineLimit(1)
 
                         Spacer(minLength: 0)
 
-                        VStack(spacing: 5) {
-                            ProgressLine(progress: progress)
-                            HStack {
-                                ElapsedTimeText(progress: progress)
-                                Spacer()
-                                Text(formatTime(state.duration))
+                        if state.isLiveStream {
+                            LiveIndicatorLine()
+                        } else {
+                            VStack(spacing: 5) {
+                                ProgressLine(progress: progress)
+                                HStack {
+                                    ElapsedTimeText(progress: progress)
+                                    Spacer()
+                                    Text(formatTime(state.duration))
+                                }
+                                .font(.system(size: 9.5, weight: .medium, design: .monospaced))
+                                .foregroundStyle(WidgetDesign.tertiaryText)
                             }
-                            .font(.system(size: 9.5, weight: .medium, design: .monospaced))
-                            .foregroundStyle(WidgetDesign.tertiaryText)
                         }
 
                         NowPlayingControls(
-                            symbols: ["heart", "backward.fill", state.isPlaying ? "pause.fill" : "play.fill", "forward.fill", "ellipsis"],
+                            symbols: state.isLiveStream
+                                ? [state.isPlaying ? "stop.fill" : "play.fill"]
+                                : ["heart", "backward.fill", state.isPlaying ? "pause.fill" : "play.fill", "forward.fill", "ellipsis"],
                             compact: true
                         )
                     }
@@ -305,7 +316,7 @@ private struct LargeNowPlayingView: View {
                                 .font(.system(size: 14, weight: .medium))
                                 .foregroundStyle(WidgetDesign.secondaryText)
                                 .lineLimit(1)
-                            Text(state.albumTitle?.isEmpty == false ? state.albumTitle! : PMString("ext.widget.unknownAlbum"))
+                            Text(secondaryMetadata(state))
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundStyle(WidgetDesign.tertiaryText)
                                 .lineLimit(1)
@@ -319,23 +330,31 @@ private struct LargeNowPlayingView: View {
                     // Large widget 歌词面板恒占位。先在 iOS 隐藏避免误导,
                     // 待 iOS 侧接通 LyricsSnapshot 写入后再放开。
                     #if os(macOS)
-                    NowPlayingLyricsPreview(state: state)
-                        .frame(maxWidth: .infinity)
+                    if !state.isLiveStream {
+                        NowPlayingLyricsPreview(state: state)
+                            .frame(maxWidth: .infinity)
+                    }
                     #endif
 
-                    VStack(spacing: 6) {
-                        ProgressLine(progress: progress)
-                        HStack {
-                            ElapsedTimeText(progress: progress)
-                            Spacer()
-                            Text(formatTime(state.duration))
+                    if state.isLiveStream {
+                        LiveIndicatorLine()
+                    } else {
+                        VStack(spacing: 6) {
+                            ProgressLine(progress: progress)
+                            HStack {
+                                ElapsedTimeText(progress: progress)
+                                Spacer()
+                                Text(formatTime(state.duration))
+                            }
+                            .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                            .foregroundStyle(WidgetDesign.tertiaryText)
                         }
-                        .font(.system(size: 10.5, weight: .medium, design: .monospaced))
-                        .foregroundStyle(WidgetDesign.tertiaryText)
                     }
 
                     NowPlayingControls(
-                        symbols: ["shuffle", "backward.fill", state.isPlaying ? "pause.fill" : "play.fill", "forward.fill", "repeat", "heart", "ellipsis"],
+                        symbols: state.isLiveStream
+                            ? [state.isPlaying ? "stop.fill" : "play.fill"]
+                            : ["shuffle", "backward.fill", state.isPlaying ? "pause.fill" : "play.fill", "forward.fill", "repeat", "heart", "ellipsis"],
                         compact: false
                     )
                 }
@@ -351,7 +370,7 @@ private struct NowPlayingEyebrow: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: state.isPlaying ? "waveform" : "pause.fill")
+            Image(systemName: state.isLiveStream ? "dot.radiowaves.left.and.right" : (state.isPlaying ? "waveform" : "pause.fill"))
                 .font(.system(size: 9.5, weight: .bold))
             Text(verbatim: eyebrowText)
                 .font(.system(size: 10, weight: .bold, design: .rounded))
@@ -361,11 +380,38 @@ private struct NowPlayingEyebrow: View {
     }
 
     private var eyebrowText: String {
+        if state.isLiveStream { return "LIVE" }
         let format = state.fileFormat?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let format, !format.isEmpty {
             return PMString("ext.widget.nowPlaying.eyebrowFormat", format.uppercased())
         }
         return state.isPlaying ? PMString("ext.widget.nowPlaying.playing") : PMString("ext.widget.nowPlaying.paused")
+    }
+}
+
+private func secondaryMetadata(_ state: PlaybackState) -> String {
+    if state.isLiveStream {
+        let format = state.fileFormat?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return format.isEmpty ? "LIVE" : format.uppercased()
+    }
+    return state.albumTitle?.isEmpty == false
+        ? state.albumTitle!
+        : PMString("ext.widget.unknownAlbum")
+}
+
+private struct LiveIndicatorLine: View {
+    var lightText = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(Color.red)
+                .frame(width: 7, height: 7)
+            Text(verbatim: "LIVE")
+                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .foregroundStyle(lightText ? Color.white.opacity(0.9) : WidgetDesign.secondaryText)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -392,17 +438,17 @@ private struct NowPlayingControls: View {
     }
 
     private func controlSize(symbol: String) -> CGFloat {
-        if symbol.contains("play") || symbol.contains("pause") { return compact ? 12 : 16 }
+        if symbol.contains("play") || symbol.contains("pause") || symbol.contains("stop") { return compact ? 12 : 16 }
         return compact ? 10.5 : 12.5
     }
 
     private func controlFrame(symbol: String) -> CGFloat {
-        if symbol.contains("play") || symbol.contains("pause") { return compact ? 26 : 34 }
+        if symbol.contains("play") || symbol.contains("pause") || symbol.contains("stop") { return compact ? 26 : 34 }
         return compact ? 22 : 28
     }
 
     private func controlBackground(symbol: String) -> Color {
-        if symbol.contains("play") || symbol.contains("pause") {
+        if symbol.contains("play") || symbol.contains("pause") || symbol.contains("stop") {
             return WidgetDesign.brandTint.opacity(0.22)
         }
         return Color.primary.opacity(0.06)
@@ -522,7 +568,10 @@ private struct AccessoryCircularNowPlaying: View {
 
     var body: some View {
         ZStack {
-            if let range = progress.timerRange {
+            if state.isLiveStream {
+                Image(systemName: "dot.radiowaves.left.and.right")
+                    .font(.system(size: 20, weight: .semibold))
+            } else if let range = progress.timerRange {
                 // 播放中: 用 timerInterval 环让系统自动推进, 中心叠波形图标。
                 ProgressView(timerInterval: range, countsDown: false) {
                     EmptyView()
@@ -552,7 +601,7 @@ private struct AccessoryRectangularNowPlaying: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 4) {
-                Image(systemName: state.isPlaying ? "waveform" : "pause.fill")
+                Image(systemName: state.isLiveStream ? "dot.radiowaves.left.and.right" : (state.isPlaying ? "waveform" : "pause.fill"))
                     .font(.system(size: 11, weight: .semibold))
                     .widgetAccentable()
                 Text(state.songTitle ?? PMString("ext.widget.unknownSong"))
@@ -562,7 +611,11 @@ private struct AccessoryRectangularNowPlaying: View {
             Text(state.artistName ?? PMString("ext.widget.unknownArtist"))
                 .font(.caption2)
                 .lineLimit(1)
-            if let album = state.albumTitle, !album.isEmpty {
+            if state.isLiveStream {
+                Text(verbatim: "LIVE")
+                    .font(.caption2.weight(.bold))
+                    .lineLimit(1)
+            } else if let album = state.albumTitle, !album.isEmpty {
                 Text(album)
                     .font(.caption2)
                     .lineLimit(1)
@@ -579,7 +632,9 @@ private struct AccessoryInlineNowPlaying: View {
     var body: some View {
         let title = state.songTitle ?? PMString("ext.widget.unknownSong")
         let artist = state.artistName ?? ""
-        let symbol = state.isPlaying ? "play.fill" : "pause.fill"
+        let symbol = state.isLiveStream
+            ? "dot.radiowaves.left.and.right"
+            : (state.isPlaying ? "play.fill" : "pause.fill")
         Label {
             if artist.isEmpty {
                 Text(title)

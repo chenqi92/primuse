@@ -13,6 +13,7 @@ struct MacSidebar: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(SourcesStore.self) private var sourcesStore
+    @Environment(RadioStationsStore.self) private var radioStationsStore
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(\.pmAppearance) private var mode
 
@@ -80,6 +81,9 @@ struct MacSidebar: View {
             item(route: .section(.artists), icon: "music.mic",
                  title: LibrarySection.artists.title,
                  trailing: countLabel(library.visibleArtists.count))
+            item(route: .section(.radio), icon: "radio.fill",
+                 title: LibrarySection.radio.title,
+                 trailing: countLabel(radioStationsStore.stations.count))
             // "我喜欢的" 作为资料库的固定快捷入口 (设计稿 LIB 侧栏)。它底层就是
             // likedSongsPlaylistID 那个系统歌单, 所以下面的「歌单」分区会把它过滤掉,
             // 避免同一个东西出现两次。

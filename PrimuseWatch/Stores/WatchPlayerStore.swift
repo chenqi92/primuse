@@ -19,6 +19,7 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
     var album: String = ""
     var isPlaying: Bool = false
     var isLoading: Bool = false
+    var isLiveStream: Bool = false
     var duration: TimeInterval = 0
     var currentTime: TimeInterval = 0
     /// 跟随 iPhone 推过来的 ThemeService accentColor; 默认深海青。
@@ -83,9 +84,11 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 100_000_000)
                 guard let self else { return }
-                if self.isPlaying, !self.isLoading, self.duration > 0 {
+                if self.isPlaying, !self.isLoading {
                     let extrapolated = self.sentCurrentTime + Date().timeIntervalSince1970 - self.sentTimeAnchor
-                    self.currentTime = min(self.duration, max(0, extrapolated))
+                    self.currentTime = self.isLiveStream
+                        ? max(0, extrapolated)
+                        : min(self.duration, max(0, extrapolated))
                 }
             }
         }
@@ -110,10 +113,17 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
             return
         }
         let previousPlaying = isPlaying
+        let previousLoading = isLoading
         let previousCurrentTime = currentTime
         let previousSentTime = sentCurrentTime
         let previousAnchor = sentTimeAnchor
-        isPlaying.toggle()
+        if isLiveStream {
+            let wasConnected = isPlaying || isLoading
+            isPlaying = !wasConnected
+            isLoading = false
+        } else {
+            isPlaying.toggle()
+        }
         lastUserToggleAt = Date()
         if isPlaying {
             // 切到 "playing" 时校准外推基准, 否则 currentTime 会从 0 跳。
@@ -123,14 +133,22 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
         send(["command": "togglePlayPause"]) { [weak self] in
             guard let self else { return }
             self.isPlaying = previousPlaying
+            self.isLoading = previousLoading
             self.currentTime = previousCurrentTime
             self.sentCurrentTime = previousSentTime
             self.sentTimeAnchor = previousAnchor
         }
     }
-    func next() { send(["command": "next"]) }
-    func previous() { send(["command": "previous"]) }
+    func next() {
+        guard !isLiveStream else { return }
+        send(["command": "next"])
+    }
+    func previous() {
+        guard !isLiveStream else { return }
+        send(["command": "previous"])
+    }
     func seek(to time: TimeInterval) {
+        guard !isLiveStream else { return }
         guard canSendRealtimeCommand else {
             requestCurrentState()
             return
@@ -288,6 +306,7 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
         artist = snap.artist
         album = snap.album
         isLoading = snap.isLoading
+        isLiveStream = snap.isLiveStream
         duration = snap.duration
         queueCount = snap.queueCount
         currentLyric = snap.currentLyric
@@ -326,12 +345,14 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
         // 当 App Group 没在 dev portal 配好时, UserDefaults(suiteName:) 会
         // 返回 nil, write 内部静默失败, 不影响 watch app 主体功能。
         let complicationKey = ComplicationKey(
-            songID: songID, title: title, artist: artist, isPlaying: isPlaying
+            songID: songID, title: title, artist: artist,
+            isPlaying: isPlaying, isLiveStream: isLiveStream
         )
         if complicationKey != lastComplicationKey {
             lastComplicationKey = complicationKey
             SharedNowPlayingState.write(
-                songID: songID, title: title, artist: artist, isPlaying: isPlaying
+                songID: songID, title: title, artist: artist,
+                isPlaying: isPlaying, isLiveStream: isLiveStream
             )
             WidgetCenter.shared.reloadTimelines(ofKind: SharedNowPlayingState.widgetKind)
         }
@@ -343,6 +364,7 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
         let title: String
         let artist: String
         let isPlaying: Bool
+        let isLiveStream: Bool
     }
 }
 
@@ -363,6 +385,7 @@ struct ContextSnapshot: Sendable {
     let album: String
     let isPlaying: Bool
     let isLoading: Bool
+    let isLiveStream: Bool
     let duration: TimeInterval
     let currentTime: TimeInterval
     let currentTimeAnchor: TimeInterval
@@ -379,6 +402,7 @@ struct ContextSnapshot: Sendable {
         album = ctx["album"] as? String ?? ""
         isPlaying = ctx["isPlaying"] as? Bool ?? false
         isLoading = ctx["isLoading"] as? Bool ?? false
+        isLiveStream = ctx["isLiveStream"] as? Bool ?? false
         duration = ctx["duration"] as? Double ?? 0
         currentTime = ctx["currentTime"] as? Double ?? 0
         currentTimeAnchor = ctx["currentTimeAnchor"] as? Double ?? Date().timeIntervalSince1970

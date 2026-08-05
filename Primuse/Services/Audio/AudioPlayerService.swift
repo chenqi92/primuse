@@ -210,6 +210,8 @@ private struct MacWidgetPlaybackPublishRequest: Sendable {
     let currentTime: TimeInterval
     let duration: TimeInterval
     let queueSongIDs: [String]
+    let playbackKind: PlaybackKind
+    let radioStationID: String?
 }
 
 /// Serial, latest-wins widget publisher for macOS.
@@ -331,7 +333,9 @@ private actor MacWidgetPlaybackPublisher {
             isPlaying: request.isPlaying,
             currentTime: scope.includesProgress ? request.currentTime : 0,
             duration: scope.includesProgress ? request.duration : 0,
-            queueSongIDs: request.queueSongIDs
+            queueSongIDs: request.queueSongIDs,
+            playbackKind: request.playbackKind,
+            radioStationID: request.radioStationID
         )
         state.save()
 
@@ -496,6 +500,8 @@ private actor MacWidgetPlaybackPublisher {
             state.albumTitle ?? "",
             state.coverImageName ?? "",
             state.isPlaying ? "1" : "0",
+            state.playbackKind?.rawValue ?? PlaybackKind.track.rawValue,
+            state.radioStationID ?? "",
             String(state.currentTime.rounded().finiteInt()),
             String(state.duration.rounded().finiteInt()),
         ].joined(separator: "|")
@@ -517,6 +523,15 @@ final class AudioPlayerService {
 
     private(set) var currentSong: Song?
     private(set) var isPlaying = false
+    private(set) var playbackKind: PlaybackKind = .track
+    private(set) var currentRadioStation: RadioStation?
+    private(set) var radioMetadataTitle: String?
+    private(set) var radioStreamFormat: RadioStreamFormat = .automatic
+    private(set) var radioBitRate: Int?
+    var isLiveRadio: Bool { playbackKind == .liveRadio }
+    var playbackCapabilities: PlaybackPresentationCapabilities {
+        .capabilities(for: playbackKind)
+    }
     /// 「歌播完了但 queue 没下一首」的状态 —— Apple Music / Spotify 风格的
     /// "已播完待重播"。currentSong / queue / currentIndex 全保留, 只是
     /// 引擎停了 + currentTime = 0 + isPlaying = false。用户点 play 会从头
@@ -658,7 +673,7 @@ final class AudioPlayerService {
 
     var isCastingMode: Bool { castingRenderer != nil }
     private var isPlaybackActuallyActive: Bool {
-        if isAppleMusicMode || isCastingMode || isMusicVideoPlaybackActive {
+        if isLiveRadio || isAppleMusicMode || isCastingMode || isMusicVideoPlaybackActive {
             return isPlaying
         }
         return isPlaying && audioEngine.isActuallyPlaying
@@ -677,6 +692,16 @@ final class AudioPlayerService {
     private var musicVideoEndObserver: NSObjectProtocol?
     private var musicVideoStatusObservation: NSKeyValueObservation?
     private var musicVideoFailedObserver: NSObjectProtocol?
+    private let radioPlaybackController = RadioPlaybackController()
+    private var radioLiveStreamSource: RadioLiveStreamSource?
+    private var radioUsesDecodedTransport = false
+    private var radioPrefersDecodedTransport = false
+    private var radioDidAttemptDecodedFallback = false
+    private var radioDecodedFallbackNeedsValidation = false
+    private var radioStationOrder: [RadioStation] = []
+    private var radioReconnectTask: Task<Void, Never>?
+    private var radioReconnectAttempt = 0
+    private var radioPlaybackStartedAt: Date?
     /// AVAssetResourceLoader 对 delegate 是弱引用, 流式播放期间必须强持有。
     private var musicVideoStreamingLoader: MusicVideoStreamingLoader?
     #if os(iOS)
@@ -691,7 +716,7 @@ final class AudioPlayerService {
               song.mvPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
             return false
         }
-        return !isAppleMusicMode && !isCastingMode && !shouldForceAudioOnly
+        return !isLiveRadio && !isAppleMusicMode && !isCastingMode && !shouldForceAudioOnly
     }
 
     private var shouldForceAudioOnly: Bool {
@@ -757,6 +782,7 @@ final class AudioPlayerService {
     private static let trackEndStallSampleThreshold = 4
     private let nativeDecoder = NativeAudioDecoder()
     private let ffmpegDecoder = FFmpegAudioDecoder()
+    private let radioFLACDecoder = RadioFLACAudioDecoder()
 
     /// 一次性 hint: 搜索页点歌词命中结果时填入, NowPlayingView 加载好歌词后
     /// 用这串文本 fuzzy match 找到对应 LyricLine.timestamp 并 seek。命中后
@@ -914,6 +940,10 @@ final class AudioPlayerService {
     /// 翻译过来设上, 让 NowPlayingView 复用同一份实现; 仅本地引擎和 time
     /// updater 停掉。
     private func yieldToAppleMusic(requestID: UUID) {
+        if isLiveRadio {
+            stopRadioTransport(clearSelection: true)
+        }
+        playbackKind = .track
         let appleMusic = AppServices.shared.appleMusic
         guard appleMusic.isPlaybackRequestActive(requestID) else { return }
         appleMusicPlaybackTask?.cancel()
@@ -1600,7 +1630,475 @@ final class AudioPlayerService {
 
     // MARK: - Playback Control
 
+    func play(station: RadioStation, within stations: [RadioStation] = []) async {
+        guard let url = station.url else {
+            showPlaybackError(String(localized: "radio_invalid_url"))
+            return
+        }
+        if TrustedHTTPTransport.requiresPlainSocket(for: url),
+           let host = url.host,
+           !SSLTrustStore.allowsInsecureHTTPHostSync(domain: host) {
+            showPlaybackError(String(format: String(localized: "insecure_http_permission_required %@"), host))
+            return
+        }
+
+        let id = UUID()
+        playID = id
+        beginPlaybackErrorScope()
+        clearPendingPlaybackRecovery()
+        radioReconnectTask?.cancel()
+        radioReconnectTask = nil
+        radioReconnectAttempt = 0
+        let inferredFormat = RadioStreamFormat.inferred(from: url)
+        radioPrefersDecodedTransport = station.streamFormat == .flac || inferredFormat == .flac
+        radioDidAttemptDecodedFallback = radioPrefersDecodedTransport
+        radioDecodedFallbackNeedsValidation = false
+
+        if let controller = castingController {
+            castingPositionTask?.cancel()
+            castingPositionTask = nil
+            try? await controller.stop()
+            castingRenderer = nil
+            castingController = nil
+        }
+        appleMusicPlaybackTask?.cancel()
+        appleMusicPlaybackTask = nil
+        appleMusicTimeoutTask?.cancel()
+        appleMusicTimeoutTask = nil
+        activeAppleMusicRequestID = nil
+        stopAppleMusicMirror()
+        AppServices.shared.appleMusic.stopAppleMusic()
+        isPrimuseManagingAppleMusicQueue = false
+
+        if let previous = currentSong,
+           previous.sourceID != RadioStation.playbackSourceID {
+            sourceManager?.finalizeStreamingSession(for: previous)
+            ScrobbleService.shared.handlePlaybackStopped()
+            PlayHistoryStore.shared.endSession()
+        }
+        decodingTask?.cancel()
+        decodingTask = nil
+        prefetchTask?.cancel()
+        prefetchTask = nil
+        cancelGaplessTasks()
+        cancelCrossfadeAttempt()
+        sourceManager?.cancelBackgroundAudioCaching(keeping: [])
+        audioEngine.stopPlayback()
+        hasPreparedLocalPlayback = false
+        stopMusicVideoPlayback(clearPlayer: true)
+        stopTimeUpdater()
+        radioPlaybackController.stop()
+
+        playbackKind = .liveRadio
+        currentRadioStation = station
+        radioMetadataTitle = nil
+        radioStreamFormat = station.streamFormat
+        radioBitRate = station.bitRate
+        radioStationOrder = (stations.isEmpty ? [station] : stations.filter { !$0.isDeleted })
+        if !radioStationOrder.contains(where: { $0.id == station.id }) {
+            radioStationOrder.append(station)
+        }
+        currentSong = station.playbackSong
+        currentTime = 0
+        duration = 0
+        isAtTrackEnd = false
+        isPlaying = false
+        isLoading = true
+        radioPlaybackStartedAt = nil
+        queueEntries = []
+        currentIndex = 0
+        invalidateQueueTransitions()
+        AppServices.shared.radioStationsStore.markPlayed(station.id)
+
+        _ = AudioSessionManager.shared.activatePlaybackSession()
+        updateNowPlayingInfo()
+        updateNowPlayingArtworkIfNeeded()
+        updatePlaybackState()
+        startRadioTransport(station: station, playID: id)
+    }
+
+    func testRadioStream(url: URL) async -> Result<Void, Error> {
+        if TrustedHTTPTransport.requiresPlainSocket(for: url),
+           let host = url.host,
+           !SSLTrustStore.allowsInsecureHTTPHostSync(domain: host) {
+            return .failure(TrustedHTTPTransportError.permissionRequired(host: host))
+        }
+        let inferredFormat = RadioStreamFormat.inferred(from: url)
+        if inferredFormat == .flac {
+            return await testDecodedRadioStream(url: url)
+        }
+        let nativeResult = await RadioPlaybackController.probe(url: url)
+        guard case .failure = nativeResult, inferredFormat == .automatic else {
+            return nativeResult
+        }
+        let decodedResult = await testDecodedRadioStream(url: url)
+        if case .success = decodedResult { return decodedResult }
+        return nativeResult
+    }
+
+    private func testDecodedRadioStream(url: URL) async -> Result<Void, Error> {
+        let source = RadioLiveStreamSource(url: url)
+        defer { source.cancel() }
+        do {
+            let prepared = try await source.prepare()
+            guard let outputFormat = AVAudioFormat(
+                standardFormatWithSampleRate: 44_100,
+                channels: 2
+            ) else {
+                return .failure(AudioDecoderError.converterCreationFailed)
+            }
+            let stream = radioFLACDecoder.decode(
+                from: source,
+                prepared: prepared,
+                outputFormat: outputFormat
+            )
+            let iterator = BufferIteratorBox(stream.makeAsyncIterator())
+            let firstBuffer = try await awaitFirstBuffer(from: iterator, timeoutSeconds: 15)
+            return firstBuffer?.frameLength ?? 0 > 0
+                ? .success(())
+                : .failure(AudioDecoderError.decodingFailed("No live audio frames"))
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    private func startRadioTransport(station: RadioStation, playID id: UUID) {
+        guard let url = station.url, playID == id, currentRadioStation?.id == station.id else { return }
+        radioPlaybackController.stop()
+        radioLiveStreamSource?.cancel()
+        radioLiveStreamSource = nil
+        decodingTask?.cancel()
+        decodingTask = nil
+        audioEngine.stopPlayback()
+
+        if radioPrefersDecodedTransport {
+            startDecodedRadioTransport(station: station, url: url, playID: id)
+            return
+        }
+        radioUsesDecodedTransport = false
+        radioPlaybackController.start(url: url, volume: audioEngine.volume) { [weak self] event in
+            guard let self, self.playID == id, self.currentRadioStation?.id == station.id else { return }
+            self.handleRadioEvent(event, station: station, playID: id)
+        }
+    }
+
+    private func startDecodedRadioTransport(
+        station: RadioStation,
+        url: URL,
+        playID id: UUID
+    ) {
+        radioUsesDecodedTransport = true
+        let source = RadioLiveStreamSource(url: url) { [weak self] title in
+            Task { @MainActor [weak self] in
+                guard let self,
+                      self.playID == id,
+                      self.currentRadioStation?.id == station.id else { return }
+                self.handleRadioEvent(.metadata(title: title), station: station, playID: id)
+            }
+        }
+        radioLiveStreamSource = source
+        handleRadioEvent(.loading, station: station, playID: id)
+
+        decodingTask = Task { [weak self, source] in
+            guard let self else { return }
+            do {
+                let prepared = try await source.prepare()
+                guard !Task.isCancelled,
+                      self.playID == id,
+                      self.currentRadioStation?.id == station.id,
+                      self.radioLiveStreamSource === source else { return }
+
+                let settings = self.playbackSettings.snapshot()
+                _ = AudioSessionManager.shared.activatePlaybackSession()
+                try self.audioEngine.configure(
+                    outputMode: settings.outputMode,
+                    directSourceFormat: nil
+                )
+                self.audioEngine.applyPlaybackRate(1)
+                self.applySpatialAudioSettings()
+                self.audioEffectsService.applySettings()
+                self.equalizerService.applySettings()
+                guard let outputFormat = self.audioEngine.outputFormat else {
+                    throw AudioDecoderError.decodingFailed("Audio engine not ready")
+                }
+                try self.audioEngine.start()
+                self.audioEngine.resetPlayerVolume()
+
+                let stream = self.radioFLACDecoder.decode(
+                    from: source,
+                    prepared: prepared,
+                    outputFormat: outputFormat
+                )
+                let iterator = BufferIteratorBox(stream.makeAsyncIterator())
+                guard let firstBuffer = try await self.awaitFirstBuffer(
+                    from: iterator,
+                    timeoutSeconds: 15
+                ) else {
+                    throw AudioDecoderError.decodingFailed("No live audio frames")
+                }
+                guard !Task.isCancelled,
+                      self.playID == id,
+                      self.currentRadioStation?.id == station.id,
+                      self.radioLiveStreamSource === source else { return }
+
+                self.audioEngine.scheduleBuffer(firstBuffer)
+                self.hasPreparedLocalPlayback = true
+                guard self.audioEngine.play() else {
+                    throw AudioDecoderError.decodingFailed("Audio engine failed to start")
+                }
+                self.handleRadioEvent(
+                    .ready(format: prepared.format, bitRate: prepared.bitRate),
+                    station: station,
+                    playID: id
+                )
+                self.handleRadioEvent(.playing, station: station, playID: id)
+                self.consumeDecodedRadioStream(
+                    iterator,
+                    source: source,
+                    station: station,
+                    playID: id
+                )
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled,
+                      self.playID == id,
+                      self.currentRadioStation?.id == station.id,
+                      self.radioLiveStreamSource === source else { return }
+                self.finishDecodedRadioTransport(
+                    source: source,
+                    station: station,
+                    playID: id,
+                    message: error.localizedDescription
+                )
+            }
+        }
+    }
+
+    private func consumeDecodedRadioStream(
+        _ iterator: BufferIteratorBox,
+        source: RadioLiveStreamSource,
+        station: RadioStation,
+        playID id: UUID
+    ) {
+        let gate = AsyncBufferGate(
+            maxBufferedDuration: Self.decodedAudioLookahead,
+            maxBufferCount: Self.maxInFlightDecodedBufferCount
+        )
+        decodingTask = Task { [weak self, iterator, source, gate] in
+            guard let self else { return }
+            var lastBuffer: AVAudioPCMBuffer?
+            var terminalMessage = String(localized: "radio_stream_ended")
+            defer { Task { await gate.drain() } }
+
+            do {
+                while let buffer = try await iterator.next() {
+                    guard !Task.isCancelled,
+                          self.playID == id,
+                          self.currentRadioStation?.id == station.id,
+                          self.radioLiveStreamSource === source else { return }
+                    if let previous = lastBuffer {
+                        let bufferedDuration = Self.decodedBufferDuration(previous)
+                        await gate.acquire(duration: bufferedDuration)
+                        guard !Task.isCancelled,
+                              self.playID == id,
+                              self.currentRadioStation?.id == station.id else { return }
+                        self.audioEngine.scheduleBuffer(
+                            previous,
+                            completionCallbackType: .dataConsumed
+                        ) { _ in gate.release(duration: bufferedDuration) }
+                    }
+                    lastBuffer = buffer
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                terminalMessage = error.localizedDescription
+            }
+
+            guard !Task.isCancelled,
+                  self.playID == id,
+                  self.currentRadioStation?.id == station.id,
+                  self.radioLiveStreamSource === source else { return }
+            if let lastBuffer {
+                let message = terminalMessage
+                self.audioEngine.scheduleBuffer(
+                    lastBuffer,
+                    completionCallbackType: .dataPlayedBack
+                ) { [weak self, source] _ in
+                    Task { @MainActor [weak self] in
+                        self?.finishDecodedRadioTransport(
+                            source: source,
+                            station: station,
+                            playID: id,
+                            message: message
+                        )
+                    }
+                }
+            } else {
+                finishDecodedRadioTransport(
+                    source: source,
+                    station: station,
+                    playID: id,
+                    message: terminalMessage
+                )
+            }
+        }
+    }
+
+    private func finishDecodedRadioTransport(
+        source: RadioLiveStreamSource,
+        station: RadioStation,
+        playID id: UUID,
+        message: String
+    ) {
+        guard playID == id,
+              currentRadioStation?.id == station.id,
+              radioLiveStreamSource === source else { return }
+        source.cancel()
+        radioLiveStreamSource = nil
+        decodingTask = nil
+        audioEngine.stopPlayback()
+        hasPreparedLocalPlayback = false
+        if radioDecodedFallbackNeedsValidation {
+            radioPrefersDecodedTransport = false
+            radioDecodedFallbackNeedsValidation = false
+        }
+        handleRadioEvent(
+            .failed(message: message, shouldReconnect: true),
+            station: station,
+            playID: id
+        )
+    }
+
+    private func handleRadioEvent(
+        _ event: RadioPlaybackController.Event,
+        station: RadioStation,
+        playID id: UUID
+    ) {
+        guard playID == id, currentRadioStation?.id == station.id else { return }
+        switch event {
+        case .loading:
+            isLoading = true
+            isPlaying = false
+        case .ready(let format, let bitRate):
+            if format != .automatic { radioStreamFormat = format }
+            if let bitRate { radioBitRate = bitRate }
+            updateRadioPresentation()
+        case .playing:
+            isLoading = false
+            isPlaying = true
+            if radioUsesDecodedTransport {
+                radioDecodedFallbackNeedsValidation = false
+            }
+            radioReconnectAttempt = 0
+            if radioPlaybackStartedAt == nil { radioPlaybackStartedAt = Date() }
+            startTimeUpdater()
+        case .buffering:
+            isLoading = true
+            isPlaying = false
+        case .metadata(let title):
+            radioMetadataTitle = title
+            updateRadioPresentation()
+        case .failed(let message, let shouldReconnect):
+            if !radioUsesDecodedTransport,
+               !radioDidAttemptDecodedFallback,
+               station.streamFormat == .automatic,
+               station.url.map({ RadioStreamFormat.inferred(from: $0) == .automatic }) == true {
+                radioDidAttemptDecodedFallback = true
+                radioPrefersDecodedTransport = true
+                radioDecodedFallbackNeedsValidation = true
+                startRadioTransport(station: station, playID: id)
+                return
+            }
+            isLoading = false
+            isPlaying = false
+            stopTimeUpdater()
+            showPlaybackError(message)
+            if shouldReconnect {
+                scheduleRadioReconnect(station: station, playID: id)
+            }
+        }
+        updateNowPlayingInfo()
+        updatePlaybackState()
+    }
+
+    private func updateRadioPresentation() {
+        guard var station = currentRadioStation else { return }
+        station.streamFormat = radioStreamFormat
+        station.bitRate = radioBitRate
+        currentRadioStation = station
+        var song = station.playbackSong
+        song.artistName = radioMetadataTitle ?? station.playbackSubtitle
+        currentSong = song
+        updateNowPlayingInfo()
+        updatePlaybackState()
+    }
+
+    private func scheduleRadioReconnect(station: RadioStation, playID id: UUID) {
+        radioReconnectTask?.cancel()
+        radioReconnectAttempt += 1
+        let delay = min(pow(2, Double(max(0, radioReconnectAttempt - 1))), 15)
+        isLoading = true
+        radioReconnectTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(delay))
+            } catch {
+                return
+            }
+            guard let self,
+                  self.playID == id,
+                  self.currentRadioStation?.id == station.id else { return }
+            self.radioPlaybackStartedAt = nil
+            self.startRadioTransport(station: station, playID: id)
+        }
+    }
+
+    private func stopRadioTransport(clearSelection: Bool) {
+        radioReconnectTask?.cancel()
+        radioReconnectTask = nil
+        radioPlaybackController.stop()
+        radioLiveStreamSource?.cancel()
+        radioLiveStreamSource = nil
+        if radioUsesDecodedTransport {
+            decodingTask?.cancel()
+            decodingTask = nil
+            audioEngine.stopPlayback()
+            hasPreparedLocalPlayback = false
+        }
+        radioUsesDecodedTransport = false
+        radioPrefersDecodedTransport = false
+        radioDidAttemptDecodedFallback = false
+        radioDecodedFallbackNeedsValidation = false
+        stopTimeUpdater()
+        isPlaying = false
+        isLoading = false
+        currentTime = 0
+        radioPlaybackStartedAt = nil
+        if clearSelection {
+            currentRadioStation = nil
+            radioMetadataTitle = nil
+            radioStreamFormat = .automatic
+            radioBitRate = nil
+            radioStationOrder = []
+            playbackKind = .track
+            if currentSong?.sourceID == RadioStation.playbackSourceID {
+                currentSong = nil
+            }
+        }
+    }
+
+    func setPlaybackVolume(_ value: Float) {
+        let clamped = min(max(value, 0), 1)
+        audioEngine.volume = clamped
+        radioPlaybackController.setVolume(clamped)
+    }
+
     func play(song: Song, caller: String = #fileID, callerLine: Int = #line) async {
+        if isLiveRadio {
+            stopRadioTransport(clearSelection: true)
+        }
+        playbackKind = .track
         // Invalidate any pending operations immediately
         if pendingAppleMusicRestoredPosition?.songID != song.id {
             pendingAppleMusicRestoredPosition = nil
@@ -2039,6 +2537,10 @@ final class AudioPlayerService {
     }
 
     func play(song: Song, from url: URL) async {
+        if isLiveRadio {
+            stopRadioTransport(clearSelection: true)
+        }
+        playbackKind = .track
         // 与主 play(song:) 一致的路由: 投屏时推远端、Apple Music 镜像时先停镜像。
         // 否则本地 audioEngine 会与远端 renderer / 系统播放器同时出声, 且 mirror task
         // 仍会把 currentSong 改回 Apple Music 那首。
@@ -3324,6 +3826,13 @@ final class AudioPlayerService {
     }
 
     func pause() {
+        if isLiveRadio {
+            playID = UUID()
+            stopRadioTransport(clearSelection: false)
+            updateNowPlayingInfo()
+            updatePlaybackState()
+            return
+        }
         if isAppleMusicMode {
             if AppServices.shared.appleMusic.pauseAppleMusic() {
                 isPlaying = false
@@ -3363,6 +3872,12 @@ final class AudioPlayerService {
     }
 
     func resume() {
+        if isLiveRadio {
+            guard let station = currentRadioStation else { return }
+            let stations = radioStationOrder
+            Task { await play(station: station, within: stations) }
+            return
+        }
         if isAppleMusicMode {
             guard let song = currentSong else { return }
             let appleMusic = AppServices.shared.appleMusic
@@ -3730,6 +4245,14 @@ final class AudioPlayerService {
     }
 
     func togglePlayPause() {
+        if isLiveRadio {
+            if isPlaying || isLoading {
+                pause()
+            } else {
+                resume()
+            }
+            return
+        }
         if isAppleMusicMode {
             AppServices.shared.appleMusic.togglePlayPauseAppleMusic()
             return
@@ -3762,6 +4285,14 @@ final class AudioPlayerService {
     }
 
     func stop() {
+        if isLiveRadio {
+            playID = UUID()
+            stopRadioTransport(clearSelection: true)
+            queueEntries = []
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            updatePlaybackState()
+            return
+        }
         let stopOwnerID = UUID()
         playID = stopOwnerID
         beginPlaybackErrorScope()
@@ -3867,6 +4398,17 @@ final class AudioPlayerService {
     }
 
     func next(caller: String = #fileID, callerLine: Int = #line) async {
+        if isLiveRadio {
+            guard let station = currentRadioStation,
+                  radioStationOrder.count > 1,
+                  let index = radioStationOrder.firstIndex(where: { $0.id == station.id }) else { return }
+            let nextIndex = radioStationOrder.index(after: index)
+            let target = nextIndex < radioStationOrder.endIndex
+                ? radioStationOrder[nextIndex]
+                : radioStationOrder[0]
+            await play(station: target, within: radioStationOrder)
+            return
+        }
         if isAppleMusicMode && !isPrimuseManagingAppleMusicQueue {
             AppServices.shared.appleMusic.skipToNextAppleMusic()
             return
@@ -3902,6 +4444,14 @@ final class AudioPlayerService {
     }
 
     func previous() async {
+        if isLiveRadio {
+            guard let station = currentRadioStation,
+                  radioStationOrder.count > 1,
+                  let index = radioStationOrder.firstIndex(where: { $0.id == station.id }) else { return }
+            let previousIndex = index > 0 ? index - 1 : radioStationOrder.count - 1
+            await play(station: radioStationOrder[previousIndex], within: radioStationOrder)
+            return
+        }
         if isAppleMusicMode && !isPrimuseManagingAppleMusicQueue {
             // 跟本地行为一致 ── 播放进度过 3s 时倒回开头, 否则跳上一首。
             if currentTime > 3 {
@@ -3936,6 +4486,7 @@ final class AudioPlayerService {
     private var seekTimeOffset: TimeInterval = 0
 
     func seek(to time: TimeInterval, startPlaying: Bool? = nil, isRecovery: Bool = false) {
+        guard !isLiveRadio else { return }
         if isAppleMusicMode {
             AppServices.shared.appleMusic.seekAppleMusic(to: TimeInterval.sanitized(time))
             return
@@ -5435,6 +5986,12 @@ final class AudioPlayerService {
         displayLink = Timer.scheduledTimer(withTimeInterval: Self.timeUpdateInterval, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                if self.isLiveRadio {
+                    if let startedAt = self.radioPlaybackStartedAt, self.isPlaying {
+                        self.currentTime = max(0, Date().timeIntervalSince(startedAt))
+                    }
+                    return
+                }
                 // crossfade 期间 audioEngine 报的还是旧曲 primary node 时间,
                 // 但 UI 已经切到新曲, 直接刷会让进度条乱跳。等 swap 完成
                 // (isCrossfading=false) 再继续。
@@ -5872,21 +6429,25 @@ final class AudioPlayerService {
             return
         }
 
-        let elapsedTime = max(0, min(currentTime, duration > 0 ? duration : currentTime))
-
         // Create fresh info but preserve existing artwork
         var info = [String: Any]()
         info[MPMediaItemPropertyTitle] = currentSong?.title ?? ""
         info[MPMediaItemPropertyArtist] = currentSong?.artistName ?? ""
-        info[MPMediaItemPropertyAlbumTitle] = currentSong?.albumTitle ?? ""
-        info[MPMediaItemPropertyPlaybackDuration] = duration
-        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = elapsedTime
         info[MPNowPlayingInfoPropertyDefaultPlaybackRate] = 1.0
         info[MPNowPlayingInfoPropertyPlaybackRate] = projection.playbackRate
         info[MPNowPlayingInfoPropertyMediaType] = isMusicVideoPlaybackActive
             ? MPNowPlayingInfoMediaType.video.rawValue
             : MPNowPlayingInfoMediaType.audio.rawValue
-        if queueEntries.indices.contains(currentIndex) {
+        if isLiveRadio {
+            info[MPMediaItemPropertyAlbumTitle] = currentRadioStation?.name ?? ""
+            info[MPNowPlayingInfoPropertyIsLiveStream] = true
+        } else {
+            let elapsedTime = max(0, min(currentTime, duration > 0 ? duration : currentTime))
+            info[MPMediaItemPropertyAlbumTitle] = currentSong?.albumTitle ?? ""
+            info[MPMediaItemPropertyPlaybackDuration] = duration
+            info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = elapsedTime
+        }
+        if !isLiveRadio, queueEntries.indices.contains(currentIndex) {
             info[MPNowPlayingInfoPropertyPlaybackQueueCount] = queueEntries.count
             info[MPNowPlayingInfoPropertyPlaybackQueueIndex] = currentIndex
         }
@@ -5908,7 +6469,10 @@ final class AudioPlayerService {
         let center = MPRemoteCommandCenter.shared()
         center.playCommand.isEnabled = projection.playCommandEnabled
         center.pauseCommand.isEnabled = projection.pauseCommandEnabled
-        center.togglePlayPauseCommand.isEnabled = currentSong != nil && !isLoading
+        center.togglePlayPauseCommand.isEnabled = currentSong != nil && (!isLoading || isLiveRadio)
+        center.changePlaybackPositionCommand.isEnabled = playbackCapabilities.canSeek
+        center.nextTrackCommand.isEnabled = !isLiveRadio || radioStationOrder.count > 1
+        center.previousTrackCommand.isEnabled = !isLiveRadio || radioStationOrder.count > 1
     }
 
     /// Call ONLY when song changes — loads cover art and sets MPMediaItemPropertyArtwork
@@ -6083,6 +6647,7 @@ final class AudioPlayerService {
         }
         center.changePlaybackPositionCommand.addTarget { [weak self] event in
             guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
+            guard self?.playbackCapabilities.canSeek == true else { return .commandFailed }
             self?.seek(to: event.positionTime); return .success
         }
         updateNowPlayingInfo()
@@ -6090,7 +6655,7 @@ final class AudioPlayerService {
 
     private func handleRemotePlayCommand() -> MPRemoteCommandHandlerStatus {
         guard currentSong != nil else { return .noActionableNowPlayingItem }
-        guard !isLoading else { return .commandFailed }
+        guard !isLoading || isLiveRadio else { return .commandFailed }
         guard !isPlaybackActuallyActive else { return .success }
 
         let expectsSynchronousEngineResult = !isAppleMusicMode
@@ -6107,7 +6672,7 @@ final class AudioPlayerService {
 
     private func handleRemotePauseCommand() -> MPRemoteCommandHandlerStatus {
         guard currentSong != nil else { return .noActionableNowPlayingItem }
-        guard !isLoading else { return .commandFailed }
+        guard !isLoading || isLiveRadio else { return .commandFailed }
         guard isPlaybackActuallyActive else { return .success }
         let isAsynchronousRoute = isCastingMode
         pause()
@@ -6232,6 +6797,7 @@ final class AudioPlayerService {
 
     private func persistPlaybackSession(clearWhenEmpty: Bool = false) {
         guard !isRestoringPlaybackSession else { return }
+        guard !isLiveRadio else { return }
         guard let song = currentSong else {
             guard clearWhenEmpty else { return }
             do {
@@ -6306,7 +6872,9 @@ final class AudioPlayerService {
             isPlaying: isPlaying,
             currentTime: currentTime,
             duration: duration,
-            queueSongIDs: queue.map(\.id)
+            queueSongIDs: isLiveRadio ? [] : queue.map(\.id),
+            playbackKind: playbackKind,
+            radioStationID: currentRadioStation?.id
         )
         Task {
             await MacWidgetPlaybackPublisher.shared.enqueue(request)
@@ -6394,7 +6962,9 @@ final class AudioPlayerService {
             // hasn't granted progress disclosure (defaults to 0 via the init).
             currentTime: scope.includesProgress ? currentTime : 0,
             duration: scope.includesProgress ? duration : 0,
-            queueSongIDs: queue.map(\.id)
+            queueSongIDs: isLiveRadio ? [] : queue.map(\.id),
+            playbackKind: playbackKind,
+            radioStationID: currentRadioStation?.id
         )
         state.save()
 
@@ -6593,6 +7163,8 @@ final class AudioPlayerService {
             state.albumTitle ?? "",
             state.coverImageName ?? "",
             state.isPlaying ? "1" : "0",
+            state.playbackKind?.rawValue ?? PlaybackKind.track.rawValue,
+            state.radioStationID ?? "",
             String(state.currentTime.rounded().finiteInt()),
             String(state.duration.rounded().finiteInt())
         ].joined(separator: "|")

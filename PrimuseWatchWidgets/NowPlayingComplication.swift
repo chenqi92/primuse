@@ -40,7 +40,7 @@ struct NowPlayingProvider: TimelineProvider {
             date: Date(),
             snapshot: SharedNowPlayingState.Snapshot(
                 songID: "x", title: WatchString("ext.watch.demo.track"), artist: WatchString("ext.watch.demo.artist"),
-                isPlaying: true, updatedAt: Date()
+                isPlaying: true, isLiveStream: false, updatedAt: Date()
             )
         )
     }
@@ -121,6 +121,7 @@ struct NowPlayingComplicationView: View {
 
     private var iconName: String {
         guard entry.snapshot.hasSong else { return "music.note" }
+        if entry.snapshot.isLiveStream { return "dot.radiowaves.left.and.right" }
         return entry.snapshot.isPlaying ? "play.fill" : "pause.fill"
     }
 }

@@ -38,6 +38,9 @@ final class WatchSessionBridge: NSObject {
     private var lastPushedSongID: String = ""
     private var lastPushedIsPlaying: Bool = false
     private var lastPushedIsLoading: Bool = false
+    private var lastPushedIsLiveStream: Bool = false
+    private var lastPushedTitle: String = ""
+    private var lastPushedArtist: String = ""
     private var lastPushedLyric: String = ""
     /// Quantized RGB of the last delivered artwork accent. Cover extraction is
     /// asynchronous, so the color can change after the first state for a song.
@@ -103,7 +106,10 @@ final class WatchSessionBridge: NSObject {
         let songID = song?.id ?? ""
         let isPlaying = player.isPlaying
         let isLoading = player.isLoading
-        let lyric = currentLyricLine(song: song, time: player.currentTime)
+        let isLiveStream = player.isLiveRadio
+        let title = song?.title ?? ""
+        let artist = song?.artistName ?? ""
+        let lyric = isLiveStream ? "" : currentLyricLine(song: song, time: player.currentTime)
         let accentSignature = currentAccentSignature()
 
         let songChanged = songID != lastPushedSongID
@@ -111,6 +117,9 @@ final class WatchSessionBridge: NSObject {
             || songChanged
             || isPlaying != lastPushedIsPlaying
             || isLoading != lastPushedIsLoading
+            || isLiveStream != lastPushedIsLiveStream
+            || title != lastPushedTitle
+            || artist != lastPushedArtist
             || lyric != lastPushedLyric
             || accentSignature != lastPushedAccentSignature
 
@@ -123,6 +132,9 @@ final class WatchSessionBridge: NSObject {
         lastPushedSongID = songID
         lastPushedIsPlaying = isPlaying
         lastPushedIsLoading = isLoading
+        lastPushedIsLiveStream = isLiveStream
+        lastPushedTitle = title
+        lastPushedArtist = artist
         lastPushedLyric = lyric
         lastPushedAccentSignature = accentSignature
 
@@ -209,11 +221,12 @@ final class WatchSessionBridge: NSObject {
             "album": song?.albumTitle ?? "",
             "isPlaying": isPlaying,
             "isLoading": isLoading,
-            "duration": player?.duration ?? 0,
+            "isLiveStream": player?.isLiveRadio ?? false,
+            "duration": player?.isLiveRadio == true ? 0 : (player?.duration ?? 0),
             "currentTime": player?.currentTime ?? 0,
             "currentTimeAnchor": Date().timeIntervalSince1970,
-            "queueCount": player?.queue.count ?? 0,
-            "currentLyric": lyric,
+            "queueCount": player?.isLiveRadio == true ? 0 : (player?.queue.count ?? 0),
+            "currentLyric": player?.isLiveRadio == true ? "" : lyric,
             "accentR": r, "accentG": g, "accentB": b,
         ]
     }
@@ -527,10 +540,13 @@ extension WatchSessionBridge: WCSessionDelegate {
         case "pause":
             if player.isPlaying { player.pause() }
         case "next":
+            guard !player.isLiveRadio else { return }
             await player.next(caller: "watch")
         case "previous":
+            guard !player.isLiveRadio else { return }
             await player.previous()
         case "seek":
+            guard !player.isLiveRadio else { return }
             if let t = cmd.time { player.seek(to: t) }
         case "requestState":
             // watch 主动拉状态 (冷启动 / 重新可达 / 前台) ── 视为 watch 端

@@ -10,7 +10,9 @@ struct PrimuseWatchApp: App {
             // 用 .verticalPage 比 NavigationStack 更适合小屏交互。
             TabView {
                 NowPlayingWatchView()
-                LibraryWatchView()
+                if !store.isLiveStream {
+                    LibraryWatchView()
+                }
             }
             .tabViewStyle(.verticalPage)
             .environment(store)

@@ -41,30 +41,36 @@ struct MiniPlayerView: View {
                             Image(systemName: "play.fill")
                                 .font(.body)
                                 .opacity(0)
-                            if player.isLoading {
+                            if player.isLoading && !player.isLiveRadio {
                                 ProgressView()
                                     .controlSize(.small)
                             } else {
-                                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                                Image(systemName: player.isLiveRadio && (player.isPlaying || player.isLoading)
+                                    ? "stop.fill"
+                                    : (player.isPlaying ? "pause.fill" : "play.fill"))
                                     .font(.body)
                                     .contentTransition(.symbolEffect(.replace))
                             }
                         }
                         .frame(width: 36, height: 36)
                     }
-                    .disabled(player.isLoading)
-                    .accessibilityLabel(player.isPlaying
-                        ? String(localized: "a11y_pause")
-                        : String(localized: "a11y_play"))
+                    .disabled(player.isLoading && !player.isLiveRadio)
+                    .accessibilityLabel(player.isLiveRadio && (player.isPlaying || player.isLoading)
+                        ? String(localized: "radio_stop")
+                        : (player.isPlaying
+                            ? String(localized: "a11y_pause")
+                            : String(localized: "a11y_play")))
 
-                    Button {
-                        Task { await player.next() }
-                    } label: {
-                        Image(systemName: "forward.fill")
-                            .font(.caption)
-                            .frame(width: 32, height: 32)
+                    if !player.isLiveRadio {
+                        Button {
+                            Task { await player.next() }
+                        } label: {
+                            Image(systemName: "forward.fill")
+                                .font(.caption)
+                                .frame(width: 32, height: 32)
+                        }
+                        .accessibilityLabel("a11y_next_track")
                     }
-                    .accessibilityLabel("a11y_next_track")
                 }
                 .fixedSize()
             }

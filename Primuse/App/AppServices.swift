@@ -6,6 +6,7 @@ final class AppServices {
     static let shared = AppServices()
 
     let sourcesStore: SourcesStore
+    let radioStationsStore: RadioStationsStore
     let sourceManager: SourceManager
     let playerService: AudioPlayerService
     let scraperSettingsStore: ScraperSettingsStore
@@ -66,6 +67,7 @@ final class AppServices {
         let keychainFinishedAt = ProcessInfo.processInfo.systemUptime
 
         let store = SourcesStore()
+        let radioStore = RadioStationsStore()
         let sourcesFinishedAt = ProcessInfo.processInfo.systemUptime
         let initiallyDisabledSourceIDs = Set(
             store.sources.filter { !$0.isEnabled }.map(\.id)
@@ -84,12 +86,14 @@ final class AppServices {
         let sync = CloudKitSyncService(
             library: library,
             sourcesStore: store,
+            radioStationsStore: radioStore,
             scraperConfigStore: .shared,
             scraperSettingsStore: scraperSettings
         )
         let coreServicesFinishedAt = ProcessInfo.processInfo.systemUptime
 
         self.sourcesStore = store
+        self.radioStationsStore = radioStore
         self.sourceManager = manager
         self.playerService = player
         self.scraperSettingsStore = scraperSettings

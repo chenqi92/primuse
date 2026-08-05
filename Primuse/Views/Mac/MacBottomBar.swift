@@ -90,7 +90,7 @@ struct MacBottomBar: View {
 
             Spacer(minLength: 4)
 
-            if let song = player.currentSong {
+            if let song = player.currentSong, !player.isLiveRadio {
                 let liked = library.isLiked(songID: song.id)
                 Button {
                     library.toggleLiked(songID: song.id)
@@ -110,7 +110,9 @@ struct MacBottomBar: View {
 
     private var coverThumb: some View {
         Group {
-            if let song = player.currentSong {
+            if let station = player.currentRadioStation, player.isLiveRadio {
+                RadioStationArtworkView(station: station, size: 48, cornerRadius: 5)
+            } else if let song = player.currentSong {
                 CachedArtworkView(
                     coverRef: song.coverArtFileName,
                     songID: song.id,
@@ -143,19 +145,23 @@ struct MacBottomBar: View {
     private var transportColumn: some View {
         VStack(spacing: 4) {
             HStack(spacing: 6) {
-                transportBtn("shuffle", size: 13, active: player.shuffleEnabled, help: "shuffle") {
-                    player.shuffleEnabled.toggle()
-                }
-                transportBtn("backward.fill", size: 13, help: "previous_song") {
-                    Task { await player.previous() }
+                if !player.isLiveRadio {
+                    transportBtn("shuffle", size: 13, active: player.shuffleEnabled, help: "shuffle") {
+                        player.shuffleEnabled.toggle()
+                    }
+                    transportBtn("backward.fill", size: 13, help: "previous_song") {
+                        Task { await player.previous() }
+                    }
                 }
                 Button { player.togglePlayPause() } label: {
                     ZStack {
                         Circle().fill(PMColor.brand).frame(width: 36, height: 36)
-                        if player.isLoading {
+                        if player.isLoading && !player.isLiveRadio {
                             ProgressView().controlSize(.small).tint(.white)
                         } else {
-                            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                            Image(systemName: player.isLiveRadio && (player.isPlaying || player.isLoading)
+                                ? "stop.fill"
+                                : (player.isPlaying ? "pause.fill" : "play.fill"))
                                 .font(.system(size: 14, weight: .bold))
                                 .foregroundStyle(.white)
                                 .contentTransition(.symbolEffect(.replace))
@@ -165,14 +171,18 @@ struct MacBottomBar: View {
                     .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
-                .disabled(player.isLoading)
-                .help(Text(player.isPlaying ? "pause" : "play"))
+                .disabled(player.isLoading && !player.isLiveRadio)
+                .help(Text(player.isLiveRadio && (player.isPlaying || player.isLoading)
+                    ? "radio_stop"
+                    : (player.isPlaying ? "pause" : "play")))
 
-                transportBtn("forward.fill", size: 13, help: "next_song") {
-                    Task { await player.next() }
-                }
-                transportBtn(repeatIconName, size: 13, active: player.repeatMode != .off, help: "repeat") {
-                    cycleRepeat()
+                if !player.isLiveRadio {
+                    transportBtn("forward.fill", size: 13, help: "next_song") {
+                        Task { await player.next() }
+                    }
+                    transportBtn(repeatIconName, size: 13, active: player.repeatMode != .off, help: "repeat") {
+                        cycleRepeat()
+                    }
                 }
             }
 
@@ -218,24 +228,26 @@ struct MacBottomBar: View {
 
     private var rightColumn: some View {
         HStack(spacing: 8) {
-            PMRoundBtn(icon: isExpanded ? "text.bubble.fill" : "text.bubble",
-                       iconSize: 12, style: .plain,
-                       isActive: isExpanded, help: "lyrics_word",
-                       action: onToggleNowPlaying)
+            if !player.isLiveRadio {
+                PMRoundBtn(icon: isExpanded ? "text.bubble.fill" : "text.bubble",
+                           iconSize: 12, style: .plain,
+                           isActive: isExpanded, help: "lyrics_word",
+                           action: onToggleNowPlaying)
 
-            PMRoundBtn(icon: isQueueShown ? "list.bullet.indent" : "list.bullet",
-                       iconSize: 12, style: .plain,
-                       isActive: isQueueShown, help: "queue_title") {
-                onToggleQueue()
-            }
+                PMRoundBtn(icon: isQueueShown ? "list.bullet.indent" : "list.bullet",
+                           iconSize: 12, style: .plain,
+                           isActive: isQueueShown, help: "queue_title") {
+                    onToggleQueue()
+                }
 
-            PMRoundBtn(icon: "tv.and.hifispeaker.fill", iconSize: 12, style: .plain,
-                       isActive: player.isCastingMode, help: "cast_picker_title") {
-                castShown = true
-            }
-            .popover(isPresented: $castShown, arrowEdge: .top) {
-                CastDevicePickerSheet()
-                    .frame(minWidth: 420, minHeight: 460)
+                PMRoundBtn(icon: "tv.and.hifispeaker.fill", iconSize: 12, style: .plain,
+                           isActive: player.isCastingMode, help: "cast_picker_title") {
+                    castShown = true
+                }
+                .popover(isPresented: $castShown, arrowEdge: .top) {
+                    CastDevicePickerSheet()
+                        .frame(minWidth: 420, minHeight: 460)
+                }
             }
 
             volumeControl
@@ -245,10 +257,12 @@ struct MacBottomBar: View {
             PMRoundBtn(icon: "arrow.up.left.and.arrow.down.right", iconSize: 12, style: .plain,
                        help: "full_screen_player", action: onFullScreen)
 
-            PlayerMoreMenu {
-                PMRoundBtnIcon(icon: "ellipsis", help: "more")
+            if !player.isLiveRadio {
+                PlayerMoreMenu {
+                    PMRoundBtnIcon(icon: "ellipsis", help: "more")
+                }
+                .frame(width: PMSize.medBtn, height: PMSize.medBtn)
             }
-            .frame(width: PMSize.medBtn, height: PMSize.medBtn)
         }
     }
 
@@ -271,13 +285,13 @@ struct MacBottomBar: View {
             // drags do not move the hidden-titlebar window.
             PMVolumeSlider(value: Binding(
                 get: { Double(engine.volume) },
-                set: { engine.volume = Float($0) }
-            ), isEnabled: player.playbackSettings.outputMode == .effects,
-               accessibilityHelp: player.playbackSettings.outputMode == .highFidelity
+                set: { player.setPlaybackVolume(Float($0)) }
+            ), isEnabled: player.isLiveRadio || player.playbackSettings.outputMode == .effects,
+               accessibilityHelp: !player.isLiveRadio && player.playbackSettings.outputMode == .highFidelity
                    ? String(localized: "volume_high_fidelity_system_hint")
                    : nil)
             .frame(width: 72)
-            .help(player.playbackSettings.outputMode == .highFidelity
+            .help(!player.isLiveRadio && player.playbackSettings.outputMode == .highFidelity
                 ? Text("volume_high_fidelity_system_hint")
                 : Text("volume"))
         }
@@ -299,6 +313,18 @@ private struct MacBottomBarProgress: View {
     @State private var dragValue: Double?
 
     var body: some View {
+        if player.isLiveRadio {
+            HStack(spacing: 8) {
+                Circle().fill(.red).frame(width: 7, height: 7)
+                Text("LIVE").font(.system(size: 10.5, weight: .bold))
+                Spacer()
+                Text(player.currentTime.formattedDuration)
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .monospacedDigit()
+            }
+            .foregroundStyle(PMColor.textMuted)
+            .frame(maxWidth: 560)
+        } else {
         let current = dragValue ?? player.currentTime
         let duration = max(player.duration, 0.001)
 
@@ -328,6 +354,7 @@ private struct MacBottomBarProgress: View {
                 .frame(minWidth: 36, alignment: .leading)
         }
         .frame(maxWidth: 560)
+        }
     }
 }
 

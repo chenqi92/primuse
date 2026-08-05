@@ -15,6 +15,7 @@ private enum SidebarItem: Hashable, Identifiable, CaseIterable {
     case libraryAlbums
     case libraryArtists
     case libraryPlaylists
+    case libraryRadio
     case search
     case settings
 
@@ -25,7 +26,7 @@ private enum SidebarItem: Hashable, Identifiable, CaseIterable {
     var rawValueTab: Int {
         switch self {
         case .home: return 0
-        case .library, .librarySongs, .libraryAlbums, .libraryArtists, .libraryPlaylists:
+        case .library, .librarySongs, .libraryAlbums, .libraryArtists, .libraryPlaylists, .libraryRadio:
             return 1
         case .search: return 2
         case .settings: return 3
@@ -35,7 +36,7 @@ private enum SidebarItem: Hashable, Identifiable, CaseIterable {
     /// 顶级 4 项 + Library 下展开的 4 个子项,在 sidebar 里按分段渲染。
     static var topLevel: [SidebarItem] { [.home, .library, .search, .settings] }
     static var libraryChildren: [SidebarItem] {
-        [.librarySongs, .libraryAlbums, .libraryArtists, .libraryPlaylists]
+        [.librarySongs, .libraryAlbums, .libraryArtists, .libraryPlaylists, .libraryRadio]
     }
 
     var titleKey: String.LocalizationValue {
@@ -46,6 +47,7 @@ private enum SidebarItem: Hashable, Identifiable, CaseIterable {
         case .libraryAlbums: return "tab_albums"
         case .libraryArtists: return "tab_artists"
         case .libraryPlaylists: return "tab_playlists"
+        case .libraryRadio: return "radio_title"
         case .search: return "search_title"
         case .settings: return "settings_title"
         }
@@ -59,6 +61,7 @@ private enum SidebarItem: Hashable, Identifiable, CaseIterable {
         case .libraryAlbums: return "square.stack.fill"
         case .libraryArtists: return "music.mic"
         case .libraryPlaylists: return "music.note.list"
+        case .libraryRadio: return "radio.fill"
         case .search: return "magnifyingglass"
         case .settings: return "gearshape"
         }
@@ -204,6 +207,8 @@ struct ContentView: View {
             librarySubpane(title: "tab_artists") { ArtistListView(artists: library.visibleArtists) }
         case .libraryPlaylists:
             librarySubpane(title: "tab_playlists") { PlaylistListView() }
+        case .libraryRadio:
+            librarySubpane(title: "radio_title") { RadioStationsView() }
         case .search:
             SearchView(searchText: $searchText)
         case .settings:
@@ -366,6 +371,7 @@ struct ContentView: View {
     /// 指向已不存在的源文件。
     private func stopIfCurrentSongRemoved() {
         guard let cs = player.currentSong else { return }
+        guard !player.isLiveRadio else { return }
         if !library.containsVisibleSong(id: cs.id) {
             player.stop(); player.clearQueue(); showNowPlaying = false
         }
@@ -681,22 +687,26 @@ struct NowPlayingAccessory: View {
                             Image(systemName: "play.fill")
                                 .font(isInline ? .subheadline : .body)
                                 .opacity(0)
-                            if player.isLoading {
+                            if player.isLoading && !player.isLiveRadio {
                                 ProgressView().controlSize(.small)
                             } else {
-                                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                                Image(systemName: player.isLiveRadio && (player.isPlaying || player.isLoading)
+                                    ? "stop.fill"
+                                    : (player.isPlaying ? "pause.fill" : "play.fill"))
                                     .font(isInline ? .subheadline : .body)
                                     .contentTransition(.symbolEffect(.replace))
                             }
                         }
                         .frame(width: isInline ? 28 : 32, height: isInline ? 28 : 32)
                     }
-                    .disabled(player.isLoading)
-                    .accessibilityLabel(player.isPlaying
-                        ? String(localized: "a11y_pause")
-                        : String(localized: "a11y_play"))
+                    .disabled(player.isLoading && !player.isLiveRadio)
+                    .accessibilityLabel(player.isLiveRadio && (player.isPlaying || player.isLoading)
+                        ? String(localized: "radio_stop")
+                        : (player.isPlaying
+                            ? String(localized: "a11y_pause")
+                            : String(localized: "a11y_play")))
 
-                    if !isInline {
+                    if !isInline && !player.isLiveRadio {
                         Button { Task { await player.next() } } label: {
                             Image(systemName: "forward.fill").font(.caption)
                                 .frame(width: 28, height: 28)

@@ -125,9 +125,23 @@ final class TVStore {
     @ObservationIgnored private lazy var coordinator = TVPlaybackCoordinator(store: self, engine: engine)
     @ObservationIgnored private var playbackTask: Task<Void, Never>?
     @ObservationIgnored private var activePlaybackRequestID: UUID?
+    @ObservationIgnored private var radioReconnectTask: Task<Void, Never>?
+    @ObservationIgnored private var radioReconnectAttempt = 0
 
     init() {
-        engine.onEnded = { [weak self] in self?.advanceAfterEnd() }
+        engine.onEnded = { [weak self] in self?.handlePlaybackEnded() }
+        engine.onFailure = { [weak self] message in
+            guard let self, self.isLiveRadio else { return }
+            self.playbackIssue = .failed(message)
+            self.scheduleRadioReconnect()
+        }
+        engine.onLiveMetadata = { [weak self] title in
+            guard let self, self.isLiveRadio else { return }
+            self.radioMetadataTitle = title
+            self.nowPlaying.artist = title
+            self.playbackIssue = nil
+            self.radioReconnectAttempt = 0
+        }
     }
 
     var hasRealLibrary: Bool {
@@ -144,6 +158,10 @@ final class TVStore {
     var lyrics: [TVLyricLine] = []        // tvOS 暂未同步歌词
     var queueUpNextIDs: [String] = []
     var playbackIssue: TVPlaybackIssue?   // 解析/播放受阻原因(展示用)
+    var radioStations: [RadioStation] = []
+    var isLiveRadio = false
+    var currentRadioStationID: String?
+    var radioMetadataTitle = ""
     var credentialBundle: CredentialBundle?   // 经 iCloud(CloudKit 加密)同步下来 / 局域网直传来的源凭据
     var sourcesRevision = 0   // 源启用/删除后 bump,强制 sources 视图重渲染(嵌套 store 观察传导不稳)
 
@@ -215,7 +233,12 @@ final class TVStore {
     var currentTime: Double { engine.currentTime }
     var duration: Double { engine.duration > 0 ? engine.duration : nowPlaying.duration }
     var isMusicVideoPlaybackActive: Bool { engine.isVideoMode }
+    var currentRadioStation: RadioStation? {
+        guard let currentRadioStationID else { return nil }
+        return radioStations.first { $0.id == currentRadioStationID }
+    }
     var canPlayMusicVideo: Bool {
+        guard !isLiveRadio else { return false }
         guard let id = currentSongID,
               let song = library.song(id: id),
               song.mvPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
@@ -740,6 +763,7 @@ final class TVStore {
             plog("TVStore: merged \(tvOnly.count) TV-scanned songs back after sync")
         }
         sourcesStore.reloadFromDisk()
+        reloadRadioStations()
         refreshVisibility()
         publishTopShelf()
         flushPendingDeepLink()
@@ -850,12 +874,73 @@ final class TVStore {
         scanner.invalidateFnMusicClients()
         library.reloadFromDisk()
         sourcesStore.reloadFromDisk()
+        reloadRadioStations()
         refreshVisibility()
         publishTopShelf()
         flushPendingDeepLink()
         // 凭据未就绪时载入局域网直传持久化下来的配对包，并以本地活跃来源
         // 为边界裁剪。CloudKit 下载失败不会被当成空包，也不会清掉活跃源凭据。
         pruneCredentialBundlesToActiveSources()
+    }
+
+    private func reloadRadioStations() {
+        let directory = FileManager.default
+            .primuseDirectoryURL(for: .cachesDirectory)
+            .appendingPathComponent("Primuse", isDirectory: true)
+        let url = directory.appendingPathComponent("radio-stations.json")
+        guard let data = try? Data(contentsOf: url) else {
+            radioStations = []
+            return
+        }
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard var decoded = try? decoder.decode([RadioStation].self, from: data) else {
+            radioStations = []
+            return
+        }
+
+        let recency = UserDefaults.standard.dictionary(forKey: "tvRadioLastPlayedAt") ?? [:]
+        for index in decoded.indices {
+            if let timestamp = recency[decoded[index].id] as? NSNumber {
+                decoded[index].lastPlayedAt = Date(timeIntervalSince1970: timestamp.doubleValue)
+            }
+        }
+        radioStations = decoded
+            .filter { !$0.isDeleted && $0.url != nil }
+            .sorted {
+                switch ($0.lastPlayedAt, $1.lastPlayedAt) {
+                case let (lhs?, rhs?) where lhs != rhs: return lhs > rhs
+                default: return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+                }
+            }
+
+        if isLiveRadio,
+           let currentRadioStationID,
+           !radioStations.contains(where: { $0.id == currentRadioStationID }) {
+            radioReconnectTask?.cancel()
+            engine.stop()
+            isLiveRadio = false
+            self.currentRadioStationID = nil
+            radioMetadataTitle = ""
+            hasNowPlaying = false
+        }
+    }
+
+    private func markRadioPlayed(_ id: String) {
+        let now = Date()
+        if let index = radioStations.firstIndex(where: { $0.id == id }) {
+            radioStations[index].lastPlayedAt = now
+            radioStations.sort {
+                switch ($0.lastPlayedAt, $1.lastPlayedAt) {
+                case let (lhs?, rhs?) where lhs != rhs: return lhs > rhs
+                default: return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+                }
+            }
+        }
+        var recency = UserDefaults.standard.dictionary(forKey: "tvRadioLastPlayedAt") ?? [:]
+        recency[id] = now.timeIntervalSince1970
+        UserDefaults.standard.set(recency, forKey: "tvRadioLastPlayedAt")
     }
 
     private var activeCredentialSourceIDs: Set<String> {
@@ -1196,10 +1281,85 @@ final class TVStore {
 
     // MARK: 播放控制(AVPlayer 流式播放,真实流 URL 由 TVPlaybackCoordinator 解析)
 
-    func togglePlayPause() { engine.togglePlayPause() }
-    func seek(toFraction f: Double) { engine.seekToFraction(f) }
-    func skipForward() { engine.skip(by: 10) }
-    func skipBackward() { engine.skip(by: -10) }
+    func togglePlayPause() {
+        guard isLiveRadio else {
+            engine.togglePlayPause()
+            return
+        }
+        radioReconnectTask?.cancel()
+        radioReconnectTask = nil
+        if engine.status == .playing || engine.status == .loading {
+            engine.pause()
+        } else if let station = currentRadioStation {
+            playbackIssue = nil
+            engine.loadLiveRadio(
+                url: station.url!,
+                title: station.name,
+                subtitle: radioMetadataTitle.isEmpty ? station.playbackSubtitle : radioMetadataTitle,
+                format: station.streamFormat.displayName,
+                streamFormat: station.streamFormat
+            )
+        }
+    }
+    func seek(toFraction f: Double) {
+        guard !isLiveRadio else { return }
+        engine.seekToFraction(f)
+    }
+    func skipForward() {
+        guard !isLiveRadio else { return }
+        engine.skip(by: 10)
+    }
+    func skipBackward() {
+        guard !isLiveRadio else { return }
+        engine.skip(by: -10)
+    }
+
+    func play(_ station: RadioStation) {
+        guard let url = station.url else { return }
+        playbackTask?.cancel()
+        playbackTask = nil
+        activePlaybackRequestID = nil
+        radioReconnectTask?.cancel()
+        radioReconnectTask = nil
+        radioReconnectAttempt = 0
+        playbackIssue = nil
+        queue = []
+        queueIndex = 0
+        queueUpNextIDs = []
+        lyrics = []
+        isMusicVideoModeEnabled = false
+        isLiveRadio = true
+        currentRadioStationID = station.id
+        radioMetadataTitle = ""
+
+        let fallback = Self.tint(station.id)
+        nowPlaying = TVNowPlaying(
+            songID: "radio:\(station.id)",
+            coverRef: nil,
+            title: station.name,
+            artist: station.playbackSubtitle,
+            album: "",
+            albumID: "",
+            tint: fallback.0,
+            tint2: fallback.1,
+            glyph: "radio",
+            duration: 0,
+            currentTime: 0,
+            format: station.streamFormat.displayName,
+            bitrate: (station.bitRate ?? 0) / 1_000,
+            sampleRate: 0,
+            sourcePath: station.streamURL
+        )
+        hasNowPlaying = true
+        markRadioPlayed(station.id)
+        engine.loadLiveRadio(
+            url: url,
+            title: station.name,
+            subtitle: station.playbackSubtitle,
+            format: station.streamFormat.displayName,
+            streamFormat: station.streamFormat
+        )
+    }
 
     /// 选中一首歌播放:以其所属专辑为队列,从该曲开始。
     func play(_ song: TVSong) {
@@ -1240,6 +1400,7 @@ final class TVStore {
     }
 
     func next() {
+        guard !isLiveRadio else { return }
         // 手动下一首:忽略「单曲循环」;到队尾时「列表循环」则回到队首。
         guard let nextIndex = QueueTraversalPolicy.nextAvailableIndex(
             queueCount: queue.count,
@@ -1253,6 +1414,10 @@ final class TVStore {
 
     /// 一曲自然播完后的推进:单曲循环重播本曲,否则等同手动下一首。
     private func advanceAfterEnd() {
+        guard !isLiveRadio else {
+            scheduleRadioReconnect()
+            return
+        }
         plog("🎬 TV advanceAfterEnd: queueIndex=\(queueIndex)/\(queue.count) repeat=\(repeatMode)")
         if repeatMode == .one, queue.indices.contains(queueIndex), let s = song(queue[queueIndex]) {
             startPlaying(s)
@@ -1263,6 +1428,7 @@ final class TVStore {
 
     /// 点击「下一首」队列里的某首,直接跳到它播放。
     func playQueueItem(at upNextIndex: Int) {
+        guard !isLiveRadio else { return }
         let abs = queueIndex + 1 + upNextIndex
         guard queue.indices.contains(abs), let s = song(queue[abs]) else { return }
         queueIndex = abs
@@ -1270,6 +1436,7 @@ final class TVStore {
     }
 
     func toggleShuffle() {
+        guard !isLiveRadio else { return }
         shuffleEnabled.toggle()
         guard shuffleEnabled,
               queue.indices.contains(queueIndex),
@@ -1282,6 +1449,7 @@ final class TVStore {
     }
 
     func cycleRepeatMode() {
+        guard !isLiveRadio else { return }
         repeatMode = repeatMode == .off ? .all : (repeatMode == .all ? .one : .off)
     }
 
@@ -1319,6 +1487,7 @@ final class TVStore {
     }
 
     func previous() {
+        guard !isLiveRadio else { return }
         // 播过 3 秒先回到开头,否则切上一首。
         if currentTime > 3 { engine.seek(to: 0); return }
         guard let previousIndex = QueueTraversalPolicy.previousAvailableIndex(
@@ -1349,6 +1518,12 @@ final class TVStore {
 
     /// 设置展示元数据 + 触发真实解析播放。
     private func startPlaying(_ song: TVSong, resumeTime: Double = 0, autoPlay: Bool = true) {
+        radioReconnectTask?.cancel()
+        radioReconnectTask = nil
+        radioReconnectAttempt = 0
+        isLiveRadio = false
+        currentRadioStationID = nil
+        radioMetadataTitle = ""
         playbackTask?.cancel()
         let requestID = UUID()
         activePlaybackRequestID = requestID
@@ -1388,6 +1563,39 @@ final class TVStore {
                 isCancelled: Task.isCancelled
             ) else { return }
             self.playbackTask = nil
+        }
+    }
+
+    private func handlePlaybackEnded() {
+        if isLiveRadio {
+            scheduleRadioReconnect()
+        } else {
+            advanceAfterEnd()
+        }
+    }
+
+    private func scheduleRadioReconnect() {
+        guard isLiveRadio,
+              radioReconnectTask == nil,
+              let station = currentRadioStation,
+              let url = station.url else { return }
+        radioReconnectAttempt += 1
+        let attempt = radioReconnectAttempt
+        let delay = min(15.0, pow(2.0, Double(min(attempt - 1, 4))))
+        radioReconnectTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled,
+                  let self,
+                  self.isLiveRadio,
+                  self.currentRadioStationID == station.id else { return }
+            self.radioReconnectTask = nil
+            self.engine.loadLiveRadio(
+                url: url,
+                title: station.name,
+                subtitle: self.radioMetadataTitle.isEmpty ? station.playbackSubtitle : self.radioMetadataTitle,
+                format: station.streamFormat.displayName,
+                streamFormat: station.streamFormat
+            )
         }
     }
 

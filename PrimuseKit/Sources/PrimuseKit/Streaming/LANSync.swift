@@ -137,14 +137,17 @@ public struct LANSyncPayload: Codable, Sendable {
     public var version: Int
     public var libraryGz: Data?              // gzip(library-cache.json)
     public var sourcesGz: Data?              // gzip(sources.json)
+    public var radioStationsGz: Data?        // gzip(radio-stations.json)
     public var lyricsGz: Data?               // gzip(歌词 blob JSON)
     public var credentials: CredentialBundle?
 
-    public init(version: Int = 1, libraryGz: Data? = nil, sourcesGz: Data? = nil,
-                lyricsGz: Data? = nil, credentials: CredentialBundle? = nil) {
+    public init(version: Int = 2, libraryGz: Data? = nil, sourcesGz: Data? = nil,
+                radioStationsGz: Data? = nil, lyricsGz: Data? = nil,
+                credentials: CredentialBundle? = nil) {
         self.version = version
         self.libraryGz = libraryGz
         self.sourcesGz = sourcesGz
+        self.radioStationsGz = radioStationsGz
         self.lyricsGz = lyricsGz
         self.credentials = credentials
     }

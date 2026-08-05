@@ -40,7 +40,9 @@ struct TVNowPlayingView: View {
         let np = store.nowPlaying
         return ZStack {
             TVAmbientBackdrop(tint: np.tint, tint2: np.tint2, strength: 1)
-            if store.isMusicVideoPlaybackActive {
+            if store.isLiveRadio {
+                liveRadioPlayer
+            } else if store.isMusicVideoPlaybackActive {
                 musicVideoFullScreenPlayer
             } else {
                 LinearGradient(colors: playerScrim,
@@ -56,6 +58,90 @@ struct TVNowPlayingView: View {
                 .padding(.horizontal, 100).padding(.top, 80).padding(.bottom, 70)
             }
         }
+    }
+
+    private var liveRadioPlayer: some View {
+        ZStack {
+            LinearGradient(colors: playerScrim, startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea()
+
+            HStack(spacing: 84) {
+                if let station = store.currentRadioStation {
+                    TVRadioArtworkView(station: station, size: 500, radius: 30)
+                        .shadow(color: .black.opacity(0.55), radius: 42, y: 22)
+                } else {
+                    TVMusicPlaceholder(
+                        tint: store.nowPlaying.tint,
+                        tint2: store.nowPlaying.tint2,
+                        size: 500,
+                        radius: 30
+                    )
+                }
+
+                VStack(alignment: .leading, spacing: 0) {
+                    TVEyebrow(text: PMString("ext.tv.radio.title"))
+                    Text(store.nowPlaying.title)
+                        .font(.system(size: 72, weight: .bold))
+                        .tracking(-1.2)
+                        .foregroundStyle(TVColor.text)
+                        .lineLimit(2)
+                        .padding(.top, 18)
+                    Text(store.nowPlaying.artist)
+                        .font(.system(size: 32, weight: .medium))
+                        .foregroundStyle(TVColor.textMuted)
+                        .lineLimit(2)
+                        .padding(.top, 14)
+
+                    HStack(spacing: 12) {
+                        Circle()
+                            .fill(Color.red)
+                            .frame(width: 13, height: 13)
+                            .shadow(color: .red.opacity(0.7), radius: 8)
+                        Text(PMString("ext.tv.radio.live"))
+                            .font(.system(size: 22, weight: .bold))
+                        if store.currentTime > 0 {
+                            Text("· \(TVFmt.time(store.currentTime))")
+                                .font(.system(size: 21, design: .monospaced))
+                        }
+                    }
+                    .foregroundStyle(TVColor.text)
+                    .padding(.top, 26)
+
+                    if let issue = store.playbackIssue {
+                        Label(issue.message, systemImage: "exclamationmark.triangle.fill")
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundStyle(TVColor.warn)
+                            .lineLimit(3)
+                            .padding(.top, 22)
+                    }
+
+                    Spacer(minLength: 34)
+
+                    HStack(spacing: 18) {
+                        TVRoundBtn(
+                            icon: radioConnectionIsActive ? "stop.fill" : "play.fill",
+                            size: 96,
+                            primary: true
+                        ) {
+                            store.togglePlayPause()
+                        }
+                        .prefersDefaultFocus(true, in: playerFocus)
+                        Text(PMString(radioConnectionIsActive ? "ext.tv.radio.stop" : "ext.tv.radio.play"))
+                            .font(.system(size: 24, weight: .semibold))
+                            .foregroundStyle(TVColor.textMuted)
+                    }
+                }
+                .frame(maxWidth: .infinity, minHeight: 500, alignment: .leading)
+                .focusSection()
+            }
+            .focusScope(playerFocus)
+            .padding(.horizontal, 110)
+            .padding(.vertical, 110)
+        }
+    }
+
+    private var radioConnectionIsActive: Bool {
+        store.engine.status == .loading || store.engine.status == .playing
     }
 
     // MARK: 左列

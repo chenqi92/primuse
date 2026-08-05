@@ -219,6 +219,7 @@ targets:
                 UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).ExternalDisplaySceneDelegate
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+          NSAllowsArbitraryLoadsForMedia: true
         NSLocalNetworkUsageDescription: "猿音需要访问本地网络以发现和连接您的 NAS 设备、媒体服务器及其他音乐源。"
         NSBonjourServices:
           - "_smb._tcp."
@@ -483,6 +484,7 @@ targets:
         PrimusePan123ClientSecret: "$(PAN123_CLIENT_SECRET)"
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+          NSAllowsArbitraryLoadsForMedia: true
         NSLocalNetworkUsageDescription: "Primuse needs local network access to discover and connect to your NAS devices, media servers, and other music sources."
         NSBonjourServices:
           - "_smb._tcp."
@@ -528,6 +530,9 @@ targets:
       - path: Primuse/Services/Metadata/LyricsParser.swift
       - path: Primuse/Services/Cloud/CloudKitRuntime.swift
       - path: Primuse/Services/Cloud/LibrarySnapshotSync.swift
+      - path: Primuse/Services/Radio/RadioLiveStreamSource.swift
+      - path: Primuse/Services/Radio/RadioFLACAudioDecoder.swift
+      - path: Primuse/Services/Radio/RadioFLACDecoderBridge.m
       # 内网自动发现(Bonjour/NWBrowser 找 NAS),与 iOS/macOS 同一份实现
       - path: Primuse/Services/Sources/NetworkDiscoveryService.swift
       - path: Primuse/Utilities/FileLogger.swift
@@ -574,6 +579,7 @@ targets:
         # 允许播放局域网明文 HTTP(iPhone 中继 / http NAS 直链),但不对公网全局关闭 ATS。
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+          NSAllowsArbitraryLoadsForMedia: true
         # TV 起局域网监听接收 iPhone 扫码直传的源配置(TVConfigServer)+ Bonjour 发现 NAS,需声明本地网络用途
         NSLocalNetworkUsageDescription: "猿音需要访问本地网络,以便从 iPhone 扫码直接接收音乐源配置、并自动发现局域网内的 NAS。"
         # 内网自动发现要浏览的 Bonjour 服务类型(与 NetworkDiscoveryService.serviceTypes 一致)
@@ -601,6 +607,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.welape.yuanyin
         # tvOS app 需引用 entitlements 才能拿到 App Group(Top Shelf 共享数据)+ iCloud/CloudKit
         CODE_SIGN_ENTITLEMENTS: Config/PrimuseTV.entitlements
+        SWIFT_OBJC_BRIDGING_HEADER: PrimuseTV/PrimuseTV-Bridging-Header.h
         TARGETED_DEVICE_FAMILY: "3"
         TVOS_DEPLOYMENT_TARGET: "17.0"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

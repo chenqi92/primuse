@@ -11,6 +11,7 @@ final class TVSFBEngine: NSObject, AudioPlayer.Delegate, @unchecked Sendable {
 
     var onEnded: (@MainActor () -> Void)?
     var onStateChange: (@MainActor () -> Void)?
+    var onFailure: (@MainActor (String) -> Void)?
 
     override init() {
         super.init()
@@ -35,6 +36,25 @@ final class TVSFBEngine: NSObject, AudioPlayer.Delegate, @unchecked Sendable {
 
     func audioPlayer(_ audioPlayer: AudioPlayer, playbackStateChanged playbackState: AudioPlayer.PlaybackState) {
         if let cb = onStateChange { Task { @MainActor in cb() } }
+    }
+
+    func audioPlayer(
+        _ audioPlayer: AudioPlayer,
+        decodingAborted decoder: any PCMDecoding,
+        error: any Error,
+        framesRendered: AVAudioFramePosition
+    ) {
+        if let cb = onFailure {
+            let message = error.localizedDescription
+            Task { @MainActor in cb(message) }
+        }
+    }
+
+    func audioPlayer(_ audioPlayer: AudioPlayer, encounteredError error: any Error) {
+        if let cb = onFailure {
+            let message = error.localizedDescription
+            Task { @MainActor in cb(message) }
+        }
     }
 }
 #endif

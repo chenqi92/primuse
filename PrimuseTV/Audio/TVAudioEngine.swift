@@ -17,10 +17,13 @@ final class TVAudioEngine {
     private(set) var currentTime: Double = 0
     private(set) var duration: Double = 0
     private(set) var isVideoMode = false
+    private(set) var isLiveStream = false
     var displayPlayer: AVPlayer { player }
 
     /// 一曲播完回调(队列推进用;Phase 1 可空)。
     var onEnded: (() -> Void)?
+    var onFailure: ((String) -> Void)?
+    var onLiveMetadata: ((String) -> Void)?
 
     private let player = AVPlayer()
     private var timeObserver: Any?
@@ -31,6 +34,18 @@ final class TVAudioEngine {
     private var resourceLoader: TVStreamResourceLoader?   // 自定义播放头时强引用(delegate 弱持有)
     private var protocolLoader: TVProtocolResourceLoader?  // 协议直连(SMB/NFS/FTP/SFTP)时强引用
     private var activeItemID: ObjectIdentifier?
+    private var liveMetadataOutput: AVPlayerItemMetadataOutput?
+    private var liveMetadataReceiver: TVLiveMetadataReceiver?
+    private var liveStartedAt: Date?
+
+    private struct LiveRequest: Sendable {
+        let url: URL
+        let title: String
+        let subtitle: String
+        let format: String
+        let streamFormat: RadioStreamFormat
+    }
+    private var liveRequest: LiveRequest?
 
     // 非原生格式(APE/WavPack/DSD 等 AVPlayer 解不了的)走 SFBAudioEngine。两引擎并列,
     // usingSFB 决定 play/pause/seek/时间读取走哪一个。
@@ -38,11 +53,25 @@ final class TVAudioEngine {
         let e = TVSFBEngine()
         e.onEnded = { [weak self] in self?.handleEnded() }
         e.onStateChange = { [weak self] in self?.syncFromSFB() }
+        e.onFailure = { [weak self] message in self?.handleSFBFailure(message) }
         return e
     }()
     private var usingSFB = false
     @ObservationIgnored private var sfbTimer: Timer?
     @ObservationIgnored private var decodedTemporaryFileURL: URL?
+    @ObservationIgnored private var radioLiveStreamSource: RadioLiveStreamSource?
+    @ObservationIgnored private var radioLiveStreamTask: Task<Void, Never>?
+    @ObservationIgnored private let radioFLACDecoder = RadioFLACAudioDecoder()
+    @ObservationIgnored private let livePCMEngine = AVAudioEngine()
+    @ObservationIgnored private let livePCMNode = AVAudioPlayerNode()
+    @ObservationIgnored private var livePCMNodeAttached = false
+    @ObservationIgnored private var usingLivePCM = false
+    @ObservationIgnored private var livePCMBufferGate: TVLivePCMBufferGate?
+    @ObservationIgnored private var livePCMTimer: Timer?
+    @ObservationIgnored private var decodedRadioURLs: Set<String> = []
+    @ObservationIgnored private var rejectedDecodedRadioURLs: Set<String> = []
+    @ObservationIgnored private var liveDidAttemptDecodedFallback = false
+    @ObservationIgnored private var liveDecodedFallbackNeedsValidation = false
 
     private var npTitle = ""
     private var npArtist = ""
@@ -92,6 +121,7 @@ final class TVAudioEngine {
     /// starts. Keeping the audio session active avoids an avoidable route handoff
     /// between adjacent queue items, while all track-specific state is cleared.
     func prepareForSelection(startAt seconds: Double) {
+        clearLiveState()
         resetSFBIfNeeded()
         itemStatusObs?.invalidate()
         itemStatusObs = nil
@@ -117,6 +147,7 @@ final class TVAudioEngine {
 
     func load(url: URL, headers: [String: String] = [:], fileExtension: String? = nil,
               title: String, artist: String, album: String, duration: Double, isVideo: Bool) {
+        clearLiveState()
         resetSFBIfNeeded()
         isVideoMode = isVideo
         npTitle = title; npArtist = artist; npAlbum = album
@@ -144,6 +175,164 @@ final class TVAudioEngine {
         finishLoad(item: item)
     }
 
+    func loadLiveRadio(
+        url: URL,
+        title: String,
+        subtitle: String,
+        format: String,
+        streamFormat: RadioStreamFormat
+    ) {
+        let request = LiveRequest(
+            url: url,
+            title: title,
+            subtitle: subtitle,
+            format: format,
+            streamFormat: streamFormat
+        )
+        let urlKey = url.absoluteString
+        let knownDecoded = streamFormat == .flac
+            || RadioStreamFormat.inferred(from: url) == .flac
+            || decodedRadioURLs.contains(urlKey)
+        liveDidAttemptDecodedFallback = knownDecoded || rejectedDecodedRadioURLs.contains(urlKey)
+        liveDecodedFallbackNeedsValidation = false
+        liveRequest = request
+        startLiveRadio(request)
+    }
+
+    private func startLiveRadio(_ request: LiveRequest) {
+        resetSFBIfNeeded()
+        itemStatusObs?.invalidate()
+        itemStatusObs = nil
+        removeEndObserver()
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+        activeItemID = nil
+        resourceLoader = nil
+        protocolLoader = nil
+        isVideoMode = false
+        isLiveStream = true
+        npTitle = request.title
+        npArtist = request.subtitle
+        npAlbum = request.format
+        duration = 0
+        currentTime = 0
+        isPlaying = false
+        status = .loading
+        liveStartedAt = nil
+
+        if request.streamFormat == .flac
+            || RadioStreamFormat.inferred(from: request.url) == .flac
+            || decodedRadioURLs.contains(request.url.absoluteString) {
+            startDecodedLiveRadio(request)
+            return
+        }
+
+        let item = AVPlayerItem(url: request.url)
+        item.preferredForwardBufferDuration = 3
+        item.canUseNetworkResourcesForLiveStreamingWhilePaused = false
+        let receiver = TVLiveMetadataReceiver { [weak self] title in
+            Task { @MainActor [weak self] in
+                guard let self, self.isLiveStream else { return }
+                self.npArtist = title
+                self.onLiveMetadata?(title)
+                self.updateNowPlayingInfo()
+            }
+        }
+        let output = AVPlayerItemMetadataOutput(identifiers: nil)
+        output.setDelegate(receiver, queue: .main)
+        item.add(output)
+        liveMetadataReceiver = receiver
+        liveMetadataOutput = output
+        finishLoad(item: item)
+        play()
+    }
+
+    private func startDecodedLiveRadio(_ request: LiveRequest) {
+        activateAudioSession()
+        let source = RadioLiveStreamSource(url: request.url) { [weak self] title in
+            Task { @MainActor [weak self] in
+                guard let self,
+                      self.isLiveStream,
+                      self.liveRequest?.url == request.url,
+                      self.radioLiveStreamSource != nil else { return }
+                self.npArtist = title
+                self.onLiveMetadata?(title)
+                self.updateNowPlayingInfo()
+            }
+        }
+        radioLiveStreamSource = source
+        radioLiveStreamTask = Task { @MainActor [weak self, source] in
+            guard let self else { return }
+            do {
+                let prepared = try await source.prepare()
+                guard !Task.isCancelled,
+                      self.isLiveStream,
+                      self.radioLiveStreamSource === source else { return }
+                guard let outputFormat = AVAudioFormat(
+                    standardFormatWithSampleRate: 44_100,
+                    channels: 2
+                ) else {
+                    throw NSError(
+                        domain: "com.welape.yuanyin.tv-radio",
+                        code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: "Unable to configure live audio output."]
+                    )
+                }
+                let stream = self.radioFLACDecoder.decode(
+                    from: source,
+                    prepared: prepared,
+                    outputFormat: outputFormat
+                )
+                var iterator = stream.makeAsyncIterator()
+                guard let firstBuffer = try await iterator.next() else {
+                    throw NSError(
+                        domain: "com.welape.yuanyin.tv-radio",
+                        code: 2,
+                        userInfo: [NSLocalizedDescriptionKey: "The radio stream returned no audio frames."]
+                    )
+                }
+                guard !Task.isCancelled,
+                      self.isLiveStream,
+                      self.radioLiveStreamSource === source else { return }
+
+                try self.configureLivePCM(format: outputFormat)
+                let gate = TVLivePCMBufferGate(limit: 6)
+                self.livePCMBufferGate = gate
+                await gate.acquire()
+                self.scheduleLivePCM(firstBuffer, gate: gate)
+                self.livePCMNode.play()
+                self.decodedRadioURLs.insert(request.url.absoluteString)
+                self.rejectedDecodedRadioURLs.remove(request.url.absoluteString)
+                self.liveDecodedFallbackNeedsValidation = false
+                self.isPlaying = true
+                self.status = .playing
+                self.liveStartedAt = Date()
+                self.startLivePCMPolling()
+                self.updateNowPlayingInfo()
+
+                while let buffer = try await iterator.next() {
+                    await gate.acquire()
+                    guard !Task.isCancelled,
+                          self.isLiveStream,
+                          self.radioLiveStreamSource === source,
+                          self.usingLivePCM else { return }
+                    self.scheduleLivePCM(buffer, gate: gate)
+                }
+                guard !Task.isCancelled,
+                      self.isLiveStream,
+                      self.radioLiveStreamSource === source else { return }
+                self.handleSFBFailure(PMString("ext.tv.playback.failed"))
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled,
+                      self.isLiveStream,
+                      self.radioLiveStreamSource === source else { return }
+                self.handleSFBFailure(error.localizedDescription)
+            }
+        }
+    }
+
     /// 协议直连(SMB / NFS / FTP / SFTP):用 ByteRangeReader 经 AVAssetResourceLoaderDelegate
     /// 把原生协议字节流喂给 AVPlayer,不经 iPhone 中继。
     func load(reader: ByteRangeReader, fileExtension: String?,
@@ -154,6 +343,7 @@ final class TVAudioEngine {
 
     func load(reader: ByteRangeReader, fileExtension: String?,
               title: String, artist: String, album: String, duration: Double, isVideo: Bool) {
+        clearLiveState()
         resetSFBIfNeeded()
         isVideoMode = isVideo
         npTitle = title; npArtist = artist; npAlbum = album
@@ -191,8 +381,12 @@ final class TVAudioEngine {
                 case .failed:
                     let msg = errorMessage ?? PMString("ext.tv.playback.failed")
                     plog("📺 TV engine: item FAILED — \(msg)")
+                    if self.beginDecodedLiveRadioFallbackIfNeeded() {
+                        return
+                    }
                     self.status = .failed(msg)
                     self.isPlaying = false
+                    self.onFailure?(msg)
                 default: break
                 }
             }
@@ -214,6 +408,7 @@ final class TVAudioEngine {
 
     /// 非原生格式:用 SFBAudioEngine 解码播放已下载到本地的文件(AVPlayer 解不了的格式)。
     func loadDecoded(fileURL: URL, title: String, artist: String, album: String, duration: Double) {
+        clearLiveState()
         resetSFBIfNeeded()
         activateAudioSession()
         isVideoMode = false
@@ -248,6 +443,10 @@ final class TVAudioEngine {
 
     func play() {
         activateAudioSession()
+        if isLiveStream, player.currentItem == nil, !usingLivePCM, let liveRequest {
+            startLiveRadio(liveRequest)
+            return
+        }
         if usingSFB {
             sfb.resume()
         } else {
@@ -259,10 +458,29 @@ final class TVAudioEngine {
         }
         isPlaying = true
         status = .playing
+        if isLiveStream, liveStartedAt == nil { liveStartedAt = Date() }
         updateNowPlayingInfo()
     }
 
     func pause() {
+        if isLiveStream {
+            removeEndObserver()
+            if usingSFB || usingLivePCM {
+                resetSFBIfNeeded()
+            } else {
+                player.pause()
+                player.replaceCurrentItem(with: nil)
+            }
+            activeItemID = nil
+            liveMetadataOutput = nil
+            liveMetadataReceiver = nil
+            liveStartedAt = nil
+            isPlaying = false
+            currentTime = 0
+            status = .paused
+            updateNowPlayingInfo()
+            return
+        }
         if usingSFB { sfb.pause() } else { player.pause() }
         isPlaying = false
         status = .paused
@@ -278,6 +496,7 @@ final class TVAudioEngine {
         player.replaceCurrentItem(with: nil)
         activeItemID = nil
         isVideoMode = false
+        clearLiveState()
         isPlaying = false
         currentTime = 0
         status = .idle
@@ -286,6 +505,7 @@ final class TVAudioEngine {
     }
 
     func seek(to seconds: Double) {
+        guard !isLiveStream else { return }
         let target = max(0, seconds)
         currentTime = target
         if usingSFB {
@@ -303,8 +523,67 @@ final class TVAudioEngine {
 
     /// 切回 AVPlayer 路径前,确保 SFB 引擎停掉、轮询取消。
     private func resetSFBIfNeeded() {
+        radioLiveStreamTask?.cancel()
+        radioLiveStreamTask = nil
+        radioLiveStreamSource?.cancel()
+        radioLiveStreamSource = nil
+        livePCMBufferGate?.cancel()
+        livePCMBufferGate = nil
+        stopLivePCMPolling()
+        if usingLivePCM {
+            livePCMNode.stop()
+            livePCMEngine.stop()
+            livePCMEngine.reset()
+            usingLivePCM = false
+        }
         if usingSFB { sfb.stop(); usingSFB = false; stopSFBPolling() }
         removeDecodedTemporaryFile()
+    }
+
+    private func configureLivePCM(format: AVAudioFormat) throws {
+        livePCMNode.stop()
+        livePCMEngine.stop()
+        livePCMEngine.reset()
+        if !livePCMNodeAttached {
+            livePCMEngine.attach(livePCMNode)
+            livePCMNodeAttached = true
+        }
+        livePCMEngine.disconnectNodeOutput(livePCMNode)
+        livePCMEngine.connect(livePCMNode, to: livePCMEngine.mainMixerNode, format: format)
+        livePCMEngine.prepare()
+        try livePCMEngine.start()
+        usingLivePCM = true
+    }
+
+    private func scheduleLivePCM(
+        _ buffer: AVAudioPCMBuffer,
+        gate: TVLivePCMBufferGate
+    ) {
+        livePCMNode.scheduleBuffer(
+            buffer,
+            completionCallbackType: .dataConsumed
+        ) { _ in gate.release() }
+    }
+
+    private func startLivePCMPolling() {
+        stopLivePCMPolling()
+        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.usingLivePCM else { return }
+                if let startedAt = self.liveStartedAt {
+                    self.currentTime = max(0, Date().timeIntervalSince(startedAt))
+                }
+                self.isPlaying = self.livePCMNode.isPlaying
+                self.updateNowPlayingInfo()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        livePCMTimer = timer
+    }
+
+    private func stopLivePCMPolling() {
+        livePCMTimer?.invalidate()
+        livePCMTimer = nil
     }
 
     private func removeDecodedTemporaryFile() {
@@ -338,19 +617,41 @@ final class TVAudioEngine {
 
     private func syncFromSFB() {
         guard usingSFB else { return }
-        let t = sfb.currentTime
-        if t.isFinite { currentTime = t }
-        if duration <= 0, sfb.duration > 0 { duration = sfb.duration }
+        if isLiveStream, let liveStartedAt {
+            currentTime = max(0, Date().timeIntervalSince(liveStartedAt))
+        } else {
+            let t = sfb.currentTime
+            if t.isFinite { currentTime = t }
+            if duration <= 0, sfb.duration > 0 { duration = sfb.duration }
+        }
         isPlaying = sfb.isPlaying
         updateNowPlayingInfo()
     }
 
+    private func handleSFBFailure(_ message: String) {
+        guard usingSFB || radioLiveStreamSource != nil else { return }
+        if radioLiveStreamSource != nil,
+           liveDecodedFallbackNeedsValidation,
+           let url = liveRequest?.url {
+            rejectedDecodedRadioURLs.insert(url.absoluteString)
+            liveDecodedFallbackNeedsValidation = false
+        }
+        resetSFBIfNeeded()
+        isPlaying = false
+        status = .failed(message)
+        onFailure?(message)
+        updateNowPlayingInfo()
+    }
+
     func seekToFraction(_ f: Double) {
-        guard duration > 0 else { return }
+        guard !isLiveStream, duration > 0 else { return }
         seek(to: duration * max(0, min(1, f)))
     }
 
-    func skip(by delta: Double) { seek(to: currentTime + delta) }
+    func skip(by delta: Double) {
+        guard !isLiveStream else { return }
+        seek(to: currentTime + delta)
+    }
 
     // MARK: 内部
 
@@ -360,9 +661,16 @@ final class TVAudioEngine {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 guard let item = self.player.currentItem else { return }
-                if time.seconds.isFinite { self.currentTime = time.seconds }
+                if self.isLiveStream {
+                    if let startedAt = self.liveStartedAt,
+                       self.player.timeControlStatus == .playing {
+                        self.currentTime = max(0, Date().timeIntervalSince(startedAt))
+                    }
+                } else if time.seconds.isFinite {
+                    self.currentTime = time.seconds
+                }
                 self.isPlaying = (self.player.timeControlStatus == .playing)
-                if self.duration <= 0 {
+                if !self.isLiveStream, self.duration <= 0 {
                     let d = item.duration.seconds
                     if d.isFinite, d > 0 { self.duration = d }
                 }
@@ -399,13 +707,10 @@ final class TVAudioEngine {
     private func handleEnded() {
         plog("📺 TV engine: didPlayToEnd → advance")
         if usingSFB {
-            sfb.stop()
-            usingSFB = false
-            stopSFBPolling()
-            removeDecodedTemporaryFile()
+            resetSFBIfNeeded()
         }
         isPlaying = false
-        currentTime = duration
+        if !isLiveStream { currentTime = duration }
         status = .paused
         onEnded?()
     }
@@ -417,14 +722,22 @@ final class TVAudioEngine {
             MPMediaItemPropertyTitle: npTitle,
             MPMediaItemPropertyArtist: npArtist,
             MPMediaItemPropertyAlbumTitle: npAlbum,
-            MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
             MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0,
         ]
-        if duration > 0 { info[MPMediaItemPropertyPlaybackDuration] = duration }
+        if isLiveStream {
+            info[MPNowPlayingInfoPropertyIsLiveStream] = true
+        } else {
+            info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTime
+            if duration > 0 { info[MPMediaItemPropertyPlaybackDuration] = duration }
+        }
         info[MPNowPlayingInfoPropertyMediaType] = isVideoMode
             ? MPNowPlayingInfoMediaType.video.rawValue
             : MPNowPlayingInfoMediaType.audio.rawValue
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        let commands = MPRemoteCommandCenter.shared()
+        commands.changePlaybackPositionCommand.isEnabled = !isLiveStream
+        commands.skipForwardCommand.isEnabled = !isLiveStream
+        commands.skipBackwardCommand.isEnabled = !isLiveStream
     }
 
     private func setupRemoteCommands() {
@@ -447,6 +760,7 @@ final class TVAudioEngine {
         c.changePlaybackPositionCommand.addTarget { [weak self] event in
             guard let e = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
             let position = e.positionTime
+            guard self?.isLiveStream != true else { return .commandFailed }
             Task { @MainActor in self?.seek(to: position) }
             return .success
         }
@@ -460,6 +774,44 @@ final class TVAudioEngine {
             Task { @MainActor in self?.skip(by: -10) }
             return .success
         }
+    }
+
+    private func clearLiveState() {
+        radioLiveStreamTask?.cancel()
+        radioLiveStreamTask = nil
+        radioLiveStreamSource?.cancel()
+        radioLiveStreamSource = nil
+        isLiveStream = false
+        liveRequest = nil
+        liveStartedAt = nil
+        liveMetadataOutput = nil
+        liveMetadataReceiver = nil
+        liveDidAttemptDecodedFallback = false
+        liveDecodedFallbackNeedsValidation = false
+    }
+
+    private func beginDecodedLiveRadioFallbackIfNeeded() -> Bool {
+        guard isLiveStream,
+              let request = liveRequest,
+              !liveDidAttemptDecodedFallback,
+              request.streamFormat == .automatic,
+              RadioStreamFormat.inferred(from: request.url) == .automatic,
+              !rejectedDecodedRadioURLs.contains(request.url.absoluteString) else {
+            return false
+        }
+        liveDidAttemptDecodedFallback = true
+        liveDecodedFallbackNeedsValidation = true
+        itemStatusObs?.invalidate()
+        itemStatusObs = nil
+        removeEndObserver()
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+        activeItemID = nil
+        liveMetadataOutput = nil
+        liveMetadataReceiver = nil
+        status = .loading
+        startDecodedLiveRadio(request)
+        return true
     }
 
     // MARK: DEBUG 冒烟测试 — 用公开 mp3 证明引擎真出声(模拟器可验,不靠听)
@@ -491,5 +843,89 @@ final class TVAudioEngine {
         }
     }
     #endif
+}
+
+private actor TVLivePCMBufferGate {
+    private let limit: Int
+    private var inFlight = 0
+    private var cancelled = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    init(limit: Int) {
+        self.limit = max(1, limit)
+    }
+
+    func acquire() async {
+        guard !cancelled else { return }
+        if inFlight < limit {
+            inFlight += 1
+            return
+        }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    nonisolated func release() {
+        Task { await signal() }
+    }
+
+    nonisolated func cancel() {
+        Task { await cancelAll() }
+    }
+
+    private func signal() {
+        guard !cancelled else { return }
+        if waiters.isEmpty {
+            inFlight = max(0, inFlight - 1)
+        } else {
+            waiters.removeFirst().resume()
+        }
+    }
+
+    private func cancelAll() {
+        cancelled = true
+        inFlight = 0
+        let continuations = waiters
+        waiters.removeAll()
+        continuations.forEach { $0.resume() }
+    }
+}
+
+private struct TVMetadataItemBox: @unchecked Sendable {
+    let item: AVMetadataItem
+}
+
+private final class TVLiveMetadataReceiver: NSObject, AVPlayerItemMetadataOutputPushDelegate, @unchecked Sendable {
+    private let onTitle: @Sendable (String) -> Void
+
+    init(onTitle: @escaping @Sendable (String) -> Void) {
+        self.onTitle = onTitle
+    }
+
+    nonisolated func metadataOutput(
+        _ output: AVPlayerItemMetadataOutput,
+        didOutputTimedMetadataGroups groups: [AVTimedMetadataGroup],
+        from track: AVPlayerItemTrack?
+    ) {
+        let titleItems = groups.flatMap(\.items).compactMap { item -> TVMetadataItemBox? in
+            let key = (item.key.map { String(describing: $0) } ?? "").lowercased()
+            let commonKey = item.commonKey?.rawValue.lowercased() ?? ""
+            guard key.contains("title") || key.contains("streamtitle") || commonKey == "title" else {
+                return nil
+            }
+            return TVMetadataItemBox(item: item)
+        }
+        guard !titleItems.isEmpty else { return }
+        Task { [onTitle] in
+            for itemBox in titleItems.reversed() {
+                guard let rawValue = try? await itemBox.item.load(.stringValue) else { continue }
+                let title = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !title.isEmpty else { continue }
+                onTitle(title)
+                return
+            }
+        }
+    }
 }
 #endif

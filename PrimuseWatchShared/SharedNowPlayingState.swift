@@ -57,6 +57,8 @@ enum WatchLoc {
         "ext.watch.queue.empty.title": "Queue is empty",
         "ext.watch.queue.empty.subtitle": "Play a song on your iPhone and the queue shows up here",
         "ext.watch.queue.truncationNotice": "Showing first %d of %d songs",
+        "ext.watch.radio.live": "LIVE",
+        "ext.watch.radio.stop": "Stop",
     ]
 
     static let zhHans: [String: String] = [
@@ -72,6 +74,8 @@ enum WatchLoc {
         "ext.watch.queue.empty.title": "队列为空",
         "ext.watch.queue.empty.subtitle": "在 iPhone 上选歌播放后这里会显示队列",
         "ext.watch.queue.truncationNotice": "仅显示前 %d 首，共 %d 首",
+        "ext.watch.radio.live": "直播",
+        "ext.watch.radio.stop": "停止",
     ]
 
     static let zhHant: [String: String] = [
@@ -87,6 +91,8 @@ enum WatchLoc {
         "ext.watch.queue.empty.title": "佇列為空",
         "ext.watch.queue.empty.subtitle": "在 iPhone 上選歌播放後這裡會顯示佇列",
         "ext.watch.queue.truncationNotice": "僅顯示前 %d 首，共 %d 首",
+        "ext.watch.radio.live": "直播",
+        "ext.watch.radio.stop": "停止",
     ]
 
     static let de: [String: String] = [
@@ -102,6 +108,8 @@ enum WatchLoc {
         "ext.watch.queue.empty.title": "Warteschlange leer",
         "ext.watch.queue.empty.subtitle": "Spiele auf dem iPhone einen Titel, dann erscheint die Warteschlange hier",
         "ext.watch.queue.truncationNotice": "Erste %d von %d Titeln",
+        "ext.watch.radio.live": "LIVE",
+        "ext.watch.radio.stop": "Stoppen",
     ]
 
     static let fr: [String: String] = [
@@ -117,6 +125,8 @@ enum WatchLoc {
         "ext.watch.queue.empty.title": "File d'attente vide",
         "ext.watch.queue.empty.subtitle": "Lancez un morceau sur votre iPhone et la file s'affichera ici",
         "ext.watch.queue.truncationNotice": "%d premiers titres sur %d",
+        "ext.watch.radio.live": "EN DIRECT",
+        "ext.watch.radio.stop": "Arrêter",
     ]
 
     static let ja: [String: String] = [
@@ -132,6 +142,8 @@ enum WatchLoc {
         "ext.watch.queue.empty.title": "キューが空です",
         "ext.watch.queue.empty.subtitle": "iPhone で曲を再生するとここにキューが表示されます",
         "ext.watch.queue.truncationNotice": "全 %2$d 曲中、先頭の %1$d 曲を表示",
+        "ext.watch.radio.live": "LIVE",
+        "ext.watch.radio.stop": "Stop",
     ]
 
     static let ko: [String: String] = [
@@ -147,6 +159,8 @@ enum WatchLoc {
         "ext.watch.queue.empty.title": "대기열이 비어 있음",
         "ext.watch.queue.empty.subtitle": "iPhone에서 곡을 재생하면 여기에 대기열이 표시됩니다",
         "ext.watch.queue.truncationNotice": "전체 %2$d곡 중 처음 %1$d곡 표시",
+        "ext.watch.radio.live": "라이브",
+        "ext.watch.radio.stop": "정지",
     ]
 }
 
@@ -166,12 +180,19 @@ enum SharedNowPlayingState {
         UserDefaults(suiteName: appGroup)
     }
 
-    static func write(songID: String, title: String, artist: String, isPlaying: Bool) {
+    static func write(
+        songID: String,
+        title: String,
+        artist: String,
+        isPlaying: Bool,
+        isLiveStream: Bool = false
+    ) {
         guard let d = defaults else { return }
         d.set(songID, forKey: "wnp.songID")
         d.set(title, forKey: "wnp.title")
         d.set(artist, forKey: "wnp.artist")
         d.set(isPlaying, forKey: "wnp.isPlaying")
+        d.set(isLiveStream, forKey: "wnp.isLiveStream")
         d.set(Date().timeIntervalSince1970, forKey: "wnp.updatedAt")
     }
 
@@ -182,6 +203,7 @@ enum SharedNowPlayingState {
             title: d.string(forKey: "wnp.title") ?? "",
             artist: d.string(forKey: "wnp.artist") ?? "",
             isPlaying: d.bool(forKey: "wnp.isPlaying"),
+            isLiveStream: d.bool(forKey: "wnp.isLiveStream"),
             updatedAt: Date(timeIntervalSince1970: d.double(forKey: "wnp.updatedAt"))
         )
     }
@@ -191,9 +213,13 @@ enum SharedNowPlayingState {
         let title: String
         let artist: String
         let isPlaying: Bool
+        let isLiveStream: Bool
         let updatedAt: Date
 
-        static let empty = Snapshot(songID: "", title: "", artist: "", isPlaying: false, updatedAt: .distantPast)
+        static let empty = Snapshot(
+            songID: "", title: "", artist: "", isPlaying: false,
+            isLiveStream: false, updatedAt: .distantPast
+        )
         var hasSong: Bool { !songID.isEmpty }
     }
 }

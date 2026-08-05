@@ -366,3 +366,8 @@
 "fnmusic_fnconnect_hint" = "Saisissez le FN ID. Primuse privilégie une connexion directe et utilise le relais FN Connect si nécessaire. La connexion utilise toujours le compte NAS local.";
 "fnmusic_access_code" = "Code d’accès FN Connect (facultatif)";
 "fnmusic_access_code_hint" = "Saisissez-le uniquement si la protection par code d’accès FN Connect est activée. Il est stocké de façon sécurisée dans le trousseau.";
+"ext.tv.radio.title" = "Radio";
+"ext.tv.radio.stationCount" = "%d stations";
+"ext.tv.radio.live" = "EN DIRECT";
+"ext.tv.radio.stop" = "Arrêter";
+"ext.tv.radio.play" = "Lire";

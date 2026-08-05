@@ -332,29 +332,39 @@ struct NowPlayingView: View {
                 // Dynamic background from cover colors — fully opaque
                 backgroundGradient.ignoresSafeArea()
 
-                switch landscapeMode {
-                case .musicVideo:
-                    if let videoPlayer = player.musicVideoPlayer {
-                        landscapeMusicVideoLayout(videoPlayer: videoPlayer)
-                    } else {
-                        portraitLayout(geo: geo, artSize: artSize)
-                    }
-                case .immersiveLyrics:
-                    immersiveLandscapeLyricsLayout(geo: geo)
-                case .standardLyrics:
-                    standardLandscapeLyricsLayout(geo: geo)
-                case .none:
-                    if showLyrics {
-                        portraitLayout(geo: geo, artSize: artSize)
-                    } else if shouldUseWideLayout(geo: geo) {
-                        wideLandscapeLayout(geo: geo)
-                    } else {
-                        portraitLayout(geo: geo, artSize: artSize)
+                if player.isLiveRadio {
+                    liveRadioLayout(geo: geo)
+                } else {
+                    switch landscapeMode {
+                    case .musicVideo:
+                        if let videoPlayer = player.musicVideoPlayer {
+                            landscapeMusicVideoLayout(videoPlayer: videoPlayer)
+                        } else {
+                            portraitLayout(geo: geo, artSize: artSize)
+                        }
+                    case .immersiveLyrics:
+                        immersiveLandscapeLyricsLayout(geo: geo)
+                    case .standardLyrics:
+                        standardLandscapeLyricsLayout(geo: geo)
+                    case .none:
+                        if showLyrics {
+                            portraitLayout(geo: geo, artSize: artSize)
+                        } else if shouldUseWideLayout(geo: geo) {
+                            wideLandscapeLayout(geo: geo)
+                        } else {
+                            portraitLayout(geo: geo, artSize: artSize)
+                        }
                     }
                 }
             }
         }
-        .task(id: player.currentSong?.id) { await loadLyrics() }
+        .task(id: player.currentSong?.id) {
+            if player.isLiveRadio {
+                lyrics = []
+            } else {
+                await loadLyrics()
+            }
+        }
         .sheet(isPresented: $showQueue) {
             QueueView()
                 .presentationDetents([.medium, .large])
@@ -446,8 +456,10 @@ struct NowPlayingView: View {
             Button("30 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 30) }
             Button("45 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 45) }
             Button("60 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 60) }
-            Button(String(localized: "sleep_at_track_end")) { player.scheduleSleepAtTrackEnd() }
-                .disabled(player.currentSong == nil)
+            if !player.isLiveRadio {
+                Button(String(localized: "sleep_at_track_end")) { player.scheduleSleepAtTrackEnd() }
+                    .disabled(player.currentSong == nil)
+            }
             if player.isSleepTimerActive {
                 Button(String(localized: "cancel_timer"), role: .destructive) { player.cancelSleep() }
             }
@@ -505,9 +517,9 @@ struct NowPlayingView: View {
         // 首靠 setQueue 自然推进继续 ── 主接力点是当前歌 + 接下来几首。
         .userActivity(
             "com.welape.yuanyin.nowplaying",
-            isActive: player.currentSong != nil
+            isActive: player.currentSong != nil && !player.isLiveRadio
         ) { activity in
-            guard let song = player.currentSong else { return }
+            guard let song = player.currentSong, !player.isLiveRadio else { return }
             let by = song.artistName.map { " — \($0)" } ?? ""
             activity.title = "\(song.title)\(by)"
             activity.isEligibleForHandoff = true
@@ -541,6 +553,139 @@ struct NowPlayingView: View {
             ]
             activity.requiredUserInfoKeys = ["songID"]
         }
+    }
+
+    @ViewBuilder
+    private func liveRadioLayout(geo: GeometryProxy) -> some View {
+        let artworkSize = min(geo.size.width * (geo.size.width > geo.size.height ? 0.30 : 0.72), 430)
+
+        VStack(spacing: 0) {
+            Capsule()
+                .fill(appearance.tertiary)
+                .frame(width: 48, height: 5)
+                .padding(.top, topSafeArea + 6)
+
+            if let error = player.lastPlaybackError {
+                Text(error)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(.red.opacity(0.82), in: Capsule())
+                    .padding(.top, 14)
+            }
+
+            Spacer(minLength: 18)
+
+            if let station = player.currentRadioStation {
+                RadioStationArtworkView(
+                    station: station,
+                    size: artworkSize,
+                    cornerRadius: max(18, artworkSize * 0.06)
+                )
+                .shadow(color: .black.opacity(0.34), radius: 28, y: 14)
+            }
+
+            Spacer(minLength: 24)
+
+            VStack(spacing: 8) {
+                Text(player.currentRadioStation?.name ?? player.currentSong?.title ?? "")
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(appearance.primary)
+                    .lineLimit(1)
+
+                Text(player.radioMetadataTitle ?? player.currentSong?.artistName ?? "")
+                    .font(.body)
+                    .foregroundStyle(appearance.secondary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+
+                HStack(spacing: 7) {
+                    Circle()
+                        .fill(.red)
+                        .frame(width: 8, height: 8)
+                    Text("LIVE")
+                        .font(.caption.weight(.bold))
+                    if player.currentTime > 0 {
+                        Text("·")
+                        Text(player.currentTime.formattedDuration)
+                            .monospacedDigit()
+                    }
+                }
+                .foregroundStyle(appearance.primary)
+                .padding(.horizontal, 12)
+                .frame(height: 30)
+                .background(.ultraThinMaterial, in: Capsule())
+                .accessibilityLabel(Text("radio_live"))
+            }
+            .padding(.horizontal, 32)
+
+            HStack(spacing: 38) {
+                Color.clear.frame(width: 44, height: 44)
+
+                Button { player.togglePlayPause() } label: {
+                    Image(systemName: (player.isPlaying || player.isLoading) ? "stop.circle.fill" : "play.circle.fill")
+                        .font(.system(size: 68))
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .accessibilityLabel(Text((player.isPlaying || player.isLoading) ? "radio_stop" : "a11y_play"))
+
+                if let url = player.currentRadioStation?.url {
+                    ShareLink(item: url) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.title3)
+                            .frame(width: 44, height: 44)
+                    }
+                    .accessibilityLabel(Text("share"))
+                } else {
+                    Color.clear.frame(width: 44, height: 44)
+                }
+            }
+            .foregroundStyle(appearance.primary)
+            .padding(.top, 24)
+
+            HStack(spacing: 9) {
+                Image(systemName: "speaker.fill")
+                    .font(.caption2)
+                    .foregroundStyle(appearance.tertiary)
+                #if os(iOS) && !targetEnvironment(simulator)
+                SystemVolumeSlider()
+                    .frame(maxWidth: .infinity)
+                    .frame(height: SystemVolumeSlider.compactHeight)
+                    .offset(y: SystemVolumeSlider.verticalOffset)
+                #else
+                VolumeSlider(value: Binding(
+                    get: { Double(player.audioEngine.volume) },
+                    set: { player.setPlaybackVolume(Float($0)) }
+                ))
+                #endif
+                Image(systemName: "speaker.wave.3.fill")
+                    .font(.caption2)
+                    .foregroundStyle(appearance.tertiary)
+            }
+            .frame(maxWidth: 460)
+            .padding(.horizontal, 36)
+            .padding(.top, 18)
+
+            HStack(spacing: 10) {
+                AirPlayButton()
+                    .frame(width: 36, height: 36)
+                Text(radioTechnicalSummary)
+                    .font(.caption2)
+                    .foregroundStyle(appearance.faint)
+            }
+            .padding(.top, 10)
+            .padding(.bottom, max(bottomSafeArea, 16))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var radioTechnicalSummary: String {
+        var parts: [String] = [player.radioStreamFormat.displayName]
+        if let bitRate = player.radioBitRate, bitRate > 0 {
+            parts.append("\(bitRate / 1_000) kbps")
+        }
+        return parts.joined(separator: " · ")
     }
 
     // MARK: - iPad 横屏 layout (左封面 / 右歌词)
@@ -686,7 +831,7 @@ struct NowPlayingView: View {
                 #else
                 VolumeSlider(value: Binding(
                     get: { Double(player.audioEngine.volume) },
-                    set: { player.audioEngine.volume = Float($0) }
+                    set: { player.setPlaybackVolume(Float($0)) }
                 ))
                 #endif
                 Image(systemName: "speaker.wave.3.fill").font(.caption2).foregroundStyle(appearance.tertiary)
@@ -1103,7 +1248,7 @@ struct NowPlayingView: View {
                         #else
                         VolumeSlider(value: Binding(
                             get: { Double(player.audioEngine.volume) },
-                            set: { player.audioEngine.volume = Float($0) }
+                            set: { player.setPlaybackVolume(Float($0)) }
                         ))
                         #endif
                         Image(systemName: "speaker.wave.3.fill").font(.caption2).foregroundStyle(appearance.tertiary)
@@ -4237,17 +4382,30 @@ fileprivate struct PlaybackProgressBar: View {
     }
 
     var body: some View {
-        VStack(spacing: 4) {
-            ProgressSlider(
-                value: player.currentTime,
-                total: player.duration,
-                onSeek: { player.seek(to: $0) }
-            )
-            HStack {
-                Text(player.currentTime.formattedDuration); Spacer()
-                Text("-\(max(0, player.duration - player.currentTime).formattedDuration)")
+        Group {
+            if player.isLiveRadio {
+                HStack(spacing: 7) {
+                    Circle().fill(.red).frame(width: 7, height: 7)
+                    Text("LIVE").fontWeight(.bold)
+                    Spacer()
+                    Text(player.currentTime.formattedDuration).monospacedDigit()
+                }
+                .font(.caption)
+                .foregroundStyle(appearance.secondary)
+            } else {
+                VStack(spacing: 4) {
+                    ProgressSlider(
+                        value: player.currentTime,
+                        total: player.duration,
+                        onSeek: { player.seek(to: $0) }
+                    )
+                    HStack {
+                        Text(player.currentTime.formattedDuration); Spacer()
+                        Text("-\(max(0, player.duration - player.currentTime).formattedDuration)")
+                    }
+                    .font(.caption2).foregroundStyle(appearance.tertiary).monospacedDigit()
+                }
             }
-            .font(.caption2).foregroundStyle(appearance.tertiary).monospacedDigit()
         }
     }
 }

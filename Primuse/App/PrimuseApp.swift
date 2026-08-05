@@ -419,6 +419,7 @@ struct PrimuseApp: App {
     @NSApplicationDelegateAdaptor(PrimuseAppDelegate.self) private var appDelegate
     #endif
     @State private var sourcesStore: SourcesStore
+    @State private var radioStationsStore: RadioStationsStore
     @State private var sourceManager: SourceManager
     @State private var playerService: AudioPlayerService
     @State private var scraperSettingsStore: ScraperSettingsStore
@@ -455,6 +456,7 @@ struct PrimuseApp: App {
     init() {
         let services = AppServices.shared
         _sourcesStore = State(initialValue: services.sourcesStore)
+        _radioStationsStore = State(initialValue: services.radioStationsStore)
         _sourceManager = State(initialValue: services.sourceManager)
         _playerService = State(initialValue: services.playerService)
         _scraperSettingsStore = State(initialValue: services.scraperSettingsStore)
@@ -500,6 +502,7 @@ struct PrimuseApp: App {
             .environment(playerService.audioEffectsService)
             .environment(musicLibrary)
             .environment(sourcesStore)
+            .environment(radioStationsStore)
             .environment(sourceManager)
             .environment(scraperSettingsStore)
             .environment(scraperService)

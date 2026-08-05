@@ -189,6 +189,7 @@ extension View {
             .environment(services.playerService.audioEffectsService)
             .environment(services.musicLibrary)
             .environment(services.sourcesStore)
+            .environment(services.radioStationsStore)
             .environment(services.sourceManager)
             .environment(services.scraperSettingsStore)
             .environment(services.scraperService)

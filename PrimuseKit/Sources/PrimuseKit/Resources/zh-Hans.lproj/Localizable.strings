@@ -363,3 +363,8 @@
 "fnmusic_fnconnect_hint" = "输入 FN ID；应用会优先直连，并在需要时使用 FN Connect 中继。登录仍使用 NAS 本地账号。";
 "fnmusic_access_code" = "FN Connect 访问码（可选）";
 "fnmusic_access_code_hint" = "若 FN Connect 已启用访问码，请填写；访问码只会安全保存在钥匙串中。";
+"ext.tv.radio.title" = "电台";
+"ext.tv.radio.stationCount" = "%d 个电台";
+"ext.tv.radio.live" = "直播";
+"ext.tv.radio.stop" = "停止";
+"ext.tv.radio.play" = "播放";

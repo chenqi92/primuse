@@ -310,34 +310,47 @@ struct TVBottomBar: View {
         return HStack(spacing: 16) {
             Button(action: openPlayer) {
                 HStack(spacing: 24) {
-                    TVArtworkView(coverKey: np.albumID, artist: np.artist, album: np.album,
-                                  songID: np.songID, coverRef: np.coverRef,
-                                  tint: np.tint, tint2: np.tint2, glyph: np.glyph, size: 48, radius: 8)
+                    bottomArtwork(np)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(np.title).font(.system(size: 22, weight: .semibold))
                             .foregroundStyle(TVColor.text).lineLimit(1)
-                        Text("\(np.artist) · \(np.album)").font(.system(size: 16))
+                        Text(store.isLiveRadio ? np.artist : "\(np.artist) · \(np.album)")
+                            .font(.system(size: 16))
                             .foregroundStyle(TVColor.textMuted).lineLimit(1)
                     }
                     Spacer(minLength: 0)
-                    VStack(spacing: 6) {
-                        GeometryReader { geo in
-                            ZStack(alignment: .leading) {
-                                Capsule().fill(TVColor.divider).frame(height: 4)
-                                Capsule().fill(np.tint)
-                                    .frame(width: geo.size.width * progress, height: 4)
+                    if store.isLiveRadio {
+                        HStack(spacing: 9) {
+                            Circle().fill(Color.red).frame(width: 10, height: 10)
+                            Text(PMString("ext.tv.radio.live"))
+                                .font(.system(size: 16, weight: .bold))
+                            if store.currentTime > 0 {
+                                Text("· \(TVFmt.time(store.currentTime))")
+                                    .font(.system(size: 15, design: .monospaced))
                             }
                         }
-                        .frame(height: 4)
-                        HStack {
-                            Text(TVFmt.time(store.currentTime))
-                            Spacer()
-                            Text(TVFmt.time(store.duration))
+                        .foregroundStyle(TVColor.textMuted)
+                        .frame(width: 460, alignment: .trailing)
+                    } else {
+                        VStack(spacing: 6) {
+                            GeometryReader { geo in
+                                ZStack(alignment: .leading) {
+                                    Capsule().fill(TVColor.divider).frame(height: 4)
+                                    Capsule().fill(np.tint)
+                                        .frame(width: geo.size.width * progress, height: 4)
+                                }
+                            }
+                            .frame(height: 4)
+                            HStack {
+                                Text(TVFmt.time(store.currentTime))
+                                Spacer()
+                                Text(TVFmt.time(store.duration))
+                            }
+                            .font(.system(size: 14, design: .monospaced))
+                            .foregroundStyle(TVColor.textFaint)
                         }
-                        .font(.system(size: 14, design: .monospaced))
-                        .foregroundStyle(TVColor.textFaint)
+                        .frame(width: 460)
                     }
-                    .frame(width: 460)
                 }
                 .padding(.leading, TVSpace.pageH)
                 .padding(.trailing, 8)
@@ -350,11 +363,13 @@ struct TVBottomBar: View {
             .focusEffectDisabled()
 
             // 独立的播放/暂停 + 下一首键(在底部条直接控,不必进全屏播放页)。
-            TVRoundBtn(icon: store.isPlaying ? "pause.fill" : "play.fill", size: 56, primary: true) {
+            TVRoundBtn(icon: transportIcon, size: 56, primary: true) {
                 store.togglePlayPause()
             }
-            TVRoundBtn(icon: "forward.fill", size: 48) { store.next() }
-                .padding(.trailing, TVSpace.pageH)
+            if !store.isLiveRadio {
+                TVRoundBtn(icon: "forward.fill", size: 48) { store.next() }
+            }
+            Color.clear.frame(width: TVSpace.pageH - 16, height: 1)
         }
         .frame(height: 72)
         .frame(maxWidth: .infinity)
@@ -368,6 +383,25 @@ struct TVBottomBar: View {
     private var progress: Double {
         let dur = store.duration
         return dur > 0 ? max(0, min(1, store.currentTime / dur)) : 0
+    }
+
+    private var transportIcon: String {
+        if store.isLiveRadio {
+            return store.engine.status == .loading || store.engine.status == .playing
+                ? "stop.fill" : "play.fill"
+        }
+        return store.isPlaying ? "pause.fill" : "play.fill"
+    }
+
+    @ViewBuilder
+    private func bottomArtwork(_ np: TVNowPlaying) -> some View {
+        if store.isLiveRadio, let station = store.currentRadioStation {
+            TVRadioArtworkView(station: station, size: 48, radius: 8)
+        } else {
+            TVArtworkView(coverKey: np.albumID, artist: np.artist, album: np.album,
+                          songID: np.songID, coverRef: np.coverRef,
+                          tint: np.tint, tint2: np.tint2, glyph: np.glyph, size: 48, radius: 8)
+        }
     }
 }
 

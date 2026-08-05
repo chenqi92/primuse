@@ -35,7 +35,7 @@ struct NowPlayingWatchView: View {
                 if store.hasSong {
                     cover
                     titleBlock
-                    if !store.currentLyric.isEmpty {
+                    if !store.isLiveStream, !store.currentLyric.isEmpty {
                         lyricLine
                     }
                     progressBlock
@@ -54,7 +54,7 @@ struct NowPlayingWatchView: View {
             syncCrown(to: store.currentTime)
         }
         // 数字表冠 ── 转动时直接调 seek 时间, 1 step = 1 秒。
-        .focusable(store.hasSong)
+        .focusable(store.hasSong && !store.isLiveStream)
         .digitalCrownRotation(
             $crownTime,
             from: 0,
@@ -65,6 +65,7 @@ struct NowPlayingWatchView: View {
             isHapticFeedbackEnabled: true
         )
         .onChange(of: crownTime) { _, newValue in
+            guard !store.isLiveStream else { return }
             // 程序化写入 (重置 / 跟随 currentTime) 不算用户操作, 跳过不发 seek。
             if programmaticCrownUpdate {
                 programmaticCrownUpdate = false
@@ -87,6 +88,7 @@ struct NowPlayingWatchView: View {
         // 旧位置, 用户轻转一格就会从陈旧值 +1 把播放拖回几分钟前。仅在无 pending
         // debounce (用户没在调) 且差值 >1s 时同步, 避免每 100ms 抖动 / 覆盖用户操作。
         .onChange(of: store.currentTime) { _, newTime in
+            guard !store.isLiveStream else { return }
             guard seekDebounceTask == nil else { return }
             if abs(newTime - crownTime) > 1 { syncCrown(to: newTime) }
         }
@@ -105,7 +107,7 @@ struct NowPlayingWatchView: View {
                     endPoint: .bottomTrailing
                 )
                 .overlay {
-                    Image(systemName: "music.note")
+                    Image(systemName: store.isLiveStream ? "radio.fill" : "music.note")
                         .font(.system(size: 32))
                         .foregroundStyle(.white.opacity(0.7))
                 }
@@ -142,8 +144,23 @@ struct NowPlayingWatchView: View {
             .animation(.easeInOut(duration: 0.2), value: store.currentLyric)
     }
 
+    @ViewBuilder
     private var progressBlock: some View {
-        VStack(spacing: 2) {
+        if store.isLiveStream {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(.red)
+                    .frame(width: 7, height: 7)
+                Text(WatchString("ext.watch.radio.live"))
+                    .font(.caption.weight(.bold))
+                if store.currentTime > 0 {
+                    Text("· \(formatTime(store.currentTime))")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } else {
+            VStack(spacing: 2) {
             // 自定义进度条 ── 支持 tap-to-seek (点哪跳哪)。比 ProgressView
             // 多一个 GeometryReader 算点击位置在条上的比例。
             GeometryReader { geo in
@@ -172,11 +189,30 @@ struct NowPlayingWatchView: View {
             }
             .font(.caption2)
             .foregroundStyle(.secondary)
+            }
         }
     }
 
+    @ViewBuilder
     private var transportButtons: some View {
-        HStack(spacing: 14) {
+        if store.isLiveStream {
+            Button { store.togglePlayPause() } label: {
+                ZStack {
+                    Circle().fill(store.accent)
+                    Image(systemName: store.isPlaying || store.isLoading ? "stop.fill" : "play.fill")
+                        .font(.title2)
+                        .foregroundStyle(.white)
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .frame(width: 58, height: 58)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(WatchString(
+                store.isPlaying || store.isLoading ? "ext.watch.radio.stop" : "ext.watch.radio.live"
+            ))
+            .padding(.top, 4)
+        } else {
+            HStack(spacing: 14) {
             Button { store.previous() } label: {
                 Image(systemName: "backward.fill").font(.title3)
             }
@@ -207,8 +243,9 @@ struct NowPlayingWatchView: View {
             }
             .buttonStyle(.plain)
             .frame(width: 44, height: 44)
+            }
+            .padding(.top, 4)
         }
-        .padding(.top, 4)
     }
 
     private var emptyState: some View {

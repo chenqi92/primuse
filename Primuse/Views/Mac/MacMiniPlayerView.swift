@@ -76,11 +76,20 @@ struct MacMiniPlayerView: View {
         )
         .pmWindowDragRegion()
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .task(id: lyricsLoadTaskIdentity) { await refreshLyrics() }
+        .task(id: lyricsLoadTaskIdentity) {
+            if player.isLiveRadio {
+                lyrics = []
+            } else {
+                await refreshLyrics()
+            }
+        }
         .background {
             MacMiniPlayerTimeObserver { updateIndex(time: $0) }
         }
         .onChange(of: bottomMode) { _, new in onBottomModeChange?(new) }
+        .onChange(of: player.isLiveRadio, initial: true) { _, isLive in
+            if isLive, bottomMode != .none { bottomMode = .none }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .primuseLyricsDidChange)) { note in
             guard let songID = note.object as? String,
                   songID == player.currentSong?.id else { return }
@@ -100,13 +109,15 @@ struct MacMiniPlayerView: View {
             Spacer()
 
             // 折叠 / 展开
-            Button {
-                bottomMode = bottomMode == .none ? .lyrics : .none
-            } label: {
-                topBarIcon(bottomMode == .none ? "chevron.up" : "chevron.down")
+            if !player.isLiveRadio {
+                Button {
+                    bottomMode = bottomMode == .none ? .lyrics : .none
+                } label: {
+                    topBarIcon(bottomMode == .none ? "chevron.up" : "chevron.down")
+                }
+                .buttonStyle(.plain)
+                .help(Text(bottomMode == .none ? "show" : "hide"))
             }
-            .buttonStyle(.plain)
-            .help(Text(bottomMode == .none ? "show" : "hide"))
 
             // 关闭(收起窗口)—— 右上角关闭键,替代之前的红绿灯。
             Button { onClose() } label: {
@@ -153,7 +164,13 @@ struct MacMiniPlayerView: View {
         let coverSize: CGFloat = bottomMode == .none ? 76 : 96
         let cornerRadius: CGFloat = bottomMode == .none ? 8 : 10
         return Group {
-            if let song = player.currentSong {
+            if player.isLiveRadio, let station = player.currentRadioStation {
+                RadioStationArtworkView(
+                    station: station,
+                    size: coverSize,
+                    cornerRadius: cornerRadius
+                )
+            } else if let song = player.currentSong {
                 CachedArtworkView(
                     coverRef: song.coverArtFileName, songID: song.id,
                     size: coverSize, cornerRadius: cornerRadius,
@@ -177,19 +194,21 @@ struct MacMiniPlayerView: View {
         // 点封面切换折叠/展开 —— 跟 Apple Music 一致,也作为顶栏折叠箭头的兜底
         // 入口(保证折叠态一定能展开到歌词/队列)。
         .onTapGesture {
-            bottomMode = bottomMode == .none ? .lyrics : .none
+            if !player.isLiveRadio {
+                bottomMode = bottomMode == .none ? .lyrics : .none
+            }
         }
     }
 
     /// 标题/艺术家 — 居中显示, 紧贴 cover 下方。
     private var metaArea: some View {
         VStack(spacing: 2) {
-            Text(player.currentSong?.title ?? "—")
+            Text(player.currentRadioStation?.name ?? player.currentSong?.title ?? "—")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(PMColor.text)
                 .lineLimit(1)
                 .truncationMode(.tail)
-            Text(player.currentSong?.artistName ?? "")
+            Text(player.radioMetadataTitle ?? player.currentSong?.artistName ?? "")
                 .font(.system(size: 11))
                 .foregroundStyle(PMColor.textMuted)
                 .lineLimit(1)
@@ -226,7 +245,60 @@ struct MacMiniPlayerView: View {
         .buttonStyle(.plain)
     }
 
+    @ViewBuilder
     private var footerToolbar: some View {
+        if player.isLiveRadio {
+            radioFooterToolbar
+        } else {
+            trackFooterToolbar
+        }
+    }
+
+    private var radioFooterToolbar: some View {
+        HStack(spacing: 8) {
+            Button { airPlayShown.toggle() } label: {
+                miniIcon("airplayaudio", tint: airPlayShown ? theme.accentColor : .secondary)
+            }
+            .buttonStyle(.plain)
+            .glassEffect(.regular.interactive(), in: .circle)
+            .popover(isPresented: $airPlayShown, arrowEdge: .top) {
+                AudioOutputPickerView()
+            }
+            .help(Text("audio_output"))
+
+            Button { player.togglePlayPause() } label: {
+                miniIcon(
+                    (player.isPlaying || player.isLoading) ? "stop.fill" : "play.fill",
+                    tint: theme.onAccent
+                )
+                .background(theme.accentColor, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .help(Text((player.isPlaying || player.isLoading) ? "radio_stop" : "a11y_play"))
+
+            Spacer(minLength: 6)
+
+            Image(systemName: volumeSymbol)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(PMColor.textMuted)
+                .frame(width: 14)
+
+            PMVolumeSlider(value: Binding(
+                get: { Double(engine.volume) },
+                set: { player.setPlaybackVolume(Float($0)) }
+            ), isEnabled: true)
+            .frame(width: 92)
+            .help(Text("volume"))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .overlay(alignment: .top) {
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+        }
+    }
+
+    private var trackFooterToolbar: some View {
         HStack(spacing: 6) {
             // Lyrics 切换 —— 高亮 = 当前下半部分显示歌词。再点切到 .none
             // 隐藏面板,留给封面更多空间。
@@ -272,7 +344,7 @@ struct MacMiniPlayerView: View {
             // drags stay on the control in this borderless panel.
             PMVolumeSlider(value: Binding(
                 get: { Double(engine.volume) },
-                set: { engine.volume = Float($0) }
+                set: { player.setPlaybackVolume(Float($0)) }
             ), isEnabled: player.playbackSettings.outputMode == .effects,
                accessibilityHelp: player.playbackSettings.outputMode == .highFidelity
                    ? String(localized: "volume_high_fidelity_system_hint")
@@ -681,21 +753,35 @@ private struct MacMiniPlayerProgress: View {
     let tint: Color
 
     var body: some View {
-        VStack(spacing: 4) {
-            ScrubberLine(
-                value: player.currentTime,
-                total: max(player.duration, 0.01),
-                tint: tint,
-                onSeek: { player.seek(to: $0) }
-            )
-            HStack {
-                Text(formatTime(player.currentTime))
-                Spacer()
-                Text(formatTime(player.duration))
+        Group {
+            if player.isLiveRadio {
+                HStack(spacing: 7) {
+                    Circle().fill(.red).frame(width: 7, height: 7)
+                    Text("LIVE").fontWeight(.bold)
+                    Spacer()
+                    Text(formatTime(player.currentTime))
+                }
+                .font(.caption2)
+                .monospacedDigit()
+                .foregroundStyle(PMColor.textMuted)
+            } else {
+                VStack(spacing: 4) {
+                    ScrubberLine(
+                        value: player.currentTime,
+                        total: max(player.duration, 0.01),
+                        tint: tint,
+                        onSeek: { player.seek(to: $0) }
+                    )
+                    HStack {
+                        Text(formatTime(player.currentTime))
+                        Spacer()
+                        Text(formatTime(player.duration))
+                    }
+                    .font(.caption2)
+                    .monospacedDigit()
+                    .foregroundStyle(PMColor.textFaint)
+                }
             }
-            .font(.caption2)
-            .monospacedDigit()
-            .foregroundStyle(PMColor.textFaint)
         }
     }
 

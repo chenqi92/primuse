@@ -3,3 +3,4 @@
 
 #import "Services/Audio/CloudInputSourceObjC.h"
 #import "Services/Audio/FFmpegDecoderBridge.h"
+#import "Services/Radio/RadioFLACDecoderBridge.h"
