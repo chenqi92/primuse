@@ -573,7 +573,7 @@ final class TVPlaybackCoordinator {
         switch error {
         case .unsupportedSourceType(let type): return .unsupported(type.displayName)
         case .missingCredential: return .missingCredential(source.name)
-        case .needs2FA: return .failed("需要两步验证 —— 请到「音乐源」页长按该源选「两步验证登录」")
+        case .needs2FA: return .failed(PMString("ext.tv.test.needs2FA"))
         case .authFailed: return .failed(PMString("ext.tv.playback.authFailed"))
         case .badServerResponse(let code): return .failed(PMString("ext.tv.playback.httpError", code))
         case .cannotBuildURL: return .failed(PMString("ext.tv.playback.cannotBuildURL"))

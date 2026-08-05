@@ -108,7 +108,7 @@ public actor SynologyStreamResolver: StreamResolver {
     }
 
     /// 执行登录。`otp` 非空时附带 `otp_code` + `enable_device_token` 申请受信设备。
-    /// 返回(sid, did?);DSM 返回 2FA 错误码(403/404)时抛 `.needs2FA`。
+    /// 返回(sid, did?);DSM 返回 2FA 错误码时抛 `.needs2FA`。
     private func performLogin(base: URL, username: String, password: String,
                              deviceID: String?, otp: String?) async throws -> (sid: String, did: String?) {
         // 凭据放进 POST 表单体,URL 上不携带账号/密码,避免进入 DSM/反向代理的访问日志。
@@ -145,9 +145,9 @@ public actor SynologyStreamResolver: StreamResolver {
            let d = json["data"] as? [String: Any], let sid = d["sid"] as? String {
             return (sid, d["did"] as? String)
         }
-        // DSM 错误码 403 = 需要 OTP,404 = OTP 校验失败 → 让 TV 弹验证码输入。
+        // DSM 403/404/406 都需要回到验证码输入，不应退化成普通登录失败。
         if let err = json["error"] as? [String: Any], let code = err["code"] as? Int,
-           code == 403 || code == 404 {
+           SynologyAuthenticationPolicy.requiresTwoFactorAuthentication(errorCode: code) {
             throw StreamResolveError.needs2FA
         }
         throw StreamResolveError.authFailed   // 密码错 / 锁定

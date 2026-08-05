@@ -70,7 +70,7 @@ actor SynologyScanner {
                     let initialCount = max(existingSongs.count, startingCount)
                     var count = totalCount > 0 ? min(initialCount, totalCount) : initialCount
                     var encounteredSongIDs: Set<String> = []
-                    var hadDirectoryFailure = false
+                    var directoryFailures: [Error] = []
 
                     if !existingSongs.isEmpty {
                         continuation.yield(
@@ -87,19 +87,24 @@ actor SynologyScanner {
                                 existingByPath: existingByPath,
                                 existingByID: existingByID,
                                 encounteredSongIDs: &encounteredSongIDs,
+                                directoryFailures: &directoryFailures,
                                 continuation: continuation
                             )
                         } catch is CancellationError {
                             throw CancellationError()
                         } catch {
-                            hadDirectoryFailure = true
-                            // Log error but continue scanning remaining directories
+                            directoryFailures.append(error)
                             plog("⚠️ Failed to scan directory \(dir): \(error.localizedDescription)")
                             continue
                         }
                     }
 
-                    if !hadDirectoryFailure {
+                    if let firstFailure = directoryFailures.first,
+                       encounteredSongIDs.isEmpty {
+                        throw firstFailure
+                    }
+
+                    if directoryFailures.isEmpty {
                         allSongs.removeAll { encounteredSongIDs.contains($0.id) == false }
                         count = allSongs.count
                     }
@@ -151,6 +156,7 @@ actor SynologyScanner {
         existingByPath: [String: Int],
         existingByID: [String: Int],
         encounteredSongIDs: inout Set<String>,
+        directoryFailures: inout [Error],
         continuation: AsyncThrowingStream<ScanUpdate, Error>.Continuation
     ) async throws {
         try Task.checkCancellation()
@@ -185,14 +191,22 @@ actor SynologyScanner {
         for item in items {
             try Task.checkCancellation()
             if item.isDirectory {
-                try await scanDirectory(
-                    path: item.path, allSongs: &allSongs,
-                    count: &count, totalCount: totalCount,
-                    existingByPath: existingByPath,
-                    existingByID: existingByID,
-                    encounteredSongIDs: &encounteredSongIDs,
-                    continuation: continuation
-                )
+                do {
+                    try await scanDirectory(
+                        path: item.path, allSongs: &allSongs,
+                        count: &count, totalCount: totalCount,
+                        existingByPath: existingByPath,
+                        existingByID: existingByID,
+                        encounteredSongIDs: &encounteredSongIDs,
+                        directoryFailures: &directoryFailures,
+                        continuation: continuation
+                    )
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    directoryFailures.append(error)
+                    plog("⚠️ Failed to scan child directory \(item.path): \(error.localizedDescription)")
+                }
             } else {
                 let ext = (item.name as NSString).pathExtension.lowercased()
                 if PrimuseConstants.supportedMusicVideoExtensions.contains(ext) {

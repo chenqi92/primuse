@@ -72,6 +72,15 @@ import Testing
     }
 }
 
+@Test func synologyAuthenticationRecognizesEveryTwoFactorCode() {
+    for code in [403, 404, 406] {
+        #expect(SynologyAuthenticationPolicy.requiresTwoFactorAuthentication(errorCode: code))
+    }
+    for code in [400, 401, 402, 405, 407, 500] {
+        #expect(!SynologyAuthenticationPolicy.requiresTwoFactorAuthentication(errorCode: code))
+    }
+}
+
 @Test func quickConnectFollowsControlSiteAndFallsBackToVerifiedRelay() async throws {
     QuickConnectURLProtocol.reset()
     let configuration = URLSessionConfiguration.ephemeral

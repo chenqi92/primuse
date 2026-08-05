@@ -30,6 +30,106 @@ public enum SynologyConnectionMode: String, CaseIterable, Sendable {
 
 extension SynologyConnectionMode: Codable {}
 
+public enum SynologyAuthenticationPolicy {
+    public static func requiresTwoFactorAuthentication(errorCode: Int) -> Bool {
+        switch errorCode {
+        case 403, 404, 406:
+            return true
+        default:
+            return false
+        }
+    }
+}
+
+/// Determines when a complete HTTP/1.1 response has arrived without waiting
+/// for the peer to close a keep-alive connection.
+public enum HTTPResponseFramingPolicy {
+    private static let lineBreak = Data([13, 10])
+    private static let headerTerminator = Data([13, 10, 13, 10])
+
+    public static func completeMessageLength(in data: Data) -> Int? {
+        guard let headerRange = data.range(of: headerTerminator) else { return nil }
+        let headerEnd = data.distance(from: data.startIndex, to: headerRange.upperBound)
+        let headerData = Data(data[..<headerRange.lowerBound])
+        let headerText = String(data: headerData, encoding: .isoLatin1)
+            ?? String(decoding: headerData, as: UTF8.self)
+        let lines = headerText.components(separatedBy: "\r\n")
+
+        var statusCode: Int?
+        if let statusLine = lines.first {
+            let parts = statusLine.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
+            if parts.count >= 2 { statusCode = Int(parts[1]) }
+        }
+
+        var contentLength: Int?
+        var isChunked = false
+        for line in lines.dropFirst() {
+            guard let separator = line.firstIndex(of: ":") else { continue }
+            let name = line[..<separator].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let value = line[line.index(after: separator)...]
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            switch name {
+            case "content-length":
+                guard let parsed = Int(value), parsed >= 0 else { return nil }
+                contentLength = parsed
+            case "transfer-encoding":
+                isChunked = value.localizedCaseInsensitiveContains("chunked")
+            default:
+                break
+            }
+        }
+
+        if isChunked {
+            return completeChunkedMessageLength(in: data, bodyOffset: headerEnd)
+        }
+        if let contentLength {
+            guard contentLength <= Int.max - headerEnd else { return nil }
+            let messageLength = headerEnd + contentLength
+            return data.count >= messageLength ? messageLength : nil
+        }
+        if statusCode == 204 || statusCode == 304 {
+            return headerEnd
+        }
+        return nil
+    }
+
+    private static func completeChunkedMessageLength(in data: Data, bodyOffset: Int) -> Int? {
+        guard bodyOffset <= data.count else { return nil }
+        var cursor = data.index(data.startIndex, offsetBy: bodyOffset)
+
+        while cursor < data.endIndex {
+            guard let sizeLineRange = data[cursor...].range(of: lineBreak) else { return nil }
+            let sizeLine = String(decoding: data[cursor..<sizeLineRange.lowerBound], as: UTF8.self)
+            let sizeToken = sizeLine
+                .split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false)
+                .first ?? ""
+            guard let chunkSize = Int(sizeToken.trimmingCharacters(in: .whitespacesAndNewlines), radix: 16),
+                  chunkSize >= 0 else {
+                return nil
+            }
+
+            cursor = sizeLineRange.upperBound
+            if chunkSize == 0 {
+                if data[cursor...].starts(with: lineBreak) {
+                    return data.distance(
+                        from: data.startIndex,
+                        to: data.index(cursor, offsetBy: lineBreak.count)
+                    )
+                }
+                guard let trailerEnd = data[cursor...].range(of: headerTerminator) else { return nil }
+                return data.distance(from: data.startIndex, to: trailerEnd.upperBound)
+            }
+
+            guard let chunkEnd = data.index(cursor, offsetBy: chunkSize, limitedBy: data.endIndex),
+                  data[chunkEnd...].starts(with: lineBreak) else {
+                return nil
+            }
+            cursor = data.index(chunkEnd, offsetBy: lineBreak.count)
+        }
+        return nil
+    }
+}
+
 public struct SynologyResolvedEndpoint: Equatable, Sendable {
     public enum Route: String, Sendable {
         case direct

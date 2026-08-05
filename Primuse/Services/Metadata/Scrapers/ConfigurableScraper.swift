@@ -1127,6 +1127,17 @@ enum PlainHTTPClient {
                             finish(.failure(ScraperError.networkError("HTTP response too large")))
                             return
                         }
+
+                        let snapshot = stateBox.snapshot()
+                        if let messageLength = HTTPResponseFramingPolicy.completeMessageLength(in: snapshot) {
+                            do {
+                                let framedResponse = Data(snapshot.prefix(messageLength))
+                                finish(.success(try parseResponse(framedResponse, for: url)))
+                            } catch {
+                                finish(.failure(error))
+                            }
+                            return
+                        }
                     }
 
                     if isComplete || data?.isEmpty == true {

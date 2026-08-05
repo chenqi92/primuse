@@ -154,7 +154,7 @@ actor SynologyAPI {
                 let code = error?["code"] as? Int ?? 0
                 plog("⚠️ Synology login failed host=\(redactedHost(host)) code=\(code) message=\(synologyErrorMessage(code: code))")
 
-                if code == 403 || code == 404 || code == 406 {
+                if SynologyAuthenticationPolicy.requiresTwoFactorAuthentication(errorCode: code) {
                     return LoginResult(success: false, needs2FA: true,
                                       errorCode: code,
                                       errorMessage: synologyErrorMessage(code: code))
@@ -536,17 +536,21 @@ actor SynologyAPI {
 
     private func synologyErrorMessage(code: Int) -> String {
         switch code {
-        case 400: return "用户名或密码错误"
-        case 401: return "账户已被停用"
-        case 402: return "权限不足"
-        case 403: return "需要两步验证"
-        case 404: return "验证码错误，请重新输入"
-        case 406: return "需要强制两步验证"
-        case 407: return "请求来源 IP 已被封锁，请先在 DSM 中解除自动封锁"
-        case 408: return "密码已过期且无法在此修改，请先在 DSM 中重置密码"
-        case 409: return "密码已过期，请先登录 DSM 修改密码"
-        case 410: return "必须先在 DSM 修改密码后再连接"
-        default: return "连接失败 (错误码: \(code))"
+        case 400: return String(localized: "synology_auth_error_400")
+        case 401: return String(localized: "synology_auth_error_401")
+        case 402: return String(localized: "synology_auth_error_402")
+        case 403: return String(localized: "synology_auth_error_403")
+        case 404: return String(localized: "synology_auth_error_404")
+        case 406: return String(localized: "synology_auth_error_406")
+        case 407: return String(localized: "synology_auth_error_407")
+        case 408: return String(localized: "synology_auth_error_408")
+        case 409: return String(localized: "synology_auth_error_409")
+        case 410: return String(localized: "synology_auth_error_410")
+        default:
+            return String(
+                format: String(localized: "synology_auth_error_unknown_format"),
+                code
+            )
         }
     }
 
@@ -581,10 +585,11 @@ enum SynologyError: Error, LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .notLoggedIn: return "未登录"
-        case .invalidURL: return "无效的地址"
-        case .invalidResponse: return "无效的响应"
-        case .httpError(let c): return "HTTP 错误 \(c)"
+        case .notLoggedIn: return String(localized: "synology_error_not_logged_in")
+        case .invalidURL: return String(localized: "synology_error_invalid_url")
+        case .invalidResponse: return String(localized: "synology_error_invalid_response")
+        case .httpError(let code):
+            return String(format: String(localized: "synology_error_http_format"), code)
         case .apiError(let m): return m
         }
     }
