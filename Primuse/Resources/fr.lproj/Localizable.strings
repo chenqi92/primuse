@@ -2052,6 +2052,7 @@
 "source_quick_sync" = "Synchronisation rapide des modifications…";
 "source_deep_scan" = "Analyse approfondie";
 "radio_title" = "Radio";
+"radio_manage" = "Gérer les stations de radio";
 "radio_add" = "Ajouter une station";
 "radio_edit" = "Modifier la station";
 "radio_empty_title" = "Aucune station de radio";

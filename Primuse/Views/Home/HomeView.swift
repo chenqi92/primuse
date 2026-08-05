@@ -105,8 +105,11 @@ struct HomeView: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(CoverTintProvider.self) private var tintProvider
+    @Environment(RadioStationsStore.self) private var radioStationsStore
 
-    private var hasContent: Bool { homeSnapshot.hasContent }
+    private var hasContent: Bool {
+        homeSnapshot.hasContent || !radioStationsStore.stations.isEmpty
+    }
 
     private var greeting: String {
         let hour = Calendar.current.component(.hour, from: Date())
@@ -302,12 +305,80 @@ struct HomeView: View {
 
     private var contentView: some View {
         LazyVStack(alignment: .leading, spacing: 24) {
-            libraryHeroSection
+            if homeSnapshot.hasContent {
+                libraryHeroSection
+            }
+
+            radioQuickEntry
 
             ForEach(homeSectionOrder) { section in
                 homeSectionContent(section)
             }
         }
+    }
+
+    private var radioQuickEntry: some View {
+        NavigationLink {
+            RadioStationsView()
+        } label: {
+            HStack(spacing: 14) {
+                radioQuickEntryArtwork
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("radio_title")
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text(radioQuickEntrySubtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: 8)
+
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(14)
+            .background {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(homeCardSurface)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(.primary.opacity(0.06), lineWidth: 0.5)
+                    }
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 16)
+    }
+
+    @ViewBuilder
+    private var radioQuickEntryArtwork: some View {
+        if let station = radioStationsStore.stations.first {
+            RadioStationArtworkView(station: station, size: 52, cornerRadius: 12)
+        } else {
+            ZStack {
+                LinearGradient(
+                    colors: [.purple.opacity(0.85), .blue.opacity(0.7)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                Image(systemName: "radio.fill")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 52, height: 52)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+    }
+
+    private var radioQuickEntrySubtitle: String {
+        let count = radioStationsStore.stations.count
+        guard count > 0 else { return String(localized: "radio_empty_description") }
+        return "\(count.formatted()) \(String(localized: "radio_stations_count"))"
     }
 
     @ViewBuilder
@@ -1766,6 +1837,13 @@ struct HomeView: View {
                 action: { switchToSettingsTab?() }
             )
             .padding(.horizontal, 24)
+
+            NavigationLink {
+                RadioStationsView()
+            } label: {
+                Label("radio_title", systemImage: "radio.fill")
+            }
+            .buttonStyle(.bordered)
             Spacer()
         }.frame(maxWidth: .infinity)
     }

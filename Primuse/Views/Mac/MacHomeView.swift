@@ -42,6 +42,7 @@ struct MacHomeView: View {
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(ThemeService.self) private var theme
     @Environment(AppUpdateChecker.self) private var updateChecker
+    @Environment(RadioStationsStore.self) private var radioStationsStore
 
     // 派生聚合缓存 —— mosaicSongs(全库 sort)、heroStats(全库 reduce)、三个 ratio
     // (各一次全库 filter) 都很重。首页同时观察 scanStates(每扫一个文件就变)和
@@ -82,6 +83,7 @@ struct MacHomeView: View {
                 }
 
                 heroSection
+                radioQuickEntry
 
                 if hasContent {
                     statsRow
@@ -417,6 +419,66 @@ struct MacHomeView: View {
                 .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5)
         }
         .shadow(color: .black.opacity(0.45), radius: 8, y: 4)
+    }
+
+    private var radioQuickEntry: some View {
+        NavigationLink {
+            RadioStationsView()
+        } label: {
+            HStack(spacing: PMSpace.m16) {
+                radioQuickEntryArtwork
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("radio_title")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(PMColor.text)
+                    Text(radioQuickEntrySubtitle)
+                        .font(.system(size: 12))
+                        .foregroundStyle(PMColor.textMuted)
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: PMSpace.m16)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(PMColor.textFaint)
+            }
+            .padding(PMSpace.m16)
+            .background(PMColor.bgElev, in: RoundedRectangle(cornerRadius: PMRadius.l, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: PMRadius.l, style: .continuous)
+                    .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: PMRadius.l, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var radioQuickEntryArtwork: some View {
+        if let station = radioStationsStore.stations.first {
+            RadioStationArtworkView(station: station, size: 56, cornerRadius: 12)
+        } else {
+            ZStack {
+                LinearGradient(
+                    colors: [PMColor.brand.opacity(0.9), Color.purple.opacity(0.72)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                Image(systemName: "radio.fill")
+                    .font(.system(size: 21, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 56, height: 56)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+    }
+
+    private var radioQuickEntrySubtitle: String {
+        let count = radioStationsStore.stations.count
+        guard count > 0 else { return String(localized: "radio_empty_description") }
+        return "\(count.formatted()) \(String(localized: "radio_stations_count"))"
     }
 
     private var coverMosaic: some View {

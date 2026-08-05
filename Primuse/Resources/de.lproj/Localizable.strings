@@ -2052,6 +2052,7 @@
 "source_quick_sync" = "Änderungen werden schnell synchronisiert…";
 "source_deep_scan" = "Tiefenscan";
 "radio_title" = "Radio";
+"radio_manage" = "Radiosender verwalten";
 "radio_add" = "Sender hinzufügen";
 "radio_edit" = "Sender bearbeiten";
 "radio_empty_title" = "Keine Radiosender";

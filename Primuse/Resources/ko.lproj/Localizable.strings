@@ -2052,6 +2052,7 @@
 "source_quick_sync" = "변경 사항을 빠르게 동기화하는 중…";
 "source_deep_scan" = "정밀 스캔";
 "radio_title" = "라디오";
+"radio_manage" = "라디오 방송국 관리";
 "radio_add" = "방송국 추가";
 "radio_edit" = "방송국 편집";
 "radio_empty_title" = "라디오 방송국 없음";

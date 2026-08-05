@@ -2053,6 +2053,7 @@
 "source_quick_sync" = "Quick syncing changes…";
 "source_deep_scan" = "Deep Scan";
 "radio_title" = "Radio";
+"radio_manage" = "Manage Radio Stations";
 "radio_add" = "Add Station";
 "radio_edit" = "Edit Station";
 "radio_empty_title" = "No Radio Stations";

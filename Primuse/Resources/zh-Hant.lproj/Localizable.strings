@@ -2028,6 +2028,7 @@
 "source_quick_sync" = "正在快速同步變更…";
 "source_deep_scan" = "深度掃描";
 "radio_title" = "電台";
+"radio_manage" = "管理電台";
 "radio_add" = "加入電台";
 "radio_edit" = "編輯電台";
 "radio_empty_title" = "尚無電台";

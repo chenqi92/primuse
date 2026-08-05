@@ -2155,6 +2155,7 @@
 "source_quick_sync" = "正在快速同步变化…";
 "source_deep_scan" = "深度扫描";
 "radio_title" = "电台";
+"radio_manage" = "管理电台";
 "radio_add" = "添加电台";
 "radio_edit" = "编辑电台";
 "radio_empty_title" = "还没有电台";
