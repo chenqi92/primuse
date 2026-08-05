@@ -2,7 +2,7 @@ import Foundation
 import PrimuseKit
 
 /// Google Drive Source — Drive API v3
-actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayNameProviding {
+actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayNameProviding, IncrementalMusicSourceConnector {
     let sourceID: String
     nonisolated let supportsSidecarWriting = true   // 刮削歌词/封面写回 Google Drive 同目录
     private let helper: CloudDriveHelper
@@ -118,7 +118,7 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
                 // same size — Drive keeps the id stable across version
                 // uploads, and modifiedTime alone isn't enough when the
                 // overwrite happens in the same second.
-                .init(name: "fields", value: "files(id,name,mimeType,size,modifiedTime,md5Checksum,headRevisionId),nextPageToken"),
+                .init(name: "fields", value: "files(id,name,mimeType,size,modifiedTime,md5Checksum,headRevisionId,parents),nextPageToken"),
                 .init(name: "pageSize", value: "1000"),
                 .init(name: "orderBy", value: "name"),
             ]
@@ -141,11 +141,173 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
                 // re-uploaded byte-identical, but that's still strictly
                 // better than nil for catching overwrites.
                 let revision = (item["md5Checksum"] as? String) ?? (item["headRevisionId"] as? String)
-                return RemoteFileItem(name: name, path: id, isDirectory: isDir, size: Int64(item["size"] as? String ?? "0") ?? 0, modifiedDate: mtime, revision: revision)
+                return RemoteFileItem(
+                    name: name,
+                    path: id,
+                    isDirectory: isDir,
+                    size: Int64(item["size"] as? String ?? "0") ?? 0,
+                    modifiedDate: mtime,
+                    revision: revision,
+                    providerID: id,
+                    // `root` is only an API alias. Changes API returns the
+                    // actual root folder id, so persist that same identity to
+                    // avoid reconciling the top-level directory twice.
+                    parentPath: (item["parents"] as? [String])?.first ?? parentId
+                )
             })
             pageToken = json["nextPageToken"] as? String
         } while pageToken != nil
         return all
+    }
+
+    func initialChangeCursors(for roots: [String]) async throws -> [String: String] {
+        let token = try await getToken()
+        var components = URLComponents(string: "\(Self.apiBase)/changes/startPageToken")!
+        components.queryItems = [.init(name: "supportsAllDrives", value: "true")]
+        let requestURL = components.url!
+        let (data, http) = try await helper.withTokenRetry(
+            initialToken: token,
+            refresh: refreshToken
+        ) { @Sendable tok in
+            try await self.helper.makeAuthorizedRequest(url: requestURL, accessToken: tok)
+        }
+        guard http.statusCode == 200,
+              let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let cursor = json["startPageToken"] as? String,
+              !cursor.isEmpty else {
+            throw CloudDriveError.apiError(http.statusCode, "Google Drive startPageToken")
+        }
+        return ["account": cursor]
+    }
+
+    func changes(
+        since cursors: [String: String],
+        roots: [String],
+        index: [String: SourceSyncIndexedItem]
+    ) async throws -> IncrementalSourceChanges {
+        guard var pageToken = cursors["account"], !pageToken.isEmpty else {
+            return IncrementalSourceChanges(cursors: cursors, requiresDeepScan: true)
+        }
+        let normalizedRoots = Set(roots.map { $0.isEmpty || $0 == "/" ? "root" : $0 })
+        var changedParents: Set<String> = []
+        var deletedKeys: Set<String> = []
+        var liveStableKeys: Set<String> = []
+        var requiresDeep = false
+        var ancestryCache: [String: Bool] = [:]
+        var finalCursor: String?
+
+        repeat {
+            let token = try await getToken()
+            var components = URLComponents(string: "\(Self.apiBase)/changes")!
+            components.queryItems = [
+                .init(name: "pageToken", value: pageToken),
+                .init(name: "pageSize", value: "1000"),
+                .init(name: "includeRemoved", value: "true"),
+                .init(name: "supportsAllDrives", value: "true"),
+                .init(name: "includeItemsFromAllDrives", value: "true"),
+                .init(name: "fields", value: "nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,mimeType,size,modifiedTime,md5Checksum,headRevisionId,parents,trashed))"),
+            ]
+            let requestURL = components.url!
+            let (data, http) = try await helper.withTokenRetry(
+                initialToken: token,
+                refresh: refreshToken
+            ) { @Sendable tok in
+                try await self.helper.makeAuthorizedRequest(url: requestURL, accessToken: tok)
+            }
+            if http.statusCode == 410 {
+                return IncrementalSourceChanges(
+                    cursors: cursors,
+                    requiresDeepScan: true
+                )
+            }
+            guard http.statusCode == 200 else {
+                throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+            }
+            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+            let entries = json["changes"] as? [[String: Any]] ?? []
+            for change in entries {
+                guard let fileID = change["fileId"] as? String else { continue }
+                let existing = index[fileID]
+                let file = change["file"] as? [String: Any]
+                let removed = change["removed"] as? Bool == true || file?["trashed"] as? Bool == true
+                if removed {
+                    if let existing {
+                        deletedKeys.insert(fileID)
+                        if let parent = existing.parentPath { changedParents.insert(parent) }
+                    }
+                    continue
+                }
+                guard let file else { continue }
+                deletedKeys.remove(fileID)
+                liveStableKeys.insert(fileID)
+                let parents = file["parents"] as? [String] ?? []
+                let parent = parents.first
+                let inScope: Bool
+                if normalizedRoots.contains("root") {
+                    inScope = true
+                } else if let parent {
+                    if let cached = ancestryCache[parent] {
+                        inScope = cached
+                    } else {
+                        let value = try await folder(parent, belongsToAny: normalizedRoots)
+                        ancestryCache[parent] = value
+                        inScope = value
+                    }
+                } else {
+                    inScope = existing != nil
+                }
+                if let oldParent = existing?.parentPath { changedParents.insert(oldParent) }
+                guard inScope else { continue }
+                if (file["mimeType"] as? String) == "application/vnd.google-apps.folder" {
+                    requiresDeep = true
+                } else if let parent {
+                    changedParents.insert(parent)
+                }
+            }
+            if let next = json["nextPageToken"] as? String, !next.isEmpty {
+                pageToken = next
+            } else {
+                finalCursor = json["newStartPageToken"] as? String
+                pageToken = ""
+            }
+        } while !pageToken.isEmpty
+
+        guard let finalCursor, !finalCursor.isEmpty else {
+            throw CloudDriveError.invalidResponse
+        }
+        deletedKeys.subtract(liveStableKeys)
+        return IncrementalSourceChanges(
+            cursors: ["account": finalCursor],
+            changedParentPaths: changedParents,
+            deletedStableKeys: deletedKeys,
+            requiresDeepScan: requiresDeep
+        )
+    }
+
+    private func folder(_ folderID: String, belongsToAny roots: Set<String>) async throws -> Bool {
+        var current: String? = folderID
+        var visited: Set<String> = []
+        for _ in 0..<128 {
+            guard let id = current, visited.insert(id).inserted else { return false }
+            if roots.contains(id) { return true }
+            let token = try await getToken()
+            var components = URLComponents(string: "\(Self.apiBase)/files/\(id)")!
+            components.queryItems = [.init(name: "fields", value: "id,parents,trashed")]
+            let requestURL = components.url!
+            let (data, http) = try await helper.withTokenRetry(
+                initialToken: token,
+                refresh: refreshToken
+            ) { @Sendable tok in
+                try await self.helper.makeAuthorizedRequest(url: requestURL, accessToken: tok)
+            }
+            if http.statusCode == 404 { return false }
+            guard http.statusCode == 200,
+                  let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  json["trashed"] as? Bool != true else { return false }
+            current = (json["parents"] as? [String])?.first
+            if current == nil { return false }
+        }
+        return false
     }
 
     func localURL(for path: String) async throws -> URL {

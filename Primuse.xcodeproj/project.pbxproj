@@ -543,6 +543,9 @@
 		BF9F981588768AF712318FC6 /* LyricsTranslationSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB3A3AB01792078E57665353 /* LyricsTranslationSettings.swift */; };
 		BFEE905717AEAA45FA3C56CB /* LocalImportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03F527F89BB056AD3BB3E532 /* LocalImportService.swift */; };
 		C067C2586AAA10F3F398296C /* SharedConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 136A0C5EFAF6D7C7056C69A4 /* SharedConstants.swift */; };
+		C0DE00000000000000000001 /* SourceSyncState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000011 /* SourceSyncState.swift */; };
+		C0DE00000000000000000002 /* STRMDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000012 /* STRMDescriptor.swift */; };
+		C0DE00000000000000000003 /* IncrementalSongStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000013 /* IncrementalSongStore.swift */; };
 		C09E9449CBF786992D36ABEC /* ExternalDisplaySceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D3CF7E2A5E7D4B7274BDB17 /* ExternalDisplaySceneDelegate.swift */; };
 		C0A9D1EA92EADB6659E5438F /* PlatformShims.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AE10B90CF85FD450338F498 /* PlatformShims.swift */; };
 		C0CCDE0A3022B35ACE45FC5A /* ConnectorDirectoryBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACACC8DFC2348B923ACAB6E5 /* ConnectorDirectoryBrowserView.swift */; };
@@ -920,6 +923,9 @@
 		128F97B910573229B86FAD8A /* CachedArtworkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CachedArtworkView.swift; sourceTree = "<group>"; };
 		12A2BC6296FF8B06F4EA887E /* YearlyReportCards.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YearlyReportCards.swift; sourceTree = "<group>"; };
 		136A0C5EFAF6D7C7056C69A4 /* SharedConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedConstants.swift; sourceTree = "<group>"; };
+		C0DE00000000000000000011 /* SourceSyncState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceSyncState.swift; sourceTree = "<group>"; };
+		C0DE00000000000000000012 /* STRMDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = STRMDescriptor.swift; sourceTree = "<group>"; };
+		C0DE00000000000000000013 /* IncrementalSongStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IncrementalSongStore.swift; sourceTree = "<group>"; };
 		136E43CE662D6E0E06C21E26 /* SharedNowPlayingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedNowPlayingState.swift; sourceTree = "<group>"; };
 		13DF5DE888D6B46DD9A60F16 /* BaiduPanStreamResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaiduPanStreamResolver.swift; sourceTree = "<group>"; };
 		1424E7F042F598B858110FDB /* SongRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongRowView.swift; sourceTree = "<group>"; };
@@ -1636,6 +1642,7 @@
 				AFC591E3A4BEE6456BA66E38 /* Metadata */,
 				6B4555C595F754161FB68F73 /* Models */,
 				D7B9A30E7467B10B25922382 /* Resources */,
+				C0DE00000000000000000021 /* Storage */,
 				F49A5BE606706F898B5DEAC8 /* Streaming */,
 				653663F81F12EC2A31ED433E /* TopShelf */,
 				F7FB6E8E617D8E1857173D1F /* AppleMusicLibraryAPI.swift */,
@@ -1654,6 +1661,14 @@
 				0A81E711713C594D6D24C5BF /* SongListSnapshot.swift */,
 			);
 			path = PrimuseKit;
+			sourceTree = "<group>";
+		};
+		C0DE00000000000000000021 /* Storage */ = {
+			isa = PBXGroup;
+			children = (
+				C0DE00000000000000000013 /* IncrementalSongStore.swift */,
+			);
+			path = Storage;
 			sourceTree = "<group>";
 		};
 		446C966AB896D0111F3CDA9A /* Utilities */ = {
@@ -1789,6 +1804,7 @@
 				52372EA9E4EDCA492D106A05 /* SmartPlaylist.swift */,
 				34FA9CB76C020D1783D91368 /* Song.swift */,
 				4C46A7CFAEE41704BC45A8CB /* SongIdentity.swift */,
+				C0DE00000000000000000011 /* SourceSyncState.swift */,
 				10EA195119C963A2DA62FC69 /* WidgetSnapshots.swift */,
 			);
 			path = Models;
@@ -2348,6 +2364,7 @@
 				5F14A8B457724588F5559B41 /* ProtocolHTTPStreamResolvers.swift */,
 				F99EF0A47317166C18FD865D /* RelayStreamResolver.swift */,
 				C603E86C2F865CDFD1D1C8EB /* S3StreamResolver.swift */,
+				C0DE00000000000000000012 /* STRMDescriptor.swift */,
 				4430B0204E343AF011F490F1 /* StreamResolver.swift */,
 				F24FFA868034F06D26F041E3 /* StreamResolverRegistry.swift */,
 				18580B6FCDDC9D293B7820BF /* SubsonicStreamResolver.swift */,
@@ -2835,6 +2852,9 @@
 				D76BBF35A0ED0B3EE0C0812C /* Song.swift in Sources */,
 				45792DBCB1B655DB7EDEBFE7 /* SongIdentity.swift in Sources */,
 				1534D0AB0F81ED8041B9B75E /* SongListSnapshot.swift in Sources */,
+				C0DE00000000000000000001 /* SourceSyncState.swift in Sources */,
+				C0DE00000000000000000002 /* STRMDescriptor.swift in Sources */,
+				C0DE00000000000000000003 /* IncrementalSongStore.swift in Sources */,
 				1A1C7C4F1F0C1B7F7809335A /* StreamResolver.swift in Sources */,
 				7EF2B2A250EA93BDEFFDA5F3 /* StreamResolverRegistry.swift in Sources */,
 				B92C0208877DCAFFFE4ABC19 /* SubsonicStreamResolver.swift in Sources */,

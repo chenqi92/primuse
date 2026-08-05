@@ -2,7 +2,7 @@ import Foundation
 import PrimuseKit
 
 /// Dropbox Source — API v2
-actor DropboxSource: MusicSourceConnector, OAuthCloudSource {
+actor DropboxSource: MusicSourceConnector, OAuthCloudSource, IncrementalMusicSourceConnector {
     let sourceID: String
     nonisolated let supportsSidecarWriting = true   // 刮削歌词/封面写回 Dropbox 同目录
     private let helper: CloudDriveHelper
@@ -91,7 +91,7 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource {
             url: "\(Self.apiBase)/files/list_folder",
             body: ["path": folderPath, "limit": 2000, "include_mounted_folders": true]
         )
-        all.append(contentsOf: parseEntries(json))
+        all.append(contentsOf: parseEntries(json, parentPath: folderPath))
 
         // 翻页：files/list_folder/continue 直到 has_more == false
         while (json["has_more"] as? Bool) == true, let cursor = json["cursor"] as? String {
@@ -99,7 +99,7 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource {
                 url: "\(Self.apiBase)/files/list_folder/continue",
                 body: ["cursor": cursor]
             )
-            all.append(contentsOf: parseEntries(json))
+            all.append(contentsOf: parseEntries(json, parentPath: folderPath))
         }
         return all
     }
@@ -114,7 +114,7 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource {
         return try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
     }
 
-    private func parseEntries(_ json: [String: Any]) -> [RemoteFileItem] {
+    private func parseEntries(_ json: [String: Any], parentPath: String?) -> [RemoteFileItem] {
         guard let entries = json["entries"] as? [[String: Any]] else { return [] }
         return entries.compactMap { entry in
             guard let name = entry["name"] as? String, let pathDisplay = entry["path_display"] as? String, let tag = entry[".tag"] as? String else { return nil }
@@ -122,8 +122,120 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource {
             // for files. `rev` is also stable per file version. Either
             // works as the revision fingerprint.
             let revision = entry["content_hash"] as? String ?? entry["rev"] as? String
-            return RemoteFileItem(name: name, path: pathDisplay, isDirectory: tag == "folder", size: entry["size"] as? Int64 ?? 0, modifiedDate: nil, revision: revision)
+            let resolvedParent = (pathDisplay as NSString).deletingLastPathComponent
+            return RemoteFileItem(
+                name: name,
+                path: pathDisplay,
+                isDirectory: tag == "folder",
+                size: entry["size"] as? Int64 ?? 0,
+                modifiedDate: nil,
+                revision: revision,
+                providerID: entry["id"] as? String,
+                parentPath: resolvedParent.isEmpty ? (parentPath ?? "") : resolvedParent
+            )
         }
+    }
+
+    func initialChangeCursors(for roots: [String]) async throws -> [String: String] {
+        var result: [String: String] = [:]
+        for root in roots {
+            let path = root.isEmpty || root == "/" ? "" : root
+            let json = try await postJSON(
+                url: "\(Self.apiBase)/files/list_folder/get_latest_cursor",
+                body: [
+                    "path": path,
+                    "recursive": true,
+                    "include_deleted": true,
+                    "include_mounted_folders": true,
+                ]
+            )
+            guard let cursor = json["cursor"] as? String, !cursor.isEmpty else {
+                throw CloudDriveError.invalidResponse
+            }
+            result[root] = cursor
+        }
+        return result
+    }
+
+    func changes(
+        since cursors: [String: String],
+        roots: [String],
+        index: [String: SourceSyncIndexedItem]
+    ) async throws -> IncrementalSourceChanges {
+        var nextCursors = cursors
+        var changedParents: Set<String> = []
+        var deletedKeys: Set<String> = []
+        var liveStableKeys: Set<String> = []
+        var requiresDeep = false
+
+        for root in roots {
+            guard var cursor = cursors[root], !cursor.isEmpty else {
+                return IncrementalSourceChanges(cursors: cursors, requiresDeepScan: true)
+            }
+            while true {
+                let json: [String: Any]
+                do {
+                    json = try await postJSON(
+                        url: "\(Self.apiBase)/files/list_folder/continue",
+                        body: ["cursor": cursor]
+                    )
+                } catch CloudDriveError.apiError(let code, _) where code == 409 {
+                    return IncrementalSourceChanges(cursors: cursors, requiresDeepScan: true)
+                }
+                let entries = json["entries"] as? [[String: Any]] ?? []
+                for entry in entries {
+                    let tag = entry[".tag"] as? String
+                    let displayPath = (entry["path_display"] as? String)
+                        ?? (entry["path_lower"] as? String)
+                    if tag == "folder" {
+                        requiresDeep = true
+                        continue
+                    }
+                    if tag == "deleted" {
+                        guard let displayPath else { requiresDeep = true; continue }
+                        let match = index.first { _, value in
+                            value.path.caseInsensitiveCompare(displayPath) == .orderedSame
+                        }
+                        if let match {
+                            deletedKeys.insert(match.key)
+                            if let parent = match.value.parentPath { changedParents.insert(parent) }
+                        } else {
+                            let parent = (displayPath as NSString).deletingLastPathComponent
+                            changedParents.insert(parent)
+                        }
+                        continue
+                    }
+                    guard tag == "file", let displayPath else { continue }
+                    if let providerID = entry["id"] as? String {
+                        // A move can be represented as old-path deletion plus
+                        // the same stable id at a new path in one cursor page.
+                        deletedKeys.remove(providerID)
+                        liveStableKeys.insert(providerID)
+                    }
+                    let parent = (displayPath as NSString).deletingLastPathComponent
+                    changedParents.insert(parent)
+                    if let providerID = entry["id"] as? String,
+                       let old = index[providerID],
+                       let oldParent = old.parentPath,
+                       oldParent != parent {
+                        changedParents.insert(oldParent)
+                    }
+                }
+                guard let returnedCursor = json["cursor"] as? String else {
+                    throw CloudDriveError.invalidResponse
+                }
+                cursor = returnedCursor
+                if json["has_more"] as? Bool != true { break }
+            }
+            nextCursors[root] = cursor
+        }
+        deletedKeys.subtract(liveStableKeys)
+        return IncrementalSourceChanges(
+            cursors: nextCursors,
+            changedParentPaths: changedParents,
+            deletedStableKeys: deletedKeys,
+            requiresDeepScan: requiresDeep
+        )
     }
 
     func localURL(for path: String) async throws -> URL {

@@ -2049,3 +2049,5 @@
 "synology_error_invalid_url" = "잘못된 주소";
 "synology_error_invalid_response" = "잘못된 응답";
 "synology_error_http_format" = "HTTP 오류 %d";
+"source_quick_sync" = "변경 사항을 빠르게 동기화하는 중…";
+"source_deep_scan" = "정밀 스캔";

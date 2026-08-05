@@ -19,6 +19,10 @@ struct RemoteFileItem: Sendable {
     /// would otherwise be missed). Connectors leave this nil when the
     /// list API doesn't expose anything stable.
     let revision: String?
+    /// Stable provider item identifier when the display path can change.
+    let providerID: String?
+    /// Provider-native parent path or folder ID.
+    let parentPath: String?
 
     init(
         name: String,
@@ -27,7 +31,9 @@ struct RemoteFileItem: Sendable {
         size: Int64,
         modifiedDate: Date?,
         sidecarHints: SidecarHints? = nil,
-        revision: String? = nil
+        revision: String? = nil,
+        providerID: String? = nil,
+        parentPath: String? = nil
     ) {
         self.name = name
         self.path = path
@@ -36,6 +42,8 @@ struct RemoteFileItem: Sendable {
         self.modifiedDate = modifiedDate
         self.sidecarHints = sidecarHints
         self.revision = revision
+        self.providerID = providerID
+        self.parentPath = parentPath
     }
 }
 
@@ -76,7 +84,8 @@ enum SidecarHintResolver {
     static func scannableItem(_ item: RemoteFileItem, siblings: [RemoteFileItem]) -> RemoteFileItem? {
         guard item.isDirectory == false else { return nil }
         let ext = (item.name as NSString).pathExtension.lowercased()
-        if PrimuseConstants.supportedAudioExtensions.contains(ext) {
+        if PrimuseConstants.supportedAudioExtensions.contains(ext)
+            || PrimuseConstants.supportedStreamDescriptorExtensions.contains(ext) {
             return decoratedAudioItem(item, siblings: siblings)
         }
         if PrimuseConstants.supportedMusicVideoExtensions.contains(ext) {
@@ -93,7 +102,8 @@ enum SidecarHintResolver {
         let hasSameNameAudio = siblings.contains {
             guard $0.isDirectory == false else { return false }
             let siblingExt = ($0.name as NSString).pathExtension.lowercased()
-            return PrimuseConstants.supportedAudioExtensions.contains(siblingExt)
+            return (PrimuseConstants.supportedAudioExtensions.contains(siblingExt)
+                || PrimuseConstants.supportedStreamDescriptorExtensions.contains(siblingExt))
                 && ($0.name as NSString).deletingPathExtension.lowercased() == baseLower
         }
         guard hasSameNameAudio == false else { return nil }
@@ -102,6 +112,7 @@ enum SidecarHintResolver {
             guard $0.isDirectory == false else { return false }
             let siblingExt = ($0.name as NSString).pathExtension.lowercased()
             return PrimuseConstants.supportedAudioExtensions.contains(siblingExt) == false
+                && PrimuseConstants.supportedStreamDescriptorExtensions.contains(siblingExt) == false
         }
         let hints = SidecarHints(
             coverPath: item.sidecarHints?.coverPath
@@ -118,7 +129,9 @@ enum SidecarHintResolver {
             size: item.size,
             modifiedDate: item.modifiedDate,
             sidecarHints: hints,
-            revision: item.revision
+            revision: item.revision,
+            providerID: item.providerID,
+            parentPath: item.parentPath
         )
     }
 
@@ -130,6 +143,7 @@ enum SidecarHintResolver {
             guard $0.isDirectory == false else { return false }
             let ext = ($0.name as NSString).pathExtension.lowercased()
             return PrimuseConstants.supportedAudioExtensions.contains(ext) == false
+                && PrimuseConstants.supportedStreamDescriptorExtensions.contains(ext) == false
         }
 
         let hints = SidecarHints(
@@ -150,7 +164,9 @@ enum SidecarHintResolver {
             size: item.size,
             modifiedDate: item.modifiedDate,
             sidecarHints: hints,
-            revision: item.revision
+            revision: item.revision,
+            providerID: item.providerID,
+            parentPath: item.parentPath
         )
     }
 
@@ -251,9 +267,8 @@ protocol MusicSourceConnector: Sendable {
     /// Count audio files in a directory (recursive). Default implementation uses scanAudioFiles.
     func countAudioFiles(in path: String) async throws -> Int
 
-    /// Fetch a byte range of a remote file. Used by `MetadataBackfillService`
-    /// to read just the ID3/Vorbis/moov header (typically the first 256KB)
-    /// instead of downloading the whole audio file.
+    /// Fetch a byte range of a remote file. Playback and sparse caches require
+    /// the returned bytes to match the requested window exactly.
     /// - Parameters:
     ///   - path: Remote path identifier (same as `localURL` accepts).
     ///   - offset: Starting byte offset. Negative values mean "from the end"
@@ -268,6 +283,11 @@ protocol MusicSourceConnector: Sendable {
         length: Int64,
         priority: RangeFetchPriority
     ) async throws -> Data
+
+    /// Fetches a bounded byte window for tag, duration, CUE, or format
+    /// inspection. Playback keeps using `fetchRange`, whose response validation
+    /// must remain strict enough for sparse-cache writes.
+    func fetchMetadataRange(path: String, offset: Int64, length: Int64) async throws -> Data
 
     /// 批量预热下载链接 / 元数据。给定一组 path, connector 提前 batch 拿
     /// (并 cache) 后续 fetchRange 需要的 dlink / CDN URL / 鉴权信息。
@@ -390,10 +410,77 @@ extension MusicSourceConnector {
     ) async throws -> Data {
         try await fetchRange(path: path, offset: offset, length: length)
     }
+
+    func fetchMetadataRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+        try await fetchRange(
+            path: path,
+            offset: offset,
+            length: length,
+            priority: .background
+        )
+    }
+
+    /// Reads a bounded stream descriptor without ever treating the wrapper as
+    /// media. A fresh connector Range read is preferred so regenerated OpenList
+    /// links are not hidden behind an old whole-file download cache.
+    func readSTRMDescriptor(path: String, knownSize: Int64? = nil) async throws -> STRMDescriptor {
+        if let knownSize, knownSize > Int64(STRMDescriptorParser.maximumByteCount) {
+            throw STRMDescriptorError.tooLarge(
+                actualByteCount: Int(clamping: knownSize),
+                maximumByteCount: STRMDescriptorParser.maximumByteCount
+            )
+        }
+        let requestedLength = max(
+            1,
+            min(knownSize ?? Int64(STRMDescriptorParser.maximumByteCount),
+                Int64(STRMDescriptorParser.maximumByteCount))
+        )
+        let data = try await fetchMetadataRange(path: path, offset: 0, length: requestedLength)
+        return try STRMDescriptorParser.parse(data)
+    }
 }
 
 protocol SongScanningConnector: MusicSourceConnector {
     func scanSongs(from path: String) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error>
+}
+
+/// Lets local and mounted-file connectors compare cheap fingerprints before
+/// opening media for tag or FFmpeg inspection.
+protocol ExistingSongAwareScanningConnector: SongScanningConnector {
+    func scanSongs(
+        from path: String,
+        existingSongs: [Song]
+    ) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error>
+}
+
+struct IncrementalSourceChanges: Sendable {
+    var cursors: [String: String]
+    var changedParentPaths: Set<String>
+    var deletedStableKeys: Set<String>
+    var requiresDeepScan: Bool
+
+    init(
+        cursors: [String: String],
+        changedParentPaths: Set<String> = [],
+        deletedStableKeys: Set<String> = [],
+        requiresDeepScan: Bool = false
+    ) {
+        self.cursors = cursors
+        self.changedParentPaths = changedParentPaths
+        self.deletedStableKeys = deletedStableKeys
+        self.requiresDeepScan = requiresDeepScan
+    }
+}
+
+/// Native provider change feed. Implementations return directory scopes to
+/// reconcile; they never mutate the library or persist a cursor themselves.
+protocol IncrementalMusicSourceConnector: MusicSourceConnector {
+    func initialChangeCursors(for roots: [String]) async throws -> [String: String]
+    func changes(
+        since cursors: [String: String],
+        roots: [String],
+        index: [String: SourceSyncIndexedItem]
+    ) async throws -> IncrementalSourceChanges
 }
 
 /// A song-scanning connector whose API supplies useful metadata on every

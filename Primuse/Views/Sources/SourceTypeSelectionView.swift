@@ -857,6 +857,9 @@ struct SourceTypeSelectionView: View {
         for ext in PrimuseConstants.supportedAudioExtensions {
             if let type = UTType(filenameExtension: ext) { set.insert(type) }
         }
+        for ext in PrimuseConstants.supportedStreamDescriptorExtensions {
+            set.insert(UTType(filenameExtension: ext) ?? UTType(exportedAs: "com.welape.primuse.\(ext)", conformingTo: .plainText))
+        }
         return Array(set)
     }
 

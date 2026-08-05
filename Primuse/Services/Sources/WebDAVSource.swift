@@ -13,6 +13,7 @@ actor WebDAVSource: MusicSourceConnector {
     private let password: String
     private var provider: WebDAVFileProvider?
     private var connectTask: Task<Void, Error>?
+    private var didLogWholeResourceMetadataFallback = false
     private let cacheDirectory: URL
 
     /// 长生命周期 session, 让 fetchRange 复用 HTTP keep-alive 连接,
@@ -225,6 +226,63 @@ actor WebDAVSource: MusicSourceConnector {
         guard let rangeHeader = SafeByteRange.httpHeader(offset: offset, length: length) else {
             return Data()
         }
+        let request = try makeRangeRequest(path: path, rangeHeader: rangeHeader)
+        let (data, response) = try await rangeSession.data(for: request)
+        return try validateStrictRangeResponse(
+            response,
+            data: data,
+            path: path,
+            offset: offset,
+            length: length
+        )
+    }
+
+    func fetchMetadataRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+        guard let rangeHeader = SafeByteRange.httpHeader(offset: offset, length: length) else {
+            return Data()
+        }
+        let request = try makeRangeRequest(path: path, rangeHeader: rangeHeader)
+        let (bytes, response) = try await rangeSession.bytes(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw SourceError.connectionFailed("Invalid WebDAV metadata response")
+        }
+        switch http.statusCode {
+        case 206:
+            var data = Data()
+            data.reserveCapacity(Int(clamping: length))
+            for try await byte in bytes {
+                data.append(byte)
+                if data.count > Int(clamping: length) { break }
+            }
+            try rejectNonMediaResponseIfNeeded(http, data: data, path: path)
+            guard HTTPByteRangeResponsePolicy.validatedTotalLength(
+                contentRange: http.value(forHTTPHeaderField: "Content-Range"),
+                contentLength: http.value(forHTTPHeaderField: "Content-Length").flatMap(Int64.init),
+                bodyLength: data.count,
+                requestedOffset: offset,
+                requestedLength: length
+            ) != nil else {
+                throw SourceError.connectionFailed("Invalid WebDAV Content-Range response")
+            }
+            return data
+        case 200:
+            let data = try await boundedMetadataSlice(
+                bytes,
+                offset: offset,
+                length: length
+            )
+            try rejectNonMediaResponseIfNeeded(http, data: data, path: path)
+            if !didLogWholeResourceMetadataFallback {
+                didLogWholeResourceMetadataFallback = true
+                plog("WebDAV metadata fallback: server ignored Range; streaming a bounded metadata slice without relaxing playback validation")
+            }
+            return data
+        default:
+            throw SourceError.connectionFailed("WebDAV metadata request failed: HTTP \(http.statusCode)")
+        }
+    }
+
+    private func makeRangeRequest(path: String, rangeHeader: String) throws -> URLRequest {
         var request = URLRequest(url: try fileURL(for: path))
         request.httpMethod = "GET"
         request.setValue(rangeHeader, forHTTPHeaderField: "Range")
@@ -234,11 +292,20 @@ actor WebDAVSource: MusicSourceConnector {
             request.setValue("Basic \(credential)", forHTTPHeaderField: "Authorization")
         }
         request.timeoutInterval = 30
+        return request
+    }
 
-        let (data, response) = try await rangeSession.data(for: request)
+    private func validateStrictRangeResponse(
+        _ response: URLResponse,
+        data: Data,
+        path: String,
+        offset: Int64,
+        length: Int64
+    ) throws -> Data {
         guard let http = response as? HTTPURLResponse else {
             throw SourceError.connectionFailed("Invalid WebDAV range response")
         }
+        try rejectNonMediaResponseIfNeeded(http, data: data, path: path)
         switch http.statusCode {
         case 206:
             guard HTTPByteRangeResponsePolicy.validatedTotalLength(
@@ -263,6 +330,72 @@ actor WebDAVSource: MusicSourceConnector {
         default:
             throw SourceError.connectionFailed("WebDAV range request failed: HTTP \(http.statusCode)")
         }
+    }
+
+    private func rejectNonMediaResponseIfNeeded(
+        _ http: HTTPURLResponse,
+        data: Data,
+        path: String
+    ) throws {
+        let fileExtension = (path as NSString).pathExtension.lowercased()
+        let expectsMediaResponse = PrimuseConstants.supportedAudioExtensions.contains(fileExtension)
+            || PrimuseConstants.supportedMusicVideoExtensions.contains(fileExtension)
+        if expectsMediaResponse, httpMediaResponseLooksLikeErrorBody(http, data: data) {
+            throw SourceError.connectionFailed("WebDAV returned a non-media response")
+        }
+    }
+
+    private func boundedMetadataSlice(
+        _ bytes: URLSession.AsyncBytes,
+        offset: Int64,
+        length: Int64
+    ) async throws -> Data {
+        guard length > 0 else { return Data() }
+        if offset >= 0 {
+            guard let end = SafeByteRange.exclusiveEnd(offset: offset, length: length) else {
+                return Data()
+            }
+            var position: Int64 = 0
+            var result = Data()
+            result.reserveCapacity(Int(clamping: length))
+            for try await byte in bytes {
+                if position >= offset, position < end { result.append(byte) }
+                position += 1
+                if position >= end { break }
+            }
+            guard !result.isEmpty else {
+                throw SourceError.connectionFailed("WebDAV metadata response was empty")
+            }
+            return result
+        }
+
+        guard offset != Int64.min else { return Data() }
+        let windowLength = max(length, -offset)
+        guard windowLength <= 64 * 1024 * 1024 else {
+            throw SourceError.connectionFailed("WebDAV metadata suffix window is too large")
+        }
+        let capacity = Int(windowLength)
+        var ring = [UInt8](repeating: 0, count: capacity)
+        var total: Int64 = 0
+        for try await byte in bytes {
+            ring[Int(total % windowLength)] = byte
+            total += 1
+        }
+        let retainedCount = Int(min(total, windowLength))
+        let retainedStart = total > windowLength ? Int(total % windowLength) : 0
+        var retained = Data()
+        retained.reserveCapacity(retainedCount)
+        for index in 0..<retainedCount {
+            retained.append(ring[(retainedStart + index) % capacity])
+        }
+        let absoluteStart = max(0, total + offset)
+        let retainedAbsoluteStart = total - Int64(retainedCount)
+        let relativeStart = max(0, absoluteStart - retainedAbsoluteStart)
+        let relativeEnd = min(Int64(retainedCount), relativeStart + length)
+        guard relativeStart < relativeEnd else {
+            throw SourceError.connectionFailed("WebDAV metadata response was empty")
+        }
+        return retained.subdata(in: Int(relativeStart)..<Int(relativeEnd))
     }
 
     func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
@@ -322,6 +455,13 @@ actor WebDAVSource: MusicSourceConnector {
             return baseURL
         }
         return URL(string: absolute + "/") ?? baseURL
+    }
+
+    /// OpenList can omit the scheme/host and write `/d/...` into the STRM.
+    /// Resolve only that well-known route at this WebDAV server's origin;
+    /// ordinary absolute source paths must continue to stay under `basePath`.
+    func openListSTRMURL(for reference: String) throws -> URL? {
+        OpenListSTRMTargetResolver.resolve(reference, wrapperURL: try serverURL())
     }
 
     private func fileURL(for path: String) throws -> URL {

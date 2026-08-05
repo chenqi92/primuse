@@ -42,6 +42,15 @@ enum TVMetadataEnricher {
         guard let reader = SMBByteReader(source: source, filePath: song.filePath, credential: credential) else {
             return song
         }
+        if song.isStreamDescriptor {
+            return await enrichSTRM(
+                song: song,
+                source: source,
+                credential: credential,
+                siblings: siblings,
+                reader: reader
+            )
+        }
         let ext = song.fileFormat.rawValue.lowercased()
         guard var head = try? await reader.read(offset: 0, length: headBytes), !head.isEmpty else {
             // 头都读不到:仍尝试同目录 .lrc 歌词(轻量),其它保持原样。
@@ -131,6 +140,42 @@ enum TVMetadataEnricher {
 
         return await attachSidecarLyrics(song: out, source: source, credential: credential,
                                          siblings: siblings, embedded: meta.lyricsText)
+    }
+
+    private static func enrichSTRM(
+        song: Song,
+        source: MusicSource,
+        credential: SourceCredential?,
+        siblings: [TVDirEntry],
+        reader: ByteRangeReader
+    ) async -> Song {
+        guard let size = try? await reader.contentLength(),
+              size > 0,
+              size <= Int64(STRMDescriptorParser.maximumByteCount),
+              let data = try? await reader.read(offset: 0, length: size),
+              let descriptor = try? STRMDescriptorParser.parse(data) else {
+            return song
+        }
+        var out = song
+        out.title = descriptor.title ?? song.title
+        out.artistName = descriptor.artist ?? song.artistName
+        out.duration = descriptor.duration ?? song.duration
+        out.fileFormat = descriptor.format
+        out.fileSize = 0
+        out.revision = STRMRevision.songRevision(
+            wrapperRevision: nil,
+            wrapperSize: size,
+            wrapperModifiedDate: nil,
+            contentRevision: descriptor.contentRevision
+        )
+        MusicLibrary.fillDerivedIDs(&out)
+        return await attachSidecarLyrics(
+            song: out,
+            source: source,
+            credential: credential,
+            siblings: siblings,
+            embedded: nil
+        )
     }
 
     // MARK: 歌词:嵌入 USLT 优先,否则同目录同名 .lrc

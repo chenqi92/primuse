@@ -449,7 +449,8 @@ final class TVSourceScanner {
                 )
             } else {
                 let ext = (e.name as NSString).pathExtension.lowercased()
-                if PrimuseConstants.supportedAudioExtensions.contains(ext) {
+                if PrimuseConstants.supportedAudioExtensions.contains(ext)
+                    || PrimuseConstants.supportedStreamDescriptorExtensions.contains(ext) {
                     guard seen.insert(e.path).inserted else { continue }
                     collected.append((Self.makeSong(entry: e, source: source), files))
                 } else if PrimuseConstants.supportedMusicVideoExtensions.contains(ext) {
@@ -458,7 +459,8 @@ final class TVSourceScanner {
                     let stem = (e.name as NSString).deletingPathExtension.lowercased()
                     let hasSameNameAudio = files.contains {
                         let fExt = ($0.name as NSString).pathExtension.lowercased()
-                        return PrimuseConstants.supportedAudioExtensions.contains(fExt)
+                        return (PrimuseConstants.supportedAudioExtensions.contains(fExt)
+                            || PrimuseConstants.supportedStreamDescriptorExtensions.contains(fExt))
                             && ($0.name as NSString).deletingPathExtension.lowercased() == stem
                     }
                     guard hasSameNameAudio == false else { continue }

@@ -415,7 +415,12 @@ struct CloudDriveHelper: Sendable {
         let items = try await listFiles(path)
 
         // 找当前目录里的封面/歌词/MV 文件，作为 sidecar 候选
-        let nonAudio = items.filter { !$0.isDirectory && !PrimuseConstants.supportedAudioExtensions.contains(($0.name as NSString).pathExtension.lowercased()) }
+        let nonAudio = items.filter {
+            guard !$0.isDirectory else { return false }
+            let ext = ($0.name as NSString).pathExtension.lowercased()
+            return !PrimuseConstants.supportedAudioExtensions.contains(ext)
+                && !PrimuseConstants.supportedStreamDescriptorExtensions.contains(ext)
+        }
         let folderCover = isGenericMusicDirectory(path) ? nil : findFolderCover(in: nonAudio)
 
         // 先把当前目录的音频文件 yield 出去，避免 ConnectorScanner 等子树扫完才开始处理
@@ -423,7 +428,8 @@ struct CloudDriveHelper: Sendable {
         for item in items where !item.isDirectory {
             try Task.checkCancellation()
             let ext = (item.name as NSString).pathExtension.lowercased()
-            if PrimuseConstants.supportedAudioExtensions.contains(ext) {
+            if PrimuseConstants.supportedAudioExtensions.contains(ext)
+                || PrimuseConstants.supportedStreamDescriptorExtensions.contains(ext) {
                 let basename = (item.name as NSString).deletingPathExtension
                 audioBasenames.insert(basename.lowercased())
                 let cover = findSameNameCover(basename: basename, in: nonAudio) ?? folderCover
@@ -444,7 +450,9 @@ struct CloudDriveHelper: Sendable {
                     // revision but ConnectorScanner — which consumes
                     // scanAudioFiles — would only ever see nil, defeating
                     // same-size overwrite detection on every cloud drive.
-                    revision: item.revision
+                    revision: item.revision,
+                    providerID: item.providerID,
+                    parentPath: item.parentPath
                 )
                 continuation.yield(withHints)
             }
@@ -468,7 +476,9 @@ struct CloudDriveHelper: Sendable {
                 size: item.size,
                 modifiedDate: item.modifiedDate,
                 sidecarHints: SidecarHints(coverPath: cover, lyricsPath: lyrics, mvPath: item.path),
-                revision: item.revision
+                revision: item.revision,
+                providerID: item.providerID,
+                parentPath: item.parentPath
             ))
         }
 

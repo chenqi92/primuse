@@ -2,7 +2,7 @@ import CryptoKit
 import Foundation
 import PrimuseKit
 
-actor LocalFileSource: SongScanningConnector {
+actor LocalFileSource: ExistingSongAwareScanningConnector {
     let sourceID: String
     private let basePath: URL
     private let metadataService = MetadataService()
@@ -86,7 +86,11 @@ actor LocalFileSource: SongScanningConnector {
                 path: relativePath(for: url),
                 isDirectory: resourceValues.isDirectory ?? false,
                 size: Int64(resourceValues.fileSize ?? 0),
-                modifiedDate: resourceValues.contentModificationDate
+                modifiedDate: resourceValues.contentModificationDate,
+                revision: Self.localRevision(
+                    size: Int64(resourceValues.fileSize ?? 0),
+                    modifiedDate: resourceValues.contentModificationDate
+                )
             )
         }.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
     }
@@ -130,58 +134,83 @@ actor LocalFileSource: SongScanningConnector {
     }
 
     func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
-        let startURL = try resolvedURL(for: path, allowRoot: true)
+        let inventory = try buildScanInventory(from: path)
         return AsyncThrowingStream { continuation in
             Task {
-                let enumerator = FileManager.default.enumerator(
-                    at: startURL,
-                    includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey],
-                    options: [.skipsHiddenFiles]
-                )
-
-                while let url = enumerator?.nextObject() as? URL {
-                    let ext = url.pathExtension.lowercased()
-                    let isAudio = PrimuseConstants.supportedAudioExtensions.contains(ext)
-                    // 独立 MV: 无同名音频的视频文件也成曲目; 有同名音频时
-                    // 视频是那首歌的 sidecar, 不独立成曲。
-                    let isStandaloneVideo = !isAudio
-                        && PrimuseConstants.supportedMusicVideoExtensions.contains(ext)
-                        && Self.hasSameNameAudioSibling(url) == false
-                    guard isAudio || isStandaloneVideo else { continue }
-
-                    // 扫描期间单个文件可能被删除/移动,或为 iCloud dataless
-                    // 文件而无法读取属性 ── 跳过该文件继续枚举,不要让 resourceValues
-                    // 抛错使 Task 提前结束 (那样 continuation 既不 finish 也不
-                    // finish(throwing:),消费端 for-try-await 会永久挂起)。
-                    guard let resourceValues = try? url.resourceValues(
-                        forKeys: [.fileSizeKey, .contentModificationDateKey]
-                    ) else { continue }
-
-                    let item = RemoteFileItem(
-                        name: url.lastPathComponent,
-                        path: self.relativePath(for: url),
-                        isDirectory: false,
-                        size: Int64(resourceValues.fileSize ?? 0),
-                        modifiedDate: resourceValues.contentModificationDate
-                    )
-                    continuation.yield(item)
-                }
+                for item in inventory.items { continuation.yield(item) }
                 continuation.finish()
             }
         }
     }
 
     func scanSongs(from path: String) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error> {
-        let files = try await scanAudioFiles(from: path)
-        let cueTracksByAudioPath = try await loadCueTracks(from: path)
+        try await scanSongs(from: path, existingSongs: [])
+    }
+
+    func scanSongs(
+        from path: String,
+        existingSongs: [Song]
+    ) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error> {
+        let inventory = try buildScanInventory(from: path)
+        let cueTracksByAudioPath = try await loadCueTracks(from: inventory.cueURLs)
+        let existingByID = Dictionary(
+            existingSongs.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    for try await item in files {
+                    for item in inventory.items {
                         try Task.checkCancellation()
+                        let ext = (item.name as NSString).pathExtension.lowercased()
+                        let physicalID = Self.generateID(sourceID: self.sourceID, path: item.path)
+
+                        if PrimuseConstants.supportedStreamDescriptorExtensions.contains(ext) {
+                            if let existing = existingByID[physicalID],
+                               STRMRevision.wrapperMatches(
+                                   songRevision: existing.revision,
+                                   wrapperRevision: item.revision,
+                                   wrapperSize: item.size,
+                                   wrapperModifiedDate: item.modifiedDate
+                               ) {
+                                var refreshed = existing
+                                refreshed.lastModified = item.modifiedDate ?? existing.lastModified
+                                refreshed.coverArtFileName = item.sidecarHints?.coverPath ?? existing.coverArtFileName
+                                refreshed.lyricsFileName = item.sidecarHints?.lyricsPath ?? existing.lyricsFileName
+                                refreshed.mvPath = item.sidecarHints?.mvPath ?? existing.mvPath
+                                continuation.yield(ConnectorScannedSong(song: refreshed, displayName: item.name))
+                            } else if let scanned = try await self.buildSTRMSong(from: item) {
+                                continuation.yield(scanned)
+                            }
+                            continue
+                        }
+
                         if let descriptors = cueTracksByAudioPath[item.path], !descriptors.isEmpty {
+                            let expectedRevision = Self.cueRevision(
+                                audioRevision: item.revision,
+                                cueRevisions: descriptors.map(\.cueRevision)
+                            )
+                            let existingTracks = existingSongs.filter {
+                                $0.filePath == item.path && $0.isCueTrack
+                            }
+                            if !existingTracks.isEmpty,
+                               existingTracks.allSatisfy({ $0.revision == expectedRevision }) {
+                                for track in existingTracks {
+                                    continuation.yield(ConnectorScannedSong(song: track, displayName: track.title))
+                                }
+                                continue
+                            }
                             let tracks = try await self.buildCueSongs(from: item, descriptors: descriptors)
                             for track in tracks { continuation.yield(track) }
+                            continue
+                        }
+
+                        if let existing = existingByID[physicalID],
+                           Self.fingerprintMatches(existing: existing, item: item) {
+                            var refreshed = existing
+                            if refreshed.revision == nil { refreshed.revision = item.revision }
+                            if refreshed.lastModified == nil { refreshed.lastModified = item.modifiedDate }
+                            continuation.yield(ConnectorScannedSong(song: refreshed, displayName: item.name))
                             continue
                         }
                         if let scanned = try await self.buildScannedSong(from: item) {
@@ -190,13 +219,82 @@ actor LocalFileSource: SongScanningConnector {
                     }
                     continuation.finish()
                 } catch is CancellationError {
-                    continuation.finish()
+                    continuation.finish(throwing: CancellationError())
                 } catch {
                     continuation.finish(throwing: error)
                 }
             }
             continuation.onTermination = { @Sendable _ in task.cancel() }
         }
+    }
+
+    private struct LocalScanInventory: Sendable {
+        var items: [RemoteFileItem]
+        var cueURLs: [URL]
+    }
+
+    /// One filesystem enumeration gathers audio, STRM, CUE, covers, lyrics and
+    /// MV candidates. Directory-local sibling decoration is applied afterward,
+    /// so no second recursive walk is needed.
+    private func buildScanInventory(from path: String) throws -> LocalScanInventory {
+        let startURL = try resolvedURL(for: path, allowRoot: true)
+        let keys: Set<URLResourceKey> = [
+            .isDirectoryKey, .isRegularFileKey, .fileSizeKey, .contentModificationDateKey,
+        ]
+        let enumerator = FileManager.default.enumerator(
+            at: startURL,
+            includingPropertiesForKeys: Array(keys),
+            options: [.skipsHiddenFiles]
+        )
+        var filesByParent: [String: [RemoteFileItem]] = [:]
+        var cueURLsByPath: [String: URL] = [:]
+
+        while let url = enumerator?.nextObject() as? URL {
+            try Task.checkCancellation()
+            guard let values = try? url.resourceValues(forKeys: keys),
+                  values.isRegularFile == true else { continue }
+            let size = Int64(values.fileSize ?? 0)
+            let item = RemoteFileItem(
+                name: url.lastPathComponent,
+                path: relativePath(for: url),
+                isDirectory: false,
+                size: size,
+                modifiedDate: values.contentModificationDate,
+                revision: Self.localRevision(size: size, modifiedDate: values.contentModificationDate)
+            )
+            filesByParent[url.deletingLastPathComponent().standardizedFileURL.path, default: []].append(item)
+            if PrimuseConstants.supportedCueSheetExtensions.contains(url.pathExtension.lowercased()) {
+                cueURLsByPath[item.path] = url
+            }
+        }
+
+        var scannable: [RemoteFileItem] = []
+        for siblings in filesByParent.values {
+            let byPath = Dictionary(siblings.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
+            for item in siblings {
+                guard let decorated = SidecarHintResolver.scannableItem(item, siblings: siblings) else { continue }
+                let sidecarRevisions = [
+                    decorated.sidecarHints?.coverPath,
+                    decorated.sidecarHints?.lyricsPath,
+                    decorated.sidecarHints?.mvPath,
+                ].compactMap { $0 }.compactMap { byPath[$0]?.revision }
+                let revision = Self.compositeRevision([decorated.revision].compactMap { $0 } + sidecarRevisions)
+                scannable.append(RemoteFileItem(
+                    name: decorated.name,
+                    path: decorated.path,
+                    isDirectory: false,
+                    size: decorated.size,
+                    modifiedDate: decorated.modifiedDate,
+                    sidecarHints: decorated.sidecarHints,
+                    revision: revision
+                ))
+            }
+        }
+        scannable.sort { $0.path.localizedCompare($1.path) == .orderedAscending }
+        return LocalScanInventory(
+            items: scannable,
+            cueURLs: cueURLsByPath.values.sorted { $0.path < $1.path }
+        )
     }
 
     private func buildScannedSong(from item: RemoteFileItem) async throws -> ConnectorScannedSong? {
@@ -260,21 +358,62 @@ actor LocalFileSource: SongScanningConnector {
             genre: metadata.genre,
             year: metadata.year,
             lastModified: item.modifiedDate,
-            coverArtFileName: metadata.coverArtFileName,
-            lyricsFileName: metadata.lyricsFileName,
+            coverArtFileName: item.sidecarHints?.coverPath ?? metadata.coverArtFileName,
+            lyricsFileName: item.sidecarHints?.lyricsPath ?? metadata.lyricsFileName,
             mvPath: isStandaloneVideo
                 ? item.path
-                : sidecarPath(nextTo: item.path, named: metadata.mvPath),
+                : item.sidecarHints?.mvPath ?? sidecarPath(nextTo: item.path, named: metadata.mvPath),
             replayGainTrackGain: metadata.replayGainTrackGain,
             replayGainTrackPeak: metadata.replayGainTrackPeak,
             replayGainAlbumGain: metadata.replayGainAlbumGain,
-            replayGainAlbumPeak: metadata.replayGainAlbumPeak
+            replayGainAlbumPeak: metadata.replayGainAlbumPeak,
+            revision: item.revision
+        )
+        return ConnectorScannedSong(song: song, displayName: item.name)
+    }
+
+    private func buildSTRMSong(from item: RemoteFileItem) async throws -> ConnectorScannedSong? {
+        let descriptorURL = try await localURL(for: item.path)
+        guard item.size <= Int64(STRMDescriptorParser.maximumByteCount) else {
+            plog("⚠️ Local STRM descriptor is too large: \(item.name)")
+            return nil
+        }
+        let data = try Data(contentsOf: descriptorURL, options: .mappedIfSafe)
+        let descriptor: STRMDescriptor
+        do {
+            descriptor = try STRMDescriptorParser.parse(data)
+        } catch {
+            plog("⚠️ Local STRM descriptor skipped: \(item.name) (\(error.localizedDescription))")
+            return nil
+        }
+        let songID = Self.generateID(sourceID: sourceID, path: item.path)
+        let baseName = (item.name as NSString).deletingPathExtension
+        let song = Song(
+            id: songID,
+            title: descriptor.title ?? MediaMetadataTextRepair.fileNameTitle(from: baseName) ?? baseName,
+            artistName: descriptor.artist ?? MediaMetadataTextRepair.fileNameArtist(from: baseName),
+            duration: descriptor.duration ?? 0,
+            fileFormat: descriptor.format,
+            filePath: item.path,
+            sourceID: sourceID,
+            fileSize: 0,
+            lastModified: item.modifiedDate,
+            coverArtFileName: item.sidecarHints?.coverPath,
+            lyricsFileName: item.sidecarHints?.lyricsPath,
+            mvPath: item.sidecarHints?.mvPath,
+            revision: STRMRevision.songRevision(
+                wrapperRevision: item.revision,
+                wrapperSize: item.size,
+                wrapperModifiedDate: item.modifiedDate,
+                contentRevision: descriptor.contentRevision
+            )
         )
         return ConnectorScannedSong(song: song, displayName: item.name)
     }
 
     private struct CueTrackDescriptor: Sendable {
         let cuePath: String
+        let cueRevision: String
         let albumTitle: String?
         let albumPerformer: String?
         let genre: String?
@@ -285,21 +424,17 @@ actor LocalFileSource: SongScanningConnector {
 
     /// Parse local CUE sheets up front so a referenced album image is emitted
     /// as virtual tracks and never duplicated as one whole-file library row.
-    private func loadCueTracks(from path: String) async throws -> [String: [CueTrackDescriptor]] {
-        guard let startURL = try? resolvedURL(for: path, allowRoot: true) else { return [:] }
+    private func loadCueTracks(from cueURLs: [URL]) async throws -> [String: [CueTrackDescriptor]] {
         var result: [String: [CueTrackDescriptor]] = [:]
-        let enumerator = FileManager.default.enumerator(
-            at: startURL,
-            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
-            options: [.skipsHiddenFiles]
-        )
         let base = basePath.standardizedFileURL.path
         let basePrefix = base.hasSuffix("/") ? base : base + "/"
 
-        while let cueURL = enumerator?.nextObject() as? URL {
+        for cueURL in cueURLs {
             try Task.checkCancellation()
             guard cueURL.pathExtension.caseInsensitiveCompare("cue") == .orderedSame,
-                  let values = try? cueURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+                  let values = try? cueURL.resourceValues(
+                      forKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]
+                  ),
                   values.isRegularFile == true,
                   (values.fileSize ?? 0) <= 1024 * 1024,
                   let data = try? Data(contentsOf: cueURL, options: .mappedIfSafe),
@@ -326,10 +461,15 @@ actor LocalFileSource: SongScanningConnector {
                     format = .dts
                 }
                 let audioPath = relativePath(for: candidate)
+                let cueRevision = Self.localRevision(
+                    size: Int64(values.fileSize ?? 0),
+                    modifiedDate: values.contentModificationDate
+                )
                 for track in cueFile.tracks where track.type == "AUDIO" && track.startTime != nil {
                     result[audioPath, default: []].append(
                         CueTrackDescriptor(
                             cuePath: relativePath(for: cueURL),
+                            cueRevision: cueRevision,
                             albumTitle: cue.title,
                             albumPerformer: cue.performer,
                             genre: cue.genre,
@@ -363,6 +503,10 @@ actor LocalFileSource: SongScanningConnector {
         }
         let ffmpegInfo = needsFFmpegProbe ? try? await ffmpegDecoder.fileInfo(for: fileURL) : nil
         let physicalDuration = Self.preferredPositive(ffmpegInfo?.duration, fallback: metadata.duration)
+        let combinedRevision = Self.cueRevision(
+            audioRevision: item.revision,
+            cueRevisions: descriptors.map(\.cueRevision)
+        )
 
         return descriptors.compactMap { descriptor in
             guard let start = descriptor.track.startTime else { return nil }
@@ -398,12 +542,13 @@ actor LocalFileSource: SongScanningConnector {
                 genre: descriptor.genre ?? metadata.genre,
                 year: descriptor.year ?? metadata.year,
                 lastModified: item.modifiedDate,
-                coverArtFileName: metadata.coverArtFileName,
-                lyricsFileName: metadata.lyricsFileName,
-                mvPath: sidecarPath(nextTo: item.path, named: metadata.mvPath),
+                coverArtFileName: item.sidecarHints?.coverPath ?? metadata.coverArtFileName,
+                lyricsFileName: item.sidecarHints?.lyricsPath ?? metadata.lyricsFileName,
+                mvPath: item.sidecarHints?.mvPath ?? sidecarPath(nextTo: item.path, named: metadata.mvPath),
                 cueSheetPath: descriptor.cuePath,
                 cueStartTime: start,
-                cueEndTime: end
+                cueEndTime: end,
+                revision: combinedRevision
             )
             return ConnectorScannedSong(song: song, displayName: song.title)
         }
@@ -483,6 +628,34 @@ actor LocalFileSource: SongScanningConnector {
         let input = "\(sourceID):\(path)"
         let hash = SHA256.hash(data: Data(input.utf8))
         return hash.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private nonisolated static func localRevision(size: Int64, modifiedDate: Date?) -> String {
+        let milliseconds = modifiedDate.map { Int64($0.timeIntervalSince1970 * 1_000) } ?? -1
+        return "local:\(size):\(milliseconds)"
+    }
+
+    private nonisolated static func compositeRevision(_ parts: [String]) -> String {
+        let digest = SHA256.hash(data: Data(parts.sorted().joined(separator: "|").utf8))
+        return "local:\(digest.prefix(16).map { String(format: "%02x", $0) }.joined())"
+    }
+
+    private nonisolated static func cueRevision(
+        audioRevision: String?,
+        cueRevisions: [String]
+    ) -> String {
+        compositeRevision([audioRevision].compactMap { $0 } + cueRevisions)
+    }
+
+    private nonisolated static func fingerprintMatches(existing: Song, item: RemoteFileItem) -> Bool {
+        if let revision = item.revision, let existingRevision = existing.revision {
+            return revision == existingRevision
+        }
+        guard existing.fileSize == item.size else { return false }
+        if let lhs = existing.lastModified, let rhs = item.modifiedDate {
+            return abs(lhs.timeIntervalSince(rhs)) < 0.001
+        }
+        return true
     }
 }
 

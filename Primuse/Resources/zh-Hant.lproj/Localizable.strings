@@ -2025,3 +2025,5 @@
 "synology_error_invalid_url" = "無效的位址";
 "synology_error_invalid_response" = "無效的回應";
 "synology_error_http_format" = "HTTP 錯誤 %d";
+"source_quick_sync" = "正在快速同步變更…";
+"source_deep_scan" = "深度掃描";

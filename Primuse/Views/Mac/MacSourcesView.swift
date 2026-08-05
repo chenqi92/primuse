@@ -285,6 +285,12 @@ struct MacSourcesView: View {
             Button { editingSource = source } label: {
                 Label("edit", systemImage: "pencil")
             }
+            if source.type.scansEntireLibrary || !dirs.isEmpty {
+                Button { runDeepScan(source) } label: {
+                    Label("source_deep_scan", systemImage: "arrow.triangle.2.circlepath.circle")
+                }
+                .disabled(scanning?.isScanning == true)
+            }
             Divider()
             Button(role: .destructive) {
                 // 与卡片操作行的删除 pill 统一走二次确认对话框,
@@ -668,6 +674,17 @@ struct MacSourcesView: View {
     private func runScan(_ source: MusicSource) {
         scanService.scanSource(
             source,
+            sourceManager: sourceManager,
+            library: library,
+            sourceStore: sourceStore,
+            scraperService: scraperService
+        )
+    }
+
+    private func runDeepScan(_ source: MusicSource) {
+        scanService.scanSource(
+            source,
+            mode: .deep,
             sourceManager: sourceManager,
             library: library,
             sourceStore: sourceStore,

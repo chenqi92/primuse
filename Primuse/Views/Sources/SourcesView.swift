@@ -555,6 +555,21 @@ struct SourcesContentView: View {
             if source.id != AppleMusicLibraryService.systemSourceID {
                 Button { editingSource = source } label: { Label("edit", systemImage: "pencil") }
                 Button { diagnosingSource = source } label: { Label("source_diagnostics", systemImage: "stethoscope") }
+                if source.type.scansEntireLibrary || !dirs.isEmpty {
+                    Button {
+                        scanService.scanSource(
+                            source,
+                            mode: .deep,
+                            sourceManager: sourceManager,
+                            library: library,
+                            sourceStore: sourceStore,
+                            scraperService: scraperService
+                        )
+                    } label: {
+                        Label("source_deep_scan", systemImage: "arrow.triangle.2.circlepath.circle")
+                    }
+                    .disabled(scanning?.isScanning == true)
+                }
                 Divider()
                 Button(role: .destructive) { requestDelete(source) } label: { Label("delete", systemImage: "trash") }
             }

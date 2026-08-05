@@ -70,3 +70,44 @@ struct HTTPByteRangeResponsePolicyTests {
         ))
     }
 }
+
+@Suite("Whole-resource metadata range policy")
+struct WholeResourceMetadataRangePolicyTests {
+    @Test("Head and suffix metadata windows are sliced from a complete response")
+    func slicesMetadataWindows() {
+        #expect(WholeResourceMetadataRangePolicy.sliceRange(
+            bodyLength: 4096,
+            requestedOffset: 0,
+            requestedLength: 1024
+        ) == 0..<1024)
+        #expect(WholeResourceMetadataRangePolicy.sliceRange(
+            bodyLength: 4096,
+            requestedOffset: -256,
+            requestedLength: 256
+        ) == 3840..<4096)
+        #expect(WholeResourceMetadataRangePolicy.sliceRange(
+            bodyLength: 512,
+            requestedOffset: 0,
+            requestedLength: 1024
+        ) == 0..<512)
+    }
+
+    @Test("Invalid and out-of-bounds metadata windows are rejected")
+    func rejectsInvalidWindows() {
+        #expect(WholeResourceMetadataRangePolicy.sliceRange(
+            bodyLength: 4096,
+            requestedOffset: 4096,
+            requestedLength: 1
+        ) == nil)
+        #expect(WholeResourceMetadataRangePolicy.sliceRange(
+            bodyLength: 4096,
+            requestedOffset: Int64.min,
+            requestedLength: 1
+        ) == nil)
+        #expect(WholeResourceMetadataRangePolicy.sliceRange(
+            bodyLength: 4096,
+            requestedOffset: 0,
+            requestedLength: 0
+        ) == nil)
+    }
+}

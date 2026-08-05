@@ -2056,6 +2056,9 @@ final class MusicLibrary {
     private let snapshotURL: URL
     private let backupSnapshotURL: URL
     private let derivedIndexCacheURL: URL
+    /// Canonical device-local song rows. JSON is retained as an interoperable
+    /// iCloud/Apple TV snapshot, but routine scan/backfill writes go here.
+    @ObservationIgnored private let songStore: IncrementalSongStore?
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
     @ObservationIgnored private var persistenceBlockedByCorruption = false
@@ -2162,6 +2165,14 @@ final class MusicLibrary {
         snapshotURL = directory.appendingPathComponent("library-cache.json")
         backupSnapshotURL = directory.appendingPathComponent("library-cache.backup.json")
         derivedIndexCacheURL = directory.appendingPathComponent("library-derived-index.plist")
+        do {
+            songStore = try IncrementalSongStore(
+                path: directory.appendingPathComponent("library-songs.sqlite").path
+            )
+        } catch {
+            songStore = nil
+            plog("⚠️ Incremental song store unavailable; using JSON fallback: \(error.localizedDescription)")
+        }
         self.disabledSourceIDs = disabledSourceIDs
         encoder.outputFormatting = [.sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
@@ -2315,7 +2326,9 @@ final class MusicLibrary {
         }
         plog("📚 updateLyricsText: requested=\(lyricsTextBySongID.count) applied=\(appliedIDs.count) librarySongs=\(songs.count)")
         invalidateSearchCaches()
-        persistSnapshot()
+        persistSongChanges(
+            upserts: appliedIDs.compactMap { songIndexByID[$0].map { nextSongs[$0] } }
+        )
     }
 
     /// Update cached artwork / lyrics references without rebuilding album,
@@ -2352,7 +2365,7 @@ final class MusicLibrary {
         if oldCoverRef != updatedSong.coverArtFileName {
             postArtworkInvalidation(songID: songID, oldRef: oldCoverRef, newRef: updatedSong.coverArtFileName)
         }
-        persistSnapshot()
+        persistSongChanges(upserts: [updatedSong])
     }
 
     /// Update the optional MV reference without rebuilding album, artist,
@@ -2376,7 +2389,7 @@ final class MusicLibrary {
         lastReplacedSong = updatedSong
         lastReplacedSongIDs = [songID]
         songReplacementToken = UUID()
-        persistSnapshot()
+        persistSongChanges(upserts: [updatedSong])
     }
 
     /// Add songs from a scan result and rebuild albums/artists.
@@ -2449,6 +2462,13 @@ final class MusicLibrary {
 
         var contentChanged: [Song] = []
         var replacementIDs: Set<String> = []
+        var persistedSongIDs: [String] = []
+        var persistedSongIDSet: Set<String> = []
+
+        func recordPersistence(_ id: String) {
+            guard persistedSongIDSet.insert(id).inserted else { return }
+            persistedSongIDs.append(id)
+        }
 
         for newSong in filteredNewSongs {
             if let idx = existingIndexByID[newSong.id] {
@@ -2476,6 +2496,7 @@ final class MusicLibrary {
                     mergedSongs[idx] = newSong
                     contentChanged.append(newSong)
                     replacementIDs.insert(newSong.id)
+                    recordPersistence(newSong.id)
                     continue
                 }
                 // "Bare incoming" matches `MetadataBackfillService.isBareSong` —
@@ -2510,11 +2531,17 @@ final class MusicLibrary {
                     if let lyrics = newSong.lyricsFileName { merged.lyricsFileName = lyrics }
                     if let mvPath = newSong.mvPath { merged.mvPath = mvPath }
                     mergedSongs[idx] = merged
+                    if merged != existing {
+                        recordPersistence(newSong.id)
+                    }
                     if Self.songPresentationChanged(from: existing, to: merged) {
                         replacementIDs.insert(newSong.id)
                     }
                 } else {
                     mergedSongs[idx] = newSong
+                    if newSong != existing {
+                        recordPersistence(newSong.id)
+                    }
                     if Self.songPresentationChanged(from: existing, to: newSong) {
                         replacementIDs.insert(newSong.id)
                     }
@@ -2522,6 +2549,7 @@ final class MusicLibrary {
             } else {
                 mergedSongs.append(newSong)
                 existingIndexByID[newSong.id] = mergedSongs.count - 1
+                recordPersistence(newSong.id)
             }
         }
 
@@ -2534,7 +2562,13 @@ final class MusicLibrary {
         flushPendingIdentities()
         invalidateSearchCaches()
         rebuildIndex()
-        persistSnapshot()
+        let persistedIncoming = persistedSongIDs.compactMap { id in
+            existingIndexByID[id].map { mergedSongs[$0] }
+        }
+        persistSongChanges(
+            upserts: persistedIncoming,
+            deletingIDs: Set(removedSongs.map(\.id))
+        )
 
         // A full re-scan can update metadata while preserving the exact same
         // ordered song IDs (for example correcting a PCM WAV that an older
@@ -2613,7 +2647,7 @@ final class MusicLibrary {
         cleanPlaylistEntries()
         cleanPlaybackHistoryEntries()
         rebuildIndex()
-        persistSnapshot()
+        persistSongChanges(deletingIDs: [song.id], needsPromptCompatibilitySnapshot: true)
         postSongsRemoved([song])
         return songs.filter { $0.sourceID == song.sourceID }.count
     }
@@ -2643,7 +2677,7 @@ final class MusicLibrary {
         cleanPlaylistEntries()
         cleanPlaybackHistoryEntries()
         rebuildIndex()
-        persistSnapshot()
+        persistSongChanges(deletingIDs: idsToDelete, needsPromptCompatibilitySnapshot: true)
         postSongsRemoved(songsToDelete)
         return remainingCounts
     }
@@ -2694,7 +2728,10 @@ final class MusicLibrary {
         cleanPlaylistEntries()
         cleanPlaybackHistoryEntries()
         rebuildIndex()
-        persistSnapshot()
+        persistSongChanges(
+            deletingIDs: Set(removedSongs.map(\.id)),
+            needsPromptCompatibilitySnapshot: true
+        )
         postSongsRemoved(removedSongs, sourceIDs: sourceIDs)
     }
 
@@ -3484,7 +3521,7 @@ final class MusicLibrary {
         // a stale pending identity finally match.
         flushPendingIdentities()
         refreshPlaylistArtworkReferences()
-        persistSnapshot()
+        persistSongChanges(upserts: [s])
     }
 
     /// Batch counterpart to `replaceSong`. Used by `MetadataBackfillService`
@@ -3535,7 +3572,9 @@ final class MusicLibrary {
         // pending identities to resolve at once.
         flushPendingIdentities()
         refreshPlaylistArtworkReferences()
-        persistSnapshot()
+        persistSongChanges(
+            upserts: appliedIDs.compactMap { idToIndex[$0].map { nextSongs[$0] } }
+        )
     }
 
     private func postArtworkInvalidation(songID: String, oldRef: String?, newRef: String?) {
@@ -3626,12 +3665,28 @@ final class MusicLibrary {
     }
 
     /// tvOS 下载到新快照后重新从磁盘加载整库(songs/playlists 等)。
-    func reloadFromDisk() { loadSnapshot() }
+    func reloadFromDisk() { loadSnapshot(preferExternalSnapshot: true) }
 
-    private func loadSnapshot() {
+    private func loadSnapshot(preferExternalSnapshot: Bool = false) {
         let loadStartedAt = ProcessInfo.processInfo.systemUptime
+        let canonicalSongs: [Song]? = {
+            guard !preferExternalSnapshot, let songStore else { return nil }
+            do {
+                guard try songStore.isAuthoritative() else { return nil }
+                return try songStore.loadSongs()
+            } catch {
+                plog("⚠️ Incremental song store read failed; recovering from JSON: \(error.localizedDescription)")
+                return nil
+            }
+        }()
         guard FileManager.default.fileExists(atPath: snapshotURL.path) else {
             persistenceBlockedByCorruption = false
+            if let canonicalSongs {
+                songs = canonicalSongs
+                songIndexByID = Self.makeSongIndex(canonicalSongs)
+                rebuildIndexSync()
+                plog("🚀 library load recovered \(canonicalSongs.count) song(s) from SQLite without a compatibility snapshot")
+            }
             return
         }
         guard let data = try? Data(contentsOf: snapshotURL) else {
@@ -3668,9 +3723,19 @@ final class MusicLibrary {
         // published the complete array thousands of times during cold launch.
         // Keeping the work local gives the array one copy-on-write mutation
         // and the observable model one final publication.
-        var loadedSongs = snapshot.songs
+        var loadedSongs = canonicalSongs ?? snapshot.songs
         let migration = Self.migrateLoadedSongs(&loadedSongs)
         let migrationFinishedAt = ProcessInfo.processInfo.systemUptime
+        if canonicalSongs == nil
+            || migration.repairedTextCount > 0
+            || migration.filledDerivedIDCount > 0
+            || migration.correctedLegacyDTSDurationCount > 0 {
+            do {
+                try songStore?.replaceAll(with: loadedSongs)
+            } catch {
+                plog("⚠️ Incremental song store migration failed; JSON remains authoritative: \(error.localizedDescription)")
+            }
+        }
         songs = loadedSongs
         songIndexByID = Self.makeSongIndex(loadedSongs)
         allPlaylists = snapshot.playlists
@@ -3805,6 +3870,9 @@ final class MusicLibrary {
     }
 
     private var persistTask: Task<Void, Never>?
+    /// Incremental SQLite writes are serialized independently from the JSON
+    /// compatibility snapshot. Scan cursor commits await this chain.
+    private var songStoreWriteTask: Task<Bool, Never>?
     /// Serializes off-main-actor snapshot writes. Each `persistNow` chains
     /// onto the previous write so the JSON encode + atomic write happen in
     /// order off the main thread, and the latest snapshot always wins.
@@ -3843,15 +3911,58 @@ final class MusicLibrary {
         derivedIndexCacheWriteTask = task
     }
 
-    private func persistSnapshot() {
+    private func persistSongChanges(
+        upserts: [Song] = [],
+        deletingIDs: Set<String> = [],
+        needsPromptCompatibilitySnapshot: Bool = false
+    ) {
+        guard !upserts.isEmpty || !deletingIDs.isEmpty else { return }
+
+        if let songStore {
+            let previous = songStoreWriteTask
+            let recoverySnapshot = songs
+            songStoreWriteTask = Task.detached(priority: .utility) {
+                let previousSucceeded = await previous?.value ?? true
+                do {
+                    if previousSucceeded {
+                        try songStore.apply(upserts: upserts, deletingIDs: deletingIDs)
+                    } else {
+                        // A failed earlier delta may have left unknown rows
+                        // stale. Reconcile from the current immutable snapshot
+                        // instead of committing a cursor over that gap.
+                        try songStore.replaceAll(with: recoverySnapshot)
+                    }
+                    return true
+                } catch {
+                    plog("⛔ Incremental song persistence failed: \(error.localizedDescription)")
+                    return false
+                }
+            }
+        }
+
+        // The SQLite transaction is the durable local commit. Keep producing
+        // the existing portable JSON for iCloud/TV, but coalesce ordinary
+        // metadata batches instead of encoding a multi-thousand-song array
+        // every two seconds. Destructive/user-visible mutations stay prompt.
+        let delay: TimeInterval
+        if needsPromptCompatibilitySnapshot || songStore == nil {
+            delay = 2
+        } else {
+            delay = 30
+        }
+        persistSnapshot(after: delay)
+    }
+
+    private func persistSnapshot(after delay: TimeInterval = 2) {
         if isDeferringSceneTransitionPublications {
             deferredPersistRequested = true
             return
         }
         persistTask?.cancel()
         persistTask = Task {
-            try? await Task.sleep(for: .seconds(2))
+            try? await Task.sleep(for: .seconds(delay))
             guard !Task.isCancelled else { return }
+            persistTask = nil
             persistNow()
         }
     }
@@ -3863,6 +3974,8 @@ final class MusicLibrary {
     /// stall the main actor for hundreds of ms every few seconds while encoding
     /// the whole library inline.
     func persistNow() {
+        persistTask?.cancel()
+        persistTask = nil
         _ = enqueueSnapshotWrite()
     }
 
@@ -3899,6 +4012,11 @@ final class MusicLibrary {
     /// asynchronous `persistNow()` against an immediate file read.
     func persistNowAndWait() async -> Result<Void, AppleTVTransferFailure> {
         guard !Task.isCancelled else { return .failure(.cancelled) }
+        persistTask?.cancel()
+        persistTask = nil
+        guard await flushIncrementalSongStore() else {
+            return .failure(.snapshotPreparationFailed)
+        }
         guard let task = enqueueSnapshotWrite() else {
             return .failure(.snapshotPreparationFailed)
         }
@@ -3909,6 +4027,44 @@ final class MusicLibrary {
             return .failure(.snapshotPreparationFailed)
         }
         return .success(())
+    }
+
+    /// Durable commit used by source synchronization. SQLite is sufficient for
+    /// the device-local cursor transaction; the portable JSON snapshot remains
+    /// debounced until iCloud/TV export or a lifecycle flush requests it.
+    func persistIncrementalNowAndWait() async -> Result<Void, AppleTVTransferFailure> {
+        guard !Task.isCancelled else { return .failure(.cancelled) }
+        guard songStore != nil else {
+            // Older/unsupported environments retain the proven JSON path.
+            return await persistNowAndWait()
+        }
+        guard await flushIncrementalSongStore() else {
+            return .failure(.snapshotPreparationFailed)
+        }
+        return .success(())
+    }
+
+    private func flushIncrementalSongStore() async -> Bool {
+        guard let songStoreWriteTask else { return true }
+        guard !(await songStoreWriteTask.value) else { return true }
+        guard let songStore else { return false }
+
+        let recoverySnapshot = songs
+        let recovered = await Task.detached(priority: .utility) {
+            do {
+                try songStore.replaceAll(with: recoverySnapshot)
+                return true
+            } catch {
+                plog("⛔ Incremental song recovery failed: \(error.localizedDescription)")
+                return false
+            }
+        }.value
+        guard recovered else {
+            plog("⛔ Incremental song persistence failed before library commit")
+            return false
+        }
+        self.songStoreWriteTask = Task { true }
+        return true
     }
 
     /// Encode + atomically write a snapshot. `nonisolated` so it runs off the

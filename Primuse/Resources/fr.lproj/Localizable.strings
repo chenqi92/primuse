@@ -2049,3 +2049,5 @@
 "synology_error_invalid_url" = "Adresse non valide";
 "synology_error_invalid_response" = "Réponse non valide";
 "synology_error_http_format" = "Erreur HTTP %d";
+"source_quick_sync" = "Synchronisation rapide des modifications…";
+"source_deep_scan" = "Analyse approfondie";

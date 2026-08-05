@@ -198,7 +198,7 @@ enum LocalImportService {
             }
             if isDir.boolValue {
                 audioURLs.append(contentsOf: audioFiles(under: url, fm: fm))
-            } else if PrimuseConstants.supportedAudioExtensions.contains(url.pathExtension.lowercased()) {
+            } else if isImportableMediaDescriptor(url) {
                 audioURLs.append(url)
             } else {
                 recordFailure(
@@ -255,7 +255,7 @@ enum LocalImportService {
 
     /// 拷一个音频文件进目标目录(非受支持格式跳过, 重名追加序号)。
     private static func copyOne(_ url: URL, into dir: URL, fm: FileManager, result: inout CopyResult) {
-        guard PrimuseConstants.supportedAudioExtensions.contains(url.pathExtension.lowercased()) else {
+        guard isImportableMediaDescriptor(url) else {
             recordFailure(
                 CopyFailure(fileName: url.lastPathComponent, reason: .unsupportedFormat, detail: nil),
                 in: &result
@@ -285,7 +285,14 @@ enum LocalImportService {
             label: "coordinated-read",
             fallbackReason: .copyFailed
         )
-        if primaryFailure == nil, copiedFileSize(dest, fm: fm) >= minimumReadableAudioBytes {
+        let copiedSize = copiedFileSize(dest, fm: fm)
+        let isSTRM = PrimuseConstants.supportedStreamDescriptorExtensions.contains(
+            url.pathExtension.lowercased()
+        )
+        if primaryFailure == nil,
+           (isSTRM
+                ? (copiedSize > 0 && copiedSize <= Int64(STRMDescriptorParser.maximumByteCount))
+                : copiedSize >= minimumReadableAudioBytes) {
             result.copied += 1
             copySidecars(forAudio: url, audioDest: dest, fm: fm)
             return
@@ -650,11 +657,16 @@ enum LocalImportService {
         var out: [URL] = []
         for case let fileURL as URL in enumerator {
             let isRegular = (try? fileURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) ?? false
-            guard isRegular,
-                  PrimuseConstants.supportedAudioExtensions.contains(fileURL.pathExtension.lowercased()) else { continue }
+            guard isRegular, isImportableMediaDescriptor(fileURL) else { continue }
             out.append(fileURL)
         }
         return out
+    }
+
+    private static func isImportableMediaDescriptor(_ url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        return PrimuseConstants.supportedAudioExtensions.contains(ext)
+            || PrimuseConstants.supportedStreamDescriptorExtensions.contains(ext)
     }
 
     /// 重复导入判定: 目标目录里是否已有「同名(或同名追加过序号)且体积一致、修改时间

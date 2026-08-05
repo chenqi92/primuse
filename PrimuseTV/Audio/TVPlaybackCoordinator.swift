@@ -73,7 +73,24 @@ final class TVPlaybackCoordinator {
             return
         }
         let credential = TVCredentialStore.credential(for: source, bundle: store.credentialBundle)
-        let asset = playbackAsset(for: song, preferMusicVideo: preferMusicVideo)
+        var asset = playbackAsset(for: song, preferMusicVideo: preferMusicVideo)
+        if asset.song.isStreamDescriptor {
+            do {
+                asset = try await resolveSTRMPlaybackAsset(
+                    asset,
+                    source: source,
+                    credential: credential,
+                    requestID: requestID
+                )
+            } catch is CancellationError {
+                return
+            } catch {
+                plog("🎬 TV play: STRM resolve error — \(error)")
+                guard isCurrent(requestID, store: store) else { return }
+                store.playbackIssue = .failed(error.localizedDescription)
+                return
+            }
+        }
         let playbackSong = asset.song
         plog("🎬 TV play: '\(song.title)' src=\(source.type.rawValue)/\(source.name) video=\(asset.isVideo) path=\(playbackSong.filePath.suffix(40))")
         // 非原生格式(APE/WavPack/DSD/OGG/WMA 等 AVPlayer 解不了的):下载到本地后用
@@ -82,10 +99,11 @@ final class TVPlaybackCoordinator {
         if !asset.isVideo, !(ext.isEmpty || Self.nativeFormats.contains(ext)) {
             plog("🎬 TV play: non-native '\(ext)' → SFBAudioEngine decode")
             await playNonNative(
-                song: song,
+                song: playbackSong,
                 source: source,
                 credential: credential,
                 ext: ext,
+                directURL: asset.directURL,
                 requestID: requestID,
                 startAt: startAt,
                 autoPlay: autoPlay
@@ -206,6 +224,97 @@ final class TVPlaybackCoordinator {
         return PlaybackAsset(song: videoSong, fileExtension: ext, isVideo: true, directURL: directURL)
     }
 
+    private func resolveSTRMPlaybackAsset(
+        _ asset: PlaybackAsset,
+        source: MusicSource,
+        credential: SourceCredential?,
+        requestID: UUID
+    ) async throws -> PlaybackAsset {
+        guard let store else { throw CancellationError() }
+        let descriptor = try await readSTRMDescriptor(
+            song: asset.song,
+            source: source,
+            credential: credential
+        )
+        try ensureCurrent(requestID, store: store)
+
+        var resolvedSong = asset.song
+        resolvedSong.fileFormat = descriptor.format
+        resolvedSong.fileSize = 0
+        switch descriptor.target {
+        case .remote(let url):
+            return PlaybackAsset(
+                song: resolvedSong,
+                fileExtension: descriptor.format.rawValue.lowercased(),
+                isVideo: false,
+                directURL: url
+            )
+        case .sourcePath(let reference):
+            guard let path = STRMSourcePathResolver.resolve(
+                reference,
+                relativeTo: asset.song.filePath
+            ) else {
+                throw STRMDescriptorError.invalidTarget
+            }
+            if source.type == .webdav,
+               let wrapper = try? await registry.resolve(
+                   for: asset.song,
+                   source: source,
+                   credential: credential
+               ),
+               let originURL = OpenListSTRMTargetResolver.resolve(
+                   path,
+                   wrapperURL: wrapper.url
+               ) {
+                return PlaybackAsset(
+                    song: resolvedSong,
+                    fileExtension: descriptor.format.rawValue.lowercased(),
+                    isVideo: false,
+                    directURL: originURL
+                )
+            }
+            resolvedSong.filePath = path
+            return PlaybackAsset(
+                song: resolvedSong,
+                fileExtension: descriptor.format.rawValue.lowercased(),
+                isVideo: false,
+                directURL: nil
+            )
+        }
+    }
+
+    private func readSTRMDescriptor(
+        song: Song,
+        source: MusicSource,
+        credential: SourceCredential?
+    ) async throws -> STRMDescriptor {
+        let maximum = Int64(STRMDescriptorParser.maximumByteCount)
+        if let reader = Self.makeDirectReader(source: source, song: song, credential: credential) {
+            let size = try await reader.contentLength()
+            guard size > 0 else { throw STRMDescriptorError.empty }
+            let data = try await reader.read(offset: 0, length: min(size, maximum + 1))
+            return try STRMDescriptorParser.parse(data)
+        }
+
+        let resolved = try await registry.resolve(for: song, source: source, credential: credential)
+        var request = URLRequest(url: resolved.url)
+        for (key, value) in resolved.headers { request.setValue(value, forHTTPHeaderField: key) }
+        request.setValue("bytes=0-\(maximum)", forHTTPHeaderField: "Range")
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        let (bytes, response) = try await Self.lyricsSession.bytes(for: request)
+        if let http = response as? HTTPURLResponse,
+           !(http.statusCode == 200 || http.statusCode == 206) {
+            throw StreamResolveError.badServerResponse(http.statusCode)
+        }
+        var data = Data()
+        data.reserveCapacity(Int(maximum + 1))
+        for try await byte in bytes {
+            data.append(byte)
+            if data.count > Int(maximum) { break }
+        }
+        return try STRMDescriptorParser.parse(data)
+    }
+
     private func normalizedMusicVideoPath(for song: Song) -> String? {
         guard let raw = song.mvPath?.trimmingCharacters(in: .whitespacesAndNewlines),
               raw.isEmpty == false else { return nil }
@@ -243,6 +352,7 @@ final class TVPlaybackCoordinator {
         source: MusicSource,
         credential: SourceCredential?,
         ext: String,
+        directURL: URL? = nil,
         requestID: UUID,
         startAt: Double,
         autoPlay: Bool
@@ -264,6 +374,7 @@ final class TVPlaybackCoordinator {
                 source: source,
                 credential: credential,
                 ext: ext,
+                directURL: directURL,
                 requestID: requestID
             )
             downloadedTempURL = tempURL
@@ -296,6 +407,7 @@ final class TVPlaybackCoordinator {
     /// 把整文件下载到 tmp:协议源走 reader 分块落盘,HTTP 源走 resolve + URLSession。
     private func downloadToTemp(song: Song, source: MusicSource,
                               credential: SourceCredential?, ext: String,
+                              directURL: URL? = nil,
                               requestID: UUID) async throws -> URL {
         guard let store else { throw CancellationError() }
         let fileManager = FileManager.default
@@ -313,6 +425,17 @@ final class TVPlaybackCoordinator {
                     fileManager: fileManager
                 )
             }
+        }
+        if let directURL {
+            let (downloadedURL, response) = try await Self.lyricsSession.download(from: directURL)
+            try ensureCurrent(requestID, store: store)
+            if let http = response as? HTTPURLResponse,
+               !(200...299).contains(http.statusCode) {
+                throw StreamResolveError.badServerResponse(http.statusCode)
+            }
+            try FileManager.default.moveItem(at: downloadedURL, to: tmp)
+            shouldKeepFile = true
+            return tmp
         }
         if let reader = Self.makeDirectReader(source: source, song: song, credential: credential) {
             let total = try await reader.contentLength()

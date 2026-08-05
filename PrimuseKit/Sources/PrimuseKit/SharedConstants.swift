@@ -533,6 +533,43 @@ public enum HTTPByteRangeResponsePolicy {
     }
 }
 
+/// Extracts a metadata-only byte window when a WebDAV proxy ignores `Range`
+/// and returns the complete resource with HTTP 200.
+///
+/// This must not be used by sparse playback caches: a whole-resource response
+/// cannot prove that later random-access reads are safe. Metadata readers are
+/// different — they only need a bounded head or tail slice and never place the
+/// result at an arbitrary offset in the playback cache.
+public enum WholeResourceMetadataRangePolicy {
+    public static func sliceRange(
+        bodyLength: Int,
+        requestedOffset: Int64,
+        requestedLength: Int64
+    ) -> Range<Int>? {
+        guard bodyLength > 0,
+              requestedLength > 0,
+              requestedOffset != Int64.min else {
+            return nil
+        }
+
+        let totalLength = Int64(bodyLength)
+        let start = requestedOffset < 0
+            ? max(0, totalLength + requestedOffset)
+            : requestedOffset
+        guard start >= 0,
+              start < totalLength,
+              let requestedEnd = SafeByteRange.exclusiveEnd(
+                offset: start,
+                length: requestedLength
+              ) else {
+            return nil
+        }
+
+        let end = min(requestedEnd, totalLength)
+        return Int(start)..<Int(end)
+    }
+}
+
 public enum AudioChannelConversionPolicy {
     public static func requiresDownmix(
         sourceChannelCount: Int,
@@ -1141,6 +1178,7 @@ public enum PrimuseConstants {
     public static let supportedCoverExtensions = ["jpg", "jpeg", "png", "webp"]
     public static let supportedLyricsExtensions = ["lrc"]
     public static let supportedMusicVideoExtensions = ["mp4", "m4v", "mov"]
+    public static let supportedStreamDescriptorExtensions: Set<String> = ["strm"]
     public static let folderCoverNames = ["cover", "folder", "album", "front", "artwork"]
 
     /// Note: `.mp4` is intentionally excluded — it's primarily a video

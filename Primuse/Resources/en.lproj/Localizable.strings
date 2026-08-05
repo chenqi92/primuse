@@ -1877,3 +1877,5 @@
 "synology_error_invalid_url" = "Invalid address";
 "synology_error_invalid_response" = "Invalid response";
 "synology_error_http_format" = "HTTP error %d";
+"source_quick_sync" = "Quick syncing changes…";
+"source_deep_scan" = "Deep Scan";

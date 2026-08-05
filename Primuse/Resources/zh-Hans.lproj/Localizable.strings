@@ -2152,3 +2152,5 @@
 "synology_error_invalid_url" = "无效的地址";
 "synology_error_invalid_response" = "无效的响应";
 "synology_error_http_format" = "HTTP 错误 %d";
+"source_quick_sync" = "正在快速同步变化…";
+"source_deep_scan" = "深度扫描";

@@ -22,6 +22,7 @@ actor SynologyScanner {
         var totalCount: Int
         var currentFile: String
         var songs: [Song]
+        var resumeState: SourceScanResumeState? = nil
     }
 
     func takeMetadataInspectedSongIDs() -> Set<String> {
@@ -33,7 +34,8 @@ actor SynologyScanner {
     func scan(
         directories: [String],
         existingSongs: [Song] = [],
-        startingCount: Int = 0
+        startingCount: Int = 0,
+        resumeState: SourceScanResumeState? = nil
     ) -> AsyncThrowingStream<ScanUpdate, Error> {
         pendingMetadataInspectedSongIDs.removeAll(keepingCapacity: true)
         // Every update contains the complete accumulated Song array. Match the
@@ -45,15 +47,10 @@ actor SynologyScanner {
                 do {
                     // Remove redundant child directories when a parent is already selected
                     let dirs = Self.deduplicateDirectories(directories)
-
-                    // Phase 1: Count total audio files
-                    var totalCount = 0
-                    for dir in dirs {
-                        try Task.checkCancellation()
-                        totalCount += await countAudioFiles(in: dir)
-                    }
-
-                    // Phase 2: Scan and extract metadata
+                    // Total count stays unknown until the authoritative walk
+                    // finishes. Avoiding a recursive count pass halves directory
+                    // API traffic for large NAS libraries.
+                    let totalCount = 0
                     var allSongs = existingSongs
                     // path → allSongs 下标。existing 条目下标全程稳定(替换原地、新增追加到
                     // 末尾), 用于 O(1) 比对/回填/替换, 避免 firstIndex 的 O(n²)。
@@ -68,49 +65,129 @@ actor SynologyScanner {
                         uniquingKeysWith: { first, _ in first }
                     )
                     let initialCount = max(existingSongs.count, startingCount)
-                    var count = totalCount > 0 ? min(initialCount, totalCount) : initialCount
-                    var encounteredSongIDs: Set<String> = []
-                    var directoryFailures: [Error] = []
-
-                    if !existingSongs.isEmpty {
-                        continuation.yield(
-                            ScanUpdate(scannedCount: count, totalCount: totalCount, currentFile: "", songs: allSongs)
-                        )
+                    var count = initialCount
+                    let usableResumeState = resumeState?.isUsable == true ? resumeState : nil
+                    var encounteredSongIDs = usableResumeState?.encounteredSongIDs ?? []
+                    var pendingSet: Set<String> = []
+                    let initialPending = usableResumeState?.pendingDirectories ?? dirs
+                    var pendingDirectories = initialPending.filter {
+                        pendingSet.insert($0).inserted
                     }
+                    var visitedDirectories: Set<String> = []
+                    var failedDirectories: [String] = []
+                    var firstDirectoryError: Error?
 
-                    for dir in dirs {
+                    continuation.yield(
+                        ScanUpdate(
+                            scannedCount: count,
+                            totalCount: totalCount,
+                            currentFile: pendingDirectories.last ?? "",
+                            songs: allSongs,
+                            resumeState: SourceScanResumeState(
+                                pendingDirectories: pendingDirectories,
+                                encounteredSongIDs: encounteredSongIDs,
+                                index: usableResumeState?.index ?? [:]
+                            )
+                        )
+                    )
+
+                    while let directory = pendingDirectories.popLast() {
+                        pendingSet.remove(directory)
+                        guard visitedDirectories.insert(directory).inserted else { continue }
                         try Task.checkCancellation()
+                        let inFlightResumeState = SourceScanResumeState(
+                            pendingDirectories: pendingDirectories + [directory] + failedDirectories,
+                            encounteredSongIDs: encounteredSongIDs,
+                            index: usableResumeState?.index ?? [:]
+                        )
+                        continuation.yield(
+                            ScanUpdate(
+                                scannedCount: count,
+                                totalCount: totalCount,
+                                currentFile: directory,
+                                songs: allSongs,
+                                resumeState: inFlightResumeState
+                            )
+                        )
+
                         do {
-                            try await scanDirectory(
-                                path: dir, allSongs: &allSongs,
-                                count: &count, totalCount: totalCount,
+                            let childDirectories = try await scanDirectory(
+                                path: directory,
+                                allSongs: &allSongs,
+                                count: &count,
+                                totalCount: totalCount,
                                 existingByPath: existingByPath,
                                 existingByID: existingByID,
                                 encounteredSongIDs: &encounteredSongIDs,
-                                directoryFailures: &directoryFailures,
+                                resumeState: inFlightResumeState,
                                 continuation: continuation
+                            )
+                            for child in childDirectories.sorted().reversed()
+                            where !visitedDirectories.contains(child)
+                                && !failedDirectories.contains(child)
+                                && pendingSet.insert(child).inserted {
+                                pendingDirectories.append(child)
+                            }
+                            continuation.yield(
+                                ScanUpdate(
+                                    scannedCount: count,
+                                    totalCount: totalCount,
+                                    currentFile: "",
+                                    songs: allSongs,
+                                    resumeState: SourceScanResumeState(
+                                        pendingDirectories: pendingDirectories + failedDirectories,
+                                        encounteredSongIDs: encounteredSongIDs,
+                                        index: usableResumeState?.index ?? [:]
+                                    )
+                                )
                             )
                         } catch is CancellationError {
                             throw CancellationError()
                         } catch {
-                            directoryFailures.append(error)
-                            plog("⚠️ Failed to scan directory \(dir): \(error.localizedDescription)")
-                            continue
+                            if firstDirectoryError == nil { firstDirectoryError = error }
+                            if !failedDirectories.contains(directory) {
+                                failedDirectories.append(directory)
+                            }
+                            plog("⚠️ Failed to scan directory \(directory): \(error.localizedDescription)")
+                            continuation.yield(
+                                ScanUpdate(
+                                    scannedCount: count,
+                                    totalCount: totalCount,
+                                    currentFile: directory,
+                                    songs: allSongs,
+                                    resumeState: SourceScanResumeState(
+                                        pendingDirectories: pendingDirectories + failedDirectories,
+                                        encounteredSongIDs: encounteredSongIDs,
+                                        index: usableResumeState?.index ?? [:]
+                                    )
+                                )
+                            )
                         }
                     }
 
-                    if let firstFailure = directoryFailures.first,
-                       encounteredSongIDs.isEmpty {
-                        throw firstFailure
-                    }
-
-                    if directoryFailures.isEmpty {
+                    if firstDirectoryError == nil {
                         allSongs.removeAll { encounteredSongIDs.contains($0.id) == false }
                         count = allSongs.count
                     }
 
-                    continuation.yield(ScanUpdate(scannedCount: count, totalCount: totalCount, currentFile: "", songs: allSongs))
-                    continuation.finish()
+                    continuation.yield(
+                        ScanUpdate(
+                            scannedCount: count,
+                            totalCount: totalCount,
+                            currentFile: "",
+                            songs: allSongs,
+                            resumeState: SourceScanResumeState(
+                                pendingDirectories: failedDirectories,
+                                encounteredSongIDs: encounteredSongIDs,
+                                index: usableResumeState?.index ?? [:]
+                            )
+                        )
+                    )
+                    if let firstDirectoryError {
+                        continuation.finish(throwing: firstDirectoryError)
+                    } else {
+                        continuation.finish()
+                    }
                 } catch {
                     continuation.finish(throwing: error)
                 }
@@ -121,44 +198,15 @@ actor SynologyScanner {
         }
     }
 
-    /// Recursively count audio files without downloading metadata
-    private func countAudioFiles(in path: String) async -> Int {
-        if Task.isCancelled { return 0 }
-        guard let items = try? await api.listDirectory(path: path) else { return 0 }
-        let nameByLowercase = Dictionary(
-            items.filter { $0.isDirectory == false }.map { ($0.name.lowercased(), $0.name) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        let cueTracksByAudioPath = await loadCueTracks(from: items)
-        var count = 0
-        for item in items {
-            if Task.isCancelled { return count }
-            if item.isDirectory {
-                count += await countAudioFiles(in: item.path)
-            } else {
-                let ext = (item.name as NSString).pathExtension.lowercased()
-                if PrimuseConstants.supportedAudioExtensions.contains(ext) {
-                    count += cueTracksByAudioPath[item.path]?.count ?? 1
-                } else if PrimuseConstants.supportedMusicVideoExtensions.contains(ext) {
-                    let baseName = (item.name as NSString).deletingPathExtension
-                    if Self.hasSameNameAudio(baseName: baseName, nameByLowercase: nameByLowercase) == false {
-                        count += 1
-                    }
-                }
-            }
-        }
-        return count
-    }
-
     private func scanDirectory(
         path: String, allSongs: inout [Song], count: inout Int,
         totalCount: Int,
         existingByPath: [String: Int],
         existingByID: [String: Int],
         encounteredSongIDs: inout Set<String>,
-        directoryFailures: inout [Error],
+        resumeState: SourceScanResumeState,
         continuation: AsyncThrowingStream<ScanUpdate, Error>.Continuation
-    ) async throws {
+    ) async throws -> [String] {
         try Task.checkCancellation()
         let items = try await api.listDirectory(path: path)
 
@@ -188,25 +236,11 @@ actor SynologyScanner {
             }
         }
 
+        var childDirectories: [String] = []
         for item in items {
             try Task.checkCancellation()
             if item.isDirectory {
-                do {
-                    try await scanDirectory(
-                        path: item.path, allSongs: &allSongs,
-                        count: &count, totalCount: totalCount,
-                        existingByPath: existingByPath,
-                        existingByID: existingByID,
-                        encounteredSongIDs: &encounteredSongIDs,
-                        directoryFailures: &directoryFailures,
-                        continuation: continuation
-                    )
-                } catch is CancellationError {
-                    throw CancellationError()
-                } catch {
-                    directoryFailures.append(error)
-                    plog("⚠️ Failed to scan child directory \(item.path): \(error.localizedDescription)")
-                }
+                childDirectories.append(item.path)
             } else {
                 let ext = (item.name as NSString).pathExtension.lowercased()
                 if PrimuseConstants.supportedMusicVideoExtensions.contains(ext) {
@@ -217,11 +251,13 @@ actor SynologyScanner {
                         allSongs: &allSongs, count: &count, totalCount: totalCount,
                         existingByPath: existingByPath,
                         encounteredSongIDs: &encounteredSongIDs,
+                        resumeState: resumeState,
                         continuation: continuation
                     )
                     continue
                 }
-                guard PrimuseConstants.supportedAudioExtensions.contains(ext) else { continue }
+                let isSTRM = PrimuseConstants.supportedStreamDescriptorExtensions.contains(ext)
+                guard PrimuseConstants.supportedAudioExtensions.contains(ext) || isSTRM else { continue }
                 if let descriptors = cueTracksByAudioPath[item.path], !descriptors.isEmpty {
                     let cueSongs = await buildCueSongs(from: item, descriptors: descriptors)
                     for var song in cueSongs {
@@ -239,7 +275,8 @@ actor SynologyScanner {
                         scannedCount: count,
                         totalCount: totalCount,
                         currentFile: item.name,
-                        songs: allSongs
+                        songs: allSongs,
+                        resumeState: resumeState
                     ))
                     continue
                 }
@@ -291,7 +328,18 @@ actor SynologyScanner {
                         // 任一侧缺 mtime 时退化为只比 size。
                         mtimeSame = true
                     }
-                    if sizeSame && mtimeSame {
+                    let contentSame: Bool
+                    if isSTRM {
+                        contentSame = STRMRevision.wrapperMatches(
+                            songRevision: existing.revision,
+                            wrapperRevision: nil,
+                            wrapperSize: item.size,
+                            wrapperModifiedDate: item.modifiedTime
+                        )
+                    } else {
+                        contentSame = sizeSame && mtimeSame
+                    }
+                    if contentSame {
                         // 旧库迁移: existing 缺 mtime 而远端有 —— 廉价回填 mtime(不重新解析
                         // 元数据 / 不下载 header)。否则这首歌永远 lastModified=nil, 跳过路径也
                         // 走不到下方写入, 未来同名同大小覆盖永远检测不到。回填后随 addSongs
@@ -331,10 +379,20 @@ actor SynologyScanner {
 
                 count += 1
                 continuation.yield(ScanUpdate(
-                    scannedCount: count, totalCount: totalCount, currentFile: item.name, songs: allSongs
+                    scannedCount: count,
+                    totalCount: totalCount,
+                    currentFile: item.name,
+                    songs: allSongs,
+                    resumeState: resumeState
                 ))
 
-                var song = await extractSongMetadata(item: item, ext: ext)
+                var song: Song
+                if isSTRM {
+                    guard let parsed = await extractSTRMSong(item: item) else { continue }
+                    song = parsed
+                } else {
+                    song = await extractSongMetadata(item: item, ext: ext)
+                }
                 pendingMetadataInspectedSongIDs.insert(song.id)
 
                 // Priority: sidecar path > embedded/cached > nil。原地覆盖这两个
@@ -362,11 +420,16 @@ actor SynologyScanner {
                 // Yield with updated songs every 3 files
                 if count % 3 == 0 {
                     continuation.yield(ScanUpdate(
-                        scannedCount: count, totalCount: totalCount, currentFile: item.name, songs: allSongs
+                        scannedCount: count,
+                        totalCount: totalCount,
+                        currentFile: item.name,
+                        songs: allSongs,
+                        resumeState: resumeState
                     ))
                 }
             }
         }
+        return childDirectories
     }
 
     private struct CueTrackDescriptor: Sendable {
@@ -487,6 +550,7 @@ actor SynologyScanner {
         allSongs: inout [Song], count: inout Int, totalCount: Int,
         existingByPath: [String: Int],
         encounteredSongIDs: inout Set<String>,
+        resumeState: SourceScanResumeState,
         continuation: AsyncThrowingStream<ScanUpdate, Error>.Continuation
     ) {
         let baseName = (item.name as NSString).deletingPathExtension
@@ -543,7 +607,11 @@ actor SynologyScanner {
 
         count += 1
         continuation.yield(ScanUpdate(
-            scannedCount: count, totalCount: totalCount, currentFile: item.name, songs: allSongs
+            scannedCount: count,
+            totalCount: totalCount,
+            currentFile: item.name,
+            songs: allSongs,
+            resumeState: resumeState
         ))
 
         let parsedTitle = MediaMetadataTextRepair.fileNameTitle(from: item.name) ?? baseName
@@ -575,9 +643,41 @@ actor SynologyScanner {
         baseName: String,
         nameByLowercase: [String: String]
     ) -> Bool {
-        PrimuseConstants.supportedAudioExtensions.contains {
+        (PrimuseConstants.supportedAudioExtensions
+            .union(PrimuseConstants.supportedStreamDescriptorExtensions)).contains {
             nameByLowercase["\(baseName).\($0)".lowercased()] != nil
         }
+    }
+
+    private func extractSTRMSong(item: SynologyAPI.FileItem) async -> Song? {
+        guard item.size > 0,
+              item.size <= Int64(STRMDescriptorParser.maximumByteCount),
+              let data = try? await api.downloadFileHead(
+                  path: item.path,
+                  maxBytes: Int(clamping: item.size)
+              ),
+              let descriptor = try? STRMDescriptorParser.parse(data) else {
+            plog("⚠️ Synology STRM descriptor skipped: \(item.name)")
+            return nil
+        }
+        let baseName = (item.name as NSString).deletingPathExtension
+        return Song(
+            id: generateID(sourceID: sourceID, path: item.path),
+            title: descriptor.title ?? MediaMetadataTextRepair.fileNameTitle(from: baseName) ?? baseName,
+            artistName: descriptor.artist ?? MediaMetadataTextRepair.fileNameArtist(from: baseName),
+            duration: descriptor.duration ?? 0,
+            fileFormat: descriptor.format,
+            filePath: item.path,
+            sourceID: sourceID,
+            fileSize: 0,
+            lastModified: item.modifiedTime,
+            revision: STRMRevision.songRevision(
+                wrapperRevision: nil,
+                wrapperSize: item.size,
+                wrapperModifiedDate: item.modifiedTime,
+                contentRevision: descriptor.contentRevision
+            )
+        )
     }
 
     private static func sameNameSidecarPath(

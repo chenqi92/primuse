@@ -365,6 +365,31 @@ final class MetadataBackfillService {
             UserDefaults.standard.set(true, forKey: waveDurationFixKey)
         }
 
+        // Eighth one-time migration. WebDAV/OpenList proxies that ignored a
+        // Range request used to feed an invalid whole response into metadata
+        // backfill, and those duration-less rows could already be persisted as
+        // failed. Metadata reads now consume a bounded head/tail window without
+        // weakening playback Range validation, so give only still-bare songs
+        // from backfillable sources one fresh attempt under the corrected path.
+        let rangeIgnoringProxyFixKey = "primuse.backfillFailedReset.v2026_08_rangeIgnoringProxy"
+        if !UserDefaults.standard.bool(forKey: rangeIgnoringProxyFixKey) {
+            let sourceIDs = backfillableSourceIDs()
+            let retryIDs = Set(library.songs.lazy.filter {
+                sourceIDs.contains($0.sourceID) && $0.duration <= 0
+            }.map(\.id))
+            let resetIDs = failedSongIDs.intersection(retryIDs)
+            if !resetIDs.isEmpty {
+                failedSongIDs.subtract(resetIDs)
+                sessionGivenUpIDs.subtract(resetIDs)
+                titleCheckedIDs.subtract(resetIDs)
+                for id in resetIDs { transientFailureCounts[id] = nil }
+                saveFailed()
+                saveTitleChecked()
+                plog("📥 Backfill: clearing \(resetIDs.count) failed rows for Range-ignoring proxy retry")
+            }
+            UserDefaults.standard.set(true, forKey: rangeIgnoringProxyFixKey)
+        }
+
         // A re-scan that found a path with new bytes wipes the failed
         // mark so backfill re-attempts the song with the fresh file. The
         // song's metadata in the library is already reset to bare by
@@ -1202,11 +1227,9 @@ final class MetadataBackfillService {
         // what made backfill 10x slower than it needed to be — every song
         // re-paid the list+filemetas dlink cost AND was prone to 31034
         // rate-limit storms because the throttle state didn't carry over.
-        let connector = try await sourceManager.connectorForSong(song)
-
         let fetchStarted = Date()
-        let headData = try await connector.fetchRange(
-            path: song.filePath,
+        let headData = try await sourceManager.fetchMetadataRange(
+            for: song,
             offset: 0,
             length: Self.headBytes
         )
@@ -1235,8 +1258,8 @@ final class MetadataBackfillService {
                 metadataInsufficient: false
             ).map { min($0, Self.maxID3ArtworkHeadBytes) } ?? headData.count
             if expandedByteCount > headData.count,
-               let expandedHead = try? await connector.fetchRange(
-                path: song.filePath,
+               let expandedHead = try? await sourceManager.fetchMetadataRange(
+                for: song,
                 offset: 0,
                 length: Int64(expandedByteCount)
                ) {
@@ -1252,8 +1275,8 @@ final class MetadataBackfillService {
             let ext = song.fileFormat.rawValue.lowercased()
             if Self.isoBaseMediaExtensions.contains(ext) {
                 for tailSize in RemoteMetadataReadPolicy.containerTailReadSizes(fileSize: song.fileSize) {
-                    guard let tailData = try? await connector.fetchRange(
-                        path: song.filePath,
+                    guard let tailData = try? await sourceManager.fetchMetadataRange(
+                        for: song,
                         offset: -Int64(tailSize),
                         length: Int64(tailSize)
                     ), !tailData.isEmpty else {
@@ -1267,8 +1290,8 @@ final class MetadataBackfillService {
                     )
                     if !metadataLooksMissing(metadata) { break }
                 }
-            } else if let tailData = try? await connector.fetchRange(
-                path: song.filePath,
+            } else if let tailData = try? await sourceManager.fetchMetadataRange(
+                for: song,
                 offset: -Self.fallbackTailBytes,
                 length: Self.fallbackTailBytes
             ) {

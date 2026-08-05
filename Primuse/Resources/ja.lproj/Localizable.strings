@@ -2050,3 +2050,5 @@
 "synology_error_invalid_url" = "アドレスが無効です";
 "synology_error_invalid_response" = "応答が無効です";
 "synology_error_http_format" = "HTTP エラー %d";
+"source_quick_sync" = "Quick syncing changes…";
+"source_deep_scan" = "Deep Scan";

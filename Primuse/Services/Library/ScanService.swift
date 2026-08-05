@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import PrimuseKit
 #if os(iOS)
@@ -27,6 +28,9 @@ final class ScanService {
         var addedCount: Int = 0
         var totalCount: Int = 0
         var failureMessage: String?
+        /// A checkpoint may contain only an unfinished directory queue, before
+        /// the scanner has discovered its first song.
+        var hasPendingWork: Bool = false
 
         var progress: Double {
             guard totalCount > 0 else { return 0 }
@@ -34,7 +38,8 @@ final class ScanService {
         }
 
         var canResume: Bool {
-            !isScanning && scannedCount > 0 && (totalCount == 0 || scannedCount < totalCount)
+            !isScanning && (hasPendingWork
+                || (scannedCount > 0 && (totalCount == 0 || scannedCount < totalCount)))
         }
     }
 
@@ -44,6 +49,12 @@ final class ScanService {
         var totalCount: Int
         var currentFile: String
         var updatedAt: Date
+        /// Nil for checkpoints written by older builds; those safely restart
+        /// from the selected roots.
+        var directoryState: SourceScanResumeState?
+        /// Provider cursor captured before a deep scan. It remains uncommitted
+        /// until both the resumed walk and the library snapshot succeed.
+        var baselineCursors: [String: String]?
     }
 
     private(set) var scanStates: [String: ScanState] = [:]
@@ -76,19 +87,24 @@ final class ScanService {
     #endif
 
     private let checkpointURL: URL
+    private let syncStateURL: URL
     private let decoder = JSONDecoder()
+    private var syncStates: [String: SourceSyncState] = [:]
 
     init(fileManager: FileManager = .default) {
         let appSupport = fileManager.primuseDirectoryURL(for: .applicationSupportDirectory)
         let directory = appSupport.appendingPathComponent("Primuse", isDirectory: true)
         try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         checkpointURL = directory.appendingPathComponent("scan-checkpoints.json")
+        syncStateURL = directory.appendingPathComponent("source-sync-states.json")
         decoder.dateDecodingStrategy = .iso8601
         loadCheckpoints()
+        loadSyncStates()
     }
 
     func scanSource(
         _ source: MusicSource,
+        mode: SourceSyncMode = .automatic,
         sourceManager: SourceManager,
         library: MusicLibrary,
         sourceStore: SourcesStore,
@@ -114,6 +130,12 @@ final class ScanService {
         }
 
         let normalizedDirs = normalizedDirectories(dirs)
+        if mode == .deep {
+            // “Deep Scan” is an explicit fresh reconciliation. The ordinary
+            // scan action resumes a checkpoint; carrying that partial queue
+            // into this mode would make the two operations behave identically.
+            removeCheckpoint(for: source.id)
+        }
         // Feiniu Music is a fast server-catalogue enumeration with strict
         // pagination invariants. A partial checkpoint is not resumable (the
         // next request must restart at page 1), and restoring one would make
@@ -122,7 +144,7 @@ final class ScanService {
         if requiresAtomicCatalogCommit {
             removeCheckpoint(for: source.id)
         }
-        let checkpoint = requiresAtomicCatalogCommit
+        let checkpoint = requiresAtomicCatalogCommit || mode == .deep
             ? nil
             : resumeCheckpoint(for: source.id, directories: normalizedDirs)
         let resumeSongs = checkpoint?.songs ?? []
@@ -154,7 +176,8 @@ final class ScanService {
             isScanning: true,
             currentFile: String(localized: "source_diag_preparing_scan"),
             scannedCount: resumeCount,
-            totalCount: resumeTotal
+            totalCount: resumeTotal,
+            hasPendingWork: true
         )
 
         beginBackgroundTask(for: source.id)
@@ -219,7 +242,8 @@ final class ScanService {
                     sourceManager: sourceManager,
                     library: library,
                     sourceStore: sourceStore,
-                    scraperService: scraperService
+                    scraperService: scraperService,
+                    checkpoint: checkpoint
                 )
             case .smb, .webdav, .ftp, .sftp, .nfs, .upnp,
                  .jellyfin, .emby, .plex,
@@ -235,7 +259,9 @@ final class ScanService {
                     sourceManager: sourceManager,
                     library: library,
                     sourceStore: sourceStore,
-                    scraperService: scraperService
+                    scraperService: scraperService,
+                    mode: mode,
+                    checkpoint: checkpoints[source.id] ?? checkpoint
                 )
             case .appleMusic:
                 // Apple Music 不走文件 scan, 走 AppleMusicLibraryService.sync()
@@ -278,6 +304,7 @@ final class ScanService {
         removeCheckpoint(for: sourceID)
         scanSource(
             source,
+            mode: .deep,
             sourceManager: sourceManager,
             library: library,
             sourceStore: sourceStore,
@@ -330,6 +357,75 @@ final class ScanService {
         }
     }
 
+    /// Starts only cheap provider-native delta checks that are already backed
+    /// by a committed cursor. It never performs the first scan and never walks
+    /// NAS/WebDAV/SMB trees in the background.
+    func startPeriodicQuickSyncIfNeeded(
+        sourceManager: SourceManager,
+        library: MusicLibrary,
+        sourceStore: SourcesStore,
+        scraperService: MusicScraperService?
+    ) {
+        let now = Date()
+        for source in sourceStore.sources {
+            guard activeTasks[source.id] == nil,
+                  source.isEnabled,
+                  !source.isDeleted,
+                  Self.supportsPeriodicNativeSync(source.type),
+                  let directories = periodicDirectories(for: source),
+                  let state = syncStates[source.id],
+                  state.isUsable(
+                      sourceID: source.id,
+                      scopeFingerprint: Self.scopeFingerprint(for: source, directories: directories)
+                  ),
+                  SourcePeriodicSyncPolicy.isDue(state, now: now) else {
+                continue
+            }
+            scanSource(
+                source,
+                mode: .quick,
+                sourceManager: sourceManager,
+                library: library,
+                sourceStore: sourceStore,
+                scraperService: scraperService
+            )
+        }
+    }
+
+    /// Earliest native-cursor refresh due date, used to submit the next iOS
+    /// BGProcessing request even when there is no interrupted work.
+    func nextPeriodicSyncDate(sourceStore: SourcesStore) -> Date? {
+        sourceStore.sources.compactMap { source -> Date? in
+            guard source.isEnabled,
+                  !source.isDeleted,
+                  Self.supportsPeriodicNativeSync(source.type),
+                  let directories = periodicDirectories(for: source),
+                  let state = syncStates[source.id],
+                  state.isUsable(
+                      sourceID: source.id,
+                      scopeFingerprint: Self.scopeFingerprint(for: source, directories: directories)
+                  ) else {
+                return nil
+            }
+            return SourcePeriodicSyncPolicy.nextSyncDate(for: state)
+        }.min()
+    }
+
+    private nonisolated static func supportsPeriodicNativeSync(_ type: MusicSourceType) -> Bool {
+        switch type {
+        case .dropbox, .googleDrive, .oneDrive:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func periodicDirectories(for source: MusicSource) -> [String]? {
+        let directories = source.type.scansEntireLibrary ? ["/"] : source.scannedDirectories
+        guard !directories.isEmpty else { return nil }
+        return normalizedDirectories(directories)
+    }
+
     /// Schedule a BGProcessingTask that iOS will fire when the device is
     /// idle (and ideally plugged in / on Wi-Fi). The task handler resumes
     /// any pending scans and runs metadata backfill. Should be called when
@@ -339,19 +435,24 @@ final class ScanService {
     ///   has a checkpoint, so backfill can keep running in the background.
     func scheduleBackgroundResumeIfNeeded(
         backfillPending: Bool = false,
-        scrapePending: Bool = false
+        scrapePending: Bool = false,
+        sourceStore: SourcesStore? = nil
     ) {
         #if os(iOS)
-        // Only schedule if there's actually something pending.
         let hasScanWork = scanStates.values.contains(where: { $0.canResume || $0.isScanning })
-        guard hasScanWork || backfillPending || scrapePending else { return }
+        let periodicDate = sourceStore.flatMap { nextPeriodicSyncDate(sourceStore: $0) }
+        guard hasScanWork || backfillPending || scrapePending || periodicDate != nil else { return }
 
         let request = BGProcessingTaskRequest(identifier: Self.backgroundTaskIdentifier)
         request.requiresNetworkConnectivity = true
         request.requiresExternalPower = false
-        // Earliest wake — actual fire time is iOS's call.
-        request.earliestBeginDate = Date(timeIntervalSinceNow: 60)
+        let immediateWork = hasScanWork || backfillPending || scrapePending
+        let earliestUsefulWake = Date(timeIntervalSinceNow: 60)
+        request.earliestBeginDate = immediateWork
+            ? earliestUsefulWake
+            : periodicDate.map { max($0, earliestUsefulWake) }
         do {
+            BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.backgroundTaskIdentifier)
             try BGTaskScheduler.shared.submit(request)
         } catch {
             // BGTaskScheduler.Error.unavailable on simulator and when entitlement missing.
@@ -417,7 +518,8 @@ final class ScanService {
         sourceManager: SourceManager,
         library: MusicLibrary,
         sourceStore: SourcesStore,
-        scraperService: MusicScraperService?
+        scraperService: MusicScraperService?,
+        checkpoint: ScanCheckpoint?
     ) async {
         let api: SynologyAPI
         if let existing = synologyAPIs[source.id] {
@@ -491,7 +593,8 @@ final class ScanService {
                             sourceManager: sourceManager,
                             library: library,
                             sourceStore: sourceStore,
-                            scraperService: scraperService
+                            scraperService: scraperService,
+                            checkpoint: checkpoints[source.id] ?? checkpoint
                         )
                         return
                     }
@@ -532,10 +635,17 @@ final class ScanService {
             let resumeIDs = Set(resumeSongs.map(\.id))
             existingForScan = resumeSongs + knownExisting.filter { !resumeIDs.contains($0.id) }
         }
+
+        let nextScanEpoch = (syncStates[source.id]?.scanEpoch ?? 0) + 1
+        let resumableDirectoryState: SourceScanResumeState? = {
+            guard let state = checkpoint?.directoryState, state.isUsable else { return nil }
+            return state
+        }()
         let stream = await scanner.scan(
             directories: directories,
             existingSongs: existingForScan,
-            startingCount: existingForScan.count
+            startingCount: existingForScan.count,
+            resumeState: resumableDirectoryState
         )
 
         do {
@@ -543,6 +653,7 @@ final class ScanService {
             var lastIncrementalUpdate = 0
             var lastFlushAt = Date()
             var lastProgressPublishedAt = Date.distantPast
+            var lastDirectoryState = resumableDirectoryState
             for try await update in stream {
                 try Task.checkCancellation()
                 try checkSourceStillEnabled(source.id, sourceStore: sourceStore)
@@ -557,6 +668,18 @@ final class ScanService {
                 )
                 lastSongs = update.songs
 
+                if let directoryState = update.resumeState {
+                    lastDirectoryState = directoryState
+                    persistCheckpoint(
+                        sourceID: source.id,
+                        directories: directories,
+                        songs: lastSongs,
+                        totalCount: update.totalCount,
+                        currentFile: update.currentFile,
+                        directoryState: directoryState
+                    )
+                }
+
                 let pendingDelta = update.scannedCount - lastIncrementalUpdate
                 let timeSinceFlush = Date().timeIntervalSince(lastFlushAt)
                 if pendingDelta >= Self.flushBatchSize || (pendingDelta > 0 && timeSinceFlush >= Self.flushInterval) {
@@ -567,13 +690,15 @@ final class ScanService {
                     library.addSongs(lastSongs, affectedSourceIDs: Set([source.id]), notifyRemovals: false)
                     let acceptedCount = library.songs.filter { $0.sourceID == source.id }.count
                     sourceStore.updateLocal(source.id) { $0.songCount = acceptedCount }
-                    persistCheckpoint(
-                        sourceID: source.id,
-                        directories: directories,
-                        songs: lastSongs,
-                        totalCount: update.totalCount,
-                        currentFile: update.currentFile
-                    )
+                    if update.resumeState == nil {
+                        persistCheckpoint(
+                            sourceID: source.id,
+                            directories: directories,
+                            songs: lastSongs,
+                            totalCount: update.totalCount,
+                            currentFile: update.currentFile
+                        )
+                    }
                     lastIncrementalUpdate = update.scannedCount
                     lastFlushAt = Date()
                 }
@@ -583,19 +708,30 @@ final class ScanService {
             try checkSourceStillEnabled(source.id, sourceStore: sourceStore)
             metadataInspectionHandler?(await scanner.takeMetadataInspectedSongIDs())
             // Synology doesn't go through CloudPlaybackSource — skip prewarm sweep.
-            completeScan(
+            try await completeScan(
                 sourceID: source.id,
                 songs: lastSongs,
                 library: library,
                 sourceStore: sourceStore,
-                scraperService: scraperService
+                scraperService: scraperService,
+                syncState: SourceSyncState(
+                    sourceID: source.id,
+                    scopeFingerprint: Self.scopeFingerprint(for: source, directories: directories),
+                    index: lastDirectoryState?.index ?? [:],
+                    scanEpoch: nextScanEpoch,
+                    lastFullScanAt: Date(),
+                    lastSuccessfulSyncAt: Date()
+                )
             )
         } catch is CancellationError {
             // Scan was cancelled (e.g. source deleted) — clean up silently.
             // Skip the write if a newer scan already took over this source,
             // otherwise we'd stomp its in-progress state back to idle.
             if isCurrentScan(source.id, generation: generation) {
-                scanStates[source.id] = ScanState(isScanning: false)
+                var state = scanStates[source.id] ?? ScanState()
+                state.isScanning = false
+                state.hasPendingWork = checkpoints[source.id] != nil
+                scanStates[source.id] = state
             }
         } catch {
             guard isCurrentScan(source.id, generation: generation) else { return }
@@ -612,7 +748,8 @@ final class ScanService {
                     sourceManager: sourceManager,
                     library: library,
                     sourceStore: sourceStore,
-                    scraperService: scraperService
+                    scraperService: scraperService,
+                    checkpoint: checkpoints[source.id] ?? checkpoint
                 )
                 return
             }
@@ -634,7 +771,9 @@ final class ScanService {
         sourceManager: SourceManager,
         library: MusicLibrary,
         sourceStore: SourcesStore,
-        scraperService: MusicScraperService?
+        scraperService: MusicScraperService?,
+        mode: SourceSyncMode,
+        checkpoint: ScanCheckpoint?
     ) async {
         let connector = sourceManager.connector(for: source)
         let scanner = ConnectorScanner(connector: connector, sourceID: source.id)
@@ -659,10 +798,75 @@ final class ScanService {
             let resumeIDs = Set(resumeSongs.map(\.id))
             existingForScan = resumeSongs + knownExisting.filter { !resumeIDs.contains($0.id) }
         }
+
+        let scopeFingerprint = Self.scopeFingerprint(for: source, directories: directories)
+        if checkpoint == nil,
+           mode != .deep,
+           let incremental = connector as? any IncrementalMusicSourceConnector,
+           let state = syncStates[source.id],
+           state.isUsable(sourceID: source.id, scopeFingerprint: scopeFingerprint),
+           !state.cursors.isEmpty {
+            do {
+                if try await performQuickSync(
+                    source: source,
+                    generation: generation,
+                    directories: directories,
+                    state: state,
+                    connector: incremental,
+                    scanner: scanner,
+                    existingSongs: existingForScan,
+                    library: library,
+                    sourceStore: sourceStore,
+                    scraperService: scraperService,
+                    sourceManager: sourceManager
+                ) {
+                    return
+                }
+                if mode == .quick {
+                    var deepRequiredState = state
+                    deepRequiredState.requiresDeepScan = true
+                    try await persistSyncState(deepRequiredState)
+                    scanStates[source.id] = nil
+                    return
+                }
+            } catch is CancellationError {
+                if isCurrentScan(source.id, generation: generation) {
+                    scanStates[source.id] = ScanState(isScanning: false)
+                }
+                return
+            } catch {
+                plog("⚠️ Quick sync failed for \(source.name); keeping committed cursor: \(error.localizedDescription)")
+                recordScanFailure(
+                    sourceID: source.id,
+                    message: sourceManager.scanFailureMessage(for: error, source: source)
+                )
+                return
+            }
+        }
+
+        var baselineCursors = checkpoint?.baselineCursors ?? [:]
+        if baselineCursors.isEmpty,
+           let incremental = connector as? any IncrementalMusicSourceConnector {
+            do {
+                baselineCursors = try await incremental.initialChangeCursors(for: directories)
+            } catch {
+                // The full scan is still useful. Mark the state for another
+                // deep scan rather than claiming native incremental coverage.
+                plog("⚠️ Unable to capture incremental baseline for \(source.name): \(error.localizedDescription)")
+            }
+        }
+        let nextScanEpoch = (syncStates[source.id]?.scanEpoch ?? 0) + 1
+        let resumableDirectoryState: SourceScanResumeState? = {
+            guard let state = checkpoint?.directoryState, state.isUsable else { return nil }
+            return state
+        }()
         let stream = await scanner.scan(
             directories: directories,
             existingSongs: existingForScan,
-            startingCount: existingForScan.count
+            startingCount: existingForScan.count,
+            resumeState: resumableDirectoryState,
+            identityIndex: syncStates[source.id]?.index ?? [:],
+            scanEpoch: nextScanEpoch
         )
 
         do {
@@ -683,6 +887,21 @@ final class ScanService {
                 )
                 lastSongs = update.songs
 
+                if let directoryState = update.resumeState {
+                    // Update the in-memory checkpoint on every completed (or
+                    // in-flight) directory. Disk encoding remains throttled;
+                    // cancellation forces the latest snapshot to disk.
+                    persistCheckpoint(
+                        sourceID: source.id,
+                        directories: directories,
+                        songs: lastSongs,
+                        totalCount: update.totalCount,
+                        currentFile: update.currentFile,
+                        directoryState: directoryState,
+                        baselineCursors: baselineCursors
+                    )
+                }
+
                 // Flush 阈值: 每 flushBatchSize 首 *新增* 一次, 或者距上次 flush
                 // 超过 flushInterval 也强制 flush。原本是每 10 首一次, 1w 首库
                 // 时 1000 次 rebuildIndex / persistSnapshot 把 main actor 卡到
@@ -699,13 +918,16 @@ final class ScanService {
                     library.addSongs(lastSongs, affectedSourceIDs: Set([source.id]), notifyRemovals: false)
                     let acceptedCount = library.songs.filter { $0.sourceID == source.id }.count
                     sourceStore.updateLocal(source.id) { $0.songCount = acceptedCount }
-                    persistCheckpoint(
-                        sourceID: source.id,
-                        directories: directories,
-                        songs: lastSongs,
-                        totalCount: update.totalCount,
-                        currentFile: update.currentFile
-                    )
+                    if update.resumeState == nil {
+                        persistCheckpoint(
+                            sourceID: source.id,
+                            directories: directories,
+                            songs: lastSongs,
+                            totalCount: update.totalCount,
+                            currentFile: update.currentFile,
+                            baselineCursors: baselineCursors
+                        )
+                    }
                     lastIncrementalUpdate = update.addedCount
                     lastFlushAt = Date()
                 }
@@ -713,20 +935,37 @@ final class ScanService {
 
             try Task.checkCancellation()
             try checkSourceStillEnabled(source.id, sourceStore: sourceStore)
-            completeScan(
+            let scanIndex = await scanner.syncIndexSnapshot()
+            let candidateState = SourceSyncState(
+                sourceID: source.id,
+                scopeFingerprint: scopeFingerprint,
+                cursors: baselineCursors,
+                index: scanIndex,
+                pendingDirectories: [],
+                scanEpoch: nextScanEpoch,
+                requiresDeepScan: connector is any IncrementalMusicSourceConnector
+                    && baselineCursors.isEmpty,
+                lastFullScanAt: Date(),
+                lastSuccessfulSyncAt: Date()
+            )
+            try await completeScan(
                 sourceID: source.id,
                 songs: lastSongs,
                 library: library,
                 sourceStore: sourceStore,
                 scraperService: scraperService,
-                sourceManager: sourceManager
+                sourceManager: sourceManager,
+                syncState: candidateState
             )
         } catch is CancellationError {
             // Scan was cancelled (e.g. source deleted) — clean up silently.
             // Skip the write if a newer scan already took over this source,
             // otherwise we'd stomp its in-progress state back to idle.
             if isCurrentScan(source.id, generation: generation) {
-                scanStates[source.id] = ScanState(isScanning: false)
+                var state = scanStates[source.id] ?? ScanState()
+                state.isScanning = false
+                state.hasPendingWork = checkpoints[source.id] != nil
+                scanStates[source.id] = state
             }
         } catch {
             guard isCurrentScan(source.id, generation: generation) else { return }
@@ -743,7 +982,9 @@ final class ScanService {
                     sourceManager: sourceManager,
                     library: library,
                     sourceStore: sourceStore,
-                    scraperService: scraperService
+                    scraperService: scraperService,
+                    mode: mode,
+                    checkpoint: checkpoints[source.id] ?? checkpoint
                 )
                 return
             }
@@ -771,15 +1012,111 @@ final class ScanService {
         }
     }
 
+    private func performQuickSync(
+        source: MusicSource,
+        generation: Int,
+        directories: [String],
+        state: SourceSyncState,
+        connector: any IncrementalMusicSourceConnector,
+        scanner: ConnectorScanner,
+        existingSongs: [Song],
+        library: MusicLibrary,
+        sourceStore: SourcesStore,
+        scraperService: MusicScraperService?,
+        sourceManager: SourceManager
+    ) async throws -> Bool {
+        scanStates[source.id]?.currentFile = String(localized: "source_quick_sync")
+        let changes = try await connector.changes(
+            since: state.cursors,
+            roots: directories,
+            index: state.index
+        )
+        guard !changes.requiresDeepScan else {
+            plog("↻ Native cursor requires a deep reconciliation for \(source.name)")
+            return false
+        }
+        try Task.checkCancellation()
+        try checkSourceStillEnabled(source.id, sourceStore: sourceStore)
+        guard isCurrentScan(source.id, generation: generation) else {
+            throw CancellationError()
+        }
+
+        let nextScanEpoch = state.scanEpoch + 1
+        if changes.changedParentPaths.isEmpty && changes.deletedStableKeys.isEmpty {
+            var candidateState = state
+            candidateState.cursors = changes.cursors
+            candidateState.pendingDirectories = []
+            candidateState.scanEpoch = nextScanEpoch
+            candidateState.requiresDeepScan = false
+            candidateState.lastSuccessfulSyncAt = Date()
+
+            // The provider cursor advanced, but the committed library snapshot
+            // did not change. Persisting the whole JSON library here turns a
+            // no-op sync of a large catalog into an avoidable full rewrite.
+            try await persistSyncState(candidateState)
+            let acceptedCount = library.songs.filter { $0.sourceID == source.id }.count
+            sourceStore.updateLocal(source.id) {
+                $0.songCount = acceptedCount
+                $0.lastScannedAt = Date()
+            }
+            checkpoints[source.id] = nil
+            persistCheckpoints(force: true)
+            scanStates[source.id] = nil
+            return true
+        }
+
+        let result = try await scanner.reconcileChangedDirectories(
+            changes.changedParentPaths,
+            deletedStableKeys: changes.deletedStableKeys,
+            existingSongs: existingSongs,
+            existingIndex: state.index,
+            scanEpoch: nextScanEpoch
+        )
+        var candidateState = state
+        candidateState.cursors = changes.cursors
+        candidateState.index = result.index
+        candidateState.pendingDirectories = []
+        candidateState.scanEpoch = nextScanEpoch
+        candidateState.requiresDeepScan = false
+        candidateState.lastSuccessfulSyncAt = Date()
+
+        var progressTimestamp = Date.distantPast
+        publishScanProgress(
+            sourceID: source.id,
+            scannedCount: result.songs.count,
+            addedCount: result.changedCount,
+            totalCount: result.songs.count,
+            currentFile: "",
+            lastPublishedAt: &progressTimestamp
+        )
+        try await completeScan(
+            sourceID: source.id,
+            songs: result.songs,
+            library: library,
+            sourceStore: sourceStore,
+            scraperService: scraperService,
+            sourceManager: sourceManager,
+            syncState: candidateState
+        )
+        return true
+    }
+
     private func completeScan(
         sourceID: String,
         songs: [Song],
         library: MusicLibrary,
         sourceStore: SourcesStore,
         scraperService: MusicScraperService?,
-        sourceManager: SourceManager? = nil
-    ) {
+        sourceManager: SourceManager? = nil,
+        syncState: SourceSyncState? = nil
+    ) async throws {
         library.addSongs(songs, affectedSourceIDs: Set([sourceID]))
+        guard case .success = await library.persistIncrementalNowAndWait() else {
+            throw SourceError.connectionFailed("Unable to persist the music library")
+        }
+        if let syncState {
+            try await persistSyncState(syncState)
+        }
         // Use the post-tombstone count from the library, not the raw scan
         // count — otherwise a deleted-then-rescanned song shows as still
         // present in the source card while the library actually filters it.
@@ -864,9 +1201,42 @@ final class ScanService {
                 isScanning: false,
                 currentFile: String(localized: "scan_resume_hint"),
                 scannedCount: checkpoint.songs.count,
-                totalCount: checkpoint.totalCount
+                totalCount: checkpoint.totalCount,
+                hasPendingWork: true
             )
         }
+    }
+
+    private func loadSyncStates() {
+        guard let data = try? Data(contentsOf: syncStateURL),
+              let decoded = try? decoder.decode([String: SourceSyncState].self, from: data) else {
+            syncStates = [:]
+            return
+        }
+        syncStates = decoded
+    }
+
+    private func persistSyncState(_ state: SourceSyncState) async throws {
+        var snapshot = syncStates
+        snapshot[state.sourceID] = state
+        let url = syncStateURL
+        let succeeded = await Task.detached(priority: .utility) {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            encoder.dateEncodingStrategy = .iso8601
+            do {
+                let data = try encoder.encode(snapshot)
+                try data.write(to: url, options: .atomic)
+                return true
+            } catch {
+                plog("⛔ Source sync state persistence failed: \(error.localizedDescription)")
+                return false
+            }
+        }.value
+        guard succeeded else {
+            throw SourceError.connectionFailed("Unable to persist source sync state")
+        }
+        syncStates = snapshot
     }
 
     private func persistCheckpoint(
@@ -874,14 +1244,18 @@ final class ScanService {
         directories: [String],
         songs: [Song],
         totalCount: Int,
-        currentFile: String
+        currentFile: String,
+        directoryState: SourceScanResumeState? = nil,
+        baselineCursors: [String: String]? = nil
     ) {
         checkpoints[sourceID] = ScanCheckpoint(
             directories: normalizedDirectories(directories),
             songs: songs,
             totalCount: totalCount,
             currentFile: currentFile,
-            updatedAt: Date()
+            updatedAt: Date(),
+            directoryState: directoryState,
+            baselineCursors: baselineCursors
         )
         persistCheckpoints()
     }
@@ -933,6 +1307,25 @@ final class ScanService {
 
     private func normalizedDirectories(_ directories: [String]) -> [String] {
         SynologyScanner.deduplicateDirectories(directories).sorted()
+    }
+
+    private nonisolated static func scopeFingerprint(
+        for source: MusicSource,
+        directories: [String]
+    ) -> String {
+        let components = [
+            source.type.rawValue,
+            source.cloudAccountID ?? "",
+            source.host?.lowercased() ?? "",
+            source.port.map(String.init) ?? "",
+            source.useSsl ? "tls" : "plain",
+            source.basePath ?? "",
+            source.shareName ?? "",
+            source.exportPath ?? "",
+            directories.sorted().joined(separator: "\u{1F}"),
+        ]
+        let digest = SHA256.hash(data: Data(components.joined(separator: "\u{1E}").utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
     }
 
     private func resumeCheckpoint(for sourceID: String, directories: [String]) -> ScanCheckpoint? {

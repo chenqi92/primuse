@@ -2,7 +2,7 @@ import Foundation
 import PrimuseKit
 
 /// OneDrive Source — Microsoft Graph API
-actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayNameProviding {
+actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayNameProviding, IncrementalMusicSourceConnector {
     let sourceID: String
     nonisolated let supportsSidecarWriting = true   // 刮削的歌词/封面写回 OneDrive(上传 sidecar)
     private let helper: CloudDriveHelper
@@ -41,13 +41,23 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
     }
     func disconnect() async {}
 
+    private static func parseISO8601(_ value: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: value)
+            ?? ISO8601DateFormatter().date(from: value)
+    }
+
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
         let endpoint = (path.isEmpty || path == "/") ? "\(Self.graphBase)/me/drive/root/children" : "\(Self.graphBase)/me/drive/items/\(path)/children"
         var all: [RemoteFileItem] = []
         var nextURL: URL? = {
             var components = URLComponents(string: endpoint)!
             components.queryItems = [
-                .init(name: "$select", value: "id,name,folder,file,size"),
+                .init(
+                    name: "$select",
+                    value: "id,name,folder,file,size,eTag,lastModifiedDateTime,parentReference"
+                ),
                 .init(name: "$top", value: "999"),
                 .init(name: "$orderby", value: "name"),
             ]
@@ -75,7 +85,20 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
                     }
                     return item["eTag"] as? String
                 }()
-                return RemoteFileItem(name: name, path: id, isDirectory: item["folder"] != nil, size: item["size"] as? Int64 ?? 0, modifiedDate: nil, revision: revision)
+                let parentID = (item["parentReference"] as? [String: Any])?["id"] as? String
+                return RemoteFileItem(
+                    name: name,
+                    path: id,
+                    isDirectory: item["folder"] != nil,
+                    size: item["size"] as? Int64 ?? 0,
+                    modifiedDate: (item["lastModifiedDateTime"] as? String)
+                        .flatMap(Self.parseISO8601),
+                    revision: revision,
+                    providerID: id,
+                    // Delta events always report the real driveItem id for the
+                    // root parent, not the `/root` URL alias.
+                    parentPath: parentID ?? (path.isEmpty || path == "/" ? "root" : path)
+                )
             })
             // @odata.nextLink 是完整 URL（已包含 skiptoken）
             if let next = json["@odata.nextLink"] as? String, let nextU = URL(string: next) {
@@ -85,6 +108,118 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
             }
         }
         return all
+    }
+
+    func initialChangeCursors(for roots: [String]) async throws -> [String: String] {
+        var cursors: [String: String] = [:]
+        for root in roots {
+            var nextURL = deltaEndpoint(for: root, latestOnly: true)
+            var deltaLink: String?
+            while let url = nextURL {
+                let json = try await getGraphJSON(url)
+                if let next = json["@odata.nextLink"] as? String {
+                    nextURL = URL(string: next)
+                } else {
+                    deltaLink = json["@odata.deltaLink"] as? String
+                    nextURL = nil
+                }
+            }
+            guard let deltaLink, !deltaLink.isEmpty else {
+                throw CloudDriveError.invalidResponse
+            }
+            cursors[root] = deltaLink
+        }
+        return cursors
+    }
+
+    func changes(
+        since cursors: [String: String],
+        roots: [String],
+        index: [String: SourceSyncIndexedItem]
+    ) async throws -> IncrementalSourceChanges {
+        var committed = cursors
+        var changedParents: Set<String> = []
+        var deletedKeys: Set<String> = []
+        var liveStableKeys: Set<String> = []
+        var requiresDeep = false
+
+        for root in roots {
+            guard let cursor = cursors[root], var nextURL = URL(string: cursor) else {
+                return IncrementalSourceChanges(cursors: cursors, requiresDeepScan: true)
+            }
+            var finalDelta: String?
+            while true {
+                let json: [String: Any]
+                do {
+                    json = try await getGraphJSON(nextURL)
+                } catch CloudDriveError.apiError(let code, _) where code == 410 {
+                    return IncrementalSourceChanges(cursors: cursors, requiresDeepScan: true)
+                }
+                for item in json["value"] as? [[String: Any]] ?? [] {
+                    guard let id = item["id"] as? String else { continue }
+                    let existing = index[id]
+                    let parent = (item["parentReference"] as? [String: Any])?["id"] as? String
+                    if item["deleted"] != nil {
+                        if existing != nil { deletedKeys.insert(id) }
+                        if let oldParent = existing?.parentPath { changedParents.insert(oldParent) }
+                        continue
+                    }
+                    deletedKeys.remove(id)
+                    liveStableKeys.insert(id)
+                    if let oldParent = existing?.parentPath { changedParents.insert(oldParent) }
+                    if item["folder"] != nil {
+                        requiresDeep = true
+                    } else if let parent {
+                        changedParents.insert(parent)
+                    }
+                }
+                if let next = json["@odata.nextLink"] as? String,
+                   let url = URL(string: next) {
+                    nextURL = url
+                    continue
+                }
+                finalDelta = json["@odata.deltaLink"] as? String
+                break
+            }
+            guard let finalDelta, !finalDelta.isEmpty else {
+                throw CloudDriveError.invalidResponse
+            }
+            committed[root] = finalDelta
+        }
+        deletedKeys.subtract(liveStableKeys)
+        return IncrementalSourceChanges(
+            cursors: committed,
+            changedParentPaths: changedParents,
+            deletedStableKeys: deletedKeys,
+            requiresDeepScan: requiresDeep
+        )
+    }
+
+    private func deltaEndpoint(for root: String, latestOnly: Bool) -> URL? {
+        let base = root.isEmpty || root == "/"
+            ? "\(Self.graphBase)/me/drive/root/delta"
+            : "\(Self.graphBase)/me/drive/items/\(root)/delta"
+        var components = URLComponents(string: base)
+        var query: [URLQueryItem] = [
+            .init(name: "$select", value: "id,name,folder,file,size,parentReference,deleted,eTag,lastModifiedDateTime"),
+        ]
+        if latestOnly { query.append(.init(name: "token", value: "latest")) }
+        components?.queryItems = query
+        return components?.url
+    }
+
+    private func getGraphJSON(_ url: URL) async throws -> [String: Any] {
+        let token = try await getToken()
+        let (data, http) = try await helper.withTokenRetry(
+            initialToken: token,
+            refresh: refreshToken
+        ) { @Sendable tok in
+            try await self.helper.makeAuthorizedRequest(url: url, accessToken: tok)
+        }
+        guard http.statusCode == 200 else {
+            throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+        }
+        return try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
     }
 
     func localURL(for path: String) async throws -> URL {

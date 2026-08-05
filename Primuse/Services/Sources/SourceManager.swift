@@ -1154,6 +1154,31 @@ final class SourceManager {
         return components.queryItems?.contains(where: { $0.name == transcodedStreamQueryKey }) ?? false
     }
 
+    private enum ResolvedSTRMTarget: Sendable {
+        case remote(URL)
+        case sourcePath(String)
+    }
+
+    private func resolveSTRMTarget(
+        for song: Song,
+        connector: any MusicSourceConnector
+    ) async throws -> ResolvedSTRMTarget {
+        let descriptor = try await connector.readSTRMDescriptor(path: song.filePath)
+        switch descriptor.target {
+        case .remote(let url):
+            return .remote(url)
+        case .sourcePath(let reference):
+            guard let path = STRMSourcePathResolver.resolve(reference, relativeTo: song.filePath) else {
+                throw STRMDescriptorError.invalidTarget
+            }
+            if let webDAV = connector as? WebDAVSource,
+               let originURL = try await webDAV.openListSTRMURL(for: path) {
+                return .remote(originURL)
+            }
+            return .sourcePath(path)
+        }
+    }
+
     func resolveURL(for song: Song) async throws -> URL {
         let sources = try await sourcesProvider()
         guard let source = sources.first(where: { $0.id == song.sourceID }) else {
@@ -1170,6 +1195,18 @@ final class SourceManager {
 
         let conn = connector(for: source)
         try await conn.connect()
+
+        if song.isStreamDescriptor {
+            switch try await resolveSTRMTarget(for: song, connector: conn) {
+            case .remote(let url):
+                return url
+            case .sourcePath(let path):
+                if let streamURL = try await conn.streamingURL(for: path) {
+                    return streamURL
+                }
+                return try await conn.localURL(for: path)
+            }
+        }
 
         // Priority 2: connector-backed Range streaming via CloudPlaybackSource —
         // 边下边播, ~500ms 出首个 PCM buffer。AudioPlayerService 看到
@@ -1968,7 +2005,19 @@ final class SourceManager {
             try? FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
             await AudioCacheManager.shared.evictIfNeeded(reserveBytes: max(song.fileSize, 10_485_760))
 
-            if let oneDrive = connector as? OneDriveSource {
+            if song.isStreamDescriptor {
+                switch try await resolveSTRMTarget(for: song, connector: connector) {
+                case .remote(let url):
+                    try await downloadOfflineFromURL(url, song: song, target: target)
+                case .sourcePath(let path):
+                    if let streamURL = try await connector.streamingURL(for: path) {
+                        try await downloadOfflineFromURL(streamURL, song: song, target: target)
+                    } else {
+                        let localURL = try await connector.localURL(for: path)
+                        try copyOfflineFile(from: localURL, to: target)
+                    }
+                }
+            } else if let oneDrive = connector as? OneDriveSource {
                 do {
                     let directURL = try await oneDrive.publicDownloadURL(path: song.filePath)
                     try await downloadOfflineFromDirectURL(directURL, song: song, target: target)
@@ -3161,7 +3210,40 @@ final class SourceManager {
         await AudioCacheManager.shared.evictIfNeeded(reserveBytes: reserveBytes)
         try Task.checkCancellation()
 
-        if let streamURL = try await connector.streamingURL(for: song.filePath) {
+        if song.isStreamDescriptor {
+            switch try await resolveSTRMTarget(for: song, connector: connector) {
+            case .remote(let url):
+                let config = URLSessionConfiguration.default
+                config.timeoutIntervalForRequest = 300
+                config.timeoutIntervalForResource = 60 * 60
+                let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+                defer { session.finishTasksAndInvalidate() }
+                let (tempURL, response) = try await session.download(from: url)
+                if let http = response as? HTTPURLResponse,
+                   !(200...299).contains(http.statusCode) {
+                    throw SourceError.connectionFailed("HTTP \(http.statusCode)")
+                }
+                try await Task.detached(priority: .utility) {
+                    try Self.installCacheFile(from: tempURL, to: target, move: true)
+                }.value
+            case .sourcePath(let path):
+                if let streamURL = try await connector.streamingURL(for: path) {
+                    let (tempURL, response) = try await URLSession.shared.download(from: streamURL)
+                    if let http = response as? HTTPURLResponse,
+                       !(200...299).contains(http.statusCode) {
+                        throw SourceError.connectionFailed("HTTP \(http.statusCode)")
+                    }
+                    try await Task.detached(priority: .utility) {
+                        try Self.installCacheFile(from: tempURL, to: target, move: true)
+                    }.value
+                } else {
+                    let localURL = try await connector.localURL(for: path)
+                    try await Task.detached(priority: .utility) {
+                        try Self.installCacheFile(from: localURL, to: target, move: false)
+                    }.value
+                }
+            }
+        } else if let streamURL = try await connector.streamingURL(for: song.filePath) {
             let config = URLSessionConfiguration.default
             config.timeoutIntervalForRequest = 300
             config.timeoutIntervalForResource = 60 * 60
@@ -3420,6 +3502,7 @@ final class SourceManager {
         guard let source = sources.first(where: { $0.id == song.sourceID }) else {
             throw SourceError.fileNotFound("Source not found for song: \(song.title)")
         }
+        guard !song.isStreamDescriptor else { return nil }
         let conn = connector(for: source)
         try await conn.connect()
         guard song.fileSize > 0 else { return nil }
@@ -3460,6 +3543,140 @@ final class SourceManager {
             prefetchAhead: prefetchAhead,
             allowsTrailingFill: allowsTrailingFill
         )
+    }
+
+    /// Metadata reads use the same runtime STRM resolution as playback. This
+    /// prevents the backfill worker from parsing the wrapper text as audio and
+    /// keeps signed URLs out of the persisted Song model.
+    func fetchMetadataRange(
+        for song: Song,
+        offset: Int64,
+        length: Int64
+    ) async throws -> Data {
+        let connector = try await connectorForSong(song)
+        guard song.isStreamDescriptor else {
+            return try await connector.fetchMetadataRange(
+                path: song.filePath,
+                offset: offset,
+                length: length
+            )
+        }
+        switch try await resolveSTRMTarget(for: song, connector: connector) {
+        case .sourcePath(let path):
+            return try await connector.fetchMetadataRange(
+                path: path,
+                offset: offset,
+                length: length
+            )
+        case .remote(let url):
+            return try await Self.fetchRemoteMetadataRange(
+                url: url,
+                offset: offset,
+                length: length
+            )
+        }
+    }
+
+    private nonisolated static func fetchRemoteMetadataRange(
+        url: URL,
+        offset: Int64,
+        length: Int64
+    ) async throws -> Data {
+        guard let range = SafeByteRange.httpHeader(offset: offset, length: length) else {
+            return Data()
+        }
+        var request = URLRequest(url: url)
+        request.setValue(range, forHTTPHeaderField: "Range")
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        request.timeoutInterval = 30
+
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw SourceError.connectionFailed("Invalid STRM metadata response")
+        }
+        switch http.statusCode {
+        case 206:
+            var data = Data()
+            data.reserveCapacity(Int(clamping: length))
+            for try await byte in bytes {
+                data.append(byte)
+                if data.count >= Int(clamping: length) { break }
+            }
+            guard HTTPByteRangeResponsePolicy.validatedTotalLength(
+                contentRange: http.value(forHTTPHeaderField: "Content-Range"),
+                contentLength: http.value(forHTTPHeaderField: "Content-Length").flatMap(Int64.init),
+                bodyLength: data.count,
+                requestedOffset: offset,
+                requestedLength: length
+            ) != nil else {
+                throw SourceError.connectionFailed("Invalid STRM Content-Range response")
+            }
+            return data
+        case 200:
+            // Some OpenList/proxy targets ignore Range. Metadata reads may
+            // consume the response as a bounded head/tail window, while the
+            // playback path keeps its strict random-access validation.
+            return try await boundedRemoteMetadataSlice(
+                bytes,
+                offset: offset,
+                length: length
+            )
+        default:
+            throw SourceError.connectionFailed("STRM metadata range failed: HTTP \(http.statusCode)")
+        }
+    }
+
+    private nonisolated static func boundedRemoteMetadataSlice(
+        _ bytes: URLSession.AsyncBytes,
+        offset: Int64,
+        length: Int64
+    ) async throws -> Data {
+        guard length > 0 else { return Data() }
+        if offset >= 0 {
+            guard let end = SafeByteRange.exclusiveEnd(offset: offset, length: length) else {
+                return Data()
+            }
+            var position: Int64 = 0
+            var result = Data()
+            result.reserveCapacity(Int(clamping: length))
+            for try await byte in bytes {
+                if position >= offset, position < end { result.append(byte) }
+                position += 1
+                if position >= end { break }
+            }
+            guard !result.isEmpty else {
+                throw SourceError.connectionFailed("STRM metadata response was empty")
+            }
+            return result
+        }
+
+        guard offset != Int64.min else { return Data() }
+        let windowLength = max(length, -offset)
+        guard windowLength <= 64 * 1024 * 1024 else {
+            throw SourceError.connectionFailed("STRM metadata suffix window is too large")
+        }
+        let capacity = Int(windowLength)
+        var ring = [UInt8](repeating: 0, count: capacity)
+        var total: Int64 = 0
+        for try await byte in bytes {
+            ring[Int(total % windowLength)] = byte
+            total += 1
+        }
+        let retainedCount = Int(min(total, windowLength))
+        let retainedStart = total > windowLength ? Int(total % windowLength) : 0
+        var retained = Data()
+        retained.reserveCapacity(retainedCount)
+        for index in 0..<retainedCount {
+            retained.append(ring[(retainedStart + index) % capacity])
+        }
+        let absoluteStart = max(0, total + offset)
+        let retainedAbsoluteStart = total - Int64(retainedCount)
+        let relativeStart = max(0, absoluteStart - retainedAbsoluteStart)
+        let relativeEnd = min(Int64(retainedCount), relativeStart + length)
+        guard relativeStart < relativeEnd else {
+            throw SourceError.connectionFailed("STRM metadata response was empty")
+        }
+        return retained.subdata(in: Int(relativeStart)..<Int(relativeEnd))
     }
 
     /// 对支持预授权直链的云盘(目前 OneDrive),返回可整文件下载的 HTTPS 直链。

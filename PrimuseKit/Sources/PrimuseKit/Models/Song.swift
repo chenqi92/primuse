@@ -283,6 +283,14 @@ extension Song: FetchableRecord, PersistableRecord {
 }
 
 public extension Song {
+    /// The path stored in this row is a small runtime-resolved stream
+    /// descriptor, not the media object itself.
+    var isStreamDescriptor: Bool {
+        PrimuseConstants.supportedStreamDescriptorExtensions.contains(
+            (filePath as NSString).pathExtension.lowercased()
+        )
+    }
+
     var isCueTrack: Bool {
         cueSheetPath?.isEmpty == false && cueStartTime != nil
     }

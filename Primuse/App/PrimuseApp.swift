@@ -112,6 +112,12 @@ private enum BackgroundScanResumeTask {
                 sourceStore: services.sourcesStore,
                 scraperService: services.scraperService
             )
+            scanService.startPeriodicQuickSyncIfNeeded(
+                sourceManager: services.sourceManager,
+                library: services.musicLibrary,
+                sourceStore: services.sourcesStore,
+                scraperService: services.scraperService
+            )
             await scanService.waitForActiveScansToComplete()
 
             scraper.resumePendingScrape(
@@ -127,7 +133,8 @@ private enum BackgroundScanResumeTask {
             // ask iOS to wake us again later.
             scanService.scheduleBackgroundResumeIfNeeded(
                 backfillPending: backfill.hasPendingWork,
-                scrapePending: scraper.hasPendingScrape
+                scrapePending: scraper.hasPendingScrape,
+                sourceStore: services.sourcesStore
             )
             completion.complete(success: true)
         }
@@ -377,7 +384,7 @@ private final class LifecycleSnapshotUploadCoordinator {
 
     private var scheduledTask: Task<Void, Never>?
 
-    func sceneDidBecomeActive(syncEnabled: Bool) {
+    func sceneDidBecomeActive(syncEnabled: Bool, library: MusicLibrary) {
         scheduledTask?.cancel()
         guard syncEnabled else { return }
 
@@ -390,6 +397,7 @@ private final class LifecycleSnapshotUploadCoordinator {
                 return
             }
             guard !Task.isCancelled else { return }
+            guard case .success = await library.persistNowAndWait() else { return }
             _ = await LibrarySnapshotSync.shared.uploadNow()
         }
     }
@@ -751,7 +759,8 @@ struct PrimuseApp: App {
                         // on macOS — BGTaskScheduler doesn't exist there.)
                         scanService.scheduleBackgroundResumeIfNeeded(
                             backfillPending: metadataBackfill.hasPendingWork,
-                            scrapePending: scraperService.hasPendingScrape
+                            scrapePending: scraperService.hasPendingScrape,
+                            sourceStore: sourcesStore
                         )
 
                         // Do not start observable/heavy work in the scene-change
@@ -778,11 +787,13 @@ struct PrimuseApp: App {
                             metadataBackfill.start()
                         }
                         #else
-                        musicLibrary.persistNow()
                         if iCloudSyncEnabled {
-                            Task.detached(priority: .background) {
+                            Task { @MainActor in
+                                guard case .success = await musicLibrary.persistNowAndWait() else { return }
                                 _ = await LibrarySnapshotSync.shared.uploadNow()
                             }
+                        } else {
+                            musicLibrary.persistNow()
                         }
                         #endif
 
@@ -791,7 +802,8 @@ struct PrimuseApp: App {
                         musicLibrary.endSceneTransitionQuiescence()
                         #endif
                         LifecycleSnapshotUploadCoordinator.shared.sceneDidBecomeActive(
-                            syncEnabled: iCloudSyncEnabled
+                            syncEnabled: iCloudSyncEnabled,
+                            library: musicLibrary
                         )
                         playerService.handleAppDidBecomeActive()
                         AppServices.shared.spotlightIndex.reindex(library: musicLibrary)
@@ -800,6 +812,12 @@ struct PrimuseApp: App {
                         // backgrounded past the begin/endBackgroundTask window, or
                         // crashed mid-scan). Idempotent.
                         scanService.resumePendingScans(
+                            sourceManager: sourceManager,
+                            library: musicLibrary,
+                            sourceStore: sourcesStore,
+                            scraperService: scraperService
+                        )
+                        scanService.startPeriodicQuickSyncIfNeeded(
                             sourceManager: sourceManager,
                             library: musicLibrary,
                             sourceStore: sourcesStore,
