@@ -514,7 +514,6 @@ struct PlayerOverlay: View {
 
     var body: some View {
         NowPlayingView(
-            onMinimize: dismissPlayer,
             onOpenAlbum: onOpenAlbum,
             onOpenArtist: onOpenArtist
         )

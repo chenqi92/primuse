@@ -25,6 +25,66 @@ private final class HomeRefreshCoordinator {
     }
 }
 
+private struct PersistedHomeAlbumTile: Codable, Sendable {
+    let albumID: String
+    let artworkSongID: String?
+}
+
+private struct PersistedHomeRecommendation: Codable, Sendable {
+    let songID: String
+    let score: Double
+    let reasons: [String]
+}
+
+/// Small, disposable projection of the last complete home page. The library
+/// remains the source of truth: cached IDs are rehydrated from current models,
+/// then the expensive highlights and recommendations refresh in the background.
+private struct PersistedHomeSnapshot: Codable, Sendable {
+    static let currentVersion = 1
+
+    let version: Int
+    let dayStamp: Int
+    let visibleSongCount: Int
+    let visibleAlbumCount: Int
+    let visibleArtistCount: Int
+    let recentSongIDs: [String]
+    let heroSongIDs: [String]
+    let recentlyAddedAlbums: [PersistedHomeAlbumTile]
+    let recommendations: [PersistedHomeRecommendation]
+}
+
+private actor HomeInitialSnapshotCacheStore {
+    static let shared = HomeInitialSnapshotCacheStore()
+
+    private let url: URL
+
+    init(fileManager: FileManager = .default) {
+        let directory = fileManager
+            .primuseDirectoryURL(for: .cachesDirectory)
+            .appendingPathComponent("Primuse", isDirectory: true)
+        url = directory.appendingPathComponent("home-initial-snapshot.plist")
+    }
+
+    func load() -> PersistedHomeSnapshot? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? PropertyListDecoder().decode(PersistedHomeSnapshot.self, from: data)
+    }
+
+    func save(_ snapshot: PersistedHomeSnapshot) {
+        do {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let encoder = PropertyListEncoder()
+            encoder.outputFormat = .binary
+            try encoder.encode(snapshot).write(to: url, options: .atomic)
+        } catch {
+            plog("⚠️ Home snapshot cache write failed: \(error.localizedDescription)")
+        }
+    }
+}
+
 /// Tracks the rapidly changing revision in its own observation scope so scan
 /// batches do not invalidate the much larger home-page view tree.
 private struct HomeLibraryRevisionObserver: View {
@@ -332,21 +392,78 @@ struct HomeView: View {
     }
 
     /// The first frame should never claim the library is empty while the home
-    /// snapshot is still being assembled. Build the expensive highlights and
-    /// recommendations off the main actor, then publish the complete initial
-    /// page once so sections do not successively push the layout downward.
+    /// snapshot is still being assembled. Rehydrate the last complete page
+    /// from current library models when possible, then refresh the expensive
+    /// highlights and recommendations off the main actor.
     private func prepareInitialHomeSnapshot() async {
+        let startedAt = ProcessInfo.processInfo.systemUptime
         let signature = homeSnapshotSignature
         let visibleSongs = library.visibleSongs
         let visibleAlbums = library.visibleAlbums
+        let inputsFinishedAt = ProcessInfo.processInfo.systemUptime
+
+        let persistedSnapshot = await HomeInitialSnapshotCacheStore.shared.load()
+        guard !Task.isCancelled else { return }
+        if let payload = rehydrateInitialHomePayload(
+            persistedSnapshot,
+            signature: signature,
+            visibleAlbums: visibleAlbums
+        ) {
+            var snapshot = makeHomeSnapshot(
+                forYouResults: payload.forYouResults,
+                heroCoverSongs: payload.heroCoverSongs,
+                recentlyAddedAlbums: payload.recentlyAddedAlbums
+            )
+            snapshot.heroCoverSongs = payload.heroCoverSongs
+            snapshot.recentlyAddedAlbums = payload.recentlyAddedAlbums
+            snapshot.forYouResults = payload.forYouResults
+            publishInitialHomeSnapshot(snapshot, signature: signature)
+
+            let publishFinishedAt = ProcessInfo.processInfo.systemUptime
+            plog(String(
+                format: "🚀 home initial total=%.0fms inputs=%.0f cache=hit rehydrate=%.0f songs=%d",
+                (publishFinishedAt - startedAt) * 1_000,
+                (inputsFinishedAt - startedAt) * 1_000,
+                (publishFinishedAt - inputsFinishedAt) * 1_000,
+                visibleSongs.count
+            ))
+
+            // Give SwiftUI a chance to present the complete cached page before
+            // preparing inputs for the background refresh.
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            scheduleLibraryHighlightsRefresh(
+                songs: visibleSongs,
+                albums: visibleAlbums,
+                recentSongs: snapshot.recentSongs,
+                signature: signature
+            )
+            if showForYou {
+                scheduleRecommendationRefresh(
+                    input: MusicDiscoveryEngine.recommendationInput(in: library),
+                    signature: signature
+                )
+            } else {
+                refreshCoordinator.recommendationTask?.cancel()
+                refreshCoordinator.recommendationTask = nil
+            }
+
+            if homeSnapshotSignature != signature {
+                scheduleDebouncedHomeRefresh()
+            }
+            return
+        }
+
         let recommendationInput = showForYou
             ? MusicDiscoveryEngine.recommendationInput(in: library)
             : nil
+        let recommendationInputFinishedAt = ProcessInfo.processInfo.systemUptime
         var snapshot = makeHomeSnapshot(
             forYouResults: [],
             heroCoverSongs: [],
             recentlyAddedAlbums: []
         )
+        let baseFinishedAt = ProcessInfo.processInfo.systemUptime
         let recentSongs = snapshot.recentSongs
 
         let payload = await Task.detached(priority: .utility) {
@@ -365,19 +482,123 @@ struct HomeView: View {
                 } ?? []
             )
         }.value
+        let payloadFinishedAt = ProcessInfo.processInfo.systemUptime
 
         guard !Task.isCancelled else { return }
         snapshot.heroCoverSongs = payload.heroCoverSongs
         snapshot.recentlyAddedAlbums = payload.recentlyAddedAlbums
         snapshot.forYouResults = payload.forYouResults
+        publishInitialHomeSnapshot(snapshot, signature: signature)
+        persistInitialHomeSnapshotCache(signature: signature)
+        let publishFinishedAt = ProcessInfo.processInfo.systemUptime
+        plog(String(
+            format: "🚀 home initial total=%.0fms inputs=%.0f cache=miss recommendationInput=%.0f base=%.0f payload=%.0f publish=%.0f songs=%d",
+            (publishFinishedAt - startedAt) * 1_000,
+            (inputsFinishedAt - startedAt) * 1_000,
+            (recommendationInputFinishedAt - inputsFinishedAt) * 1_000,
+            (baseFinishedAt - recommendationInputFinishedAt) * 1_000,
+            (payloadFinishedAt - baseFinishedAt) * 1_000,
+            (publishFinishedAt - payloadFinishedAt) * 1_000,
+            visibleSongs.count
+        ))
+
+        if homeSnapshotSignature != signature {
+            scheduleDebouncedHomeRefresh()
+        }
+    }
+
+    private func publishInitialHomeSnapshot(
+        _ snapshot: HomeSnapshot,
+        signature: HomeSnapshotSignature
+    ) {
         homeSnapshot = snapshot
         lastHomeSnapshotSignature = signature
         tintProvider.prepare(snapshot.forYouResults.map(\.song))
         tintProvider.prepare(Array(snapshot.recentSongs.prefix(15)))
         hasPreparedInitialSnapshot = true
+    }
 
-        if homeSnapshotSignature != signature {
-            scheduleDebouncedHomeRefresh()
+    private func rehydrateInitialHomePayload(
+        _ persisted: PersistedHomeSnapshot?,
+        signature: HomeSnapshotSignature,
+        visibleAlbums: [Album]
+    ) -> InitialHomeSnapshotPayload? {
+        guard let persisted,
+              persisted.version == PersistedHomeSnapshot.currentVersion,
+              persisted.dayStamp == signature.dayStamp,
+              persisted.visibleSongCount == signature.visibleSongCount,
+              persisted.visibleAlbumCount == signature.visibleAlbumCount,
+              persisted.visibleArtistCount == signature.visibleArtistCount,
+              persisted.recentSongIDs == signature.recentSongIDs else {
+            return nil
+        }
+
+        let heroCoverSongs = persisted.heroSongIDs.compactMap {
+            library.unobservedVisibleSong(id: $0)
+        }
+        guard heroCoverSongs.count == persisted.heroSongIDs.count else { return nil }
+
+        let albumsByID = Dictionary(
+            visibleAlbums.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let recentlyAddedAlbums = persisted.recentlyAddedAlbums.compactMap { tile in
+            albumsByID[tile.albumID].map { album in
+                HomeAlbumTile(
+                    album: album,
+                    artworkSong: tile.artworkSongID.flatMap {
+                        library.unobservedVisibleSong(id: $0)
+                    }
+                )
+            }
+        }
+        guard recentlyAddedAlbums.count == persisted.recentlyAddedAlbums.count else {
+            return nil
+        }
+
+        let recommendations = persisted.recommendations.compactMap { recommendation in
+            library.unobservedVisibleSong(id: recommendation.songID).map { song in
+                MusicDiscoveryResult(
+                    song: song,
+                    score: recommendation.score,
+                    reasons: recommendation.reasons.compactMap(MusicDiscoveryReason.init(rawValue:))
+                )
+            }
+        }
+        guard recommendations.count == persisted.recommendations.count else { return nil }
+
+        return InitialHomeSnapshotPayload(
+            heroCoverSongs: heroCoverSongs,
+            recentlyAddedAlbums: recentlyAddedAlbums,
+            forYouResults: recommendations
+        )
+    }
+
+    private func persistInitialHomeSnapshotCache(signature: HomeSnapshotSignature) {
+        let persisted = PersistedHomeSnapshot(
+            version: PersistedHomeSnapshot.currentVersion,
+            dayStamp: signature.dayStamp,
+            visibleSongCount: signature.visibleSongCount,
+            visibleAlbumCount: signature.visibleAlbumCount,
+            visibleArtistCount: signature.visibleArtistCount,
+            recentSongIDs: signature.recentSongIDs,
+            heroSongIDs: homeSnapshot.heroCoverSongs.map(\.id),
+            recentlyAddedAlbums: homeSnapshot.recentlyAddedAlbums.map {
+                PersistedHomeAlbumTile(
+                    albumID: $0.album.id,
+                    artworkSongID: $0.artworkSong?.id
+                )
+            },
+            recommendations: homeSnapshot.forYouResults.map {
+                PersistedHomeRecommendation(
+                    songID: $0.song.id,
+                    score: $0.score,
+                    reasons: $0.reasons.map(\.rawValue)
+                )
+            }
+        )
+        Task(priority: .utility) {
+            await HomeInitialSnapshotCacheStore.shared.save(persisted)
         }
     }
 
@@ -512,6 +733,7 @@ struct HomeView: View {
             guard !Task.isCancelled, homeSnapshotSignature == signature else { return }
             homeSnapshot.heroCoverSongs = payload.0
             homeSnapshot.recentlyAddedAlbums = payload.1
+            persistInitialHomeSnapshotCache(signature: signature)
 
             #if DEBUG
             if payload.2 > 0.02 {
@@ -543,6 +765,7 @@ struct HomeView: View {
             guard !Task.isCancelled, homeSnapshotSignature == signature else { return }
             homeSnapshot.forYouResults = payload.0
             tintProvider.prepare(payload.0.map(\.song))
+            persistInitialHomeSnapshotCache(signature: signature)
 
             #if DEBUG
             if payload.1 > 0.05 {

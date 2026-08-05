@@ -51,6 +51,7 @@ final class AppServices {
     }
 
     private init() {
+        let startupStartedAt = ProcessInfo.processInfo.systemUptime
         // Class is @MainActor so this initializer is too — but the static
         // `shared` instantiation is lazy-on-first-access. If anything
         // ever touches `AppServices.shared` from a non-main thread, Swift
@@ -62,9 +63,15 @@ final class AppServices {
             KeychainService.migrateLegacyEntriesToICloud()
             CloudTokenManager.migrateLegacyEntriesToICloud()
         }
+        let keychainFinishedAt = ProcessInfo.processInfo.systemUptime
 
         let store = SourcesStore()
-        let library = MusicLibrary()
+        let sourcesFinishedAt = ProcessInfo.processInfo.systemUptime
+        let initiallyDisabledSourceIDs = Set(
+            store.sources.filter { !$0.isEnabled }.map(\.id)
+        )
+        let library = MusicLibrary(disabledSourceIDs: initiallyDisabledSourceIDs)
+        let libraryFinishedAt = ProcessInfo.processInfo.systemUptime
         let manager = SourceManager(sourcesProvider: {
             await MainActor.run { store.sources }
         }, songsProvider: {
@@ -80,6 +87,7 @@ final class AppServices {
             scraperConfigStore: .shared,
             scraperSettingsStore: scraperSettings
         )
+        let coreServicesFinishedAt = ProcessInfo.processInfo.systemUptime
 
         self.sourcesStore = store
         self.sourceManager = manager
@@ -156,11 +164,13 @@ final class AppServices {
             sourceManager: manager,
             sourcesStore: store
         )
+        let auxiliaryServicesFinishedAt = ProcessInfo.processInfo.systemUptime
 
         library.updateDisabledSourceIDs(
             Set(store.sources.filter { !$0.isEnabled }.map(\.id))
         )
         player.restorePlaybackSessionIfAvailable()
+        let playbackRestoreFinishedAt = ProcessInfo.processInfo.systemUptime
 
         // Wire the library's tombstone identity resolver. Maps a song's
         // mount UUID → its CloudAccount id (when available) so deletion
@@ -198,6 +208,18 @@ final class AppServices {
         observeSpotlightReindex()
         rescanLocalImportIfNeeded()
         schedulePendingSourceCloudCleanupPropagation(delay: .seconds(1))
+        let startupFinishedAt = ProcessInfo.processInfo.systemUptime
+        plog(String(
+            format: "🚀 launch services total=%.0fms keychain=%.0f sources=%.0f library=%.0f core=%.0f auxiliary=%.0f restore=%.0f maintenance=%.0f",
+            (startupFinishedAt - startupStartedAt) * 1_000,
+            (keychainFinishedAt - startupStartedAt) * 1_000,
+            (sourcesFinishedAt - keychainFinishedAt) * 1_000,
+            (libraryFinishedAt - sourcesFinishedAt) * 1_000,
+            (coreServicesFinishedAt - libraryFinishedAt) * 1_000,
+            (auxiliaryServicesFinishedAt - coreServicesFinishedAt) * 1_000,
+            (playbackRestoreFinishedAt - auxiliaryServicesFinishedAt) * 1_000,
+            (startupFinishedAt - playbackRestoreFinishedAt) * 1_000
+        ))
 
         // 注意: 不在这里接线 Live Activity。PrimuseActivityExtension 的灵动岛 /
         // 锁屏布局仍是半成品(切歌不更新、杀进程后不消失),激活它比留作未启用

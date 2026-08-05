@@ -92,7 +92,6 @@ struct NowPlayingView: View {
         static let transitionDuration = 0.5
     }
 
-    var onMinimize: (() -> Void)? = nil
     var onOpenAlbum: ((Album) -> Void)? = nil
     var onOpenArtist: ((Artist) -> Void)? = nil
     @Environment(AudioPlayerService.self) private var player
@@ -790,9 +789,7 @@ struct NowPlayingView: View {
                     .disabled(player.currentSong == nil)
                     .accessibilityLabel(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
 
-                    moreMenu
-                        .frame(width: 44, height: 44)
-                        .background(.ultraThinMaterial, in: Circle())
+                    immersiveMoreMenu
                 }
                 .padding(.horizontal, max(geo.safeAreaInsets.leading, 18))
                 .padding(.top, max(geo.safeAreaInsets.top, 10))
@@ -850,6 +847,11 @@ struct NowPlayingView: View {
             }
             .padding(.horizontal, max(geo.safeAreaInsets.leading, 24))
             .padding(.vertical, max(geo.safeAreaInsets.top, 18))
+            .background {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { handleImmersiveContentTap() }
+            }
         }
     }
 
@@ -899,29 +901,14 @@ struct NowPlayingView: View {
         VStack(spacing: 0) {
                     // Grabber handle (system-matching dimensions)
                     if !showLyrics || !isLyricsImmersive {
-                        ZStack {
-                            Capsule()
-                                .fill(appearance.tertiary)
-                                .frame(width: 48, height: 5)
-                            if let onMinimize {
-                                HStack {
-                                    Button(action: onMinimize) {
-                                        Image(systemName: "chevron.down")
-                                            .font(.system(size: 17, weight: .semibold))
-                                            .frame(width: 44, height: 44)
-                                            .contentShape(Rectangle())
-                                    }
-                                    .buttonStyle(.plain)
-                                    .accessibilityLabel(Text("close"))
-                                    Spacer()
-                                }
-                            }
-                        }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 5)
-                        .padding(.top, topSafeArea + 6)
-                        .padding(.horizontal, 8)
-                        .padding(.bottom, 10)
+                        Capsule()
+                            .fill(appearance.tertiary)
+                            .frame(width: 48, height: 5)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 5)
+                            .padding(.top, topSafeArea + 6)
+                            .padding(.horizontal, 8)
+                            .padding(.bottom, 10)
                     }
 
                     // Playback error toast
@@ -1166,7 +1153,6 @@ struct NowPlayingView: View {
         ZStack {
             content()
                 .contentShape(Rectangle())
-                .onTapGesture { handleImmersiveContentTap() }
 
             if immersiveControlsState.isLocked {
                 Color.clear
@@ -1206,9 +1192,7 @@ struct NowPlayingView: View {
                     .disabled(player.currentSong == nil)
                     .accessibilityLabel(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
 
-                    moreMenu
-                        .frame(width: 44, height: 44)
-                        .background(.ultraThinMaterial, in: Circle())
+                    immersiveMoreMenu
 
                     Button { dismissImmersiveLyrics() } label: {
                         Image(systemName: "arrow.down.right.and.arrow.up.left")
@@ -1435,6 +1419,14 @@ struct NowPlayingView: View {
     // MARK: - More Menu
 
     private var moreMenu: some View {
+        makeMoreMenu()
+    }
+
+    private var immersiveMoreMenu: some View {
+        makeMoreMenu(immersiveChrome: true)
+    }
+
+    private func makeMoreMenu(immersiveChrome: Bool = false) -> some View {
         let snapshot = NowPlayingMoreMenuSnapshot(
             songID: player.currentSong?.id,
             hasSong: player.currentSong != nil,
@@ -1468,6 +1460,7 @@ struct NowPlayingView: View {
                 get: { playbackSettings.playbackRate },
                 set: { playbackSettings.playbackRate = $0 }
             ),
+            immersiveChrome: immersiveChrome,
             onAddToPlaylist: { showAddToPlaylist = true },
             onScrape: { openScrapeForCurrentSong() },
             onShowSimilarSongs: { showSimilarSongs = true },
@@ -1573,11 +1566,14 @@ struct NowPlayingView: View {
             isScrapingCurrentSong: isScrapingCurrentSong,
             onAutomaticScrape: { startAutomaticLyricsScrape() },
             onBackgroundTap: {
-                // Normal lyrics retain the familiar artwork/lyrics toggle.
-                // Immersive lyrics own the same tap at the outer surface so it
-                // can reveal or hide chrome without unexpectedly leaving full screen.
-                guard !isLyricsImmersive else { return }
-                setStandardLyricsVisible(false)
+                if isLyricsImmersive {
+                    // ScrollView owns the reliable surface gesture. Routing the
+                    // immersive tap through it avoids the scroll recognizer
+                    // swallowing the outer ZStack tap after chrome auto-hides.
+                    handleImmersiveContentTap()
+                } else {
+                    setStandardLyricsVisible(false)
+                }
             }
         )
     }
@@ -3036,6 +3032,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let snapshot: NowPlayingMoreMenuSnapshot
     @Binding var lyricsFontScale: Double
     @Binding var playbackRate: Float
+    let immersiveChrome: Bool
 
     let onAddToPlaylist: () -> Void
     let onScrape: () -> Void
@@ -3052,6 +3049,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.snapshot == rhs.snapshot
+            && lhs.immersiveChrome == rhs.immersiveChrome
     }
 
     private var appearance: NowPlayingAppearance {
@@ -3207,10 +3205,18 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                 }
             }
         } label: {
-            Image(systemName: "ellipsis.circle.fill")
-                .font(.title)
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(appearance.secondary)
+            if immersiveChrome {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(appearance.primary)
+                    .frame(width: 44, height: 44)
+                    .background(.ultraThinMaterial, in: Circle())
+            } else {
+                Image(systemName: "ellipsis.circle.fill")
+                    .font(.title)
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(appearance.secondary)
+            }
         }
     }
 }

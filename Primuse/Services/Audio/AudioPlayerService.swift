@@ -6151,6 +6151,7 @@ final class AudioPlayerService {
     /// Restores only queue/navigation context. Relaunching never starts audio
     /// on its own; a later Play command rebuilds the decoder at the saved time.
     func restorePlaybackSessionIfAvailable() {
+        let restoreStartedAt = ProcessInfo.processInfo.systemUptime
         guard !hasAttemptedPlaybackSessionRestore else { return }
         hasAttemptedPlaybackSessionRestore = true
         guard let library else { return }
@@ -6163,9 +6164,14 @@ final class AudioPlayerService {
             plog("⚠️ Playback session load failed: \(error.localizedDescription)")
             return
         }
+        let loadFinishedAt = ProcessInfo.processInfo.systemUptime
 
-        let playableSongs = library.visibleSongs.filter(\.isPlayable)
-        let availableIDs = Set(playableSongs.map(\.id))
+        // The library already owns an O(1) visible-song index. Building a
+        // second full `[Song]` plus dictionary during launch was wasted work,
+        // especially when the saved queue contains the whole 10K+ library.
+        let availableIDs = Set(snapshot.queueSongIDs.filter {
+            library.unobservedVisibleSong(id: $0)?.isPlayable == true
+        })
         guard let plan = PlaybackSessionRestorationPolicy.plan(
             snapshot: snapshot,
             availableSongIDs: availableIDs
@@ -6173,14 +6179,14 @@ final class AudioPlayerService {
             plog("⚠️ Playback session ignored because its current track is unavailable or invalid")
             return
         }
+        let planFinishedAt = ProcessInfo.processInfo.systemUptime
 
-        let songsByID = Dictionary(
-            playableSongs.map { ($0.id, $0) },
-            uniquingKeysWith: { lhs, _ in lhs }
-        )
-        let restoredSongs = plan.queueSongIDs.compactMap { songsByID[$0] }
+        let restoredSongs = plan.queueSongIDs.compactMap {
+            library.unobservedVisibleSong(id: $0)
+        }
         guard restoredSongs.count == plan.queueSongIDs.count,
               restoredSongs.indices.contains(plan.currentIndex) else { return }
+        let lookupFinishedAt = ProcessInfo.processInfo.systemUptime
 
         isRestoringPlaybackSession = true
         defer { isRestoringPlaybackSession = false }
@@ -6209,7 +6215,19 @@ final class AudioPlayerService {
         shouldResumeAfterInterruption = false
         updateNowPlayingInfo()
         updateNowPlayingArtworkIfNeeded()
-        plog("▶️ Restored paused playback session: queue=\(queueEntries.count) index=\(currentIndex) shuffle=\(shuffleEnabled) position=\(shufflePosition)")
+        let restoreFinishedAt = ProcessInfo.processInfo.systemUptime
+        plog(String(
+            format: "▶️ Restored paused playback session: queue=%d index=%d shuffle=%@ position=%d total=%.0fms load=%.0f plan=%.0f lookup=%.0f apply=%.0f",
+            queueEntries.count,
+            currentIndex,
+            String(shuffleEnabled),
+            shufflePosition,
+            (restoreFinishedAt - restoreStartedAt) * 1_000,
+            (loadFinishedAt - restoreStartedAt) * 1_000,
+            (planFinishedAt - loadFinishedAt) * 1_000,
+            (lookupFinishedAt - planFinishedAt) * 1_000,
+            (restoreFinishedAt - lookupFinishedAt) * 1_000
+        ))
     }
 
     private func persistPlaybackSession(clearWhenEmpty: Bool = false) {

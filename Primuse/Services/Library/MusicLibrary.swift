@@ -2055,9 +2055,11 @@ final class MusicLibrary {
 
     private let snapshotURL: URL
     private let backupSnapshotURL: URL
+    private let derivedIndexCacheURL: URL
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
     @ObservationIgnored private var persistenceBlockedByCorruption = false
+    @ObservationIgnored private var derivedIndexSignature: String?
 
     func updateDisabledSourceIDs(_ ids: Set<String>) {
         guard disabledSourceIDs != ids else { return }
@@ -2144,7 +2146,10 @@ final class MusicLibrary {
         searchRevision &+= 1
     }
 
-    init(fileManager: FileManager = .default) {
+    init(
+        fileManager: FileManager = .default,
+        disabledSourceIDs: Set<String> = []
+    ) {
         // tvOS 只允许写 Caches / tmp;须与 LibrarySnapshotSync / SourcesStore 同目录。
         #if os(tvOS)
         let appSupport = fileManager.primuseDirectoryURL(for: .cachesDirectory)
@@ -2156,6 +2161,8 @@ final class MusicLibrary {
 
         snapshotURL = directory.appendingPathComponent("library-cache.json")
         backupSnapshotURL = directory.appendingPathComponent("library-cache.backup.json")
+        derivedIndexCacheURL = directory.appendingPathComponent("library-derived-index.plist")
+        self.disabledSourceIDs = disabledSourceIDs
         encoder.outputFormatting = [.sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         decoder.dateDecodingStrategy = .iso8601
@@ -3588,6 +3595,8 @@ final class MusicLibrary {
             } catch {
                 return
             }
+            guard !Task.isCancelled else { return }
+            let signature = MusicLibrary.derivedIndexSignature(for: snapshot)
             guard !Task.isCancelled,
                   let result = MusicLibrary.computeAlbumsAndArtistsCancellable(songs: snapshot)
             else { return }
@@ -3598,17 +3607,21 @@ final class MusicLibrary {
                 guard self.rebuildIndexGeneration == myGen else { return }
                 self.albums = result.albums
                 self.artists = result.artists
+                self.derivedIndexSignature = signature
                 self.rebuildVisibleCache()
+                self.persistDerivedIndexCache()
             }
         }
     }
 
     /// 启动 / 测试场景下需要"调用即生效"的同步重建。比异步版本贵 (会卡
     /// main actor 一下), 但只在 init / migration 等 UI 还没起来的路径用。
-    private func rebuildIndexSync() {
+    private func rebuildIndexSync(precomputedSignature: String? = nil) {
         let result = MusicLibrary.computeAlbumsAndArtists(songs: songs)
         albums = result.albums
         artists = result.artists
+        derivedIndexSignature = precomputedSignature
+            ?? MusicLibrary.derivedIndexSignature(for: songs)
         rebuildVisibleCache()
     }
 
@@ -3616,6 +3629,7 @@ final class MusicLibrary {
     func reloadFromDisk() { loadSnapshot() }
 
     private func loadSnapshot() {
+        let loadStartedAt = ProcessInfo.processInfo.systemUptime
         guard FileManager.default.fileExists(atPath: snapshotURL.path) else {
             persistenceBlockedByCorruption = false
             return
@@ -3625,6 +3639,7 @@ final class MusicLibrary {
             plog("⛔ Library snapshot exists but cannot be read; persistence disabled to protect it")
             return
         }
+        let readFinishedAt = ProcessInfo.processInfo.systemUptime
 
         let snapshot: Snapshot
         if let decoded = try? decoder.decode(Snapshot.self, from: data) {
@@ -3645,6 +3660,7 @@ final class MusicLibrary {
             persistenceBlockedByCorruption = false
             plog("⚠️ Library snapshot was corrupt; restored the last valid backup")
         }
+        let decodeFinishedAt = ProcessInfo.processInfo.systemUptime
 
         // Migrate the decoded value before publishing it. `songs` is backed by
         // an immutable observable reference, so mutating `songs[i]` would run
@@ -3654,6 +3670,7 @@ final class MusicLibrary {
         // and the observable model one final publication.
         var loadedSongs = snapshot.songs
         let migration = Self.migrateLoadedSongs(&loadedSongs)
+        let migrationFinishedAt = ProcessInfo.processInfo.systemUptime
         songs = loadedSongs
         songIndexByID = Self.makeSongIndex(loadedSongs)
         allPlaylists = snapshot.playlists
@@ -3672,8 +3689,36 @@ final class MusicLibrary {
         // previous launch (e.g. user added the right cloud source between
         // sessions). Try resolving them once on load.
         flushPendingIdentities()
-        // init 阶段直接同步 rebuild ── UI 还没起来, 不需要走异步 schedule。
-        rebuildIndexSync()
+        let cleanupFinishedAt = ProcessInfo.processInfo.systemUptime
+        let currentDerivedSignature = Self.derivedIndexSignature(for: loadedSongs)
+        let usedDerivedIndexCache: Bool
+        if let cachedIndex = loadDerivedIndexCache(matching: currentDerivedSignature) {
+            albums = cachedIndex.albums
+            artists = cachedIndex.artists
+            derivedIndexSignature = currentDerivedSignature
+            rebuildVisibleCache()
+            usedDerivedIndexCache = true
+        } else {
+            // The cache is disposable. An old installation pays the grouping
+            // cost once, then subsequent launches decode the compact binary
+            // index instead of sorting the whole library before the first frame.
+            rebuildIndexSync(precomputedSignature: currentDerivedSignature)
+            persistDerivedIndexCache()
+            usedDerivedIndexCache = false
+        }
+        let indexFinishedAt = ProcessInfo.processInfo.systemUptime
+        plog(String(
+            format: "🚀 library load total=%.0fms read=%.0f decode=%.0f migrate=%.0f cleanup=%.0f derived=%.0f derivedCache=%@ bytes=%d songs=%d",
+            (indexFinishedAt - loadStartedAt) * 1_000,
+            (readFinishedAt - loadStartedAt) * 1_000,
+            (decodeFinishedAt - readFinishedAt) * 1_000,
+            (migrationFinishedAt - decodeFinishedAt) * 1_000,
+            (cleanupFinishedAt - migrationFinishedAt) * 1_000,
+            (indexFinishedAt - cleanupFinishedAt) * 1_000,
+            usedDerivedIndexCache ? "hit" : "miss",
+            data.count,
+            loadedSongs.count
+        ))
         if migration.repairedTextCount > 0 {
             plog("📚 repaired legacy Chinese metadata text for \(migration.repairedTextCount) song(s)")
         }
@@ -3764,6 +3809,39 @@ final class MusicLibrary {
     /// onto the previous write so the JSON encode + atomic write happen in
     /// order off the main thread, and the latest snapshot always wins.
     private var persistWriteTask: Task<Bool, Never>?
+    private var derivedIndexCacheWriteTask: Task<Void, Never>?
+
+    private func loadDerivedIndexCache(matching signature: String) -> DerivedIndexCache? {
+        guard let data = try? Data(contentsOf: derivedIndexCacheURL),
+              let cache = try? PropertyListDecoder().decode(DerivedIndexCache.self, from: data),
+              cache.signature == signature else {
+            return nil
+        }
+        return cache
+    }
+
+    private func persistDerivedIndexCache() {
+        guard let derivedIndexSignature else { return }
+        let cache = DerivedIndexCache(
+            signature: derivedIndexSignature,
+            albums: albums,
+            artists: artists
+        )
+        let url = derivedIndexCacheURL
+        let previous = derivedIndexCacheWriteTask
+        let task = Task.detached(priority: .utility) {
+            _ = await previous?.value
+            do {
+                let encoder = PropertyListEncoder()
+                encoder.outputFormat = .binary
+                let data = try encoder.encode(cache)
+                try data.write(to: url, options: .atomic)
+            } catch {
+                plog("⚠️ Derived library index cache write failed: \(error.localizedDescription)")
+            }
+        }
+        derivedIndexCacheWriteTask = task
+    }
 
     private func persistSnapshot() {
         if isDeferringSceneTransitionPublications {
@@ -3986,6 +4064,54 @@ final class MusicLibrary {
         guard !cancellationCheck() else { return nil }
 
         return (albums, artists)
+    }
+
+    /// Stable digest of every value consumed by `computeAlbumsAndArtists`.
+    /// The derived cache is only a launch accelerator; any metadata, ordering,
+    /// duration, locale, or schema change makes the digest differ and falls
+    /// back to a full rebuild.
+    private nonisolated static func derivedIndexSignature(for songs: [Song]) -> String {
+        var input = Data()
+        input.reserveCapacity(max(128, songs.count * 96))
+        appendStableString("derived-index-v1", to: &input)
+        appendStableString(String(localized: "unknown_artist"), to: &input)
+
+        for song in songs {
+            appendStableString(song.artistName, to: &input)
+            appendStableString(song.albumTitle, to: &input)
+            appendStableInteger(song.year.map(Int64.init) ?? Int64.min, to: &input)
+            appendStableString(song.genre, to: &input)
+            appendStableInteger(song.duration.sanitizedDuration.bitPattern, to: &input)
+            appendStableString(song.sourceID, to: &input)
+        }
+
+        return SHA256.hash(data: input).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private nonisolated static func appendStableString(_ value: String?, to data: inout Data) {
+        guard let value else {
+            data.append(0)
+            return
+        }
+        data.append(1)
+        appendStableInteger(UInt64(value.utf8.count), to: &data)
+        data.append(contentsOf: value.utf8)
+    }
+
+    private nonisolated static func appendStableInteger<T: FixedWidthInteger>(
+        _ value: T,
+        to data: inout Data
+    ) {
+        var littleEndian = value.littleEndian
+        Swift.withUnsafeBytes(of: &littleEndian) { bytes in
+            data.append(contentsOf: bytes)
+        }
+    }
+
+    private struct DerivedIndexCache: Codable, Sendable {
+        let signature: String
+        let albums: [Album]
+        let artists: [Artist]
     }
 
     private struct Snapshot: Codable, Sendable {
