@@ -61,7 +61,7 @@ struct MiniPlayerView: View {
                             ? String(localized: "a11y_pause")
                             : String(localized: "a11y_play")))
 
-                    if !player.isLiveRadio {
+                    if !player.isLiveRadio || player.canSwitchRadioStation {
                         Button {
                             Task { await player.next() }
                         } label: {
@@ -69,7 +69,9 @@ struct MiniPlayerView: View {
                                 .font(.caption)
                                 .frame(width: 32, height: 32)
                         }
-                        .accessibilityLabel("a11y_next_track")
+                        .accessibilityLabel(player.isLiveRadio
+                            ? String(localized: "radio_next_station")
+                            : String(localized: "a11y_next_track"))
                     }
                 }
                 .fixedSize()

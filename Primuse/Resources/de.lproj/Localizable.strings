@@ -2073,3 +2073,13 @@
 "radio_stations_count" = "Sender";
 "radio_live" = "Live-Radio";
 "radio_stop" = "Stopp";
+"radio_settings_title" = "Radioeinstellungen";
+"radio_priority_title" = "Senderpriorität";
+"radio_priority_footer" = "Diese Reihenfolge gilt auf der Startseite, für vorherige und nächste Sender, in CarPlay und auf TV.";
+"radio_priority_sort_by_name" = "Nach Namen sortieren";
+"radio_priority_move_up" = "Priorität erhöhen";
+"radio_priority_move_down" = "Priorität senken";
+"radio_previous_station" = "Vorheriger Sender";
+"radio_next_station" = "Nächster Sender";
+"radio_home_visibility" = "Radio auf Startseite anzeigen";
+"radio_home_visibility_description" = "Zeigt eine große Senderkarte mit schnellem Wechsel und Wiedergabesteuerung.";

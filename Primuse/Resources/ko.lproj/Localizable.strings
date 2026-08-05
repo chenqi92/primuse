@@ -2073,3 +2073,13 @@
 "radio_stations_count" = "개 방송국";
 "radio_live" = "라이브 라디오";
 "radio_stop" = "정지";
+"radio_settings_title" = "라디오 설정";
+"radio_priority_title" = "방송국 우선순위";
+"radio_priority_footer" = "이 순서는 홈, 이전 및 다음 방송국, CarPlay와 TV에서 사용됩니다.";
+"radio_priority_sort_by_name" = "이름순 정렬";
+"radio_priority_move_up" = "우선순위 올리기";
+"radio_priority_move_down" = "우선순위 내리기";
+"radio_previous_station" = "이전 방송국";
+"radio_next_station" = "다음 방송국";
+"radio_home_visibility" = "홈에 라디오 표시";
+"radio_home_visibility_description" = "빠른 전환과 재생 기능이 있는 큰 방송국 카드를 표시합니다.";

@@ -2049,3 +2049,13 @@
 "radio_stations_count" = "個電台";
 "radio_live" = "直播電台";
 "radio_stop" = "停止";
+"radio_settings_title" = "電台設定";
+"radio_priority_title" = "電台優先順序";
+"radio_priority_footer" = "此順序用於首頁、上一個和下一個電台、CarPlay 以及電視端。";
+"radio_priority_sort_by_name" = "依名稱排序";
+"radio_priority_move_up" = "提高優先順序";
+"radio_priority_move_down" = "降低優先順序";
+"radio_previous_station" = "上一個電台";
+"radio_next_station" = "下一個電台";
+"radio_home_visibility" = "在首頁顯示電台";
+"radio_home_visibility_description" = "顯示一張可快速切換並直接播放的電台大卡片。";

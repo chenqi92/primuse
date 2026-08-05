@@ -1901,3 +1901,13 @@
 "radio_stations_count" = "stations";
 "radio_live" = "Live radio";
 "radio_stop" = "Stop";
+"radio_settings_title" = "Radio Settings";
+"radio_priority_title" = "Station Priority";
+"radio_priority_footer" = "This order is used on Home, for previous and next station controls, in CarPlay, and on TV.";
+"radio_priority_sort_by_name" = "Sort by Name";
+"radio_priority_move_up" = "Raise Priority";
+"radio_priority_move_down" = "Lower Priority";
+"radio_previous_station" = "Previous Station";
+"radio_next_station" = "Next Station";
+"radio_home_visibility" = "Show Radio on Home";
+"radio_home_visibility_description" = "Shows one large station card with quick browsing and playback controls.";

@@ -10,6 +10,60 @@ import UIKit
 import AppKit
 #endif
 
+struct RadioSettingsView: View {
+    @Environment(RadioStationsStore.self) private var store
+
+    var body: some View {
+        List {
+            Section {
+                NavigationLink {
+                    RadioStationsView()
+                } label: {
+                    Label("radio_manage", systemImage: "square.grid.2x2")
+                }
+            }
+
+            if !store.stations.isEmpty {
+                Section {
+                    ForEach(store.stations) { station in
+                        HStack(spacing: 12) {
+                            RadioStationArtworkView(station: station, size: 42, cornerRadius: 9)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(station.name)
+                                    .lineLimit(1)
+                                Text(station.playbackSubtitle)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 8)
+                            if let index = store.stations.firstIndex(where: { $0.id == station.id }) {
+                                Text("#\(index + 1)")
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .onMove(perform: store.moveStations)
+                } header: {
+                    Text("radio_priority_title")
+                } footer: {
+                    Text("radio_priority_footer")
+                }
+
+                Section {
+                    Button("radio_priority_sort_by_name") {
+                        store.sortStationsByName()
+                    }
+                }
+            }
+        }
+        #if os(iOS)
+        .environment(\.editMode, .constant(.active))
+        #endif
+        .navigationTitle("radio_settings_title")
+    }
+}
+
 struct RadioStationsView: View {
     @Environment(RadioStationsStore.self) private var store
     @Environment(AudioPlayerService.self) private var player
@@ -46,7 +100,9 @@ struct RadioStationsView: View {
                                     : nil,
                                 onPlay: { toggle(station) },
                                 onEdit: { editingStation = station },
-                                onDelete: { store.remove(id: station.id) }
+                                onDelete: { store.remove(id: station.id) },
+                                onMoveUp: { store.moveStation(id: station.id, by: -1) },
+                                onMoveDown: { store.moveStation(id: station.id, by: 1) }
                             )
                         }
                     }
@@ -121,6 +177,8 @@ private struct RadioStationCard: View {
     let onPlay: () -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
+    let onMoveUp: () -> Void
+    let onMoveDown: () -> Void
 
     var body: some View {
         Button(action: onPlay) {
@@ -159,6 +217,9 @@ private struct RadioStationCard: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
+            Button("radio_priority_move_up", systemImage: "arrow.up", action: onMoveUp)
+            Button("radio_priority_move_down", systemImage: "arrow.down", action: onMoveDown)
+            Divider()
             Button("edit", action: onEdit)
             Button("delete", role: .destructive, action: onDelete)
         }
@@ -369,7 +430,8 @@ private struct RadioStationEditorView: View {
                 bitRate: station?.bitRate,
                 createdAt: station?.createdAt ?? Date(),
                 modifiedAt: Date(),
-                lastPlayedAt: station?.lastPlayedAt
+                lastPlayedAt: station?.lastPlayedAt,
+                sortOrder: station?.sortOrder
             )
             store.upsert(value)
             isSaving = false

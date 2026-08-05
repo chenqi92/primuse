@@ -20,9 +20,9 @@ struct SettingsView: View {
                     }
 
                     NavigationLink {
-                        RadioStationsView()
+                        RadioSettingsView()
                     } label: {
-                        Label("radio_manage", systemImage: "radio.fill")
+                        Label("radio_settings_title", systemImage: "radio.fill")
                     }
 
                     NavigationLink {

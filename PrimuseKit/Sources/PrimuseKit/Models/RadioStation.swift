@@ -101,6 +101,7 @@ public struct RadioStation: Codable, Identifiable, Hashable, Sendable {
     public var createdAt: Date
     public var modifiedAt: Date
     public var lastPlayedAt: Date?
+    public var sortOrder: Int?
     public var isDeleted: Bool
     public var deletedAt: Date?
 
@@ -115,6 +116,7 @@ public struct RadioStation: Codable, Identifiable, Hashable, Sendable {
         createdAt: Date = Date(),
         modifiedAt: Date = Date(),
         lastPlayedAt: Date? = nil,
+        sortOrder: Int? = nil,
         isDeleted: Bool = false,
         deletedAt: Date? = nil
     ) {
@@ -128,6 +130,7 @@ public struct RadioStation: Codable, Identifiable, Hashable, Sendable {
         self.createdAt = createdAt
         self.modifiedAt = modifiedAt
         self.lastPlayedAt = lastPlayedAt
+        self.sortOrder = sortOrder
         self.isDeleted = isDeleted
         self.deletedAt = deletedAt
     }
@@ -165,6 +168,33 @@ public struct RadioStation: Codable, Identifiable, Hashable, Sendable {
         if streamFormat != .automatic { parts.append(streamFormat.displayName) }
         if let bitRate, bitRate > 0 { parts.append("\(bitRate / 1_000) kbps") }
         return parts.isEmpty ? "LIVE" : parts.joined(separator: " · ")
+    }
+}
+
+public enum RadioStationOrdering {
+    public static func sorted(_ stations: [RadioStation]) -> [RadioStation] {
+        stations.sorted { lhs, rhs in
+            switch (lhs.sortOrder, rhs.sortOrder) {
+            case let (lhsOrder?, rhsOrder?) where lhsOrder != rhsOrder:
+                return lhsOrder < rhsOrder
+            case (_?, nil):
+                return true
+            case (nil, _?):
+                return false
+            case (nil, nil):
+                if lhs.lastPlayedAt != rhs.lastPlayedAt {
+                    return (lhs.lastPlayedAt ?? .distantPast) > (rhs.lastPlayedAt ?? .distantPast)
+                }
+            default:
+                break
+            }
+
+            let nameOrder = lhs.name.localizedStandardCompare(rhs.name)
+            if nameOrder != .orderedSame {
+                return nameOrder == .orderedAscending
+            }
+            return lhs.id < rhs.id
+        }
     }
 }
 

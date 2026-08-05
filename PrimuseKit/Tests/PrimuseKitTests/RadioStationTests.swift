@@ -55,6 +55,50 @@ struct RadioStationTests {
         #expect(!capabilities.supportsShuffleAndRepeat)
     }
 
+    @Test("Explicit station priority is stable and precedes legacy stations")
+    func sortsByPriority() {
+        let now = Date()
+        let stations = [
+            RadioStation(id: "legacy", name: "Legacy", streamURL: "https://radio.example/legacy", lastPlayedAt: now),
+            RadioStation(id: "second", name: "Second", streamURL: "https://radio.example/second", sortOrder: 1),
+            RadioStation(id: "first", name: "First", streamURL: "https://radio.example/first", sortOrder: 0)
+        ]
+
+        #expect(RadioStationOrdering.sorted(stations).map(\.id) == ["first", "second", "legacy"])
+    }
+
+    @Test("Legacy stations remain ordered by recency and then name")
+    func sortsLegacyStations() {
+        let now = Date()
+        let stations = [
+            RadioStation(id: "alpha", name: "Alpha", streamURL: "https://radio.example/alpha"),
+            RadioStation(id: "recent", name: "Recent", streamURL: "https://radio.example/recent", lastPlayedAt: now),
+            RadioStation(id: "beta", name: "Beta", streamURL: "https://radio.example/beta")
+        ]
+
+        #expect(RadioStationOrdering.sorted(stations).map(\.id) == ["recent", "alpha", "beta"])
+    }
+
+    @Test("Stations decode from snapshots created before priority was added")
+    func decodesLegacyStation() throws {
+        let data = try #require("""
+        {
+          "id": "legacy",
+          "name": "Legacy Radio",
+          "streamURL": "https://radio.example/live",
+          "streamFormat": "automatic",
+          "createdAt": 0,
+          "modifiedAt": 0,
+          "isDeleted": false
+        }
+        """.data(using: .utf8))
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .secondsSince1970
+
+        let station = try decoder.decode(RadioStation.self, from: data)
+        #expect(station.sortOrder == nil)
+    }
+
     @Test("Playback state remains compatible with pre-radio snapshots")
     func decodesLegacyPlaybackState() throws {
         let data = try #require("""

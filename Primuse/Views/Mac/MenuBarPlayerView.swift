@@ -142,7 +142,7 @@ struct MenuBarPlayerView: View {
     private var transport: some View {
         HStack(spacing: 12) {
             Spacer()
-            if !player.isLiveRadio {
+            if !player.isLiveRadio || player.canSwitchRadioStation {
                 Button { Task { await player.previous() } } label: {
                     Image(systemName: "backward.fill")
                         .font(.system(size: 13, weight: .semibold))
@@ -151,6 +151,7 @@ struct MenuBarPlayerView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .help(Text(player.isLiveRadio ? "radio_previous_station" : "previous_song"))
             }
 
             Button { player.togglePlayPause() } label: {
@@ -176,7 +177,7 @@ struct MenuBarPlayerView: View {
                 ? "radio_stop"
                 : (player.isPlaying ? "pause" : "play")))
 
-            if !player.isLiveRadio {
+            if !player.isLiveRadio || player.canSwitchRadioStation {
                 Button { Task { await player.next() } } label: {
                     Image(systemName: "forward.fill")
                         .font(.system(size: 13, weight: .semibold))
@@ -185,6 +186,7 @@ struct MenuBarPlayerView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .help(Text(player.isLiveRadio ? "radio_next_station" : "next_song"))
             }
             Spacer()
         }

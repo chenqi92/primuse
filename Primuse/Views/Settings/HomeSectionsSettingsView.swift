@@ -2,6 +2,7 @@ import SwiftUI
 
 enum HomeSectionKind: String, CaseIterable, Codable, Identifiable {
     case continueListening
+    case radio
     case quickAccess
     case forYou
     case playlists
@@ -14,6 +15,7 @@ enum HomeSectionKind: String, CaseIterable, Codable, Identifiable {
     var title: LocalizedStringKey {
         switch self {
         case .continueListening: return "home_section_continue_listening"
+        case .radio: return "radio_title"
         case .quickAccess: return "home_section_quick_access"
         case .forYou: return "home_section_for_you"
         case .playlists: return "home_section_playlists"
@@ -26,6 +28,7 @@ enum HomeSectionKind: String, CaseIterable, Codable, Identifiable {
     var icon: String {
         switch self {
         case .continueListening: return "play.circle"
+        case .radio: return "radio.fill"
         case .quickAccess: return "pin"
         case .forYou: return "sparkles"
         case .playlists: return "music.note.list"
@@ -40,6 +43,7 @@ enum HomeSectionConfiguration {
     static let orderKey = "primuse.home.sectionOrder.v1"
     static let defaultOrder: [HomeSectionKind] = [
         .continueListening,
+        .radio,
         .quickAccess,
         .forYou,
         .playlists,
@@ -77,6 +81,7 @@ struct HomeSectionsSettingsView: View {
     @AppStorage("primuse.home.showTopArtists") private var showTopArtists = true
     @AppStorage("primuse.home.showRecentlyAdded") private var showRecentlyAdded = true
     @AppStorage("primuse.home.showContinueListening") private var showContinueListening = true
+    @AppStorage("primuse.home.showRadio") private var showRadio = true
     @AppStorage("primuse.home.showQuickAccess") private var showQuickAccess = true
     @AppStorage("primuse.home.showPlaylists") private var showPlaylists = true
     @AppStorage(HomeSectionConfiguration.orderKey) private var sectionOrderRawValue = ""
@@ -117,6 +122,7 @@ struct HomeSectionsSettingsView: View {
     private func visibilityBinding(for section: HomeSectionKind) -> Binding<Bool> {
         switch section {
         case .continueListening: return $showContinueListening
+        case .radio: return $showRadio
         case .quickAccess: return $showQuickAccess
         case .forYou: return $showForYou
         case .playlists: return $showPlaylists

@@ -108,7 +108,7 @@ struct HomeView: View {
     @Environment(RadioStationsStore.self) private var radioStationsStore
 
     private var hasContent: Bool {
-        homeSnapshot.hasContent || !radioStationsStore.stations.isEmpty
+        homeSnapshot.hasContent || (showRadio && !radioStationsStore.stations.isEmpty)
     }
 
     private var greeting: String {
@@ -124,6 +124,8 @@ struct HomeView: View {
     @Environment(AppUpdateChecker.self) private var updateChecker
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var showUpdateSheet: Bool = false
+    @State private var selectedHomeRadioID: String?
+    @State private var pendingInsecureHomeStation: RadioStation?
 
     var body: some View {
         NavigationStack {
@@ -183,6 +185,26 @@ struct HomeView: View {
             .onAppear {
                 if updateChecker.availableUpdate != nil { showUpdateSheet = true }
             }
+            .alert("insecure_http_warning_title", isPresented: Binding(
+                get: { pendingInsecureHomeStation != nil },
+                set: { if !$0 { pendingInsecureHomeStation = nil } }
+            )) {
+                Button("cancel", role: .cancel) {
+                    pendingInsecureHomeStation = nil
+                }
+                Button("insecure_http_continue", role: .destructive) {
+                    guard let station = pendingInsecureHomeStation,
+                          let host = station.url?.host else { return }
+                    SSLTrustStore.shared.allowInsecureHTTP(domain: host)
+                    pendingInsecureHomeStation = nil
+                    performHomeRadioToggle(station)
+                }
+            } message: {
+                Text(String(
+                    format: String(localized: "insecure_http_warning_message %@"),
+                    pendingInsecureHomeStation?.url?.host ?? ""
+                ))
+            }
             // 改用 fullScreenCover + 透明背景实现居中 modal 弹框, 替代之前
             // 的底部 sheet (sheet 视觉上像"双层弹框", 用户反馈丑)。
             // macOS 没有 fullScreenCover, 退化成普通 sheet。
@@ -206,6 +228,7 @@ struct HomeView: View {
     @AppStorage("primuse.home.showTopArtists") private var showTopArtists: Bool = true
     @AppStorage("primuse.home.showRecentlyAdded") private var showRecentlyAdded: Bool = true
     @AppStorage("primuse.home.showContinueListening") private var showContinueListening: Bool = true
+    @AppStorage("primuse.home.showRadio") private var showRadio: Bool = true
     @AppStorage("primuse.home.showQuickAccess") private var showQuickAccess: Bool = true
     @AppStorage("primuse.home.showPlaylists") private var showPlaylists: Bool = true
     @AppStorage(HomeSectionConfiguration.orderKey) private var homeSectionOrderRawValue = ""
@@ -309,76 +332,10 @@ struct HomeView: View {
                 libraryHeroSection
             }
 
-            radioQuickEntry
-
             ForEach(homeSectionOrder) { section in
                 homeSectionContent(section)
             }
         }
-    }
-
-    private var radioQuickEntry: some View {
-        NavigationLink {
-            RadioStationsView()
-        } label: {
-            HStack(spacing: 14) {
-                radioQuickEntryArtwork
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("radio_title")
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                    Text(radioQuickEntrySubtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
-
-                Spacer(minLength: 8)
-
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(14)
-            .background {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(homeCardSurface)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .stroke(.primary.opacity(0.06), lineWidth: 0.5)
-                    }
-            }
-            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .padding(.horizontal, 16)
-    }
-
-    @ViewBuilder
-    private var radioQuickEntryArtwork: some View {
-        if let station = radioStationsStore.stations.first {
-            RadioStationArtworkView(station: station, size: 52, cornerRadius: 12)
-        } else {
-            ZStack {
-                LinearGradient(
-                    colors: [.purple.opacity(0.85), .blue.opacity(0.7)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                Image(systemName: "radio.fill")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(.white)
-            }
-            .frame(width: 52, height: 52)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        }
-    }
-
-    private var radioQuickEntrySubtitle: String {
-        let count = radioStationsStore.stations.count
-        guard count > 0 else { return String(localized: "radio_empty_description") }
-        return "\(count.formatted()) \(String(localized: "radio_stations_count"))"
     }
 
     @ViewBuilder
@@ -387,6 +344,10 @@ struct HomeView: View {
         case .continueListening:
             if showContinueListening, !homeSnapshot.recentSongs.isEmpty {
                 continueListeningSection
+            }
+        case .radio:
+            if showRadio {
+                radioSpotlightSection
             }
         case .quickAccess:
             if showQuickAccess, !homeSnapshot.quickItems.isEmpty {
@@ -412,6 +373,199 @@ struct HomeView: View {
             if showStatsGlimpse, let summary = homeSnapshot.statsGlimpse {
                 statsGlimpseSection(summary)
             }
+        }
+    }
+
+    private var selectedHomeRadio: RadioStation? {
+        let stations = radioStationsStore.stations
+        if let selectedHomeRadioID,
+           let selected = stations.first(where: { $0.id == selectedHomeRadioID }) {
+            return selected
+        }
+        if let current = player.currentRadioStation,
+           stations.contains(where: { $0.id == current.id }) {
+            return current
+        }
+        return stations.first
+    }
+
+    private var radioSpotlightSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("radio_title")
+                    .font(.title3.weight(.bold))
+                Spacer()
+                NavigationLink("home_section_view_all") {
+                    RadioStationsView()
+                }
+                .font(.subheadline.weight(.medium))
+            }
+            .padding(.horizontal, 20)
+
+            Group {
+                if let station = selectedHomeRadio {
+                    radioSpotlightCard(station)
+                } else {
+                    NavigationLink {
+                        RadioStationsView()
+                    } label: {
+                        HStack(spacing: 16) {
+                            Image(systemName: "radio.fill")
+                                .font(.system(size: 36, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 88, height: 88)
+                                .background(.white.opacity(0.16), in: RoundedRectangle(cornerRadius: 18))
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("radio_empty_title")
+                                    .font(.headline)
+                                Text("radio_empty_description")
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(0.78))
+                                    .lineLimit(3)
+                            }
+                            Spacer()
+                            Image(systemName: "plus.circle.fill")
+                                .font(.title2)
+                        }
+                        .foregroundStyle(.white)
+                        .padding(18)
+                        .frame(maxWidth: .infinity, minHeight: 132, alignment: .leading)
+                        .background(radioSpotlightGradient, in: RoundedRectangle(cornerRadius: 22))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 16)
+        }
+        .onChange(of: player.currentRadioStation?.id) { _, stationID in
+            guard let stationID,
+                  radioStationsStore.stations.contains(where: { $0.id == stationID }) else { return }
+            selectedHomeRadioID = stationID
+        }
+    }
+
+    private func radioSpotlightCard(_ station: RadioStation) -> some View {
+        let stations = radioStationsStore.stations
+        let currentIndex = stations.firstIndex(where: { $0.id == station.id }) ?? 0
+        let isCurrent = player.currentRadioStation?.id == station.id
+        let isPlaying = isCurrent && (player.isPlaying || player.isLoading)
+
+        return HStack(spacing: 16) {
+            RadioStationArtworkView(
+                station: station,
+                size: sizeClass == .regular ? 126 : 106,
+                cornerRadius: 20
+            )
+            .shadow(color: .black.opacity(0.2), radius: 10, y: 5)
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(.red)
+                        .frame(width: 7, height: 7)
+                    Text("LIVE")
+                        .font(.caption2.weight(.bold))
+                        .tracking(0.8)
+                    Spacer()
+                    Text("\(currentIndex + 1) / \(stations.count)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.72))
+                }
+
+                Text(station.name)
+                    .font(.title3.weight(.bold))
+                    .lineLimit(2)
+
+                Text(isCurrent ? (player.radioMetadataTitle ?? station.playbackSubtitle) : station.playbackSubtitle)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.76))
+                    .lineLimit(2)
+
+                Spacer(minLength: 2)
+
+                HStack(spacing: 10) {
+                    Button {
+                        selectHomeRadio(relativeTo: station, offset: -1)
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .frame(width: 32, height: 32)
+                    }
+                    .buttonStyle(.plain)
+                    .background(.white.opacity(0.14), in: Circle())
+                    .disabled(stations.count < 2)
+                    .accessibilityLabel("radio_previous_station")
+
+                    Button {
+                        toggleHomeRadio(station)
+                    } label: {
+                        Image(systemName: isPlaying ? "stop.fill" : "play.fill")
+                            .font(.system(size: 15, weight: .bold))
+                            .frame(width: 38, height: 38)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.purple)
+                    .background(.white, in: Circle())
+                    .accessibilityLabel(isPlaying ? "radio_stop" : "play")
+
+                    Button {
+                        selectHomeRadio(relativeTo: station, offset: 1)
+                    } label: {
+                        Image(systemName: "chevron.right")
+                            .frame(width: 32, height: 32)
+                    }
+                    .buttonStyle(.plain)
+                    .background(.white.opacity(0.14), in: Circle())
+                    .disabled(stations.count < 2)
+                    .accessibilityLabel("radio_next_station")
+                }
+            }
+        }
+        .foregroundStyle(.white)
+        .padding(18)
+        .frame(maxWidth: .infinity, minHeight: 142, alignment: .leading)
+        .background(radioSpotlightGradient, in: RoundedRectangle(cornerRadius: 22))
+        .contentShape(RoundedRectangle(cornerRadius: 22))
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 24).onEnded { value in
+                guard abs(value.translation.width) > abs(value.translation.height) * 1.25 else { return }
+                selectHomeRadio(relativeTo: station, offset: value.translation.width < 0 ? 1 : -1)
+            }
+        )
+        .animation(.easeInOut(duration: 0.2), value: station.id)
+    }
+
+    private var radioSpotlightGradient: LinearGradient {
+        LinearGradient(
+            colors: [.purple.opacity(0.92), .blue.opacity(0.78)],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    private func selectHomeRadio(relativeTo station: RadioStation, offset: Int) {
+        let stations = radioStationsStore.stations
+        guard stations.count > 1,
+              let index = stations.firstIndex(where: { $0.id == station.id }) else { return }
+        selectedHomeRadioID = stations[(index + offset + stations.count) % stations.count].id
+    }
+
+    private func toggleHomeRadio(_ station: RadioStation) {
+        if let url = station.url,
+           TrustedHTTPTransport.requiresPlainSocket(for: url),
+           let host = url.host,
+           !SSLTrustStore.allowsInsecureHTTPHostSync(domain: host) {
+            pendingInsecureHomeStation = station
+            return
+        }
+        performHomeRadioToggle(station)
+    }
+
+    private func performHomeRadioToggle(_ station: RadioStation) {
+        if player.currentRadioStation?.id == station.id,
+           player.isPlaying || player.isLoading {
+            player.pause()
+        } else {
+            Task { await player.play(station: station, within: radioStationsStore.stations) }
         }
     }
 

@@ -241,22 +241,40 @@ struct MacNowPlayingView: View {
                     .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(playerFaintColor)
 
-                Button { player.togglePlayPause() } label: {
-                    Label(
-                        (player.isPlaying || player.isLoading)
-                            ? String(localized: "radio_stop")
-                            : String(localized: "a11y_play"),
-                        systemImage: (player.isPlaying || player.isLoading)
-                            ? "stop.circle.fill"
-                            : "play.circle.fill"
-                    )
-                    .font(.system(size: 17, weight: .semibold))
-                    .padding(.horizontal, 20)
-                    .frame(height: 46)
-                    .foregroundStyle(theme.onAccent)
-                    .background(theme.accentColor, in: Capsule())
+                HStack(spacing: 12) {
+                    Button { Task { await player.previous() } } label: {
+                        Image(systemName: "backward.fill")
+                            .frame(width: 42, height: 42)
+                            .background(playerFaintColor.opacity(0.14), in: Circle())
+                    }
+                    .disabled(!player.canSwitchRadioStation)
+                    .help(Text("radio_previous_station"))
+
+                    Button { player.togglePlayPause() } label: {
+                        Label(
+                            (player.isPlaying || player.isLoading)
+                                ? String(localized: "radio_stop")
+                                : String(localized: "a11y_play"),
+                            systemImage: (player.isPlaying || player.isLoading)
+                                ? "stop.circle.fill"
+                                : "play.circle.fill"
+                        )
+                        .font(.system(size: 17, weight: .semibold))
+                        .padding(.horizontal, 20)
+                        .frame(height: 46)
+                        .foregroundStyle(theme.onAccent)
+                        .background(theme.accentColor, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+
+                    Button { Task { await player.next() } } label: {
+                        Image(systemName: "forward.fill")
+                            .frame(width: 42, height: 42)
+                            .background(playerFaintColor.opacity(0.14), in: Circle())
+                    }
+                    .disabled(!player.canSwitchRadioStation)
+                    .help(Text("radio_next_station"))
                 }
-                .buttonStyle(.plain)
 
                 Spacer()
             }

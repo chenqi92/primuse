@@ -12,14 +12,7 @@ final class RadioStationsStore {
     private(set) var allStations: [RadioStation]
 
     var stations: [RadioStation] {
-        allStations
-            .filter { !$0.isDeleted }
-            .sorted {
-                switch ($0.lastPlayedAt, $1.lastPlayedAt) {
-                case let (lhs?, rhs?) where lhs != rhs: return lhs > rhs
-                default: return $0.name.localizedStandardCompare($1.name) == .orderedAscending
-                }
-            }
+        RadioStationOrdering.sorted(allStations.filter { !$0.isDeleted })
     }
 
     private let storeURL: URL
@@ -72,8 +65,15 @@ final class RadioStationsStore {
         stamped.deletedAt = nil
 
         if let index = allStations.firstIndex(where: { $0.id == stamped.id }) {
+            if stamped.sortOrder == nil {
+                stamped.sortOrder = allStations[index].sortOrder
+            }
             allStations[index] = stamped
         } else {
+            if stamped.sortOrder == nil,
+               allStations.contains(where: { !$0.isDeleted && $0.sortOrder != nil }) {
+                stamped.sortOrder = (allStations.compactMap(\.sortOrder).max() ?? -1) + 1
+            }
             allStations.append(stamped)
         }
         persist()
@@ -106,6 +106,42 @@ final class RadioStationsStore {
         guard let index = allStations.firstIndex(where: { $0.id == id }) else { return }
         allStations[index].lastPlayedAt = date
         persist()
+    }
+
+    func moveStations(from offsets: IndexSet, to destination: Int) {
+        var ordered = stations
+        let validOffsets = offsets.filter { ordered.indices.contains($0) }
+        guard !validOffsets.isEmpty else { return }
+
+        let moving = validOffsets.map { ordered[$0] }
+        for index in validOffsets.sorted(by: >) {
+            ordered.remove(at: index)
+        }
+        let removedBeforeDestination = validOffsets.filter { $0 < destination }.count
+        let insertionIndex = max(0, min(ordered.count, destination - removedBeforeDestination))
+        ordered.insert(contentsOf: moving, at: insertionIndex)
+        applyPriorityOrder(ordered.map(\.id))
+    }
+
+    func moveStation(id: String, by offset: Int) {
+        guard offset != 0 else { return }
+        let ordered = stations
+        guard let index = ordered.firstIndex(where: { $0.id == id }) else { return }
+        let target = max(0, min(ordered.count - 1, index + offset))
+        guard target != index else { return }
+
+        var reordered = ordered
+        let station = reordered.remove(at: index)
+        reordered.insert(station, at: target)
+        applyPriorityOrder(reordered.map(\.id))
+    }
+
+    func sortStationsByName() {
+        let ordered = stations.sorted {
+            let result = $0.name.localizedStandardCompare($1.name)
+            return result == .orderedSame ? $0.id < $1.id : result == .orderedAscending
+        }
+        applyPriorityOrder(ordered.map(\.id))
     }
 
     func remove(id: String) {
@@ -188,6 +224,24 @@ final class RadioStationsStore {
     private func persist() {
         guard let data = try? encoder.encode(allStations) else { return }
         try? data.write(to: storeURL, options: .atomic)
+    }
+
+    private func applyPriorityOrder(_ stationIDs: [String]) {
+        let orderByID = Dictionary(uniqueKeysWithValues: stationIDs.enumerated().map { ($1, $0) })
+        let now = Date()
+        var changedIDs: [String] = []
+
+        for index in allStations.indices where !allStations[index].isDeleted {
+            guard let order = orderByID[allStations[index].id],
+                  allStations[index].sortOrder != order else { continue }
+            allStations[index].sortOrder = order
+            allStations[index].modifiedAt = now
+            changedIDs.append(allStations[index].id)
+        }
+
+        guard !changedIDs.isEmpty else { return }
+        persist()
+        notifyChanged(ids: changedIDs)
     }
 
     private func notifyChanged(ids: [String]) {

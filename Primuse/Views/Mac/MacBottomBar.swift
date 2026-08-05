@@ -149,7 +149,9 @@ struct MacBottomBar: View {
                     transportBtn("shuffle", size: 13, active: player.shuffleEnabled, help: "shuffle") {
                         player.shuffleEnabled.toggle()
                     }
-                    transportBtn("backward.fill", size: 13, help: "previous_song") {
+                }
+                if !player.isLiveRadio || player.canSwitchRadioStation {
+                    transportBtn("backward.fill", size: 13, help: player.isLiveRadio ? "radio_previous_station" : "previous_song") {
                         Task { await player.previous() }
                     }
                 }
@@ -176,10 +178,12 @@ struct MacBottomBar: View {
                     ? "radio_stop"
                     : (player.isPlaying ? "pause" : "play")))
 
-                if !player.isLiveRadio {
-                    transportBtn("forward.fill", size: 13, help: "next_song") {
+                if !player.isLiveRadio || player.canSwitchRadioStation {
+                    transportBtn("forward.fill", size: 13, help: player.isLiveRadio ? "radio_next_station" : "next_song") {
                         Task { await player.next() }
                     }
+                }
+                if !player.isLiveRadio {
                     transportBtn(repeatIconName, size: 13, active: player.repeatMode != .off, help: "repeat") {
                         cycleRepeat()
                     }

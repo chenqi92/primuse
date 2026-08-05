@@ -529,6 +529,7 @@ final class AudioPlayerService {
     private(set) var radioStreamFormat: RadioStreamFormat = .automatic
     private(set) var radioBitRate: Int?
     var isLiveRadio: Bool { playbackKind == .liveRadio }
+    var canSwitchRadioStation: Bool { isLiveRadio && radioStationOrder.count > 1 }
     var playbackCapabilities: PlaybackPresentationCapabilities {
         .capabilities(for: playbackKind)
     }
@@ -924,6 +925,15 @@ final class AudioPlayerService {
             Task { @MainActor [weak self, requestID] in
                 guard let requestID else { return }
                 self?.yieldToAppleMusic(requestID: requestID)
+            }
+        }
+        NotificationCenter.default.addObserver(
+            forName: .primuseRadioStationsDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshRadioStationOrder()
             }
         }
     }
@@ -1694,7 +1704,9 @@ final class AudioPlayerService {
         radioMetadataTitle = nil
         radioStreamFormat = station.streamFormat
         radioBitRate = station.bitRate
-        radioStationOrder = (stations.isEmpty ? [station] : stations.filter { !$0.isDeleted })
+        radioStationOrder = RadioStationOrdering.sorted(
+            stations.isEmpty ? [station] : stations.filter { !$0.isDeleted }
+        )
         if !radioStationOrder.contains(where: { $0.id == station.id }) {
             radioStationOrder.append(station)
         }
@@ -2086,6 +2098,29 @@ final class AudioPlayerService {
                 currentSong = nil
             }
         }
+    }
+
+    private func refreshRadioStationOrder() {
+        guard isLiveRadio, let current = currentRadioStation else { return }
+        let stations = AppServices.shared.radioStationsStore.stations
+        radioStationOrder = stations
+
+        guard var updated = stations.first(where: { $0.id == current.id }) else {
+            stopRadioTransport(clearSelection: true)
+            updateNowPlayingInfo()
+            updatePlaybackState()
+            return
+        }
+
+        updated.streamFormat = radioStreamFormat
+        updated.bitRate = radioBitRate
+        currentRadioStation = updated
+        var song = updated.playbackSong
+        song.artistName = radioMetadataTitle ?? updated.playbackSubtitle
+        currentSong = song
+        updateNowPlayingInfo()
+        updateNowPlayingArtworkIfNeeded()
+        updatePlaybackState()
     }
 
     func setPlaybackVolume(_ value: Float) {

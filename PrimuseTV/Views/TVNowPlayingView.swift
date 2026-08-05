@@ -119,6 +119,15 @@ struct TVNowPlayingView: View {
 
                     HStack(spacing: 18) {
                         TVRoundBtn(
+                            icon: "backward.fill",
+                            size: 76,
+                            primary: false
+                        ) {
+                            store.previous()
+                        }
+                        .disabled(store.radioStations.count < 2)
+
+                        TVRoundBtn(
                             icon: radioConnectionIsActive ? "stop.fill" : "play.fill",
                             size: 96,
                             primary: true
@@ -126,6 +135,16 @@ struct TVNowPlayingView: View {
                             store.togglePlayPause()
                         }
                         .prefersDefaultFocus(true, in: playerFocus)
+
+                        TVRoundBtn(
+                            icon: "forward.fill",
+                            size: 76,
+                            primary: false
+                        ) {
+                            store.next()
+                        }
+                        .disabled(store.radioStations.count < 2)
+
                         Text(PMString(radioConnectionIsActive ? "ext.tv.radio.stop" : "ext.tv.radio.play"))
                             .font(.system(size: 24, weight: .semibold))
                             .foregroundStyle(TVColor.textMuted)

@@ -906,14 +906,9 @@ final class TVStore {
                 decoded[index].lastPlayedAt = Date(timeIntervalSince1970: timestamp.doubleValue)
             }
         }
-        radioStations = decoded
-            .filter { !$0.isDeleted && $0.url != nil }
-            .sorted {
-                switch ($0.lastPlayedAt, $1.lastPlayedAt) {
-                case let (lhs?, rhs?) where lhs != rhs: return lhs > rhs
-                default: return $0.name.localizedStandardCompare($1.name) == .orderedAscending
-                }
-            }
+        radioStations = RadioStationOrdering.sorted(
+            decoded.filter { !$0.isDeleted && $0.url != nil }
+        )
 
         if isLiveRadio,
            let currentRadioStationID,
@@ -931,12 +926,7 @@ final class TVStore {
         let now = Date()
         if let index = radioStations.firstIndex(where: { $0.id == id }) {
             radioStations[index].lastPlayedAt = now
-            radioStations.sort {
-                switch ($0.lastPlayedAt, $1.lastPlayedAt) {
-                case let (lhs?, rhs?) where lhs != rhs: return lhs > rhs
-                default: return $0.name.localizedStandardCompare($1.name) == .orderedAscending
-                }
-            }
+            radioStations = RadioStationOrdering.sorted(radioStations)
         }
         var recency = UserDefaults.standard.dictionary(forKey: "tvRadioLastPlayedAt") ?? [:]
         recency[id] = now.timeIntervalSince1970
@@ -1400,7 +1390,13 @@ final class TVStore {
     }
 
     func next() {
-        guard !isLiveRadio else { return }
+        if isLiveRadio {
+            guard let currentRadioStationID,
+                  radioStations.count > 1,
+                  let index = radioStations.firstIndex(where: { $0.id == currentRadioStationID }) else { return }
+            play(radioStations[(index + 1) % radioStations.count])
+            return
+        }
         // 手动下一首:忽略「单曲循环」;到队尾时「列表循环」则回到队首。
         guard let nextIndex = QueueTraversalPolicy.nextAvailableIndex(
             queueCount: queue.count,
@@ -1487,7 +1483,13 @@ final class TVStore {
     }
 
     func previous() {
-        guard !isLiveRadio else { return }
+        if isLiveRadio {
+            guard let currentRadioStationID,
+                  radioStations.count > 1,
+                  let index = radioStations.firstIndex(where: { $0.id == currentRadioStationID }) else { return }
+            play(radioStations[index > 0 ? index - 1 : radioStations.count - 1])
+            return
+        }
         // 播过 3 秒先回到开头,否则切上一首。
         if currentTime > 3 { engine.seek(to: 0); return }
         guard let previousIndex = QueueTraversalPolicy.previousAvailableIndex(

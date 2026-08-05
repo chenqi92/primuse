@@ -621,7 +621,15 @@ struct NowPlayingView: View {
             .padding(.horizontal, 32)
 
             HStack(spacing: 38) {
-                Color.clear.frame(width: 44, height: 44)
+                Button {
+                    Task { await player.previous() }
+                } label: {
+                    Image(systemName: "backward.fill")
+                        .font(.title3)
+                        .frame(width: 44, height: 44)
+                }
+                .disabled(!player.canSwitchRadioStation)
+                .accessibilityLabel(Text("radio_previous_station"))
 
                 Button { player.togglePlayPause() } label: {
                     Image(systemName: (player.isPlaying || player.isLoading) ? "stop.circle.fill" : "play.circle.fill")
@@ -630,16 +638,15 @@ struct NowPlayingView: View {
                 }
                 .accessibilityLabel(Text((player.isPlaying || player.isLoading) ? "radio_stop" : "a11y_play"))
 
-                if let url = player.currentRadioStation?.url {
-                    ShareLink(item: url) {
-                        Image(systemName: "square.and.arrow.up")
-                            .font(.title3)
-                            .frame(width: 44, height: 44)
-                    }
-                    .accessibilityLabel(Text("share"))
-                } else {
-                    Color.clear.frame(width: 44, height: 44)
+                Button {
+                    Task { await player.next() }
+                } label: {
+                    Image(systemName: "forward.fill")
+                        .font(.title3)
+                        .frame(width: 44, height: 44)
                 }
+                .disabled(!player.canSwitchRadioStation)
+                .accessibilityLabel(Text("radio_next_station"))
             }
             .foregroundStyle(appearance.primary)
             .padding(.top, 24)
@@ -673,6 +680,13 @@ struct NowPlayingView: View {
                 Text(radioTechnicalSummary)
                     .font(.caption2)
                     .foregroundStyle(appearance.faint)
+                if let url = player.currentRadioStation?.url {
+                    ShareLink(item: url) {
+                        Image(systemName: "square.and.arrow.up")
+                            .frame(width: 36, height: 36)
+                    }
+                    .accessibilityLabel(Text("share"))
+                }
             }
             .padding(.top, 10)
             .padding(.bottom, max(bottomSafeArea, 16))

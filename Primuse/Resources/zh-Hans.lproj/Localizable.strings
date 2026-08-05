@@ -2176,3 +2176,13 @@
 "radio_stations_count" = "个电台";
 "radio_live" = "直播电台";
 "radio_stop" = "停止";
+"radio_settings_title" = "电台设置";
+"radio_priority_title" = "电台优先级";
+"radio_priority_footer" = "此顺序用于首页、上一个和下一个电台、CarPlay 以及电视端。";
+"radio_priority_sort_by_name" = "按名称排序";
+"radio_priority_move_up" = "提高优先级";
+"radio_priority_move_down" = "降低优先级";
+"radio_previous_station" = "上一个电台";
+"radio_next_station" = "下一个电台";
+"radio_home_visibility" = "在首页显示电台";
+"radio_home_visibility_description" = "显示一张可快速切换并直接播放的电台大卡片。";

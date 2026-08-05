@@ -12,7 +12,7 @@ import PrimuseKit
 struct MacSettingsView: View {
     private enum Tab: String, Hashable, CaseIterable, Identifiable {
         case playback, equalizer, effects, scrape, lyrics
-        case appleMusic, widgets, cloud, theme, deleted, ssl, about
+        case appleMusic, widgets, cloud, radio, theme, deleted, ssl, about
 
         var id: String { rawValue }
 
@@ -26,6 +26,7 @@ struct MacSettingsView: View {
             case .appleMusic: return "Apple Music"
             case .widgets: return Lz("Widgets")
             case .cloud: return "iCloud"
+            case .radio: return String(localized: "radio_settings_title")
             case .theme: return Lz("Appearance")
             case .deleted: return Lz("Recently Deleted")
             case .ssl: return Lz("Trusted Domains")
@@ -43,6 +44,7 @@ struct MacSettingsView: View {
             case .appleMusic: return "music.note"
             case .widgets: return "rectangle.grid.2x2"
             case .cloud: return "icloud"
+            case .radio: return "radio.fill"
             case .theme: return "sun.max"
             case .deleted: return "trash"
             case .ssl: return "lock.shield"
@@ -60,6 +62,7 @@ struct MacSettingsView: View {
             case .appleMusic: return "ST-06"
             case .widgets: return "ST-07"
             case .cloud: return "ST-08"
+            case .radio: return "ST-13"
             case .theme: return "ST-12"
             case .deleted: return "ST-09"
             case .ssl: return "ST-10"
@@ -229,6 +232,8 @@ struct MacSettingsView: View {
             MacSTWidgetView()
         case .cloud:
             MacSTCloudView()
+        case .radio:
+            MacSTRadioView()
         case .theme:
             MacSTThemeView()
         case .deleted:
@@ -237,6 +242,82 @@ struct MacSettingsView: View {
             MacSTSSLView()
         case .about:
             MacSTAboutView()
+        }
+    }
+}
+
+private struct MacSTRadioView: View {
+    @Environment(RadioStationsStore.self) private var store
+    @State private var showingManager = false
+
+    var body: some View {
+        MacSTSection(
+            String(localized: "radio_priority_title"),
+            hint: String(localized: "radio_priority_footer")
+        ) {
+            MacSTGroup {
+                if store.stations.isEmpty {
+                    MacSTRow(
+                        String(localized: "radio_empty_title"),
+                        hint: String(localized: "radio_empty_description"),
+                        divider: false
+                    ) {
+                        Button(String(localized: "radio_add")) { showingManager = true }
+                            .buttonStyle(.borderedProminent)
+                    }
+                } else {
+                    ForEach(Array(store.stations.enumerated()), id: \.element.id) { index, station in
+                        MacSTRow(station.name, hint: station.playbackSubtitle, divider: index != 0) {
+                            HStack(spacing: 8) {
+                                Text("#\(index + 1)")
+                                    .font(.system(size: 11).monospacedDigit())
+                                    .foregroundStyle(PMColor.textFaint)
+                                    .frame(width: 26, alignment: .trailing)
+                                Button {
+                                    store.moveStation(id: station.id, by: -1)
+                                } label: {
+                                    Image(systemName: "arrow.up")
+                                }
+                                .buttonStyle(.borderless)
+                                .disabled(index == 0)
+                                .help(String(localized: "radio_priority_move_up"))
+
+                                Button {
+                                    store.moveStation(id: station.id, by: 1)
+                                } label: {
+                                    Image(systemName: "arrow.down")
+                                }
+                                .buttonStyle(.borderless)
+                                .disabled(index == store.stations.count - 1)
+                                .help(String(localized: "radio_priority_move_down"))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        MacSTSection(String(localized: "radio_manage")) {
+            MacSTGroup {
+                MacSTRow(String(localized: "radio_manage"), divider: false) {
+                    Button(String(localized: "radio_manage")) { showingManager = true }
+                        .buttonStyle(.bordered)
+                }
+                if !store.stations.isEmpty {
+                    MacSTRow(String(localized: "radio_priority_sort_by_name")) {
+                        Button(String(localized: "radio_priority_sort_by_name")) {
+                            store.sortStationsByName()
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showingManager) {
+            NavigationStack {
+                RadioStationsView()
+            }
+            .frame(minWidth: 720, minHeight: 540)
         }
     }
 }
@@ -3110,6 +3191,7 @@ private struct MacSTThemeView: View {
     @Environment(ThemeService.self) private var themeService
     @Environment(AudioPlayerService.self) private var player
     @State private var autoDetectMaterial = true
+    @AppStorage("primuse.home.showRadio") private var showRadioOnHome = true
 
     private let swatches: [(hex: String, name: String, sub: String, color: Color)] = [
         ("#c96442", Lz("Terracotta"), Lz("Default · Warm Wood Listening Room"), PMColor.brandDefault),
@@ -3139,6 +3221,18 @@ private struct MacSTThemeView: View {
                             preferences.colorScheme = .system
                         }
                     }
+                }
+            }
+        }
+
+        MacSTSection(String(localized: "home_settings_title")) {
+            MacSTGroup {
+                MacSTRow(
+                    String(localized: "radio_home_visibility"),
+                    hint: String(localized: "radio_home_visibility_description"),
+                    divider: false
+                ) {
+                    MacSTToggle(isOn: $showRadioOnHome)
                 }
             }
         }

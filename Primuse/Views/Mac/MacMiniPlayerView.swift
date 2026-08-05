@@ -266,6 +266,13 @@ struct MacMiniPlayerView: View {
             }
             .help(Text("audio_output"))
 
+            Button { Task { await player.previous() } } label: {
+                miniIcon("backward.fill")
+            }
+            .buttonStyle(.plain)
+            .disabled(!player.canSwitchRadioStation)
+            .help(Text("radio_previous_station"))
+
             Button { player.togglePlayPause() } label: {
                 miniIcon(
                     (player.isPlaying || player.isLoading) ? "stop.fill" : "play.fill",
@@ -275,6 +282,13 @@ struct MacMiniPlayerView: View {
             }
             .buttonStyle(.plain)
             .help(Text((player.isPlaying || player.isLoading) ? "radio_stop" : "a11y_play"))
+
+            Button { Task { await player.next() } } label: {
+                miniIcon("forward.fill")
+            }
+            .buttonStyle(.plain)
+            .disabled(!player.canSwitchRadioStation)
+            .help(Text("radio_next_station"))
 
             Spacer(minLength: 6)
 
