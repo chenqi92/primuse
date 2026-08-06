@@ -11,6 +11,9 @@ struct TVNowPlayingView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
 
+    var isTabContent = false
+    var onReturnToTabs: () -> Void = {}
+
     @State private var showQueue = false
     @State private var showOptions = false
     @Namespace private var playerFocus
@@ -19,7 +22,13 @@ struct TVNowPlayingView: View {
         ZStack {
             if store.hasNowPlaying { player } else { emptyState }
         }
-        .onExitCommand { dismiss() }
+        .onExitCommand {
+            if isTabContent {
+                onReturnToTabs()
+            } else {
+                dismiss()
+            }
+        }
         .fullScreenCover(isPresented: $showQueue) { TVQueueView().environment(store) }
         .fullScreenCover(isPresented: $showOptions) { TVOptionsView().environment(store) }
     }
@@ -33,6 +42,7 @@ struct TVNowPlayingView: View {
                 Text(PMString("ext.tv.nowPlaying.notPlaying")).font(.system(size: 40, weight: .bold)).foregroundStyle(TVColor.text)
                 Text(PMString("ext.tv.nowPlaying.pickASong")).font(.system(size: 22)).foregroundStyle(TVColor.textMuted)
             }
+            .padding(.top, isTabContent ? TVSpace.pageTop / 2 : 0)
         }
     }
 
@@ -55,7 +65,9 @@ struct TVNowPlayingView: View {
                     lyricsColumn.frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .focusScope(playerFocus)
-                .padding(.horizontal, 100).padding(.top, 80).padding(.bottom, 70)
+                .padding(.horizontal, 100)
+                .padding(.top, isTabContent ? TVSpace.pageTop : 80)
+                .padding(.bottom, isTabContent ? TVSpace.pageBottom : 70)
             }
         }
     }
@@ -155,7 +167,8 @@ struct TVNowPlayingView: View {
             }
             .focusScope(playerFocus)
             .padding(.horizontal, 110)
-            .padding(.vertical, 110)
+            .padding(.top, isTabContent ? TVSpace.pageTop : 110)
+            .padding(.bottom, isTabContent ? TVSpace.pageBottom : 110)
         }
     }
 
@@ -211,8 +224,8 @@ struct TVNowPlayingView: View {
             .focusScope(playerFocus)
             .focusSection()
             .padding(.horizontal, 100)
-            .padding(.top, 78)
-            .padding(.bottom, 70)
+            .padding(.top, isTabContent ? TVSpace.pageTop : 78)
+            .padding(.bottom, isTabContent ? TVSpace.pageBottom : 70)
         }
     }
 
@@ -315,6 +328,7 @@ struct TVNowPlayingView: View {
 
     private var lyricsList: some View {
         let cur = store.currentLyricIndex
+        let followsPlayback = store.lyricsFollowPlayback
         // 跟手机端一致:整列歌词放进可滚动容器,随播放进度平滑把当前行滚到视觉中心
         //(`scrollTo(anchor:.center)` + `.smooth`),不再按 index 重算固定窗口硬跳。
         return ScrollViewReader { proxy in
@@ -328,7 +342,8 @@ struct TVNowPlayingView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .scrollDisabled(true)   // tvOS:只随播放自动滚,不接受遥控滚动
+            .scrollDisabled(followsPlayback)
+            .focusable(!followsPlayback)
             .mask(
                 LinearGradient(stops: [
                     .init(color: .clear, location: 0), .init(color: .black, location: 0.16),
@@ -336,22 +351,35 @@ struct TVNowPlayingView: View {
                 ], startPoint: .top, endPoint: .bottom)
             )
             .onChange(of: cur) { _, new in
+                guard followsPlayback, let new else { return }
                 withAnimation(.smooth(duration: 0.55, extraBounce: 0)) { proxy.scrollTo(new, anchor: .center) }
             }
-            .onChange(of: store.lyrics.count) { _, _ in proxy.scrollTo(cur, anchor: .center) }
-            .onAppear { proxy.scrollTo(cur, anchor: .center) }
+            .onChange(of: store.lyricsRevision) {
+                guard store.lyricsFollowPlayback, let current = store.currentLyricIndex else { return }
+                Task { @MainActor in
+                    await Task.yield()
+                    proxy.scrollTo(current, anchor: .center)
+                }
+            }
+            .onAppear {
+                guard followsPlayback, let cur else { return }
+                Task { @MainActor in
+                    await Task.yield()
+                    proxy.scrollTo(cur, anchor: .center)
+                }
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
     @ViewBuilder
-    private func lyricLine(index i: Int, current cur: Int) -> some View {
+    private func lyricLine(index i: Int, current cur: Int?) -> some View {
         let ln = store.lyrics[i]
-        let isCur = i == cur
-        let dist = abs(i - cur)
-        let opacity = isCur ? 1 : max(0.18, 0.5 - Double(dist) * 0.1)
+        let isCur = cur == i
+        let dist = cur.map { abs(i - $0) }
+        let opacity = isCur ? 1 : dist.map { max(0.18, 0.5 - Double($0) * 0.1) } ?? 0.78
         // 字号固定、靠 scaleEffect 缩放——缩放能平滑动画,直接换 font size 会硬跳。
-        let scale: CGFloat = isCur ? 1.0 : 0.78
+        let scale: CGFloat = isCur ? 1.0 : (cur == nil ? 0.88 : 0.78)
         let size: CGFloat = 48
         VStack(alignment: .leading, spacing: 6) {
             if isCur, !ln.syllables.isEmpty {

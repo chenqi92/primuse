@@ -15,12 +15,37 @@ public enum LyricRowFrameBatchPolicy {
 }
 
 public enum LyricPlaybackPositionPolicy {
+    public static func shouldFollowPlayback(in lyrics: [LyricLine]) -> Bool {
+        shouldFollowPlayback(in: lyrics, isSynchronized: \.isSynchronized)
+    }
+
+    public static func shouldFollowPlayback<Element>(
+        in lyrics: [Element],
+        isSynchronized: (Element) -> Bool
+    ) -> Bool {
+        !lyrics.isEmpty && lyrics.allSatisfy(isSynchronized)
+    }
+
     /// Returns the lyric row that should be active at the supplied playback
     /// time. Parsed lyric lines are expected to be ordered by timestamp.
     public static func activeLineIndex(
         in lyrics: [LyricLine],
         at playbackTime: TimeInterval,
         lookahead: TimeInterval = 0
+    ) -> Int? {
+        activeLineIndex(
+            in: lyrics,
+            at: playbackTime,
+            lookahead: lookahead,
+            timestamp: \.timestamp
+        )
+    }
+
+    public static func activeLineIndex<Element>(
+        in lyrics: [Element],
+        at playbackTime: TimeInterval,
+        lookahead: TimeInterval = 0,
+        timestamp: (Element) -> TimeInterval
     ) -> Int? {
         guard !lyrics.isEmpty else { return nil }
 
@@ -29,7 +54,7 @@ public enum LyricPlaybackPositionPolicy {
         var upper = lyrics.count
         while lower < upper {
             let middle = lower + (upper - lower) / 2
-            if lyrics[middle].timestamp <= target {
+            if timestamp(lyrics[middle]) <= target {
                 lower = middle + 1
             } else {
                 upper = middle

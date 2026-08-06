@@ -59,7 +59,7 @@ enum TVColor {
 
 enum TVSpace {
     static let pageTop: CGFloat = 140    // 让出顶部 tab bar
-    static let pageBottom: CGFloat = 72  // 让出底部 now-playing 条(已收窄)
+    static let pageBottom: CGFloat = 48  // 保留焦点放大和电视过扫描安全区
     static let pageH: CGFloat = 80
     static let row: CGFloat = 28
     static let card: CGFloat = 22

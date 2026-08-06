@@ -110,6 +110,7 @@
 "ext.tv.unknownArtist"                     = "不明なアーティスト";
 "ext.tv.nav.home"                          = "ホーム";
 "ext.tv.nav.library"                       = "ライブラリ";
+"ext.tv.nav.nowPlaying"                    = "再生中";
 "ext.tv.nav.playlists"                     = "プレイリスト";
 "ext.tv.nav.sources"                       = "ソース";
 "ext.tv.nav.search"                        = "検索";

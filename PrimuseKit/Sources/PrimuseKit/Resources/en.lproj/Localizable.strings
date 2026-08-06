@@ -108,6 +108,7 @@
 "ext.tv.unknownArtist"                     = "Unknown Artist";
 "ext.tv.nav.home"                          = "Home";
 "ext.tv.nav.library"                       = "Library";
+"ext.tv.nav.nowPlaying"                    = "Now Playing";
 "ext.tv.nav.playlists"                     = "Playlists";
 "ext.tv.nav.sources"                       = "Sources";
 "ext.tv.nav.search"                        = "Search";

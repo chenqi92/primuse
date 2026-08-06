@@ -89,11 +89,28 @@ struct TVSource: Identifiable, Hashable {
 struct TVSyllable: Hashable { let w: String; let d: Double }
 
 struct TVLyricLine: Identifiable, Hashable {
-    let id = UUID()
+    let id: String
     let time: Double
     let text: String
+    let isSynchronized: Bool
     let syllables: [TVSyllable]
     let translation: String
+
+    init(
+        id: String = UUID().uuidString,
+        time: Double,
+        text: String,
+        isSynchronized: Bool = true,
+        syllables: [TVSyllable] = [],
+        translation: String = ""
+    ) {
+        self.id = id
+        self.time = time
+        self.text = text
+        self.isSynchronized = isSynchronized
+        self.syllables = syllables
+        self.translation = translation
+    }
 }
 
 struct TVNowPlaying {
@@ -142,6 +159,9 @@ final class TVStore {
             self.playbackIssue = nil
             self.radioReconnectAttempt = 0
         }
+        engine.onRemotePlay = { [weak self] in self?.resumePlayback() }
+        engine.onRemotePause = { [weak self] in self?.pausePlayback() }
+        engine.onRemoteTogglePlayPause = { [weak self] in self?.togglePlayPause() }
     }
 
     var hasRealLibrary: Bool {
@@ -152,10 +172,15 @@ final class TVStore {
         )
     }
 
-    /// 选中的歌(tvOS 暂无真实音频,仅展示真实元数据);未选中时不显示底部条/正在播放页。
+    /// 当前选中的歌曲或电台；未选中时“正在播放”tab 展示空态。
     var nowPlaying: TVNowPlaying = .none
     var hasNowPlaying: Bool = false
-    var lyrics: [TVLyricLine] = []        // tvOS 暂未同步歌词
+    var lyricsRevision = 0
+    var lyrics: [TVLyricLine] = [] {
+        didSet {
+            if oldValue != lyrics { lyricsRevision &+= 1 }
+        }
+    }
     var queueUpNextIDs: [String] = []
     var playbackIssue: TVPlaybackIssue?   // 解析/播放受阻原因(展示用)
     var radioStations: [RadioStation] = []
@@ -1254,16 +1279,26 @@ final class TVStore {
 
     // MARK: 歌词
 
-    /// 当前播放时间所在的歌词行索引。
-    var currentLyricIndex: Int {
-        var idx = 0
-        for (i, l) in lyrics.enumerated() where l.time <= currentTime { idx = i }
-        return idx
+    var lyricsFollowPlayback: Bool {
+        LyricPlaybackPositionPolicy.shouldFollowPlayback(
+            in: lyrics,
+            isSynchronized: \.isSynchronized
+        )
+    }
+
+    /// 当前播放时间所在的歌词行索引。纯文本歌词没有时间轴，不参与自动跟随。
+    var currentLyricIndex: Int? {
+        guard lyricsFollowPlayback else { return nil }
+        return LyricPlaybackPositionPolicy.activeLineIndex(
+            in: lyrics,
+            at: currentTime,
+            lookahead: 0.25,
+            timestamp: \.time
+        )
     }
     /// 当前行内逐字进度 0...1。
     var currentLyricProgress: Double {
-        let i = currentLyricIndex
-        guard i < lyrics.count else { return 0 }
+        guard let i = currentLyricIndex, i < lyrics.count else { return 0 }
         let start = lyrics[i].time
         let end = i + 1 < lyrics.count ? lyrics[i + 1].time : start + 3
         return max(0, min(1, (currentTime - start) / max(0.5, end - start)))
@@ -1272,23 +1307,69 @@ final class TVStore {
     // MARK: 播放控制(AVPlayer 流式播放,真实流 URL 由 TVPlaybackCoordinator 解析)
 
     func togglePlayPause() {
-        guard isLiveRadio else {
-            engine.togglePlayPause()
+        if isLiveRadio {
+            if engine.status == .playing || engine.status == .loading {
+                pausePlayback()
+            } else {
+                resumePlayback()
+            }
             return
         }
+        if engine.isPlaying {
+            pausePlayback()
+        } else {
+            resumePlayback()
+        }
+    }
+
+    private func pausePlayback() {
         radioReconnectTask?.cancel()
         radioReconnectTask = nil
-        if engine.status == .playing || engine.status == .loading {
-            engine.pause()
-        } else if let station = currentRadioStation {
+        engine.pause()
+    }
+
+    private func resumePlayback() {
+        if isLiveRadio {
+            radioReconnectTask?.cancel()
+            radioReconnectTask = nil
+            guard let station = currentRadioStation, let url = station.url else { return }
             playbackIssue = nil
             engine.loadLiveRadio(
-                url: station.url!,
+                url: url,
                 title: station.name,
                 subtitle: radioMetadataTitle.isEmpty ? station.playbackSubtitle : radioMetadataTitle,
                 format: station.streamFormat.displayName,
                 streamFormat: station.streamFormat
             )
+            return
+        }
+
+        guard engine.status != .loading else { return }
+        guard let id = currentSongID, let currentSong = song(id) else {
+            engine.play()
+            return
+        }
+        let isAtTrackEnd = duration > 0 && currentTime >= max(0, duration - 0.5)
+        let needsRecovery: Bool
+        if case .failed = engine.status {
+            needsRecovery = true
+        } else {
+            needsRecovery = false
+        }
+        let action = LocalPlaybackResumePolicy.action(
+            isAtTrackEnd: isAtTrackEnd,
+            needsRecovery: needsRecovery,
+            hasPreparedAudio: engine.hasPreparedAudio
+        )
+        switch action {
+        case .resumePreparedAudio:
+            if !engine.play() {
+                startPlaying(currentSong, resumeTime: currentTime)
+            }
+        case .recoverFromInterruption:
+            startPlaying(currentSong, resumeTime: currentTime)
+        case .restartCurrentSong:
+            startPlaying(currentSong, resumeTime: isAtTrackEnd ? 0 : currentTime)
         }
     }
     func seek(toFraction f: Double) {

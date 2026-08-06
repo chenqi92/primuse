@@ -107,6 +107,7 @@
 "ext.tv.unknownArtist"                     = "未知藝人";
 "ext.tv.nav.home"                          = "首頁";
 "ext.tv.nav.library"                       = "資料庫";
+"ext.tv.nav.nowPlaying"                    = "正在播放";
 "ext.tv.nav.playlists"                     = "播放清單";
 "ext.tv.nav.sources"                       = "音樂來源";
 "ext.tv.nav.search"                        = "搜尋";

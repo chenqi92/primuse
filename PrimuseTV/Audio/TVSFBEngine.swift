@@ -19,7 +19,8 @@ final class TVSFBEngine: NSObject, AudioPlayer.Delegate, @unchecked Sendable {
     }
 
     func play(url: URL) throws { try player.play(url) }
-    func resume() { _ = player.resume() }
+    @discardableResult
+    func resume() -> Bool { player.resume() }
     func pause() { _ = player.pause() }
     func stop() { player.stop() }
     func seek(_ time: Double) { _ = player.seek(time: time) }

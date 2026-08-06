@@ -107,6 +107,7 @@
 "ext.tv.unknownArtist"                     = "未知艺术家";
 "ext.tv.nav.home"                          = "首页";
 "ext.tv.nav.library"                       = "资料库";
+"ext.tv.nav.nowPlaying"                    = "正在播放";
 "ext.tv.nav.playlists"                     = "歌单";
 "ext.tv.nav.sources"                       = "音乐源";
 "ext.tv.nav.search"                        = "搜索";

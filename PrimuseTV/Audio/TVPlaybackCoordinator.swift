@@ -656,21 +656,13 @@ final class TVPlaybackCoordinator {
 
     private nonisolated static func toTVLyrics(
         _ lines: [LyricLine],
-        duration: TimeInterval
+        duration _: TimeInterval
     ) -> [TVLyricLine] {
-        let isUntimed = lines.count > 1 && lines.allSatisfy {
-            $0.timestamp <= 0 && ($0.syllables?.isEmpty ?? true)
-        }
-        let untimedStep = duration > 0
-            ? max(1, duration / Double(lines.count))
-            : 5
-
-        return lines.enumerated().map { index, line in
-            // 纯文本歌词没有时间轴；仅在 TV 展示层按曲长均匀推进，缓存仍保留
-            // 服务端原文，避免把估算时间写回共享歌词数据。
-            let displayTime = isUntimed ? Double(index) * untimedStep : line.timestamp
-            return TVLyricLine(time: displayTime,
+        lines.map { line in
+            TVLyricLine(id: line.id,
+                        time: line.timestamp,
                         text: line.text,
+                        isSynchronized: line.isSynchronized,
                         // start/end 是相对歌曲起点的绝对时间戳;卡拉OK扫词需要每字时长。
                         syllables: (line.syllables ?? []).map { TVSyllable(w: $0.text, d: max(0.001, $0.end - $0.start)) },
                         translation: "")

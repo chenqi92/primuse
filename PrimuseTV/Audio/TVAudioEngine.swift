@@ -24,6 +24,9 @@ final class TVAudioEngine {
     var onEnded: (() -> Void)?
     var onFailure: ((String) -> Void)?
     var onLiveMetadata: ((String) -> Void)?
+    var onRemotePlay: (() -> Void)?
+    var onRemotePause: (() -> Void)?
+    var onRemoteTogglePlayPause: (() -> Void)?
 
     private let player = AVPlayer()
     private var timeObserver: Any?
@@ -137,6 +140,7 @@ final class TVAudioEngine {
         duration = 0
         status = .loading
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        disableRemoteTransportCommands()
     }
 
     func load(url: URL, headers: [String: String] = [:], fileExtension: String? = nil,
@@ -441,18 +445,26 @@ final class TVAudioEngine {
         updateNowPlayingInfo()
     }
 
-    func play() {
+    @discardableResult
+    func play() -> Bool {
         activateAudioSession()
         if isLiveStream, player.currentItem == nil, !usingLivePCM, let liveRequest {
             startLiveRadio(liveRequest)
-            return
+            return true
         }
         if usingSFB {
-            sfb.resume()
+            guard sfb.isPlaying || sfb.resume() else {
+                isPlaying = false
+                status = .paused
+                updateNowPlayingInfo()
+                return false
+            }
         } else {
             guard player.currentItem != nil else {
                 isPlaying = false
-                return
+                status = .paused
+                updateNowPlayingInfo()
+                return false
             }
             player.play()
         }
@@ -460,6 +472,7 @@ final class TVAudioEngine {
         status = .playing
         if isLiveStream, liveStartedAt == nil { liveStartedAt = Date() }
         updateNowPlayingInfo()
+        return true
     }
 
     func pause() {
@@ -487,7 +500,17 @@ final class TVAudioEngine {
         updateNowPlayingInfo()
     }
 
-    func togglePlayPause() { isPlaying ? pause() : play() }
+    func togglePlayPause() {
+        if isPlaying {
+            pause()
+        } else {
+            play()
+        }
+    }
+
+    var hasPreparedAudio: Bool {
+        usingSFB || player.currentItem != nil
+    }
 
     func stop() {
         resetSFBIfNeeded()
@@ -501,6 +524,7 @@ final class TVAudioEngine {
         currentTime = 0
         status = .idle
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        disableRemoteTransportCommands()
         deactivateAudioSession()
     }
 
@@ -718,11 +742,18 @@ final class TVAudioEngine {
     // MARK: Now Playing Info / 遥控
 
     private func updateNowPlayingInfo() {
+        let hasCurrentItem = isLiveStream ? liveRequest != nil : hasPreparedAudio
+        let projection = NowPlayingPlaybackProjectionPolicy.projection(
+            hasCurrentItem: hasCurrentItem,
+            isPlaying: isPlaying,
+            isLoading: status == .loading,
+            preferredPlaybackRate: 1
+        )
         var info: [String: Any] = [
             MPMediaItemPropertyTitle: npTitle,
             MPMediaItemPropertyArtist: npArtist,
             MPMediaItemPropertyAlbumTitle: npAlbum,
-            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0,
+            MPNowPlayingInfoPropertyPlaybackRate: projection.playbackRate,
         ]
         if isLiveStream {
             info[MPNowPlayingInfoPropertyIsLiveStream] = true
@@ -735,6 +766,9 @@ final class TVAudioEngine {
             : MPNowPlayingInfoMediaType.audio.rawValue
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
         let commands = MPRemoteCommandCenter.shared()
+        commands.playCommand.isEnabled = projection.playCommandEnabled
+        commands.pauseCommand.isEnabled = projection.pauseCommandEnabled
+        commands.togglePlayPauseCommand.isEnabled = hasCurrentItem && (status != .loading || isLiveStream)
         commands.changePlaybackPositionCommand.isEnabled = !isLiveStream
         commands.skipForwardCommand.isEnabled = !isLiveStream
         commands.skipBackwardCommand.isEnabled = !isLiveStream
@@ -742,19 +776,46 @@ final class TVAudioEngine {
 
     private func setupRemoteCommands() {
         let c = MPRemoteCommandCenter.shared()
-        c.playCommand.isEnabled = true
-        c.pauseCommand.isEnabled = true
-        c.togglePlayPauseCommand.isEnabled = true
+        c.playCommand.removeTarget(nil)
+        c.pauseCommand.removeTarget(nil)
+        c.togglePlayPauseCommand.removeTarget(nil)
+        c.changePlaybackPositionCommand.removeTarget(nil)
+        c.skipForwardCommand.removeTarget(nil)
+        c.skipBackwardCommand.removeTarget(nil)
+        c.playCommand.isEnabled = false
+        c.pauseCommand.isEnabled = false
+        c.togglePlayPauseCommand.isEnabled = false
         c.playCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.play() }
+            Task { @MainActor in
+                guard let self else { return }
+                if let onRemotePlay = self.onRemotePlay {
+                    onRemotePlay()
+                } else {
+                    self.play()
+                }
+            }
             return .success
         }
         c.pauseCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.pause() }
+            Task { @MainActor in
+                guard let self else { return }
+                if let onRemotePause = self.onRemotePause {
+                    onRemotePause()
+                } else {
+                    self.pause()
+                }
+            }
             return .success
         }
         c.togglePlayPauseCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.togglePlayPause() }
+            Task { @MainActor in
+                guard let self else { return }
+                if let onRemoteTogglePlayPause = self.onRemoteTogglePlayPause {
+                    onRemoteTogglePlayPause()
+                } else {
+                    self.togglePlayPause()
+                }
+            }
             return .success
         }
         c.changePlaybackPositionCommand.addTarget { [weak self] event in
@@ -774,6 +835,16 @@ final class TVAudioEngine {
             Task { @MainActor in self?.skip(by: -10) }
             return .success
         }
+    }
+
+    private func disableRemoteTransportCommands() {
+        let commands = MPRemoteCommandCenter.shared()
+        commands.playCommand.isEnabled = false
+        commands.pauseCommand.isEnabled = false
+        commands.togglePlayPauseCommand.isEnabled = false
+        commands.changePlaybackPositionCommand.isEnabled = false
+        commands.skipForwardCommand.isEnabled = false
+        commands.skipBackwardCommand.isEnabled = false
     }
 
     private func clearLiveState() {

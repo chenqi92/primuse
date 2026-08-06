@@ -110,6 +110,7 @@
 "ext.tv.unknownArtist"                     = "Unbekannter Künstler";
 "ext.tv.nav.home"                          = "Start";
 "ext.tv.nav.library"                       = "Mediathek";
+"ext.tv.nav.nowPlaying"                    = "Wiedergabe";
 "ext.tv.nav.playlists"                     = "Playlists";
 "ext.tv.nav.sources"                       = "Quellen";
 "ext.tv.nav.search"                        = "Suchen";

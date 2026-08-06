@@ -13,14 +13,13 @@ enum TVDebugLaunch {
 }
 #endif
 
-/// tvOS 根布局 — 顶部自定义 tab bar(Apple TV / Apple Music for tvOS 风) + 全屏内容
-/// + 底部常驻「正在播放」条。正在播放 / 队列 / 选项 / 设置都以全屏覆盖呈现。
+/// tvOS 根布局 — 顶部自定义 tab bar(Apple TV / Apple Music for tvOS 风) + 全屏内容。
+/// 正在播放作为一级 tab，队列 / 选项 / 设置仍以全屏覆盖呈现。
 struct TVRoot: View {
-    enum Tab: Hashable { case home, library, playlists, sources, search }
+    enum Tab: Hashable { case home, library, nowPlaying, playlists, sources, search }
 
     @Environment(TVStore.self) private var store
     @State private var tab: Tab = .home
-    @State private var showNowPlaying = false
     @State private var showSettings = false
     @State private var showQueue = false
     @State private var showOptions = false
@@ -72,13 +71,6 @@ struct TVRoot: View {
                 Spacer(minLength: 0)
             }
 
-            VStack(spacing: 0) {
-                Spacer(minLength: 0)
-                TVBottomBar(openPlayer: { showNowPlaying = true })
-            }
-        }
-        .fullScreenCover(isPresented: $showNowPlaying) {
-            TVNowPlayingView().environment(store)
         }
         .fullScreenCover(isPresented: $showSettings) {
             TVSettingsView(onNavigate: { tab = $0 }).environment(store)
@@ -95,15 +87,15 @@ struct TVRoot: View {
             case "nowPlaying":
                 await waitForDemoContent(requireAlbum: true)
                 if let album = store.albums.first { store.play(album: album) }
-                showNowPlaying = true
+                tab = .nowPlaying
             case "nowPlayingDemo":   // 截图用:注入演示播放态+歌词,不走真实播放
                 await waitForDemoContent()
                 await store.loadDemoNowPlaying()
-                showNowPlaying = true
+                tab = .nowPlaying
             case "nowPlayingSongArtwork":
                 await waitForDemoContent()
                 if await store.loadDemoNowPlaying(preferSongArtwork: true) {
-                    showNowPlaying = true
+                    tab = .nowPlaying
                 }
             case "queue":
                 await waitForDemoContent()
@@ -133,15 +125,20 @@ struct TVRoot: View {
     @ViewBuilder
     private var content: some View {
         switch tab {
-        case .home:      TVHomeView(openPlayer: { showNowPlaying = true })
+        case .home:      TVHomeView(openPlayer: { tab = .nowPlaying })
         case .library:
             TVLibraryView(
-                openPlayer: { showNowPlaying = true },
+                openPlayer: { tab = .nowPlaying },
                 focusRequest: libraryFocusRequest
             )
-        case .playlists: TVPlaylistsView(openPlayer: { showNowPlaying = true })
+        case .nowPlaying:
+            TVNowPlayingView(
+                isTabContent: true,
+                onReturnToTabs: { tabFocusRequest &+= 1 }
+            )
+        case .playlists: TVPlaylistsView(openPlayer: { tab = .nowPlaying })
         case .sources:   TVSourcesView()
-        case .search:    TVSearchView(openPlayer: { showNowPlaying = true })
+        case .search:    TVSearchView(openPlayer: { tab = .nowPlaying })
         }
     }
 }
@@ -159,6 +156,7 @@ struct TVTabBar: View {
 
     private let tabs: [(TVRoot.Tab, String)] = [
         (.home, PMString("ext.tv.nav.home")), (.library, PMString("ext.tv.nav.library")),
+        (.nowPlaying, PMString("ext.tv.nav.nowPlaying")),
         (.playlists, PMString("ext.tv.nav.playlists")),
         (.sources, PMString("ext.tv.nav.sources")), (.search, PMString("ext.tv.nav.search")),
     ]
@@ -168,6 +166,7 @@ struct TVTabBar: View {
         switch ProcessInfo.processInfo.environment["TV_FOCUS_TAB"] {
         case "home": return .home
         case "library": return .library
+        case "nowPlaying": return .nowPlaying
         case "playlists": return .playlists
         case "sources": return .sources
         case "search": return .search
