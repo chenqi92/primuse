@@ -38,7 +38,7 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
     private static let defaultAPIVersion = "1.16.1"
     private static let airsonicAPIVersion = "1.15.0"
     private static let clientName = "Primuse"
-    private static let pageSize = 500          // getAlbumList2 单页上限
+    private static let pageSize = SubsonicCatalogPagingPolicy.pageSize
     private static let transcodeBitRate = 320  // 转码目标码率 kbps
 
     init(
@@ -153,6 +153,37 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
         return AsyncThrowingStream { continuation in
             let producer = Task {
                 do {
+                    // OpenSubsonic defines an empty search3 query as the direct
+                    // full-media enumeration path for offline sync. Navidrome
+                    // implements it, reducing an N+1 album walk to one request
+                    // per 500 songs. Preflight the first page before yielding so
+                    // a falsely-advertised server can still use the legacy path
+                    // without duplicating already-emitted songs.
+                    if SubsonicCatalogPagingPolicy.shouldUseDirectSongSearch(
+                        isOpenSubsonic: isOpenSubsonic,
+                        serverType: serverType
+                    ) {
+                        let firstPage: [SubsonicChild]?
+                        do {
+                            let page = try await search3SongPage(offset: 0, path: path)
+                            firstPage = page.isEmpty ? nil : page
+                        } catch {
+                            if Task.isCancelled { throw error }
+                            plog("⚠️ Subsonic direct catalog unavailable; falling back to album walk: \(error.localizedDescription)")
+                            firstPage = nil
+                        }
+
+                        if let firstPage {
+                            try await yieldSearch3Catalog(
+                                firstPage: firstPage,
+                                path: path,
+                                continuation: continuation
+                            )
+                            continuation.finish()
+                            return
+                        }
+                    }
+
                     var offset = 0
                     // 逐页拉专辑列表, 再对每个专辑取曲目(getAlbum 自带完整 Child 元数据)。
                     while true {
@@ -170,18 +201,10 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
 
                         for album in albums {
                             try Task.checkCancellation()
-                            let albumContainer: AlbumContainer
-                            do {
-                                albumContainer = try await requestJSON(
-                                    "getAlbum",
-                                    query: [URLQueryItem(name: "id", value: album.id)]
-                                )
-                            } catch {
-                                // 取消要中断整库扫描; 单专辑(被删/服务端瞬时错误)失败则跳过,
-                                // 不应让一个坏专辑 finish 掉整个 stream、丢掉后面所有专辑。
-                                if Task.isCancelled { throw error }
-                                continue
-                            }
+                            let albumContainer: AlbumContainer = try await requestJSON(
+                                "getAlbum",
+                                query: [URLQueryItem(name: "id", value: album.id)]
+                            )
                             let songs = albumContainer.album?.song ?? []
                             for child in songs where child.isVideo != true {
                                 try Task.checkCancellation()
@@ -200,6 +223,65 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
             }
             continuation.onTermination = { @Sendable _ in producer.cancel() }
         }
+    }
+
+    private func search3SongPage(offset: Int, path: String) async throws -> [SubsonicChild] {
+        let container: Search3Container = try await requestJSON(
+            "search3",
+            query: SubsonicCatalogPagingPolicy.search3QueryItems(
+                songOffset: offset,
+                musicFolderID: musicFolderID(from: path)
+            )
+        )
+        guard let result = container.searchResult3 else {
+            throw SourceError.connectionFailed("Subsonic search3 response is missing searchResult3")
+        }
+        return result.song ?? []
+    }
+
+    private func yieldSearch3Catalog(
+        firstPage: [SubsonicChild],
+        path: String,
+        continuation: AsyncThrowingStream<ConnectorScannedSong, Error>.Continuation
+    ) async throws {
+        var offset = 0
+        var page = firstPage
+        var seenResultIDs = Set<String>()
+
+        while true {
+            try Task.checkCancellation()
+            var newResultCount = 0
+            for child in page {
+                try Task.checkCancellation()
+                guard seenResultIDs.insert(child.id).inserted else { continue }
+                newResultCount += 1
+                guard child.isVideo != true else { continue }
+                let song = buildSong(from: child)
+                continuation.yield(
+                    ConnectorScannedSong(
+                        song: song,
+                        displayName: child.title ?? song.title
+                    )
+                )
+            }
+
+            if page.count >= Self.pageSize, newResultCount == 0 {
+                throw SourceError.connectionFailed("Subsonic search3 pagination repeated a full page")
+            }
+            guard let nextOffset = SubsonicCatalogPagingPolicy.nextOffset(
+                currentOffset: offset,
+                receivedCount: page.count
+            ) else { return }
+            offset = nextOffset
+            page = try await search3SongPage(offset: offset, path: path)
+        }
+    }
+
+    private func musicFolderID(from path: String) -> String? {
+        let components = path.split(separator: "/", omittingEmptySubsequences: true)
+        guard components.count == 2,
+              String(components[0]).caseInsensitiveCompare("folders") == .orderedSame else { return nil }
+        return String(components[1])
     }
 
     // MARK: - Playback URLs
@@ -386,20 +468,20 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
 
     // MARK: - Song construction
 
-    private func buildSong(from child: SubsonicChild, album: AlbumSummary) -> Song {
+    private func buildSong(from child: SubsonicChild, album: AlbumSummary? = nil) -> Song {
         let suffix = (child.suffix ?? (child.path.map { ($0 as NSString).pathExtension }) ?? "mp3").lowercased()
         let format = AudioFormat.from(fileExtension: suffix) ?? .mp3
         let relativePath = "/songs/\(child.id).\(suffix.isEmpty ? "mp3" : suffix)"
-        let coverArtID = child.coverArt ?? album.coverArt
+        let coverArtID = child.coverArt ?? album?.coverArt
 
         // 单曲艺术家常缺标签 → Subsonic 返回 "[Unknown Artist]" 占位; 回退到
         // 专辑艺术家。真正全空的归一成 nil, 让 Primuse 走自己的"未知"处理,
         // 而不是显示字面量 "[Unknown Artist]"。专辑名同理。
         let artist = Self.cleaned(child.artist, unknown: "[Unknown Artist]")
             ?? Self.cleaned(child.displayArtist, unknown: "[Unknown Artist]")
-            ?? Self.cleaned(album.artist, unknown: "[Unknown Artist]")
+            ?? Self.cleaned(album?.artist, unknown: "[Unknown Artist]")
         let albumTitle = Self.cleaned(child.album, unknown: "[Unknown Album]")
-            ?? Self.cleaned(album.name, unknown: "[Unknown Album]")
+            ?? Self.cleaned(album?.name, unknown: "[Unknown Album]")
 
         return Song(
             id: Self.hash("\(sourceID):\(relativePath)"),
@@ -690,6 +772,16 @@ private struct AlbumContainer: SubsonicResponseContainer {
     let status: String
     let error: SubsonicError?
     let album: AlbumWithSongs?
+}
+
+private struct Search3Container: SubsonicResponseContainer {
+    let status: String
+    let error: SubsonicError?
+    let searchResult3: SearchResult3?
+}
+
+private struct SearchResult3: Decodable {
+    let song: [SubsonicChild]?
 }
 
 private struct AlbumWithSongs: Decodable {

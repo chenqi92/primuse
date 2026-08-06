@@ -1,14 +1,20 @@
 import SwiftUI
 import PrimuseKit
 
-private enum SourceCacheAlert: Identifiable {
+private enum SourceAlert: Identifiable {
     case confirm(SourceCacheRequest)
     case completed(SourceCacheCompletion)
+    #if os(iOS)
+    case localImport(SourceLocalImportAlert)
+    #endif
 
     var id: String {
         switch self {
         case .confirm(let request): "confirm-\(request.id.uuidString)"
         case .completed(let completion): "completed-\(completion.id.uuidString)"
+        #if os(iOS)
+        case .localImport(let alert): "local-import-\(alert.id.uuidString)"
+        #endif
         }
     }
 }
@@ -108,8 +114,10 @@ struct SourcesContentView: View {
     @State private var undoToast: UndoDeleteToast?
     @State private var pendingDeleteTasks: [String: Task<Void, Never>] = [:]
     @State private var diagnosingSource: MusicSource?
-    @State private var cacheAlert: SourceCacheAlert?
+    @State private var sourceAlert: SourceAlert?
     @State private var activeCacheRun: SourceCacheRun?
+    @State private var preparingCacheSourceID: String?
+    @State private var cachePreparationTask: Task<Void, Never>?
     @State private var cloudDirectoryNameRefreshID = UUID()
     /// Apple Music 这个虚拟 source 没有目录 / 体检的概念, 行内按钮换成
     /// "打开 Apple Music 设置" 的跳转 ── 走 NavigationStack 的 destination 而不是 sheet,
@@ -122,7 +130,6 @@ struct SourcesContentView: View {
     @State private var localImportTargetSource: MusicSource?
     @State private var localImportTask: Task<Void, Never>?
     @State private var localImportProgress: LocalImportService.CopyProgress?
-    @State private var localImportAlert: SourceLocalImportAlert?
     #endif
 
     var body: some View {
@@ -137,7 +144,12 @@ struct SourcesContentView: View {
                     undoToastView(toast)
                 }
             }
-            .onDisappear { flushPendingDeletes() }
+            .onDisappear {
+                flushPendingDeletes()
+                cachePreparationTask?.cancel()
+                cachePreparationTask = nil
+                preparingCacheSourceID = nil
+            }
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button { showAddSource = true } label: { Image(systemName: "plus") }
@@ -180,7 +192,7 @@ struct SourcesContentView: View {
                 }
             }
             #endif
-            .alert(item: $cacheAlert) { alert in
+            .alert(item: $sourceAlert) { alert in
                 switch alert {
                 case .confirm(let request):
                     return Alert(
@@ -197,17 +209,16 @@ struct SourcesContentView: View {
                         message: Text(cacheCompletionMessage(for: completion)),
                         dismissButton: .default(Text("done"))
                     )
+                #if os(iOS)
+                case .localImport(let alert):
+                    return Alert(
+                        title: Text(alert.title),
+                        message: Text(alert.message),
+                        dismissButton: .default(Text("ok"))
+                    )
+                #endif
                 }
             }
-            #if os(iOS)
-            .alert(item: $localImportAlert) { alert in
-                Alert(
-                    title: Text(alert.title),
-                    message: Text(alert.message),
-                    dismissButton: .default(Text("ok"))
-                )
-            }
-            #endif
             .navigationDestination(isPresented: $openAppleMusicSettings) {
                 AppleMusicSettingsView()
             }
@@ -277,9 +288,14 @@ struct SourcesContentView: View {
         // scans / batch caching on large libraries.
         let hasSourceDownloads = downloadingIDs.contains(source.id)
         let hasOtherSourceDownloads = downloadingIDs.contains { $0 != source.id }
+        let sourceSongs = playableSongs(for: source)
+        let isPreparingSourceCache = preparingCacheSourceID == source.id
         let isSourceCaching = activeCacheRun?.sourceID == source.id || hasSourceDownloads
-        let isAnotherSourceCaching = (activeCacheRun != nil && activeCacheRun?.sourceID != source.id) || hasOtherSourceDownloads
-        let cacheButtonTitle: LocalizedStringKey = isSourceCaching ? "source_cache_all_loading" : "source_cache_all_short"
+        let isSourceCacheBusy = isPreparingSourceCache || isSourceCaching
+        let isAnotherSourceCaching = (activeCacheRun != nil && activeCacheRun?.sourceID != source.id)
+            || (preparingCacheSourceID != nil && preparingCacheSourceID != source.id)
+            || hasOtherSourceDownloads
+        let cacheButtonTitle: LocalizedStringKey = isSourceCacheBusy ? "source_cache_all_loading" : "source_cache_all_short"
 
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
@@ -480,10 +496,10 @@ struct SourcesContentView: View {
                         cacheButtonTitle,
                         systemImage: "arrow.down.circle",
                         prominence: .accent,
-                        isLoading: isSourceCaching,
-                        isDisabled: isSourceCaching || source.songCount == 0 || isAnotherSourceCaching
+                        isLoading: isSourceCacheBusy,
+                        isDisabled: isSourceCacheBusy || sourceSongs.isEmpty || isAnotherSourceCaching
                     ) {
-                        presentCacheConfirmation(for: source, songs: playableSongs(for: source))
+                        presentCacheConfirmation(for: source, songs: sourceSongs)
                     }
 
                     sourceActionButton(
@@ -513,10 +529,10 @@ struct SourcesContentView: View {
                         cacheButtonTitle,
                         systemImage: "arrow.down.circle",
                         prominence: .accent,
-                        isLoading: isSourceCaching,
-                        isDisabled: isSourceCaching || source.songCount == 0 || isAnotherSourceCaching
+                        isLoading: isSourceCacheBusy,
+                        isDisabled: isSourceCacheBusy || sourceSongs.isEmpty || isAnotherSourceCaching
                     ) {
-                        presentCacheConfirmation(for: source, songs: playableSongs(for: source))
+                        presentCacheConfirmation(for: source, songs: sourceSongs)
                     }
 
                     if !dirs.isEmpty {
@@ -649,7 +665,7 @@ struct SourcesContentView: View {
     private func presentExistingLocalImport(for source: MusicSource) {
         guard localImportProgress == nil else { return }
         localImportTargetSource = currentSource(for: source)
-        localImportAlert = nil
+        sourceAlert = nil
         showExistingLocalFileImporter = true
     }
 
@@ -660,16 +676,16 @@ struct SourcesContentView: View {
             guard !urls.isEmpty, let source = localImportTargetSource else { return }
             startExistingLocalImport(urls, for: currentSource(for: source))
         case .failure(let error):
-            localImportAlert = SourceLocalImportAlert(
+            sourceAlert = .localImport(SourceLocalImportAlert(
                 title: String(localized: "local_import_err_title"),
                 message: error.localizedDescription
-            )
+            ))
         }
     }
 
     private func startExistingLocalImport(_ urls: [URL], for source: MusicSource) {
         localImportTask?.cancel()
-        localImportAlert = nil
+        sourceAlert = nil
         localImportTargetSource = currentSource(for: source)
         localImportProgress = LocalImportService.CopyProgress(
             phase: .discovering,
@@ -698,10 +714,10 @@ struct SourcesContentView: View {
             if outcome.cancelled { return }
 
             guard outcome.copied > 0 else {
-                localImportAlert = SourceLocalImportAlert(
+                sourceAlert = .localImport(SourceLocalImportAlert(
                     title: localImportFailureTitle(outcome),
                     message: localImportFailureMessage(outcome)
-                )
+                ))
                 return
             }
 
@@ -715,10 +731,10 @@ struct SourcesContentView: View {
             )
 
             if outcome.skipped > 0 {
-                localImportAlert = SourceLocalImportAlert(
+                sourceAlert = .localImport(SourceLocalImportAlert(
                     title: String(localized: "local_import_partial_title"),
                     message: localImportCompletionMessage(outcome)
-                )
+                ))
             }
         }
     }
@@ -943,11 +959,19 @@ struct SourcesContentView: View {
     }
 
     private func presentCacheConfirmation(for source: MusicSource, songs: [Song]) {
-        cacheAlert = .confirm(SourceCacheRequest(
-            source: source,
-            songs: songs,
-            estimate: sourceCacheEstimate(for: songs)
-        ))
+        cachePreparationTask?.cancel()
+        preparingCacheSourceID = source.id
+        cachePreparationTask = Task { @MainActor in
+            await sourceManager.prepareOfflineAudioSnapshots(for: songs)
+            guard !Task.isCancelled, preparingCacheSourceID == source.id else { return }
+            preparingCacheSourceID = nil
+            cachePreparationTask = nil
+            sourceAlert = .confirm(SourceCacheRequest(
+                source: source,
+                songs: songs,
+                estimate: sourceCacheEstimate(for: songs)
+            ))
+        }
     }
 
     private func sourceCacheEstimate(for songs: [Song]) -> SourceCacheEstimate {
@@ -995,7 +1019,7 @@ struct SourcesContentView: View {
             let result = await sourceManager.downloadForOfflineBatch(songs: request.songs)
             guard activeCacheRun?.id == run.id else { return }
             activeCacheRun = nil
-            cacheAlert = .completed(SourceCacheCompletion(
+            sourceAlert = .completed(SourceCacheCompletion(
                 sourceName: request.source.name,
                 result: result
             ))

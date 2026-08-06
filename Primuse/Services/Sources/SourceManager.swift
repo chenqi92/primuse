@@ -1180,17 +1180,16 @@ final class SourceManager {
     }
 
     func resolveURL(for song: Song) async throws -> URL {
+        // Priority 1: Cached local file (instant playback). 必须在 connect() 之前判断:
+        // 源不可达(断网 / NAS 关机 / 登录态失效)时 connect() 会抛错。连本地
+        // sourcesProvider 都不应挡在缓存前面，让完整离线文件成为真正的零网络路径。
+        if let cached = cachedURL(for: song) {
+            return cached
+        }
+
         let sources = try await sourcesProvider()
         guard let source = sources.first(where: { $0.id == song.sourceID }) else {
             throw SourceError.fileNotFound("Source not found for song: \(song.title)")
-        }
-
-        // Priority 1: Cached local file (instant playback). 必须在 connect() 之前判断:
-        // 源不可达(断网 / NAS 关机 / 登录态失效)时 connect() 会抛错, 若先 connect
-        // 就永远走不到缓存命中分支, 离线已下载的歌曲将无法播放。缓存命中是纯本地
-        // 文件检查, 不依赖连接。
-        if let cached = cachedURL(for: song) {
-            return cached
         }
 
         let conn = connector(for: source)
@@ -1234,14 +1233,40 @@ final class SourceManager {
 
     func resolveVideoAsset(for song: Song) async throws -> MusicVideoPlaybackAsset? {
         guard let mvPath = normalizedMusicVideoPath(for: song) else { return nil }
-        if let url = URL(string: mvPath), let scheme = url.scheme, !scheme.isEmpty {
-            return .url(url)
-        }
 
         // 独立 MV(mvPath == filePath): 文件本体已离线下载时直接本地播,
         // 不再经视频缓存重复下载同一份字节。
         if song.isStandaloneMusicVideo, let cached = cachedURL(for: song) {
             return .url(cached)
+        }
+
+        // 视频缓存命中同样必须完全脱离源连接。旧路径先 connect()，NAS 关机或
+        // 飞行模式时会在本地文件检查前等待超时，连已经缓存的视频也播不了。
+        let target = videoCacheURL(sourceID: song.sourceID, path: mvPath)
+        if FileManager.default.fileExists(atPath: target.path) {
+            recordVideoCacheAccess(target)
+            revalidateCachedVideoIfReachable(
+                path: mvPath,
+                sourceID: song.sourceID,
+                target: target
+            )
+            return .url(target)
+        }
+
+        // 缓存音频是完整的、但 sidecar MV 不在本地时，未知或不可达的网络
+        // 都直接回落音频。这样冷启动后立刻断网播放也不会卡在远端 MV 超时；
+        // 已缓存 MV 已在上方优先命中，不会被这个回落误伤。
+        if OfflinePlaybackPolicy.shouldSkipRemoteMusicVideo(
+            hasUsableCachedAudio: cachedURL(for: song) != nil,
+            isStandaloneMusicVideo: song.isStandaloneMusicVideo,
+            hasDeterminedNetworkPath: NetworkMonitor.shared.hasDeterminedPath,
+            isNetworkReachable: NetworkMonitor.shared.isReachable
+        ) {
+            return nil
+        }
+
+        if let url = URL(string: mvPath), let scheme = url.scheme, !scheme.isEmpty {
+            return .url(url)
         }
 
         let sources = try await sourcesProvider()
@@ -1262,13 +1287,6 @@ final class SourceManager {
 
         // 完整缓存直接本地播, 远端 size 校验放到后台 —— 命中路径不付
         // listFiles 的网络往返, 远端文件被替换时删缓存让下次播放重下。
-        let target = videoCacheURL(sourceID: source.id, path: mvPath)
-        if FileManager.default.fileExists(atPath: target.path) {
-            recordVideoCacheAccess(target)
-            scheduleVideoCacheRevalidation(path: mvPath, connector: conn, target: target)
-            return .url(target)
-        }
-
         // 边下边播: 知道远端大小的 range 源用 resource loader 即点即播,
         // 后台顺序下载并行把完整文件落进缓存(loader 读已覆盖的前缀省流量)。
         if source.supportsRangeStreaming,
@@ -1430,6 +1448,22 @@ final class SourceManager {
                   expected > 0, byteSize(at: target) != expected else { return }
             plog("🗑 MV cache: remote size changed, invalidating \(target.lastPathComponent)")
             Self.removeCacheFileFamily(at: target)
+        }
+    }
+
+    private func revalidateCachedVideoIfReachable(
+        path: String,
+        sourceID: String,
+        target: URL
+    ) {
+        guard NetworkMonitor.shared.isReachable else { return }
+        Task { @MainActor [weak self] in
+            guard let self,
+                  let sources = try? await self.sourcesProvider(),
+                  let source = sources.first(where: { $0.id == sourceID }) else { return }
+            let connector = self.connector(for: source)
+            guard (try? await connector.connect()) != nil else { return }
+            self.scheduleVideoCacheRevalidation(path: path, connector: connector, target: target)
         }
     }
 
@@ -1596,6 +1630,7 @@ final class SourceManager {
 
     private nonisolated static let audioCacheDirName = "primuse_audio_cache"
     private static let offlineBatchConcurrency = 2
+    private static let offlineSnapshotProbeConcurrency = 16
     private static let directDownloadUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 
     private nonisolated static func audioCacheDirectoryURL(for sourceID: String) -> URL {
@@ -1755,7 +1790,7 @@ final class SourceManager {
         }
         let url = cacheURL(for: song)
         let snapshot: OfflineAudioCacheSnapshot
-        if FileManager.default.fileExists(atPath: url.path) {
+        if Self.isUsableCacheFile(at: url, expectedSize: song.fileSize) {
             snapshot = OfflineAudioCacheSnapshot(
                 state: .cached,
                 progress: nil,
@@ -1817,7 +1852,7 @@ final class SourceManager {
         let url = audioCacheTargetURL(for: song)
         let relativePath = audioCacheRelativePath(for: song)
         let info = await Task.detached(priority: .utility) {
-            Self.offlineFileInfo(at: url)
+            Self.offlineFileInfo(at: url, expectedSize: song.fileSize)
         }.value
         let snapshot = await AudioCacheManager.shared.snapshot(
             path: relativePath,
@@ -1832,7 +1867,7 @@ final class SourceManager {
     func refreshOfflineAudioSnapshot(for song: Song) async {
         let url = cacheURL(for: song)
         let info = await Task.detached(priority: .utility) {
-            Self.offlineFileInfo(at: url)
+            Self.offlineFileInfo(at: url, expectedSize: song.fileSize)
         }.value
         let snapshot = await AudioCacheManager.shared.snapshot(
             path: audioCacheRelativePath(for: song),
@@ -1842,14 +1877,49 @@ final class SourceManager {
         setOfflineAudioSnapshot(snapshot, for: song.id)
     }
 
-    private nonisolated static func offlineFileInfo(at url: URL) -> (exists: Bool, byteCount: Int64?) {
-        guard FileManager.default.fileExists(atPath: url.path) else {
+    private nonisolated static func offlineFileInfo(
+        at url: URL,
+        expectedSize: Int64
+    ) -> (exists: Bool, byteCount: Int64?) {
+        guard isUsableCacheFile(at: url, expectedSize: expectedSize) else {
             return (false, nil)
         }
         let size = (try? url.resourceValues(forKeys: [.totalFileAllocatedSizeKey]))?
             .totalFileAllocatedSize
             .map(Int64.init)
         return (true, size)
+    }
+
+    /// Warms the in-memory snapshot table without performing one synchronous
+    /// file-system stat per song on the main actor. The source screen uses this
+    /// before presenting its confirmation so the tap receives immediate visual
+    /// feedback even for libraries containing thousands of tracks.
+    func prepareOfflineAudioSnapshots(for songs: [Song]) async {
+        let pending = songs.filter { offlineAudioSnapshots[$0.id] == nil }
+        guard !pending.isEmpty else { return }
+
+        let maxConcurrent = min(Self.offlineSnapshotProbeConcurrency, pending.count)
+        await withTaskGroup(of: Void.self) { group in
+            var nextIndex = 0
+
+            func enqueueNext() {
+                guard nextIndex < pending.count else { return }
+                let song = pending[nextIndex]
+                nextIndex += 1
+                group.addTask {
+                    await self.ensureOfflineAudioSnapshot(for: song)
+                }
+            }
+
+            for _ in 0..<maxConcurrent { enqueueNext() }
+            while await group.next() != nil {
+                guard !Task.isCancelled else {
+                    group.cancelAll()
+                    continue
+                }
+                enqueueNext()
+            }
+        }
     }
 
     private nonisolated static func isUsableCacheFile(
@@ -1983,8 +2053,8 @@ final class SourceManager {
 
         do {
             try Task.checkCancellation()
-            if FileManager.default.fileExists(atPath: target.path) {
-                let size = fileSize(at: target)
+            if let cached = cachedURL(for: song) {
+                let size = fileSize(at: cached)
                 await AudioCacheManager.shared.pin(path: relativePath, byteCount: size)
                 setOfflineAudioSnapshot(OfflineAudioCacheSnapshot(
                     state: .pinned,
@@ -1993,6 +2063,10 @@ final class SourceManager {
                     errorMessage: nil
                 ), for: song.id)
                 return
+            }
+
+            guard !NetworkMonitor.shared.hasDeterminedPath || NetworkMonitor.shared.isReachable else {
+                throw SourceError.connectionFailed(String(localized: "status_network_unavailable"))
             }
 
             let sources = try await sourcesProvider()
@@ -3108,7 +3182,17 @@ final class SourceManager {
     /// If a user selects a song while its prefetch is still running, join that
     /// transfer instead of starting a duplicate foreground full download.
     func waitForBackgroundAudioCache(for song: Song) async {
-        guard let task = backgroundAudioCacheTasks[song.id]?.task else { return }
+        let record = backgroundAudioCacheTasks[song.id]
+        let hasUsableCachedAudio = cachedURL(for: song) != nil
+        guard OfflinePlaybackPolicy.shouldWaitForBackgroundCache(
+            hasUsableCachedAudio: hasUsableCachedAudio,
+            hasInFlightTask: record != nil
+        ), let task = record?.task else {
+            if hasUsableCachedAudio {
+                record?.task.cancel()
+            }
+            return
+        }
         plog("↩️ Cache: joining in-flight prefetch for '\(song.title)'")
         await task.value
     }

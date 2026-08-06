@@ -14,6 +14,7 @@ final class NetworkMonitor {
     private(set) var isExpensive: Bool = false   // cellular / personal hotspot
     private(set) var isConstrained: Bool = false // Low Data Mode
     private(set) var isReachable: Bool = false
+    private(set) var hasDeterminedPath: Bool = false
 
     private let monitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "com.welape.primuse.network-monitor")
@@ -24,6 +25,7 @@ final class NetworkMonitor {
             let expensive = path.isExpensive
             let constrained = path.isConstrained
             Task { @MainActor [weak self] in
+                self?.hasDeterminedPath = true
                 self?.isReachable = reachable
                 self?.isExpensive = expensive
                 self?.isConstrained = constrained
