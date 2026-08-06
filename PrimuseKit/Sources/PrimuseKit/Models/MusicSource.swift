@@ -409,6 +409,32 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     }
 }
 
+/// Decides whether a persisted cloud-sync cursor is still safe to reuse after
+/// the app's supported source types change. An older build can consume a
+/// CloudKit change for a source type it cannot decode; without a cursor reset,
+/// upgrading that device never delivers the skipped record again.
+public enum CloudSourceTypeCompatibilityPolicy {
+    public enum PersistedStateAction: Equatable, Sendable {
+        case preserve
+        case resetAndRefetch
+    }
+
+    public static var currentFingerprint: String {
+        fingerprint(for: MusicSourceType.allCases.map(\.rawValue))
+    }
+
+    public static func fingerprint(for rawValues: [String]) -> String {
+        Array(Set(rawValues)).sorted().joined(separator: "\u{1F}")
+    }
+
+    public static func action(
+        storedFingerprint: String?,
+        currentFingerprint: String = currentFingerprint
+    ) -> PersistedStateAction {
+        storedFingerprint == currentFingerprint ? .preserve : .resetAndRefetch
+    }
+}
+
 /// The source-audio part of a destructive song deletion. Sidecar cleanup is
 /// deliberately not represented as a failure here: once the audio is gone (or
 /// was already absent), keeping an unplayable library row would be worse than

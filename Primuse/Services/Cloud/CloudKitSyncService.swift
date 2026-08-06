@@ -162,6 +162,7 @@ final class CloudKitSyncService {
     /// CKSyncEngine's persisted state tracks per-record sync status after the
     /// first run, so re-uploading on every cold launch is wasteful.
     private static let initialUploadDoneKey = "primuse.cloudSync.initialUploadComplete"
+    private static let sourceTypeFingerprintKey = "primuse.cloudSync.sourceTypeFingerprint"
     private var didCompleteInitialUpload: Bool {
         get { UserDefaults.standard.bool(forKey: Self.initialUploadDoneKey) }
         set { UserDefaults.standard.set(newValue, forKey: Self.initialUploadDoneKey) }
@@ -197,6 +198,7 @@ final class CloudKitSyncService {
     /// then does an initial fetch + sends any locally pending changes.
     func start() async {
         guard engine == nil, startAttemptID == nil else { return }
+        preparePersistedStateForSupportedSourceTypes()
         guard let database = configuredDatabase() else { return }
         let attemptID = UUID()
         startAttemptID = attemptID
@@ -1180,6 +1182,36 @@ final class CloudKitSyncService {
     }
 
     // MARK: - State persistence
+
+    /// A previous app version may have advanced its CloudKit cursor past a
+    /// `MusicSource` record whose type it could not decode. When the supported
+    /// source-type set changes, discard that cursor once so CKSyncEngine
+    /// replays the zone and the upgraded build can recover skipped sources.
+    /// Re-seeding local entities preserves any pending offline edits lost with
+    /// the old engine state; fetch-before-send still applies normal LWW rules.
+    private func preparePersistedStateForSupportedSourceTypes() {
+        let defaults = UserDefaults.standard
+        let currentFingerprint = CloudSourceTypeCompatibilityPolicy.currentFingerprint
+        let action = CloudSourceTypeCompatibilityPolicy.action(
+            storedFingerprint: defaults.string(forKey: Self.sourceTypeFingerprintKey),
+            currentFingerprint: currentFingerprint
+        )
+        guard action == .resetAndRefetch else { return }
+
+        do {
+            for url in [stateURL, sharedStateURL]
+                where FileManager.default.fileExists(atPath: url.path) {
+                try FileManager.default.removeItem(at: url)
+            }
+        } catch {
+            plog("CloudKitSync: source compatibility reset failed: \(error.localizedDescription)")
+            return
+        }
+
+        didCompleteInitialUpload = false
+        defaults.set(currentFingerprint, forKey: Self.sourceTypeFingerprintKey)
+        plog("CloudKitSync: supported source types changed; scheduling full refetch")
+    }
 
     private func loadStateSerialization() -> CKSyncEngine.State.Serialization? {
         guard let data = try? Data(contentsOf: stateURL) else { return nil }
