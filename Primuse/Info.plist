@@ -51,6 +51,14 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>INIntentsSupported</key>
+	<array>
+		<string>INPlayMediaIntent</string>
+	</array>
+	<key>INSupportedMediaCategories</key>
+	<array>
+		<string>INMediaCategoryMusic</string>
+	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSApplicationCategoryType</key>
@@ -87,7 +95,6 @@
 	<true/>
 	<key>NSUserActivityTypes</key>
 	<array>
-		<string>INPlayMediaIntent</string>
 		<string>com.welape.yuanyin.nowplaying</string>
 	</array>
 	<key>PrimuseBaiduClientID</key>

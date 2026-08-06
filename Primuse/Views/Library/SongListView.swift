@@ -1500,6 +1500,7 @@ struct SongListView: View {
         guard let first = queue.first else { return }
         plog("🎶 SongList setQueue visible=\(visibleQueue.count) queue=\(queue.count) start='\(first.title)'")
         player.setQueue(queue, startAt: 0)
+        SiriMediaInteractionDonor.donate(song: first)
         Task { await player.play(song: first) }
     }
 }

@@ -130,6 +130,14 @@ struct SettingsView: View {
                     } label: {
                         Label("playback_settings", systemImage: "play.circle")
                     }
+
+                    #if os(iOS)
+                    NavigationLink {
+                        SiriSettingsView()
+                    } label: {
+                        Label("Siri", systemImage: "waveform")
+                    }
+                    #endif
                 }
 
                 Section("security") {

@@ -59,9 +59,9 @@ final class PrimuseAppDelegate: NSObject, UIApplicationDelegate {
         }
     }
 
-    // Routes Siri voice intents (INPlayMediaIntent etc.) to a handler. Without
-    // an Intents Extension this only fires while the app is running, but
-    // CarPlay voice and Shortcuts both work this way.
+    // Routes Siri voice intents (INPlayMediaIntent etc.) directly into the app.
+    // iOS 14+ can launch a media app in the background for this path, so a
+    // separate Intents Extension isn't required.
     static let playMediaHandler = PlayMediaIntentHandler()
 
     func application(_ application: UIApplication, handlerFor intent: INIntent) -> Any? {

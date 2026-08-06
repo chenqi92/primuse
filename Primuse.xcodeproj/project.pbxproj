@@ -29,6 +29,7 @@
 		06145D06EE30908CD141E72E /* DaoLiYuAPIProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49599E6563DECC420DE66CF4 /* DaoLiYuAPIProtocol.swift */; };
 		075FDC9F6218D8AD5DD8A4D9 /* KeychainService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A620EA0CD2EEF9F08E3A131D /* KeychainService.swift */; };
 		07C43E3A486DD629EE8D3046 /* YearlyReportAutoTrigger.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7480FCEBE3DAE7ABBFEEF62 /* YearlyReportAutoTrigger.swift */; };
+		086F04A798AC70AC16E0B9D4 /* SiriSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A134BFD3772D24430EA98553 /* SiriSettingsView.swift */; };
 		08D30CAC5C97F4CE7FA56648 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88A168D4C0759AC51316AAB9 /* Constants.swift */; };
 		08E777E2F1647E94EBF91766 /* FileLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9F569D02D3E6102A0C0E1CF /* FileLogger.swift */; };
 		0931D21CB53640BBBCBC0B98 /* ScrapeWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAE593077B230AED26E36FAF /* ScrapeWindowController.swift */; };
@@ -109,6 +110,7 @@
 		2291C140AC660C29045C3F5C /* libavutil.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 97F67F7EA254BBF6D2BA74A0 /* libavutil.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		233A8E21197A29B84629B73A /* NFSKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4554180DADE700DF4BA63BA0 /* NFSKit */; };
 		235C8FC6F296376EB5E6A8F1 /* OneDriveSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E648713A25DB3912120693A /* OneDriveSource.swift */; };
+		2397DE1952ABED43B577663D /* SiriSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A134BFD3772D24430EA98553 /* SiriSettingsView.swift */; };
 		23AC54C296F89799136A2C41 /* libswresample.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8F8034D1C470B837DB46D3E0 /* libswresample.xcframework */; };
 		23C96C5A10C0CD95B69FFDF9 /* MacContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29D19414C60A995E2BAE6B3F /* MacContentView.swift */; };
 		23EDB9E5B69213CBE9B89677 /* BuiltInCloudCredentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82C951D83E89D86B5BBCCF22 /* BuiltInCloudCredentials.swift */; };
@@ -125,6 +127,7 @@
 		283B381A6A7A0EB7F5F4FFB0 /* AudioOutputPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 252F65F36897EF6DB9E6BCD8 /* AudioOutputPickerView.swift */; };
 		287112ACD7B473C32EF89924 /* PlatformShims.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AE10B90CF85FD450338F498 /* PlatformShims.swift */; };
 		2993EB2DD32DE34F3A6655E1 /* CloudKitRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = C804B707FEBA12189DA49BB3 /* CloudKitRuntime.swift */; };
+		29A2ADD8EBE1F20B1C80FEE2 /* TVPlayMediaIntentHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = C53D95B464F9DAE95E595DC2 /* TVPlayMediaIntentHandler.swift */; };
 		29A9409313AE55C1C09F955C /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 0F9C8BBA8A78A11F68EC9E00 /* GRDB */; };
 		2D91073D2E343E7F6407AB79 /* MusicSourceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 899FC409D467BC67F47C75C2 /* MusicSourceProtocol.swift */; };
 		2DA70339408A4A2E8669B492 /* DiagnosticReportsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B15B6CFA8E91CA7408F262EA /* DiagnosticReportsView.swift */; };
@@ -244,6 +247,7 @@
 		4D8C3FF9D79817779D622D03 /* ID3TextMetadataParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBCB026F846B0E1D4C27C84B /* ID3TextMetadataParser.swift */; };
 		4D970484FA45E36B191F0C9D /* ConfigurableScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFBD55481DE18F95FCC74F76 /* ConfigurableScraper.swift */; };
 		4D9FDCB6AB92B02FFCFD83D4 /* SourceTypeSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C50B958D5A7FEF1F9E8AD24 /* SourceTypeSelectionView.swift */; };
+		4DAD8EC05A5F9510CE5999B3 /* SiriMediaInteractionDonor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BCC0F5CA18E10E082FBC516 /* SiriMediaInteractionDonor.swift */; };
 		4E64E573D19CAC351BD640C6 /* TopShelfShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1F85323CE4A8996744901D /* TopShelfShared.swift */; };
 		4F666C6937E399679D7AC5D4 /* ThemeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74134D8D32D016D927D59D77 /* ThemeService.swift */; };
 		4FB14E7A46B6F5209325B94F /* ScrobbleSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA12C906FD443EE450488F7 /* ScrobbleSettings.swift */; };
@@ -280,6 +284,7 @@
 		570266111E119CB28993C949 /* StoredCoverArtView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9B1688ED9374813585EC4C6 /* StoredCoverArtView.swift */; };
 		574266CAE3D7A5B6DE1E1103 /* PlaybackState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A0BB7D64F2BBD76A56CD9C5 /* PlaybackState.swift */; };
 		57471F7170F7CE62715F932D /* ScraperSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2ED64A9CEF96E0A4A91703E4 /* ScraperSettingsStore.swift */; };
+		574E4DCF2EB829BCC4E2D9F8 /* SiriMediaInteractionDonor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BCC0F5CA18E10E082FBC516 /* SiriMediaInteractionDonor.swift */; };
 		5775567CC35C0C5ECD9AA1D1 /* DuplicateDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2117016184001B6F46168B00 /* DuplicateDetector.swift */; };
 		57B10CD1215CEDDD755322AA /* UnsupportedSourceConnector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45D55D0BB606ED1969120F51 /* UnsupportedSourceConnector.swift */; };
 		58098DB86E7285DA9B139FBD /* SimulatorCredentialFallbackPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C239241684E81EFF2E2AB9A0 /* SimulatorCredentialFallbackPolicy.swift */; };
@@ -514,6 +519,7 @@
 		B25D39602DAF5521CFAB0EEC /* TVArtwork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 455D2BB99BCD406F4DE671D6 /* TVArtwork.swift */; };
 		B26ED4E6532571323A775A66 /* GoogleDriveSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FF18B2B6584B7988608C004 /* GoogleDriveSource.swift */; };
 		B2AD355139150A6FE1146F2C /* SourceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2749C2730EE3A6AB4EEFE3FE /* SourceManager.swift */; };
+		B32FC2E13ECA019E4C5E4911 /* SiriMediaSearchResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0A68B54B7A480C64D2DF3F /* SiriMediaSearchResolver.swift */; };
 		B3A0F5CCE5012E02E55C6896 /* SongRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1424E7F042F598B858110FDB /* SongRowView.swift */; };
 		B3C5916D2A8452DC747DA1FF /* ImageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92713492CA49F4357602CCA3 /* ImageCache.swift */; };
 		B3D288FC16E9A02539CC8EFC /* CloudInputSourceObjC.m in Sources */ = {isa = PBXBuildFile; fileRef = D34E04201479990BA80AEE2A /* CloudInputSourceObjC.m */; };
@@ -918,10 +924,12 @@
 		086F7E4EDFB6719527A8AECF /* MacSourcesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSourcesView.swift; sourceTree = "<group>"; };
 		08C701D152027AB58C6C5B14 /* BundleToken.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BundleToken.swift; sourceTree = "<group>"; };
 		09CE2F3FC6DBC83E5C139F8D /* SynologyQuickConnectResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyQuickConnectResolver.swift; sourceTree = "<group>"; };
+		0A0A68B54B7A480C64D2DF3F /* SiriMediaSearchResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiriMediaSearchResolver.swift; sourceTree = "<group>"; };
 		0A23DCE16E17D3C9AEBAD5AC /* ConnectorScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectorScanner.swift; sourceTree = "<group>"; };
 		0A682DE882BF7C18268F9428 /* DesktopLyricsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopLyricsWindowController.swift; sourceTree = "<group>"; };
 		0A81E711713C594D6D24C5BF /* SongListSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongListSnapshot.swift; sourceTree = "<group>"; };
 		0B7EF9080A3A41EE3BE9D8E0 /* SongListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongListView.swift; sourceTree = "<group>"; };
+		0BCC0F5CA18E10E082FBC516 /* SiriMediaInteractionDonor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiriMediaInteractionDonor.swift; sourceTree = "<group>"; };
 		0BD72FDEA97CCB49402DA288 /* ko */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ko; path = ko.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		0BE82C5DF65A566D6D3CDE4E /* AppleMusicLibrarySource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMusicLibrarySource.swift; sourceTree = "<group>"; };
 		0C50B958D5A7FEF1F9E8AD24 /* SourceTypeSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceTypeSelectionView.swift; sourceTree = "<group>"; };
@@ -1202,6 +1210,7 @@
 		9F7380ABF7CFF416B08F01F2 /* TagEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagEditorView.swift; sourceTree = "<group>"; };
 		9FE14B295320AA20C02A9BB3 /* WatchPlayerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchPlayerStore.swift; sourceTree = "<group>"; };
 		A1254C88A6F33F2A3A73C2CA /* ITunesScraper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ITunesScraper.swift; sourceTree = "<group>"; };
+		A134BFD3772D24430EA98553 /* SiriSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiriSettingsView.swift; sourceTree = "<group>"; };
 		A140A9563DF6E39E6BF9CEF6 /* SpotlightIndexService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotlightIndexService.swift; sourceTree = "<group>"; };
 		A167640E5C9A14EEEF77F034 /* TopShelfPublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopShelfPublisher.swift; sourceTree = "<group>"; };
 		A1F6D71AD2F05173FB3084C7 /* LastFmProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastFmProvider.swift; sourceTree = "<group>"; };
@@ -1260,6 +1269,7 @@
 		C28F9B371297DF55837BAB92 /* CloudTokenManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTokenManager.swift; sourceTree = "<group>"; };
 		C3577006473AE56E9BA09B47 /* SmartPlaylistEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartPlaylistEngine.swift; sourceTree = "<group>"; };
 		C45DBC29426E786513B5CFA0 /* MacSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSettingsView.swift; sourceTree = "<group>"; };
+		C53D95B464F9DAE95E595DC2 /* TVPlayMediaIntentHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVPlayMediaIntentHandler.swift; sourceTree = "<group>"; };
 		C54818EBAB874DF0A7E5C6DE /* AudioSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioSessionManager.swift; sourceTree = "<group>"; };
 		C551F72C30C0410A874441AA /* AppSecrets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSecrets.swift; sourceTree = "<group>"; };
 		C603E86C2F865CDFD1D1C8EB /* S3StreamResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = S3StreamResolver.swift; sourceTree = "<group>"; };
@@ -1690,6 +1700,7 @@
 				4B0DFA16D66837EFF0DB5E43 /* PlaybackSessionSnapshot.swift */,
 				136A0C5EFAF6D7C7056C69A4 /* SharedConstants.swift */,
 				C239241684E81EFF2E2AB9A0 /* SimulatorCredentialFallbackPolicy.swift */,
+				0A0A68B54B7A480C64D2DF3F /* SiriMediaSearchResolver.swift */,
 				0A81E711713C594D6D24C5BF /* SongListSnapshot.swift */,
 				7B9A1C2D3E4F5061728394A5 /* NetworkEndpointIdentity.swift */,
 				E5A4C3B2D1F09876543210AB /* SubsonicCatalogPagingPolicy.swift */,
@@ -1995,6 +2006,7 @@
 			children = (
 				C512B34CBD22685C59F4312A /* Protocol */,
 				F3C8CEC911997BAD1A995D08 /* TVConfigServer.swift */,
+				C53D95B464F9DAE95E595DC2 /* TVPlayMediaIntentHandler.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -2044,6 +2056,7 @@
 			isa = PBXGroup;
 			children = (
 				4ECCDD80F05FA4A71FA0CB32 /* PrimuseAppIntents.swift */,
+				0BCC0F5CA18E10E082FBC516 /* SiriMediaInteractionDonor.swift */,
 			);
 			path = Intents;
 			sourceTree = "<group>";
@@ -2399,6 +2412,7 @@
 				DCF14896C5977140D504187F /* RecentlyDeletedView.swift */,
 				4FC226D745AC023E7E54BF0F /* ScrobbleSettingsView.swift */,
 				5E8868307C8B45B391847C2B /* SettingsView.swift */,
+				A134BFD3772D24430EA98553 /* SiriSettingsView.swift */,
 			);
 			path = Settings;
 			sourceTree = "<group>";
@@ -2913,6 +2927,7 @@
 				4D3A4ACF3185CCECCC8DF8B7 /* STRMDescriptor.swift in Sources */,
 				C067C2586AAA10F3F398296C /* SharedConstants.swift in Sources */,
 				58098DB86E7285DA9B139FBD /* SimulatorCredentialFallbackPolicy.swift in Sources */,
+				B32FC2E13ECA019E4C5E4911 /* SiriMediaSearchResolver.swift in Sources */,
 				4104522A47C989851CAB4E72 /* SmartPlaylist.swift in Sources */,
 				D76BBF35A0ED0B3EE0C0812C /* Song.swift in Sources */,
 				45792DBCB1B655DB7EDEBFE7 /* SongIdentity.swift in Sources */,
@@ -3170,6 +3185,8 @@
 				0BAFA3FEF20223C7CA4FFAA1 /* SidecarMetadataLoader.swift in Sources */,
 				E1EA3F7A3D5C3F95F1FF92B0 /* SidecarWriteService.swift in Sources */,
 				80F9BB0920D3B0AC94EC851C /* SimilarTracksService.swift in Sources */,
+				4DAD8EC05A5F9510CE5999B3 /* SiriMediaInteractionDonor.swift in Sources */,
+				2397DE1952ABED43B577663D /* SiriSettingsView.swift in Sources */,
 				AF0477B123E1E458EE651D73 /* SmartPlaylistDetailView.swift in Sources */,
 				02E10BC9F8CC678F5BE29C76 /* SmartPlaylistEditorView.swift in Sources */,
 				3FD6FE385E58C0A4D5D11355 /* SmartPlaylistEngine.swift in Sources */,
@@ -3245,6 +3262,7 @@
 				67BC7F85E03B6315DDA1AAE8 /* TVMetadataEnricher.swift in Sources */,
 				F1164AB5AA3FEF602AB3E483 /* TVNowPlayingView.swift in Sources */,
 				815721DBF9C6091FB3742B5E /* TVOptionsView.swift in Sources */,
+				29A2ADD8EBE1F20B1C80FEE2 /* TVPlayMediaIntentHandler.swift in Sources */,
 				D3AE884B8139D6E2ACC4B46E /* TVPlaybackCoordinator.swift in Sources */,
 				6E53C03FF0B15B39510AE06F /* TVPlaylistsView.swift in Sources */,
 				A2E01FF23E1E76B17C9EB312 /* TVQRCode.swift in Sources */,
@@ -3478,6 +3496,8 @@
 				119D802D4B34C39D6F5B3D5A /* SidecarMetadataLoader.swift in Sources */,
 				6BB70FAFADEDF9854FDC1FD4 /* SidecarWriteService.swift in Sources */,
 				4260958BD2DEFA5C80D86EEE /* SimilarTracksService.swift in Sources */,
+				574E4DCF2EB829BCC4E2D9F8 /* SiriMediaInteractionDonor.swift in Sources */,
+				086F04A798AC70AC16E0B9D4 /* SiriSettingsView.swift in Sources */,
 				360233DAA3A9722CEB8F659D /* SmartPlaylistDetailView.swift in Sources */,
 				485FA0D21F794529DC075FC1 /* SmartPlaylistEditorView.swift in Sources */,
 				3D272D5DBC42A04A8079B80D /* SmartPlaylistEngine.swift in Sources */,

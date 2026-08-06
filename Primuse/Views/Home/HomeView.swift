@@ -2059,6 +2059,7 @@ struct HomeView: View {
         player.setQueue(queueSongs, startAt: startIndex)
         let resolved = queueSongs[startIndex]
         plog("🏠 calling player.play(song: '\(resolved.title)')")
+        SiriMediaInteractionDonor.donate(song: resolved)
         Task { await player.play(song: resolved) }
     }
 

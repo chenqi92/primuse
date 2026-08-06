@@ -255,6 +255,7 @@ final class TVStore {
 
     /// 播放状态镜像自引擎(@Observable 组合,视图读取即订阅引擎变化)。
     var isPlaying: Bool { engine.isPlaying }
+    var isLoading: Bool { engine.status == .loading }
     var currentTime: Double { engine.currentTime }
     var duration: Double { engine.duration > 0 ? engine.duration : nowPlaying.duration }
     var isMusicVideoPlaybackActive: Bool { engine.isVideoMode }
@@ -1436,6 +1437,21 @@ final class TVStore {
     func play(_ song: TVSong) {
         setQueueAround(song)
         startPlaying(song)
+    }
+
+    /// Siri 等系统入口已经解析出确定的歌曲顺序时直接采用该队列，避免再按
+    /// 单曲所属专辑重建随机队列而丢失语音请求的范围与顺序。
+    @discardableResult
+    func playResolvedQueue(songIDs: [String], shuffled: Bool) -> Bool {
+        var resolved = songIDs.filter { song($0) != nil }
+        guard !resolved.isEmpty else { return false }
+        if shuffled { resolved.shuffle() }
+        guard let first = song(resolved[0]) else { return false }
+        shuffleEnabled = shuffled
+        queue = resolved
+        queueIndex = 0
+        startPlaying(first)
+        return true
     }
 
     func play(album: TVAlbum) {

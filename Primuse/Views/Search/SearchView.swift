@@ -1061,6 +1061,7 @@ struct SearchView: View {
             player.requestLyricsJump(songID: song.id, snippet: snippet)
             NotificationCenter.default.post(name: .primuseRequestShowNowPlaying, object: nil)
         }
+        SiriMediaInteractionDonor.donate(song: song)
         Task { await player.play(song: song) }
         addRecentSearch(searchText)
     }

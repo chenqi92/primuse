@@ -691,6 +691,7 @@ struct SimilarSongsSheet: View {
         player.shuffleEnabled = false
         player.setQueue(queue, startAt: 0)
         dismiss()
+        SiriMediaInteractionDonor.donate(song: first)
         Task { await player.play(song: first) }
     }
 }

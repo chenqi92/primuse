@@ -6,6 +6,8 @@
 	<string>$(APS_ENVIRONMENT)</string>
 	<key>com.apple.developer.carplay-audio</key>
 	<true/>
+	<key>com.apple.developer.siri</key>
+	<true/>
 	<key>com.apple.developer.networking.multicast</key>
 	<true/>
 	<key>com.apple.developer.icloud-container-identifiers</key>

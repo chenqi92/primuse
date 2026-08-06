@@ -89,6 +89,8 @@ struct PrimusePlaySongIntent: AudioPlaybackIntent {
     @Parameter(title: "Artist", description: "Optional, narrows the match if multiple songs share a title.")
     var artist: String?
 
+    init() {}
+
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let description = await PrimuseIntentBridge.shared.playSong(query, artist)
@@ -105,6 +107,8 @@ struct PrimusePlayPlaylistIntent: AudioPlaybackIntent {
 
     @Parameter(title: "Name")
     var name: String
+
+    init() {}
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
@@ -173,6 +177,24 @@ struct PrimuseShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "Shuffle",
             systemImageName: "shuffle"
+        )
+        AppShortcut(
+            intent: PrimusePlaySongIntent(),
+            phrases: [
+                "用 \(.applicationName) 播放歌曲",
+                "Play a song in \(.applicationName)",
+            ],
+            shortTitle: "Play Song",
+            systemImageName: "music.note"
+        )
+        AppShortcut(
+            intent: PrimusePlayPlaylistIntent(),
+            phrases: [
+                "用 \(.applicationName) 播放歌单",
+                "Play a playlist in \(.applicationName)",
+            ],
+            shortTitle: "Play Playlist",
+            systemImageName: "music.note.list"
         )
     }
 }

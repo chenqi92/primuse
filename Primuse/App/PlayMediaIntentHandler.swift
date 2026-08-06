@@ -6,21 +6,28 @@ import PrimuseKit
 /// - INPlayMediaIntent dispatched from Siri / CarPlay voice
 /// - NSUserActivity restoration (`scene(_:continue:)`)
 ///
-/// Without a separate Intents Extension target, Siri can still hand off
-/// the intent at runtime via `application(_:handlerFor:)`. The Extension
-/// would only matter for offline/locked-device handling.
+/// iOS 14+ can launch a media app in the background and hand the intent to
+/// `application(_:handlerFor:)`, so this path does not need a separate
+/// Intents Extension target.
 final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling, @unchecked Sendable {
     func handle(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
         let box = UncheckedBox(completion)
         Task { @MainActor in
-            guard let result = Self.resolve(intent: intent) else {
+            guard var result = Self.resolve(intent: intent) else {
                 box.value(INPlayMediaIntentResponse(code: .failureUnknownMediaType, userActivity: nil))
                 return
             }
             let player = AppServices.shared.playerService
-            let song = result.queue[result.startIndex]
-            player.setQueue(result.queue, startAt: result.startIndex)
-            await player.play(song: song)
+            if result.shouldShuffle {
+                result.queue.shuffle()
+            }
+            guard let song = result.queue.first else {
+                box.value(INPlayMediaIntentResponse(code: .failureUnknownMediaType, userActivity: nil))
+                return
+            }
+            player.shuffleEnabled = result.shouldShuffle
+            player.setQueue(result.queue, startAt: 0)
+            await player.play(song: song, caller: "SiriKit")
             // play() returns once setup is kicked off; actual playback (esp.
             // cloud sources) can take a few seconds. Poll briefly for the
             // loading-or-playing state — same pattern as the CarPlay path —
@@ -43,7 +50,17 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling, @unchec
     ) {
         let box = UncheckedBox(completion)
         Task { @MainActor in
-            guard let result = Self.resolve(intent: intent) else {
+            let query = Self.query(for: intent)
+
+            // Album / artist / generic-library requests are containers rather
+            // than an ambiguous song name. The handler builds their queue in
+            // handle(intent:) without forcing Siri to enumerate every track.
+            guard Self.shouldResolveSongItems(for: query) else {
+                box.value([INPlayMediaMediaItemResolutionResult.notRequired()])
+                return
+            }
+
+            guard let result = Self.resolve(intent: intent), !result.candidates.isEmpty else {
                 // Local library only — there's nothing to "log in" to.
                 // Tell Siri the search just didn't match anything so it
                 // reads back "I couldn't find that" instead of prompting
@@ -51,81 +68,95 @@ final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling, @unchec
                 box.value([INPlayMediaMediaItemResolutionResult.unsupported(forReason: .serviceUnavailable)])
                 return
             }
-            let inItems = result.queue.map { song in
+            let inItems = result.candidates.map { song in
                 INMediaItem(
                     identifier: song.id,
-                    title: song.title,
+                    title: Self.resolutionTitle(for: song, includeAlbum: result.needsDisambiguation),
                     type: .song,
                     artwork: nil,
                     artist: song.artistName
                 )
             }
-            box.value(INPlayMediaMediaItemResolutionResult.successes(with: inItems))
+            if result.needsDisambiguation {
+                box.value([INPlayMediaMediaItemResolutionResult.disambiguation(with: inItems)])
+            } else if let first = inItems.first {
+                box.value([INPlayMediaMediaItemResolutionResult.success(with: first)])
+            } else {
+                box.value([INPlayMediaMediaItemResolutionResult.unsupported(forReason: .serviceUnavailable)])
+            }
         }
     }
 
     @MainActor
-    private static func resolve(intent: INPlayMediaIntent) -> (queue: [Song], startIndex: Int)? {
+    private static func resolve(intent: INPlayMediaIntent) -> IntentResolution? {
         let library = AppServices.shared.musicLibrary
-        let search = intent.mediaSearch
-        let mediaName = search?.mediaName?.lowercased()
-        let artistName = search?.artistName?.lowercased()
-        let albumName = search?.albumName?.lowercased()
-        let mediaType = search?.mediaType ?? .unknown
-
-        // 1. Album match
-        if mediaType == .album || (albumName != nil && mediaName == nil) {
-            let target = (albumName ?? mediaName ?? "").lowercased()
-            if !target.isEmpty,
-               let album = library.visibleAlbums.first(where: {
-                   $0.title.lowercased().contains(target)
-               }) {
-                let songs = library.songs(forAlbum: album.id)
-                    .sorted { ($0.discNumber ?? 0, $0.trackNumber ?? 0) < ($1.discNumber ?? 0, $1.trackNumber ?? 0) }
-                    .filteredPlayable()
-                if !songs.isEmpty { return (songs, 0) }
-            }
+        let query = query(for: intent)
+        let resolvedIDs = intent.mediaItems?.compactMap(\.identifier) ?? []
+        guard let resolution = SiriMediaSearchResolver.resolve(
+            query: query,
+            resolvedItemIDs: resolvedIDs,
+            songs: library.visibleSongs
+        ) else {
+            return nil
         }
-
-        // 2. Artist match
-        if mediaType == .artist || (artistName != nil && mediaName == nil && albumName == nil) {
-            let target = (artistName ?? mediaName ?? "").lowercased()
-            if !target.isEmpty,
-               let artist = library.visibleArtists.first(where: {
-                   $0.name.lowercased().contains(target)
-               }) {
-                let songs = library.songs(forArtist: artist.id).filteredPlayable()
-                if !songs.isEmpty { return (songs, 0) }
-            }
-        }
-
-        // 3. Song match (default)
-        if let target = (mediaName ?? albumName ?? artistName)?.lowercased(),
-           !target.isEmpty {
-            let matches = library.visibleSongs.filter { song in
-                song.title.lowercased().contains(target) ||
-                (song.artistName?.lowercased().contains(target) ?? false)
-            }.filteredPlayable()
-            if !matches.isEmpty {
-                return (matches, 0)
-            }
-        }
-
-        // 4. No usable search term — shuffle whole library. Covers both
-        // "mediaSearch == nil" and the common Siri "play music" form where
-        // it builds an INMediaSearch(mediaType: .music) with every name
-        // field nil/empty. Steps 1–3 skip those, so without this fallback
-        // resolve() would return nil and the user hears "service unavailable"
-        // even though the library has playable songs.
-        let hasSearchTerm = [mediaName, artistName, albumName]
-            .contains { ($0?.isEmpty == false) }
-        if !hasSearchTerm {
-            let pool = library.visibleSongs.filteredPlayable()
-            if !pool.isEmpty { return (pool.shuffled(), 0) }
-        }
-
-        return nil
+        return IntentResolution(
+            queue: resolution.queue,
+            candidates: resolution.candidates,
+            needsDisambiguation: resolution.needsDisambiguation,
+            shouldShuffle: intent.playShuffled == true || !query.hasSearchTerm
+        )
     }
+
+    private static func query(for intent: INPlayMediaIntent) -> SiriMediaSearchQuery {
+        let search = intent.mediaSearch
+        return SiriMediaSearchQuery(
+            kind: searchKind(for: search?.mediaType ?? .unknown),
+            mediaName: search?.mediaName,
+            artistName: search?.artistName,
+            albumName: search?.albumName
+        )
+    }
+
+    private static func searchKind(for type: INMediaItemType) -> SiriMediaSearchKind {
+        switch type {
+        case .song, .musicVideo:
+            return .song
+        case .album:
+            return .album
+        case .artist:
+            return .artist
+        case .unknown, .music:
+            return .music
+        default:
+            return .unsupported
+        }
+    }
+
+    private static func shouldResolveSongItems(for query: SiriMediaSearchQuery) -> Bool {
+        guard query.hasSearchTerm else { return false }
+        switch query.kind {
+        case .song:
+            return true
+        case .music:
+            return query.mediaName != nil
+        case .album, .artist, .unsupported:
+            return false
+        }
+    }
+
+    private static func resolutionTitle(for song: Song, includeAlbum: Bool) -> String {
+        guard includeAlbum, let album = song.albumTitle, !album.isEmpty else {
+            return song.title
+        }
+        return "\(song.title) — \(album)"
+    }
+}
+
+private struct IntentResolution {
+    var queue: [Song]
+    let candidates: [Song]
+    let needsDisambiguation: Bool
+    let shouldShuffle: Bool
 }
 
 /// Cross-actor closure box. The Intents protocol's completion handlers

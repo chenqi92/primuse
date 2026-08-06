@@ -607,14 +607,22 @@ final class AppServices {
         bridge.previous = { await player.previous() }
 
         bridge.playSong = { title, artist in
-            let candidates = Self.matchingSongs(in: library.visibleSongs, title: title, artist: artist)
-                .filteredPlayable()
-            guard let song = candidates.first else { return nil }
+            let query = SiriMediaSearchQuery(
+                kind: .song,
+                mediaName: title,
+                artistName: artist
+            )
+            guard let match = SiriMediaSearchResolver.resolve(
+                query: query,
+                songs: library.visibleSongs
+            ), let song = match.queue.first else {
+                return nil
+            }
             // 命中歌 + 整库剩下的拼起来当队列,播完会自然往下接。
             let rest = library.visibleSongs
-                .filter { s in !candidates.contains(where: { $0.id == s.id }) }
+                .filter { $0.id != song.id }
                 .filteredPlayable()
-            player.setQueue(candidates + rest, startAt: 0)
+            player.setQueue([song] + rest, startAt: 0)
             await player.play(song: song, caller: "AppIntent")
             if let artist = song.artistName, !artist.isEmpty {
                 return String(
@@ -649,28 +657,6 @@ final class AppServices {
             guard let first = pool.first else { return }
             player.setQueue(pool, startAt: 0)
             await player.play(song: first, caller: "AppIntent")
-        }
-    }
-
-    /// 模糊匹配 ── title 包含 + (可选) artist 包含,都不区分大小写。
-    /// 精确 title 匹配排前。
-    private static func matchingSongs(in songs: [Song], title: String, artist: String?) -> [Song] {
-        let titleLower = title.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !titleLower.isEmpty else { return [] }
-        let artistLower = artist?.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        let filtered = songs.filter { s in
-            let titleMatch = s.title.lowercased().contains(titleLower)
-            guard titleMatch else { return false }
-            if let artistLower, !artistLower.isEmpty {
-                return (s.artistName ?? "").lowercased().contains(artistLower)
-            }
-            return true
-        }
-        return filtered.sorted { a, b in
-            let aExact = a.title.lowercased() == titleLower
-            let bExact = b.title.lowercased() == titleLower
-            if aExact != bExact { return aExact }
-            return false
         }
     }
 }

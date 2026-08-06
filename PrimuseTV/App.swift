@@ -1,4 +1,5 @@
 #if os(tvOS)
+import Intents
 import SwiftUI
 import UIKit
 
@@ -19,6 +20,16 @@ enum TVAppearancePreference: String, CaseIterable {
     }
 }
 
+@MainActor
+final class PrimuseTVAppDelegate: NSObject, UIApplicationDelegate {
+    let store = TVStore()
+    private lazy var playMediaHandler = TVPlayMediaIntentHandler(store: store)
+
+    func application(_ application: UIApplication, handlerFor intent: INIntent) -> Any? {
+        intent is INPlayMediaIntent ? playMediaHandler : nil
+    }
+}
+
 /// tvOS app 入口。
 ///
 /// 界面按 design/猿音/scenes/tvos.jsx 还原,由 TVStore 读取经 iCloud 同步下来的
@@ -26,9 +37,11 @@ enum TVAppearancePreference: String, CaseIterable {
 /// 偏好决定联网拉取还是仅本地重载。
 @main
 struct PrimuseTVApp: App {
-    @State private var store = TVStore()
+    @UIApplicationDelegateAdaptor(PrimuseTVAppDelegate.self) private var appDelegate
     @AppStorage(TVAppearancePreference.storageKey)
     private var appearanceRawValue = TVAppearancePreference.system.rawValue
+
+    private var store: TVStore { appDelegate.store }
 
     private var appearance: TVAppearancePreference {
         TVAppearancePreference(rawValue: appearanceRawValue) ?? .system

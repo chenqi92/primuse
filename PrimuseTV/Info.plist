@@ -41,6 +41,14 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>INIntentsSupported</key>
+	<array>
+		<string>INPlayMediaIntent</string>
+	</array>
+	<key>INSupportedMediaCategories</key>
+	<array>
+		<string>INMediaCategoryMusic</string>
+	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSAppTransportSecurity</key>
@@ -65,6 +73,8 @@
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>猿音需要访问本地网络,以便从 iPhone 扫码直接接收音乐源配置、并自动发现局域网内的 NAS。</string>
+	<key>NSSiriUsageDescription</key>
+	<string>用 Siri 语音点播、控制猿音播放。</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

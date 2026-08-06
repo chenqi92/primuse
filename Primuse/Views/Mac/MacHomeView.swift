@@ -1265,6 +1265,7 @@ struct MacHomeView: View {
         guard let startIndex = queue.firstIndex(where: { $0.id == song.id }) else { return }
         player.shuffleEnabled = false
         player.setQueue(queue, startAt: startIndex)
+        SiriMediaInteractionDonor.donate(song: queue[startIndex])
         Task { await player.play(song: queue[startIndex]) }
     }
 

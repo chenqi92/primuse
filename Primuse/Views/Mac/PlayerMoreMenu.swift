@@ -947,6 +947,7 @@ struct MacSimilarSongsPopover: View {
         player.shuffleEnabled = false
         player.setQueue(queue, startAt: 0)
         onClose()
+        SiriMediaInteractionDonor.donate(song: first)
         Task { await player.play(song: first) }
     }
 

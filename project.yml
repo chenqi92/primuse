@@ -201,10 +201,13 @@ targets:
         UILaunchScreen: {}
         ITSAppUsesNonExemptEncryption: false
         NSSiriUsageDescription: "用 Siri 语音点播、控制猿音播放。"
+        INIntentsSupported:
+          - INPlayMediaIntent
+        INSupportedMediaCategories:
+          - INMediaCategoryMusic
         NSAppleMusicUsageDescription: "Primuse uses Apple Music to search the catalog and play tracks if you have an active subscription."
         NSMotionUsageDescription: "Primuse uses headphone motion to keep Spatial Audio anchored while you move your head."
         NSUserActivityTypes:
-          - INPlayMediaIntent
           - com.welape.yuanyin.nowplaying
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: true
@@ -576,6 +579,11 @@ targets:
           - de
         # 只用 HTTPS / 标准 OS 加密(豁免类),声明免出口合规,免去每次上传都要填。
         ITSAppUsesNonExemptEncryption: false
+        NSSiriUsageDescription: "用 Siri 语音点播、控制猿音播放。"
+        INIntentsSupported:
+          - INPlayMediaIntent
+        INSupportedMediaCategories:
+          - INMediaCategoryMusic
         # 允许播放局域网明文 HTTP(iPhone 中继 / http NAS 直链),但不对公网全局关闭 ATS。
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true

@@ -875,6 +875,7 @@ struct PlaylistDetailView: View {
         let queue = songs.filteredPlayable()
         guard let index = queue.firstIndex(where: { $0.id == song.id }) else { return }
         player.setQueue(queue, startAt: index)
+        SiriMediaInteractionDonor.donate(song: song)
         Task { await player.play(song: song) }
     }
 }
