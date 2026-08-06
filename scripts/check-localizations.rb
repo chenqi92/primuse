@@ -1,0 +1,296 @@
+#!/usr/bin/env ruby
+
+require "json"
+require "open3"
+require "pathname"
+require "set"
+
+ROOT = Pathname(__dir__).parent.freeze
+SUPPORTED_LOCALES = %w[en de fr ja ko zh-Hans zh-Hant].freeze
+
+RESOURCE_GROUPS = [
+  ["Primuse Localizable.strings", ROOT / "Primuse/Resources", "Localizable.strings", false],
+  ["PrimuseKit Localizable.strings", ROOT / "PrimuseKit/Sources/PrimuseKit/Resources", "Localizable.strings", true],
+  ["Primuse InfoPlist.strings", ROOT / "Primuse/Resources", "InfoPlist.strings", true],
+  ["Widget InfoPlist.strings", ROOT / "PrimuseWidgetExtension/Resources", "InfoPlist.strings", true],
+  ["Activity InfoPlist.strings", ROOT / "PrimuseActivityExtension/Resources", "InfoPlist.strings", true],
+  ["Watch InfoPlist.strings", ROOT / "PrimuseWatch/Resources", "InfoPlist.strings", true],
+  ["Watch widget InfoPlist.strings", ROOT / "PrimuseWatchWidgets/Resources", "InfoPlist.strings", true]
+].freeze
+
+IDENTICAL_VALUE_PREFIXES = %w[
+  home_
+  tag_editor_lyrics_
+  drime_
+  cloud_permission_
+  fnmusic_
+  radio_
+  update_banner_
+].freeze
+
+IDENTICAL_VALUE_KEYS = %w[
+  tag_editor_footer
+  source_quick_sync
+  source_deep_scan
+  shuffle_all
+  sidebar_all_songs
+  sidebar_liked_songs
+  ext.tv.radio.play
+  ext.tv.radio.stop
+  ext.tv.radio.stationCount
+  src.subtitle.fnMusic
+  src.subtitle.daoliyu
+].freeze
+
+IDENTICAL_VALUE_ALLOWLIST = {
+  "de" => %w[
+    drime_token_section
+    fnmusic_connection_fnconnect
+    fnmusic_fnid
+    home_dashboard_title
+    radio_title
+  ],
+  "fr" => %w[
+    drime_token_section
+    fnmusic_connection_fnconnect
+    fnmusic_fnid
+    home_dashboard_title
+    radio_title
+    radio_stations_count
+    home_pipeline_sources
+    home_sources_title
+    ext.tv.radio.stationCount
+  ],
+  "ja" => %w[
+    drime_token_section
+    fnmusic_connection_fnconnect
+    fnmusic_fnid
+    home_dashboard_title
+  ],
+  "ko" => %w[
+    drime_token_section
+    fnmusic_connection_fnconnect
+    fnmusic_fnid
+    home_dashboard_title
+  ],
+  "zh-Hans" => %w[
+    drime_token_section
+    fnmusic_connection_fnconnect
+    fnmusic_fnid
+  ],
+  "zh-Hant" => %w[
+    drime_token_section
+    fnmusic_connection_fnconnect
+    fnmusic_fnid
+  ]
+}.transform_values(&:freeze).freeze
+
+LOCALIZED_ERROR_ROOTS = %w[
+  Primuse
+  PrimuseKit/Sources
+  PrimuseTV
+  PrimuseWatch
+  PrimuseWidgetExtension
+  PrimuseActivityExtension
+].freeze
+
+HAN_LITERAL_ALLOWLIST = {
+  "Primuse/Services/Intents/PrimuseAppIntents.swift" => [
+    /用 .*applicationName/
+  ],
+  "Primuse/Services/Metadata/Scrapers/ScraperTypes.swift" => [
+    /酷狗|网易云|QQ ?音乐|咪咕|千千/
+  ],
+  "Primuse/Views/Components/CachedArtworkView.swift" => [
+    /\["music", "音乐"/
+  ],
+  "Primuse/Views/Settings/DuplicateSongsView.swift" => [
+    /百度网盘|群晖|阿里云盘|本地文件|"本地"/
+  ],
+  "Primuse/Views/Mac/MacSettingsView.swift" => [
+    /"猿"/
+  ],
+  "Primuse/Views/Mac/Theme/PrimuseTheme.swift" => [
+    /与设计稿/
+  ],
+  "PrimuseTV/Model/TVStore.swift" => [
+    /"飞牛音乐"/
+  ],
+  "PrimuseTV/Views/TVLibraryView.swift" => [
+    /case all = "全部"/
+  ],
+  "Primuse/Services/Sources/CloudDrive/CloudDriveBase.swift" => [
+    /\["music", "音乐"/
+  ],
+  "Primuse/Services/Sources/SynologyScanner.swift" => [
+    /"音乐"/
+  ],
+  "Primuse/Services/Sources/NetworkDiscoveryService.swift" => [
+    /"飞牛音乐"/
+  ],
+  "Primuse/Services/Sources/SourceManager.swift" => [
+    /"登录"|"密码"|"超时"|"不存在"|"不可达"|"拒绝"|"限流"/
+  ],
+  "Primuse/Views/NowPlaying/NowPlayingView.swift" => [
+    /"音箱"|"群晖"/
+  ],
+  "Primuse/Views/Sources/BrowserChrome.swift" => [
+    /"网络"|"联网"|"连接"|"权限"|"不可达"|"超时"/
+  ]
+}.transform_values(&:freeze).freeze
+
+def load_strings(path)
+  output, error, status = Open3.capture3(
+    "/usr/bin/plutil", "-convert", "json", "-o", "-", path.to_s
+  )
+  raise "#{path.relative_path_from(ROOT)}: #{error.strip}" unless status.success?
+
+  JSON.parse(output)
+end
+
+def localization_paths(root, file_name)
+  SUPPORTED_LOCALES.to_h do |locale|
+    [locale, root / "#{locale}.lproj" / file_name]
+  end
+end
+
+def format_signature(value)
+  value
+    .gsub("%%", "")
+    .scan(/%(?:\d+\$)?[-+0 #']*\d*(?:\.\d+)?(lld|llu|ld|lu|d|i|u|f|g|@)/)
+    .flatten
+    .sort
+end
+
+def check_resource_group(name, root, file_name, exact_english_parity, failures)
+  paths = localization_paths(root, file_name)
+  missing_files = paths.reject { |_locale, path| path.file? }.keys
+  unless missing_files.empty?
+    failures << "#{name}: missing locales: #{missing_files.join(', ')}"
+    return
+  end
+
+  values = paths.transform_values { |path| load_strings(path) }
+  union = values.values.reduce(Set.new) { |keys, dictionary| keys | dictionary.keys.to_set }
+
+  values.each do |locale, dictionary|
+    next if locale == "en" && !exact_english_parity
+
+    missing = union - dictionary.keys.to_set
+    extra = dictionary.keys.to_set - union
+    failures << "#{name} #{locale}: missing keys: #{missing.to_a.sort.join(', ')}" unless missing.empty?
+    failures << "#{name} #{locale}: unexpected keys: #{extra.to_a.sort.join(', ')}" unless extra.empty?
+  end
+
+  english = values.fetch("en")
+  values.each do |locale, dictionary|
+    next if locale == "en"
+
+    dictionary.each do |key, value|
+      next unless english.key?(key)
+
+      expected = format_signature(english.fetch(key))
+      actual = format_signature(value)
+      if expected != actual
+        failures << "#{name} #{locale}: placeholder mismatch for #{key.inspect}: " \
+                    "expected #{expected.inspect}, got #{actual.inspect}"
+      end
+    end
+
+    dictionary.each do |key, value|
+      next unless english[key] == value
+      next unless IDENTICAL_VALUE_KEYS.include?(key) ||
+                  IDENTICAL_VALUE_PREFIXES.any? { |prefix| key.start_with?(prefix) }
+      next if IDENTICAL_VALUE_ALLOWLIST.fetch(locale, []).include?(key)
+
+      failures << "#{name} #{locale}: untranslated value for #{key.inspect}"
+    end
+  end
+end
+
+def localized_error_literals(path)
+  lines = path.readlines
+  findings = []
+
+  lines.each_index do |index|
+    next unless lines[index].match?(/\bvar\s+errorDescription\s*:\s*String\?/)
+
+    depth = 0
+    started = false
+    lines[index, 60].each_with_index do |line, offset|
+      opens = line.count("{")
+      closes = line.count("}")
+      started ||= opens.positive?
+      depth += opens - closes if started
+
+      stripped = line.strip
+      literal_probe = stripped.gsub('""', "")
+      localization_argument = stripped.match?(/\A"[a-zA-Z0-9_. %@-]+",?\z/)
+      if literal_probe.include?('"') &&
+         !localization_argument &&
+         !stripped.include?("String(localized:") &&
+         !stripped.include?("PMString(") &&
+         !stripped.start_with?("//")
+        findings << [index + offset + 1, stripped]
+      end
+
+      break if started && depth <= 0
+    end
+  end
+
+  findings
+end
+
+def hard_coded_han_literals(path)
+  relative = path.relative_path_from(ROOT).to_s
+  allowlist = HAN_LITERAL_ALLOWLIST.fetch(relative, [])
+  findings = []
+
+  path.readlines.each_with_index do |line, index|
+    stripped = line.strip
+    next if stripped.start_with?("//")
+    next if stripped.include?("plog(")
+
+    # Removing the comment suffix also makes URL literals incomplete, so they
+    # cannot be mistaken for user-facing text by the string-literal matcher.
+    code = line.split("//", 2).first
+    literals = code.scan(/"(?:\\.|[^"\\])*"/).select { |literal| literal.match?(/\p{Han}/) }
+    next if literals.empty?
+    next if allowlist.any? { |pattern| line.match?(pattern) }
+
+    findings << [index + 1, literals.join(", ")]
+  end
+
+  findings
+end
+
+failures = []
+RESOURCE_GROUPS.each do |name, root, file_name, exact_english_parity|
+  check_resource_group(name, root, file_name, exact_english_parity, failures)
+end
+
+LOCALIZED_ERROR_ROOTS.each do |relative_root|
+  (ROOT / relative_root).glob("**/*.swift").sort.each do |path|
+    next unless path.read.include?("LocalizedError")
+
+    localized_error_literals(path).each do |line, literal|
+      failures << "#{path.relative_path_from(ROOT)}:#{line}: hard-coded LocalizedError text: #{literal}"
+    end
+  end
+end
+
+LOCALIZED_ERROR_ROOTS.each do |relative_root|
+  (ROOT / relative_root).glob("**/*.swift").sort.each do |path|
+    hard_coded_han_literals(path).each do |line, literals|
+      failures << "#{path.relative_path_from(ROOT)}:#{line}: hard-coded Han text: #{literals}"
+    end
+  end
+end
+
+if failures.empty?
+  puts "Localization check passed for #{SUPPORTED_LOCALES.join(', ')}."
+  exit 0
+end
+
+warn failures.join("\n")
+exit 1
