@@ -25,15 +25,17 @@ public struct BaiduFileManagerBatchResponse: Decodable, Sendable, Equatable {
         public var errorDescription: String? {
             switch self {
             case .topLevel(let errno):
-                return "Baidu filemanager failed with errno \(errno)"
+                return PMString("error.baidu.topLevel", String(errno))
             case .missingItemResults:
-                return "Baidu filemanager returned no per-item results"
+                return PMString("error.baidu.missingItemResults")
             case .failedItems(let items):
-                let first = items.first
-                return "Baidu filemanager failed \(items.count) item(s)"
-                    + (first.map { ": \($0.path) (errno \($0.errno))" } ?? "")
+                var message = PMString("error.baidu.failedItems", String(items.count))
+                if let first = items.first {
+                    message += PMString("error.baidu.firstFailedItem", first.path, String(first.errno))
+                }
+                return message
             case .missingPaths(let paths):
-                return "Baidu filemanager omitted \(paths.count) requested path(s)"
+                return PMString("error.baidu.missingPaths", String(paths.count))
             }
         }
     }

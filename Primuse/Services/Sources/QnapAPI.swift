@@ -70,10 +70,10 @@ actor QnapAPI {
                     return LoginResult(success: true, sid: sid, needs2FA: false)
                 }
                 if needOtp || authCode == 5 {
-                    return LoginResult(success: false, needs2FA: true, errorMessage: "需要两步验证")
+                    return LoginResult(success: false, needs2FA: true, errorMessage: String(localized: "auth_two_factor_required"))
                 }
                 if authCode == 6 {
-                    return LoginResult(success: false, needs2FA: true, errorMessage: "验证码错误")
+                    return LoginResult(success: false, needs2FA: true, errorMessage: String(localized: "auth_verification_code_invalid"))
                 }
                 return LoginResult(success: false, needs2FA: false, errorMessage: qnapError(authCode))
             }
@@ -252,7 +252,11 @@ actor QnapAPI {
     private lazy var sharedSession: URLSession = {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
-        return URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+        return URLSession(
+            configuration: config,
+            delegate: SmartSSLDelegate(redirectPolicy: .sameEndpoint),
+            delegateQueue: nil
+        )
     }()
 
     private func session() -> URLSession { sharedSession }
@@ -273,15 +277,15 @@ actor QnapAPI {
 
     private func qnapError(_ code: Int) -> String {
         switch code {
-        case 0: return "登录失败"
-        case 1: return "用户名或密码错误"
-        case 2: return "账户已停用"
-        case 3: return "权限不足"
-        case 4: return "连接数已满"
-        case 5: return "需要两步验证"
-        case 6: return "验证码错误"
-        case 7: return "IP 已被封锁"
-        default: return "错误 \(code)"
+        case 0: return String(localized: "auth_login_failed")
+        case 1: return String(localized: "auth_username_password_invalid")
+        case 2: return String(localized: "auth_account_disabled")
+        case 3: return String(localized: "auth_permission_denied")
+        case 4: return String(localized: "auth_connection_limit_reached")
+        case 5: return String(localized: "auth_two_factor_required")
+        case 6: return String(localized: "auth_verification_code_invalid")
+        case 7: return String(localized: "auth_ip_blocked")
+        default: return String(format: String(localized: "auth_error_code_format"), code)
         }
     }
 }

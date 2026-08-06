@@ -240,7 +240,7 @@ struct SmartPlaylistDetailView: View {
                 },
             ],
             [
-                .init(icon: "slider.horizontal.3", title: "编辑规则") { showEditor = true },
+                .init(icon: "slider.horizontal.3", title: String(localized: "smart_edit_rules")) { showEditor = true },
                 .init(icon: "arrow.down.circle", title: String(localized: "offline_download"),
                       enabled: !playable.isEmpty) {
                     sourceManager.downloadForOffline(songs: matched)
@@ -271,7 +271,7 @@ struct SmartPlaylistDetailView: View {
                 .foregroundStyle(PMColor.brand)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(verbatim: "智能规则")
+                Text("smart_rules_section")
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(PMColor.text)
                 Text(rulesSummary(smart))
@@ -285,7 +285,7 @@ struct SmartPlaylistDetailView: View {
             Button {
                 showEditor = true
             } label: {
-                Text(verbatim: "编辑规则")
+                Text("smart_edit_rules")
                     .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(PMColor.text)
                     .padding(.horizontal, 10)

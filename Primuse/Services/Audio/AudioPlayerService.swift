@@ -1646,9 +1646,9 @@ final class AudioPlayerService {
             return
         }
         if TrustedHTTPTransport.requiresPlainSocket(for: url),
-           let host = url.host,
-           !SSLTrustStore.allowsInsecureHTTPHostSync(domain: host) {
-            showPlaybackError(String(format: String(localized: "insecure_http_permission_required %@"), host))
+           let trustTarget = TrustedHTTPTransport.trustTarget(for: url),
+           !SSLTrustStore.allowsInsecureHTTPHostSync(domain: trustTarget) {
+            showPlaybackError(String(format: String(localized: "insecure_http_permission_required %@"), trustTarget))
             return
         }
 
@@ -1731,9 +1731,9 @@ final class AudioPlayerService {
 
     func testRadioStream(url: URL) async -> Result<Void, Error> {
         if TrustedHTTPTransport.requiresPlainSocket(for: url),
-           let host = url.host,
-           !SSLTrustStore.allowsInsecureHTTPHostSync(domain: host) {
-            return .failure(TrustedHTTPTransportError.permissionRequired(host: host))
+           let trustTarget = TrustedHTTPTransport.trustTarget(for: url),
+           !SSLTrustStore.allowsInsecureHTTPHostSync(domain: trustTarget) {
+            return .failure(TrustedHTTPTransportError.permissionRequired(host: trustTarget))
         }
         let inferredFormat = RadioStreamFormat.inferred(from: url)
         if inferredFormat == .flac {

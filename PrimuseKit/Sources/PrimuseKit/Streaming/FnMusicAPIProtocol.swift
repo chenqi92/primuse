@@ -35,17 +35,17 @@ public enum FnConnectError: Error, LocalizedError, Equatable, Sendable {
     public var errorDescription: String? {
         switch self {
         case .invalidID:
-            return "FN ID 格式无效"
+            return PMString("error.fnConnect.invalidID")
         case .serverNotFound:
-            return "未找到该 FN ID，请确认 NAS 已开启 FN Connect"
+            return PMString("error.fnConnect.serverNotFound")
         case .invalidResponse:
-            return "FN Connect 返回了无法识别的数据"
+            return PMString("error.fnConnect.invalidResponse")
         case .accessCodeRequired:
-            return "该 FN Connect 需要访问码"
+            return PMString("error.fnConnect.accessCodeRequired")
         case .accessCodeRejected:
-            return "FN Connect 访问码无效"
+            return PMString("error.fnConnect.accessCodeRejected")
         case .unreachable:
-            return "FN Connect 的直连和中继链路均不可用"
+            return PMString("error.fnConnect.unreachable")
         }
     }
 }
@@ -359,11 +359,13 @@ public enum FnMusicAPIProtocol {
 /// service before returning a route. Address discovery and Music login remain
 /// separate: callers still authenticate with the NAS-local Music account.
 public struct FnConnectResolver: Sendable {
+    public typealias DataLoader = @Sendable (URLRequest) async throws -> (Data, URLResponse)
+
     private static let lookupURL = URL(string: "https://5ddd.com/api/v1/fn/con")!
     private static let lookupPath = "/api/v1/fn/con"
     private static let lookupClientKey = "zIGtkc3dqZnJpd29qZXJqa2w7c"
 
-    private let session: URLSession
+    private let dataLoader: DataLoader
     private let lookupTimeout: TimeInterval
     private let probeTimeout: TimeInterval
 
@@ -372,7 +374,17 @@ public struct FnConnectResolver: Sendable {
         lookupTimeout: TimeInterval = 10,
         probeTimeout: TimeInterval = 2
     ) {
-        self.session = session
+        self.dataLoader = { try await session.data(for: $0) }
+        self.lookupTimeout = lookupTimeout
+        self.probeTimeout = probeTimeout
+    }
+
+    public init(
+        data: @escaping DataLoader,
+        lookupTimeout: TimeInterval = 10,
+        probeTimeout: TimeInterval = 2
+    ) {
+        self.dataLoader = data
         self.lookupTimeout = lookupTimeout
         self.probeTimeout = probeTimeout
     }
@@ -456,7 +468,7 @@ public struct FnConnectResolver: Sendable {
             forHTTPHeaderField: FnMusicAPIProtocol.authxHeaderField
         )
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await dataLoader(request)
         guard let http = response as? HTTPURLResponse,
               (200...299).contains(http.statusCode),
               let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -531,7 +543,7 @@ public struct FnConnectResolver: Sendable {
         FnMusicAPIProtocol.applyAuthx(to: &request)
 
         do {
-            let (data, response) = try await session.data(for: request)
+            let (data, response) = try await dataLoader(request)
             guard let http = response as? HTTPURLResponse,
                   (200...299).contains(http.statusCode),
                   let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -559,7 +571,7 @@ public struct FnConnectResolver: Sendable {
         )
 
         do {
-            let (_, response) = try await session.data(for: request)
+            let (_, response) = try await dataLoader(request)
             guard let http = response as? HTTPURLResponse else { return .failed }
             switch http.statusCode {
             case 200...299, 404:
@@ -724,10 +736,15 @@ public actor FnMusicEndpointProvider {
     public init(
         source: MusicSource,
         accessCode: String? = nil,
-        session: URLSession = .shared
+        session: URLSession = .shared,
+        dataLoader: FnConnectResolver.DataLoader? = nil
     ) {
         self.accessCode = accessCode
-        self.resolver = FnConnectResolver(session: session)
+        if let dataLoader {
+            self.resolver = FnConnectResolver(data: dataLoader)
+        } else {
+            self.resolver = FnConnectResolver(session: session)
+        }
         if source.type == .fnMusic, source.effectiveFnMusicConnectionMode == .fnConnect {
             self.fnID = source.host
             self.directEndpoint = nil

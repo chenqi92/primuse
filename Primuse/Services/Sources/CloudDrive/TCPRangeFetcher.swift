@@ -27,11 +27,19 @@ enum TCPRangeFetcher {
 
         var errorDescription: String? {
             switch self {
-            case .badURL: return "TCPRangeFetcher: bad URL"
-            case .connection(let m): return "TCPRangeFetcher: connection \(m)"
-            case .timeout: return "TCPRangeFetcher: timeout"
-            case .http(let c): return "TCPRangeFetcher: HTTP \(c)"
-            case .malformedResponse: return "TCPRangeFetcher: malformed response"
+            case .badURL:
+                return String(localized: "error_range_bad_url")
+            case .connection(let message):
+                return String(format: String(localized: "error_range_connection %@"), message)
+            case .timeout:
+                return String(localized: "error_range_timeout")
+            case .http(let status):
+                return String(
+                    format: String(localized: "error_range_http %@"),
+                    String(status)
+                )
+            case .malformedResponse:
+                return String(localized: "error_range_malformed_response")
             }
         }
 

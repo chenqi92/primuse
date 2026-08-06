@@ -743,7 +743,7 @@ struct MacNowPlayingView: View {
             HStack(spacing: 7) {
                 Image(systemName: "arrow.down.right.and.arrow.up.left")
                     .font(.system(size: 12, weight: .semibold))
-                Text("退出全屏")
+                Text("exit_full_screen")
                     .font(.system(size: 13, weight: .semibold))
             }
             .foregroundStyle(playerPrimaryColor.opacity(0.88))
@@ -759,7 +759,7 @@ struct MacNowPlayingView: View {
         .buttonStyle(.plain)
         .keyboardShortcut(.cancelAction)
         .glassEffect(.regular.interactive(), in: .capsule)
-        .help(Text("退出全屏"))
+        .help(Text("exit_full_screen"))
     }
 
     private var floatingControls: some View {

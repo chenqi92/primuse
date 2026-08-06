@@ -23,6 +23,13 @@ enum TrustedHTTPTransport {
         InsecureHTTPHostPolicy.requiresExplicitTrust(for: url)
     }
 
+    static func trustTarget(for url: URL) -> String? {
+        guard let endpoint = NetworkEndpointIdentity(url: url), endpoint.scheme == "http" else {
+            return nil
+        }
+        return endpoint.key
+    }
+
     static func data(
         for request: URLRequest,
         session: URLSession,
@@ -32,7 +39,7 @@ enum TrustedHTTPTransport {
         guard requiresPlainSocket(for: url) else {
             return try await session.data(for: request)
         }
-        let host = try trustedPublicHTTPHost(for: url)
+        let host = try await trustedPublicHTTPHost(for: url)
         plog("⚠️ Trusted cleartext HTTP request host=\(host) method=\(request.httpMethod ?? "GET")")
         return try await PlainHTTPClient.data(for: request, maxBytes: maxBytes)
     }
@@ -52,22 +59,33 @@ enum TrustedHTTPTransport {
     ) async throws -> (URL, URLResponse) {
         var request = URLRequest(url: url)
         request.timeoutInterval = timeout
+        return try await download(for: request, session: session)
+    }
+
+    static func download(
+        for request: URLRequest,
+        session: URLSession
+    ) async throws -> (URL, URLResponse) {
+        guard let url = request.url else { throw URLError(.badURL) }
         guard requiresPlainSocket(for: url) else {
             return try await session.download(for: request)
         }
-        let host = try trustedPublicHTTPHost(for: url)
+        let host = try await trustedPublicHTTPHost(for: url)
         plog("⚠️ Trusted cleartext HTTP download host=\(host)")
         return try await PlainHTTPClient.download(for: request)
     }
 
-    private static func trustedPublicHTTPHost(for url: URL) throws -> String {
-        guard let host = url.host,
-              let normalized = InsecureHTTPHostPolicy.normalizedHost(host) else {
+    private static func trustedPublicHTTPHost(for url: URL) async throws -> String {
+        guard let endpoint = trustTarget(for: url) else {
             throw URLError(.badURL)
         }
-        guard SSLTrustStore.allowsInsecureHTTPHostSync(domain: normalized) else {
-            throw TrustedHTTPTransportError.permissionRequired(host: normalized)
+        if SSLTrustStore.allowsInsecureHTTPHostSync(domain: endpoint) {
+            return endpoint
         }
-        return normalized
+        let approved = await SSLTrustStore.shared.requestInsecureHTTPTrust(domain: endpoint)
+        guard approved else {
+            throw TrustedHTTPTransportError.permissionRequired(host: endpoint)
+        }
+        return endpoint
     }
 }

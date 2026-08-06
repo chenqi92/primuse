@@ -161,7 +161,7 @@ struct SearchView: View {
 
                 Spacer()
 
-                Text(verbatim: "本地 · Apple Music")
+                Text("search_scope_local_apple_music")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(PMColor.textMuted)
                     .padding(.horizontal, 9)
@@ -187,7 +187,10 @@ struct SearchView: View {
                 chipText("\(String(localized: "tab_songs")) · \(searchResults.count)", active: false)
                 chipText("\(String(localized: "tab_albums")) · \(matchingAlbums.count)", active: false)
                 chipText("\(String(localized: "tab_artists")) · \(matchingArtistCount)", active: false)
-                chipText("歌词命中 · \(searchResults.filter { $0.matchKind == .lyrics }.count)", active: false)
+                chipText(String(
+                    format: String(localized: "search_lyrics_hits_format"),
+                    searchResults.filter { $0.matchKind == .lyrics }.count
+                ), active: false)
                 chipText("Apple Music · \(appleMusic.searchResults.count)", active: false)
                 Spacer()
             }
@@ -302,7 +305,7 @@ struct SearchView: View {
 
     private var macTopMatchSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            macSectionLabelText("顶部匹配")
+            macSectionLabelText(String(localized: "search_top_match"))
             if let album = matchingAlbums.first {
                 NavigationLink(value: album) {
                     macTopCard(title: album.title,
@@ -585,11 +588,14 @@ struct SearchView: View {
                     .font(.system(size: 11.5))
                     .foregroundStyle(PMColor.textMuted)
                     .lineLimit(2)
-                Text("跳到歌词上下文")
+                Text("search_jump_to_lyrics_context")
                     .font(.system(size: 10.5, design: .monospaced))
                     .foregroundStyle(PMColor.textFaint)
                 if let timestamp = result.lyricTimestamp {
-                    Text(verbatim: "命中 \(formatSearchTime(timestamp))")
+                    Text(verbatim: String(
+                        format: String(localized: "search_match_time_format"),
+                        formatSearchTime(timestamp)
+                    ))
                         .font(.system(size: 10.5, design: .monospaced))
                         .foregroundStyle(PMColor.brand)
                 }
@@ -676,7 +682,7 @@ struct SearchView: View {
             return String(localized: "apple_music_notice_denied")
         case .authorized:
             guard AppleMusicFeatureSettings.catalogSearchEnabled else {
-                return "Apple Music · Catalog 搜索已关闭"
+                return String(localized: "search_apple_music_catalog_disabled")
             }
             if appleMusic.isSearching {
                 return String(localized: "search_apple_music_loading")
@@ -684,7 +690,10 @@ struct SearchView: View {
             if let error = appleMusic.lastSearchError {
                 return error
             }
-            return "已订阅 · 同步用户库 · \(appleMusic.searchResults.count) 个结果"
+            return String(
+                format: String(localized: "search_apple_music_synced_results_format"),
+                appleMusic.searchResults.count
+            )
         }
     }
 
@@ -843,7 +852,10 @@ struct SearchView: View {
                             // 歌词命中: 把命中的句子(含上下文)展开, 让用户一眼看到为什么命中。
                             VStack(alignment: .leading, spacing: 3) {
                                 if let timestamp = result.lyricTimestamp {
-                                    Text(verbatim: "命中 \(formatSearchTime(timestamp))")
+                                    Text(verbatim: String(
+                                        format: String(localized: "search_match_time_format"),
+                                        formatSearchTime(timestamp)
+                                    ))
                                         .font(.caption2.monospacedDigit())
                                         .foregroundStyle(.tint)
                                 }

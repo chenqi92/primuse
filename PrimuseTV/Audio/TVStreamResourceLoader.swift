@@ -2,72 +2,15 @@
 import AVFoundation
 import Foundation
 import PrimuseKit
-import Security
 import UniformTypeIdentifiers
 
-/// TLS 信任策略(TV 端)。AVPlayer 无 app 层 TLS 钩子,所以播放 / 歌词流都走带自定义
-/// delegate 的 URLSession。但**不能**对所有主机一律放行证书:这些 session 会带云盘
-/// Bearer / Subsonic salted token / NAS 登录会话等凭据,无条件信任等于把凭据交给任意
-/// 中间人。策略对齐 iOS 的 SmartSSLDelegate:
-///   1. 先跑系统默认校验(SecTrustEvaluateWithError)——公网云盘(Google Drive /
-///      百度 / 115 等)证书合法,走默认握手,凭据安全。
-///   2. 只有默认校验**失败**且主机是局域网 / 私有地址(自签证书的个人 NAS 常见)时,
-///      才接受该证书。公网主机的非法证书一律拒绝,杜绝中间人。
+/// Playback, lyrics, and resolver sessions share the same endpoint-scoped
+/// tvOS trust policy from PrimuseKit.
 enum TVServerTrust {
-    /// 评估 server trust 挑战,返回应采用的处置。
-    static func disposition(for challenge: URLAuthenticationChallenge)
-        -> (URLSession.AuthChallengeDisposition, URLCredential?) {
-        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
-              let trust = challenge.protectionSpace.serverTrust else {
-            return (.performDefaultHandling, nil)
-        }
-        // 1. 证书本身受系统信任(公网云盘 / 正规证书)→ 走默认握手。
-        var trustError: CFError?
-        if SecTrustEvaluateWithError(trust, &trustError) {
-            return (.performDefaultHandling, nil)
-        }
-        // 2. 校验失败:仅放行私有 / 局域网主机(自签证书的个人 NAS),公网一律拒绝。
-        // tvOS 当前没有证书变更确认 / 清除 pin 的 UI,所以不在这里持久化硬 pin;
-        // 否则 NAS 自动续期或用户更换证书后会进入无法在 TV 端恢复的状态。
-        let host = challenge.protectionSpace.host
-        if isPrivateHost(host) {
-            return (.useCredential, URLCredential(trust: trust))
-        }
-        return (.cancelAuthenticationChallenge, nil)
-    }
-
-    /// 主机是否为局域网 / 私有地址(RFC1918 / 链路本地 / 回环 / .local mDNS / .home)。
-    /// 仅对这类主机才允许接受不受系统信任的自签证书。
-    static func isPrivateHost(_ host: String) -> Bool {
-        let h = host.lowercased()
-        if h == "localhost" || h.hasSuffix(".local") || h.hasSuffix(".home")
-            || h.hasSuffix(".lan") || h.hasSuffix(".internal") {
-            return true
-        }
-        // IPv6 回环 / 唯一本地地址(fc00::/7)/ 链路本地(fe80::/10)。
-        // Prefix checks are only valid for IPv6 literals. Without the colon
-        // guard, a public DNS name such as `fcloud.example` would be mistaken
-        // for an fc00::/7 private address after a certificate failure.
-        if h.contains(":"), h == "::1" || h.hasPrefix("fc") || h.hasPrefix("fd")
-            || h.hasPrefix("fe8") || h.hasPrefix("fe9") || h.hasPrefix("fea")
-            || h.hasPrefix("feb") {
-            return true
-        }
-        // IPv4 私有 / 回环 / 链路本地段。
-        let parts = h.split(separator: ".")
-        guard parts.count == 4, let a = Int(parts[0]), let b = Int(parts[1]),
-              parts.allSatisfy({ part in
-                  guard let value = Int(part) else { return false }
-                  return (0...255).contains(value)
-              }) else { return false }
-        switch a {
-        case 10: return true                       // 10.0.0.0/8
-        case 127: return true                       // 127.0.0.0/8 回环
-        case 172: return (16...31).contains(b)      // 172.16.0.0/12
-        case 192: return b == 168                   // 192.168.0.0/16
-        case 169: return b == 254                   // 169.254.0.0/16 链路本地
-        default: return false
-        }
+    static func disposition(
+        for challenge: URLAuthenticationChallenge
+    ) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        await TVServerTrustPolicy.disposition(for: challenge)
     }
 }
 
@@ -161,12 +104,12 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
             )
         }
 
-        func urlSession(_ session: URLSession,
-                        didReceive challenge: URLAuthenticationChallenge,
-                        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        func urlSession(
+            _ session: URLSession,
+            didReceive challenge: URLAuthenticationChallenge
+        ) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
             // loader 已析构也要给出 TLS 处置,否则握手挂起;沿用同一信任策略。
-            let (disposition, credential) = TVServerTrust.disposition(for: challenge)
-            completionHandler(disposition, credential)
+            await TVServerTrust.disposition(for: challenge)
         }
     }
 
@@ -336,7 +279,10 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
            (context.byteCount > expectedByteCount
             || incomingCount > expectedByteCount - context.byteCount) {
             let error = FnMusicRangeResponseError(
-                detail: "响应体超过 Content-Range 声明的 \(expectedByteCount) 字节"
+                detail: PMString(
+                    "ext.tv.error.range.bodyTooLarge",
+                    String(expectedByteCount)
+                )
             )
             context.terminalErrorReported = true
             context.loadingRequest.finishLoading(with: error)
@@ -379,7 +325,11 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
            context.byteCount != expectedByteCount {
             context.loadingRequest.finishLoading(
                 with: FnMusicRangeResponseError(
-                    detail: "响应体长度为 \(context.byteCount) 字节，预期 \(expectedByteCount) 字节"
+                    detail: PMString(
+                        "ext.tv.error.range.bodyLengthMismatch",
+                        String(context.byteCount),
+                        String(expectedByteCount)
+                    )
                 )
             )
             return
@@ -416,13 +366,13 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
         )
     }
 
-    /// TLS 信任:公网证书走系统默认校验,仅对局域网 / 私有主机的自签证书放行。
-    /// 见 TVServerTrust —— 避免把云盘 Bearer / NAS 会话凭据暴露给中间人。
-    func urlSession(_ session: URLSession,
-                    didReceive challenge: URLAuthenticationChallenge,
-                    completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        let (disposition, credential) = TVServerTrust.disposition(for: challenge)
-        completionHandler(disposition, credential)
+    /// TLS 信任见 TVServerTrust：私网兼容自签证书，公网异常证书需明确确认并固定指纹，
+    /// 避免把云盘 Bearer / NAS 会话凭据暴露给未经确认的中间人。
+    func urlSession(
+        _ session: URLSession,
+        didReceive challenge: URLAuthenticationChallenge
+    ) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        await TVServerTrust.disposition(for: challenge)
     }
 
     static func fillContentInfo(_ info: AVAssetResourceLoadingContentInformationRequest,
@@ -460,12 +410,17 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
     ) throws -> Int64 {
         guard response.statusCode == 206 else {
             throw FnMusicRangeResponseError(
-                detail: "HTTP \(response.statusCode)，预期 206 Partial Content"
+                detail: PMString(
+                    "ext.tv.error.range.httpStatus",
+                    String(response.statusCode)
+                )
             )
         }
         guard requestedOffset >= 0,
               let header = response.value(forHTTPHeaderField: "Content-Range") else {
-            throw FnMusicRangeResponseError(detail: "缺少 Content-Range")
+            throw FnMusicRangeResponseError(
+                detail: PMString("ext.tv.error.range.missingContentRange")
+            )
         }
 
         let unitAndValue = header.split(
@@ -475,7 +430,9 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
         )
         guard unitAndValue.count == 2,
               unitAndValue[0].lowercased() == "bytes" else {
-            throw FnMusicRangeResponseError(detail: "Content-Range 单位无效")
+            throw FnMusicRangeResponseError(
+                detail: PMString("ext.tv.error.range.invalidUnit")
+            )
         }
 
         let rangeAndTotal = unitAndValue[1].split(
@@ -487,7 +444,9 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
               rangeAndTotal[1] != "*",
               let totalLength = Int64(rangeAndTotal[1]),
               totalLength > 0 else {
-            throw FnMusicRangeResponseError(detail: "Content-Range 总长度无效")
+            throw FnMusicRangeResponseError(
+                detail: PMString("ext.tv.error.range.invalidTotalLength")
+            )
         }
 
         let bounds = rangeAndTotal[0].split(
@@ -501,7 +460,9 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
               start == requestedOffset,
               end >= start,
               end < totalLength else {
-            throw FnMusicRangeResponseError(detail: "Content-Range 起止位置无效")
+            throw FnMusicRangeResponseError(
+                detail: PMString("ext.tv.error.range.invalidBounds")
+            )
         }
 
         let expectedEnd: Int64
@@ -510,18 +471,26 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
                 offset: requestedOffset,
                 length: requestedLength
             ), requestedOffset < totalLength else {
-                throw FnMusicRangeResponseError(detail: "请求的 Range 无效")
+                throw FnMusicRangeResponseError(
+                    detail: PMString("ext.tv.error.range.invalidRequest")
+                )
             }
             expectedEnd = min(exclusiveEnd - 1, totalLength - 1)
         } else {
             guard requestedOffset < totalLength else {
-                throw FnMusicRangeResponseError(detail: "请求的开放 Range 无效")
+                throw FnMusicRangeResponseError(
+                    detail: PMString("ext.tv.error.range.invalidOpenRequest")
+                )
             }
             expectedEnd = totalLength - 1
         }
         guard end == expectedEnd else {
             throw FnMusicRangeResponseError(
-                detail: "Content-Range 结束位置为 \(end)，预期 \(expectedEnd)"
+                detail: PMString(
+                    "ext.tv.error.range.unexpectedEnd",
+                    String(end),
+                    String(expectedEnd)
+                )
             )
         }
 
@@ -530,7 +499,9 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
             guard let contentLength = Int64(
                 rawContentLength.trimmingCharacters(in: .whitespacesAndNewlines)
             ), contentLength == responseLength else {
-                throw FnMusicRangeResponseError(detail: "Content-Length 与 Content-Range 不一致")
+                throw FnMusicRangeResponseError(
+                    detail: PMString("ext.tv.error.range.headerMismatch")
+                )
             }
         }
         return responseLength
@@ -540,19 +511,19 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
         let detail: String
 
         var errorDescription: String? {
-            "飞牛音乐 Range 响应无效：\(detail)"
+            PMString("ext.tv.error.fnMusicRange", detail)
         }
     }
 }
 
-/// 歌词等非播放请求的 TLS delegate。与播放流同策略(见 TVServerTrust):公网证书走系统
-/// 默认校验,仅对局域网 / 私有主机的自签证书放行——歌词请求同样带源凭据,不能无条件信任。
+/// 歌词等非播放请求的 TLS delegate。与播放流同策略(见 TVServerTrust):系统证书正常
+/// 通过；私网延续原有自签兼容；公网异常证书必须经用户确认并固定指纹。
 final class TVInsecureTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
-    func urlSession(_ session: URLSession,
-                    didReceive challenge: URLAuthenticationChallenge,
-                    completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        let (disposition, credential) = TVServerTrust.disposition(for: challenge)
-        completionHandler(disposition, credential)
+    func urlSession(
+        _ session: URLSession,
+        didReceive challenge: URLAuthenticationChallenge
+    ) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        await TVServerTrust.disposition(for: challenge)
     }
 }
 

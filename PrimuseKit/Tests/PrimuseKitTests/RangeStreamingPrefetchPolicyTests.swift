@@ -23,6 +23,9 @@ struct RangeStreamingPrefetchPolicyTests {
         #expect(!RangeStreamingPrefetchPolicy.allowsAutomaticTrailingFill(for: .synology))
         #expect(RangeStreamingPrefetchPolicy.usesSingleTransferForCompleteDownload(for: .webdav))
         #expect(RangeStreamingPrefetchPolicy.usesSingleTransferForCompleteDownload(for: .synology))
+        #expect(RangeStreamingPrefetchPolicy.usesSingleTransferForCompleteDownload(for: .jellyfin))
+        #expect(RangeStreamingPrefetchPolicy.usesSingleTransferForCompleteDownload(for: .emby))
+        #expect(RangeStreamingPrefetchPolicy.usesSingleTransferForCompleteDownload(for: .plex))
     }
 
     @Test("Other range connectors retain the configured prefetch count")

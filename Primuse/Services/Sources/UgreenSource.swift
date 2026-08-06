@@ -19,7 +19,11 @@ actor UgreenSource: MusicSourceConnector {
         config.timeoutIntervalForRequest = 60
         config.timeoutIntervalForResource = 600
         config.httpMaximumConnectionsPerHost = 8
-        return URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+        return URLSession(
+            configuration: config,
+            delegate: SmartSSLDelegate(redirectPolicy: .sameEndpoint),
+            delegateQueue: nil
+        )
     }()
 
     init(sourceID: String, host: String, port: Int, useSsl: Bool,
@@ -42,7 +46,7 @@ actor UgreenSource: MusicSourceConnector {
         if password.isEmpty {
             plog("⛔ UgreenSource '\(sourceID)' connect aborted: password unavailable")
             await MainActor.run {
-                SourceAuthAlert.report(sourceID: sourceID, message: "缺少登录密码 ── 请重新输入")
+                SourceAuthAlert.report(sourceID: sourceID, message: String(localized: "auth_missing_password"))
             }
             throw SourceError.connectionFailed("missing password")
         }
@@ -90,9 +94,33 @@ actor UgreenSource: MusicSourceConnector {
         guard let url = await api.downloadURL(path: path) else { throw SourceError.fileNotFound(path) }
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 300; config.timeoutIntervalForResource = 600
-        let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+        let session = URLSession(
+            configuration: config,
+            delegate: SmartSSLDelegate(redirectPolicy: .sameEndpoint),
+            delegateQueue: nil
+        )
         defer { session.finishTasksAndInvalidate() }
-        let (tempURL, _) = try await session.download(from: url)
+        let (tempURL, response) = try await TrustedHTTPTransport.download(
+            from: url,
+            session: session,
+            timeout: 300
+        )
+        guard let http = response as? HTTPURLResponse,
+              (200...299).contains(http.statusCode) else {
+            try? FileManager.default.removeItem(at: tempURL)
+            throw SourceError.connectionFailed(
+                "Ugreen download failed: HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)"
+            )
+        }
+        let prefix = (try? FileHandle(forReadingFrom: tempURL)).map { handle -> Data in
+            defer { handle.closeFile() }
+            return handle.readData(ofLength: 64)
+        } ?? Data()
+        if httpMediaResponseLooksLikeErrorBody(http, data: prefix) {
+            try? FileManager.default.removeItem(at: tempURL)
+            await api.invalidateSession()
+            throw SourceError.connectionFailed("Ugreen download returned non-audio body")
+        }
         try? FileManager.default.removeItem(at: fileURL)
         try FileManager.default.moveItem(at: tempURL, to: fileURL)
         return fileURL
@@ -100,7 +128,8 @@ actor UgreenSource: MusicSourceConnector {
 
     func streamingURL(for path: String) async throws -> URL? {
         try await connect()
-        return await api.downloadURL(path: path)
+        guard let url = await api.downloadURL(path: path) else { return nil }
+        return TrustedHTTPTransport.requiresPlainSocket(for: url) ? nil : url
     }
 
     func deleteFile(at path: String) async throws {
@@ -125,14 +154,32 @@ actor UgreenSource: MusicSourceConnector {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue(rangeHeader, forHTTPHeaderField: "Range")
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         request.timeoutInterval = 60
 
-        let (data, response) = try await rangeSession.data(for: request)
+        let requestedBytes = Int(clamping: max(length, 0))
+        let responseLimit = requestedBytes > Int.max - 64 * 1024
+            ? Int.max
+            : requestedBytes + 64 * 1024
+        let (data, response) = try await TrustedHTTPTransport.data(
+            for: request,
+            session: rangeSession,
+            maxBytes: max(PlainHTTPClient.defaultMaxBytes, responseLimit)
+        )
         guard let http = response as? HTTPURLResponse else {
             throw SourceError.connectionFailed("Invalid Ugreen range response")
         }
         switch http.statusCode {
         case 206:
+            guard HTTPByteRangeResponsePolicy.validatedTotalLength(
+                contentRange: http.value(forHTTPHeaderField: "Content-Range"),
+                contentLength: http.value(forHTTPHeaderField: "Content-Length").flatMap(Int64.init),
+                bodyLength: data.count,
+                requestedOffset: offset,
+                requestedLength: length
+            ) != nil else {
+                throw SourceError.connectionFailed("Invalid Ugreen Content-Range response")
+            }
             return data
         case 200:
             // ⚠️ token 过期 / 路径错误 时绿联可能回 HTTP 200 + JSON / HTML 登录
@@ -143,14 +190,14 @@ actor UgreenSource: MusicSourceConnector {
                 await api.invalidateSession()
                 throw SourceError.connectionFailed("Ugreen range returned non-audio body (session expired?)")
             }
-            let total = Int64(data.count)
-            let actualOffset = offset < 0 ? max(0, total + offset) : offset
-            guard actualOffset < total else { return Data() }
-            guard let requestedEnd = SafeByteRange.exclusiveEnd(offset: actualOffset, length: length) else {
-                return Data()
+            guard HTTPByteRangeResponsePolicy.acceptsWholeResourceResponse(
+                bodyLength: data.count,
+                requestedOffset: offset,
+                requestedLength: length
+            ) else {
+                throw SourceError.connectionFailed("Ugreen server ignored the byte Range request")
             }
-            let upper = min(requestedEnd, total)
-            return data.subdata(in: Int(actualOffset)..<Int(upper))
+            return data
         default:
             throw SourceError.connectionFailed("Ugreen range request failed: HTTP \(http.statusCode)")
         }

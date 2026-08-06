@@ -69,7 +69,7 @@ struct MacSourcesView: View {
             cloudDirectoryNameRefreshID = UUID()
         }
         .confirmationDialog(
-            Text(verbatim: "移除此音乐源？"),
+            Text("source_remove_confirm_title"),
             isPresented: Binding(
                 get: { sourceToDelete != nil },
                 set: { if !$0 { sourceToDelete = nil } }
@@ -81,11 +81,14 @@ struct MacSourcesView: View {
                 deleteSource(source)
                 sourceToDelete = nil
             } label: {
-                Text(verbatim: "移除「\(source.name)」")
+                Text(verbatim: String(
+                    format: String(localized: "source_remove_named_format"),
+                    source.name
+                ))
             }
             Button("cancel", role: .cancel) { sourceToDelete = nil }
         } message: { _ in
-            Text(verbatim: "会从资料库移除该源及其歌曲记录，本地 / 远端文件不受影响。")
+            Text("source_remove_confirm_message")
         }
     }
 

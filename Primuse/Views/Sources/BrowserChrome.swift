@@ -292,7 +292,7 @@ struct DirectoryPreviewPane: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
-                Text(verbatim: "已选择")
+                Text("library_quick_access_selected")
                     .font(.system(size: 11, weight: .semibold))
                     .tracking(0.6)
                     .foregroundStyle(PMColor.textFaint)
@@ -307,7 +307,9 @@ struct DirectoryPreviewPane: View {
                         Image(systemName: coverFileCount > 0 ? "photo.stack.fill" : "music.note")
                             .font(.system(size: 28, weight: .semibold))
                             .foregroundStyle(.white.opacity(0.92))
-                        Text(verbatim: coverFileCount > 0 ? "\(coverFileCount) 张封面" : "暂无封面")
+                        Text(verbatim: coverFileCount > 0
+                            ? String(format: String(localized: "directory_cover_count_format"), coverFileCount)
+                            : String(localized: "directory_no_cover"))
                             .font(.system(size: 11.5, weight: .semibold))
                             .foregroundStyle(.white.opacity(0.86))
                     }
@@ -330,18 +332,18 @@ struct DirectoryPreviewPane: View {
             VStack(spacing: 0) {
                 DirectoryPreviewStatRow(
                     icon: "music.note.list",
-                    title: "文件统计",
-                    value: "\(audioFileCount) 个文件 · \(totalSizeText)"
+                    title: String(localized: "directory_file_stats"),
+                    value: String(format: String(localized: "directory_audio_files_format"), audioFileCount, totalSizeText)
                 )
                 DirectoryPreviewStatRow(
                     icon: "waveform",
-                    title: "格式",
+                    title: String(localized: "format_label"),
                     value: formatSummary
                 )
                 DirectoryPreviewStatRow(
                     icon: hasLyrics ? "text.quote" : "text.badge.xmark",
-                    title: "歌词",
-                    value: hasLyrics ? "包含 .lrc 文件" : "无 .lrc 文件 (将刮削)",
+                    title: String(localized: "lyrics_word"),
+                    value: hasLyrics ? String(localized: "directory_has_lrc") : String(localized: "directory_no_lrc"),
                     divider: true
                 )
             }
@@ -355,7 +357,9 @@ struct DirectoryPreviewPane: View {
                 Image(systemName: selectedCount > 0 ? "checkmark.circle.fill" : "folder.badge.questionmark")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(selectedCount > 0 ? PMColor.ok : PMColor.textFaint)
-                Text(verbatim: selectedCount > 0 ? "\(selectedCount) 个目录已勾选" : "勾选左侧目录后导入")
+                Text(verbatim: selectedCount > 0
+                    ? String(format: String(localized: "directory_checked_count_format"), selectedCount)
+                    : String(localized: "directory_select_to_import"))
                     .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(PMColor.textMuted)
                     .lineLimit(1)
@@ -591,20 +595,23 @@ struct MacDirTreeBrowser: View {
                 Image(systemName: "folder.badge.questionmark")
                     .font(.system(size: 12))
                     .foregroundStyle(PMColor.textFaint)
-                Text(verbatim: "勾选要导入的目录")
+                Text("directory_select_to_import")
                     .font(.system(size: 11.5))
                     .foregroundStyle(PMColor.textFaint)
             } else {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 12))
                     .foregroundStyle(PMColor.ok)
-                Text(verbatim: "已选 \(selectedDirectories.count) 个目录")
+                Text(verbatim: String(
+                    format: String(localized: "directory_selected_count_format"),
+                    selectedDirectories.count
+                ))
                     .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(PMColor.textMuted)
                 Button {
                     withAnimation { selectedDirectories.removeAll() }
                 } label: {
-                    Text(verbatim: "清除")
+                    Text("clear")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(PMColor.brand)
                 }
@@ -614,7 +621,7 @@ struct MacDirTreeBrowser: View {
             Spacer()
 
             Button { dismiss() } label: {
-                Text(verbatim: "返回")
+                Text("back")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(PMColor.text)
                     .padding(.horizontal, 16)
@@ -624,7 +631,9 @@ struct MacDirTreeBrowser: View {
             .buttonStyle(.plain)
 
             Button { dismiss() } label: {
-                Text(verbatim: selectedDirectories.isEmpty ? "完成" : "完成 (\(selectedDirectories.count))")
+                Text(verbatim: selectedDirectories.isEmpty
+                    ? String(localized: "done")
+                    : String(format: String(localized: "done_count_format"), selectedDirectories.count))
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 16)

@@ -283,38 +283,38 @@ final class TVSourceScanner {
             try Task.checkCancellation()
 
             guard let pageTotal = result.total else {
-                throw FnMusicServiceError.invalidResponse("曲目列表缺少总数，已取消本次扫描")
+                throw FnMusicServiceError.invalidResponse(PMString("error.catalog.missingTotal"))
             }
             if let expectedTotal, expectedTotal != pageTotal {
-                throw FnMusicServiceError.invalidResponse("曲目总数在扫描期间发生变化")
+                throw FnMusicServiceError.invalidResponse(PMString("error.catalog.totalChanged"))
             }
             expectedTotal = pageTotal
 
             guard result.rawCount == result.tracks.count,
                   result.rawCount <= Self.fnMusicPageSize else {
-                throw FnMusicServiceError.invalidResponse("曲目分页数量无效")
+                throw FnMusicServiceError.invalidResponse(PMString("error.catalog.invalidPageCount"))
             }
             if pageTotal == 0 {
                 guard page == 1, result.rawCount == 0 else {
-                    throw FnMusicServiceError.invalidResponse("曲目分页与总数不一致")
+                    throw FnMusicServiceError.invalidResponse(PMString("error.catalog.pageTotalMismatch"))
                 }
                 break
             }
             guard result.rawCount > 0 else {
-                throw FnMusicServiceError.invalidResponse("曲目分页提前结束")
+                throw FnMusicServiceError.invalidResponse(PMString("error.catalog.pageEndedEarly"))
             }
             guard result.rawCount <= pageTotal,
                   received <= pageTotal - result.rawCount else {
-                throw FnMusicServiceError.invalidResponse("曲目分页超过声明总数")
+                throw FnMusicServiceError.invalidResponse(PMString("error.catalog.pageExceedsTotal"))
             }
 
             for track in result.tracks {
                 try Task.checkCancellation()
                 guard seenTrackGUIDs.insert(track.guid).inserted else {
-                    throw FnMusicServiceError.invalidResponse("曲目分页包含重复项目")
+                    throw FnMusicServiceError.invalidResponse(PMString("error.catalog.duplicateItem"))
                 }
                 guard let song = track.makeSong(sourceID: source.id) else {
-                    throw FnMusicServiceError.invalidResponse("曲目\(track.title)缺少可识别的音频格式")
+                    throw FnMusicServiceError.invalidResponse(PMString("error.catalog.trackMissingFormat", track.title))
                 }
                 songs.append(song)
                 indexed = songs.count
@@ -324,10 +324,10 @@ final class TVSourceScanner {
             received += result.rawCount
             if received == pageTotal { break }
             guard result.rawCount == Self.fnMusicPageSize else {
-                throw FnMusicServiceError.invalidResponse("曲目分页不完整")
+                throw FnMusicServiceError.invalidResponse(PMString("error.catalog.incompletePage"))
             }
             guard page < Int.max else {
-                throw FnMusicServiceError.invalidResponse("曲目页码溢出")
+                throw FnMusicServiceError.invalidResponse(PMString("error.catalog.pageOverflow"))
             }
             page += 1
         }
@@ -358,30 +358,30 @@ final class TVSourceScanner {
             let page = try await client.trackPage(skip: skip, take: Self.daoLiYuPageSize)
             try Task.checkCancellation()
             if let expectedTotal, expectedTotal != page.total {
-                throw DaoLiYuServiceError.invalidResponse("曲目总数在扫描期间发生变化")
+                throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.totalChanged"))
             }
             expectedTotal = page.total
             guard page.skip == skip,
                   page.rawCount == page.tracks.count,
                   page.rawCount <= Self.daoLiYuPageSize else {
-                throw DaoLiYuServiceError.invalidResponse("曲目分页位置或数量无效")
+                throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.invalidPagePositionOrCount"))
             }
             if page.total == 0 {
                 guard skip == 0, page.rawCount == 0 else {
-                    throw DaoLiYuServiceError.invalidResponse("曲目分页与总数不一致")
+                    throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.pageTotalMismatch"))
                 }
                 break
             }
             guard page.rawCount > 0, skip <= page.total - page.rawCount else {
-                throw DaoLiYuServiceError.invalidResponse("曲目分页提前结束或超过总数")
+                throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.pageEndedEarlyOrExceeded"))
             }
             for track in page.tracks {
                 try Task.checkCancellation()
                 guard seenIDs.insert(track.id).inserted else {
-                    throw DaoLiYuServiceError.invalidResponse("曲目分页包含重复项目")
+                    throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.duplicateItem"))
                 }
                 guard let song = track.makeSong(sourceID: source.id, serverBaseURL: baseURL) else {
-                    throw DaoLiYuServiceError.invalidResponse("曲目\(track.title)缺少可识别的音频格式")
+                    throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.trackMissingFormat", track.title))
                 }
                 songs.append(song)
                 indexed = songs.count
@@ -390,7 +390,7 @@ final class TVSourceScanner {
             skip += page.rawCount
             if skip == page.total { break }
             guard page.rawCount == Self.daoLiYuPageSize else {
-                throw DaoLiYuServiceError.invalidResponse("曲目分页不完整")
+                throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.incompletePage"))
             }
         }
         return songs

@@ -30,7 +30,11 @@ struct ConnectorDirectoryBrowserView: View {
         Group {
             #if os(macOS)
             MacDirTreeBrowser(
-                title: "浏览 \(source.type.displayName) · \(source.name)",
+                title: String(
+                    format: String(localized: "browse_source_format"),
+                    source.type.displayName,
+                    source.name
+                ),
                 subtitle: macConnectionString,
                 rootTitle: source.basePath ?? source.name,
                 selectedDirectories: policySelectedDirectories,
@@ -70,6 +74,7 @@ struct ConnectorDirectoryBrowserView: View {
                 Text("insecure_http_trust_message \(host)")
             }
         }
+        .transportTrustAlerts()
     }
 
     #if os(macOS)
@@ -312,21 +317,30 @@ struct ConnectorDirectoryBrowserView: View {
     }
 
     private func ensureInsecureHTTPAccess() async throws {
-        guard source.type == .qnap,
+        guard Self.usesHTTPTransport(source.type),
               let url = NetworkURLBuilder.baseURL(
                   host: source.host ?? "",
                   scheme: source.useSsl ? "https" : "http",
                   port: source.port
               ),
               TrustedHTTPTransport.requiresPlainSocket(for: url),
-              let host = url.host,
-              !SSLTrustStore.shared.allowsInsecureHTTP(domain: host) else {
+              let trustTarget = TrustedHTTPTransport.trustTarget(for: url),
+              !SSLTrustStore.shared.allowsInsecureHTTP(domain: trustTarget) else {
             return
         }
 
-        let approved = await promptInsecureHTTPTrust(host: host)
+        let approved = await promptInsecureHTTPTrust(host: trustTarget)
         guard approved else {
-            throw TrustedHTTPTransportError.permissionRequired(host: host)
+            throw TrustedHTTPTransportError.permissionRequired(host: trustTarget)
+        }
+    }
+
+    private static func usesHTTPTransport(_ type: MusicSourceType) -> Bool {
+        switch type {
+        case .qnap, .ugreen, .fnos, .webdav, .s3:
+            return true
+        default:
+            return false
         }
     }
 

@@ -210,6 +210,7 @@
 		44173A0D5CA82A1BF899F9FB /* LocalPlaybackResumePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5AF0A502ADBF66BB885795B /* LocalPlaybackResumePolicy.swift */; };
 		0C7D8E9F10213456789ABCDE /* OfflinePlaybackPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0B6A3E14D2C9A7801B5E632 /* OfflinePlaybackPolicy.swift */; };
 		19B28C37D46E5F60718293A4 /* SubsonicCatalogPagingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5A4C3B2D1F09876543210AB /* SubsonicCatalogPagingPolicy.swift */; };
+		8C0B2D3E4F5061728394A5B6 /* NetworkEndpointIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B9A1C2D3E4F5061728394A5 /* NetworkEndpointIdentity.swift */; };
 		444B2678F19AAD57FD393DC9 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 662E967AD627932BAF1C8C9A /* InfoPlist.strings */; };
 		448D9C545A04EA47EFC97B60 /* PrimuseAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ECCDD80F05FA4A71FA0CB32 /* PrimuseAppIntents.swift */; };
 		44F0370A7EDCAD809D7B860F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 67A74DBDB4BE669EBE61F4DA /* Assets.xcassets */; };
@@ -1235,6 +1236,7 @@
 		B5AF0A502ADBF66BB885795B /* LocalPlaybackResumePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalPlaybackResumePolicy.swift; sourceTree = "<group>"; };
 		F0B6A3E14D2C9A7801B5E632 /* OfflinePlaybackPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflinePlaybackPolicy.swift; sourceTree = "<group>"; };
 		E5A4C3B2D1F09876543210AB /* SubsonicCatalogPagingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubsonicCatalogPagingPolicy.swift; sourceTree = "<group>"; };
+		7B9A1C2D3E4F5061728394A5 /* NetworkEndpointIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkEndpointIdentity.swift; sourceTree = "<group>"; };
 		B75BE56F487EF033888E16A0 /* PlayerMoreMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerMoreMenu.swift; sourceTree = "<group>"; };
 		B88D3209CC930468F07419E8 /* TVSFBEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVSFBEngine.swift; sourceTree = "<group>"; };
 		BACEFA0644945C48C3E8A0F9 /* SMBByteReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SMBByteReader.swift; sourceTree = "<group>"; };
@@ -1689,6 +1691,7 @@
 				136A0C5EFAF6D7C7056C69A4 /* SharedConstants.swift */,
 				C239241684E81EFF2E2AB9A0 /* SimulatorCredentialFallbackPolicy.swift */,
 				0A81E711713C594D6D24C5BF /* SongListSnapshot.swift */,
+				7B9A1C2D3E4F5061728394A5 /* NetworkEndpointIdentity.swift */,
 				E5A4C3B2D1F09876543210AB /* SubsonicCatalogPagingPolicy.swift */,
 			);
 			path = PrimuseKit;
@@ -2906,6 +2909,7 @@
 				17F49E86FA92CB0D1341670E /* RelayStreamResolver.swift in Sources */,
 				055E8F5093B42BCBDF08DA4F /* S3StreamResolver.swift in Sources */,
 				19B28C37D46E5F60718293A4 /* SubsonicCatalogPagingPolicy.swift in Sources */,
+				8C0B2D3E4F5061728394A5B6 /* NetworkEndpointIdentity.swift in Sources */,
 				4D3A4ACF3185CCECCC8DF8B7 /* STRMDescriptor.swift in Sources */,
 				C067C2586AAA10F3F398296C /* SharedConstants.swift in Sources */,
 				58098DB86E7285DA9B139FBD /* SimulatorCredentialFallbackPolicy.swift in Sources */,

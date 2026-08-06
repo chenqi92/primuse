@@ -14,11 +14,11 @@ public enum SourceCategory: String, Codable, Sendable, CaseIterable {
     public var displayName: String {
         switch self {
         case .nas: return "NAS"
-        case .protocol: return "Protocol"
-        case .mediaServer: return "Media Server"
-        case .cloudDrive: return "Cloud Drive"
-        case .streaming: return "Streaming"
-        case .local: return "Local"
+        case .protocol: return PMString("src.category.protocol")
+        case .mediaServer: return PMString("src.category.mediaServer")
+        case .cloudDrive: return PMString("src.category.cloudDrive")
+        case .streaming: return PMString("src.category.streaming")
+        case .local: return PMString("src.category.local")
         }
     }
 
@@ -136,8 +136,10 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .pan123:
             return String(localized: "src.displayName.pan123", bundle: Bundle.primuseKit)
         case .appleMusic: return "Apple Music"
-        case .local: return "Local"
-        case .appleMusicLibrary: return "Apple Music 资料库"
+        case .local:
+            return PMString("src.displayName.local")
+        case .appleMusicLibrary:
+            return PMString("src.displayName.appleMusicLibrary")
         }
     }
 
@@ -315,6 +317,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
 
     public var supportsRangeStreaming: Bool {
         category == .cloudDrive
+            || isMediaServer
             || self == .webdav
             || self == .synology
             || self == .qnap
@@ -397,8 +400,10 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .pan123:
             return String(localized: "src.subtitle.pan123", bundle: Bundle.primuseKit)
         case .appleMusic: return "Apple Music"
-        case .local: return "iPhone Storage"
-        case .appleMusicLibrary: return "本机 Apple Music / iTunes"
+        case .local:
+            return PMString("src.subtitle.local")
+        case .appleMusicLibrary:
+            return PMString("src.subtitle.appleMusicLibrary")
         }
     }
 

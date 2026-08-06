@@ -365,20 +365,42 @@ private final class HTTPRangeFetcher: @unchecked Sendable {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue(rangeHeader, forHTTPHeaderField: "Range")
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         request.timeoutInterval = 60
 
-        let (data, response) = try await session.data(for: request)
+        let wholeResourceLimit = Int(clamping: totalLength)
+        let maxBytes = wholeResourceLimit > Int.max - 64 * 1_024
+            ? Int.max
+            : max(PlainHTTPClient.defaultMaxBytes, wholeResourceLimit + 64 * 1_024)
+        let (data, response) = try await TrustedHTTPTransport.data(
+            for: request,
+            session: session,
+            maxBytes: maxBytes
+        )
         guard let http = response as? HTTPURLResponse else {
             throw AudioDecoderError.decodingFailed("Invalid HTTP range response")
+        }
+        if httpMediaResponseLooksLikeErrorBody(http, data: data) {
+            throw AudioDecoderError.decodingFailed("HTTP server returned a non-audio response")
         }
 
         switch http.statusCode {
         case 206:
+            guard HTTPByteRangeResponsePolicy.validatedTotalLength(
+                contentRange: http.value(forHTTPHeaderField: "Content-Range"),
+                contentLength: http.value(forHTTPHeaderField: "Content-Length").flatMap(Int64.init),
+                bodyLength: data.count,
+                requestedOffset: offset,
+                requestedLength: length
+            ) == totalLength else {
+                throw AudioDecoderError.decodingFailed("Invalid HTTP Content-Range response")
+            }
             return data
-        case 200 where offset == 0:
+        case 200 where offset == 0 && Int64(data.count) == totalLength:
             // Server ignored Range. Returning the full body lets the cache
             // complete in one pass, matching the old full-download behavior
-            // without corrupting non-zero offsets.
+            // without corrupting non-zero offsets. The known catalogue length
+            // must match so an HTML/login body can never become cached audio.
             return data
         case 200:
             throw AudioDecoderError.decodingFailed("HTTP server ignored Range")

@@ -602,7 +602,10 @@ final class CloudKitSyncService {
         var errorDescription: String? {
             switch self {
             case .unresolvedRecordFailure(let detail):
-                return "CloudKit record upload failed: \(detail)"
+                return String(
+                    format: String(localized: "error_cloudkit_record_upload %@"),
+                    detail
+                )
             }
         }
     }

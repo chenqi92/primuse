@@ -277,7 +277,7 @@ struct AddSourceView: View {
                 Text(isEditing ? String(localized: "edit_source") : sourceType.displayName)
                     .font(.system(size: 13.5, weight: .semibold))
                     .foregroundStyle(PMColor.text)
-                Text(isEditing ? "编辑连接信息" : sourceType.displayName)
+                Text(isEditing ? String(localized: "edit_connection_info") : sourceType.displayName)
                     .font(.system(size: 11))
                     .foregroundStyle(PMColor.textFaint)
             }
@@ -532,13 +532,13 @@ struct AddSourceView: View {
         case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .pan115, .pan123:
             macSection("cloud_oauth_config") {
                 if BuiltInCloudCredentials.hasBuiltIn(for: sourceType) {
-                    Label("已内置官方凭证,保存后直接授权即可", systemImage: "checkmark.seal.fill")
+                    Label("built_in_credentials_ready", systemImage: "checkmark.seal.fill")
                         .font(.system(size: 12))
                         .foregroundStyle(PMColor.ok)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
-                    DisclosureGroup("使用自定义凭证（高级）") {
+                    DisclosureGroup("custom_credentials_advanced") {
                         macTextRow("Client ID / App Key", text: $username, focus: .username)
                         macCustomRow("Client Secret") {
                             RevealableSecureField(title: "Client Secret", text: $password)
@@ -915,11 +915,11 @@ struct AddSourceView: View {
             Section("cloud_oauth_config") {
                 if BuiltInCloudCredentials.hasBuiltIn(for: sourceType) {
                     // Built-in credentials available — no input needed
-                    Label("已内置官方凭证，保存后直接授权即可", systemImage: "checkmark.seal.fill")
+                    Label("built_in_credentials_ready", systemImage: "checkmark.seal.fill")
                         .font(.subheadline)
                         .foregroundStyle(.green)
                     // Still allow override if user wants custom credentials
-                    DisclosureGroup("使用自定义凭证（高级）") {
+                    DisclosureGroup("custom_credentials_advanced") {
                         TextField("Client ID / App Key", text: $username)
                             .focused($focusedField, equals: .username)
                             .autocorrectionDisabled()

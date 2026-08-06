@@ -12,15 +12,15 @@ public enum FnMusicServiceError: Error, LocalizedError, Sendable, Equatable {
     public var errorDescription: String? {
         switch self {
         case .missingCredential:
-            return "飞牛音乐缺少账号或密码"
+            return PMString("error.fnMusic.missingCredential")
         case .invalidURL:
-            return "飞牛音乐服务地址无效"
+            return PMString("error.fnMusic.invalidURL")
         case .authenticationFailed:
-            return "飞牛音乐登录失败，请检查飞牛音乐账号、密码和曲库权限"
+            return PMString("error.fnMusic.authenticationFailed")
         case .badServerResponse(let status):
-            return "飞牛音乐服务返回 HTTP \(status)"
+            return PMString("error.fnMusic.http", String(status))
         case .invalidResponse(let detail):
-            return "飞牛音乐返回的数据无效：\(detail)"
+            return PMString("error.fnMusic.invalidResponse", detail)
         }
     }
 }
@@ -299,7 +299,7 @@ public actor FnMusicServiceClient {
 
     public func trackPage(page: Int, size: Int) async throws -> FnMusicCatalogPage {
         guard page > 0, size > 0, size <= 500 else {
-            throw FnMusicServiceError.invalidResponse("曲目分页参数无效")
+            throw FnMusicServiceError.invalidResponse(PMString("error.catalog.invalidPagination"))
         }
         let payload = try await authenticatedJSON(
             method: "GET",
@@ -312,22 +312,22 @@ public actor FnMusicServiceClient {
         )
         guard let dictionary = payload as? [String: Any],
               let rawTracks = dictionary["list"] as? [[String: Any]] else {
-            throw FnMusicServiceError.invalidResponse("曲目列表缺少 list")
+            throw FnMusicServiceError.invalidResponse(PMString("error.catalog.missingList"))
         }
         let tracks = rawTracks.compactMap(FnMusicCatalogTrack.init(json:))
         guard tracks.count == rawTracks.count else {
-            throw FnMusicServiceError.invalidResponse("曲目列表包含无法识别的项目")
+            throw FnMusicServiceError.invalidResponse(PMString("error.catalog.unrecognizedItem"))
         }
         let total = fnMusicInt(dictionary["total"])
         if let total, total < 0 {
-            throw FnMusicServiceError.invalidResponse("曲目总数无效")
+            throw FnMusicServiceError.invalidResponse(PMString("error.catalog.invalidTotal"))
         }
         return FnMusicCatalogPage(tracks: tracks, total: total, rawCount: rawTracks.count)
     }
 
     public func coverData(reference: String, size: Int = 640) async throws -> Data {
         guard let coverID = FnMusicAPIProtocol.coverID(from: reference) else {
-            throw FnMusicServiceError.invalidResponse("封面引用无效")
+            throw FnMusicServiceError.invalidResponse(PMString("error.catalog.invalidCoverReference"))
         }
         var queryItems = [
             URLQueryItem(name: "coverId", value: coverID),
@@ -364,7 +364,7 @@ public actor FnMusicServiceClient {
         let http = try validateHTTP(response, requestToken: requestToken)
         if let length = http.value(forHTTPHeaderField: "Content-Length").flatMap(Int.init),
            length > Self.maximumArtworkBytes {
-            throw FnMusicServiceError.invalidResponse("封面文件过大")
+            throw FnMusicServiceError.invalidResponse(PMString("error.catalog.coverTooLarge"))
         }
         var data = Data()
         if let length = http.value(forHTTPHeaderField: "Content-Length").flatMap(Int.init),
@@ -373,12 +373,12 @@ public actor FnMusicServiceClient {
         }
         for try await byte in bytes {
             guard data.count < Self.maximumArtworkBytes else {
-                throw FnMusicServiceError.invalidResponse("封面文件过大")
+                throw FnMusicServiceError.invalidResponse(PMString("error.catalog.coverTooLarge"))
             }
             data.append(byte)
         }
         guard !data.isEmpty, data.count <= Self.maximumArtworkBytes else {
-            throw FnMusicServiceError.invalidResponse("封面数据为空或过大")
+            throw FnMusicServiceError.invalidResponse(PMString("error.catalog.emptyOrOversizedCover"))
         }
         try validateMediaPayload(http, data: data, requestToken: requestToken)
         return data
@@ -386,7 +386,7 @@ public actor FnMusicServiceClient {
 
     public func preferredLyrics(trackPath: String) async throws -> String? {
         guard let trackGUID = FnMusicAPIProtocol.trackGUID(from: trackPath) else {
-            throw FnMusicServiceError.invalidResponse("曲目引用无效")
+            throw FnMusicServiceError.invalidResponse(PMString("error.catalog.invalidTrackReference"))
         }
         let payload = try await authenticatedJSON(
             method: "GET",
@@ -488,7 +488,7 @@ public actor FnMusicServiceClient {
         guard sessionGeneration == generation else { throw CancellationError() }
         guard let dictionary = payload as? [String: Any],
               let userToken = fnMusicNonemptyString(dictionary["userToken"]) else {
-            throw FnMusicServiceError.invalidResponse("登录响应缺少 userToken")
+            throw FnMusicServiceError.invalidResponse(PMString("error.catalog.loginMissingUserToken"))
         }
         return userToken
     }
@@ -574,7 +574,7 @@ public actor FnMusicServiceClient {
         _ = try validateHTTP(response, requestToken: requestToken)
         guard let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let code = fnMusicInt(envelope["code"]) else {
-            throw FnMusicServiceError.invalidResponse("响应不是飞牛音乐 JSON")
+            throw FnMusicServiceError.invalidResponse(PMString("error.catalog.invalidFnMusicJSON"))
         }
         guard code == 0 || code == 200 else {
             if code == 120001 || code == 401 || code == 403 {
@@ -583,7 +583,7 @@ public actor FnMusicServiceClient {
             }
             let message = fnMusicString(envelope["msg"])
                 ?? fnMusicString(envelope["message"])
-                ?? "业务错误 \(code)"
+                ?? PMString("error.catalog.businessError", String(code))
             throw FnMusicServiceError.invalidResponse(message)
         }
         guard let payload = envelope["data"], !(payload is NSNull) else {
@@ -624,7 +624,7 @@ public actor FnMusicServiceClient {
         requestToken: String? = nil
     ) throws -> HTTPURLResponse {
         guard let http = response as? HTTPURLResponse else {
-            throw FnMusicServiceError.invalidResponse("缺少 HTTP 响应")
+            throw FnMusicServiceError.invalidResponse(PMString("error.catalog.missingHTTPResponse"))
         }
         if http.statusCode == 401 || http.statusCode == 403 {
             invalidateToken(ifMatching: requestToken)
@@ -657,10 +657,10 @@ public actor FnMusicServiceClient {
             }
             let message = fnMusicString(envelope["msg"])
                 ?? fnMusicString(envelope["message"])
-                ?? "业务错误 \(code)"
-            throw FnMusicServiceError.invalidResponse("媒体端点：\(message)")
+                ?? PMString("error.catalog.businessError", String(code))
+            throw FnMusicServiceError.invalidResponse(PMString("error.catalog.mediaEndpointMessage", message))
         }
-        throw FnMusicServiceError.invalidResponse("媒体端点返回了非媒体数据")
+        throw FnMusicServiceError.invalidResponse(PMString("error.catalog.mediaEndpointNonMedia"))
     }
 
     private func invalidateToken(ifMatching requestToken: String?) {

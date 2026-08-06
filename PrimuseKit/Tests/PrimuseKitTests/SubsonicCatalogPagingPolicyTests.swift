@@ -57,4 +57,12 @@ struct SubsonicCatalogPagingPolicyTests {
 
         #expect(requestedOffsets == [0, 500])
     }
+
+    @Test func legacyAlbumWalkUsesBoundedConcurrencyAndWideSafetyLimits() {
+        #expect(SubsonicCatalogPagingPolicy.legacyAlbumConcurrency == 6)
+        #expect(SubsonicCatalogPagingPolicy.isWithinAlbumLimit(100_000))
+        #expect(!SubsonicCatalogPagingPolicy.isWithinAlbumLimit(100_001))
+        #expect(SubsonicCatalogPagingPolicy.isWithinSongLimit(10_000_000))
+        #expect(!SubsonicCatalogPagingPolicy.isWithinSongLimit(10_000_001))
+    }
 }

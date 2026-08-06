@@ -330,7 +330,7 @@ struct ContentView: View {
             String(localized: "ssl_trust_title"),
             isPresented: Binding(
                 get: { SSLTrustStore.shared.pendingTrustRequest != nil },
-                set: { if !$0 { SSLTrustStore.shared.resolveTrustRequest(approved: false) } }
+                set: { _ in }
             )
         ) {
             Button(String(localized: "trust_domain"), role: .destructive) {
@@ -343,6 +343,28 @@ struct ContentView: View {
             if let domain = SSLTrustStore.shared.pendingTrustRequest?.domain {
                 Text("ssl_trust_message \(domain)")
             }
+        }
+        .alert(
+            String(localized: "insecure_http_warning_title"),
+            isPresented: Binding(
+                get: { SSLTrustStore.shared.pendingInsecureHTTPTrustRequest != nil },
+                // Buttons resolve the current request. Resolving from this
+                // setter as well can accidentally reject the next queued
+                // endpoint when SwiftUI dismisses the current alert.
+                set: { _ in }
+            )
+        ) {
+            Button(String(localized: "insecure_http_continue"), role: .destructive) {
+                SSLTrustStore.shared.resolveInsecureHTTPTrustRequest(approved: true)
+            }
+            Button(String(localized: "cancel"), role: .cancel) {
+                SSLTrustStore.shared.resolveInsecureHTTPTrustRequest(approved: false)
+            }
+        } message: {
+            Text(String(
+                format: String(localized: "insecure_http_warning_message %@"),
+                SSLTrustStore.shared.pendingInsecureHTTPTrustRequest?.endpoint ?? ""
+            ))
         }
         // 蜂窝网络下「仅 WiFi」拦住了回填/缓存且确有待办 → 提示用户是否在 5G/4G 继续
         .alert(
@@ -721,8 +743,6 @@ struct NowPlayingAccessory: View {
         }
     }
 }
-
-
 
 #Preview {
     ContentView()

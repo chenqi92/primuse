@@ -19,7 +19,7 @@ public enum AppleMusicLibraryAPI {
         public var errorDescription: String? {
             switch self {
             case .invalidNextURL(let value):
-                return "Invalid Apple Music pagination URL: \(value)"
+                return PMString("error.appleMusic.invalidPaginationURL", value)
             }
         }
     }

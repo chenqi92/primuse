@@ -439,10 +439,10 @@ actor SynologySource: MusicSourceConnector {
 
     private func synologyErrorMessage(code: Int) -> String {
         switch code {
-        case 119: return "会话已过期，请重新登录"
-        case 408: return "文件不存在"
-        case 407, 410: return "无访问权限"
-        default: return "Synology 下载失败 (错误码: \(code))"
+        case 119: return String(localized: "synology_session_expired")
+        case 408: return String(localized: "file_not_found_generic")
+        case 407, 410: return String(localized: "auth_access_denied")
+        default: return String(format: String(localized: "synology_download_failed_code_format"), code)
         }
     }
 }

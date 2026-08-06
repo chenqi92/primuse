@@ -1,11 +1,141 @@
 import Foundation
 #if os(tvOS)
+import CryptoKit
+import Observation
 import Security
 #endif
 
-/// Resolver 登录请求使用的 session 工厂。tvOS 没有 iOS/macOS 的证书确认弹窗,
-/// 但个人 NAS 普遍使用私网自签 HTTPS;仅在私网主机的系统校验失败时接受证书,
-/// 公网主机仍完全交给系统信任链。
+#if os(tvOS)
+/// tvOS-local certificate pins for public NAS endpoints whose certificate does
+/// not pass system validation (for example a reverse proxy presenting a NAS
+/// certificate for a different hostname). Private/LAN hosts retain the legacy
+/// automatic allowance; public endpoints always require an on-TV confirmation.
+@MainActor
+@Observable
+public final class TVServerCertificateTrustStore {
+    public struct Request: Identifiable {
+        public let id = UUID()
+        public let endpoint: String
+        let fingerprint: String
+        var continuations: [CheckedContinuation<Bool, Never>]
+    }
+
+    public static let shared = TVServerCertificateTrustStore()
+    nonisolated private static let defaultsKey = "primuse.tv.server-certificate-pins.v1"
+
+    public private(set) var pendingRequest: Request?
+    private var waitingRequests: [Request] = []
+
+    private init() {}
+
+    public func requestTrust(endpoint: String, fingerprint: String) async -> Bool {
+        if Self.isTrustedSync(endpoint: endpoint, fingerprint: fingerprint) { return true }
+        return await withCheckedContinuation { continuation in
+            if pendingRequest?.endpoint == endpoint,
+               pendingRequest?.fingerprint == fingerprint {
+                pendingRequest?.continuations.append(continuation)
+                return
+            }
+            if let index = waitingRequests.firstIndex(where: {
+                $0.endpoint == endpoint && $0.fingerprint == fingerprint
+            }) {
+                waitingRequests[index].continuations.append(continuation)
+                return
+            }
+            let request = Request(
+                endpoint: endpoint,
+                fingerprint: fingerprint,
+                continuations: [continuation]
+            )
+            if pendingRequest == nil {
+                pendingRequest = request
+            } else {
+                waitingRequests.append(request)
+            }
+        }
+    }
+
+    public func resolvePendingRequest(approved: Bool) {
+        guard let request = pendingRequest else { return }
+        if approved {
+            var pins = Self.storedPins()
+            pins[request.endpoint] = request.fingerprint
+            if let data = try? JSONEncoder().encode(pins) {
+                UserDefaults.standard.set(data, forKey: Self.defaultsKey)
+            }
+        }
+        pendingRequest = waitingRequests.isEmpty ? nil : waitingRequests.removeFirst()
+        for continuation in request.continuations {
+            continuation.resume(returning: approved)
+        }
+    }
+
+    nonisolated static func isTrustedSync(endpoint: String, fingerprint: String) -> Bool {
+        storedPins()[endpoint] == fingerprint
+    }
+
+    nonisolated private static func storedPins() -> [String: String] {
+        guard let data = UserDefaults.standard.data(forKey: defaultsKey),
+              let pins = try? JSONDecoder().decode([String: String].self, from: data) else {
+            return [:]
+        }
+        return pins
+    }
+}
+
+public enum TVServerTrustPolicy {
+    public static func disposition(
+        for challenge: URLAuthenticationChallenge
+    ) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+              let trust = challenge.protectionSpace.serverTrust else {
+            return (.performDefaultHandling, nil)
+        }
+        var trustError: CFError?
+        if SecTrustEvaluateWithError(trust, &trustError) {
+            return (.performDefaultHandling, nil)
+        }
+
+        let host = challenge.protectionSpace.host
+        if InsecureHTTPHostPolicy.isLocalNetworkHost(host) {
+            return (.useCredential, URLCredential(trust: trust))
+        }
+        guard let endpoint = NetworkEndpointIdentity(
+            scheme: challenge.protectionSpace.protocol ?? "https",
+            host: host,
+            port: challenge.protectionSpace.port > 0 ? challenge.protectionSpace.port : nil
+        )?.key,
+        let fingerprint = leafFingerprint(trust) else {
+            return (.cancelAuthenticationChallenge, nil)
+        }
+        if TVServerCertificateTrustStore.isTrustedSync(
+            endpoint: endpoint,
+            fingerprint: fingerprint
+        ) {
+            return (.useCredential, URLCredential(trust: trust))
+        }
+        let approved = await TVServerCertificateTrustStore.shared.requestTrust(
+            endpoint: endpoint,
+            fingerprint: fingerprint
+        )
+        return approved
+            ? (.useCredential, URLCredential(trust: trust))
+            : (.cancelAuthenticationChallenge, nil)
+    }
+
+    private static func leafFingerprint(_ trust: SecTrust) -> String? {
+        guard let certificate = (SecTrustCopyCertificateChain(trust) as? [SecCertificate])?.first else {
+            return nil
+        }
+        return SHA256.hash(data: SecCertificateCopyData(certificate) as Data)
+            .map { String(format: "%02X", $0) }
+            .joined()
+    }
+}
+#endif
+
+/// Resolver 登录请求使用的 session 工厂。tvOS 对私网 NAS 保留原有自签兼容；
+/// 公网端点校验失败时由根视图确认并按 scheme/host/port 固定证书指纹。
 enum StreamResolverSessionFactory {
     static func make(
         configuration: URLSessionConfiguration,
@@ -55,25 +185,11 @@ private final class PrivateNetworkTLSDelegate: NSObject, URLSessionTaskDelegate,
         self.fnMusicRedirects = fnMusicRedirects
     }
 
-    func urlSession(_ session: URLSession,
-                    didReceive challenge: URLAuthenticationChallenge,
-                    completionHandler: @escaping @Sendable
-                        (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
-              let trust = challenge.protectionSpace.serverTrust else {
-            completionHandler(.performDefaultHandling, nil)
-            return
-        }
-        var trustError: CFError?
-        if SecTrustEvaluateWithError(trust, &trustError) {
-            completionHandler(.performDefaultHandling, nil)
-            return
-        }
-        if isPrivateHost(challenge.protectionSpace.host) {
-            completionHandler(.useCredential, URLCredential(trust: trust))
-        } else {
-            completionHandler(.cancelAuthenticationChallenge, nil)
-        }
+    func urlSession(
+        _ session: URLSession,
+        didReceive challenge: URLAuthenticationChallenge
+    ) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        await TVServerTrustPolicy.disposition(for: challenge)
     }
 
     func urlSession(
@@ -97,31 +213,6 @@ private final class PrivateNetworkTLSDelegate: NSObject, URLSessionTaskDelegate,
         completionHandler(FnMusicRedirectPolicy.redirectedRequest(from: current, to: request))
     }
 
-    private func isPrivateHost(_ host: String) -> Bool {
-        let h = host.lowercased()
-        if h == "localhost" || h.hasSuffix(".local") || h.hasSuffix(".home")
-            || h.hasSuffix(".lan") || h.hasSuffix(".internal") {
-            return true
-        }
-        if h.contains(":"), h == "::1" || h.hasPrefix("fc") || h.hasPrefix("fd")
-            || h.hasPrefix("fe8") || h.hasPrefix("fe9") || h.hasPrefix("fea")
-            || h.hasPrefix("feb") {
-            return true
-        }
-        let parts = h.split(separator: ".")
-        guard parts.count == 4, let a = Int(parts[0]), let b = Int(parts[1]),
-              parts.allSatisfy({ part in
-                  guard let value = Int(part) else { return false }
-                  return (0...255).contains(value)
-              }) else { return false }
-        switch a {
-        case 10, 127: return true
-        case 172: return (16...31).contains(b)
-        case 192: return b == 168
-        case 169: return b == 254
-        default: return false
-        }
-    }
 }
 #endif
 

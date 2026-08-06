@@ -275,12 +275,12 @@ struct PlaylistListView: View {
     private var macPlaylistsHeader: some View {
         HStack(alignment: .bottom, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("资料库")
+                Text("library")
                     .font(.system(size: 11, weight: .semibold))
                     .tracking(0.8)
                     .textCase(.uppercase)
                     .foregroundStyle(PMColor.textMuted)
-                Text("歌单")
+                Text("tab_playlists")
                     .font(.system(size: 32, weight: .bold))
                     .foregroundStyle(PMColor.text)
             }
@@ -533,7 +533,7 @@ struct MacNewPlaylistSheet: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(verbatim: "新建歌单")
+                    Text("new_playlist")
                         .font(.system(size: 13.5, weight: .semibold))
                         .foregroundStyle(PMColor.text)
                 }
@@ -564,9 +564,9 @@ struct MacNewPlaylistSheet: View {
                         VStack(spacing: 6) {
                             Image(systemName: "plus")
                                 .font(.system(size: 22, weight: .medium))
-                            Text(verbatim: "拖入封面")
+                            Text("playlist_drop_cover")
                                 .font(.system(size: 10.5))
-                            Text(verbatim: "或用第一首歌")
+                            Text("playlist_use_first_song_cover")
                                 .font(.system(size: 9))
                                 .opacity(0.70)
                         }
@@ -574,10 +574,10 @@ struct MacNewPlaylistSheet: View {
                     }
 
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(verbatim: "名称")
+                    Text("smart_playlist_name")
                         .font(.system(size: 11))
                         .foregroundStyle(PMColor.textMuted)
-                    TextField("", text: $name, prompt: Text(verbatim: "深夜驾驶"))
+                    TextField("", text: $name, prompt: Text("playlist_name_example"))
                         .textFieldStyle(.plain)
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(PMColor.text)
@@ -591,7 +591,7 @@ struct MacNewPlaylistSheet: View {
                 }
 
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(verbatim: "描述(可选)")
+                    Text("playlist_description_optional")
                         .font(.system(size: 11))
                         .foregroundStyle(PMColor.textMuted)
                     TextEditor(text: $description)
@@ -614,14 +614,14 @@ struct MacNewPlaylistSheet: View {
             Rectangle().fill(PMColor.divider).frame(height: 0.5)
             HStack {
                 Spacer()
-                Button("取消", action: onCancel)
+                Button("cancel", action: onCancel)
                     .buttonStyle(.plain)
                     .font(.system(size: 12))
                     .foregroundStyle(PMColor.text)
                     .padding(.horizontal, 14)
                     .frame(height: 28)
                     .background(PMColor.glassBtn, in: .rect(cornerRadius: 6))
-                Button("创建") {
+                Button("create") {
                     onCreate(name.trimmingCharacters(in: .whitespacesAndNewlines))
                 }
                 .buttonStyle(.plain)

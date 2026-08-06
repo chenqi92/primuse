@@ -87,11 +87,11 @@ final class AppUpdateChecker {
     var versionPolicyDescription: String {
         #if os(macOS)
         if explicitAppStoreID == nil {
-            return "macOS 与 iOS 分开检查；当前未配置 Mac App Store ID，因此只接受 Bundle ID 查询里 kind=mac-software 的原生 Mac 记录，忽略 iOS 1.x 版本线。"
+            return String(localized: "update_policy_macos_bundle_id")
         }
-        return "macOS 与 iOS 分开检查；当前使用 Mac App Store ID 查询原生 Mac 版本线，iOS 版本不会触发 macOS 更新提示。"
+        return String(localized: "update_policy_macos_app_store_id")
         #else
-        return "iOS 与 macOS 分开检查；当前仅检查 iOS App Store 版本线。"
+        return String(localized: "update_policy_ios")
         #endif
     }
 

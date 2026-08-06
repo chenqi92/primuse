@@ -2759,7 +2759,7 @@ struct SongInfoSheet: View {
                 .shadow(color: .black.opacity(0.20), radius: 12, y: 6)
 
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(verbatim: "歌曲信息")
+                    Text("song_info")
                         .font(.system(size: 11, weight: .semibold))
                         .textCase(.uppercase)
                         .foregroundStyle(PMColor.textFaint)
@@ -2872,13 +2872,13 @@ struct SongInfoSheet: View {
             rows.append(("Bitrate", "\(bitRate) kbps", false))
         }
         if song.fileSize > 0 {
-            rows.append(("文件大小", ByteCountFormatter.string(fromByteCount: song.fileSize, countStyle: .file), false))
+            rows.append((String(localized: "file_size_label"), ByteCountFormatter.string(fromByteCount: song.fileSize, countStyle: .file), false))
         }
         rows.append((String(localized: "duration_label"), formatDuration(song.duration), false))
         if let source = sourcesStore.source(id: song.sourceID) {
             rows.append((String(localized: "source_label"), source.name, false))
         }
-        rows.append(("文件位置", song.filePath, true))
+        rows.append((String(localized: "file_location_label"), song.filePath, true))
         return rows.map { ($0.0, $0.1, $0.2) }
     }
     #endif
@@ -4553,7 +4553,7 @@ struct CastDevicePickerSheet: View {
                 }
                 Spacer()
                 if !player.isCastingMode {
-                    Text("● 已连接")
+                    Text("casting_connected")
                         .font(.system(size: 10.5, weight: .semibold))
                         .foregroundStyle(PMColor.brand)
                 }
@@ -4588,7 +4588,7 @@ struct CastDevicePickerSheet: View {
                 }
                 Spacer()
                 if selected {
-                    Text("● 已连接")
+                    Text("casting_connected")
                         .font(.system(size: 10.5, weight: .semibold))
                         .foregroundStyle(PMColor.brand)
                 }

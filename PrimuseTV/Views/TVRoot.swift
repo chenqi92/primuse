@@ -26,6 +26,7 @@ struct TVRoot: View {
     @State private var libraryFocusRequest = 0
     @State private var tabFocusRequest = 0
     @State private var isTabBarFocused = true
+    @State private var certificateTrustStore = TVServerCertificateTrustStore.shared
 
     init() {
         #if DEBUG
@@ -49,6 +50,27 @@ struct TVRoot: View {
             .onPlayPauseCommand {
                 guard store.hasNowPlaying else { return }
                 store.togglePlayPause()
+            }
+            .alert(
+                PMString("ext.tv.certificate.title"),
+                isPresented: Binding(
+                    get: { certificateTrustStore.pendingRequest != nil },
+                    set: { _ in }
+                )
+            ) {
+                Button(PMString("ext.tv.certificate.trust"), role: .destructive) {
+                    certificateTrustStore.resolvePendingRequest(approved: true)
+                }
+                Button(PMString("ext.tv.sources.cancel"), role: .cancel) {
+                    certificateTrustStore.resolvePendingRequest(approved: false)
+                }
+            } message: {
+                if let request = certificateTrustStore.pendingRequest {
+                    Text(verbatim: PMString(
+                        "ext.tv.certificate.message",
+                        request.endpoint
+                    ))
+                }
             }
     }
 

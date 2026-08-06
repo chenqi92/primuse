@@ -883,14 +883,14 @@ final class TVStore {
     }
 
     static let demoLyrics: [TVLyricLine] = [
-        .init(time: 0,  text: "灯光落在窗台上",      syllables: [], translation: "Light settles on the windowsill"),
-        .init(time: 4,  text: "夜色把城市轻轻收起",   syllables: [], translation: "Night folds the city away"),
-        .init(time: 9,  text: "我们沿着旧巷往回走",   syllables: [], translation: "We wander home down the old lane"),
-        .init(time: 14, text: "把没说完的话留给风",   syllables: [], translation: "Leaving unfinished words to the wind"),
-        .init(time: 19, text: "再亮一会儿吧 慢下来的光", syllables: [], translation: "Stay a little longer, slow light"),
-        .init(time: 24, text: "让霓虹在水面上摇晃",   syllables: [], translation: "Let the neon sway on the water"),
-        .init(time: 29, text: "每一步都踩在回声里",   syllables: [], translation: "Every step lands in an echo"),
-        .init(time: 34, text: "带我回家 慢下来的光",  syllables: [], translation: "Slow light, take me home"),
+        .init(time: 0, text: PMString("ext.tv.demo.lyric1"), syllables: [], translation: ""),
+        .init(time: 4, text: PMString("ext.tv.demo.lyric2"), syllables: [], translation: ""),
+        .init(time: 9, text: PMString("ext.tv.demo.lyric3"), syllables: [], translation: ""),
+        .init(time: 14, text: PMString("ext.tv.demo.lyric4"), syllables: [], translation: ""),
+        .init(time: 19, text: PMString("ext.tv.demo.lyric5"), syllables: [], translation: ""),
+        .init(time: 24, text: PMString("ext.tv.demo.lyric6"), syllables: [], translation: ""),
+        .init(time: 29, text: PMString("ext.tv.demo.lyric7"), syllables: [], translation: ""),
+        .init(time: 34, text: PMString("ext.tv.demo.lyric8"), syllables: [], translation: ""),
     ]
     #endif
 

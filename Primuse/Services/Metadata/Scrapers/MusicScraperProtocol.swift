@@ -22,8 +22,8 @@ enum ScraperError: Error, LocalizedError {
         switch self {
         case .networkError(let msg): msg
         case .parseError(let msg): msg
-        case .notFound: "Not found"
-        case .rateLimited: "Rate limited"
+        case .notFound: String(localized: "error_not_found")
+        case .rateLimited: String(localized: "error_rate_limited")
         }
     }
 }

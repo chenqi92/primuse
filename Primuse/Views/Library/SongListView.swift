@@ -245,9 +245,9 @@ struct SongListView: View {
 
         var title: String {
             switch self {
-            case .list: return "列表"
-            case .compact: return "紧凑"
-            case .grid: return "网格"
+            case .list: return String(localized: "songs_view_list")
+            case .compact: return String(localized: "songs_view_compact")
+            case .grid: return String(localized: "songs_view_grid")
             }
         }
 
@@ -265,9 +265,9 @@ struct SongListView: View {
 
         var title: String {
             switch self {
-            case .compact: return "紧凑"
-            case .standard: return "标准"
-            case .relaxed: return "宽松"
+            case .compact: return String(localized: "songs_row_compact")
+            case .standard: return String(localized: "songs_row_standard")
+            case .relaxed: return String(localized: "songs_row_relaxed")
             }
         }
 
@@ -297,16 +297,16 @@ struct SongListView: View {
 
         var title: String {
             switch self {
-            case .artist: return "艺术家"
-            case .album: return "专辑"
-            case .format: return "格式 / 采样率"
-            case .duration: return "时长"
-            case .plays: return "播放次数"
-            case .source: return "源"
-            case .year: return "年份"
-            case .rating: return "评分"
-            case .dateAdded: return "日期添加"
-            case .bitRate: return "比特率"
+            case .artist: return String(localized: "artist_label")
+            case .album: return String(localized: "album_label")
+            case .format: return String(localized: "songs_column_format_sample_rate")
+            case .duration: return String(localized: "duration_label")
+            case .plays: return String(localized: "stats_play_count")
+            case .source: return String(localized: "source_label")
+            case .year: return String(localized: "year_label")
+            case .rating: return String(localized: "songs_column_rating")
+            case .dateAdded: return String(localized: "sort_date_added")
+            case .bitRate: return String(localized: "songs_column_bitrate")
             }
         }
     }
@@ -355,7 +355,7 @@ struct SongListView: View {
                     player.forceRefreshNowPlayingArtwork()
                 }
             }
-            .alert("导出失败",
+            .alert("songs_export_failed",
                    isPresented: Binding(get: { exportError != nil },
                                         set: { if !$0 { exportError = nil } })) {
                 Button("done", role: .cancel) {}
@@ -576,7 +576,7 @@ struct SongListView: View {
             viewModeSegment
 
             PMRoundBtn(icon: "slider.horizontal.3", size: 26, iconSize: 12, style: .glass,
-                       help: "视图选项") {
+                       help: "songs_view_options") {
                 showViewOptions.toggle()
             }
             .popover(isPresented: $showViewOptions, arrowEdge: .bottom) {
@@ -1013,7 +1013,7 @@ struct SongListView: View {
             Button {
                 player.insertNextInQueue([song])
             } label: {
-                Label("插入下一首", systemImage: "text.line.first.and.arrowtriangle.forward")
+                Label("insert_next", systemImage: "text.line.first.and.arrowtriangle.forward")
             }
             .disabled(!song.isPlayable)
 
@@ -1122,50 +1122,50 @@ struct SongListView: View {
         return AnyView(MacHeaderMoreMenu(sections: [
             [
                 .init(icon: "text.line.last.and.arrowtriangle.forward",
-                      title: "全部加入队列",
+                      title: String(localized: "queue_all_songs"),
                       trailing: playableCount.formatted(),
                       enabled: playableCount > 0) {
                     player.appendToQueue(materializePlayable())
                 },
                 .init(icon: "text.line.first.and.arrowtriangle.forward",
-                      title: "插入下一首",
+                      title: String(localized: "insert_next"),
                       enabled: playableCount > 0) {
                     player.insertNextInQueue(materializePlayable())
                 },
                 .init(icon: "text.badge.plus",
-                      title: "加入歌单…",
+                      title: String(localized: "add_to_playlist_ellipsis"),
                       enabled: playableCount > 0) {
                     showAddVisibleToPlaylist = true
                 },
             ],
             [
                 .init(icon: "shuffle",
-                      title: "随机全部",
+                      title: String(localized: "shuffle_all"),
                       enabled: playableCount > 0) {
                     playLibrary(shuffled: true)
                 },
             ],
             [
                 .init(icon: "wand.and.stars",
-                      title: "批量刮削缺失元数据",
+                      title: String(localized: "scrape_missing_metadata"),
                       trailing: visibleIDs.count.formatted(),
                       enabled: !visibleIDs.isEmpty && !scraperService.isScraping) {
                     scraperService.scrapeMissingMetadata(songs: materializeVisible(), in: library)
                 },
                 .init(icon: "square.and.arrow.up",
-                      title: "导出 M3U8…",
+                      title: String(localized: "export_m3u8_ellipsis"),
                       enabled: playableCount > 0) {
                     exportVisibleSongs(format: .m3u8)
                 },
                 .init(icon: "curlybraces",
-                      title: "导出 JSON…",
+                      title: String(localized: "export_json_ellipsis"),
                       enabled: playableCount > 0) {
                     exportVisibleSongs(format: .json)
                 },
             ],
             [
                 .init(icon: "list.bullet.rectangle",
-                      title: "列显示设置…") {
+                      title: String(localized: "songs_column_settings_ellipsis")) {
                     showViewOptions = true
                 },
             ],
@@ -1174,22 +1174,22 @@ struct SongListView: View {
 
     private var viewOptionsPopover: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(verbatim: "视图选项")
+            Text("songs_view_options")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(PMColor.text)
 
-            viewOptionsSection("显示方式") {
+            viewOptionsSection(String(localized: "songs_display_mode")) {
                 segmentedIconPicker(MacSongsViewMode.allCases, selection: $macViewMode)
             }
 
             // 行高 / 显示列 只作用于「列表」视图 (紧凑、网格是固定密排布局, 不吃这些
             // 设置)。在别的模式下隐藏, 免得勾了列却不生效、看着对不上。
             if macViewMode == .list {
-                viewOptionsSection("行高") {
+                viewOptionsSection(String(localized: "songs_row_height")) {
                     segmentedIconPicker(MacSongsRowDensity.allCases, selection: $macRowDensity)
                 }
 
-                viewOptionsSection("显示列") {
+                viewOptionsSection(String(localized: "songs_display_columns")) {
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
                         ForEach(MacSongsColumn.allCases) { column in
                             Button {
@@ -1559,10 +1559,13 @@ private struct MacAddVisibleSongsToPlaylistSheet: View {
                     .frame(width: 34, height: 34)
                     .background(PMColor.brand.opacity(0.14), in: .rect(cornerRadius: 8))
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(verbatim: "加入歌单")
+                    Text("add_to_playlist")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(PMColor.text)
-                    Text(verbatim: "\(songs.count.formatted()) 首可播放歌曲")
+                    Text(verbatim: String(
+                        format: String(localized: "playable_songs_count_format"),
+                        songs.count
+                    ))
                         .font(PMFont.caption)
                         .foregroundStyle(PMColor.textMuted)
                 }
@@ -1583,7 +1586,7 @@ private struct MacAddVisibleSongsToPlaylistSheet: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 10) {
                     if normalPlaylists.isEmpty {
-                        Text(verbatim: "还没有普通歌单, 可以直接在下方新建。")
+                        Text("playlist_picker_empty_hint")
                             .font(.system(size: 12))
                             .foregroundStyle(PMColor.textMuted)
                             .padding(14)
@@ -1626,7 +1629,7 @@ private struct MacAddVisibleSongsToPlaylistSheet: View {
                     }
 
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(verbatim: "新建歌单")
+                        Text("new_playlist")
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(PMColor.textFaint)
                         TextField("playlist_name", text: $newPlaylistName)
@@ -1654,7 +1657,7 @@ private struct MacAddVisibleSongsToPlaylistSheet: View {
                     .padding(.horizontal, 14)
                     .frame(height: 28)
                     .background(PMColor.glassBtn, in: .rect(cornerRadius: 6))
-                Button("加入") {
+                Button("add") {
                     addSongs()
                 }
                 .buttonStyle(.plain)

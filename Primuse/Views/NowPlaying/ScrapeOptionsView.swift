@@ -211,7 +211,10 @@ struct ScrapeOptionsView: View {
         HStack(spacing: 14) {
             PMWindowTrafficLights(closeOnly: true)
             VStack(alignment: .leading, spacing: 2) {
-                Text("刮削 · \(macDisplayTitle ?? song.title)")
+                Text(verbatim: String(
+                    format: String(localized: "scrape_window_title_format"),
+                    macDisplayTitle ?? song.title
+                ))
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(PMColor.text)
                     .lineLimit(1)
@@ -264,7 +267,10 @@ struct ScrapeOptionsView: View {
     private var macCandidateRail: some View {
         VStack(spacing: 0) {
             HStack {
-                macSectionTitle("候选 (\(searchResults.count))")
+                macSectionTitle(String(
+                    format: String(localized: "scrape_candidates_count_format"),
+                    searchResults.count
+                ))
                 Spacer()
             }
             .padding(.horizontal, 16)
@@ -278,7 +284,10 @@ struct ScrapeOptionsView: View {
             ScrollView(.vertical, showsIndicators: false) {
                 LazyVStack(spacing: 0) {
                     if isSearching && searchResults.isEmpty {
-                        macRailPlaceholder(icon: "magnifyingglass", text: "搜索候选中…")
+                        macRailPlaceholder(
+                            icon: "magnifyingglass",
+                            text: String(localized: "scrape_candidates_searching")
+                        )
                     } else if searchResults.isEmpty {
                         macRailPlaceholder(icon: "questionmark.magnifyingglass",
                                            text: String(localized: "no_scrape_results_desc"))
@@ -299,7 +308,7 @@ struct ScrapeOptionsView: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(PMColor.textFaint)
-            TextField("", text: $manualSearchQuery, prompt: Text(verbatim: "搜索候选"))
+            TextField("", text: $manualSearchQuery, prompt: Text("scrape_candidates_search_prompt"))
                 .textFieldStyle(.plain)
                 .font(.system(size: 12))
                 .onSubmit { Task { await macRunSearch() } }
@@ -373,7 +382,7 @@ struct ScrapeOptionsView: View {
                         .font(.system(size: 11, weight: .semibold, design: .monospaced))
                         .foregroundStyle(item.confidence > 0.9 ? PMColor.ok : PMColor.brand)
                     if item.sourceConfig.type.supportsWordLevelLyrics {
-                        Text("歌词")
+                        Text("lyrics_word")
                             .font(.system(size: 9.5))
                             .textCase(.uppercase)
                             .foregroundStyle(PMColor.textFaint)
@@ -413,7 +422,7 @@ struct ScrapeOptionsView: View {
 
                 if let preview = previewResult {
                     VStack(alignment: .leading, spacing: 8) {
-                        macSectionTitle("字段勾选")
+                        macSectionTitle(String(localized: "scrape_field_selection"))
                         VStack(spacing: 4) {
                             macFieldRows(preview)
                         }
@@ -441,17 +450,19 @@ struct ScrapeOptionsView: View {
         VStack(spacing: 10) {
             if isSearching || isScraping {
                 ProgressView().controlSize(.small)
-                Text(verbatim: isSearching ? "正在搜索候选…" : "正在拉取候选详情…")
+                Text(verbatim: isSearching
+                    ? String(localized: "scrape_candidates_searching")
+                    : String(localized: "scrape_candidate_loading_details"))
                     .font(.system(size: 12.5))
                     .foregroundStyle(PMColor.textMuted)
             } else if searchResults.isEmpty {
                 Image(systemName: "questionmark.magnifyingglass")
                     .font(.system(size: 26))
                     .foregroundStyle(PMColor.textFaint)
-                Text(verbatim: "没有搜到候选")
+                Text("scrape_candidates_empty")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(PMColor.text)
-                Text(verbatim: "在左侧搜索框换个关键词重搜，或到设置里确认已启用刮削源。")
+                Text("scrape_candidates_empty_hint")
                     .font(.system(size: 12))
                     .foregroundStyle(PMColor.textMuted)
                     .multilineTextAlignment(.center)
@@ -460,7 +471,7 @@ struct ScrapeOptionsView: View {
                 Image(systemName: "arrow.left")
                     .font(.system(size: 22))
                     .foregroundStyle(PMColor.textFaint)
-                Text(verbatim: "从左侧候选中选择一个结果")
+                Text("scrape_candidate_select_hint")
                     .font(.system(size: 12.5))
                     .foregroundStyle(PMColor.textMuted)
             }
@@ -472,7 +483,7 @@ struct ScrapeOptionsView: View {
     private var macCoverCompare: some View {
         HStack(alignment: .top, spacing: 18) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("当前")
+                Text("current")
                     .font(.system(size: 11))
                     .foregroundStyle(PMColor.textFaint)
                 CachedArtworkView(coverRef: song.coverArtFileName,
@@ -500,8 +511,10 @@ struct ScrapeOptionsView: View {
     }
 
     private var macCandidateCoverLabel: String {
-        if let src = macSelectedItem?.source { return "\(src) 候选" }
-        return "候选"
+        if let src = macSelectedItem?.source {
+            return String(format: String(localized: "scrape_candidate_source_format"), src)
+        }
+        return String(localized: "scrape_candidates")
     }
 
     /// 候选封面 + 写入开关: 点击封面切换是否写入 (默认开)。设计稿没有单独的
@@ -531,7 +544,9 @@ struct ScrapeOptionsView: View {
                     .opacity(applyCover ? 1 : 0.5)
             }
             .buttonStyle(.plain)
-            .help(applyCover ? "点击取消写入此封面" : "点击写入此封面")
+            .help(applyCover
+                ? String(localized: "scrape_cover_disable_help")
+                : String(localized: "scrape_cover_enable_help"))
         } else {
             RoundedRectangle(cornerRadius: 6)
                 .fill(PMColor.rowHover)
@@ -555,21 +570,21 @@ struct ScrapeOptionsView: View {
     @ViewBuilder
     private func macFieldRows(_ preview: ScrapePreview) -> some View {
         if !isAppleMusicSong {
-            macTextFieldRow(title: "标题", isOn: $applyTitle,
+            macTextFieldRow(title: String(localized: "title_label"), isOn: $applyTitle,
                             local: song.title, scraped: preview.scrapedTitle)
-            macTextFieldRow(title: "艺术家", isOn: $applyArtist,
+            macTextFieldRow(title: String(localized: "artist_label"), isOn: $applyArtist,
                             local: song.artistName, scraped: preview.scrapedArtist)
-            macTextFieldRow(title: "专辑", isOn: $applyAlbum,
+            macTextFieldRow(title: String(localized: "album_label"), isOn: $applyAlbum,
                             local: song.albumTitle, scraped: preview.scrapedAlbum)
-            macTextFieldRow(title: "发行年", isOn: $applyYear,
+            macTextFieldRow(title: String(localized: "year_label"), isOn: $applyYear,
                             local: song.year.map(String.init), scraped: preview.scrapedYear.map(String.init))
-            macTextFieldRow(title: "曲目号", isOn: $applyTrack,
+            macTextFieldRow(title: String(localized: "track_label"), isOn: $applyTrack,
                             local: song.trackNumber.map(String.init), scraped: preview.scrapedTrackNumber.map(String.init))
-            macTextFieldRow(title: "流派", isOn: $applyGenre,
+            macTextFieldRow(title: String(localized: "genre_label"), isOn: $applyGenre,
                             local: song.genre, scraped: preview.scrapedGenre)
         }
         if preview.hasLyrics {
-            macCheckRow(title: "歌词 (.lrc)", isOn: $applyLyrics, diff: macLyricsDiff(preview))
+            macCheckRow(title: String(localized: "scrape_lyrics_lrc"), isOn: $applyLyrics, diff: macLyricsDiff(preview))
         }
         if !hasAnyScrapeResult(preview) {
             Label(String(localized: "scrape_no_changes"), systemImage: "info.circle")
@@ -590,10 +605,20 @@ struct ScrapeOptionsView: View {
     }
 
     private func macLyricsDiff(_ preview: ScrapePreview) -> String {
-        let from = song.lyricsFileName == nil ? "空" : "已有"
-        var detail = "\(from) → \(preview.lyricsCount) 行"
-        if let src = macSelectedItem?.source { detail += " · 来自 \(src)" }
-        if preview.lyricsIsWordLevel { detail += " · 逐字" }
+        let from = song.lyricsFileName == nil
+            ? String(localized: "scrape_value_empty")
+            : String(localized: "scrape_value_existing")
+        var detail = String(
+            format: String(localized: "scrape_lyrics_diff_format"),
+            from,
+            preview.lyricsCount
+        )
+        if let src = macSelectedItem?.source {
+            detail += String(format: String(localized: "scrape_result_source_suffix_format"), src)
+        }
+        if preview.lyricsIsWordLevel {
+            detail += String(localized: "scrape_word_level_suffix")
+        }
         return detail
     }
 
@@ -643,50 +668,50 @@ struct ScrapeOptionsView: View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 8) {
                 if macUsesMediaServerWriteback {
-                    macSectionTitle("媒体服务器写回")
+                    macSectionTitle(String(localized: "scrape_writeback_media_server"))
                     macServerWritebackRow(
-                        title: "歌曲元数据",
+                        title: String(localized: "scrape_writeback_metadata"),
                         enabled: applyTitle || applyArtist || applyAlbum
                             || applyYear || applyTrack || applyGenre
                     )
                     macServerWritebackRow(
-                        title: "主封面图片",
+                        title: String(localized: "scrape_writeback_cover"),
                         enabled: applyCover && (previewResult?.hasCover ?? false)
                     )
                     macServerWritebackRow(
-                        title: "同步歌词",
+                        title: String(localized: "scrape_writeback_lyrics"),
                         enabled: applyLyrics && (previewResult?.hasLyrics ?? false)
                     )
-                    Text("通过服务器 API 写回；Emby/Plex 歌词不支持 API 时保留在本地缓存")
+                    Text("scrape_writeback_media_server_hint")
                         .font(.system(size: 11))
                         .foregroundStyle(PMColor.textFaint)
                         .padding(.top, 4)
                 } else if macSupportsSidecarWriteback {
-                    macSectionTitle("Sidecar 回写")
+                    macSectionTitle(String(localized: "scrape_writeback_sidecar"))
                     macSidecarRow(suffix: "-cover.jpg",
                                   enabled: applyCover && (previewResult?.hasCover ?? false))
                     macSidecarRow(suffix: ".lrc",
                                   enabled: applyLyrics && (previewResult?.hasLyrics ?? false))
-                    Text("写入到源目录旁路文件 · 30s 超时 · 非主线程")
+                    Text("scrape_writeback_sidecar_hint")
                         .font(.system(size: 11))
                         .foregroundStyle(PMColor.textFaint)
                         .padding(.top, 4)
                 } else {
-                    macSectionTitle("仅本地保存")
+                    macSectionTitle(String(localized: "scrape_writeback_local"))
                     macServerWritebackRow(
-                        title: "歌曲元数据",
+                        title: String(localized: "scrape_writeback_metadata"),
                         enabled: applyTitle || applyArtist || applyAlbum
                             || applyYear || applyTrack || applyGenre
                     )
                     macServerWritebackRow(
-                        title: "主封面图片",
+                        title: String(localized: "scrape_writeback_cover"),
                         enabled: applyCover && (previewResult?.hasCover ?? false)
                     )
                     macServerWritebackRow(
-                        title: "同步歌词",
+                        title: String(localized: "scrape_writeback_lyrics"),
                         enabled: applyLyrics && (previewResult?.hasLyrics ?? false)
                     )
-                    Text("保存在本机资料库与缓存；不会写回源服务器")
+                    Text("scrape_writeback_local_hint")
                         .font(.system(size: 11))
                         .foregroundStyle(PMColor.textFaint)
                         .padding(.top, 4)
@@ -694,7 +719,7 @@ struct ScrapeOptionsView: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                macSectionTitle("预览歌词")
+                macSectionTitle(String(localized: "scrape_lyrics_preview"))
                 ScrollView(.vertical, showsIndicators: false) {
                     Text(verbatim: macLyricsPreview)
                         .font(.system(size: 11, design: .monospaced))
@@ -754,8 +779,8 @@ struct ScrapeOptionsView: View {
         macSidecarBaseNameOverride ?? MusicScraperService.sidecarBaseName(for: song)
     }
 
-    private func macSectionTitle(_ title: LocalizedStringKey) -> some View {
-        Text(title)
+    private func macSectionTitle(_ title: String) -> some View {
+        Text(verbatim: title)
             .font(.system(size: 11, weight: .semibold))
             .tracking(0.6)
             .textCase(.uppercase)

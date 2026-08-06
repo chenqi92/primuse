@@ -44,7 +44,8 @@ struct TVSearchView: View {
                     .frame(maxWidth: .infinity)
                 if !trimmed.isEmpty {
                     TVFocusButton(radius: 18, scale: 1.06, lift: 0, action: { query = "" }) { f in
-                        Text("清除").font(.system(size: 17, weight: .medium)).foregroundStyle(TVColor.text)
+                        Text(PMString("ext.tv.search.clear"))
+                            .font(.system(size: 17, weight: .medium)).foregroundStyle(TVColor.text)
                             .padding(.horizontal, 16).padding(.vertical, 8)
                             .background(f ? TVColor.surfaceStrong : TVColor.surface, in: Capsule())
                     }

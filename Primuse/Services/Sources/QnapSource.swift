@@ -20,7 +20,11 @@ actor QnapSource: MusicSourceConnector {
         config.timeoutIntervalForRequest = 60
         config.timeoutIntervalForResource = 600
         config.httpMaximumConnectionsPerHost = 8
-        return URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+        return URLSession(
+            configuration: config,
+            delegate: SmartSSLDelegate(redirectPolicy: .sameEndpoint),
+            delegateQueue: nil
+        )
     }()
 
     init(sourceID: String, host: String, port: Int, useSsl: Bool,
@@ -43,7 +47,7 @@ actor QnapSource: MusicSourceConnector {
         if password.isEmpty {
             plog("⛔ QnapSource '\(sourceID)' connect aborted: password unavailable")
             await MainActor.run {
-                SourceAuthAlert.report(sourceID: sourceID, message: "缺少登录密码 ── 请重新输入")
+                SourceAuthAlert.report(sourceID: sourceID, message: String(localized: "auth_missing_password"))
             }
             throw SourceError.connectionFailed("missing password")
         }
@@ -91,7 +95,11 @@ actor QnapSource: MusicSourceConnector {
         guard let url = await api.downloadURL(path: path) else { throw SourceError.fileNotFound(path) }
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 300; config.timeoutIntervalForResource = 600
-        let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+        let session = URLSession(
+            configuration: config,
+            delegate: SmartSSLDelegate(redirectPolicy: .sameEndpoint),
+            delegateQueue: nil
+        )
         defer { session.finishTasksAndInvalidate() }
         let (tempURL, response) = try await TrustedHTTPTransport.download(
             from: url,
@@ -151,6 +159,7 @@ actor QnapSource: MusicSourceConnector {
             return Data()
         }
         request.setValue(rangeHeader, forHTTPHeaderField: "Range")
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         request.timeoutInterval = 60
 
         let maxBytes = Int(clamping: max(length, 0))
@@ -165,6 +174,15 @@ actor QnapSource: MusicSourceConnector {
         }
         switch http.statusCode {
         case 206:
+            guard HTTPByteRangeResponsePolicy.validatedTotalLength(
+                contentRange: http.value(forHTTPHeaderField: "Content-Range"),
+                contentLength: http.value(forHTTPHeaderField: "Content-Length").flatMap(Int64.init),
+                bodyLength: data.count,
+                requestedOffset: offset,
+                requestedLength: length
+            ) != nil else {
+                throw SourceError.connectionFailed("Invalid QNAP Content-Range response")
+            }
             return data
         case 200:
             // ⚠️ token 过期 / 路径错误 时 QNAP 可能回 HTTP 200 + JSON / HTML
@@ -175,14 +193,14 @@ actor QnapSource: MusicSourceConnector {
                 await api.invalidateSession()
                 throw SourceError.connectionFailed("QNAP range returned non-audio body (session expired?)")
             }
-            let total = Int64(data.count)
-            let actualOffset = offset < 0 ? max(0, total + offset) : offset
-            guard actualOffset < total else { return Data() }
-            guard let requestedEnd = SafeByteRange.exclusiveEnd(offset: actualOffset, length: length) else {
-                return Data()
+            guard HTTPByteRangeResponsePolicy.acceptsWholeResourceResponse(
+                bodyLength: data.count,
+                requestedOffset: offset,
+                requestedLength: length
+            ) else {
+                throw SourceError.connectionFailed("QNAP server ignored the byte Range request")
             }
-            let upper = min(requestedEnd, total)
-            return data.subdata(in: Int(actualOffset)..<Int(upper))
+            return data
         default:
             throw SourceError.connectionFailed("QNAP range request failed: HTTP \(http.statusCode)")
         }

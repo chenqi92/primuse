@@ -57,10 +57,10 @@ struct AlbumGridView: View {
 
         var label: String {
             switch self {
-            case .year: return "发行年"
-            case .title: return "标题"
-            case .artist: return "艺术家"
-            case .songCount: return "曲目数"
+            case .year: return String(localized: "year_label")
+            case .title: return String(localized: "title_label")
+            case .artist: return String(localized: "artist_label")
+            case .songCount: return String(localized: "album_sort_song_count")
             }
         }
     }
@@ -153,7 +153,12 @@ struct AlbumGridView: View {
             Spacer()
 
             HStack(spacing: 10) {
-                Text(verbatim: "\(displayedCount)/\(library.visibleAlbums.count) \(String(localized: "albums_count")) · 按\(albumSort.label)")
+                Text(verbatim: String(
+                    format: String(localized: "album_grid_count_sort_format"),
+                    displayedCount,
+                    library.visibleAlbums.count,
+                    albumSort.label
+                ))
                     .font(.system(size: 12))
                     .foregroundStyle(PMColor.textFaint)
                 albumFilterField

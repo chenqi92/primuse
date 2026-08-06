@@ -1093,7 +1093,10 @@ final class MetadataBackfillService {
         let seconds: TimeInterval
 
         var errorDescription: String? {
-            "Timed out reading tags after \(seconds.finiteInt())s"
+            String(
+                format: String(localized: "error_metadata_tag_read_timeout %@"),
+                String(seconds.finiteInt())
+            )
         }
     }
 

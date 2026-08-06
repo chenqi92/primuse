@@ -23,36 +23,19 @@ public struct EQPreset: Codable, Identifiable, Hashable, Sendable {
         EQPreset.localizedNames[id] ?? name
     }
 
-    private static let localizedNames: [String: String] = {
-        if Locale.current.language.languageCode?.identifier == "zh" {
-            return [
-                "flat": "平坦",
-                "bass": "低音增强",
-                "treble": "高音增强",
-                "vocal": "人声",
-                "jazz": "爵士",
-                "rock": "摇滚",
-                "dance": "舞曲",
-                "classical": "古典",
-                "hiphop": "嘻哈",
-                "latenight": "深夜",
-                "custom": "自定义",
-            ]
-        }
-        return [
-            "flat": "Flat",
-            "bass": "Bass",
-            "treble": "Treble",
-            "vocal": "Vocal",
-            "jazz": "Jazz",
-            "rock": "Rock",
-            "dance": "Dance",
-            "classical": "Classical",
-            "hiphop": "Hip-Hop",
-            "latenight": "Late Night",
-            "custom": "Custom",
-        ]
-    }()
+    private static let localizedNames: [String: String] = [
+        "flat": PMString("eq.preset.flat"),
+        "bass": PMString("eq.preset.bass"),
+        "treble": PMString("eq.preset.treble"),
+        "vocal": PMString("eq.preset.vocal"),
+        "jazz": PMString("eq.preset.jazz"),
+        "rock": PMString("eq.preset.rock"),
+        "dance": PMString("eq.preset.dance"),
+        "classical": PMString("eq.preset.classical"),
+        "hiphop": PMString("eq.preset.hiphop"),
+        "latenight": PMString("eq.preset.latenight"),
+        "custom": PMString("eq.preset.custom"),
+    ]
 
     /// 用户手动拖出的曲线用这个 id;非内置,曲线值由 EqualizerService 持久化。
     public static let customID = "custom"

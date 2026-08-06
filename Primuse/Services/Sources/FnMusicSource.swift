@@ -56,7 +56,7 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
     func connect() async throws {
         if await api.isLoggedIn { return }
         guard !username.isEmpty, !password.isEmpty else {
-            await reportAuthenticationProblem("缺少飞牛音乐账号或密码")
+            await reportAuthenticationProblem(PMString("error.fnMusic.missingCredential"))
             throw SourceError.authenticationFailed
         }
         if let loginTask {
@@ -74,9 +74,7 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
             await MainActor.run { SourceAuthAlert.clear(sourceID: sourceID) }
         } catch {
             if case SourceError.authenticationFailed = error {
-                await reportAuthenticationProblem(
-                    "飞牛音乐登录被拒绝，请检查飞牛音乐账号、密码及曲库权限"
-                )
+                await reportAuthenticationProblem(PMString("error.fnMusic.authenticationFailed"))
             }
             throw error
         }
@@ -101,7 +99,7 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
         _ = try await trackPage(page: 1, size: 1)
         return [
             RemoteFileItem(
-                name: "飞牛音乐",
+                name: MusicSourceType.fnMusic.displayName,
                 path: "/",
                 isDirectory: true,
                 size: 0,
@@ -124,44 +122,44 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
                         let result = try await self.trackPage(page: page, size: Self.pageSize)
 
                         guard let pageTotal = result.total else {
-                            throw SourceError.connectionFailed("飞牛音乐曲目列表缺少总数，已取消本次扫描")
+                            throw SourceError.connectionFailed(PMString("error.catalog.missingTotal"))
                         }
                         if let expectedTotal, expectedTotal != pageTotal {
-                            throw SourceError.connectionFailed("飞牛音乐曲目总数在扫描期间发生变化，请稍后重试")
+                            throw SourceError.connectionFailed(PMString("error.catalog.totalChanged"))
                         }
                         expectedTotal = pageTotal
 
                         guard result.rawCount <= Self.pageSize else {
-                            throw SourceError.connectionFailed("飞牛音乐曲目分页数量无效")
+                            throw SourceError.connectionFailed(PMString("error.catalog.invalidPageCount"))
                         }
                         if pageTotal == 0 {
                             guard page == 1, result.rawCount == 0 else {
-                                throw SourceError.connectionFailed("飞牛音乐曲目分页与总数不一致")
+                                throw SourceError.connectionFailed(PMString("error.catalog.pageTotalMismatch"))
                             }
                             break
                         }
                         guard result.rawCount > 0 else {
-                            throw SourceError.connectionFailed("飞牛音乐曲目分页提前结束，已取消本次扫描")
+                            throw SourceError.connectionFailed(PMString("error.catalog.pageEndedEarly"))
                         }
 
                         received += result.rawCount
                         for track in result.tracks {
                             try Task.checkCancellation()
                             guard seenTrackGUIDs.insert(track.guid).inserted else {
-                                throw SourceError.connectionFailed("飞牛音乐曲目分页包含重复项目，已取消本次扫描")
+                                throw SourceError.connectionFailed(PMString("error.catalog.duplicateItem"))
                             }
                             let scanned = try self.scannedSong(from: track)
                             continuation.yield(scanned)
                         }
 
                         guard received <= pageTotal else {
-                            throw SourceError.connectionFailed("飞牛音乐曲目分页超过声明总数")
+                            throw SourceError.connectionFailed(PMString("error.catalog.pageExceedsTotal"))
                         }
                         if received == pageTotal {
                             break
                         }
                         guard result.rawCount == Self.pageSize else {
-                            throw SourceError.connectionFailed("飞牛音乐曲目分页不完整，已取消本次扫描")
+                            throw SourceError.connectionFailed(PMString("error.catalog.incompletePage"))
                         }
                         page += 1
                     }
@@ -207,9 +205,7 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
     private func scannedSong(from track: FnMusicTrack) throws -> ConnectorScannedSong {
         let suffix = track.fileExtension ?? ""
         guard let song = track.makeSong(sourceID: sourceID) else {
-            throw SourceError.connectionFailed(
-                "飞牛音乐曲目“\(track.title)”缺少可识别的音频格式，已取消本次扫描"
-            )
+            throw SourceError.connectionFailed(PMString("error.catalog.trackMissingFormat", track.title))
         }
         return ConnectorScannedSong(song: song, displayName: "\(track.title).\(suffix)")
     }

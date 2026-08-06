@@ -479,7 +479,7 @@ struct PlaylistDetailView: View {
     /// 曲目表, 不再单独放重排/导出工具条 —— 那些动作都收进了 header 的更多菜单。
     private var macPlaylistToolbar: some View {
         HStack(spacing: 8) {
-            Text(verbatim: "歌曲")
+            Text("tab_songs")
                 .font(.system(size: 11, weight: .semibold))
                 .tracking(0.6)
                 .textCase(.uppercase)
@@ -986,7 +986,7 @@ struct PlaylistReorderSheet: View {
                     }
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("调整播放顺序")
+                    Text("playlist_reorder_title")
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(PMColor.text)
                     Text("\(playlist.name) · \(localSongs.count) \(String(localized: "songs_count"))")
@@ -1025,7 +1025,9 @@ struct PlaylistReorderSheet: View {
             Rectangle().fill(PMColor.divider).frame(height: 0.5)
 
             HStack {
-                Text(hasChanges ? "顺序已更改" : "使用箭头移动歌曲")
+                Text(hasChanges
+                    ? String(localized: "playlist_reorder_changed")
+                    : String(localized: "playlist_reorder_hint"))
                     .font(.system(size: 11.5))
                     .foregroundStyle(hasChanges ? PMColor.brand : PMColor.textFaint)
                 Spacer()

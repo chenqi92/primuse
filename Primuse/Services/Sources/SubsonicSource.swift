@@ -70,7 +70,11 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
         configuration.timeoutIntervalForResource = 120
         configuration.httpAdditionalHeaders = ["User-Agent": "Primuse/1.0"]
         // 家用 Navidrome 常用自签 HTTPS, 复用全局 SmartSSLDelegate 放行受信任证书。
-        self.session = URLSession(configuration: configuration, delegate: SmartSSLDelegate(), delegateQueue: nil)
+        self.session = URLSession(
+            configuration: configuration,
+            delegate: SmartSSLDelegate(redirectPolicy: .sameEndpoint),
+            delegateQueue: nil
+        )
 
         let cacheDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("primuse_subsonic_cache_\(sourceID)")
@@ -167,10 +171,12 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
                         do {
                             let page = try await search3SongPage(offset: 0, path: path)
                             firstPage = page.isEmpty ? nil : page
-                        } catch {
-                            if Task.isCancelled { throw error }
-                            plog("⚠️ Subsonic direct catalog unavailable; falling back to album walk: \(error.localizedDescription)")
+                        } catch SubsonicCompatibilityError.directCatalogUnavailable {
+                            try Task.checkCancellation()
+                            plog("⚠️ Subsonic direct catalog unavailable; falling back to album walk")
                             firstPage = nil
+                        } catch {
+                            throw error
                         }
 
                         if let firstPage {
@@ -185,6 +191,8 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
                     }
 
                     var offset = 0
+                    var seenAlbumIDs = Set<String>()
+                    var seenSongIDs = Set<String>()
                     // 逐页拉专辑列表, 再对每个专辑取曲目(getAlbum 自带完整 Child 元数据)。
                     while true {
                         try Task.checkCancellation()
@@ -196,19 +204,29 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
                                 URLQueryItem(name: "offset", value: String(offset))
                             ]
                         )
-                        let albums = listContainer.albumList2?.album ?? []
+                        guard let albumList = listContainer.albumList2 else {
+                            throw SourceError.connectionFailed("Subsonic getAlbumList2 response is missing albumList2")
+                        }
+                        let albums = albumList.album ?? []
                         if albums.isEmpty { break }
 
-                        for album in albums {
-                            try Task.checkCancellation()
-                            let albumContainer: AlbumContainer = try await requestJSON(
-                                "getAlbum",
-                                query: [URLQueryItem(name: "id", value: album.id)]
-                            )
-                            let songs = albumContainer.album?.song ?? []
-                            for child in songs where child.isVideo != true {
+                        let newAlbums = albums.filter { seenAlbumIDs.insert($0.id).inserted }
+                        if albums.count >= Self.pageSize, newAlbums.isEmpty {
+                            throw SourceError.connectionFailed("Subsonic getAlbumList2 pagination repeated a full page")
+                        }
+                        guard SubsonicCatalogPagingPolicy.isWithinAlbumLimit(seenAlbumIDs.count) else {
+                            throw SourceError.connectionFailed("Subsonic album catalog exceeded the safety limit")
+                        }
+
+                        let albumResults = try await fetchLegacyAlbums(newAlbums)
+                        for result in albumResults {
+                            for child in result.songs where child.isVideo != true {
                                 try Task.checkCancellation()
-                                let song = buildSong(from: child, album: album)
+                                guard seenSongIDs.insert(child.id).inserted else { continue }
+                                guard SubsonicCatalogPagingPolicy.isWithinSongLimit(seenSongIDs.count) else {
+                                    throw SourceError.connectionFailed("Subsonic song catalog exceeded the safety limit")
+                                }
+                                let song = buildSong(from: child, album: result.album)
                                 continuation.yield(ConnectorScannedSong(song: song, displayName: child.title ?? song.title))
                             }
                         }
@@ -226,17 +244,62 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
     }
 
     private func search3SongPage(offset: Int, path: String) async throws -> [SubsonicChild] {
-        let container: Search3Container = try await requestJSON(
-            "search3",
-            query: SubsonicCatalogPagingPolicy.search3QueryItems(
-                songOffset: offset,
-                musicFolderID: musicFolderID(from: path)
+        let container: Search3Container
+        do {
+            container = try await requestJSON(
+                "search3",
+                query: SubsonicCatalogPagingPolicy.search3QueryItems(
+                    songOffset: offset,
+                    musicFolderID: musicFolderID(from: path)
+                )
             )
-        )
+        } catch let SourceError.connectionFailed(message) where Self.isDirectCatalogUnavailable(message) {
+            throw SubsonicCompatibilityError.directCatalogUnavailable
+        }
         guard let result = container.searchResult3 else {
-            throw SourceError.connectionFailed("Subsonic search3 response is missing searchResult3")
+            throw SubsonicCompatibilityError.directCatalogUnavailable
         }
         return result.song ?? []
+    }
+
+    private func fetchLegacyAlbums(_ albums: [AlbumSummary]) async throws -> [LegacyAlbumResult] {
+        guard !albums.isEmpty else { return [] }
+        return try await withThrowingTaskGroup(of: LegacyAlbumResult.self) { group in
+            let initialCount = min(SubsonicCatalogPagingPolicy.legacyAlbumConcurrency, albums.count)
+            for index in 0..<initialCount {
+                let album = albums[index]
+                group.addTask { [self] in
+                    try await fetchLegacyAlbum(album, index: index)
+                }
+            }
+
+            var nextIndex = initialCount
+            var results: [LegacyAlbumResult] = []
+            results.reserveCapacity(albums.count)
+            while let result = try await group.next() {
+                results.append(result)
+                if nextIndex < albums.count {
+                    let index = nextIndex
+                    let album = albums[index]
+                    nextIndex += 1
+                    group.addTask { [self] in
+                        try await fetchLegacyAlbum(album, index: index)
+                    }
+                }
+            }
+            return results.sorted { $0.index < $1.index }
+        }
+    }
+
+    private func fetchLegacyAlbum(_ album: AlbumSummary, index: Int) async throws -> LegacyAlbumResult {
+        let container: AlbumContainer = try await requestJSON(
+            "getAlbum",
+            query: [URLQueryItem(name: "id", value: album.id)]
+        )
+        guard let albumWithSongs = container.album else {
+            throw SourceError.connectionFailed("Subsonic getAlbum response is missing album")
+        }
+        return LegacyAlbumResult(index: index, album: album, songs: albumWithSongs.song ?? [])
     }
 
     private func yieldSearch3Catalog(
@@ -267,6 +330,9 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
 
             if page.count >= Self.pageSize, newResultCount == 0 {
                 throw SourceError.connectionFailed("Subsonic search3 pagination repeated a full page")
+            }
+            guard SubsonicCatalogPagingPolicy.isWithinSongLimit(seenResultIDs.count) else {
+                throw SourceError.connectionFailed("Subsonic song catalog exceeded the safety limit")
             }
             guard let nextOffset = SubsonicCatalogPagingPolicy.nextOffset(
                 currentOffset: offset,
@@ -327,7 +393,11 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
         guard let remoteURL = buildRESTURL(method: "download", query: [URLQueryItem(name: "id", value: songID)]) else {
             throw SourceError.fileNotFound(path)
         }
-        let (temporaryURL, response) = try await session.download(from: remoteURL)
+        let (temporaryURL, response) = try await TrustedHTTPTransport.download(
+            from: remoteURL,
+            session: session,
+            timeout: 120
+        )
         do {
             try validate(response)
             if FileManager.default.fileExists(atPath: fileURL.path) {
@@ -383,11 +453,43 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
 
         var request = URLRequest(url: url)
         request.setValue(rangeHeader, forHTTPHeaderField: "Range")
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            throw SourceError.connectionFailed("HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)")
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        let requestedBytes = Int(clamping: max(length, 0))
+        let responseLimit = requestedBytes > Int.max - 64 * 1024
+            ? Int.max
+            : requestedBytes + 64 * 1024
+        let (data, response) = try await TrustedHTTPTransport.data(
+            for: request,
+            session: session,
+            maxBytes: max(PlainHTTPClient.defaultMaxBytes, responseLimit)
+        )
+        guard let http = response as? HTTPURLResponse else {
+            throw SourceError.connectionFailed("Invalid Subsonic range response")
         }
-        return data
+        switch http.statusCode {
+        case 206:
+            guard HTTPByteRangeResponsePolicy.validatedTotalLength(
+                contentRange: http.value(forHTTPHeaderField: "Content-Range"),
+                contentLength: http.value(forHTTPHeaderField: "Content-Length").flatMap(Int64.init),
+                bodyLength: data.count,
+                requestedOffset: offset,
+                requestedLength: length
+            ) != nil else {
+                throw SourceError.connectionFailed("Invalid Subsonic Content-Range response")
+            }
+            return data
+        case 200:
+            guard HTTPByteRangeResponsePolicy.acceptsWholeResourceResponse(
+                bodyLength: data.count,
+                requestedOffset: offset,
+                requestedLength: length
+            ) else {
+                throw SourceError.connectionFailed("Subsonic server ignored the byte Range request")
+            }
+            return data
+        default:
+            throw SourceError.connectionFailed("Subsonic range request failed: HTTP \(http.statusCode)")
+        }
     }
 
     // MARK: - Scrobble (ServerScrobblingConnector)
@@ -402,7 +504,7 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
             ]
         ) else { return }
         // 尽力而为: 失败不影响播放, 也不重试(回报不是关键路径)。
-        _ = try? await session.data(from: url)
+        _ = try? await TrustedHTTPTransport.data(from: url, session: session)
     }
 
     // MARK: - Lyrics (ServerLyricsConnector)
@@ -548,7 +650,7 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
         guard let url = buildRESTURL(method: method, query: query) else {
             throw SourceError.connectionFailed("Invalid URL for \(method)")
         }
-        let (data, response) = try await session.data(from: url)
+        let (data, response) = try await TrustedHTTPTransport.data(from: url, session: session)
         try validate(response)
         let decoder = JSONDecoder()
         let envelope: Envelope<C>
@@ -688,10 +790,22 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
         if error.code == 40 || error.code == 41 { return .authenticationFailed }
         return .connectionFailed(error.message ?? "Subsonic error \(error.code)")
     }
+
+    private static func isDirectCatalogUnavailable(_ message: String) -> Bool {
+        let normalized = message.lowercased()
+        return normalized == "http 404"
+            || normalized == "http 405"
+            || normalized == "http 501"
+            || normalized.contains("not found")
+            || normalized.contains("not implemented")
+            || normalized.contains("unknown api")
+            || normalized.contains("unknown method")
+    }
 }
 
 private enum SubsonicCompatibilityError: Error {
     case tokenAuthenticationUnsupported
+    case directCatalogUnavailable
 }
 
 // MARK: - Subsonic JSON models
@@ -761,7 +875,7 @@ private struct AlbumList2: Decodable {
     let album: [AlbumSummary]?
 }
 
-private struct AlbumSummary: Decodable {
+private struct AlbumSummary: Decodable, Sendable {
     let id: String
     let name: String?
     let artist: String?
@@ -784,12 +898,18 @@ private struct SearchResult3: Decodable {
     let song: [SubsonicChild]?
 }
 
-private struct AlbumWithSongs: Decodable {
+private struct AlbumWithSongs: Decodable, Sendable {
     let song: [SubsonicChild]?
 }
 
+private struct LegacyAlbumResult: Sendable {
+    let index: Int
+    let album: AlbumSummary
+    let songs: [SubsonicChild]
+}
+
 /// Subsonic "Child" 元素(歌曲)。字段名遵循 Subsonic/OpenSubsonic 规范。
-private struct SubsonicChild: Decodable {
+private struct SubsonicChild: Decodable, Sendable {
     let id: String
     let title: String?
     let album: String?

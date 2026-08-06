@@ -70,14 +70,24 @@ enum CloudDriveError: Error, LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .notAuthenticated: return "Not authenticated"
+        case .notAuthenticated:
+            return String(localized: "error_not_authenticated")
         case .credentialTemporarilyUnavailable(let status):
-            return "Stored credential temporarily unavailable (\(status))"
+            return String(
+                format: String(localized: "error_credential_temporarily_unavailable %@"),
+                String(status)
+            )
         case .credentialReadFailed(let status):
-            return "Stored credential could not be read (\(status))"
-        case .tokenExpired: return "Token expired"
-        case .tokenRefreshFailed(let msg): return "Token refresh failed: \(msg)"
-        case .tokenPersistenceFailed: return "Refreshed token could not be stored securely"
+            return String(
+                format: String(localized: "error_credential_read_failed %@"),
+                String(status)
+            )
+        case .tokenExpired:
+            return String(localized: "error_token_expired")
+        case .tokenRefreshFailed(let message):
+            return String(format: String(localized: "error_token_refresh_failed %@"), message)
+        case .tokenPersistenceFailed:
+            return String(localized: "error_token_persistence_failed")
         case .permissionDenied(let permission):
             switch permission {
             case .accountAccess:
@@ -87,10 +97,18 @@ enum CloudDriveError: Error, LocalizedError {
             case .fileWrite:
                 return String(localized: "cloud_permission_file_write")
             }
-        case .apiError(let code, let msg): return "API error \(code): \(msg)"
-        case .invalidResponse: return "Invalid response"
-        case .fileNotFound(let path): return "File not found: \(path)"
-        case .rateLimited: return "Rate limited"
+        case .apiError(let code, let message):
+            return String(
+                format: String(localized: "error_api %@ %@"),
+                String(code),
+                message
+            )
+        case .invalidResponse:
+            return String(localized: "error_invalid_response")
+        case .fileNotFound(let path):
+            return String(format: String(localized: "error_file_not_found %@"), path)
+        case .rateLimited:
+            return String(localized: "error_rate_limited")
         }
     }
 }

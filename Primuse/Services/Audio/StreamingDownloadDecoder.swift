@@ -62,7 +62,10 @@ final class StreamingDownloadDecoder: Sendable {
                         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
                         forHTTPHeaderField: "User-Agent"
                     )
-                    let (downloadedURL, response) = try await session.download(for: request)
+                    let (downloadedURL, response) = try await TrustedHTTPTransport.download(
+                        for: request,
+                        session: session
+                    )
 
                     guard let http = response as? HTTPURLResponse,
                           (200...299).contains(http.statusCode) else {

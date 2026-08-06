@@ -93,12 +93,12 @@ struct ListeningStatsView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .bottom, spacing: 18) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("统计")
+                    Text("stats_section_label")
                         .font(.system(size: 11, weight: .semibold))
                         .tracking(0.8)
                         .textCase(.uppercase)
                         .foregroundStyle(PMColor.textMuted)
-                    Text("听歌统计")
+                    Text("stats_title")
                         .font(.system(size: 32, weight: .bold))
                         .tracking(-0.5)
                         .foregroundStyle(PMColor.text)
@@ -135,8 +135,13 @@ struct ListeningStatsView: View {
     private func statsRangeSubtitle(days: [MacDailyStat]) -> String {
         let start = days.first?.date ?? Date()
         let df = DateFormatter()
-        df.dateFormat = "yyyy 年 M 月 d 日"
-        return "\(df.string(from: start)) — 今天 · \(days.count) 天"
+        df.dateStyle = .long
+        df.timeStyle = .none
+        return String(
+            format: String(localized: "stats_range_subtitle_format"),
+            df.string(from: start),
+            days.count
+        )
     }
 
     private var macEmptyState: some View {
@@ -165,20 +170,32 @@ struct ListeningStatsView: View {
         let days = max(snapshot.dailyStats.count, 1)
         let totalMin = Int(s.totalSec / 60)
         let coverage = (Double(s.activeDays) / Double(days) * 100).rounded().finiteInt()
-        let coverLabel = (range == .week || range == .month) ? "覆盖率" : "全年覆盖率"
+        let coverLabel = (range == .week || range == .month)
+            ? String(localized: "stats_coverage")
+            : String(localized: "stats_year_coverage")
         return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 4), spacing: 14) {
             macSummaryCell(value: decimal(s.totalPlays),
-                           label: "总播放",
+                           label: String(localized: "stats_total_plays"),
                            sub: playsDeltaSub(previous: snapshot.previousPlayCount, current: s.totalPlays))
             macSummaryCell(value: "\(totalMin / 60)h \(totalMin % 60)m",
-                           label: "总时长",
-                           sub: "\(decimal(totalMin)) 分钟")
+                           label: String(localized: "stats_total_duration"),
+                           sub: String(
+                               format: String(localized: "stats_minutes_format"),
+                               totalMin
+                           ))
             macSummaryCell(value: decimal(s.activeDays),
-                           label: "活跃天数",
-                           sub: "\(coverage)% \(coverLabel)")
+                           label: String(localized: "stats_active_days"),
+                           sub: String(
+                               format: String(localized: "stats_coverage_format"),
+                               coverage,
+                               coverLabel
+                           ))
             macSummaryCell(value: decimal(s.uniqueSongs),
-                           label: "不重复曲目",
-                           sub: "其中 \(snapshot.heavyRotationCount) 首播放 ≥ 5 次")
+                           label: String(localized: "stats_unique_songs"),
+                           sub: String(
+                               format: String(localized: "stats_heavy_rotation_format"),
+                               snapshot.heavyRotationCount
+                           ))
         }
     }
 
@@ -212,20 +229,24 @@ struct ListeningStatsView: View {
     /// 总播放卡副标题 —— 跟上一个等长周期比的增减。`.all` 没有"上一周期"。
     private func playsDeltaSub(previous: Int?, current: Int) -> String {
         guard let previous else {
-            return "全部历史累计"
+            return String(localized: "stats_all_time_total")
         }
-        guard previous > 0 else { return "暂无往期对比" }
+        guard previous > 0 else { return String(localized: "stats_no_previous_comparison") }
         let pct = ((Double(current) - Double(previous)) / Double(previous) * 100)
             .rounded()
             .finiteInt()
         let vs: String
         switch range {
-        case .week:  vs = "上周"
-        case .month: vs = "上月"
-        case .year:  vs = "去年"
+        case .week:  vs = String(localized: "stats_previous_week")
+        case .month: vs = String(localized: "stats_previous_month")
+        case .year:  vs = String(localized: "stats_previous_year")
         case .all:   vs = ""
         }
-        return "\(pct >= 0 ? "+" : "")\(pct)% vs \(vs)"
+        return String(
+            format: String(localized: "stats_comparison_format"),
+            "\(pct >= 0 ? "+" : "")\(pct)%",
+            vs
+        )
     }
 
     private func decimal(_ n: Int) -> String { n.formatted(.number) }
@@ -241,11 +262,15 @@ struct ListeningStatsView: View {
         )
         return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
-                Text(verbatim: "GitHub 风格热力图")
+                Text("stats_heatmap_style_title")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(PMColor.text)
                 Spacer()
-                Text(verbatim: "7×\(weeks.count) · \(days.count) 天")
+                Text(verbatim: String(
+                    format: String(localized: "stats_heatmap_dimensions_format"),
+                    weeks.count,
+                    days.count
+                ))
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(PMColor.textFaint)
             }
@@ -357,7 +382,15 @@ struct ListeningStatsView: View {
     private func macWeekdaySymbols(calendar: Calendar) -> [String] {
         let formatter = DateFormatter()
         formatter.locale = Locale.current
-        let symbols = formatter.veryShortWeekdaySymbols ?? ["日", "一", "二", "三", "四", "五", "六"]
+        let symbols = formatter.veryShortWeekdaySymbols ?? [
+            String(localized: "weekday_sunday_short"),
+            String(localized: "weekday_monday_short"),
+            String(localized: "weekday_tuesday_short"),
+            String(localized: "weekday_wednesday_short"),
+            String(localized: "weekday_thursday_short"),
+            String(localized: "weekday_friday_short"),
+            String(localized: "weekday_saturday_short")
+        ]
         let start = min(max(calendar.firstWeekday - 1, 0), 6)
         return Array(symbols[start...] + symbols[..<start])
     }
@@ -386,13 +419,13 @@ struct ListeningStatsView: View {
     private var macHeatmapLegend: some View {
         HStack(spacing: 6) {
             Spacer()
-            Text(verbatim: "少").font(.system(size: 10.5)).foregroundStyle(PMColor.textFaint)
+            Text("stats_heatmap_less").font(.system(size: 10.5)).foregroundStyle(PMColor.textFaint)
             ForEach([0, 2, 6, 10, 14], id: \.self) { v in
                 RoundedRectangle(cornerRadius: 2, style: .continuous)
                     .fill(heatColor(count: v))
                     .frame(width: 10, height: 10)
             }
-            Text(verbatim: "多").font(.system(size: 10.5)).foregroundStyle(PMColor.textFaint)
+            Text("stats_heatmap_more").font(.system(size: 10.5)).foregroundStyle(PMColor.textFaint)
         }
     }
 
@@ -412,9 +445,9 @@ struct ListeningStatsView: View {
 
     private func macTopCards(snapshot: MacStatsSnapshot) -> some View {
         HStack(alignment: .top, spacing: 14) {
-            macTopCard(title: "Top 歌曲", items: snapshot.topSongs)
-            macTopCard(title: "Top 艺术家", items: snapshot.topArtists)
-            macTopCard(title: "Top 专辑", items: snapshot.topAlbums)
+            macTopCard(title: String(localized: "stats_top_songs"), items: snapshot.topSongs)
+            macTopCard(title: String(localized: "stats_top_artists"), items: snapshot.topArtists)
+            macTopCard(title: String(localized: "stats_top_albums"), items: snapshot.topAlbums)
         }
     }
 

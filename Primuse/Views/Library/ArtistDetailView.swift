@@ -35,7 +35,10 @@ struct ArtistDetailView: View {
     }
 
     private var monthlyListenText: String {
-        "本月听 \(monthlyListenCount) 次"
+        String(
+            format: String(localized: "artist_monthly_plays_format"),
+            monthlyListenCount
+        )
     }
 
     private var playCountsBySongID: [String: Int] {
@@ -111,7 +114,7 @@ struct ArtistDetailView: View {
                 .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
 
                 VStack(alignment: .leading, spacing: 9) {
-                    Text(verbatim: "艺术家")
+                    Text("artist_label")
                         .font(.system(size: 11, weight: .semibold))
                         .textCase(.uppercase)
                         .foregroundStyle(Color.white.opacity(0.72))
@@ -168,7 +171,7 @@ struct ArtistDetailView: View {
     private var macTopSongs: some View {
         let playCounts = playCountsBySongID
         return VStack(alignment: .leading, spacing: 10) {
-            macSectionTitle("热门")
+            macSectionTitle(String(localized: "artist_popular"))
 
             VStack(spacing: 1) {
                 ForEach(Array(songs.prefix(8).enumerated()), id: \.element.id) { index, song in
@@ -232,7 +235,10 @@ struct ArtistDetailView: View {
                 PMFormatPill.forFormat(song.fileFormat.displayName)
                     .frame(width: 70, alignment: .leading)
 
-                Text(verbatim: "\(playCount) 次")
+                Text(verbatim: String(
+                    format: String(localized: "stats_play_count_format"),
+                    playCount
+                ))
                     .font(.system(size: 11, design: .monospaced))
                     .monospacedDigit()
                     .foregroundStyle(PMColor.textMuted)

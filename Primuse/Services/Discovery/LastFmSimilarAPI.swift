@@ -23,9 +23,15 @@ enum LastFmSimilarAPI {
 
         var errorDescription: String? {
             switch self {
-            case .missingAPIKey: return "Last.fm API key not configured"
-            case .http(let s): return "Last.fm HTTP \(s)"
-            case .decode(let m): return "Last.fm decode: \(m)"
+            case .missingAPIKey:
+                return String(localized: "error_lastfm_api_key_missing")
+            case .http(let status):
+                return String(
+                    format: String(localized: "error_lastfm_http %@"),
+                    String(status)
+                )
+            case .decode(let message):
+                return String(format: String(localized: "error_lastfm_decode %@"), message)
             }
         }
     }

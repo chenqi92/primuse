@@ -4,6 +4,8 @@ import Foundation
 import PrimuseKit
 
 actor UPnPSource: SongScanningConnector {
+    private static let maximumCatalogNodes = 10_000_000
+
     let sourceID: String
 
     private let session: URLSession
@@ -18,7 +20,11 @@ actor UPnPSource: SongScanningConnector {
         configuration.timeoutIntervalForRequest = 15
         configuration.timeoutIntervalForResource = 60
         configuration.httpAdditionalHeaders = ["User-Agent": "Primuse/1.0"]
-        self.session = URLSession(configuration: configuration)
+        self.session = URLSession(
+            configuration: configuration,
+            delegate: SmartSSLDelegate(),
+            delegateQueue: nil
+        )
 
         let cacheDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("primuse_upnp_cache")
@@ -58,6 +64,8 @@ actor UPnPSource: SongScanningConnector {
         var containers: [RemoteFileItem] = []
         var startIndex = 0
         let pageSize = 200
+        var expectedTotal: Int?
+        var seenPages: Set<String> = []
 
         while true {
             let page = try await browseChildren(
@@ -65,6 +73,14 @@ actor UPnPSource: SongScanningConnector {
                 objectID: selection.objectID,
                 startIndex: startIndex,
                 requestedCount: pageSize
+            )
+
+            try validateCatalogPage(
+                page,
+                startIndex: startIndex,
+                pageSize: pageSize,
+                expectedTotal: &expectedTotal,
+                seenPages: &seenPages
             )
 
             for node in page.nodes where node.kind == .container {
@@ -104,9 +120,27 @@ actor UPnPSource: SongScanningConnector {
             return localURL
         }
 
-        let (data, response) = try await session.data(from: remoteURL)
-        try validate(response)
-        try data.write(to: localURL, options: .atomic)
+        let (temporaryURL, response) = try await TrustedHTTPTransport.download(
+            from: remoteURL,
+            session: session,
+            timeout: 300
+        )
+        do {
+            try validate(response)
+            if let http = response as? HTTPURLResponse {
+                let handle = try FileHandle(forReadingFrom: temporaryURL)
+                let prefix = try handle.read(upToCount: 64) ?? Data()
+                try? handle.close()
+                guard !httpMediaResponseLooksLikeErrorBody(http, data: prefix) else {
+                    throw SourceError.connectionFailed("UPnP server returned a non-audio response")
+                }
+            }
+            try? FileManager.default.removeItem(at: localURL)
+            try FileManager.default.moveItem(at: temporaryURL, to: localURL)
+        } catch {
+            try? FileManager.default.removeItem(at: temporaryURL)
+            throw error
+        }
         return localURL
     }
 
@@ -124,24 +158,45 @@ actor UPnPSource: SongScanningConnector {
         request.httpMethod = "GET"
         request.timeoutInterval = 30
         request.setValue(rangeHeader, forHTTPHeaderField: "Range")
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
 
-        let (data, response) = try await session.data(for: request)
+        let requestedBytes = Int(clamping: max(length, 0))
+        let responseLimit = requestedBytes > Int.max - 64 * 1_024
+            ? Int.max
+            : max(PlainHTTPClient.defaultMaxBytes, requestedBytes + 64 * 1_024)
+        let (data, response) = try await TrustedHTTPTransport.data(
+            for: request,
+            session: session,
+            maxBytes: responseLimit
+        )
         guard let httpResponse = response as? HTTPURLResponse else {
             throw SourceError.connectionFailed("Invalid UPnP range response")
+        }
+        if httpMediaResponseLooksLikeErrorBody(httpResponse, data: data) {
+            throw SourceError.connectionFailed("UPnP server returned a non-audio response")
         }
 
         switch httpResponse.statusCode {
         case 206:
+            guard HTTPByteRangeResponsePolicy.validatedTotalLength(
+                contentRange: httpResponse.value(forHTTPHeaderField: "Content-Range"),
+                contentLength: httpResponse.value(forHTTPHeaderField: "Content-Length").flatMap(Int64.init),
+                bodyLength: data.count,
+                requestedOffset: offset,
+                requestedLength: length
+            ) != nil else {
+                throw SourceError.connectionFailed("Invalid UPnP Content-Range response")
+            }
             return data
         case 200:
-            let totalSize = Int64(data.count)
-            let actualOffset = offset < 0 ? max(0, totalSize + offset) : offset
-            guard actualOffset < totalSize else { return Data() }
-            guard let requestedEnd = SafeByteRange.exclusiveEnd(offset: actualOffset, length: length) else {
-                return Data()
+            guard HTTPByteRangeResponsePolicy.acceptsWholeResourceResponse(
+                bodyLength: data.count,
+                requestedOffset: offset,
+                requestedLength: length
+            ) else {
+                throw SourceError.connectionFailed("UPnP server ignored the byte Range request")
             }
-            let upperBound = min(requestedEnd, totalSize)
-            return data.subdata(in: Int(actualOffset)..<Int(upperBound))
+            return data
         default:
             throw SourceError.connectionFailed("UPnP range request failed: HTTP \(httpResponse.statusCode)")
         }
@@ -211,9 +266,11 @@ actor UPnPSource: SongScanningConnector {
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
+                    let state = UPnPScanState()
                     try await scanContainer(
                         serverID: selection.serverID,
                         objectID: selection.objectID,
+                        state: state,
                         continuation: continuation
                     )
                     continuation.finish()
@@ -228,10 +285,16 @@ actor UPnPSource: SongScanningConnector {
     private func scanContainer(
         serverID: String,
         objectID: String,
+        state: UPnPScanState,
         continuation: AsyncThrowingStream<ConnectorScannedSong, Error>.Continuation
     ) async throws {
+        let containerKey = "\(serverID)\u{1F}\(objectID)"
+        guard state.visitedContainers.insert(containerKey).inserted else { return }
+
         var startIndex = 0
         let pageSize = 200
+        var expectedTotal: Int?
+        var seenPages: Set<String> = []
 
         while true {
             try Task.checkCancellation()
@@ -242,19 +305,33 @@ actor UPnPSource: SongScanningConnector {
                 requestedCount: pageSize
             )
 
+            try validateCatalogPage(
+                page,
+                startIndex: startIndex,
+                pageSize: pageSize,
+                expectedTotal: &expectedTotal,
+                seenPages: &seenPages
+            )
+
             for node in page.nodes {
+                state.visitedNodeCount += 1
+                guard state.visitedNodeCount <= Self.maximumCatalogNodes else {
+                    throw SourceError.connectionFailed(PMString("error.catalog.pageOverflow"))
+                }
                 switch node.kind {
                 case .container:
                     try Task.checkCancellation()
                     try await scanContainer(
                         serverID: serverID,
                         objectID: node.objectID,
+                        state: state,
                         continuation: continuation
                     )
                 case .item:
                     guard let song = buildSong(serverID: serverID, node: node) else {
                         continue
                     }
+                    guard state.seenResourceURLs.insert(song.filePath).inserted else { continue }
                     continuation.yield(
                         ConnectorScannedSong(
                             song: song,
@@ -333,7 +410,7 @@ actor UPnPSource: SongScanningConnector {
             requestedCount: requestedCount
         )
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await TrustedHTTPTransport.data(for: request, session: session)
         try validate(response)
 
         let soapResult = try SOAPBrowseResponseParser.parse(data: data)
@@ -359,12 +436,52 @@ actor UPnPSource: SongScanningConnector {
             return nil
         }
 
-        let nextStartIndex = currentStartIndex + returnedCount
+        let (nextStartIndex, overflow) = currentStartIndex.addingReportingOverflow(returnedCount)
+        guard !overflow, nextStartIndex > currentStartIndex else { return nil }
         if page.totalMatches > 0 {
             return nextStartIndex < page.totalMatches ? nextStartIndex : nil
         }
 
         return returnedCount >= requestedCount ? nextStartIndex : nil
+    }
+
+    private func validateCatalogPage(
+        _ page: BrowsePage,
+        startIndex: Int,
+        pageSize: Int,
+        expectedTotal: inout Int?,
+        seenPages: inout Set<String>
+    ) throws {
+        guard page.nodes.count <= pageSize,
+              page.numberReturned >= 0,
+              page.numberReturned <= pageSize,
+              page.totalMatches >= 0 else {
+            throw SourceError.connectionFailed(PMString("error.catalog.invalidPageCount"))
+        }
+        if page.totalMatches > 0 {
+            if let expectedTotal, expectedTotal != page.totalMatches {
+                throw SourceError.connectionFailed(PMString("error.catalog.totalChanged"))
+            }
+            expectedTotal = page.totalMatches
+            guard startIndex <= page.totalMatches else {
+                throw SourceError.connectionFailed(PMString("error.catalog.pageExceedsTotal"))
+            }
+            if page.nodes.isEmpty, startIndex < page.totalMatches {
+                throw SourceError.connectionFailed(PMString("error.catalog.pageEndedEarly"))
+            }
+        }
+        guard page.nodes.isEmpty || seenPages.insert(Self.catalogPageSignature(page.nodes)).inserted else {
+            throw SourceError.connectionFailed(PMString("error.catalog.duplicateItem"))
+        }
+    }
+
+    private static func catalogPageSignature(_ nodes: [UPnPNode]) -> String {
+        let identifiers = nodes.map { node in
+            "\(node.kind == .container ? "c" : "i"):\(node.objectID):\(node.resourceURL?.absoluteString ?? "")"
+        }
+        return SHA256.hash(data: Data(identifiers.joined(separator: "\u{1E}").utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
     }
 
     private func server(for serverID: String) async throws -> UPnPMediaServer {
@@ -414,7 +531,7 @@ actor UPnPSource: SongScanningConnector {
     }
 
     private func fetchServer(at location: URL) async throws -> UPnPMediaServer {
-        let (data, response) = try await session.data(from: location)
+        let (data, response) = try await TrustedHTTPTransport.data(from: location, session: session)
         try validate(response)
 
         let description = try UPnPDeviceDescriptionParser.parse(data: data, location: location)
@@ -800,6 +917,12 @@ private func audioFormat(fromProtocolInfo protocolInfo: String?) -> AudioFormat?
     default:
         return nil
     }
+}
+
+private final class UPnPScanState: @unchecked Sendable {
+    var visitedContainers: Set<String> = []
+    var seenResourceURLs: Set<String> = []
+    var visitedNodeCount = 0
 }
 
 private struct BrowsePage: Sendable {

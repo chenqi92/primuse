@@ -12,6 +12,7 @@ actor WebDAVSource: MusicSourceConnector {
     private let username: String
     private let password: String
     private var provider: WebDAVFileProvider?
+    private var usesTrustedURLSession = false
     private var connectTask: Task<Void, Error>?
     private var didLogWholeResourceMetadataFallback = false
     private let cacheDirectory: URL
@@ -24,7 +25,15 @@ actor WebDAVSource: MusicSourceConnector {
         config.timeoutIntervalForRequest = 60
         config.timeoutIntervalForResource = 600
         config.httpMaximumConnectionsPerHost = 8
-        return URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+        return URLSession(
+            configuration: config,
+            delegate: SmartSSLDelegate(
+                httpUsername: username,
+                httpPassword: password,
+                redirectPolicy: .sameEndpoint
+            ),
+            delegateQueue: nil
+        )
     }()
 
     init(
@@ -58,7 +67,7 @@ actor WebDAVSource: MusicSourceConnector {
             try await connectTask.value
             return
         }
-        if provider != nil {
+        if provider != nil || usesTrustedURLSession {
             return
         }
         let task = Task { [weak self] in
@@ -72,6 +81,19 @@ actor WebDAVSource: MusicSourceConnector {
 
     private func establishConnection() async throws {
 
+        let baseURL = try serverURL()
+        if TrustedHTTPTransport.requiresPlainSocket(for: baseURL) {
+            usesTrustedURLSession = true
+            do {
+                _ = try await listFilesUsingTrustedTransport(at: "/")
+                try Task.checkCancellation()
+                return
+            } catch {
+                usesTrustedURLSession = false
+                throw error
+            }
+        }
+
         // 匿名 WebDAV 必须完全不带凭据；传一个 user/password 都为空的
         // URLCredential 仍可能让底层生成空的 Authorization challenge 响应。
         let credential: URLCredential? = if username.isEmpty && password.isEmpty {
@@ -81,7 +103,7 @@ actor WebDAVSource: MusicSourceConnector {
         }
 
         guard let provider = WebDAVFileProvider(
-            baseURL: try serverURL(),
+            baseURL: baseURL,
             credential: credential
         ) else {
             throw SourceError.connectionFailed("Invalid WebDAV URL")
@@ -94,7 +116,21 @@ actor WebDAVSource: MusicSourceConnector {
             try Task.checkCancellation()
         } catch {
             self.provider = nil
-            throw error
+            guard useSsl, SSLTrustStore.sslErrorDomain(from: error) != nil else {
+                throw error
+            }
+            // FilesProvider owns a final URLSession delegate and cannot apply
+            // Primuse's endpoint-scoped TOFU policy. Retry this connector with
+            // our shared trusted transport so the normal certificate prompt,
+            // pinning, and rotation checks remain in force.
+            usesTrustedURLSession = true
+            do {
+                _ = try await listFilesUsingTrustedTransport(at: "/")
+                try Task.checkCancellation()
+            } catch {
+                usesTrustedURLSession = false
+                throw error
+            }
         }
     }
 
@@ -102,9 +138,13 @@ actor WebDAVSource: MusicSourceConnector {
         connectTask?.cancel()
         connectTask = nil
         provider = nil
+        usesTrustedURLSession = false
     }
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
+        if usesTrustedURLSession {
+            return try await listFilesUsingTrustedTransport(at: path)
+        }
         guard let provider else { throw SourceError.connectionFailed("Not connected") }
 
         let providerPath = providerRelativePath(path)
@@ -142,7 +182,9 @@ actor WebDAVSource: MusicSourceConnector {
     }
 
     func localURL(for path: String) async throws -> URL {
-        guard let provider else { throw SourceError.connectionFailed("Not connected") }
+        guard provider != nil || usesTrustedURLSession else {
+            throw SourceError.connectionFailed("Not connected")
+        }
 
         // 缓存名用 SHA256 哈希: 朴素的 '/' → '_' 替换会让 "/A/B.mp3" 与 "/A_B.mp3"
         // 撞到同一缓存键、播到错误文件。
@@ -153,8 +195,6 @@ actor WebDAVSource: MusicSourceConnector {
             return localPath
         }
 
-        let providerPath = providerRelativePath(path)
-
         // Download to a sibling temp path then atomically rename. FilesProvider's
         // copyItem moves a (possibly truncated) temp file to the destination even
         // on failure, so writing straight to localPath would leave a half-written
@@ -164,14 +204,40 @@ actor WebDAVSource: MusicSourceConnector {
         )
 
         do {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-                provider.copyItem(path: providerPath, toLocalURL: tempPath) { error in
-                    if let error {
-                        continuation.resume(throwing: error)
-                    } else {
-                        continuation.resume(returning: ())
+            if usesTrustedURLSession {
+                let request = try makeWebDAVRequest(
+                    url: fileURL(for: path),
+                    method: "GET"
+                )
+                let (downloadedURL, response) = try await TrustedHTTPTransport.download(
+                    for: request,
+                    session: rangeSession
+                )
+                guard let http = response as? HTTPURLResponse,
+                      (200...299).contains(http.statusCode) else {
+                    try? FileManager.default.removeItem(at: downloadedURL)
+                    if let status = (response as? HTTPURLResponse)?.statusCode,
+                       status == 401 || status == 403 {
+                        throw SourceError.authenticationFailed
+                    }
+                    throw SourceError.connectionFailed(
+                        "WebDAV download failed: HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)"
+                    )
+                }
+                try FileManager.default.moveItem(at: downloadedURL, to: tempPath)
+            } else if let provider {
+                let providerPath = providerRelativePath(path)
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                    provider.copyItem(path: providerPath, toLocalURL: tempPath) { error in
+                        if let error {
+                            continuation.resume(throwing: error)
+                        } else {
+                            continuation.resume(returning: ())
+                        }
                     }
                 }
+            } else {
+                throw SourceError.connectionFailed("Not connected")
             }
             if FileManager.default.fileExists(atPath: localPath.path) {
                 try? FileManager.default.removeItem(at: tempPath)
@@ -186,6 +252,27 @@ actor WebDAVSource: MusicSourceConnector {
     }
 
     func deleteFile(at path: String) async throws {
+        if usesTrustedURLSession {
+            let request = try makeWebDAVRequest(
+                url: fileURL(for: path),
+                method: "DELETE"
+            )
+            let (_, response) = try await TrustedHTTPTransport.data(
+                for: request,
+                session: rangeSession
+            )
+            guard let http = response as? HTTPURLResponse,
+                  (200...299).contains(http.statusCode) else {
+                if let status = (response as? HTTPURLResponse)?.statusCode,
+                   status == 401 || status == 403 {
+                    throw SourceError.authenticationFailed
+                }
+                throw SourceError.connectionFailed(
+                    "WebDAV delete failed: HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)"
+                )
+            }
+            return
+        }
         guard let provider else { throw SourceError.connectionFailed("Not connected") }
 
         let providerPath = providerRelativePath(path)
@@ -227,7 +314,13 @@ actor WebDAVSource: MusicSourceConnector {
             return Data()
         }
         let request = try makeRangeRequest(path: path, rangeHeader: rangeHeader)
-        let (data, response) = try await rangeSession.data(for: request)
+        let maxBytes = Int(clamping: max(length, 0))
+        let responseLimit = maxBytes > Int.max - 64 * 1024 ? Int.max : maxBytes + 64 * 1024
+        let (data, response) = try await TrustedHTTPTransport.data(
+            for: request,
+            session: rangeSession,
+            maxBytes: max(PlainHTTPClient.defaultMaxBytes, responseLimit)
+        )
         return try validateStrictRangeResponse(
             response,
             data: data,
@@ -242,6 +335,41 @@ actor WebDAVSource: MusicSourceConnector {
             return Data()
         }
         let request = try makeRangeRequest(path: path, rangeHeader: rangeHeader)
+        if let url = request.url, TrustedHTTPTransport.requiresPlainSocket(for: url) {
+            let maximumWholeResource = 64 * 1024 * 1024
+            let (data, response) = try await TrustedHTTPTransport.data(
+                for: request,
+                session: rangeSession,
+                maxBytes: maximumWholeResource
+            )
+            guard let http = response as? HTTPURLResponse else {
+                throw SourceError.connectionFailed("Invalid WebDAV metadata response")
+            }
+            switch http.statusCode {
+            case 206:
+                try rejectNonMediaResponseIfNeeded(http, data: data, path: path)
+                guard HTTPByteRangeResponsePolicy.validatedTotalLength(
+                    contentRange: http.value(forHTTPHeaderField: "Content-Range"),
+                    contentLength: http.value(forHTTPHeaderField: "Content-Length").flatMap(Int64.init),
+                    bodyLength: data.count,
+                    requestedOffset: offset,
+                    requestedLength: length
+                ) != nil else {
+                    throw SourceError.connectionFailed("Invalid WebDAV Content-Range response")
+                }
+                return data
+            case 200:
+                try rejectNonMediaResponseIfNeeded(http, data: data, path: path)
+                let slice = try boundedMetadataSlice(data, offset: offset, length: length)
+                if !didLogWholeResourceMetadataFallback {
+                    didLogWholeResourceMetadataFallback = true
+                    plog("WebDAV metadata fallback: public HTTP server ignored Range; using a bounded in-memory metadata slice")
+                }
+                return slice
+            default:
+                throw SourceError.connectionFailed("WebDAV metadata request failed: HTTP \(http.statusCode)")
+            }
+        }
         let (bytes, response) = try await rangeSession.bytes(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw SourceError.connectionFailed("Invalid WebDAV metadata response")
@@ -398,6 +526,138 @@ actor WebDAVSource: MusicSourceConnector {
         return retained.subdata(in: Int(relativeStart)..<Int(relativeEnd))
     }
 
+    private func boundedMetadataSlice(
+        _ data: Data,
+        offset: Int64,
+        length: Int64
+    ) throws -> Data {
+        guard length > 0 else { return Data() }
+        let total = Int64(data.count)
+        let start = offset < 0 ? max(0, total + offset) : offset
+        guard start < total,
+              let requestedEnd = SafeByteRange.exclusiveEnd(offset: start, length: length) else {
+            throw SourceError.connectionFailed("WebDAV metadata response was empty")
+        }
+        let end = min(total, requestedEnd)
+        return data.subdata(in: Int(start)..<Int(end))
+    }
+
+    private func listFilesUsingTrustedTransport(at path: String) async throws -> [RemoteFileItem] {
+        let baseURL = try serverURL()
+        var directoryURL = try fileURL(for: path)
+        if !directoryURL.absoluteString.hasSuffix("/") {
+            directoryURL = URL(string: directoryURL.absoluteString + "/") ?? directoryURL
+        }
+        var request = try makeWebDAVRequest(
+            url: directoryURL,
+            method: "PROPFIND"
+        )
+        request.setValue("1", forHTTPHeaderField: "Depth")
+        request.setValue("application/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data(
+            """
+            <?xml version="1.0" encoding="utf-8"?>
+            <D:propfind xmlns:D="DAV:">
+              <D:prop>
+                <D:displayname/>
+                <D:resourcetype/>
+                <D:getcontentlength/>
+                <D:getlastmodified/>
+              </D:prop>
+            </D:propfind>
+            """.utf8
+        )
+        let (data, response) = try await TrustedHTTPTransport.data(
+            for: request,
+            session: rangeSession,
+            maxBytes: 16 * 1024 * 1024
+        )
+        guard let http = response as? HTTPURLResponse else {
+            throw SourceError.connectionFailed("Invalid WebDAV directory response")
+        }
+        if http.statusCode == 401 || http.statusCode == 403 {
+            throw SourceError.authenticationFailed
+        }
+        guard http.statusCode == 207 || (200...299).contains(http.statusCode) else {
+            throw SourceError.connectionFailed("WebDAV directory request failed: HTTP \(http.statusCode)")
+        }
+
+        let entries = try WebDAVMultistatusParser.parse(data)
+        let items = entries.compactMap { entry -> RemoteFileItem? in
+            guard let sourcePath = sourcePath(forWebDAVHref: entry.href, baseURL: baseURL),
+                  sourcePath != "/" else {
+                return nil
+            }
+            let fallbackName = (sourcePath as NSString).lastPathComponent
+            let name = entry.displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let resolvedName = (name?.isEmpty == false ? name : nil) ?? fallbackName
+            guard !resolvedName.isEmpty, !resolvedName.hasPrefix(".") else { return nil }
+            return RemoteFileItem(
+                name: resolvedName,
+                path: sourcePath,
+                isDirectory: entry.isDirectory,
+                size: entry.contentLength ?? -1,
+                modifiedDate: Self.webDAVDate(entry.lastModified)
+            )
+        }
+        guard !entries.isEmpty else {
+            throw SourceError.connectionFailed("WebDAV directory response contained no resources")
+        }
+        return items.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+    }
+
+    private func makeWebDAVRequest(url: URL, method: String) throws -> URLRequest {
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.timeoutInterval = 60
+        if !username.isEmpty || !password.isEmpty {
+            let encoded = Data("\(username):\(password)".utf8).base64EncodedString()
+            request.setValue("Basic \(encoded)", forHTTPHeaderField: "Authorization")
+        }
+        return request
+    }
+
+    private func sourcePath(forWebDAVHref href: String, baseURL: URL) -> String? {
+        let escapedHref = href.addingPercentEncoding(
+            withAllowedCharacters: CharacterSet(charactersIn: " ").inverted
+        ) ?? href
+        guard let absoluteURL = URL(string: escapedHref, relativeTo: baseURL)?.absoluteURL else {
+            return nil
+        }
+        if let responseHost = absoluteURL.host,
+           let baseHost = baseURL.host,
+           InsecureHTTPHostPolicy.normalizedHost(responseHost)
+            != InsecureHTTPHostPolicy.normalizedHost(baseHost) {
+            return nil
+        }
+
+        let rootPath = (baseURL.path.removingPercentEncoding ?? baseURL.path)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let targetPath = (absoluteURL.standardized.path.removingPercentEncoding
+            ?? absoluteURL.standardized.path)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let relative: String
+        if rootPath.isEmpty {
+            relative = targetPath
+        } else if targetPath == rootPath {
+            relative = ""
+        } else if targetPath.hasPrefix(rootPath + "/") {
+            relative = String(targetPath.dropFirst(rootPath.count + 1))
+        } else {
+            return nil
+        }
+        return relative.isEmpty ? "/" : "/" + relative
+    }
+
+    private static func webDAVDate(_ value: String?) -> Date? {
+        guard let value else { return nil }
+        let http = DateFormatter()
+        http.locale = Locale(identifier: "en_US_POSIX")
+        http.timeZone = TimeZone(secondsFromGMT: 0)
+        http.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+        return http.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+    }
+
     func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
         return AsyncThrowingStream { continuation in
             Task {
@@ -471,5 +731,144 @@ actor WebDAVSource: MusicSourceConnector {
             url.appendPathComponent(String(component), isDirectory: false)
         }
         return url
+    }
+}
+
+private struct WebDAVMultistatusEntry: Sendable {
+    let href: String
+    let displayName: String?
+    let contentLength: Int64?
+    let lastModified: String?
+    let isDirectory: Bool
+}
+
+private final class WebDAVMultistatusParser: NSObject, XMLParserDelegate {
+    private struct Properties {
+        var displayName: String?
+        var contentLength: Int64?
+        var lastModified: String?
+        var isDirectory = false
+
+        mutating func merge(_ other: Self) {
+            displayName = other.displayName ?? displayName
+            contentLength = other.contentLength ?? contentLength
+            lastModified = other.lastModified ?? lastModified
+            isDirectory = isDirectory || other.isDirectory
+        }
+    }
+
+    private struct ResponseBuilder {
+        var href: String?
+        var statusCode: Int?
+        var properties = Properties()
+    }
+
+    private struct PropstatBuilder {
+        var statusCode: Int?
+        var properties = Properties()
+    }
+
+    private var response: ResponseBuilder?
+    private var propstat: PropstatBuilder?
+    private var textBuffer = ""
+    private(set) var entries: [WebDAVMultistatusEntry] = []
+
+    static func parse(_ data: Data) throws -> [WebDAVMultistatusEntry] {
+        let delegate = WebDAVMultistatusParser()
+        let parser = XMLParser(data: data)
+        parser.shouldProcessNamespaces = true
+        parser.delegate = delegate
+        guard parser.parse() else {
+            throw SourceError.connectionFailed(
+                parser.parserError?.localizedDescription ?? "Invalid WebDAV XML response"
+            )
+        }
+        return delegate.entries
+    }
+
+    func parser(
+        _ parser: XMLParser,
+        didStartElement elementName: String,
+        namespaceURI: String?,
+        qualifiedName qName: String?,
+        attributes attributeDict: [String: String] = [:]
+    ) {
+        let element = Self.localName(qName ?? elementName)
+        textBuffer = ""
+        switch element {
+        case "response":
+            response = ResponseBuilder()
+        case "propstat":
+            propstat = PropstatBuilder()
+        case "collection":
+            propstat?.properties.isDirectory = true
+        default:
+            break
+        }
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        textBuffer += string
+    }
+
+    func parser(
+        _ parser: XMLParser,
+        didEndElement elementName: String,
+        namespaceURI: String?,
+        qualifiedName qName: String?
+    ) {
+        let element = Self.localName(qName ?? elementName)
+        let value = textBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch element {
+        case "href":
+            response?.href = value
+        case "displayname":
+            propstat?.properties.displayName = value.isEmpty ? nil : value
+        case "getcontentlength":
+            propstat?.properties.contentLength = Int64(value)
+        case "getlastmodified":
+            propstat?.properties.lastModified = value.isEmpty ? nil : value
+        case "status":
+            let status = Self.statusCode(value)
+            if propstat != nil {
+                propstat?.statusCode = status
+            } else {
+                response?.statusCode = status
+            }
+        case "propstat":
+            if let propstat,
+               propstat.statusCode.map({ (200...299).contains($0) }) != false {
+                response?.properties.merge(propstat.properties)
+            }
+            propstat = nil
+        case "response":
+            if let response,
+               let href = response.href,
+               !href.isEmpty,
+               response.statusCode.map({ (200...299).contains($0) }) != false {
+                entries.append(
+                    WebDAVMultistatusEntry(
+                        href: href,
+                        displayName: response.properties.displayName,
+                        contentLength: response.properties.contentLength,
+                        lastModified: response.properties.lastModified,
+                        isDirectory: response.properties.isDirectory
+                    )
+                )
+            }
+            response = nil
+        default:
+            break
+        }
+        textBuffer = ""
+    }
+
+    private static func localName(_ name: String) -> String {
+        name.split(separator: ":").last.map { String($0).lowercased() }
+            ?? name.lowercased()
+    }
+
+    private static func statusCode(_ value: String) -> Int? {
+        value.split(separator: " ").compactMap { Int($0) }.first
     }
 }

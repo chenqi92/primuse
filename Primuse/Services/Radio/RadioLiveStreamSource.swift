@@ -27,15 +27,18 @@ final class RadioLiveStreamSource: NSObject, URLSessionDataDelegate, @unchecked 
         var errorDescription: String? {
             switch self {
             case .invalidResponse:
-                return "The radio server returned an invalid response."
+                return String(localized: "error_radio_invalid_response")
             case .httpStatus(let status):
-                return "The radio server returned HTTP \(status)."
+                return String(
+                    format: String(localized: "error_radio_http %@"),
+                    String(status)
+                )
             case .unsupportedFormat:
-                return "The live stream is not a supported FLAC or Ogg FLAC stream."
+                return String(localized: "error_radio_unsupported_format")
             case .endedBeforeAudio:
-                return "The radio stream ended before audio data was received."
+                return String(localized: "error_radio_ended_before_audio")
             case .cancelled:
-                return "The radio stream was cancelled."
+                return String(localized: "error_radio_cancelled")
             }
         }
     }
@@ -165,10 +168,12 @@ final class RadioLiveStreamSource: NSObject, URLSessionDataDelegate, @unchecked 
 
     private func startPlainHTTPRequest() {
         #if !os(tvOS)
-        guard let host = url.host,
-              SSLTrustStore.allowsInsecureHTTPHostSync(domain: host) else {
+        guard let trustTarget = TrustedHTTPTransport.trustTarget(for: url),
+              SSLTrustStore.allowsInsecureHTTPHostSync(domain: trustTarget) else {
             let completion = finish(with: .failure(
-                TrustedHTTPTransportError.permissionRequired(host: url.host ?? "")
+                TrustedHTTPTransportError.permissionRequired(
+                    host: TrustedHTTPTransport.trustTarget(for: url) ?? url.host ?? ""
+                )
             ))
             resume(completion)
             return

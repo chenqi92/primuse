@@ -2,6 +2,7 @@ import Foundation
 import CryptoKit
 import PrimuseKit
 import Security
+import SwiftUI
 
 /// Manages a set of trusted domains whose SSL certificate errors should be ignored.
 /// Persisted to UserDefaults so trust decisions survive app restarts.
@@ -40,11 +41,23 @@ final class SSLTrustStore {
         var continuations: [CheckedContinuation<Bool, Never>]
     }
 
+    struct InsecureHTTPTrustRequest: Identifiable {
+        let id = UUID()
+        let endpoint: String
+        var continuations: [CheckedContinuation<Bool, Never>]
+    }
+
     /// 当前正在向用户征询的请求 (UI 的 `.sslTrustAlert` 绑定它)。
     private(set) var pendingTrustRequest: TrustRequest?
 
     /// 等待中的请求队列,逐个弹出向用户征询。每个不同 domain 一条。
     private var waitingTrustRequests: [TrustRequest] = []
+
+    /// Dynamic routes such as FN Connect can reveal their public HTTP endpoint
+    /// only after discovery. They use this global queue so the same explicit
+    /// warning still applies before the first cleartext request is sent.
+    private(set) var pendingInsecureHTTPTrustRequest: InsecureHTTPTrustRequest?
+    private var waitingInsecureHTTPTrustRequests: [InsecureHTTPTrustRequest] = []
 
     private static let defaultDomains: [String] = []
 
@@ -69,7 +82,11 @@ final class SSLTrustStore {
     // MARK: - Public API
 
     func isTrusted(domain: String) -> Bool {
-        trustedDomains.contains(Self.normalizeDomain(domain))
+        let normalized = Self.normalizeDomain(domain)
+        guard !normalized.isEmpty else { return false }
+        if trustedDomains.contains(normalized) { return true }
+        guard let legacyHost = Self.legacyHost(for: normalized) else { return false }
+        return trustedDomains.contains(legacyHost)
     }
 
     func trust(domain: String) {
@@ -115,13 +132,16 @@ final class SSLTrustStore {
     }
 
     func allowsInsecureHTTP(domain: String) -> Bool {
-        guard let normalized = InsecureHTTPHostPolicy.normalizedHost(domain) else { return false }
-        return insecureHTTPDomains.contains(normalized)
+        guard let normalized = Self.normalizeHTTPTrustTarget(domain) else { return false }
+        if insecureHTTPDomains.contains(normalized) { return true }
+        guard let legacyHost = Self.legacyHost(for: normalized) else { return false }
+        return insecureHTTPDomains.contains(legacyHost)
     }
 
     func allowInsecureHTTP(domain: String) {
-        guard let normalized = InsecureHTTPHostPolicy.normalizedHost(domain),
-              !InsecureHTTPHostPolicy.isLocalNetworkHost(normalized) else { return }
+        guard let normalized = Self.normalizeHTTPTrustTarget(domain) else { return }
+        let host = Self.legacyHost(for: normalized) ?? normalized
+        guard !InsecureHTTPHostPolicy.isLocalNetworkHost(host) else { return }
         if !insecureHTTPDomains.contains(normalized) {
             insecureHTTPDomains.append(normalized)
             insecureHTTPDomains.sort()
@@ -130,14 +150,58 @@ final class SSLTrustStore {
     }
 
     func disallowInsecureHTTP(domain: String) {
-        guard let normalized = InsecureHTTPHostPolicy.normalizedHost(domain) else { return }
+        guard let normalized = Self.normalizeHTTPTrustTarget(domain) else { return }
         insecureHTTPDomains.removeAll { $0 == normalized }
         saveToDefaults()
     }
 
+    func requestInsecureHTTPTrust(domain: String) async -> Bool {
+        guard let normalized = Self.normalizeHTTPTrustTarget(domain) else { return false }
+        if allowsInsecureHTTP(domain: normalized) { return true }
+
+        return await withCheckedContinuation { continuation in
+            if pendingInsecureHTTPTrustRequest?.endpoint == normalized {
+                pendingInsecureHTTPTrustRequest?.continuations.append(continuation)
+                return
+            }
+            if let index = waitingInsecureHTTPTrustRequests.firstIndex(where: {
+                $0.endpoint == normalized
+            }) {
+                waitingInsecureHTTPTrustRequests[index].continuations.append(continuation)
+                return
+            }
+            let request = InsecureHTTPTrustRequest(
+                endpoint: normalized,
+                continuations: [continuation]
+            )
+            if pendingInsecureHTTPTrustRequest == nil {
+                pendingInsecureHTTPTrustRequest = request
+            } else {
+                waitingInsecureHTTPTrustRequests.append(request)
+            }
+        }
+    }
+
+    func resolveInsecureHTTPTrustRequest(approved: Bool) {
+        guard let request = pendingInsecureHTTPTrustRequest else { return }
+        if approved {
+            allowInsecureHTTP(domain: request.endpoint)
+        }
+        pendingInsecureHTTPTrustRequest = waitingInsecureHTTPTrustRequests.isEmpty
+            ? nil
+            : waitingInsecureHTTPTrustRequests.removeFirst()
+        for continuation in request.continuations {
+            continuation.resume(returning: approved)
+        }
+    }
+
     func certificateInfo(for domain: String) -> TrustedCertificateInfo? {
         let normalized = Self.normalizeDomain(domain)
-        return trustedCertificates.first { $0.domain == normalized }
+        if let exact = trustedCertificates.first(where: { $0.domain == normalized }) {
+            return exact
+        }
+        guard let legacyHost = Self.legacyHost(for: normalized) else { return nil }
+        return trustedCertificates.first { $0.domain == legacyHost }
     }
 
     /// Thread-safe synchronous check for use from URLSession delegate callbacks (non-MainActor).
@@ -145,15 +209,19 @@ final class SSLTrustStore {
     nonisolated static func isTrustedSync(domain: String) -> Bool {
         let normalized = normalizeDomain(domain)
         let domains = UserDefaults.standard.stringArray(forKey: defaultsKey) ?? []
-        return domains.contains(normalized)
+        if domains.contains(normalized) { return true }
+        guard let legacyHost = legacyHost(for: normalized) else { return false }
+        return domains.contains(legacyHost)
     }
 
     /// Thread-safe synchronous check used before bypassing ATS with the
     /// lower-level cleartext HTTP transport.
     nonisolated static func allowsInsecureHTTPHostSync(domain: String) -> Bool {
-        guard let normalized = InsecureHTTPHostPolicy.normalizedHost(domain) else { return false }
+        guard let normalized = normalizeHTTPTrustTarget(domain) else { return false }
         let domains = UserDefaults.standard.stringArray(forKey: insecureHTTPDefaultsKey) ?? []
-        return domains.contains(normalized)
+        if domains.contains(normalized) { return true }
+        guard let legacyHost = legacyHost(for: normalized) else { return false }
+        return domains.contains(legacyHost)
     }
 
     /// Thread-safe synchronous read of the pinned leaf-certificate SHA256 for a trusted domain.
@@ -164,7 +232,11 @@ final class SSLTrustStore {
               let decoded = try? JSONDecoder().decode([TrustedCertificateInfo].self, from: data) else {
             return nil
         }
-        return decoded.first { $0.domain == normalized }?.fingerprintSHA256
+        if let exact = decoded.first(where: { normalizeDomain($0.domain) == normalized }) {
+            return exact.fingerprintSHA256
+        }
+        guard let legacyHost = legacyHost(for: normalized) else { return nil }
+        return decoded.first { normalizeDomain($0.domain) == legacyHost }?.fingerprintSHA256
     }
 
     /// Show a trust prompt to the user. Returns `true` if user chose to trust the domain.
@@ -208,7 +280,8 @@ final class SSLTrustStore {
         let normalized = Self.normalizeDomain(domain)
         guard !normalized.isEmpty else { return }
         guard certificateInfo?.fingerprintSHA256 != nil else { return }
-        if let existing = self.certificateInfo(for: normalized)?.fingerprintSHA256, !existing.isEmpty {
+        if let existing = trustedCertificates.first(where: { $0.domain == normalized })?.fingerprintSHA256,
+           !existing.isEmpty {
             return
         }
         trust(domain: normalized, certificateInfo: certificateInfo)
@@ -272,7 +345,7 @@ final class SSLTrustStore {
         guard sslCodes.contains(nsError.code) else { return nil }
         // Try to extract the domain from the error's userInfo or failing URL
         if let url = nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL {
-            return url.host
+            return NetworkEndpointIdentity(url: url)?.key ?? url.host
         }
         return nil
     }
@@ -298,8 +371,11 @@ final class SSLTrustStore {
         trustedDomains = rawDomains.filter { seenDomains.insert($0).inserted }
 
         let rawHTTPDomains = (UserDefaults.standard.stringArray(forKey: Self.insecureHTTPDefaultsKey) ?? [])
-            .compactMap(InsecureHTTPHostPolicy.normalizedHost)
-            .filter { !InsecureHTTPHostPolicy.isLocalNetworkHost($0) }
+            .compactMap(Self.normalizeHTTPTrustTarget)
+            .filter {
+                let host = Self.legacyHost(for: $0) ?? $0
+                return !InsecureHTTPHostPolicy.isLocalNetworkHost(host)
+            }
         var seenHTTPDomains = Set<String>()
         insecureHTTPDomains = rawHTTPDomains.filter { seenHTTPDomains.insert($0).inserted }
 
@@ -359,7 +435,23 @@ final class SSLTrustStore {
     }
 
     nonisolated private static func normalizeDomain(_ domain: String) -> String {
-        domain.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if let endpoint = NetworkEndpointIdentity(rawValue: domain) {
+            return endpoint.key
+        }
+        return InsecureHTTPHostPolicy.normalizedHost(domain)
+            ?? domain.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    nonisolated private static func normalizeHTTPTrustTarget(_ value: String) -> String? {
+        if let endpoint = NetworkEndpointIdentity(rawValue: value) {
+            guard endpoint.scheme == "http" else { return nil }
+            return endpoint.key
+        }
+        return InsecureHTTPHostPolicy.normalizedHost(value)
+    }
+
+    nonisolated private static func legacyHost(for normalizedTarget: String) -> String? {
+        NetworkEndpointIdentity(rawValue: normalizedTarget)?.host
     }
 
     private func saveToDefaults() {
@@ -408,35 +500,79 @@ final class SSLTrustStore {
 /// URLSession delegate that only bypasses SSL validation for domains in the trust store.
 /// For untrusted domains, uses the system's default certificate validation.
 final class SmartSSLDelegate: NSObject, URLSessionTaskDelegate, Sendable {
-    private let fnMusicRedirects: Bool
+    enum RedirectPolicy: Sendable {
+        /// Preserve URLSession's historical redirect behaviour. This remains
+        /// the default for artwork, radio, and arbitrary remote media where a
+        /// same-service CDN redirect is expected.
+        case system
+        /// Keep authenticated API traffic on the configured endpoint. A
+        /// conventional same-host HTTP-to-HTTPS upgrade is still accepted.
+        case sameEndpoint
+    }
 
-    init(fnMusicRedirects: Bool = false) {
+    private let fnMusicRedirects: Bool
+    private let httpUsername: String?
+    private let httpPassword: String?
+    private let redirectPolicy: RedirectPolicy
+
+    init(
+        fnMusicRedirects: Bool = false,
+        httpUsername: String? = nil,
+        httpPassword: String? = nil,
+        redirectPolicy: RedirectPolicy = .system
+    ) {
         self.fnMusicRedirects = fnMusicRedirects
+        self.httpUsername = httpUsername
+        self.httpPassword = httpPassword
+        self.redirectPolicy = redirectPolicy
     }
 
     func urlSession(
         _ session: URLSession,
         didReceive challenge: URLAuthenticationChallenge
     ) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        await disposition(for: challenge)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didReceive challenge: URLAuthenticationChallenge
+    ) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        await disposition(for: challenge)
+    }
+
+    private func disposition(
+        for challenge: URLAuthenticationChallenge
+    ) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
         if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
            let trust = challenge.protectionSpace.serverTrust {
-            let domain = challenge.protectionSpace.host
-            if SSLTrustStore.isTrustedSync(domain: domain) {
+            let host = challenge.protectionSpace.host
+            let trustTarget = NetworkEndpointIdentity(
+                scheme: challenge.protectionSpace.protocol ?? "https",
+                host: host,
+                port: challenge.protectionSpace.port > 0 ? challenge.protectionSpace.port : nil
+            )?.key ?? host
+            if SSLTrustStore.isTrustedSync(domain: trustTarget) {
                 // TOFU 证书钉扎:比对当前 leaf 证书指纹与记录的指纹。
-                let info = SSLTrustStore.certificateInfo(domain: domain, trust: trust)
+                let info = SSLTrustStore.certificateInfo(domain: trustTarget, trust: trust)
                 let currentFingerprint = info?.fingerprintSHA256
-                let pinnedFingerprint = SSLTrustStore.pinnedFingerprintSync(domain: domain)
+                let pinnedFingerprint = SSLTrustStore.pinnedFingerprintSync(domain: trustTarget)
                 if pinnedFingerprint == nil {
                     // 首次接触:记录指纹并放行 (TOFU)。
-                    await SSLTrustStore.shared.pinCertificateIfNeeded(domain: domain, certificateInfo: info)
+                    await SSLTrustStore.shared.pinCertificateIfNeeded(domain: trustTarget, certificateInfo: info)
                     return (.useCredential, URLCredential(trust: trust))
                 }
                 if let current = currentFingerprint, current == pinnedFingerprint {
-                    // 指纹一致,放行。
+                    // 指纹一致,放行；旧 host-only 记录会在这里按实际端点迁移。
+                    await SSLTrustStore.shared.pinCertificateIfNeeded(domain: trustTarget, certificateInfo: info)
                     return (.useCredential, URLCredential(trust: trust))
                 }
                 // 指纹不一致 (证书轮换/被替换):重新征询用户确认,通过则更新指纹。
-                let approved = await SSLTrustStore.shared.requestTrustForChangedCertificate(domain: domain, certificateInfo: info)
+                let approved = await SSLTrustStore.shared.requestTrustForChangedCertificate(
+                    domain: trustTarget,
+                    certificateInfo: info
+                )
                 if approved {
                     return (.useCredential, URLCredential(trust: trust))
                 }
@@ -446,12 +582,30 @@ final class SmartSSLDelegate: NSObject, URLSessionTaskDelegate, Sendable {
             if SecTrustEvaluateWithError(trust, &trustError) {
                 return (.performDefaultHandling, nil)
             }
-            let info = SSLTrustStore.certificateInfo(domain: domain, trust: trust)
-            let approved = await SSLTrustStore.shared.requestTrust(domain: domain, certificateInfo: info)
+            let info = SSLTrustStore.certificateInfo(domain: trustTarget, trust: trust)
+            let approved = await SSLTrustStore.shared.requestTrust(domain: trustTarget, certificateInfo: info)
             if approved {
                 return (.useCredential, URLCredential(trust: trust))
             }
             return (.cancelAuthenticationChallenge, nil)
+        }
+        let supportedHTTPMethods: Set<String> = [
+            NSURLAuthenticationMethodDefault,
+            NSURLAuthenticationMethodHTTPBasic,
+            NSURLAuthenticationMethodHTTPDigest,
+        ]
+        if supportedHTTPMethods.contains(challenge.protectionSpace.authenticationMethod),
+           challenge.previousFailureCount == 0,
+           let httpUsername,
+           let httpPassword {
+            return (
+                .useCredential,
+                URLCredential(
+                    user: httpUsername,
+                    password: httpPassword,
+                    persistence: .forSession
+                )
+            )
         }
         return (.performDefaultHandling, nil)
     }
@@ -464,6 +618,15 @@ final class SmartSSLDelegate: NSObject, URLSessionTaskDelegate, Sendable {
         completionHandler: @escaping @Sendable (URLRequest?) -> Void
     ) {
         guard fnMusicRedirects else {
+            guard redirectPolicy == .sameEndpoint else {
+                completionHandler(request)
+                return
+            }
+            guard let sourceURL = response.url,
+                  HTTPRedirectSecurityPolicy.allows(from: sourceURL, to: request.url) else {
+                completionHandler(nil)
+                return
+            }
             completionHandler(request)
             return
         }
@@ -480,5 +643,55 @@ final class SmartSSLDelegate: NSObject, URLSessionTaskDelegate, Sendable {
                 to: request
             )
         )
+    }
+
+}
+
+private struct TransportTrustAlertsModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .alert(
+                String(localized: "ssl_trust_title"),
+                isPresented: Binding(
+                    get: { SSLTrustStore.shared.pendingTrustRequest != nil },
+                    set: { _ in }
+                )
+            ) {
+                Button(String(localized: "trust_domain"), role: .destructive) {
+                    SSLTrustStore.shared.resolveTrustRequest(approved: true)
+                }
+                Button(String(localized: "dont_trust"), role: .cancel) {
+                    SSLTrustStore.shared.resolveTrustRequest(approved: false)
+                }
+            } message: {
+                if let domain = SSLTrustStore.shared.pendingTrustRequest?.domain {
+                    Text("ssl_trust_message \(domain)")
+                }
+            }
+            .alert(
+                String(localized: "insecure_http_warning_title"),
+                isPresented: Binding(
+                    get: { SSLTrustStore.shared.pendingInsecureHTTPTrustRequest != nil },
+                    set: { _ in }
+                )
+            ) {
+                Button(String(localized: "insecure_http_continue"), role: .destructive) {
+                    SSLTrustStore.shared.resolveInsecureHTTPTrustRequest(approved: true)
+                }
+                Button(String(localized: "cancel"), role: .cancel) {
+                    SSLTrustStore.shared.resolveInsecureHTTPTrustRequest(approved: false)
+                }
+            } message: {
+                Text(String(
+                    format: String(localized: "insecure_http_warning_message %@"),
+                    SSLTrustStore.shared.pendingInsecureHTTPTrustRequest?.endpoint ?? ""
+                ))
+            }
+    }
+}
+
+extension View {
+    func transportTrustAlerts() -> some View {
+        modifier(TransportTrustAlertsModifier())
     }
 }

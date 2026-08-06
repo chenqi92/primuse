@@ -7,6 +7,7 @@ actor DaoLiYuSource: RefreshingMetadataSongConnector, ServerLyricsConnector {
 
     private static let pageSize = 100
     private let client: DaoLiYuServiceClient
+    private let session: URLSession
     private let serverBaseURL: URL?
     private let audioCacheDirectory: URL
     private var connected = false
@@ -27,6 +28,18 @@ actor DaoLiYuSource: RefreshingMetadataSongConnector, ServerLyricsConnector {
             useSSL: useSSL,
             basePath: basePath
         )
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 30
+        configuration.timeoutIntervalForResource = 120
+        configuration.httpMaximumConnectionsPerHost = 4
+        configuration.httpCookieStorage = nil
+        configuration.urlCredentialStorage = nil
+        let session = URLSession(
+            configuration: configuration,
+            delegate: SmartSSLDelegate(redirectPolicy: .sameEndpoint),
+            delegateQueue: nil
+        )
+        self.session = session
         self.client = DaoLiYuServiceClient(
             sourceID: sourceID,
             host: host,
@@ -34,7 +47,11 @@ actor DaoLiYuSource: RefreshingMetadataSongConnector, ServerLyricsConnector {
             useSSL: useSSL,
             basePath: basePath,
             username: username,
-            password: password
+            password: password,
+            transport: DaoLiYuRequestTransport(
+                data: { try await TrustedHTTPTransport.data(for: $0, session: session) },
+                download: { try await TrustedHTTPTransport.download(for: $0, session: session) }
+            )
         )
         let root = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
         self.audioCacheDirectory = root
@@ -46,6 +63,8 @@ actor DaoLiYuSource: RefreshingMetadataSongConnector, ServerLyricsConnector {
         )
     }
 
+    deinit { session.invalidateAndCancel() }
+
     func connect() async throws {
         if connected { return }
         do {
@@ -56,7 +75,7 @@ actor DaoLiYuSource: RefreshingMetadataSongConnector, ServerLyricsConnector {
             let message: String
             if let serviceError = error as? DaoLiYuServiceError,
                serviceError == .authenticationFailed || serviceError == .missingCredential {
-                message = "道理鱼登录被拒绝，请检查账号和密码"
+                message = PMString("error.daoliyu.authenticationFailed")
             } else {
                 message = error.localizedDescription
             }
@@ -76,7 +95,7 @@ actor DaoLiYuSource: RefreshingMetadataSongConnector, ServerLyricsConnector {
         try await connect()
         return [
             RemoteFileItem(
-                name: "道理鱼",
+                name: MusicSourceType.daoliyu.displayName,
                 path: "/",
                 isDirectory: true,
                 size: 0,
@@ -103,35 +122,35 @@ actor DaoLiYuSource: RefreshingMetadataSongConnector, ServerLyricsConnector {
                             take: Self.pageSize
                         )
                         if let expectedTotal, expectedTotal != page.total {
-                            throw DaoLiYuServiceError.invalidResponse("曲目总数在扫描期间发生变化")
+                            throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.totalChanged"))
                         }
                         expectedTotal = page.total
                         guard page.skip == skip,
                               page.rawCount == page.tracks.count,
                               page.rawCount <= Self.pageSize else {
-                            throw DaoLiYuServiceError.invalidResponse("曲目分页位置或数量无效")
+                            throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.invalidPagePositionOrCount"))
                         }
                         if page.total == 0 {
                             guard skip == 0, page.rawCount == 0 else {
-                                throw DaoLiYuServiceError.invalidResponse("曲目分页与总数不一致")
+                                throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.pageTotalMismatch"))
                             }
                             break
                         }
                         guard page.rawCount > 0, skip <= page.total - page.rawCount else {
-                            throw DaoLiYuServiceError.invalidResponse("曲目分页提前结束或超过总数")
+                            throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.pageEndedEarlyOrExceeded"))
                         }
 
                         for track in page.tracks {
                             try Task.checkCancellation()
                             guard seenIDs.insert(track.id).inserted else {
-                                throw DaoLiYuServiceError.invalidResponse("曲目分页包含重复项目")
+                                throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.duplicateItem"))
                             }
                             guard let song = track.makeSong(
                                 sourceID: self.sourceID,
                                 serverBaseURL: serverBaseURL
                             ) else {
                                 throw DaoLiYuServiceError.invalidResponse(
-                                    "曲目“\(track.title)”缺少可识别的音频格式"
+                                    PMString("error.catalog.trackMissingFormat", track.title)
                                 )
                             }
                             let suffix = track.fileExtension ?? "audio"
@@ -146,7 +165,7 @@ actor DaoLiYuSource: RefreshingMetadataSongConnector, ServerLyricsConnector {
                         skip += page.rawCount
                         if skip == page.total { break }
                         guard page.rawCount == Self.pageSize else {
-                            throw DaoLiYuServiceError.invalidResponse("曲目分页不完整")
+                            throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.incompletePage"))
                         }
                     }
                     continuation.finish()

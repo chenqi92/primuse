@@ -135,15 +135,16 @@ struct RadioStationsView: View {
             }
             Button("insecure_http_continue", role: .destructive) {
                 guard let station = pendingInsecureStation,
-                      let host = station.url?.host else { return }
-                SSLTrustStore.shared.allowInsecureHTTP(domain: host)
+                      let url = station.url,
+                      let trustTarget = TrustedHTTPTransport.trustTarget(for: url) else { return }
+                SSLTrustStore.shared.allowInsecureHTTP(domain: trustTarget)
                 pendingInsecureStation = nil
                 performToggle(station)
             }
         } message: {
             Text(String(
                 format: String(localized: "insecure_http_warning_message %@"),
-                pendingInsecureStation?.url?.host ?? ""
+                pendingInsecureStation?.url.flatMap(TrustedHTTPTransport.trustTarget(for:)) ?? ""
             ))
         }
     }
@@ -151,8 +152,8 @@ struct RadioStationsView: View {
     private func toggle(_ station: RadioStation) {
         if let url = station.url,
            TrustedHTTPTransport.requiresPlainSocket(for: url),
-           let host = url.host,
-           !SSLTrustStore.allowsInsecureHTTPHostSync(domain: host) {
+           let trustTarget = TrustedHTTPTransport.trustTarget(for: url),
+           !SSLTrustStore.allowsInsecureHTTPHostSync(domain: trustTarget) {
             pendingInsecureStation = station
             return
         }
@@ -383,10 +384,10 @@ private struct RadioStationEditorView: View {
         guard let normalized = RadioStationValidation.normalizedURLString(urlString),
               let url = URL(string: normalized) else { return }
         if TrustedHTTPTransport.requiresPlainSocket(for: url),
-           let host = url.host,
-           !SSLTrustStore.allowsInsecureHTTPHostSync(domain: host) {
+           let trustTarget = TrustedHTTPTransport.trustTarget(for: url),
+           !SSLTrustStore.allowsInsecureHTTPHostSync(domain: trustTarget) {
             pendingTestAfterTrust = true
-            insecureHTTPHost = host
+            insecureHTTPHost = trustTarget
             return
         }
         runTest()

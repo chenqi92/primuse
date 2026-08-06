@@ -26,7 +26,11 @@ actor S3Source: MusicSourceConnector {
         config.timeoutIntervalForRequest = 60
         config.timeoutIntervalForResource = 600
         config.httpMaximumConnectionsPerHost = 8
-        let session = URLSession(configuration: config)
+        let session = URLSession(
+            configuration: config,
+            delegate: SmartSSLDelegate(redirectPolicy: .sameEndpoint),
+            delegateQueue: nil
+        )
         _rangeSession = session
         return session
     }
@@ -111,7 +115,15 @@ actor S3Source: MusicSourceConnector {
         let url = try objectURL(for: path)
         let (tempURL, http) = try await performDownloadRequest(url: url, method: "GET", timeout: 300)
         guard (200...299).contains(http.statusCode) else {
+            try? FileManager.default.removeItem(at: tempURL)
             throw SourceError.fileNotFound(path)
+        }
+        let handle = try FileHandle(forReadingFrom: tempURL)
+        let prefix = try handle.read(upToCount: 64) ?? Data()
+        try? handle.close()
+        guard !httpMediaResponseLooksLikeErrorBody(http, data: prefix) else {
+            try? FileManager.default.removeItem(at: tempURL)
+            throw SourceError.connectionFailed("S3 download returned a non-audio response")
         }
 
         try? FileManager.default.removeItem(at: cachedURL)
@@ -131,20 +143,30 @@ actor S3Source: MusicSourceConnector {
             url: url,
             method: "GET",
             rangeHeader: rangeHeader,
-            timeout: 60
+            timeout: 60,
+            maxBytes: Self.rangeResponseLimit(for: length)
         )
         switch http.statusCode {
         case 206:
+            guard HTTPByteRangeResponsePolicy.validatedTotalLength(
+                contentRange: http.value(forHTTPHeaderField: "Content-Range"),
+                contentLength: http.value(forHTTPHeaderField: "Content-Length").flatMap(Int64.init),
+                bodyLength: data.count,
+                requestedOffset: offset,
+                requestedLength: length
+            ) != nil else {
+                throw SourceError.connectionFailed("Invalid S3 Content-Range response")
+            }
             return data
         case 200:
-            let total = Int64(data.count)
-            let actualOffset = offset < 0 ? max(0, total + offset) : offset
-            guard actualOffset < total else { return Data() }
-            guard let requestedEnd = SafeByteRange.exclusiveEnd(offset: actualOffset, length: length) else {
-                return Data()
+            guard HTTPByteRangeResponsePolicy.acceptsWholeResourceResponse(
+                bodyLength: data.count,
+                requestedOffset: offset,
+                requestedLength: length
+            ) else {
+                throw SourceError.connectionFailed("S3 server ignored the byte Range request")
             }
-            let upper = min(requestedEnd, total)
-            return data.subdata(in: Int(actualOffset)..<Int(upper))
+            return data
         default:
             throw SourceError.connectionFailed("S3 range request failed: HTTP \(http.statusCode)")
         }
@@ -225,16 +247,22 @@ actor S3Source: MusicSourceConnector {
         url: URL,
         method: String,
         rangeHeader: String? = nil,
-        timeout: TimeInterval = 30
+        timeout: TimeInterval = 30,
+        maxBytes: Int = PlainHTTPClient.defaultMaxBytes
     ) async throws -> (Data, HTTPURLResponse) {
         for attempt in 0..<2 {
             var request = try signedRequest(url: url, method: method)
             request.timeoutInterval = timeout
             if let rangeHeader {
                 request.setValue(rangeHeader, forHTTPHeaderField: "Range")
+                request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
             }
 
-            let (data, response) = try await rangeSession.data(for: request)
+            let (data, response) = try await TrustedHTTPTransport.data(
+                for: request,
+                session: rangeSession,
+                maxBytes: maxBytes
+            )
             guard let http = response as? HTTPURLResponse else {
                 throw SourceError.connectionFailed("Invalid S3 response")
             }
@@ -247,6 +275,13 @@ actor S3Source: MusicSourceConnector {
         throw SourceError.connectionFailed("S3 clock correction retry failed")
     }
 
+    private static func rangeResponseLimit(for length: Int64) -> Int {
+        let requested = Int(clamping: max(length, 0))
+        return requested > Int.max - 64 * 1_024
+            ? Int.max
+            : max(PlainHTTPClient.defaultMaxBytes, requested + 64 * 1_024)
+    }
+
     private func performDownloadRequest(
         url: URL,
         method: String,
@@ -255,7 +290,10 @@ actor S3Source: MusicSourceConnector {
         for attempt in 0..<2 {
             var request = try signedRequest(url: url, method: method)
             request.timeoutInterval = timeout
-            let (temporaryURL, response) = try await rangeSession.download(for: request)
+            let (temporaryURL, response) = try await TrustedHTTPTransport.download(
+                for: request,
+                session: rangeSession
+            )
             guard let http = response as? HTTPURLResponse else {
                 try? FileManager.default.removeItem(at: temporaryURL)
                 throw SourceError.connectionFailed("Invalid S3 download response")

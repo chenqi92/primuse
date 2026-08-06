@@ -72,7 +72,11 @@ actor UgreenAPI {
                 let message = fallback.errorMessage ?? error.localizedDescription
                 return LoginResult(
                     success: false,
-                    errorMessage: "\(message)；RSA 登录初始化失败：\(error.localizedDescription)"
+                    errorMessage: String(
+                        format: String(localized: "ugreen_rsa_fallback_failed_format"),
+                        message,
+                        error.localizedDescription
+                    )
                 )
             } catch {
                 return LoginResult(success: false, errorMessage: error.localizedDescription)
@@ -379,7 +383,10 @@ actor UgreenAPI {
         req.httpMethod = "GET"
         for (key, value) in headers { req.setValue(value, forHTTPHeaderField: key) }
         req.timeoutInterval = 15
-        guard let (tData, tResp) = try? await session().data(for: req),
+        guard let (tData, tResp) = try? await TrustedHTTPTransport.data(
+            for: req,
+            session: session()
+        ),
               let http = tResp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             return nil
         }
@@ -442,7 +449,7 @@ actor UgreenAPI {
             let sessionToken = d?["token"] as? String
             let persistentToken = d?["static_token"] as? String
             guard let resolvedToken = sessionToken ?? persistentToken else {
-                return LoginResult(success: false, errorMessage: "绿联登录成功但未返回 token")
+                return LoginResult(success: false, errorMessage: String(localized: "ugreen_login_missing_token"))
             }
             self.token = resolvedToken
             self.staticToken = persistentToken
@@ -455,12 +462,12 @@ actor UgreenAPI {
             return LoginResult(success: true, token: resolvedToken)
         }
         if code == 1001 || (json["need_otp"] as? Bool == true) || (json["require_2fa"] as? Bool == true) {
-            return LoginResult(success: false, needs2FA: true, errorMessage: "需要两步验证")
+            return LoginResult(success: false, needs2FA: true, errorMessage: String(localized: "auth_two_factor_required"))
         }
         let msg = json["message"] as? String
             ?? json["msg"] as? String
             ?? json["debug"] as? String
-            ?? "登录失败 (\(code))"
+            ?? String(format: String(localized: "auth_login_failed_code_format"), code)
         return LoginResult(success: false, errorMessage: msg)
     }
 
@@ -488,7 +495,10 @@ actor UgreenAPI {
         // token, 一并去掉避免误导与潜在干扰。
         req.httpBody = try SafeJSONSerialization.data(withJSONObject: body)
         req.timeoutInterval = 15
-        let (data, response) = try await session().data(for: req)
+        let (data, response) = try await TrustedHTTPTransport.data(
+            for: req,
+            session: session()
+        )
         guard let http = response as? HTTPURLResponse else {
             throw SourceError.connectionFailed("Invalid Ugreen response")
         }
@@ -504,7 +514,11 @@ actor UgreenAPI {
     private lazy var sharedSession: URLSession = {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 15
-        return URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+        return URLSession(
+            configuration: config,
+            delegate: SmartSSLDelegate(redirectPolicy: .sameEndpoint),
+            delegateQueue: nil
+        )
     }()
 
     private func session() -> URLSession { sharedSession }

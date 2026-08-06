@@ -393,7 +393,7 @@ struct YearlyReportData: Sendable, Identifiable {
         let totalSec: TimeInterval
         /// 已 resolve 的 source 显示名 (analyze 时从 SourcesStore 烘到 data,
         /// 这样 UI 层不用 @Environment, 分享 ImageRenderer 拍快照也能正常工作)。
-        var displayName: String = "未知音乐源"
+        var displayName: String = String(localized: "yearly_unknown_source")
         /// SF Symbol 名 (e.g. "iphone" / "externaldrive.fill" / "network" /
         /// "icloud.fill" / "play.tv.fill" / "music.note"), 同样 analyze 时填。
         var iconSymbol: String = "music.note"
@@ -406,19 +406,26 @@ extension YearlyReportData {
         let hours = Int(totalSec / 3600)
         let minutes = Int(totalSec.truncatingRemainder(dividingBy: 3600) / 60)
         if hours > 0 {
-            return "\(hours) 小时 \(minutes) 分"
+            return String(
+                format: String(localized: "yearly_duration_hm_format"),
+                hours,
+                minutes
+            )
         }
-        return "\(minutes) 分钟"
+        return String(
+            format: String(localized: "yearly_duration_minutes_format"),
+            minutes
+        )
     }
 
     /// 主导时段 → 文案 (清晨 / 正午 / 黄昏 / 深夜)
     var timeOfDayLabel: String {
         switch peakHour {
-        case 5...8: return "清晨"
-        case 9...13: return "上午"
-        case 14...17: return "下午"
-        case 18...22: return "傍晚"
-        default: return "深夜"
+        case 5...8: return String(localized: "yearly_time_dawn")
+        case 9...13: return String(localized: "yearly_time_morning")
+        case 14...17: return String(localized: "yearly_time_afternoon")
+        case 18...22: return String(localized: "yearly_time_evening")
+        default: return String(localized: "yearly_time_late_night")
         }
     }
 

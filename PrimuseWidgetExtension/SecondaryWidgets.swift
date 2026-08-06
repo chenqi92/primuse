@@ -105,12 +105,12 @@ struct LyricsProvider: TimelineProvider {
     }
 
     static let demo = LyricsSnapshot(
-        songID: "demo", title: "水调歌头", artist: PMString("ext.widget.demo.track"), coverImageName: nil,
+        songID: "demo", title: PMString("ext.widget.demo.songTitle"), artist: PMString("ext.widget.demo.track"), coverImageName: nil,
         lines: [
-            WidgetLyricLine(time: 0, text: "明月几时有"),
-            WidgetLyricLine(time: 3, text: "把酒问青天"),
-            WidgetLyricLine(time: 6, text: "不知天上宫阙"),
-            WidgetLyricLine(time: 9, text: "今夕是何年"),
+            WidgetLyricLine(time: 0, text: PMString("ext.widget.demo.lyric1")),
+            WidgetLyricLine(time: 3, text: PMString("ext.widget.demo.lyric2")),
+            WidgetLyricLine(time: 6, text: PMString("ext.widget.demo.lyric3")),
+            WidgetLyricLine(time: 9, text: PMString("ext.widget.demo.lyric4")),
         ],
         anchorIndex: 1, isPlaying: true
     )
@@ -217,7 +217,8 @@ struct StatsProvider: TimelineProvider {
     static let demo = ListeningStatsSnapshot(
         totalPlays: 246, totalSeconds: 17 * 3600,
         dailyCounts: [1, 0, 4, 2, 8, 12, 5, 0, 3, 6, 9, 1, 0, 4, 7, 5, 10, 12, 3, 6, 4, 0, 8, 11, 2, 5, 9, 1, 4, 6],
-        topSongTitle: "十年", topSongArtist: "陈奕迅"
+        topSongTitle: PMString("ext.widget.demo.topSong"),
+        topSongArtist: PMString("ext.widget.demo.topArtist")
     )
 }
 
@@ -429,7 +430,12 @@ struct WrappedProvider: TimelineProvider {
         completion(Timeline(entries: [entry], policy: reloadPolicy()))
     }
 
-    static let demo = WrappedSnapshot(year: 2026, totalHours: 847, topArtist: "周杰伦", topSong: "十年")
+    static let demo = WrappedSnapshot(
+        year: 2026,
+        totalHours: 847,
+        topArtist: PMString("ext.widget.demo.topArtist"),
+        topSong: PMString("ext.widget.demo.topSong")
+    )
 }
 
 struct YearInReviewWidget: Widget {

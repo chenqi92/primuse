@@ -27,27 +27,25 @@ struct MusicPersonality: Sendable, Equatable {
         return e + o + n + d
     }
 
-    /// 中文名 (16 种, 见 Docs/YearlyReport.md §四)。
-    /// 不走 Localizable.strings 是因为名字是设计资产, 跨设备同步, 跟具体 lang
-    /// 解耦; 后续可以挪到 strings 里支持 i18n。
+    /// 本地化名称 (16 种, 见 Docs/YearlyReport.md §四)。
     var displayName: String {
         switch code {
-        case "EOND": return "城市漫游者"
-        case "EONM": return "夜行探险家"
-        case "EOVD": return "复古拓荒人"
-        case "EOVM": return "月光档案员"
-        case "EFND": return "阳光浪客"
-        case "EFNM": return "暗夜浪客"
-        case "EFVD": return "怀旧浪客"
-        case "EFVM": return "黑胶夜游"
-        case "LOND": return "阳光博物者"
-        case "LONM": return "午夜博物者"
-        case "LOVD": return "故纸学究"
-        case "LOVM": return "月下守夜人"
-        case "LFND": return "阳光专一派"
-        case "LFNM": return "月夜专一派"
-        case "LFVD": return "复古铁粉"
-        case "LFVM": return "黑胶守夜人"
+        case "EOND": return String(localized: "yearly_personality_eond_name")
+        case "EONM": return String(localized: "yearly_personality_eonm_name")
+        case "EOVD": return String(localized: "yearly_personality_eovd_name")
+        case "EOVM": return String(localized: "yearly_personality_eovm_name")
+        case "EFND": return String(localized: "yearly_personality_efnd_name")
+        case "EFNM": return String(localized: "yearly_personality_efnm_name")
+        case "EFVD": return String(localized: "yearly_personality_efvd_name")
+        case "EFVM": return String(localized: "yearly_personality_efvm_name")
+        case "LOND": return String(localized: "yearly_personality_lond_name")
+        case "LONM": return String(localized: "yearly_personality_lonm_name")
+        case "LOVD": return String(localized: "yearly_personality_lovd_name")
+        case "LOVM": return String(localized: "yearly_personality_lovm_name")
+        case "LFND": return String(localized: "yearly_personality_lfnd_name")
+        case "LFNM": return String(localized: "yearly_personality_lfnm_name")
+        case "LFVD": return String(localized: "yearly_personality_lfvd_name")
+        case "LFVM": return String(localized: "yearly_personality_lfvm_name")
         default: return code
         }
     }
@@ -55,22 +53,22 @@ struct MusicPersonality: Sendable, Equatable {
     /// 一句话画像。
     var oneLiner: String {
         switch code {
-        case "EOND": return "白天什么风格的新歌都听一耳朵, 停不下来探索"
-        case "EONM": return "深夜耳机里永远是新发现, 听过的就翻篇"
-        case "EOVD": return "白天挖掘各种老歌冷门曲, 每首都新鲜"
-        case "EOVM": return "深夜在年代灰尘里淘宝, 杂食且嗜旧"
-        case "EFND": return "一种风格里挑各种新歌, 白天听"
-        case "EFNM": return "一种风格里挑各种新歌, 深夜听"
-        case "EFVD": return "守一种老风格, 白天里轻盈漫步"
-        case "EFVM": return "守一种老风格, 深夜独酌"
-        case "LOND": return "围绕几个偏爱艺术家但风格多元, 新歌为主, 白天听"
-        case "LONM": return "几个偏爱艺术家, 风格多元, 新歌为主, 深夜版"
-        case "LOVD": return "几个老艺术家循环到死, 白天的图书馆感"
-        case "LOVM": return "几个老艺术家循环到死, 深夜守候"
-        case "LFND": return "死忠少数艺术家 + 单一风格 + 新歌 + 白天"
-        case "LFNM": return "死忠 + 单一 + 新歌 + 深夜"
-        case "LFVD": return "死忠 + 单一 + 老歌 + 白天"
-        case "LFVM": return "死忠 + 单一 + 老歌 + 深夜"
+        case "EOND": return String(localized: "yearly_personality_eond_description")
+        case "EONM": return String(localized: "yearly_personality_eonm_description")
+        case "EOVD": return String(localized: "yearly_personality_eovd_description")
+        case "EOVM": return String(localized: "yearly_personality_eovm_description")
+        case "EFND": return String(localized: "yearly_personality_efnd_description")
+        case "EFNM": return String(localized: "yearly_personality_efnm_description")
+        case "EFVD": return String(localized: "yearly_personality_efvd_description")
+        case "EFVM": return String(localized: "yearly_personality_efvm_description")
+        case "LOND": return String(localized: "yearly_personality_lond_description")
+        case "LONM": return String(localized: "yearly_personality_lonm_description")
+        case "LOVD": return String(localized: "yearly_personality_lovd_description")
+        case "LOVM": return String(localized: "yearly_personality_lovm_description")
+        case "LFND": return String(localized: "yearly_personality_lfnd_description")
+        case "LFNM": return String(localized: "yearly_personality_lfnm_description")
+        case "LFVD": return String(localized: "yearly_personality_lfvd_description")
+        case "LFVM": return String(localized: "yearly_personality_lfvm_description")
         default: return ""
         }
     }

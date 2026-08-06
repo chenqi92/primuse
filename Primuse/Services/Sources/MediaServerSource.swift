@@ -3,6 +3,8 @@ import Foundation
 import PrimuseKit
 
 actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackConnector, ServerLyricsConnector {
+    private static let maximumCatalogTracks = 10_000_000
+
     enum Kind: Sendable {
         case jellyfin
         case emby
@@ -55,7 +57,11 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         configuration.timeoutIntervalForRequest = 20
         configuration.timeoutIntervalForResource = 60
         configuration.httpAdditionalHeaders = ["User-Agent": "Primuse/1.0"]
-        self.session = URLSession(configuration: configuration)
+        self.session = URLSession(
+            configuration: configuration,
+            delegate: SmartSSLDelegate(redirectPolicy: .sameEndpoint),
+            delegateQueue: nil
+        )
 
         let cacheDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("primuse_media_server_cache_\(sourceID)")
@@ -172,7 +178,11 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
 
         let remoteURL = try await playbackURL(for: itemID)
 
-        let (temporaryURL, response) = try await session.download(from: remoteURL)
+        let (temporaryURL, response) = try await TrustedHTTPTransport.download(
+            from: remoteURL,
+            session: session,
+            timeout: 60
+        )
         do {
             try validate(response)
             if FileManager.default.fileExists(atPath: fileURL.path) {
@@ -194,7 +204,85 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             throw SourceError.fileNotFound(path)
         }
 
-        return try await playbackURL(for: itemID)
+        let url = try await playbackURL(for: itemID)
+        return requiresConnectorBackedTransport(for: url) ? nil : url
+    }
+
+    func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+        try await fetchRange(path: path, offset: offset, length: length, allowReauthentication: true)
+    }
+
+    private func fetchRange(
+        path: String,
+        offset: Int64,
+        length: Int64,
+        allowReauthentication: Bool
+    ) async throws -> Data {
+        guard let rangeHeader = SafeByteRange.httpHeader(offset: offset, length: length) else {
+            return Data()
+        }
+        try await connect()
+        guard let itemID = itemID(from: path) else {
+            throw SourceError.fileNotFound(path)
+        }
+        var request = URLRequest(url: try await playbackURL(for: itemID))
+        request.httpMethod = "GET"
+        request.timeoutInterval = 60
+        request.setValue(rangeHeader, forHTTPHeaderField: "Range")
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+
+        let requestedBytes = Int(clamping: max(length, 0))
+        let responseLimit = requestedBytes > Int.max - 64 * 1024
+            ? Int.max
+            : requestedBytes + 64 * 1024
+        let (data, response) = try await TrustedHTTPTransport.data(
+            for: request,
+            session: session,
+            maxBytes: max(PlainHTTPClient.defaultMaxBytes, responseLimit)
+        )
+        guard let http = response as? HTTPURLResponse else {
+            throw SourceError.connectionFailed("Invalid media-server range response")
+        }
+        if (http.statusCode == 401 || http.statusCode == 403),
+           allowReauthentication,
+           kind != .plex,
+           authType != .apiKey {
+            accessToken = nil
+            userID = nil
+            return try await fetchRange(
+                path: path,
+                offset: offset,
+                length: length,
+                allowReauthentication: false
+            )
+        }
+        if httpMediaResponseLooksLikeErrorBody(http, data: data) {
+            throw SourceError.connectionFailed("Media server returned a non-audio response")
+        }
+        switch http.statusCode {
+        case 206:
+            guard HTTPByteRangeResponsePolicy.validatedTotalLength(
+                contentRange: http.value(forHTTPHeaderField: "Content-Range"),
+                contentLength: http.value(forHTTPHeaderField: "Content-Length").flatMap(Int64.init),
+                bodyLength: data.count,
+                requestedOffset: offset,
+                requestedLength: length
+            ) != nil else {
+                throw SourceError.connectionFailed("Invalid media-server Content-Range response")
+            }
+            return data
+        case 200:
+            guard HTTPByteRangeResponsePolicy.acceptsWholeResourceResponse(
+                bodyLength: data.count,
+                requestedOffset: offset,
+                requestedLength: length
+            ) else {
+                throw SourceError.connectionFailed("Media server ignored the byte Range request")
+            }
+            return data
+        default:
+            throw SourceError.connectionFailed("Media-server range request failed: HTTP \(http.statusCode)")
+        }
     }
 
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
@@ -301,9 +389,12 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             let task = Task {
                 do {
                     let pageSize = 200
+                    var seenTrackIDs: Set<String> = []
 
                     for libraryID in libraryIDs {
                         var startIndex = 0
+                        var expectedTotal: Int?
+                        var seenPages: Set<String> = []
 
                         switch kind {
                         case .plex:
@@ -315,11 +406,34 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                                     limit: pageSize
                                 )
 
+                                if let total = result.totalCount {
+                                    guard total >= 0, total <= Self.maximumCatalogTracks else {
+                                        throw SourceError.connectionFailed(PMString("error.catalog.invalidTotal"))
+                                    }
+                                    if let expectedTotal, expectedTotal != total {
+                                        throw SourceError.connectionFailed(PMString("error.catalog.totalChanged"))
+                                    }
+                                    expectedTotal = total
+                                }
                                 if result.items.isEmpty {
+                                    if let expectedTotal, startIndex < expectedTotal {
+                                        throw SourceError.connectionFailed(PMString("error.catalog.pageEndedEarly"))
+                                    }
                                     break
+                                }
+                                guard result.items.count <= pageSize else {
+                                    throw SourceError.connectionFailed(PMString("error.catalog.invalidPageCount"))
+                                }
+                                let pageIDs = result.items.map(\.ratingKey)
+                                guard seenPages.insert(Self.catalogPageSignature(pageIDs)).inserted else {
+                                    throw SourceError.connectionFailed(PMString("error.catalog.duplicateItem"))
                                 }
 
                                 for item in result.items {
+                                    guard seenTrackIDs.insert(item.ratingKey).inserted else { continue }
+                                    guard seenTrackIDs.count <= Self.maximumCatalogTracks else {
+                                        throw SourceError.connectionFailed(PMString("error.catalog.pageOverflow"))
+                                    }
                                     plexItems[item.ratingKey] = item
                                     let song = buildSong(from: item)
                                     continuation.yield(
@@ -331,9 +445,11 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                                 }
 
                                 startIndex += result.items.count
-
-                                if result.items.count < pageSize {
-                                    break
+                                if let expectedTotal {
+                                    guard startIndex <= expectedTotal else {
+                                        throw SourceError.connectionFailed(PMString("error.catalog.pageExceedsTotal"))
+                                    }
+                                    if startIndex == expectedTotal { break }
                                 }
                             }
                         case .jellyfin, .emby:
@@ -345,11 +461,34 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                                     limit: pageSize
                                 )
 
+                                if let total = result.totalRecordCount {
+                                    guard total >= 0, total <= Self.maximumCatalogTracks else {
+                                        throw SourceError.connectionFailed(PMString("error.catalog.invalidTotal"))
+                                    }
+                                    if let expectedTotal, expectedTotal != total {
+                                        throw SourceError.connectionFailed(PMString("error.catalog.totalChanged"))
+                                    }
+                                    expectedTotal = total
+                                }
                                 if result.items.isEmpty {
+                                    if let expectedTotal, startIndex < expectedTotal {
+                                        throw SourceError.connectionFailed(PMString("error.catalog.pageEndedEarly"))
+                                    }
                                     break
+                                }
+                                guard result.items.count <= pageSize else {
+                                    throw SourceError.connectionFailed(PMString("error.catalog.invalidPageCount"))
+                                }
+                                let pageIDs = result.items.map(\.id)
+                                guard seenPages.insert(Self.catalogPageSignature(pageIDs)).inserted else {
+                                    throw SourceError.connectionFailed(PMString("error.catalog.duplicateItem"))
                                 }
 
                                 for item in result.items {
+                                    guard seenTrackIDs.insert(item.id).inserted else { continue }
+                                    guard seenTrackIDs.count <= Self.maximumCatalogTracks else {
+                                        throw SourceError.connectionFailed(PMString("error.catalog.pageOverflow"))
+                                    }
                                     let song = buildSong(from: item)
                                     continuation.yield(
                                         ConnectorScannedSong(
@@ -360,9 +499,11 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                                 }
 
                                 startIndex += result.items.count
-
-                                if result.items.count < pageSize {
-                                    break
+                                if let expectedTotal {
+                                    guard startIndex <= expectedTotal else {
+                                        throw SourceError.connectionFailed(PMString("error.catalog.pageExceedsTotal"))
+                                    }
+                                    if startIndex == expectedTotal { break }
                                 }
                             }
                         }
@@ -591,7 +732,10 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             request.setValue(value, forHTTPHeaderField: header)
         }
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await TrustedHTTPTransport.data(
+            for: request,
+            session: session
+        )
         if requiresAuth,
            method == "GET",
            allowPasswordReauthentication,
@@ -615,6 +759,17 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         }
         try validate(response)
         return data
+    }
+
+    private func requiresConnectorBackedTransport(for url: URL) -> Bool {
+        if TrustedHTTPTransport.requiresPlainSocket(for: url) {
+            return true
+        }
+        guard url.scheme?.lowercased() == "https",
+              let endpoint = NetworkEndpointIdentity(url: url) else {
+            return false
+        }
+        return SSLTrustStore.isTrustedSync(domain: endpoint.key)
     }
 
     private func metadataChanged(from original: Song, to updated: Song) -> Bool {
@@ -1209,6 +1364,12 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         return formatter.date(from: value)
     }
 
+    private static func catalogPageSignature(_ ids: [String]) -> String {
+        SHA256.hash(data: Data(ids.joined(separator: "\u{1F}").utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
     private static func makeBaseURL(
         host: String,
         port: Int?,
@@ -1288,9 +1449,11 @@ private struct Library: Decodable {
 
 private struct ItemResponse: Decodable {
     let items: [AudioItem]
+    let totalRecordCount: Int?
 
     enum CodingKeys: String, CodingKey {
         case items = "Items"
+        case totalRecordCount = "TotalRecordCount"
     }
 }
 
@@ -1570,13 +1733,16 @@ private struct PlexTrackResponse: Decodable {
     }
 
     var items: [PlexAudioItem] { mediaContainer.metadata }
+    var totalCount: Int? { mediaContainer.totalSize }
 }
 
 private struct PlexTrackContainer: Decodable {
     let metadata: [PlexAudioItem]
+    let totalSize: Int?
 
     enum CodingKeys: String, CodingKey {
         case metadata = "Metadata"
+        case totalSize
     }
 }
 

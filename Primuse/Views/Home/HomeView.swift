@@ -194,15 +194,16 @@ struct HomeView: View {
                 }
                 Button("insecure_http_continue", role: .destructive) {
                     guard let station = pendingInsecureHomeStation,
-                          let host = station.url?.host else { return }
-                    SSLTrustStore.shared.allowInsecureHTTP(domain: host)
+                          let url = station.url,
+                          let trustTarget = TrustedHTTPTransport.trustTarget(for: url) else { return }
+                    SSLTrustStore.shared.allowInsecureHTTP(domain: trustTarget)
                     pendingInsecureHomeStation = nil
                     performHomeRadioToggle(station)
                 }
             } message: {
                 Text(String(
                     format: String(localized: "insecure_http_warning_message %@"),
-                    pendingInsecureHomeStation?.url?.host ?? ""
+                    pendingInsecureHomeStation?.url.flatMap(TrustedHTTPTransport.trustTarget(for:)) ?? ""
                 ))
             }
             // 改用 fullScreenCover + 透明背景实现居中 modal 弹框, 替代之前
@@ -552,8 +553,8 @@ struct HomeView: View {
     private func toggleHomeRadio(_ station: RadioStation) {
         if let url = station.url,
            TrustedHTTPTransport.requiresPlainSocket(for: url),
-           let host = url.host,
-           !SSLTrustStore.allowsInsecureHTTPHostSync(domain: host) {
+           let trustTarget = TrustedHTTPTransport.trustTarget(for: url),
+           !SSLTrustStore.allowsInsecureHTTPHostSync(domain: trustTarget) {
             pendingInsecureHomeStation = station
             return
         }

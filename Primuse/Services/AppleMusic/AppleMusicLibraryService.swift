@@ -126,7 +126,7 @@ final class AppleMusicLibraryService {
         }
         guard syncTask == nil else { return }
         guard appleMusic.authState == .authorized else {
-            state = .failed("Apple Music 未授权, 去 Settings → Apple Music 启用")
+            state = .failed(String(localized: "apple_music_library_not_authorized"))
             return
         }
         state = .syncing
@@ -614,7 +614,7 @@ final class AppleMusicLibraryService {
                     self.syncTask?.cancel()
                     self.syncTask = nil
                     self.syncGeneration = UUID()
-                    self.state = .failed("Apple Music 同步超时, 请检查 Music 权限或稍后重试")
+                    self.state = .failed(String(localized: "apple_music_library_sync_timeout"))
                     plog("⚠️Apple Music library sync timeout (stalled \(Int(Self.syncStallTimeout))s)")
                     return true
                 }

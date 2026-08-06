@@ -328,6 +328,7 @@ actor ConnectorScanner {
                                     addedCount += 1
                                     allSongs.append(scannedSong.song)
                                     allSongIndexByID[scannedSong.song.id] = allSongs.count - 1
+                                    existingByID[scannedSong.song.id] = scannedSong.song
 
                                     // Server-side song scanners can enumerate
                                     // thousands of tracks faster than the UI can

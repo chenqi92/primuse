@@ -46,6 +46,8 @@ private struct MediaServerLibraryBrowserView: View {
     @State private var hasLoadedLibraries = false
     @State private var sslTrustDomain: String?
     @State private var sslTrustContinuation: CheckedContinuation<Bool, Never>?
+    @State private var insecureHTTPTrustTarget: String?
+    @State private var insecureHTTPTrustContinuation: CheckedContinuation<Bool, Never>?
 
     var body: some View {
         NavigationStack {
@@ -113,6 +115,26 @@ private struct MediaServerLibraryBrowserView: View {
         } message: {
             if let domain = sslTrustDomain { Text("ssl_trust_message \(domain)") }
         }
+        .alert(
+            "insecure_http_warning_title",
+            isPresented: Binding(
+                get: { insecureHTTPTrustTarget != nil },
+                set: { if !$0 { resolveInsecureHTTPTrust(approved: false) } }
+            )
+        ) {
+            Button("insecure_http_continue", role: .destructive) {
+                resolveInsecureHTTPTrust(approved: true)
+            }
+            Button("cancel", role: .cancel) {
+                resolveInsecureHTTPTrust(approved: false)
+            }
+        } message: {
+            Text(String(
+                format: String(localized: "insecure_http_warning_message %@"),
+                insecureHTTPTrustTarget ?? ""
+            ))
+        }
+        .transportTrustAlerts()
     }
 
     private func resolveSSLTrust(approved: Bool) {
@@ -127,6 +149,37 @@ private struct MediaServerLibraryBrowserView: View {
         if SSLTrustStore.shared.isTrusted(domain: domain) { return true }
         return await withCheckedContinuation { continuation in
             sslTrustDomain = domain; sslTrustContinuation = continuation
+        }
+    }
+
+    private func resolveInsecureHTTPTrust(approved: Bool) {
+        if approved, let trustTarget = insecureHTTPTrustTarget {
+            SSLTrustStore.shared.allowInsecureHTTP(domain: trustTarget)
+        }
+        let continuation = insecureHTTPTrustContinuation
+        insecureHTTPTrustTarget = nil
+        insecureHTTPTrustContinuation = nil
+        continuation?.resume(returning: approved)
+    }
+
+    private func ensureInsecureHTTPAccess() async throws {
+        guard let url = NetworkURLBuilder.baseURL(
+            host: source.host ?? "",
+            scheme: source.useSsl ? "https" : "http",
+            port: source.port
+        ),
+        TrustedHTTPTransport.requiresPlainSocket(for: url),
+        let trustTarget = TrustedHTTPTransport.trustTarget(for: url),
+        !SSLTrustStore.shared.allowsInsecureHTTP(domain: trustTarget) else {
+            return
+        }
+
+        let approved = await withCheckedContinuation { continuation in
+            insecureHTTPTrustTarget = trustTarget
+            insecureHTTPTrustContinuation = continuation
+        }
+        guard approved else {
+            throw TrustedHTTPTransportError.permissionRequired(host: trustTarget)
         }
     }
 
@@ -199,6 +252,7 @@ private struct MediaServerLibraryBrowserView: View {
 
     private func loadLibrariesWithAuthorizationGrace() async throws -> [RemoteFileItem] {
         try await DirectoryBrowserNetworkRetry.loadWithLocalNetworkAuthorizationGrace {
+            try await ensureInsecureHTTPAccess()
             try await connector.connect()
             return try await connector.listFiles(at: "/")
         }

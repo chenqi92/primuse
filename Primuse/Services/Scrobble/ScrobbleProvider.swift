@@ -60,12 +60,25 @@ public enum ScrobbleError: Error, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .notConfigured: return "Scrobble: token not configured"
-        case .invalidCredentials: return "Scrobble: credentials invalid (re-login required)"
-        case .rateLimited: return "Scrobble: rate limited"
-        case .network(let e): return "Scrobble network: \(e.localizedDescription)"
-        case .http(let code, let msg): return "Scrobble HTTP \(code): \(msg ?? "")"
-        case .invalidResponse: return "Scrobble: invalid response"
+        case .notConfigured:
+            return String(localized: "error_scrobble_not_configured")
+        case .invalidCredentials:
+            return String(localized: "error_scrobble_invalid_credentials")
+        case .rateLimited:
+            return String(localized: "error_scrobble_rate_limited")
+        case .network(let error):
+            return String(
+                format: String(localized: "error_scrobble_network %@"),
+                error.localizedDescription
+            )
+        case .http(let code, let message):
+            return String(
+                format: String(localized: "error_scrobble_http %@ %@"),
+                String(code),
+                message ?? ""
+            )
+        case .invalidResponse:
+            return String(localized: "error_scrobble_invalid_response")
         }
     }
 

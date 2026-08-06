@@ -669,12 +669,17 @@ enum SourceError: Error, LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .pathNotFound(let path): return "Path not found: \(path)"
-        case .fileNotFound(let path): return "File not found: \(path)"
-        case .connectionFailed(let msg): return "Connection failed: \(msg)"
+        case .pathNotFound(let path):
+            return String(format: String(localized: "error_path_not_found %@"), path)
+        case .fileNotFound(let path):
+            return String(format: String(localized: "error_file_not_found %@"), path)
+        case .connectionFailed(let message):
+            return String(format: String(localized: "error_connection_failed %@"), message)
         case .credentialUnavailable(let msg): return msg
-        case .authenticationFailed: return "Authentication failed"
-        case .timeout: return "Connection timed out"
+        case .authenticationFailed:
+            return String(localized: "error_authentication_failed")
+        case .timeout:
+            return String(localized: "error_connection_timeout")
         }
     }
 }

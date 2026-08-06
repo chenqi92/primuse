@@ -449,13 +449,24 @@ enum OAuthError: Error, LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidConfiguration(let msg): return "配置错误: \(msg)"
-        case .userCancelled: return "用户取消了授权"
-        case .authSessionFailed(let msg): return "授权失败: \(msg)"
-        case .noCallbackURL: return "未收到回调"
-        case .invalidCallback(let msg): return "回调异常: \(msg)"
-        case .authorizationDenied(let error, let desc): return "授权被拒绝: \(error) \(desc ?? "")"
-        case .tokenExchangeFailed(let msg): return "令牌获取失败: \(msg)"
+        case .invalidConfiguration(let message):
+            return String(format: String(localized: "error_oauth_configuration %@"), message)
+        case .userCancelled:
+            return String(localized: "error_oauth_cancelled")
+        case .authSessionFailed(let message):
+            return String(format: String(localized: "error_oauth_session %@"), message)
+        case .noCallbackURL:
+            return String(localized: "error_oauth_missing_callback")
+        case .invalidCallback(let message):
+            return String(format: String(localized: "error_oauth_invalid_callback %@"), message)
+        case .authorizationDenied(let error, let description):
+            return String(
+                format: String(localized: "error_oauth_denied %@ %@"),
+                error,
+                description ?? ""
+            )
+        case .tokenExchangeFailed(let message):
+            return String(format: String(localized: "error_oauth_token_exchange %@"), message)
         }
     }
 }

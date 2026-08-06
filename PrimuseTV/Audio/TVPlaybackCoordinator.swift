@@ -27,11 +27,19 @@ private enum TVDecodedDownloadError: Error, LocalizedError, Sendable {
     var errorDescription: String? {
         switch self {
         case .invalidContentLength(let length):
-            return "Remote file reported an invalid content length: \(length)."
+            return PMString("ext.tv.error.invalidContentLength", String(length))
         case .incomplete(let expected, let actual):
-            return "Remote file download was incomplete: expected \(expected) bytes, received \(actual)."
+            return PMString(
+                "ext.tv.error.incompleteDownload",
+                String(expected),
+                String(actual)
+            )
         case .oversizedChunk(let requested, let actual):
-            return "Remote file returned \(actual) bytes for a \(requested)-byte request."
+            return PMString(
+                "ext.tv.error.oversizedChunk",
+                String(actual),
+                String(requested)
+            )
         }
     }
 }

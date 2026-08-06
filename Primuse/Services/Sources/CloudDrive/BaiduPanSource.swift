@@ -925,13 +925,13 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource {
 
     private func humanReadable(errno: Int) -> String {
         switch errno {
-        case -6: return "access_token 无效或未授权 netdisk scope (errno -6)"
-        case 2: return "参数错误 (errno 2)"
-        case 111: return "access_token 已过期 (errno 111)"
-        case 31034: return "接口请求频次超限 (errno 31034)"
-        case -9: return "百度网盘临时读取错误 (errno -9)"
-        case 42213: return "目录参数非法 (errno 42213)"
-        default: return "百度网盘 errno \(errno)"
+        case -6: return String(localized: "baidu_error_invalid_scope")
+        case 2: return String(localized: "baidu_error_invalid_parameter")
+        case 111: return String(localized: "baidu_error_token_expired")
+        case 31034: return String(localized: "baidu_error_rate_limited")
+        case -9: return String(localized: "baidu_error_temporary_read")
+        case 42213: return String(localized: "baidu_error_invalid_directory")
+        default: return String(format: String(localized: "baidu_error_code_format"), errno)
         }
     }
 

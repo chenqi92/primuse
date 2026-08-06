@@ -616,8 +616,17 @@ final class AppServices {
                 .filteredPlayable()
             player.setQueue(candidates + rest, startAt: 0)
             await player.play(song: song, caller: "AppIntent")
-            let by = song.artistName.map { " by \($0)" } ?? ""
-            return "Playing \(song.title)\(by)"
+            if let artist = song.artistName, !artist.isEmpty {
+                return String(
+                    format: String(localized: "intent_playing_song_by_format"),
+                    song.title,
+                    artist
+                )
+            }
+            return String(
+                format: String(localized: "intent_playing_song_format"),
+                song.title
+            )
         }
 
         bridge.playPlaylist = { name in
@@ -629,7 +638,10 @@ final class AppServices {
             guard let first = songs.first else { return nil }
             player.setQueue(songs, startAt: 0)
             await player.play(song: first, caller: "AppIntent")
-            return "Playing playlist \(playlist.name)."
+            return String(
+                format: String(localized: "intent_playing_playlist_format"),
+                playlist.name
+            )
         }
 
         bridge.shuffleLibrary = {

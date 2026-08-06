@@ -33,7 +33,10 @@ actor AppleMusicLibrarySource: SongScanningConnector {
             library = try ITLibrary(apiVersion: "1.1", options: .lazyLoadData)
         } catch {
             throw SourceError.connectionFailed(
-                "无法访问 Apple Music 资料库：\(error.localizedDescription)"
+                String(
+                    format: String(localized: "apple_music_library_access_failed_format"),
+                    error.localizedDescription
+                )
             )
         }
     }

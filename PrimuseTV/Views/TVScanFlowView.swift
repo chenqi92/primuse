@@ -59,11 +59,13 @@ struct TVScanFlowView: View {
                 .frame(width: 132, height: 132)
                 .background(TVColor.brand, in: RoundedRectangle(cornerRadius: 30, style: .continuous))
             VStack(spacing: 10) {
-                TVEyebrow(text: "\(source.type.displayName) · 完整曲库")
-                Text("扫描服务端音乐曲库")
+                TVEyebrow(
+                    text: PMString("ext.tv.scan.fullLibrary", source.type.displayName)
+                )
+                Text(PMString("ext.tv.scan.serverCatalogTitle"))
                     .font(.system(size: 42, weight: .bold))
                     .foregroundStyle(TVColor.text)
-                Text("将通过\(source.type.displayName)服务导入曲目，无需选择 NAS 文件夹。")
+                Text(PMString("ext.tv.scan.serverCatalogBody", source.type.displayName))
                     .font(.system(size: 20))
                     .foregroundStyle(TVColor.textFaint)
             }

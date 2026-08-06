@@ -2276,7 +2276,11 @@ final class SourceManager {
         config.timeoutIntervalForRequest = 300
         let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
-        let (tempURL, response) = try await session.download(from: url)
+        let (tempURL, response) = try await TrustedHTTPTransport.download(
+            from: url,
+            session: session,
+            timeout: 300
+        )
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
             throw SourceError.connectionFailed("HTTP \(http.statusCode)")
         }
@@ -3302,7 +3306,11 @@ final class SourceManager {
                 config.timeoutIntervalForResource = 60 * 60
                 let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
                 defer { session.finishTasksAndInvalidate() }
-                let (tempURL, response) = try await session.download(from: url)
+                let (tempURL, response) = try await TrustedHTTPTransport.download(
+                    from: url,
+                    session: session,
+                    timeout: 300
+                )
                 if let http = response as? HTTPURLResponse,
                    !(200...299).contains(http.statusCode) {
                     throw SourceError.connectionFailed("HTTP \(http.statusCode)")
@@ -3312,7 +3320,20 @@ final class SourceManager {
                 }.value
             case .sourcePath(let path):
                 if let streamURL = try await connector.streamingURL(for: path) {
-                    let (tempURL, response) = try await URLSession.shared.download(from: streamURL)
+                    let config = URLSessionConfiguration.default
+                    config.timeoutIntervalForRequest = 300
+                    config.timeoutIntervalForResource = 60 * 60
+                    let session = URLSession(
+                        configuration: config,
+                        delegate: SmartSSLDelegate(),
+                        delegateQueue: nil
+                    )
+                    defer { session.finishTasksAndInvalidate() }
+                    let (tempURL, response) = try await TrustedHTTPTransport.download(
+                        from: streamURL,
+                        session: session,
+                        timeout: 300
+                    )
                     if let http = response as? HTTPURLResponse,
                        !(200...299).contains(http.statusCode) {
                         throw SourceError.connectionFailed("HTTP \(http.statusCode)")
@@ -3338,7 +3359,11 @@ final class SourceManager {
                 delegateQueue: nil
             )
             defer { session.finishTasksAndInvalidate() }
-            let (tempURL, response) = try await session.download(from: streamURL)
+            let (tempURL, response) = try await TrustedHTTPTransport.download(
+                from: streamURL,
+                session: session,
+                timeout: 300
+            )
             if let http = response as? HTTPURLResponse,
                !(200...299).contains(http.statusCode) {
                 throw SourceError.connectionFailed("HTTP \(http.statusCode)")
@@ -3674,18 +3699,30 @@ final class SourceManager {
         request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         request.timeoutInterval = 30
 
-        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 120
+        let session = URLSession(
+            configuration: config,
+            delegate: SmartSSLDelegate(),
+            delegateQueue: nil
+        )
+        defer { session.finishTasksAndInvalidate() }
+        let (temporaryURL, response) = try await TrustedHTTPTransport.download(
+            for: request,
+            session: session
+        )
+        defer { try? FileManager.default.removeItem(at: temporaryURL) }
         guard let http = response as? HTTPURLResponse else {
             throw SourceError.connectionFailed("Invalid STRM metadata response")
         }
         switch http.statusCode {
         case 206:
-            var data = Data()
-            data.reserveCapacity(Int(clamping: length))
-            for try await byte in bytes {
-                data.append(byte)
-                if data.count >= Int(clamping: length) { break }
-            }
+            let data = try boundedRemoteMetadataSlice(
+                temporaryURL,
+                offset: 0,
+                length: length
+            )
             guard HTTPByteRangeResponsePolicy.validatedTotalLength(
                 contentRange: http.value(forHTTPHeaderField: "Content-Range"),
                 contentLength: http.value(forHTTPHeaderField: "Content-Length").flatMap(Int64.init),
@@ -3700,8 +3737,8 @@ final class SourceManager {
             // Some OpenList/proxy targets ignore Range. Metadata reads may
             // consume the response as a bounded head/tail window, while the
             // playback path keeps its strict random-access validation.
-            return try await boundedRemoteMetadataSlice(
-                bytes,
+            return try boundedRemoteMetadataSlice(
+                temporaryURL,
                 offset: offset,
                 length: length
             )
@@ -3711,56 +3748,28 @@ final class SourceManager {
     }
 
     private nonisolated static func boundedRemoteMetadataSlice(
-        _ bytes: URLSession.AsyncBytes,
+        _ fileURL: URL,
         offset: Int64,
         length: Int64
-    ) async throws -> Data {
+    ) throws -> Data {
         guard length > 0 else { return Data() }
-        if offset >= 0 {
-            guard let end = SafeByteRange.exclusiveEnd(offset: offset, length: length) else {
-                return Data()
-            }
-            var position: Int64 = 0
-            var result = Data()
-            result.reserveCapacity(Int(clamping: length))
-            for try await byte in bytes {
-                if position >= offset, position < end { result.append(byte) }
-                position += 1
-                if position >= end { break }
-            }
-            guard !result.isEmpty else {
-                throw SourceError.connectionFailed("STRM metadata response was empty")
-            }
-            return result
-        }
-
         guard offset != Int64.min else { return Data() }
-        let windowLength = max(length, -offset)
-        guard windowLength <= 64 * 1024 * 1024 else {
+        guard length <= 64 * 1024 * 1024 else {
             throw SourceError.connectionFailed("STRM metadata suffix window is too large")
         }
-        let capacity = Int(windowLength)
-        var ring = [UInt8](repeating: 0, count: capacity)
-        var total: Int64 = 0
-        for try await byte in bytes {
-            ring[Int(total % windowLength)] = byte
-            total += 1
-        }
-        let retainedCount = Int(min(total, windowLength))
-        let retainedStart = total > windowLength ? Int(total % windowLength) : 0
-        var retained = Data()
-        retained.reserveCapacity(retainedCount)
-        for index in 0..<retainedCount {
-            retained.append(ring[(retainedStart + index) % capacity])
-        }
-        let absoluteStart = max(0, total + offset)
-        let retainedAbsoluteStart = total - Int64(retainedCount)
-        let relativeStart = max(0, absoluteStart - retainedAbsoluteStart)
-        let relativeEnd = min(Int64(retainedCount), relativeStart + length)
-        guard relativeStart < relativeEnd else {
+        let handle = try FileHandle(forReadingFrom: fileURL)
+        defer { try? handle.close() }
+        let total = Int64(clamping: try handle.seekToEnd())
+        let start = offset >= 0 ? offset : max(0, total + offset)
+        guard start < total else {
             throw SourceError.connectionFailed("STRM metadata response was empty")
         }
-        return retained.subdata(in: Int(relativeStart)..<Int(relativeEnd))
+        try handle.seek(toOffset: UInt64(start))
+        let readLength = Int(clamping: min(length, total - start))
+        guard let data = try handle.read(upToCount: readLength), !data.isEmpty else {
+            throw SourceError.connectionFailed("STRM metadata response was empty")
+        }
+        return data
     }
 
     /// 对支持预授权直链的云盘(目前 OneDrive),返回可整文件下载的 HTTPS 直链。
@@ -3794,6 +3803,9 @@ final class SourceManager {
     }
 
     private func shouldPreferPlainStreamingForPlayback(source: MusicSource, song: Song) -> Bool {
+        if source.type.isMediaServer {
+            return !requiresConnectorBackedHTTPTransport(for: source)
+        }
         guard Self.nasAPIPlainStreamingTypes.contains(source.type),
               song.fileFormat == .mp3 else { return false }
 
@@ -3834,7 +3846,26 @@ final class SourceManager {
     private static let publicHTTPConnectorStreamingTypes: Set<MusicSourceType> = [
         .synology,
         .qnap,
+        .ugreen,
     ]
+
+    private func requiresConnectorBackedHTTPTransport(for source: MusicSource) -> Bool {
+        guard let host = source.host,
+              let url = NetworkURLBuilder.baseURL(
+                  host: host,
+                  scheme: source.useSsl ? "https" : "http",
+                  port: source.port
+              ) else {
+            return false
+        }
+        if TrustedHTTPTransport.requiresPlainSocket(for: url) {
+            return true
+        }
+        guard source.useSsl, let endpoint = NetworkEndpointIdentity(url: url) else {
+            return false
+        }
+        return SSLTrustStore.isTrustedSync(domain: endpoint.key)
+    }
 
     private nonisolated static func isProbablyLocalHost(_ rawHost: String) -> Bool {
         let trimmed = rawHost

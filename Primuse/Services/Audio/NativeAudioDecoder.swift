@@ -548,11 +548,19 @@ enum AudioDecoderError: Error, LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .bufferAllocationFailed: return "Failed to allocate audio buffer"
-        case .converterCreationFailed: return "Failed to create audio converter"
-        case .unsupportedFormat(let fmt): return "Unsupported audio format: \(fmt)"
-        case .decodingFailed(let msg): return "Decoding failed: \(msg)"
-        case .seekUnavailable: return "Random access requires a complete local audio file"
+        case .bufferAllocationFailed:
+            return String(localized: "error_audio_buffer_allocation")
+        case .converterCreationFailed:
+            return String(localized: "error_audio_converter_creation")
+        case .unsupportedFormat(let format):
+            return String(
+                format: String(localized: "error_audio_unsupported_format %@"),
+                format
+            )
+        case .decodingFailed(let message):
+            return String(format: String(localized: "error_audio_decoding %@"), message)
+        case .seekUnavailable:
+            return String(localized: "error_audio_seek_requires_local_file")
         }
     }
 }

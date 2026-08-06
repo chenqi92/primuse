@@ -44,7 +44,13 @@ public enum InsecureHTTPHostPolicy {
 
     public static func isLocalNetworkHost(_ rawValue: String) -> Bool {
         guard let host = normalizedHost(rawValue) else { return false }
-        if host == "localhost" || host.hasSuffix(".local") { return true }
+        if host == "localhost"
+            || host.hasSuffix(".local")
+            || host.hasSuffix(".home")
+            || host.hasSuffix(".lan")
+            || host.hasSuffix(".internal") {
+            return true
+        }
 
         if let ipv6 = IPv6Address(host) {
             let bytes = Array(ipv6.rawValue)
@@ -64,6 +70,7 @@ public enum InsecureHTTPHostPolicy {
         if first == 10 || first == 127 { return true }
         if first == 172 && (16...31).contains(second) { return true }
         if first == 192 && second == 168 { return true }
+        if first == 169 && second == 254 { return true }
         return false
     }
 

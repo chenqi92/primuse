@@ -36,21 +36,24 @@ struct TVSourceTypePicker: View {
             TVColor.bg.opacity(0.42).ignoresSafeArea()
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
-                    TVEyebrow(text: "添加新源 · 第 1 步").padding(.bottom, 8)
-                    Text("选择服务类型").font(.system(size: 52, weight: .bold)).foregroundStyle(TVColor.text)
+                    TVEyebrow(text: PMString("ext.tv.sources.add.step1")).padding(.bottom, 8)
+                    Text(PMString("ext.tv.sources.chooseType"))
+                        .font(.system(size: 52, weight: .bold)).foregroundStyle(TVColor.text)
                         .padding(.bottom, 8)
-                    Text("文件型源按目录连接 · 飞牛音乐和媒体服务按服务端曲库连接 · 云盘类需在 iPhone 上授权后同步过来")
+                    Text(PMString("ext.tv.sources.chooseTypeBody"))
                         .font(.system(size: 20)).foregroundStyle(TVColor.textFaint)
                         .frame(maxWidth: 1100, alignment: .leading).padding(.bottom, 36)
 
                     // 内网自动发现的设备(Bonjour)优先展示。
                     if !store.discoveredDevices.isEmpty {
-                        TVEyebrow(text: "在本地网络发现").padding(.bottom, 14)
+                        TVEyebrow(text: PMString("ext.tv.sources.discovered")).padding(.bottom, 14)
                         LazyVGrid(columns: columns, alignment: .leading, spacing: 24) {
                             ForEach(store.discoveredDevices) { d in
                                 typeCard(icon: d.sourceType.iconName, label: d.name,
                                          hint: d.sourceType.isAwaitingPublicAPI ? d.sourceType.subtitle : "\(d.host):\(d.port)",
-                                         badge: d.sourceType.isAwaitingPublicAPI ? "API 待公开" : Self.shortProtocol(d.sourceType),
+                                         badge: d.sourceType.isAwaitingPublicAPI
+                                             ? PMString("ext.tv.sources.apiPending")
+                                             : Self.shortProtocol(d.sourceType),
                                          accentIcon: true,
                                          isEnabled: !d.sourceType.isAwaitingPublicAPI) {
                                     onPick(d.sourceType, (d.host, d.port, d.name, d.preferredUseSsl))
@@ -60,16 +63,16 @@ struct TVSourceTypePicker: View {
                         .padding(.bottom, 34)
                     }
 
-                    TVEyebrow(text: "全部类型").padding(.bottom, 14)
+                    TVEyebrow(text: PMString("ext.tv.sources.allTypes")).padding(.bottom, 14)
                     LazyVGrid(columns: columns, alignment: .leading, spacing: 24) {
                         ForEach(Array(TVStore.addableTypes.enumerated()), id: \.element) { idx, t in
                             typeCard(icon: t.iconName, label: t.displayName, hint: Self.hint(for: t),
-                                     badge: t.isAwaitingPublicAPI ? "API 待公开" : nil,
+                                     badge: t.isAwaitingPublicAPI ? PMString("ext.tv.sources.apiPending") : nil,
                                      accentIcon: idx == 0,
                                      isEnabled: !t.isAwaitingPublicAPI) { onPick(t, nil) }
                         }
                     }
-                    Text("◯ Menu 返回 · 选择后填写连接信息或在 iPhone 上完成")
+                    Text(PMString("ext.tv.sources.chooseTypeFooter"))
                         .font(.system(size: 16)).foregroundStyle(TVColor.textGhost).padding(.top, 36)
                 }
                 .padding(.horizontal, 120).padding(.vertical, 90)
@@ -122,9 +125,7 @@ struct TVSourceTypePicker: View {
         case .synology: return "Synology"
         case .qnap: return "QNAP"
         case .fnos: return "fnOS"
-        case .fnMusic: return "飞牛音乐"
-        case .daoliyu: return "道理鱼"
-        case .ugreen: return "绿联"
+        case .fnMusic, .daoliyu, .ugreen: return t.displayName
         case .jellyfin: return "Jellyfin"
         case .emby: return "Emby"
         case .plex: return "Plex"
@@ -136,17 +137,19 @@ struct TVSourceTypePicker: View {
     static func hint(for t: MusicSourceType) -> String {
         if t.isAwaitingPublicAPI { return t.subtitle }
         switch t {
-        case .smb: return "NAS · TrueNAS · 共享文件夹"
-        case .webdav: return "群晖 · Nextcloud"
+        case .smb: return PMString("ext.tv.sources.hint.smb")
+        case .webdav: return PMString("ext.tv.sources.hint.webdav")
         case .ftp: return "FTP / FTPS"
-        case .sftp: return "SSH 文件传输"
-        case .nfs: return "NFS 共享"
-        case .jellyfin, .emby, .plex: return "媒体服务器"
-        case .subsonic, .navidrome, .airsonic, .gonic: return "Subsonic 协议"
-        case .fnMusic: return "飞牛音乐服务直连"
-        case .daoliyu: return "道理鱼原生 API"
-        case .synology, .qnap, .fnos, .ugreen: return "NAS 音乐套件"
-        default: return t.category.rawValue
+        case .sftp: return PMString("ext.tv.sources.hint.sftp")
+        case .nfs: return PMString("ext.tv.sources.hint.nfs")
+        case .jellyfin, .emby, .plex: return PMString("ext.tv.sources.hint.mediaServer")
+        case .subsonic, .navidrome, .airsonic, .gonic:
+            return PMString("ext.tv.sources.hint.subsonic")
+        case .fnMusic: return PMString("ext.tv.sources.hint.fnMusic")
+        case .daoliyu: return PMString("ext.tv.sources.hint.daoliyu")
+        case .synology, .qnap, .fnos, .ugreen:
+            return PMString("ext.tv.sources.hint.nasSuite")
+        default: return t.category.displayName
         }
     }
 }
@@ -208,13 +211,13 @@ struct TVSourceFormView: View {
     }
     private var pathLabel: String {
         switch type {
-        case .smb: return "共享名 (Share)"
-        case .nfs: return "导出路径 (Export)"
-        default: return "基础路径(可选)"
+        case .smb: return PMString("ext.tv.sources.form.share")
+        case .nfs: return PMString("ext.tv.sources.form.exportPath")
+        default: return PMString("ext.tv.sources.form.basePath")
         }
     }
     private var connectionAddressLabel: String {
-        if type == .nfs { return "服务器地址" }
+        if type == .nfs { return PMString("ext.tv.sources.form.serverAddress") }
         if type == .synology {
             switch synologyConnectionMode {
             case .quickConnect: return PMString("synology_quickconnect_id")
@@ -224,7 +227,7 @@ struct TVSourceFormView: View {
         if type == .fnMusic, fnMusicConnectionMode == .fnConnect {
             return PMString("fnmusic_fnid")
         }
-        return "主机 / IP"
+        return PMString("ext.tv.sources.form.host")
     }
 
     var body: some View {
@@ -284,13 +287,18 @@ struct TVSourceFormView: View {
                                                startPoint: .topLeading, endPoint: .bottomTrailing),
                                 in: RoundedRectangle(cornerRadius: 13, style: .continuous))
                 VStack(alignment: .leading, spacing: 3) {
-                    TVEyebrow(text: editing == nil ? "添加新源 · 第 2 步" : "编辑连接信息")
-                    Text("\(type.displayName) · 填写连接信息").font(.system(size: 36, weight: .bold)).foregroundStyle(TVColor.text)
+                    TVEyebrow(
+                        text: editing == nil
+                            ? PMString("ext.tv.sources.add.step2")
+                            : PMString("ext.tv.sources.editConnection")
+                    )
+                    Text(PMString("ext.tv.sources.connectionTitle", type.displayName))
+                        .font(.system(size: 36, weight: .bold)).foregroundStyle(TVColor.text)
                 }
             }
             .padding(.bottom, 8)
 
-            TVFormField(label: "名称", text: $name, autofocus: true)
+            TVFormField(label: PMString("ext.tv.sources.form.name"), text: $name, autofocus: true)
             if type == .synology {
                 Picker(PMString("synology_connection_method"), selection: $synologyConnectionMode) {
                     Text(PMString("synology_connection_quickconnect"))
@@ -323,13 +331,13 @@ struct TVSourceFormView: View {
                     .foregroundStyle(TVColor.textFaint)
                     .frame(maxWidth: 720, alignment: .leading)
             } else {
-                TVFormField(label: "端口", text: $portText, mono: true)
+                TVFormField(label: PMString("ext.tv.sources.form.port"), text: $portText, mono: true)
             }
             if showsSSL
                 && !(type == .synology && synologyConnectionMode == .quickConnect)
                 && !(type == .fnMusic && fnMusicConnectionMode == .fnConnect) {
                 Toggle(isOn: $useSsl) {
-                    Label("使用 HTTPS / SSL", systemImage: "lock.shield")
+                    Label(PMString("ext.tv.sources.form.useSSL"), systemImage: "lock.shield")
                         .font(.system(size: 21, weight: .medium)).foregroundStyle(TVColor.text)
                 }
                 .padding(.horizontal, 22).padding(.vertical, 14).frame(maxWidth: 720, alignment: .leading)
@@ -338,15 +346,21 @@ struct TVSourceFormView: View {
             if showsAuth {
                 if type.supportsAnonymous {
                     Toggle(isOn: $useGuestAccess) {
-                        Label("访客模式（无需账号密码）", systemImage: "person.crop.circle.badge.checkmark")
+                        Label(PMString("ext.tv.sources.form.guest"), systemImage: "person.crop.circle.badge.checkmark")
                             .font(.system(size: 21, weight: .medium)).foregroundStyle(TVColor.text)
                     }
                     .padding(.horizontal, 22).padding(.vertical, 14).frame(maxWidth: 720, alignment: .leading)
                     .background(TVColor.surfaceSubtle, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
                 if !useGuestAccess {
-                    TVFormField(label: "用户名", text: $username, mono: true)
-                    TVFormField(label: editing == nil ? "密码" : "密码(留空则不修改)", text: $password, secure: true)
+                    TVFormField(label: PMString("ext.tv.sources.cred.username"), text: $username, mono: true)
+                    TVFormField(
+                        label: editing == nil
+                            ? PMString("ext.tv.sources.cred.password")
+                            : PMString("ext.tv.sources.form.passwordKeep"),
+                        text: $password,
+                        secure: true
+                    )
                     if type == .fnMusic {
                         Text(PMString("fnmusic_account_hint"))
                             .font(.system(size: 16))
@@ -370,7 +384,7 @@ struct TVSourceFormView: View {
 
             HStack(spacing: 12) {
                 Image(systemName: "lock.fill").font(.system(size: 15)).foregroundStyle(TVColor.brand)
-                Text("密码保存在此 Apple TV(不上传 iCloud · 手机端如需请单独输入)")
+                Text(PMString("ext.tv.sources.form.passwordStorage"))
                     .font(.system(size: 16)).foregroundStyle(TVColor.textFaint)
             }
             .padding(.top, 4)
@@ -382,8 +396,9 @@ struct TVSourceFormView: View {
         VStack(spacing: 26) {
             VStack(spacing: 10) {
                 Image(systemName: "keyboard").font(.system(size: 44)).foregroundStyle(TVColor.text)
-                Text("用 iPhone 输入").font(.system(size: 24, weight: .bold)).foregroundStyle(TVColor.text)
-                Text("聚焦输入框时,已配对的 iPhone 会弹出输入提示,在手机上打字比遥控器快得多。")
+                Text(PMString("ext.tv.sources.form.iphoneInput"))
+                    .font(.system(size: 24, weight: .bold)).foregroundStyle(TVColor.text)
+                Text(PMString("ext.tv.sources.form.iphoneInputBody"))
                     .font(.system(size: 16)).foregroundStyle(TVColor.textFaint)
                     .multilineTextAlignment(.center).lineSpacing(4)
             }
@@ -398,14 +413,21 @@ struct TVSourceFormView: View {
 
             HStack(spacing: 14) {
                 TVFocusButton(radius: 14, scale: 1.04, lift: 0, action: runTest) { f in
-                    Group { if testing { ProgressView().tint(TVColor.brand) } else { Text("测试连接") } }
+                    Group {
+                        if testing { ProgressView().tint(TVColor.brand) }
+                        else { Text(PMString("ext.tv.sources.testConnection")) }
+                    }
                         .font(.system(size: 20, weight: .medium)).foregroundStyle(TVColor.text)
                         .frame(maxWidth: .infinity).padding(.vertical, 18)
                         .background(f ? TVColor.surfaceStrong : TVColor.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
                 .disabled(!canSave || testing)
                 TVFocusButton(radius: 14, accent: TVColor.brand, scale: 1.05, lift: 0, action: save) { f in
-                    Text(editing == nil ? "添加" : "保存")
+                    Text(
+                        editing == nil
+                            ? PMString("ext.tv.sources.form.add")
+                            : PMString("ext.tv.sources.form.save")
+                    )
                         .font(.system(size: 20, weight: .bold)).foregroundStyle(canSave ? TVColor.onBrand : TVColor.textGhost)
                         .frame(maxWidth: .infinity).padding(.vertical, 18)
                         .background(canSave ? TVColor.brand.opacity(f ? 1 : 0.88) : TVColor.surface,
@@ -414,7 +436,8 @@ struct TVSourceFormView: View {
                 .disabled(!canSave)
             }
             TVFocusButton(radius: 14, scale: 1.04, lift: 0, action: { dismiss() }) { f in
-                Text("取消").font(.system(size: 19, weight: .medium)).foregroundStyle(TVColor.text)
+                Text(PMString("ext.tv.sources.cancel"))
+                    .font(.system(size: 19, weight: .medium)).foregroundStyle(TVColor.text)
                     .frame(maxWidth: .infinity).padding(.vertical, 14)
                     .background(f ? TVColor.surfaceStrong : TVColor.surfaceSubtle, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
@@ -599,9 +622,12 @@ struct TVOTPEntryView: View {
                                            startPoint: .topLeading, endPoint: .bottomTrailing),
                             in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .padding(.bottom, 24)
-            TVEyebrow(text: "两步验证 · \(source.name)").padding(.bottom, 8)
-            Text("输入验证码").font(.system(size: 44, weight: .bold)).foregroundStyle(TVColor.text).padding(.bottom, 16)
-            Text("打开该 NAS 上的身份验证器 App,输入一次性验证码。登录成功后将记住此 Apple TV。")
+            TVEyebrow(text: PMString("ext.tv.otp.title", source.name)).padding(.bottom, 8)
+            Text(PMString("ext.tv.otp.enterCode"))
+                .font(.system(size: 44, weight: .bold))
+                .foregroundStyle(TVColor.text)
+                .padding(.bottom, 16)
+            Text(PMString("ext.tv.otp.body"))
                 .font(.system(size: 20)).foregroundStyle(TVColor.textMuted)
                 .frame(maxWidth: 520, alignment: .leading).lineSpacing(5).padding(.bottom, 36)
 
@@ -623,7 +649,10 @@ struct TVOTPEntryView: View {
             if let error {
                 Text(error).font(.system(size: 17)).foregroundStyle(TVColor.bad).padding(.top, 24)
             } else if busy {
-                HStack(spacing: 12) { ProgressView().tint(TVColor.brand); Text("验证中…").foregroundStyle(TVColor.textFaint) }
+                HStack(spacing: 12) {
+                    ProgressView().tint(TVColor.brand)
+                    Text(PMString("ext.tv.otp.verifying")).foregroundStyle(TVColor.textFaint)
+                }
                     .padding(.top, 24)
             }
         }
@@ -679,11 +708,16 @@ struct TVRecycleBinView: View {
             TVColor.bg.opacity(0.38).ignoresSafeArea()
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 16) {
-                    TVEyebrow(text: "回收站")
-                    Text("最近删除").font(.system(size: 48, weight: .bold)).foregroundStyle(TVColor.text).padding(.bottom, 8)
+                    TVEyebrow(text: PMString("ext.tv.sources.recycleBin"))
+                    Text(PMString("ext.tv.sources.recycleTitle"))
+                        .font(.system(size: 48, weight: .bold))
+                        .foregroundStyle(TVColor.text)
+                        .padding(.bottom, 8)
                     let deleted = store.deletedSources
                     if deleted.isEmpty {
-                        Text("没有最近删除的音乐源。").font(.system(size: 20)).foregroundStyle(TVColor.textGhost)
+                        Text(PMString("ext.tv.sources.recycleEmpty"))
+                            .font(.system(size: 20))
+                            .foregroundStyle(TVColor.textGhost)
                     } else {
                         ForEach(deleted) { s in
                             TVFocusButton(radius: TVRadius.card, scale: 1.0, lift: 0,
@@ -697,7 +731,7 @@ struct TVRecycleBinView: View {
                                         Text(s.type.uppercased()).font(.system(size: 15, design: .monospaced)).foregroundStyle(TVColor.textFaint)
                                     }
                                     Spacer(minLength: 0)
-                                    Label("恢复", systemImage: "arrow.uturn.backward")
+                                    Label(PMString("ext.tv.sources.restore"), systemImage: "arrow.uturn.backward")
                                         .font(.system(size: 18, weight: .semibold))
                                         .foregroundStyle(focused ? TVColor.ok : TVColor.textFaint)
                                 }

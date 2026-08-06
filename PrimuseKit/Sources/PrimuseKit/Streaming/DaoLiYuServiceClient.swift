@@ -11,15 +11,15 @@ public enum DaoLiYuServiceError: Error, LocalizedError, Sendable, Equatable {
     public var errorDescription: String? {
         switch self {
         case .missingCredential:
-            return "道理鱼缺少账号或密码"
+            return PMString("error.daoliyu.missingCredential")
         case .invalidURL:
-            return "道理鱼服务地址无效"
+            return PMString("error.daoliyu.invalidURL")
         case .authenticationFailed:
-            return "道理鱼登录失败，请检查账号和密码"
+            return PMString("error.daoliyu.authenticationFailed")
         case .badServerResponse(let status):
-            return "道理鱼服务返回 HTTP \(status)"
+            return PMString("error.daoliyu.http", String(status))
         case .invalidResponse(let detail):
-            return "道理鱼返回的数据无效：\(detail)"
+            return PMString("error.daoliyu.invalidResponse", detail)
         }
     }
 }
@@ -191,16 +191,55 @@ public struct DaoLiYuCatalogTrack: Sendable {
     }
 }
 
+/// Injectable request transport so application targets can apply their own
+/// certificate and explicitly-approved cleartext policies without duplicating
+/// the DaoLiYu protocol implementation.
+public struct DaoLiYuRequestTransport: Sendable {
+    public typealias DataLoader = @Sendable (URLRequest) async throws -> (Data, URLResponse)
+    public typealias DownloadLoader = @Sendable (URLRequest) async throws -> (URL, URLResponse)
+
+    private let dataLoader: DataLoader
+    private let downloadLoader: DownloadLoader
+
+    public init(
+        data: @escaping DataLoader,
+        download: @escaping DownloadLoader
+    ) {
+        self.dataLoader = data
+        self.downloadLoader = download
+    }
+
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        try await dataLoader(request)
+    }
+
+    func download(for request: URLRequest) async throws -> (URL, URLResponse) {
+        try await downloadLoader(request)
+    }
+
+    static func urlSession(_ session: URLSession) -> Self {
+        Self(
+            data: { try await session.data(for: $0) },
+            download: { try await session.download(for: $0) }
+        )
+    }
+}
+
 /// 道理鱼曲库、歌词和媒体流共用的原生 API 客户端。
 public actor DaoLiYuServiceClient {
     private let sourceID: String
     public let baseURL: URL?
     private let username: String
     private let password: String?
-    private let session: URLSession
+    private let transport: DaoLiYuRequestTransport
+    private let ownedSession: URLSession?
     private var token: String?
 
-    public init(source: MusicSource, credential: SourceCredential?) {
+    public init(
+        source: MusicSource,
+        credential: SourceCredential?,
+        transport: DaoLiYuRequestTransport? = nil
+    ) {
         let credential = credential ?? SourceCredential()
         self.sourceID = source.id
         self.baseURL = DaoLiYuAPIProtocol.serverBaseURL(
@@ -211,7 +250,14 @@ public actor DaoLiYuServiceClient {
         )
         self.username = credential.username ?? source.username ?? ""
         self.password = credential.password
-        self.session = Self.makeSession()
+        if let transport {
+            self.transport = transport
+            self.ownedSession = nil
+        } else {
+            let session = Self.makeSession()
+            self.transport = .urlSession(session)
+            self.ownedSession = session
+        }
     }
 
     public init(
@@ -221,7 +267,8 @@ public actor DaoLiYuServiceClient {
         useSSL: Bool,
         basePath: String?,
         username: String,
-        password: String
+        password: String,
+        transport: DaoLiYuRequestTransport? = nil
     ) {
         self.sourceID = sourceID
         self.baseURL = DaoLiYuAPIProtocol.serverBaseURL(
@@ -232,10 +279,17 @@ public actor DaoLiYuServiceClient {
         )
         self.username = username
         self.password = password
-        self.session = Self.makeSession()
+        if let transport {
+            self.transport = transport
+            self.ownedSession = nil
+        } else {
+            let session = Self.makeSession()
+            self.transport = .urlSession(session)
+            self.ownedSession = session
+        }
     }
 
-    deinit { session.invalidateAndCancel() }
+    deinit { ownedSession?.invalidateAndCancel() }
 
     public func invalidateSession() {
         token = nil
@@ -247,7 +301,7 @@ public actor DaoLiYuServiceClient {
 
     public func trackPage(skip: Int, take: Int) async throws -> DaoLiYuCatalogPage {
         guard skip >= 0, take > 0, take <= 500 else {
-            throw DaoLiYuServiceError.invalidResponse("曲目分页参数无效")
+            throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.invalidPagination"))
         }
         let payload = try await authorizedJSON(
             path: "/tracks",
@@ -259,11 +313,11 @@ public actor DaoLiYuServiceClient {
         guard let dictionary = payload as? [String: Any],
               let rawTracks = dictionary["items"] as? [[String: Any]],
               let total = daoLiYuInt(dictionary["total"]), total >= 0 else {
-            throw DaoLiYuServiceError.invalidResponse("曲目列表缺少 items 或 total")
+            throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.missingItemsOrTotal"))
         }
         let tracks = rawTracks.compactMap(DaoLiYuCatalogTrack.init(json:))
         guard tracks.count == rawTracks.count else {
-            throw DaoLiYuServiceError.invalidResponse("曲目列表包含无法识别的项目")
+            throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.unrecognizedItem"))
         }
         return DaoLiYuCatalogPage(
             tracks: tracks,
@@ -281,14 +335,14 @@ public actor DaoLiYuServiceClient {
         let raw = (payload as? [String: Any])?["track"] as? [String: Any]
             ?? payload as? [String: Any]
         guard let raw, let track = DaoLiYuCatalogTrack(json: raw) else {
-            throw DaoLiYuServiceError.invalidResponse("曲目详情无法识别")
+            throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.unrecognizedTrackDetails"))
         }
         return track
     }
 
     public func preferredLyrics(trackPath: String) async throws -> String? {
         guard let id = DaoLiYuAPIProtocol.trackID(from: trackPath) else {
-            throw DaoLiYuServiceError.invalidResponse("曲目引用无效")
+            throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.invalidTrackReference"))
         }
         let detail = try await track(id: id)
         return detail.synchronizedLyrics ?? detail.plainLyrics
@@ -311,11 +365,14 @@ public actor DaoLiYuServiceClient {
         for attempt in 0...1 {
             let request = try await authenticatedRequest(
                 path: "/tracks/\(Self.encodedPathComponent(id))/stream",
-                headers: ["Range": rangeValue]
+                headers: [
+                    "Range": rangeValue,
+                    "Accept-Encoding": "identity",
+                ]
             )
-            let (data, response) = try await session.data(for: request)
+            let (data, response) = try await transport.data(for: request)
             guard let http = response as? HTTPURLResponse else {
-                throw DaoLiYuServiceError.invalidResponse("缺少 HTTP 响应")
+                throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.missingHTTPResponse"))
             }
             if Self.isAuthenticationFailure(http.statusCode), attempt == 0 {
                 token = nil
@@ -328,8 +385,14 @@ public actor DaoLiYuServiceClient {
             guard http.statusCode == 206 else {
                 throw DaoLiYuServiceError.badServerResponse(http.statusCode)
             }
-            guard data.count <= Int(length) else {
-                throw DaoLiYuServiceError.invalidResponse("Range 响应超过请求长度")
+            guard HTTPByteRangeResponsePolicy.validatedTotalLength(
+                contentRange: http.value(forHTTPHeaderField: "Content-Range"),
+                contentLength: http.value(forHTTPHeaderField: "Content-Length").flatMap(Int64.init),
+                bodyLength: data.count,
+                requestedOffset: offset,
+                requestedLength: length
+            ) != nil else {
+                throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.invalidRangeResponse"))
             }
             return data
         }
@@ -338,16 +401,16 @@ public actor DaoLiYuServiceClient {
 
     public func downloadTrack(trackPath: String) async throws -> URL {
         guard let id = DaoLiYuAPIProtocol.trackID(from: trackPath) else {
-            throw DaoLiYuServiceError.invalidResponse("曲目引用无效")
+            throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.invalidTrackReference"))
         }
         for attempt in 0...1 {
             let request = try await authenticatedRequest(
                 path: "/tracks/\(Self.encodedPathComponent(id))/stream"
             )
-            let (temporaryURL, response) = try await session.download(for: request)
+            let (temporaryURL, response) = try await transport.download(for: request)
             guard let http = response as? HTTPURLResponse else {
                 try? FileManager.default.removeItem(at: temporaryURL)
-                throw DaoLiYuServiceError.invalidResponse("缺少 HTTP 响应")
+                throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.missingHTTPResponse"))
             }
             if Self.isAuthenticationFailure(http.statusCode), attempt == 0 {
                 token = nil
@@ -385,9 +448,9 @@ public actor DaoLiYuServiceClient {
     ) async throws -> Any {
         for attempt in 0...1 {
             let request = try await authenticatedRequest(path: path, queryItems: queryItems)
-            let (data, response) = try await session.data(for: request)
+            let (data, response) = try await transport.data(for: request)
             guard let http = response as? HTTPURLResponse else {
-                throw DaoLiYuServiceError.invalidResponse("缺少 HTTP 响应")
+                throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.missingHTTPResponse"))
             }
             if Self.isAuthenticationFailure(http.statusCode), attempt == 0 {
                 token = nil
@@ -403,7 +466,7 @@ public actor DaoLiYuServiceClient {
             do {
                 return try JSONSerialization.jsonObject(with: data)
             } catch {
-                throw DaoLiYuServiceError.invalidResponse("响应不是 JSON")
+                throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.responseNotJSON"))
             }
         }
         throw DaoLiYuServiceError.authenticationFailed
@@ -456,9 +519,9 @@ public actor DaoLiYuServiceClient {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await transport.data(for: request)
         guard let http = response as? HTTPURLResponse else {
-            throw DaoLiYuServiceError.invalidResponse("登录缺少 HTTP 响应")
+            throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.loginMissingHTTPResponse"))
         }
         if Self.isAuthenticationFailure(http.statusCode) {
             throw DaoLiYuServiceError.authenticationFailed
@@ -468,7 +531,7 @@ public actor DaoLiYuServiceClient {
         }
         guard let dictionary = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let value = daoLiYuNonemptyString(dictionary["token"]) else {
-            throw DaoLiYuServiceError.invalidResponse("登录响应缺少 token")
+            throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.loginMissingToken"))
         }
         token = value
     }

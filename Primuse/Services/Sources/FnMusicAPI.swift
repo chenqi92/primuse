@@ -41,7 +41,7 @@ actor FnMusicAPI {
         self.session = session
         let source = MusicSource(
             id: sourceID,
-            name: "飞牛音乐",
+            name: MusicSourceType.fnMusic.displayName,
             type: .fnMusic,
             host: host,
             port: port,
@@ -52,7 +52,10 @@ actor FnMusicAPI {
         self.endpointProvider = FnMusicEndpointProvider(
             source: source,
             accessCode: accessCode,
-            session: session
+            session: session,
+            dataLoader: { request in
+                try await TrustedHTTPTransport.data(for: request, session: session)
+            }
         )
     }
 
@@ -82,7 +85,7 @@ actor FnMusicAPI {
               let userToken = stringValue(object["userToken"])?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
               !userToken.isEmpty else {
-            throw SourceError.connectionFailed("飞牛音乐登录响应缺少 userToken")
+            throw SourceError.connectionFailed(PMString("error.catalog.loginMissingUserToken"))
         }
         token = userToken
     }
@@ -120,15 +123,15 @@ actor FnMusicAPI {
         )
         guard let dictionary = payload as? [String: Any],
               let rawList = dictionary["list"] as? [[String: Any]] else {
-            throw SourceError.connectionFailed("飞牛音乐曲目列表响应无效")
+            throw SourceError.connectionFailed(PMString("error.catalog.missingList"))
         }
         let tracks = rawList.compactMap(FnMusicTrack.init(json:))
         guard tracks.count == rawList.count else {
-            throw SourceError.connectionFailed("飞牛音乐曲目列表包含无法识别的项目")
+            throw SourceError.connectionFailed(PMString("error.catalog.unrecognizedItem"))
         }
         let total = intValue(dictionary["total"])
         if let total, total < 0 {
-            throw SourceError.connectionFailed("飞牛音乐曲目总数无效")
+            throw SourceError.connectionFailed(PMString("error.catalog.invalidTotal"))
         }
         return FnMusicTrackPage(tracks: tracks, total: total, rawCount: rawList.count)
     }
@@ -217,7 +220,15 @@ actor FnMusicAPI {
         var request = media.request
         let requestToken = media.token
         request.setValue(rangeHeader, forHTTPHeaderField: "Range")
-        let (bytes, response) = try await session.bytes(for: request)
+        let requestedBytes = Int(clamping: max(length, 0))
+        let responseLimit = requestedBytes > Int.max - 64 * 1_024
+            ? Int.max
+            : requestedBytes + 64 * 1_024
+        let (data, response) = try await TrustedHTTPTransport.data(
+            for: request,
+            session: session,
+            maxBytes: max(PlainHTTPClient.defaultMaxBytes, responseLimit)
+        )
         let http = try validateMediaResponse(response, requestToken: requestToken)
         switch http.statusCode {
         case 206:
@@ -227,22 +238,16 @@ actor FnMusicAPI {
                 requestedLength: length
             )
             guard expectedLength <= Int64(Int.max) else {
-                throw SourceError.connectionFailed("飞牛音乐 Range 响应过大")
-            }
-            var data = Data()
-            data.reserveCapacity(Int(min(expectedLength, 4 * 1_024 * 1_024)))
-            for try await byte in bytes {
-                if Int64(data.count) >= expectedLength { break }
-                data.append(byte)
+                throw SourceError.connectionFailed(PMString("error.catalog.invalidRangeResponse"))
             }
             guard Int64(data.count) == expectedLength else {
-                throw SourceError.connectionFailed("飞牛音乐 Range 响应长度不符")
+                throw SourceError.connectionFailed(PMString("error.catalog.invalidRangeResponse"))
             }
             return FnMusicRangeResponse(data: data, statusCode: http.statusCode)
         case 200:
-            throw SourceError.connectionFailed("飞牛音乐服务器忽略了 Range 请求")
+            throw SourceError.connectionFailed(PMString("error.catalog.invalidRangeResponse"))
         default:
-            throw SourceError.connectionFailed("飞牛音乐 Range HTTP \(http.statusCode)")
+            throw SourceError.connectionFailed(PMString("error.fnMusic.http", String(http.statusCode)))
         }
     }
 
@@ -260,15 +265,18 @@ actor FnMusicAPI {
         let (request, requestToken) = try await mediaRequest(path: "/track/stream", queryItems: [
             URLQueryItem(name: "guid", value: trackGUID),
         ])
-        let (temporaryURL, response) = try await session.download(for: request)
+        let (temporaryURL, response) = try await TrustedHTTPTransport.download(
+            for: request,
+            session: session
+        )
         do {
             let http = try validateMediaResponse(response, requestToken: requestToken)
             guard http.statusCode == 200 else {
-                throw SourceError.connectionFailed("飞牛音乐下载 HTTP \(http.statusCode)")
+                throw SourceError.connectionFailed(PMString("error.fnMusic.http", String(http.statusCode)))
             }
             let prefix = try readPrefix(from: temporaryURL, maximumLength: 512)
             guard !prefix.isEmpty else {
-                throw SourceError.connectionFailed("飞牛音乐下载数据为空")
+                throw SourceError.connectionFailed(PMString("error.catalog.mediaEndpointNonMedia"))
             }
             try validateMediaPayload(http, data: prefix, requestToken: requestToken)
             return temporaryURL
@@ -297,25 +305,21 @@ actor FnMusicAPI {
             queryItems.append(URLQueryItem(name: "t", value: String(revision)))
         }
         let (request, requestToken) = try await mediaRequest(path: "/static/cover", queryItems: queryItems)
-        let (bytes, response) = try await session.bytes(for: request)
+        let (data, response) = try await TrustedHTTPTransport.data(
+            for: request,
+            session: session,
+            maxBytes: Self.maximumArtworkBytes + 64 * 1_024
+        )
         let http = try validateMediaResponse(response, requestToken: requestToken)
         if let length = http.value(forHTTPHeaderField: "Content-Length").flatMap(Int.init),
            length > Self.maximumArtworkBytes {
-            throw SourceError.connectionFailed("飞牛音乐封面文件过大")
+            throw SourceError.connectionFailed(PMString("error.catalog.coverTooLarge"))
         }
-        var data = Data()
-        if let length = http.value(forHTTPHeaderField: "Content-Length").flatMap(Int.init),
-           length > 0 {
-            data.reserveCapacity(min(length, Self.maximumArtworkBytes))
-        }
-        for try await byte in bytes {
-            guard data.count < Self.maximumArtworkBytes else {
-                throw SourceError.connectionFailed("飞牛音乐封面文件过大")
-            }
-            data.append(byte)
+        guard data.count <= Self.maximumArtworkBytes else {
+            throw SourceError.connectionFailed(PMString("error.catalog.coverTooLarge"))
         }
         guard !data.isEmpty else {
-            throw SourceError.connectionFailed("飞牛音乐封面数据为空")
+            throw SourceError.connectionFailed(PMString("error.catalog.emptyOrOversizedCover"))
         }
         try validateMediaPayload(http, data: data, requestToken: requestToken)
         return data
@@ -366,7 +370,7 @@ actor FnMusicAPI {
             path: path,
             queryItems: queryItems
         ) else {
-            throw SourceError.connectionFailed("飞牛音乐地址无效")
+            throw SourceError.connectionFailed(PMString("error.fnMusic.invalidURL"))
         }
         let bodyData = try body.map {
             try SafeJSONSerialization.data(withJSONObject: $0, options: [.sortedKeys])
@@ -392,23 +396,26 @@ actor FnMusicAPI {
         }
         FnMusicAPIProtocol.applyAuthx(to: &request, bodyData: bodyData)
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await TrustedHTTPTransport.data(
+            for: request,
+            session: session
+        )
         guard let http = response as? HTTPURLResponse else {
-            throw SourceError.connectionFailed("飞牛音乐无有效 HTTP 响应")
+            throw SourceError.connectionFailed(PMString("error.catalog.missingHTTPResponse"))
         }
         if http.statusCode == 401 || http.statusCode == 403 {
             invalidateToken(ifMatching: requestToken)
             throw SourceError.authenticationFailed
         }
         if http.statusCode == 429 {
-            throw SourceError.connectionFailed("飞牛音乐服务限流（HTTP 429）")
+            throw SourceError.connectionFailed(PMString("error.fnMusic.http", "429"))
         }
         guard (200...299).contains(http.statusCode) else {
-            throw SourceError.connectionFailed("飞牛音乐 HTTP \(http.statusCode)")
+            throw SourceError.connectionFailed(PMString("error.fnMusic.http", String(http.statusCode)))
         }
         guard let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let code = intValue(envelope["code"]) else {
-            throw SourceError.connectionFailed("飞牛音乐返回了无法识别的数据")
+            throw SourceError.connectionFailed(PMString("error.catalog.invalidFnMusicJSON"))
         }
         guard code == 0 || code == 200 else {
             if code == 120001 || code == 401 || code == 403 {
@@ -417,8 +424,8 @@ actor FnMusicAPI {
             }
             let message = stringValue(envelope["msg"])
                 ?? stringValue(envelope["message"])
-                ?? "业务错误 \(code)"
-            throw SourceError.connectionFailed("飞牛音乐：\(message)")
+                ?? PMString("error.catalog.businessError", String(code))
+            throw SourceError.connectionFailed(PMString("error.catalog.mediaEndpointMessage", message))
         }
         guard let payload = envelope["data"], !(payload is NSNull) else {
             return [String: Any]()
@@ -437,7 +444,7 @@ actor FnMusicAPI {
             path: path,
             queryItems: queryItems
         ) else {
-            throw SourceError.connectionFailed("飞牛音乐媒体地址无效")
+            throw SourceError.connectionFailed(PMString("error.fnMusic.invalidURL"))
         }
         var request = URLRequest(url: url)
         request.timeoutInterval = 600
@@ -461,7 +468,7 @@ actor FnMusicAPI {
     ) throws -> Int64 {
         guard requestedLength > 0,
               let header = response.value(forHTTPHeaderField: "Content-Range") else {
-            throw SourceError.connectionFailed("飞牛音乐 Range 响应缺少 Content-Range")
+            throw SourceError.connectionFailed(PMString("error.catalog.invalidRangeResponse"))
         }
         let unitAndValue = header.split(
             separator: " ",
@@ -470,7 +477,7 @@ actor FnMusicAPI {
         )
         guard unitAndValue.count == 2,
               unitAndValue[0].lowercased() == "bytes" else {
-            throw SourceError.connectionFailed("飞牛音乐 Content-Range 无效")
+            throw SourceError.connectionFailed(PMString("error.catalog.invalidRangeResponse"))
         }
         let rangeAndTotal = unitAndValue[1].split(
             separator: "/",
@@ -480,7 +487,7 @@ actor FnMusicAPI {
         guard rangeAndTotal.count == 2,
               let total = Int64(rangeAndTotal[1]),
               total > 0 else {
-            throw SourceError.connectionFailed("飞牛音乐 Content-Range 总长度无效")
+            throw SourceError.connectionFailed(PMString("error.catalog.invalidRangeResponse"))
         }
         let bounds = rangeAndTotal[0].split(
             separator: "-",
@@ -493,7 +500,7 @@ actor FnMusicAPI {
               start >= 0,
               end >= start,
               end < total else {
-            throw SourceError.connectionFailed("飞牛音乐 Content-Range 范围无效")
+            throw SourceError.connectionFailed(PMString("error.catalog.invalidRangeResponse"))
         }
 
         let expectedStart: Int64
@@ -504,7 +511,7 @@ actor FnMusicAPI {
                     offset: requestedOffset,
                     length: requestedLength
                   ) else {
-                throw SourceError.connectionFailed("飞牛音乐 Range 请求无效")
+                throw SourceError.connectionFailed(PMString("error.catalog.invalidRangeResponse"))
             }
             expectedStart = requestedOffset
             expectedEnd = min(requestedEnd - 1, total - 1)
@@ -514,7 +521,7 @@ actor FnMusicAPI {
             expectedEnd = total - 1
         }
         guard start == expectedStart, end == expectedEnd else {
-            throw SourceError.connectionFailed("飞牛音乐 Content-Range 与请求不符")
+            throw SourceError.connectionFailed(PMString("error.catalog.invalidRangeResponse"))
         }
 
         let responseLength = end - start + 1
@@ -522,7 +529,7 @@ actor FnMusicAPI {
             guard let contentLength = Int64(
                 contentLengthValue.trimmingCharacters(in: .whitespacesAndNewlines)
             ), contentLength == responseLength else {
-                throw SourceError.connectionFailed("飞牛音乐 Range Content-Length 无效")
+                throw SourceError.connectionFailed(PMString("error.catalog.invalidRangeResponse"))
             }
         }
         return requestedOffset < 0 ? min(responseLength, requestedLength) : responseLength
@@ -539,17 +546,17 @@ actor FnMusicAPI {
         requestToken: String
     ) throws -> HTTPURLResponse {
         guard let http = response as? HTTPURLResponse else {
-            throw SourceError.connectionFailed("飞牛音乐媒体响应无效")
+            throw SourceError.connectionFailed(PMString("error.catalog.mediaEndpointNonMedia"))
         }
         if http.statusCode == 401 || http.statusCode == 403 {
             invalidateToken(ifMatching: requestToken)
             throw SourceError.authenticationFailed
         }
         if http.statusCode == 429 {
-            throw SourceError.connectionFailed("飞牛音乐服务限流（HTTP 429）")
+            throw SourceError.connectionFailed(PMString("error.fnMusic.http", "429"))
         }
         guard (200...299).contains(http.statusCode) else {
-            throw SourceError.connectionFailed("飞牛音乐媒体 HTTP \(http.statusCode)")
+            throw SourceError.connectionFailed(PMString("error.fnMusic.http", String(http.statusCode)))
         }
         return http
     }
@@ -568,10 +575,10 @@ actor FnMusicAPI {
             }
             let message = stringValue(envelope["msg"])
                 ?? stringValue(envelope["message"])
-                ?? "业务错误 \(code)"
-            throw SourceError.connectionFailed("飞牛音乐媒体：\(message)")
+                ?? PMString("error.catalog.businessError", String(code))
+            throw SourceError.connectionFailed(PMString("error.catalog.mediaEndpointMessage", message))
         }
-        throw SourceError.connectionFailed("飞牛音乐媒体端点返回了非媒体数据")
+        throw SourceError.connectionFailed(PMString("error.catalog.mediaEndpointNonMedia"))
     }
 
     private func invalidateToken(ifMatching requestToken: String?) {

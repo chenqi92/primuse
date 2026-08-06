@@ -691,10 +691,14 @@ enum ScraperConfigError: Error, LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidInput(let msg): "Invalid import input: \(msg)"
-        case .invalidJSON(let msg): "Invalid JSON: \(msg)"
-        case .downloadFailed(let msg): "Download failed: \(msg)"
-        case .validationFailed(let msg): "Validation failed: \(msg)"
+        case .invalidInput(let message):
+            String(format: String(localized: "error_scraper_invalid_import %@"), message)
+        case .invalidJSON(let message):
+            String(format: String(localized: "error_scraper_invalid_json %@"), message)
+        case .downloadFailed(let message):
+            String(format: String(localized: "error_download_failed %@"), message)
+        case .validationFailed(let message):
+            String(format: String(localized: "error_validation_failed %@"), message)
         }
     }
 }

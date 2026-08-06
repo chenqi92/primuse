@@ -205,7 +205,11 @@ final class DLNARendererService {
         #else
         let device = Host.current().localizedName ?? "Mac"
         #endif
-        self.friendlyName = "猿音 · \(device)"
+        self.friendlyName = String(
+            format: String(localized: "renderer_friendly_name_format"),
+            String(localized: "app_name"),
+            device
+        )
     }
 
     // MARK: - Lifecycle

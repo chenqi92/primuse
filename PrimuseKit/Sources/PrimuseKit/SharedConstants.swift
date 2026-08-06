@@ -147,7 +147,7 @@ public enum SafeJSONSerialization {
         public let typeName: String
 
         public var errorDescription: String? {
-            "Unsupported JSON value of type \(typeName)"
+            PMString("error.json.unsupportedType", typeName)
         }
     }
 
@@ -611,7 +611,7 @@ public enum RangeStreamingPrefetchPolicy {
         for sourceType: MusicSourceType
     ) -> Bool {
         switch sourceType {
-        case .webdav, .synology:
+        case .webdav, .synology, .jellyfin, .emby, .plex:
             return true
         default:
             return false

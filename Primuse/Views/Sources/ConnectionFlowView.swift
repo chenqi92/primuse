@@ -84,6 +84,7 @@ struct ConnectionFlowView: View {
                 Text("insecure_http_trust_message \(host)")
             }
         }
+        .transportTrustAlerts()
     }
 
     /// 连接 / 二步验证 / 选目录(iOS) 的 NavigationStack 主体。
@@ -123,7 +124,11 @@ struct ConnectionFlowView: View {
     /// FileItem 映射成 RemoteFileItem; 根目录用已拿到的共享文件夹列表。
     private var synologyMacBrowser: some View {
         MacDirTreeBrowser(
-            title: "浏览 \(source.type.displayName) · \(source.name)",
+            title: String(
+                format: String(localized: "browse_source_format"),
+                source.type.displayName,
+                source.name
+            ),
             subtitle: synologyConnectionString,
             rootTitle: source.name,
             selectedDirectories: $selectedDirectories,
@@ -405,14 +410,14 @@ struct ConnectionFlowView: View {
         }
         if
            TrustedHTTPTransport.requiresPlainSocket(for: baseURL),
-           let host = baseURL.host,
-           !SSLTrustStore.shared.allowsInsecureHTTP(domain: host) {
-            let approved = await promptInsecureHTTPTrust(host: host)
+           let trustTarget = TrustedHTTPTransport.trustTarget(for: baseURL),
+           !SSLTrustStore.shared.allowsInsecureHTTP(domain: trustTarget) {
+            let approved = await promptInsecureHTTPTrust(host: trustTarget)
             guard approved else {
                 pendingPasswordCandidate = nil
                 errorMessage = String(
                     format: String(localized: "insecure_http_permission_required %@"),
-                    host
+                    trustTarget
                 )
                 withAnimation { step = .failed }
                 return

@@ -119,7 +119,7 @@ struct AlbumDetailView: View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
                 MacLibraryHeader(
-                    eyebrow: "专辑",
+                    eyebrow: "album_label",
                     title: album.title,
                     subtitle: albumSubtitle,
                     iconSystemName: "square.stack.fill",
@@ -159,7 +159,7 @@ struct AlbumDetailView: View {
         let playable = songs.filteredPlayable()
 
         var second: [MacHeaderMoreMenu.Item] = [
-            .init(icon: "arrow.down.circle", title: "离线下载", enabled: !playable.isEmpty) {
+            .init(icon: "arrow.down.circle", title: String(localized: "offline_download"), enabled: !playable.isEmpty) {
                 sourceManager.downloadForOffline(songs: songs)
             },
             .init(icon: "wand.and.stars", title: String(localized: "scrape_missing_metadata"),
@@ -169,18 +169,18 @@ struct AlbumDetailView: View {
             },
         ]
         if let artist = albumArtist {
-            second.append(.init(icon: "music.mic", title: "前往艺术家") {
+            second.append(.init(icon: "music.mic", title: String(localized: "go_to_artist")) {
                 NotificationCenter.default.post(name: .primuseDetailOpenArtist, object: artist)
             })
         }
 
         return AnyView(MacHeaderMoreMenu(sections: [
             [
-                .init(icon: "play.fill", title: "播放全部", enabled: !playable.isEmpty) { playAll() },
-                .init(icon: "shuffle", title: "随机播放", enabled: !playable.isEmpty, action: shuffleAll),
-                .init(icon: "text.line.last.and.arrowtriangle.forward", title: "加入播放队列",
+                .init(icon: "play.fill", title: String(localized: "play_all"), enabled: !playable.isEmpty) { playAll() },
+                .init(icon: "shuffle", title: String(localized: "shuffle"), enabled: !playable.isEmpty, action: shuffleAll),
+                .init(icon: "text.line.last.and.arrowtriangle.forward", title: String(localized: "add_to_queue"),
                       enabled: !playable.isEmpty) { player.appendToQueue(playable) },
-                .init(icon: "text.line.first.and.arrowtriangle.forward", title: "下一首播放",
+                .init(icon: "text.line.first.and.arrowtriangle.forward", title: String(localized: "insert_next"),
                       enabled: !playable.isEmpty) { player.insertNextInQueue(playable) },
             ],
             second,

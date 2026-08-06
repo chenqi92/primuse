@@ -122,10 +122,10 @@ struct SourceTypeSelectionView: View {
         HStack(spacing: 12) {
             PMWindowTrafficLights(closeOnly: true)
             VStack(alignment: .leading, spacing: 2) {
-                Text("添加音乐源")
+                Text("add_source")
                     .font(.system(size: 13.5, weight: .semibold))
                     .foregroundStyle(PMColor.text)
-                Text("选择协议或服务")
+                Text("select_source_type")
                     .font(.system(size: 11))
                     .foregroundStyle(PMColor.textFaint)
             }
@@ -310,7 +310,7 @@ struct SourceTypeSelectionView: View {
                     addTarget = .type(pendingType)
                 }
             } label: {
-                Text("下一步")
+                Text("next")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 14)
