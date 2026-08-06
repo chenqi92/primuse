@@ -521,3 +521,9 @@
 "ext.tv.demo.lyric6" = "Let the neon sway on the water";
 "ext.tv.demo.lyric7" = "Every step lands in an echo";
 "ext.tv.demo.lyric8" = "Slow light, take me home";
+"ext.tv.certificate.title" = "Server Certificate Requires Confirmation";
+"ext.tv.certificate.trust" = "Trust and Continue";
+"ext.tv.certificate.message" = "The HTTPS certificate for %1$@ could not be verified. Continue only if this is your server. You will be asked again if the certificate changes.";
+"ext.tv.http.title" = "Cleartext HTTP Requires Confirmation";
+"ext.tv.http.allow" = "Allow and Continue";
+"ext.tv.http.message" = "%1$@ uses unencrypted HTTP. Continue only if this is your server. Authorization applies only to this scheme, host, and port.";

@@ -100,7 +100,10 @@ public actor NasHttpStreamResolver: StreamResolver {
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.httpBody = "user=\(Self.formEncode(username))&pwd=\(Self.formEncode(password))&remme=1"
             .data(using: .utf8)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await StreamResolverHTTPTransport.data(
+            for: request,
+            session: session
+        )
         try Self.checkAuth(response)
         guard let sid = Self.parseQnapSID(data) else {
             throw StreamResolveError.authFailed

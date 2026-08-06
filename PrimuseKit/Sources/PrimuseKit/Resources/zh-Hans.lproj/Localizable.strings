@@ -520,3 +520,9 @@
 "ext.tv.demo.lyric6" = "让霓虹在水面上摇晃";
 "ext.tv.demo.lyric7" = "每一步都踩在回声里";
 "ext.tv.demo.lyric8" = "带我回家，慢下来的光";
+"ext.tv.certificate.title" = "服务器证书需要确认";
+"ext.tv.certificate.trust" = "信任并继续";
+"ext.tv.certificate.message" = "无法验证 %1$@ 的 HTTPS 证书。仅在确认这是你的服务器后继续；证书变化时会再次询问。";
+"ext.tv.http.title" = "明文 HTTP 需要确认";
+"ext.tv.http.allow" = "允许并继续";
+"ext.tv.http.message" = "%1$@ 使用未加密的 HTTP。仅在确认这是你的服务器后继续；授权只适用于当前协议、主机和端口。";

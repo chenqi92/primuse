@@ -360,22 +360,22 @@ public actor FnMusicServiceClient {
             queryItems: queryItems,
             token: requestToken
         )
-        let (bytes, response) = try await session.bytes(for: request)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await StreamResolverHTTPTransport.data(
+                for: request,
+                session: session,
+                maximumBytes: Self.maximumArtworkBytes + 1,
+                redirectMode: .fnMusic
+            )
+        } catch let error as URLError where error.code == .dataLengthExceedsMaximum {
+            throw FnMusicServiceError.invalidResponse(PMString("error.catalog.coverTooLarge"))
+        }
         let http = try validateHTTP(response, requestToken: requestToken)
         if let length = http.value(forHTTPHeaderField: "Content-Length").flatMap(Int.init),
            length > Self.maximumArtworkBytes {
             throw FnMusicServiceError.invalidResponse(PMString("error.catalog.coverTooLarge"))
-        }
-        var data = Data()
-        if let length = http.value(forHTTPHeaderField: "Content-Length").flatMap(Int.init),
-           length > 0 {
-            data.reserveCapacity(min(length, Self.maximumArtworkBytes))
-        }
-        for try await byte in bytes {
-            guard data.count < Self.maximumArtworkBytes else {
-                throw FnMusicServiceError.invalidResponse(PMString("error.catalog.coverTooLarge"))
-            }
-            data.append(byte)
         }
         guard !data.isEmpty, data.count <= Self.maximumArtworkBytes else {
             throw FnMusicServiceError.invalidResponse(PMString("error.catalog.emptyOrOversizedCover"))
@@ -570,7 +570,11 @@ public actor FnMusicServiceClient {
             request.setValue(value, forHTTPHeaderField: name)
         }
         FnMusicAPIProtocol.applyAuthx(to: &request, bodyData: bodyData)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await StreamResolverHTTPTransport.data(
+            for: request,
+            session: session,
+            redirectMode: .fnMusic
+        )
         _ = try validateHTTP(response, requestToken: requestToken)
         guard let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let code = fnMusicInt(envelope["code"]) else {

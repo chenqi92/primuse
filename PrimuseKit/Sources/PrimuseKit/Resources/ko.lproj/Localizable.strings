@@ -523,3 +523,9 @@
 "ext.tv.demo.lyric6" = "물 위에서 네온이 흔들려";
 "ext.tv.demo.lyric7" = "걸음마다 메아리가 울려";
 "ext.tv.demo.lyric8" = "느린 빛아, 나를 집에 데려다줘";
+"ext.tv.certificate.title" = "서버 인증서 확인 필요";
+"ext.tv.certificate.trust" = "신뢰하고 계속";
+"ext.tv.certificate.message" = "%1$@의 HTTPS 인증서를 확인할 수 없습니다. 본인의 서버임을 확인한 경우에만 계속하세요. 인증서가 변경되면 다시 확인합니다.";
+"ext.tv.http.title" = "암호화되지 않은 HTTP 확인 필요";
+"ext.tv.http.allow" = "허용하고 계속";
+"ext.tv.http.message" = "%1$@은(는) 암호화되지 않은 HTTP를 사용합니다. 본인의 서버인 경우에만 계속하세요. 허용은 이 프로토콜, 호스트 및 포트에만 적용됩니다.";

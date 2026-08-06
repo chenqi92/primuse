@@ -65,6 +65,93 @@ final class InsecureHTTPHostPolicyTests: XCTestCase {
         ))
     }
 
+    func testRedirectRequestFollowsOnlyAnActualSafeServerRedirect() throws {
+        var directRequest = URLRequest(
+            url: try XCTUnwrap(URL(string: "http://music.example.com:5000/api/login"))
+        )
+        directRequest.httpMethod = "POST"
+        directRequest.httpBody = Data("credentials".utf8)
+        directRequest.setValue("text/plain", forHTTPHeaderField: "Content-Type")
+
+        let sameEndpointResponse = try XCTUnwrap(HTTPURLResponse(
+            url: directRequest.url!,
+            statusCode: 307,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Location": "/api/v2/login"]
+        ))
+        let sameEndpoint = try XCTUnwrap(HTTPRedirectRequestPolicy.redirectedRequest(
+            from: directRequest,
+            response: sameEndpointResponse
+        ))
+        XCTAssertEqual(sameEndpoint.url?.absoluteString, "http://music.example.com:5000/api/v2/login")
+        XCTAssertEqual(sameEndpoint.httpMethod, "POST")
+        XCTAssertEqual(sameEndpoint.httpBody, directRequest.httpBody)
+
+        let upgradeRequest = URLRequest(
+            url: try XCTUnwrap(URL(string: "http://music.example.com/catalog"))
+        )
+        let upgradeResponse = try XCTUnwrap(HTTPURLResponse(
+            url: upgradeRequest.url!,
+            statusCode: 301,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Location": "https://music.example.com/catalog"]
+        ))
+        XCTAssertEqual(
+            HTTPRedirectRequestPolicy.redirectedRequest(
+                from: upgradeRequest,
+                response: upgradeResponse
+            )?.url?.absoluteString,
+            "https://music.example.com/catalog"
+        )
+
+        let ordinaryHTTPResponse = try XCTUnwrap(HTTPURLResponse(
+            url: upgradeRequest.url!,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Location": "https://music.example.com/catalog"]
+        ))
+        XCTAssertNil(HTTPRedirectRequestPolicy.redirectedRequest(
+            from: upgradeRequest,
+            response: ordinaryHTTPResponse
+        ))
+
+        let unsafeResponse = try XCTUnwrap(HTTPURLResponse(
+            url: directRequest.url!,
+            statusCode: 302,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Location": "https://music.example.com:5001/api/login"]
+        ))
+        XCTAssertNil(HTTPRedirectRequestPolicy.redirectedRequest(
+            from: directRequest,
+            response: unsafeResponse
+        ))
+    }
+
+    func testRedirectRequestMatchesURLSessionMethodSemantics() throws {
+        var request = URLRequest(
+            url: try XCTUnwrap(URL(string: "http://music.example.com/submit"))
+        )
+        request.httpMethod = "POST"
+        request.httpBody = Data("payload".utf8)
+        request.setValue("7", forHTTPHeaderField: "Content-Length")
+        request.setValue("text/plain", forHTTPHeaderField: "Content-Type")
+
+        let response = try XCTUnwrap(HTTPURLResponse(
+            url: request.url!,
+            statusCode: 303,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Location": "/result"]
+        ))
+        let redirected = try XCTUnwrap(HTTPRedirectRequestPolicy.redirectedRequest(
+            from: request,
+            response: response
+        ))
+        XCTAssertEqual(redirected.httpMethod, "GET")
+        XCTAssertNil(redirected.httpBody)
+        XCTAssertNil(redirected.value(forHTTPHeaderField: "Content-Length"))
+        XCTAssertNil(redirected.value(forHTTPHeaderField: "Content-Type"))
+    }
+
     func testRequiresTrustOnlyForPublicCleartextHTTP() throws {
         XCTAssertTrue(InsecureHTTPHostPolicy.requiresExplicitTrust(for: try XCTUnwrap(URL(string: "http://nas.example.com:5000"))))
         XCTAssertTrue(InsecureHTTPHostPolicy.requiresExplicitTrust(for: try XCTUnwrap(URL(string: "http://8.8.8.8:5000"))))

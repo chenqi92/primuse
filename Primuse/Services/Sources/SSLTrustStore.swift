@@ -120,6 +120,8 @@ final class SSLTrustStore {
         } else {
             trustedCertificates.append(info)
         }
+        _ = migrateLegacyCertificateTrustIfNeeded(to: normalized)
+        trustedDomains.sort()
         trustedCertificates.sort { $0.domain < $1.domain }
         saveToDefaults()
     }
@@ -142,11 +144,37 @@ final class SSLTrustStore {
         guard let normalized = Self.normalizeHTTPTrustTarget(domain) else { return }
         let host = Self.legacyHost(for: normalized) ?? normalized
         guard !InsecureHTTPHostPolicy.isLocalNetworkHost(host) else { return }
+        var changed = false
         if !insecureHTTPDomains.contains(normalized) {
             insecureHTTPDomains.append(normalized)
+            changed = true
+        }
+        if let legacyHost = Self.legacyHost(for: normalized),
+           insecureHTTPDomains.contains(legacyHost) {
+            insecureHTTPDomains.removeAll { $0 == legacyHost }
+            changed = true
+        }
+        if changed {
             insecureHTTPDomains.sort()
             saveToDefaults()
         }
+    }
+
+    /// Old releases stored one cleartext approval per host. Once that approval
+    /// is successfully used for a concrete endpoint, scope it to the exact
+    /// HTTP port so it cannot silently authorize another service on that host.
+    func migrateLegacyInsecureHTTPTrustIfNeeded(to domain: String) {
+        guard let normalized = Self.normalizeHTTPTrustTarget(domain),
+              let legacyHost = Self.legacyHost(for: normalized),
+              insecureHTTPDomains.contains(legacyHost) else {
+            return
+        }
+        if !insecureHTTPDomains.contains(normalized) {
+            insecureHTTPDomains.append(normalized)
+        }
+        insecureHTTPDomains.removeAll { $0 == legacyHost }
+        insecureHTTPDomains.sort()
+        saveToDefaults()
     }
 
     func disallowInsecureHTTP(domain: String) {
@@ -282,6 +310,11 @@ final class SSLTrustStore {
         guard certificateInfo?.fingerprintSHA256 != nil else { return }
         if let existing = trustedCertificates.first(where: { $0.domain == normalized })?.fingerprintSHA256,
            !existing.isEmpty {
+            if migrateLegacyCertificateTrustIfNeeded(to: normalized) {
+                trustedDomains.sort()
+                trustedCertificates.sort { $0.domain < $1.domain }
+                saveToDefaults()
+            }
             return
         }
         trust(domain: normalized, certificateInfo: certificateInfo)
@@ -452,6 +485,19 @@ final class SSLTrustStore {
 
     nonisolated private static func legacyHost(for normalizedTarget: String) -> String? {
         NetworkEndpointIdentity(rawValue: normalizedTarget)?.host
+    }
+
+    /// Converts a legacy host-wide certificate decision into the endpoint that
+    /// just completed a successful pinned handshake. Other ports will ask once
+    /// on first use instead of inheriting an unrelated service's certificate.
+    private func migrateLegacyCertificateTrustIfNeeded(to normalizedTarget: String) -> Bool {
+        guard let legacyHost = Self.legacyHost(for: normalizedTarget) else { return false }
+        let hadLegacyDomain = trustedDomains.contains(legacyHost)
+        let hadLegacyCertificate = trustedCertificates.contains { $0.domain == legacyHost }
+        guard hadLegacyDomain || hadLegacyCertificate else { return false }
+        trustedDomains.removeAll { $0 == legacyHost }
+        trustedCertificates.removeAll { $0.domain == legacyHost }
+        return true
     }
 
     private func saveToDefaults() {

@@ -134,7 +134,10 @@ public actor SynologyStreamResolver: StreamResolver {
         req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         req.httpBody = fields.map { "\($0.0)=\(Self.formEncode($0.1))" }.joined(separator: "&").data(using: .utf8)
 
-        let (data, response) = try await session.data(for: req)
+        let (data, response) = try await StreamResolverHTTPTransport.data(
+            for: req,
+            session: session
+        )
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             throw StreamResolveError.badServerResponse((response as? HTTPURLResponse)?.statusCode ?? 0)
         }

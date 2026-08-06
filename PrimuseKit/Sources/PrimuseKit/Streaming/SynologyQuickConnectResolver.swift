@@ -381,7 +381,10 @@ public struct SynologyQuickConnectResolver: Sendable {
             forHTTPHeaderField: "Content-Type"
         )
         request.httpBody = try JSONEncoder().encode(commands)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await StreamResolverHTTPTransport.data(
+            for: request,
+            session: session
+        )
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             throw SynologyQuickConnectError.invalidResponse
         }
@@ -472,7 +475,10 @@ public struct SynologyQuickConnectResolver: Sendable {
         request.timeoutInterval = probeTimeout
         request.cachePolicy = .reloadIgnoringLocalCacheData
         do {
-            let (data, response) = try await session.data(for: request)
+            let (data, response) = try await StreamResolverHTTPTransport.data(
+                for: request,
+                session: session
+            )
             guard let http = response as? HTTPURLResponse,
                   (200...299).contains(http.statusCode),
                   let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],

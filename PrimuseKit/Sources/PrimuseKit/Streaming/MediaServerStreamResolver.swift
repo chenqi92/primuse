@@ -118,7 +118,10 @@ public actor MediaServerStreamResolver: StreamResolver {
         req.setValue(authValue, forHTTPHeaderField: emby ? "X-Emby-Authorization" : "Authorization")
         req.httpBody = try? SafeJSONSerialization.data(withJSONObject: ["Username": username, "Pw": password])
 
-        let (data, response) = try await session.data(for: req)
+        let (data, response) = try await StreamResolverHTTPTransport.data(
+            for: req,
+            session: session
+        )
         try Self.checkAuth(response)
         guard let token = Self.parseAccessToken(data) else { throw StreamResolveError.authFailed }
         return token
@@ -132,7 +135,10 @@ public actor MediaServerStreamResolver: StreamResolver {
         req.setValue(deviceID, forHTTPHeaderField: "X-Plex-Client-Identifier")
         req.setValue("Primuse", forHTTPHeaderField: "X-Plex-Product")
         req.setValue("application/json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await session.data(for: req)
+        let (data, response) = try await StreamResolverHTTPTransport.data(
+            for: req,
+            session: session
+        )
         try Self.checkAuth(response)
         guard let key = Self.parsePlexPartKey(data) else { throw StreamResolveError.cannotBuildURL }
         return key

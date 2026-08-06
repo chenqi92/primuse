@@ -35,13 +35,43 @@ enum TrustedHTTPTransport {
         session: URLSession,
         maxBytes: Int = PlainHTTPClient.defaultMaxBytes
     ) async throws -> (Data, URLResponse) {
+        try await data(
+            for: request,
+            session: session,
+            maxBytes: maxBytes,
+            redirectCount: 0
+        )
+    }
+
+    private static func data(
+        for request: URLRequest,
+        session: URLSession,
+        maxBytes: Int,
+        redirectCount: Int
+    ) async throws -> (Data, URLResponse) {
         guard let url = request.url else { throw URLError(.badURL) }
         guard requiresPlainSocket(for: url) else {
             return try await session.data(for: request)
         }
         let host = try await trustedPublicHTTPHost(for: url)
         plog("⚠️ Trusted cleartext HTTP request host=\(host) method=\(request.httpMethod ?? "GET")")
-        return try await PlainHTTPClient.data(for: request, maxBytes: maxBytes)
+        let result = try await PlainHTTPClient.data(for: request, maxBytes: maxBytes)
+        guard let response = result.1 as? HTTPURLResponse,
+              let redirected = HTTPRedirectRequestPolicy.redirectedRequest(
+                from: request,
+                response: response
+              ) else {
+            return result
+        }
+        guard redirectCount < HTTPRedirectRequestPolicy.maximumRedirects else {
+            throw URLError(.httpTooManyRedirects)
+        }
+        return try await data(
+            for: redirected,
+            session: session,
+            maxBytes: maxBytes,
+            redirectCount: redirectCount + 1
+        )
     }
 
     static func data(
@@ -66,13 +96,42 @@ enum TrustedHTTPTransport {
         for request: URLRequest,
         session: URLSession
     ) async throws -> (URL, URLResponse) {
+        try await download(
+            for: request,
+            session: session,
+            redirectCount: 0
+        )
+    }
+
+    private static func download(
+        for request: URLRequest,
+        session: URLSession,
+        redirectCount: Int
+    ) async throws -> (URL, URLResponse) {
         guard let url = request.url else { throw URLError(.badURL) }
         guard requiresPlainSocket(for: url) else {
             return try await session.download(for: request)
         }
         let host = try await trustedPublicHTTPHost(for: url)
         plog("⚠️ Trusted cleartext HTTP download host=\(host)")
-        return try await PlainHTTPClient.download(for: request)
+        let result = try await PlainHTTPClient.download(for: request)
+        guard let response = result.1 as? HTTPURLResponse,
+              let redirected = HTTPRedirectRequestPolicy.redirectedRequest(
+                from: request,
+                response: response
+              ) else {
+            return result
+        }
+        guard redirectCount < HTTPRedirectRequestPolicy.maximumRedirects else {
+            try? FileManager.default.removeItem(at: result.0)
+            throw URLError(.httpTooManyRedirects)
+        }
+        try? FileManager.default.removeItem(at: result.0)
+        return try await download(
+            for: redirected,
+            session: session,
+            redirectCount: redirectCount + 1
+        )
     }
 
     private static func trustedPublicHTTPHost(for url: URL) async throws -> String {
@@ -80,6 +139,9 @@ enum TrustedHTTPTransport {
             throw URLError(.badURL)
         }
         if SSLTrustStore.allowsInsecureHTTPHostSync(domain: endpoint) {
+            await SSLTrustStore.shared.migrateLegacyInsecureHTTPTrustIfNeeded(
+                to: endpoint
+            )
             return endpoint
         }
         let approved = await SSLTrustStore.shared.requestInsecureHTTPTrust(domain: endpoint)

@@ -297,7 +297,11 @@ public actor FnMusicStreamResolver: StreamResolver {
             request.setValue(value, forHTTPHeaderField: name)
         }
         FnMusicAPIProtocol.applyAuthx(to: &request, bodyData: body)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await StreamResolverHTTPTransport.data(
+            for: request,
+            session: session,
+            redirectMode: .fnMusic
+        )
         try Self.checkAuth(response)
         guard let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw StreamResolveError.badServerResponse(200)
@@ -341,7 +345,12 @@ public actor FnMusicStreamResolver: StreamResolver {
         }
         FnMusicAPIProtocol.applyAuthx(to: &request)
 
-        let (bytes, response) = try await session.bytes(for: request)
+        let (data, response) = try await StreamResolverHTTPTransport.data(
+            for: request,
+            session: session,
+            maximumBytes: 64 * 1_024,
+            redirectMode: .fnMusic
+        )
         guard let http = response as? HTTPURLResponse else {
             throw StreamResolveError.badServerResponse(-1)
         }
@@ -360,12 +369,7 @@ public actor FnMusicStreamResolver: StreamResolver {
         }
 
         let expectedByteCount = Int(min(Int64(2), totalLength))
-        var byteCount = 0
-        for try await _ in bytes {
-            byteCount += 1
-            if byteCount == expectedByteCount { break }
-        }
-        guard byteCount == expectedByteCount else {
+        guard data.count == expectedByteCount else {
             throw StreamResolveError.badServerResponse(http.statusCode)
         }
     }

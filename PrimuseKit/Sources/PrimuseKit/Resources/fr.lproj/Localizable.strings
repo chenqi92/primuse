@@ -523,3 +523,9 @@
 "ext.tv.demo.lyric6" = "Le néon danse sur l’eau";
 "ext.tv.demo.lyric7" = "Chaque pas tombe dans un écho";
 "ext.tv.demo.lyric8" = "Lente lumière, ramène-moi";
+"ext.tv.certificate.title" = "Confirmer le certificat du serveur";
+"ext.tv.certificate.trust" = "Faire confiance et continuer";
+"ext.tv.certificate.message" = "Le certificat HTTPS de %1$@ n’a pas pu être vérifié. Continuez uniquement s’il s’agit de votre serveur. Une nouvelle confirmation sera demandée si le certificat change.";
+"ext.tv.http.title" = "Confirmer le HTTP non chiffré";
+"ext.tv.http.allow" = "Autoriser et continuer";
+"ext.tv.http.message" = "%1$@ utilise une connexion HTTP non chiffrée. Continuez uniquement s’il s’agit de votre serveur. L’autorisation s’applique seulement à ce protocole, cet hôte et ce port.";

@@ -523,3 +523,9 @@
 "ext.tv.demo.lyric6" = "水面でネオンを揺らして";
 "ext.tv.demo.lyric7" = "一歩ごとにこだまが響く";
 "ext.tv.demo.lyric8" = "ゆっくりな光よ、家へ連れて帰って";
+"ext.tv.certificate.title" = "サーバー証明書の確認が必要です";
+"ext.tv.certificate.trust" = "信頼して続ける";
+"ext.tv.certificate.message" = "%1$@ の HTTPS 証明書を検証できませんでした。ご自身のサーバーであることを確認した場合のみ続行してください。証明書が変更された場合は再度確認します。";
+"ext.tv.http.title" = "暗号化されていない HTTP の確認";
+"ext.tv.http.allow" = "許可して続ける";
+"ext.tv.http.message" = "%1$@ は暗号化されていない HTTP を使用しています。ご自身のサーバーである場合のみ続行してください。許可はこのプロトコル、ホスト、ポートにのみ適用されます。";

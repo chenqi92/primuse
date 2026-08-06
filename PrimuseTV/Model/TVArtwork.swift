@@ -340,7 +340,11 @@ actor TVArtworkLoader {
         config.urlCredentialStorage = nil
         config.httpShouldSetCookies = false
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
-        return URLSession(configuration: config)
+        return URLSession(
+            configuration: config,
+            delegate: TVInsecureTLSDelegate(),
+            delegateQueue: nil
+        )
     }()
 
     private var cacheDir: URL {
@@ -529,7 +533,11 @@ actor TVArtworkLoader {
         request.timeoutInterval = 12
         request.httpShouldHandleCookies = false
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let (bytes, response) = try await remoteArtworkSession.bytes(for: request)
+        let (data, response) = try await StreamResolverHTTPTransport.data(
+            for: request,
+            session: remoteArtworkSession,
+            maximumBytes: maximumSearchResponseBytes
+        )
         guard let http = response as? HTTPURLResponse,
               (200...299).contains(http.statusCode),
               let finalURL = http.url,
@@ -539,18 +547,6 @@ actor TVArtworkLoader {
               finalURL.user == nil,
               finalURL.password == nil else {
             throw URLError(.badServerResponse)
-        }
-        let expected = response.expectedContentLength
-        guard expected <= 0 || expected <= Int64(maximumSearchResponseBytes) else {
-            throw URLError(.dataLengthExceedsMaximum)
-        }
-        var data = Data()
-        if expected > 0 { data.reserveCapacity(Int(expected)) }
-        for try await byte in bytes {
-            guard data.count < maximumSearchResponseBytes else {
-                throw URLError(.dataLengthExceedsMaximum)
-            }
-            data.append(byte)
         }
         guard !data.isEmpty else { throw URLError(.zeroByteResource) }
         return data
@@ -563,7 +559,11 @@ actor TVArtworkLoader {
         request.setValue("image/avif,image/webp,image/*,*/*;q=0.5", forHTTPHeaderField: "Accept")
 
         do {
-            let (bytes, response) = try await remoteArtworkSession.bytes(for: request)
+            let (data, response) = try await StreamResolverHTTPTransport.data(
+                for: request,
+                session: remoteArtworkSession,
+                maximumBytes: maximumRemoteArtworkBytes
+            )
             guard let http = response as? HTTPURLResponse,
                   (200...299).contains(http.statusCode),
                   let finalURL = http.url,
@@ -575,22 +575,12 @@ actor TVArtworkLoader {
                 return nil
             }
 
-            let expected = response.expectedContentLength
-            guard expected <= 0 || expected <= Int64(maximumRemoteArtworkBytes) else { return nil }
             if let mime = response.mimeType?.lowercased(),
                !mime.hasPrefix("image/"),
                mime != "application/octet-stream" {
                 return nil
             }
 
-            var data = Data()
-            if expected > 0 {
-                data.reserveCapacity(Int(expected))
-            }
-            for try await byte in bytes {
-                guard data.count < maximumRemoteArtworkBytes else { return nil }
-                data.append(byte)
-            }
             return isImageData(data) ? data : nil
         } catch {
             return nil

@@ -72,6 +72,24 @@ struct TVRoot: View {
                     ))
                 }
             }
+            .alert(
+                PMString("ext.tv.http.title"),
+                isPresented: Binding(
+                    get: { certificateTrustStore.pendingInsecureHTTPRequest != nil },
+                    set: { _ in }
+                )
+            ) {
+                Button(PMString("ext.tv.http.allow"), role: .destructive) {
+                    certificateTrustStore.resolvePendingInsecureHTTPRequest(approved: true)
+                }
+                Button(PMString("ext.tv.sources.cancel"), role: .cancel) {
+                    certificateTrustStore.resolvePendingInsecureHTTPRequest(approved: false)
+                }
+            } message: {
+                if let request = certificateTrustStore.pendingInsecureHTTPRequest {
+                    Text(verbatim: PMString("ext.tv.http.message", request.endpoint))
+                }
+            }
     }
 
     private var rootContent: some View {

@@ -71,7 +71,10 @@ public actor UgreenStreamResolver: StreamResolver {
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try? SafeJSONSerialization.data(withJSONObject: ["username": username])
-        let (_, response) = try await session.data(for: req)
+        let (_, response) = try await StreamResolverHTTPTransport.data(
+            for: req,
+            session: session
+        )
         guard let http = response as? HTTPURLResponse,
               let rsaToken = http.value(forHTTPHeaderField: "x-rsa-token"), !rsaToken.isEmpty else {
             throw StreamResolveError.authFailed
@@ -87,7 +90,10 @@ public actor UgreenStreamResolver: StreamResolver {
             "username": username, "password": encryptedPassword,
             "is_simple": true, "keepalive": true, "otp": false,
         ])
-        let (data, response) = try await session.data(for: req)
+        let (data, response) = try await StreamResolverHTTPTransport.data(
+            for: req,
+            session: session
+        )
         try Self.checkAuth(response)
         guard let token = Self.parseToken(data) else { throw StreamResolveError.authFailed }
         return token

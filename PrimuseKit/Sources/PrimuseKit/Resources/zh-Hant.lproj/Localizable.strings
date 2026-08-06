@@ -520,3 +520,9 @@
 "ext.tv.demo.lyric6" = "讓霓虹在水面上搖晃";
 "ext.tv.demo.lyric7" = "每一步都踩在回聲裡";
 "ext.tv.demo.lyric8" = "帶我回家，慢下來的光";
+"ext.tv.certificate.title" = "需要確認伺服器憑證";
+"ext.tv.certificate.trust" = "信任並繼續";
+"ext.tv.certificate.message" = "無法驗證 %1$@ 的 HTTPS 憑證。僅在確認這是你的伺服器後繼續；憑證變更時會再次詢問。";
+"ext.tv.http.title" = "明文 HTTP 需要確認";
+"ext.tv.http.allow" = "允許並繼續";
+"ext.tv.http.message" = "%1$@ 使用未加密的 HTTP。僅在確認這是你的伺服器後繼續；授權只適用於目前的通訊協定、主機和連接埠。";

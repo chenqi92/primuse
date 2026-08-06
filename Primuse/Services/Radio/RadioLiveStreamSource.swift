@@ -178,6 +178,11 @@ final class RadioLiveStreamSource: NSObject, URLSessionDataDelegate, @unchecked 
             resume(completion)
             return
         }
+        Task { @MainActor in
+            SSLTrustStore.shared.migrateLegacyInsecureHTTPTrustIfNeeded(
+                to: trustTarget
+            )
+        }
         #endif
 
         do {

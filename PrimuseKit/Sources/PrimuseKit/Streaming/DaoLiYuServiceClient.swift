@@ -219,8 +219,18 @@ public struct DaoLiYuRequestTransport: Sendable {
 
     static func urlSession(_ session: URLSession) -> Self {
         Self(
-            data: { try await session.data(for: $0) },
-            download: { try await session.download(for: $0) }
+            data: {
+                try await StreamResolverHTTPTransport.data(
+                    for: $0,
+                    session: session
+                )
+            },
+            download: {
+                try await StreamResolverHTTPTransport.download(
+                    for: $0,
+                    session: session
+                )
+            }
         )
     }
 }

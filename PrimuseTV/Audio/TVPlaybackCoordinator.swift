@@ -309,16 +309,14 @@ final class TVPlaybackCoordinator {
         for (key, value) in resolved.headers { request.setValue(value, forHTTPHeaderField: key) }
         request.setValue("bytes=0-\(maximum)", forHTTPHeaderField: "Range")
         request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
-        let (bytes, response) = try await Self.lyricsSession.bytes(for: request)
+        let (data, response) = try await StreamResolverHTTPTransport.data(
+            for: request,
+            session: Self.lyricsSession,
+            maximumBytes: Int(maximum) + 1
+        )
         if let http = response as? HTTPURLResponse,
            !(http.statusCode == 200 || http.statusCode == 206) {
             throw StreamResolveError.badServerResponse(http.statusCode)
-        }
-        var data = Data()
-        data.reserveCapacity(Int(maximum + 1))
-        for try await byte in bytes {
-            data.append(byte)
-            if data.count > Int(maximum) { break }
         }
         return try STRMDescriptorParser.parse(data)
     }
@@ -435,7 +433,11 @@ final class TVPlaybackCoordinator {
             }
         }
         if let directURL {
-            let (downloadedURL, response) = try await Self.lyricsSession.download(from: directURL)
+            let (downloadedURL, response) = try await StreamResolverHTTPTransport.download(
+                for: URLRequest(url: directURL),
+                session: Self.lyricsSession
+            )
+            defer { try? FileManager.default.removeItem(at: downloadedURL) }
             try ensureCurrent(requestID, store: store)
             if let http = response as? HTTPURLResponse,
                !(200...299).contains(http.statusCode) {
@@ -491,12 +493,20 @@ final class TVPlaybackCoordinator {
         try ensureCurrent(requestID, store: store)
         var req = URLRequest(url: resolved.url)
         for (k, v) in resolved.headers { req.setValue(v, forHTTPHeaderField: k) }
-        let (data, response) = try await Self.lyricsSession.data(for: req)
+        let redirectMode: StreamResolverHTTPRedirectMode = source.type == .fnMusic
+            ? .fnMusic
+            : .safe
+        let (downloadedURL, response) = try await StreamResolverHTTPTransport.download(
+            for: req,
+            session: Self.lyricsSession,
+            redirectMode: redirectMode
+        )
+        defer { try? FileManager.default.removeItem(at: downloadedURL) }
         try ensureCurrent(requestID, store: store)
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
             throw StreamResolveError.badServerResponse(http.statusCode)
         }
-        try data.write(to: tmp)
+        try FileManager.default.moveItem(at: downloadedURL, to: tmp)
         shouldKeepFile = true
         return tmp
     }
@@ -657,7 +667,12 @@ final class TVPlaybackCoordinator {
         try ensureCurrent(requestID, store: store)
         var req = URLRequest(url: resolved.url)
         for (k, v) in resolved.headers { req.setValue(v, forHTTPHeaderField: k) }
-        let (data, _) = try await Self.lyricsSession.data(for: req)
+        let (data, _) = try await StreamResolverHTTPTransport.data(
+            for: req,
+            session: Self.lyricsSession,
+            maximumBytes: 512 * 1_024,
+            redirectMode: source.type == .fnMusic ? .fnMusic : .safe
+        )
         try ensureCurrent(requestID, store: store)
         return String(data: data, encoding: .utf8)
     }

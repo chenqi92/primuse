@@ -38,8 +38,41 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
     }()
     private let lock = NSLock()
     private var tasks: [ObjectIdentifier: URLSessionDataTask] = [:]
+    private var plainHTTPTasks: [ObjectIdentifier: PlainHTTPTaskBox] = [:]
     private var taskToRequestID: [Int: ObjectIdentifier] = [:]
     private var contexts: [Int: LoadingContext] = [:]
+
+    private final class PlainHTTPTaskBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var task: Task<Void, Never>?
+        private var isCancelled = false
+
+        func install(_ task: Task<Void, Never>) {
+            lock.lock()
+            if isCancelled {
+                lock.unlock()
+                task.cancel()
+            } else {
+                self.task = task
+                lock.unlock()
+            }
+        }
+
+        func cancel() {
+            lock.lock()
+            isCancelled = true
+            let task = task
+            self.task = nil
+            lock.unlock()
+            task?.cancel()
+        }
+
+        func finish() {
+            lock.lock()
+            task = nil
+            lock.unlock()
+        }
+    }
 
     private final class LoadingContext: @unchecked Sendable {
         let loadingRequest: AVAssetResourceLoadingRequest
@@ -185,13 +218,59 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
 
         let id = ObjectIdentifier(loadingRequest)
         let isInfoReq = loadingRequest.contentInformationRequest != nil
-        let task = session.dataTask(with: req)
         let context = LoadingContext(
             loadingRequest: loadingRequest,
             offset: offset,
             length: length,
             isInfoRequest: isInfoReq
         )
+
+        if StreamResolverHTTPTransport.requiresPlainHTTPTransport(realURL) {
+            let box = PlainHTTPTaskBox()
+            lock.lock()
+            plainHTTPTasks[id] = box
+            lock.unlock()
+            let task = Task { [weak self] in
+                guard let self else { return }
+                do {
+                    let events = try await StreamResolverHTTPTransport.stream(
+                        for: req,
+                        session: session,
+                        redirectMode: enforcesFnMusicRangeResponses ? .fnMusic : .safe
+                    )
+                    for try await event in events {
+                        try Task.checkCancellation()
+                        switch event {
+                        case .response(let response):
+                            try prepare(response: response, context: context)
+                        case .data(let data):
+                            if !consume(data: data, context: context) {
+                                throw CancellationError()
+                            }
+                        }
+                    }
+                    completePlainHTTP(
+                        requestID: id,
+                        box: box,
+                        context: context,
+                        error: nil
+                    )
+                } catch is CancellationError {
+                    removePlainHTTPTask(requestID: id, box: box)
+                } catch {
+                    completePlainHTTP(
+                        requestID: id,
+                        box: box,
+                        context: context,
+                        error: error
+                    )
+                }
+            }
+            box.install(task)
+            return true
+        }
+
+        let task = session.dataTask(with: req)
         lock.lock()
         tasks[id] = task
         taskToRequestID[task.taskIdentifier] = id
@@ -206,6 +285,7 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
         let id = ObjectIdentifier(loadingRequest)
         lock.lock()
         let task = tasks[id]
+        let plainHTTPTask = plainHTTPTasks.removeValue(forKey: id)
         tasks[id] = nil
         if let task {
             taskToRequestID[task.taskIdentifier] = nil
@@ -213,37 +293,16 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
         }
         lock.unlock()
         task?.cancel()
+        plainHTTPTask?.cancel()
     }
 
-    func urlSession(_ session: URLSession,
-                    dataTask: URLSessionDataTask,
-                    didReceive response: URLResponse,
-                    completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
-        guard let http = response as? HTTPURLResponse else {
-            completionHandler(.allow)
-            return
-        }
-        lock.lock()
-        let context = contexts[dataTask.taskIdentifier]
-        lock.unlock()
-        guard let context else {
-            completionHandler(.cancel)
-            return
-        }
-
+    private func prepare(response http: HTTPURLResponse, context: LoadingContext) throws {
         if enforcesFnMusicRangeResponses {
-            do {
-                context.expectedByteCount = try Self.validatedFnMusicRangeResponseLength(
-                    http,
-                    requestedOffset: context.offset,
-                    requestedLength: context.length
-                )
-            } catch {
-                context.terminalErrorReported = true
-                context.loadingRequest.finishLoading(with: error)
-                completionHandler(.cancel)
-                return
-            }
+            context.expectedByteCount = try Self.validatedFnMusicRangeResponseLength(
+                http,
+                requestedOffset: context.offset,
+                requestedLength: context.length
+            )
         }
 
         if let info = context.loadingRequest.contentInformationRequest {
@@ -251,29 +310,18 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
             plog("📺 loader info status=\(http.statusCode) ct=\(info.contentType ?? "nil") len=\(info.contentLength) ranges=\(info.isByteRangeAccessSupported) serverCT=\(http.value(forHTTPHeaderField: "Content-Type") ?? "nil")")
         }
 
-        switch http.statusCode {
-        case 200, 206:
-            completionHandler(.allow)
-        default:
-            let error = NSError(
+        guard http.statusCode == 200 || http.statusCode == 206 else {
+            throw NSError(
                 domain: "TVStreamResourceLoader",
                 code: http.statusCode,
                 userInfo: [NSLocalizedDescriptionKey: "HTTP \(http.statusCode)"]
             )
-            context.loadingRequest.finishLoading(with: error)
-            completionHandler(.cancel)
         }
     }
 
-    func urlSession(_ session: URLSession,
-                    dataTask: URLSessionDataTask,
-                    didReceive data: Data) {
-        lock.lock()
-        let context = contexts[dataTask.taskIdentifier]
-        lock.unlock()
-        guard let context else { return }
-
-        guard !context.terminalErrorReported else { return }
+    @discardableResult
+    private func consume(data: Data, context: LoadingContext) -> Bool {
+        guard !context.terminalErrorReported else { return false }
         let incomingCount = Int64(data.count)
         if let expectedByteCount = context.expectedByteCount,
            (context.byteCount > expectedByteCount
@@ -286,8 +334,7 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
             )
             context.terminalErrorReported = true
             context.loadingRequest.finishLoading(with: error)
-            dataTask.cancel()
-            return
+            return false
         }
         context.byteCount += incomingCount
         if let dataRequest = context.loadingRequest.dataRequest {
@@ -297,23 +344,11 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
                 plog("📺 loader data first off=\(context.offset) len=\(context.length) got=\(data.count)")
             }
         }
+        return true
     }
 
-    func urlSession(_ session: URLSession,
-                    task: URLSessionTask,
-                    didCompleteWithError error: Error?) {
-        lock.lock()
-        let context = contexts[task.taskIdentifier]
-        let requestID = taskToRequestID[task.taskIdentifier]
-        contexts[task.taskIdentifier] = nil
-        taskToRequestID[task.taskIdentifier] = nil
-        if let requestID {
-            tasks[requestID] = nil
-        }
-        lock.unlock()
-
-        guard let context else { return }
-        if context.terminalErrorReported { return }
+    private func complete(context: LoadingContext, error: Error?) {
+        guard !context.terminalErrorReported else { return }
         if let error {
             if (error as NSError).code != NSURLErrorCancelled {
                 plog("📺 loader \(context.isInfoRequest ? "info" : "data") off=\(context.offset) ERROR — \(error.localizedDescription)")
@@ -338,6 +373,84 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
             plog("📺 loader data done off=\(context.offset) bytes=\(context.byteCount)")
         }
         context.loadingRequest.finishLoading()
+    }
+
+    private func removePlainHTTPTask(
+        requestID: ObjectIdentifier,
+        box: PlainHTTPTaskBox
+    ) {
+        box.finish()
+        lock.lock()
+        if plainHTTPTasks[requestID] === box {
+            plainHTTPTasks[requestID] = nil
+        }
+        lock.unlock()
+    }
+
+    private func completePlainHTTP(
+        requestID: ObjectIdentifier,
+        box: PlainHTTPTaskBox,
+        context: LoadingContext,
+        error: Error?
+    ) {
+        removePlainHTTPTask(requestID: requestID, box: box)
+        complete(context: context, error: error)
+    }
+
+    func urlSession(_ session: URLSession,
+                    dataTask: URLSessionDataTask,
+                    didReceive response: URLResponse,
+                    completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        guard let http = response as? HTTPURLResponse else {
+            completionHandler(.allow)
+            return
+        }
+        lock.lock()
+        let context = contexts[dataTask.taskIdentifier]
+        lock.unlock()
+        guard let context else {
+            completionHandler(.cancel)
+            return
+        }
+
+        do {
+            try prepare(response: http, context: context)
+            completionHandler(.allow)
+        } catch {
+            context.terminalErrorReported = true
+            context.loadingRequest.finishLoading(with: error)
+            completionHandler(.cancel)
+        }
+    }
+
+    func urlSession(_ session: URLSession,
+                    dataTask: URLSessionDataTask,
+                    didReceive data: Data) {
+        lock.lock()
+        let context = contexts[dataTask.taskIdentifier]
+        lock.unlock()
+        guard let context else { return }
+
+        if !consume(data: data, context: context) {
+            dataTask.cancel()
+        }
+    }
+
+    func urlSession(_ session: URLSession,
+                    task: URLSessionTask,
+                    didCompleteWithError error: Error?) {
+        lock.lock()
+        let context = contexts[task.taskIdentifier]
+        let requestID = taskToRequestID[task.taskIdentifier]
+        contexts[task.taskIdentifier] = nil
+        taskToRequestID[task.taskIdentifier] = nil
+        if let requestID {
+            tasks[requestID] = nil
+        }
+        lock.unlock()
+
+        guard let context else { return }
+        complete(context: context, error: error)
     }
 
     func urlSession(
@@ -525,6 +638,7 @@ final class TVInsecureTLSDelegate: NSObject, URLSessionDelegate, @unchecked Send
     ) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
         await TVServerTrust.disposition(for: challenge)
     }
+
 }
 
 #endif

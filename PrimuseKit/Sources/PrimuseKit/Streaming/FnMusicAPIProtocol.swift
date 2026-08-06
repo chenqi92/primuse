@@ -374,7 +374,13 @@ public struct FnConnectResolver: Sendable {
         lookupTimeout: TimeInterval = 10,
         probeTimeout: TimeInterval = 2
     ) {
-        self.dataLoader = { try await session.data(for: $0) }
+        self.dataLoader = {
+            try await StreamResolverHTTPTransport.data(
+                for: $0,
+                session: session,
+                redirectMode: .fnMusic
+            )
+        }
         self.lookupTimeout = lookupTimeout
         self.probeTimeout = probeTimeout
     }

@@ -68,3 +68,42 @@ public enum HTTPRedirectSecurityPolicy {
             && destinationEndpoint.port == 443
     }
 }
+
+/// Rebuilds a request only after the server actually returned a redirect.
+///
+/// This deliberately does not guess an HTTPS endpoint or proactively upgrade
+/// HTTP. It only follows redirects accepted by `HTTPRedirectSecurityPolicy`,
+/// preserving direct HTTP services while allowing the conventional same-host
+/// 80 -> 443 upgrade when the server explicitly requests it.
+public enum HTTPRedirectRequestPolicy {
+    public static let maximumRedirects = 5
+
+    public static func redirectedRequest(
+        from original: URLRequest,
+        response: HTTPURLResponse
+    ) -> URLRequest? {
+        guard [301, 302, 303, 307, 308].contains(response.statusCode),
+              let sourceURL = response.url ?? original.url,
+              let location = response.value(forHTTPHeaderField: "Location"),
+              let destinationURL = URL(string: location, relativeTo: sourceURL)?.absoluteURL,
+              HTTPRedirectSecurityPolicy.allows(from: sourceURL, to: destinationURL) else {
+            return nil
+        }
+
+        var redirected = original
+        redirected.url = destinationURL
+        redirected.setValue(nil, forHTTPHeaderField: "Host")
+
+        let method = (original.httpMethod ?? "GET").uppercased()
+        let changesToGET = (response.statusCode == 303 && method != "HEAD")
+            || ((response.statusCode == 301 || response.statusCode == 302) && method == "POST")
+        if changesToGET {
+            redirected.httpMethod = "GET"
+            redirected.httpBody = nil
+            redirected.setValue(nil, forHTTPHeaderField: "Content-Length")
+            redirected.setValue(nil, forHTTPHeaderField: "Content-Type")
+            redirected.setValue(nil, forHTTPHeaderField: "Transfer-Encoding")
+        }
+        return redirected
+    }
+}

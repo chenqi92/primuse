@@ -523,3 +523,9 @@
 "ext.tv.demo.lyric6" = "Neon tanzt auf dem Wasser";
 "ext.tv.demo.lyric7" = "Jeder Schritt landet im Echo";
 "ext.tv.demo.lyric8" = "Langsames Licht, bring mich heim";
+"ext.tv.certificate.title" = "Serverzertifikat bestätigen";
+"ext.tv.certificate.trust" = "Vertrauen und fortfahren";
+"ext.tv.certificate.message" = "Das HTTPS-Zertifikat für %1$@ konnte nicht überprüft werden. Fahre nur fort, wenn dies dein Server ist. Wenn sich das Zertifikat ändert, wirst du erneut gefragt.";
+"ext.tv.http.title" = "Unverschlüsseltes HTTP bestätigen";
+"ext.tv.http.allow" = "Zulassen und fortfahren";
+"ext.tv.http.message" = "%1$@ verwendet unverschlüsseltes HTTP. Fahre nur fort, wenn dies dein Server ist. Die Freigabe gilt nur für dieses Protokoll, diesen Host und diesen Port.";
