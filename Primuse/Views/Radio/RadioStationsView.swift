@@ -10,66 +10,13 @@ import UIKit
 import AppKit
 #endif
 
-struct RadioSettingsView: View {
-    @Environment(RadioStationsStore.self) private var store
-
-    var body: some View {
-        List {
-            Section {
-                NavigationLink {
-                    RadioStationsView()
-                } label: {
-                    Label("radio_manage", systemImage: "square.grid.2x2")
-                }
-            }
-
-            if !store.stations.isEmpty {
-                Section {
-                    ForEach(store.stations) { station in
-                        HStack(spacing: 12) {
-                            RadioStationArtworkView(station: station, size: 42, cornerRadius: 9)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(station.name)
-                                    .lineLimit(1)
-                                Text(station.playbackSubtitle)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer(minLength: 8)
-                            if let index = store.stations.firstIndex(where: { $0.id == station.id }) {
-                                Text("#\(index + 1)")
-                                    .font(.caption.monospacedDigit())
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    .onMove(perform: store.moveStations)
-                } header: {
-                    Text("radio_priority_title")
-                } footer: {
-                    Text("radio_priority_footer")
-                }
-
-                Section {
-                    Button("radio_priority_sort_by_name") {
-                        store.sortStationsByName()
-                    }
-                }
-            }
-        }
-        #if os(iOS)
-        .environment(\.editMode, .constant(.active))
-        #endif
-        .navigationTitle("radio_settings_title")
-    }
-}
-
 struct RadioStationsView: View {
     @Environment(RadioStationsStore.self) private var store
     @Environment(AudioPlayerService.self) private var player
     @State private var editingStation: RadioStation?
     @State private var showingNewStation = false
     @State private var pendingInsecureStation: RadioStation?
+    @State private var isReordering = false
 
     private let columns = [
         GridItem(.adaptive(minimum: 190, maximum: 280), spacing: 16)
@@ -86,33 +33,30 @@ struct RadioStationsView: View {
                     Button("radio_add") { showingNewStation = true }
                         .buttonStyle(.borderedProminent)
                 }
+            } else if isReordering {
+                priorityEditor
             } else {
-                ScrollView {
-                    LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
-                        ForEach(store.stations) { station in
-                            RadioStationCard(
-                                station: station,
-                                isCurrent: player.currentRadioStation?.id == station.id,
-                                isPlaying: player.currentRadioStation?.id == station.id
-                                    && (player.isPlaying || player.isLoading),
-                                metadataTitle: player.currentRadioStation?.id == station.id
-                                    ? player.radioMetadataTitle
-                                    : nil,
-                                onPlay: { toggle(station) },
-                                onEdit: { editingStation = station },
-                                onDelete: { store.remove(id: station.id) },
-                                onMoveUp: { store.moveStation(id: station.id, by: -1) },
-                                onMoveDown: { store.moveStation(id: station.id, by: 1) }
-                            )
-                        }
-                    }
-                    .padding(16)
-                }
+                stationGrid
             }
         }
         .navigationTitle("radio_title")
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItemGroup(placement: .primaryAction) {
+                if !store.stations.isEmpty {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isReordering.toggle()
+                        }
+                    } label: {
+                        Label(
+                            isReordering
+                                ? String(localized: "done")
+                                : String(localized: "radio_priority_title"),
+                            systemImage: isReordering ? "checkmark" : "arrow.up.arrow.down"
+                        )
+                    }
+                }
+
                 Button {
                     showingNewStation = true
                 } label: {
@@ -149,6 +93,97 @@ struct RadioStationsView: View {
         }
     }
 
+    private var stationGrid: some View {
+        ScrollView {
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
+                ForEach(Array(store.stations.enumerated()), id: \.element.id) { index, station in
+                    RadioStationCard(
+                        station: station,
+                        priority: index + 1,
+                        isCurrent: player.currentRadioStation?.id == station.id,
+                        isPlaying: player.currentRadioStation?.id == station.id
+                            && (player.isPlaying || player.isLoading),
+                        metadataTitle: player.currentRadioStation?.id == station.id
+                            ? player.radioMetadataTitle
+                            : nil,
+                        canMoveUp: index > 0,
+                        canMoveDown: index < store.stations.count - 1,
+                        onPlay: { toggle(station) },
+                        onEdit: { editingStation = station },
+                        onDelete: { store.remove(id: station.id) },
+                        onMoveUp: { store.moveStation(id: station.id, by: -1) },
+                        onMoveDown: { store.moveStation(id: station.id, by: 1) }
+                    )
+                }
+            }
+            .padding(16)
+        }
+    }
+
+    @ViewBuilder
+    private var priorityEditor: some View {
+        #if os(iOS)
+        priorityList
+            .environment(\.editMode, .constant(.active))
+        #else
+        priorityList
+        #endif
+    }
+
+    private var priorityList: some View {
+        List {
+            Section {
+                ForEach(Array(store.stations.enumerated()), id: \.element.id) { index, station in
+                    HStack(spacing: 12) {
+                        Text("#\(index + 1)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .frame(width: 28, alignment: .trailing)
+                        RadioStationArtworkView(station: station, size: 42, cornerRadius: 9)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(station.name)
+                                .lineLimit(1)
+                            Text(station.playbackSubtitle)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        Spacer(minLength: 8)
+
+                        #if os(macOS)
+                        Button {
+                            store.moveStation(id: station.id, by: -1)
+                        } label: {
+                            Image(systemName: "arrow.up")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(index == 0)
+                        .help(String(localized: "radio_priority_move_up"))
+
+                        Button {
+                            store.moveStation(id: station.id, by: 1)
+                        } label: {
+                            Image(systemName: "arrow.down")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(index == store.stations.count - 1)
+                        .help(String(localized: "radio_priority_move_down"))
+                        #endif
+                    }
+                }
+                .onMove(perform: store.moveStations)
+            } footer: {
+                Text("radio_priority_footer")
+            }
+
+            Section {
+                Button("radio_priority_sort_by_name") {
+                    store.sortStationsByName()
+                }
+            }
+        }
+    }
+
     private func toggle(_ station: RadioStation) {
         if let url = station.url,
            TrustedHTTPTransport.requiresPlainSocket(for: url),
@@ -172,9 +207,12 @@ struct RadioStationsView: View {
 
 private struct RadioStationCard: View {
     let station: RadioStation
+    let priority: Int
     let isCurrent: Bool
     let isPlaying: Bool
     let metadataTitle: String?
+    let canMoveUp: Bool
+    let canMoveDown: Bool
     let onPlay: () -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
@@ -182,48 +220,74 @@ private struct RadioStationCard: View {
     let onMoveDown: () -> Void
 
     var body: some View {
-        Button(action: onPlay) {
-            HStack(spacing: 13) {
-                RadioStationArtworkView(station: station, size: 64, cornerRadius: 14)
+        HStack(spacing: 8) {
+            Button(action: onPlay) {
+                HStack(spacing: 13) {
+                    RadioStationArtworkView(station: station, size: 64, cornerRadius: 14)
 
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(station.name)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                    Text(metadataTitle ?? station.playbackSubtitle)
-                        .font(.caption)
-                        .foregroundStyle(isCurrent ? Color.accentColor : .secondary)
-                        .lineLimit(2)
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack(spacing: 6) {
+                            Text(station.name)
+                                .font(.headline)
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                            Spacer(minLength: 4)
+                            Text("#\(priority)")
+                                .font(.caption2.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                        Text(metadataTitle ?? station.playbackSubtitle)
+                            .font(.caption)
+                            .foregroundStyle(isCurrent ? Color.accentColor : .secondary)
+                            .lineLimit(2)
+                    }
+
+                    Spacer(minLength: 4)
+
+                    Image(systemName: isPlaying ? "stop.fill" : "play.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(isPlaying ? Color.red : Color.accentColor)
+                        .frame(width: 36, height: 36)
+                        .background(.thinMaterial, in: Circle())
                 }
-
-                Spacer(minLength: 8)
-
-                Image(systemName: isPlaying ? "stop.fill" : "play.fill")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(isPlaying ? Color.red : Color.accentColor)
-                    .frame(width: 36, height: 36)
-                    .background(.thinMaterial, in: Circle())
+                .contentShape(Rectangle())
             }
-            .padding(12)
-            .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
-            .background(
-                isCurrent ? Color.accentColor.opacity(0.1) : Color.secondary.opacity(0.07),
-                in: RoundedRectangle(cornerRadius: 18, style: .continuous)
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(isCurrent ? Color.accentColor.opacity(0.35) : Color.secondary.opacity(0.1), lineWidth: 0.7)
+            .buttonStyle(.plain)
+
+            Menu {
+                managementActions
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(width: 36, height: 44)
+                    .contentShape(Rectangle())
             }
+            .accessibilityLabel("radio_manage")
         }
-        .buttonStyle(.plain)
+        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
+        .background(
+            isCurrent ? Color.accentColor.opacity(0.1) : Color.secondary.opacity(0.07),
+            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(isCurrent ? Color.accentColor.opacity(0.35) : Color.secondary.opacity(0.1), lineWidth: 0.7)
+        }
         .contextMenu {
-            Button("radio_priority_move_up", systemImage: "arrow.up", action: onMoveUp)
-            Button("radio_priority_move_down", systemImage: "arrow.down", action: onMoveDown)
-            Divider()
-            Button("edit", action: onEdit)
-            Button("delete", role: .destructive, action: onDelete)
+            managementActions
         }
+    }
+
+    @ViewBuilder
+    private var managementActions: some View {
+        Button("edit", systemImage: "pencil", action: onEdit)
+        Button("radio_priority_move_up", systemImage: "arrow.up", action: onMoveUp)
+            .disabled(!canMoveUp)
+        Button("radio_priority_move_down", systemImage: "arrow.down", action: onMoveDown)
+            .disabled(!canMoveDown)
+        Divider()
+        Button("delete", systemImage: "trash", role: .destructive, action: onDelete)
     }
 }
 
@@ -256,7 +320,7 @@ struct RadioStationArtworkView: View {
     }
 }
 
-private struct RadioStationEditorView: View {
+struct RadioStationEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(RadioStationsStore.self) private var store
     @Environment(AudioPlayerService.self) private var player

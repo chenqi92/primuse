@@ -248,76 +248,89 @@ struct MacSettingsView: View {
 
 private struct MacSTRadioView: View {
     @Environment(RadioStationsStore.self) private var store
-    @State private var showingManager = false
+    @State private var showingNewStation = false
+    @State private var editingStation: RadioStation?
 
     var body: some View {
-        MacSTSection(
-            String(localized: "radio_priority_title"),
-            hint: String(localized: "radio_priority_footer")
-        ) {
-            MacSTGroup {
-                if store.stations.isEmpty {
+        Group {
+            MacSTSection(String(localized: "radio_title")) {
+                MacSTGroup {
                     MacSTRow(
-                        String(localized: "radio_empty_title"),
-                        hint: String(localized: "radio_empty_description"),
+                        String(localized: "radio_add"),
+                        hint: store.stations.isEmpty
+                            ? String(localized: "radio_empty_description")
+                            : nil,
                         divider: false
                     ) {
-                        Button(String(localized: "radio_add")) { showingManager = true }
+                        Button(String(localized: "radio_add")) { showingNewStation = true }
                             .buttonStyle(.borderedProminent)
                     }
-                } else {
-                    ForEach(Array(store.stations.enumerated()), id: \.element.id) { index, station in
-                        MacSTRow(station.name, hint: station.playbackSubtitle, divider: index != 0) {
-                            HStack(spacing: 8) {
-                                Text("#\(index + 1)")
-                                    .font(.system(size: 11).monospacedDigit())
-                                    .foregroundStyle(PMColor.textFaint)
-                                    .frame(width: 26, alignment: .trailing)
-                                Button {
-                                    store.moveStation(id: station.id, by: -1)
-                                } label: {
-                                    Image(systemName: "arrow.up")
-                                }
-                                .buttonStyle(.borderless)
-                                .disabled(index == 0)
-                                .help(String(localized: "radio_priority_move_up"))
 
-                                Button {
-                                    store.moveStation(id: station.id, by: 1)
-                                } label: {
-                                    Image(systemName: "arrow.down")
+                    if !store.stations.isEmpty {
+                        MacSTRow(String(localized: "radio_priority_sort_by_name")) {
+                            Button(String(localized: "radio_priority_sort_by_name")) {
+                                store.sortStationsByName()
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
+                }
+            }
+
+            if !store.stations.isEmpty {
+                MacSTSection(
+                    String(localized: "radio_priority_title"),
+                    hint: String(localized: "radio_priority_footer")
+                ) {
+                    MacSTGroup {
+                        ForEach(Array(store.stations.enumerated()), id: \.element.id) { index, station in
+                            MacSTRow(
+                                station.name,
+                                hint: station.playbackSubtitle,
+                                divider: index != 0
+                            ) {
+                                HStack(spacing: 8) {
+                                    Text("#\(index + 1)")
+                                        .font(.system(size: 11).monospacedDigit())
+                                        .foregroundStyle(PMColor.textFaint)
+                                        .frame(width: 26, alignment: .trailing)
+                                    Button {
+                                        editingStation = station
+                                    } label: {
+                                        Image(systemName: "pencil")
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .help(String(localized: "edit"))
+
+                                    Button {
+                                        store.moveStation(id: station.id, by: -1)
+                                    } label: {
+                                        Image(systemName: "arrow.up")
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .disabled(index == 0)
+                                    .help(String(localized: "radio_priority_move_up"))
+
+                                    Button {
+                                        store.moveStation(id: station.id, by: 1)
+                                    } label: {
+                                        Image(systemName: "arrow.down")
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .disabled(index == store.stations.count - 1)
+                                    .help(String(localized: "radio_priority_move_down"))
                                 }
-                                .buttonStyle(.borderless)
-                                .disabled(index == store.stations.count - 1)
-                                .help(String(localized: "radio_priority_move_down"))
                             }
                         }
                     }
                 }
             }
         }
-
-        MacSTSection(String(localized: "radio_manage")) {
-            MacSTGroup {
-                MacSTRow(String(localized: "radio_manage"), divider: false) {
-                    Button(String(localized: "radio_manage")) { showingManager = true }
-                        .buttonStyle(.bordered)
-                }
-                if !store.stations.isEmpty {
-                    MacSTRow(String(localized: "radio_priority_sort_by_name")) {
-                        Button(String(localized: "radio_priority_sort_by_name")) {
-                            store.sortStationsByName()
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                }
-            }
+        .sheet(isPresented: $showingNewStation) {
+            RadioStationEditorView(station: nil)
         }
-        .sheet(isPresented: $showingManager) {
-            NavigationStack {
-                RadioStationsView()
-            }
-            .frame(minWidth: 720, minHeight: 540)
+        .sheet(item: $editingStation) { station in
+            RadioStationEditorView(station: station)
         }
     }
 }
