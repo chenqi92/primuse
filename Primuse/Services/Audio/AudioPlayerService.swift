@@ -4324,7 +4324,7 @@ final class AudioPlayerService {
             playID = UUID()
             stopRadioTransport(clearSelection: true)
             queueEntries = []
-            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            clearNowPlayingInfo()
             updatePlaybackState()
             return
         }
@@ -4353,6 +4353,7 @@ final class AudioPlayerService {
             isPlaying = false
             isLoading = false
             queueEntries = []
+            clearNowPlayingInfo()
             updatePlaybackState()
             return
         }
@@ -4380,7 +4381,7 @@ final class AudioPlayerService {
         stopTimeUpdater()
         ScrobbleService.shared.handlePlaybackStopped(); PlayHistoryStore.shared.endSession()
         // Clear NowPlaying info so Dynamic Island / Lock Screen also clears
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        clearNowPlayingInfo()
         updatePlaybackState()
     }
 
@@ -6430,8 +6431,13 @@ final class AudioPlayerService {
 
     // MARK: - Now Playing Info
 
-    /// Tracks which cover we last loaded to avoid redundant disk reads
-    private var lastArtworkFileName: String?
+    /// Tracks which song last started an artwork lookup to avoid redundant IO.
+    private var lastArtworkSongID: String?
+
+    /// Identifies the song that owns the artwork currently published to the
+    /// system. It must match `currentSong` before metadata refreshes can carry
+    /// that image forward.
+    private var publishedArtworkSongID: String?
 
     /// 单调递增的封面刷新 token。当刮削回写完成、cache 失效但 coverArtFileName
     /// 字符串可能没变（hash deterministic）时, view 上的 onChange(coverRef) 不会
@@ -6443,7 +6449,10 @@ final class AudioPlayerService {
         coverRevision &+= 1
     }
 
-    private func updateNowPlayingInfo() {
+    private func updateNowPlayingInfo(
+        artwork: MPMediaItemArtwork? = nil,
+        artworkSongID: String? = nil
+    ) {
         let preferredRate = playbackSettings.outputMode == .effects
             ? Double(playbackSettings.playbackRate)
             : 1
@@ -6455,19 +6464,18 @@ final class AudioPlayerService {
         )
         synchronizeRemoteCommandAvailability(projection)
 
-        let nowPlayingCenter = MPNowPlayingInfoCenter.default()
         guard currentSong != nil else {
-            nowPlayingCenter.nowPlayingInfo = nil
-            #if os(macOS)
-            nowPlayingCenter.playbackState = .stopped
-            #endif
+            clearNowPlayingInfo()
             return
         }
+        let nowPlayingCenter = MPNowPlayingInfoCenter.default()
 
-        // Create fresh info but preserve existing artwork
+        // Build a fresh snapshot; artwork is carried forward only when its
+        // ownership still matches the current song.
         var info = [String: Any]()
         info[MPMediaItemPropertyTitle] = currentSong?.title ?? ""
         info[MPMediaItemPropertyArtist] = currentSong?.artistName ?? ""
+        info[MPNowPlayingInfoPropertyExternalContentIdentifier] = currentSong?.id
         info[MPNowPlayingInfoPropertyDefaultPlaybackRate] = 1.0
         info[MPNowPlayingInfoPropertyPlaybackRate] = projection.playbackRate
         info[MPNowPlayingInfoPropertyMediaType] = isMusicVideoPlaybackActive
@@ -6487,14 +6495,32 @@ final class AudioPlayerService {
             info[MPNowPlayingInfoPropertyPlaybackQueueIndex] = currentIndex
         }
 
-        // Carry over existing artwork (set separately by updateNowPlayingArtworkIfNeeded)
-        if let existingArtwork = nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork] {
+        // Publish asynchronously resolved artwork together with the complete
+        // current-track snapshot. Ordinary progress/state refreshes may reuse
+        // it only while it still belongs to this same song.
+        if let artwork,
+           artworkSongID == currentSong?.id {
+            info[MPMediaItemPropertyArtwork] = artwork
+        } else if NowPlayingArtworkPublicationPolicy.shouldReuseArtwork(
+            ownedBy: publishedArtworkSongID,
+            for: currentSong?.id
+        ), let existingArtwork = nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork] {
             info[MPMediaItemPropertyArtwork] = existingArtwork
         }
 
         nowPlayingCenter.nowPlayingInfo = info
         #if os(macOS)
         nowPlayingCenter.playbackState = isPlaybackActuallyActive && !isLoading ? .playing : .paused
+        #endif
+    }
+
+    private func clearNowPlayingInfo() {
+        lastArtworkSongID = nil
+        publishedArtworkSongID = nil
+        let nowPlayingCenter = MPNowPlayingInfoCenter.default()
+        nowPlayingCenter.nowPlayingInfo = nil
+        #if os(macOS)
+        nowPlayingCenter.playbackState = .stopped
         #endif
     }
 
@@ -6513,8 +6539,9 @@ final class AudioPlayerService {
     /// Call ONLY when song changes — loads cover art and sets MPMediaItemPropertyArtwork
     private func updateNowPlayingArtworkIfNeeded() {
         let songID = currentSong?.id
-        guard songID != lastArtworkFileName else { return }
-        lastArtworkFileName = songID
+        guard songID != lastArtworkSongID else { return }
+        lastArtworkSongID = songID
+        publishedArtworkSongID = nil
 
         // Immediately clear stale artwork from previous song so Dynamic Island
         // doesn't keep showing the old cover while loading the new one.
@@ -6615,21 +6642,24 @@ final class AudioPlayerService {
             // Guard: make sure we're still on the same song before updating NowPlaying
             await MainActor.run { [weak self] in
                 guard let self, self.currentSong?.id == songID else { return }
-                var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
                 if let image = loadedImage {
-                    info[MPMediaItemPropertyArtwork] = Self.makeArtwork(from: image)
+                    self.publishedArtworkSongID = songID
+                    self.updateNowPlayingInfo(
+                        artwork: Self.makeArtwork(from: image),
+                        artworkSongID: songID
+                    )
                 } else {
-                    info[MPMediaItemPropertyArtwork] = nil
+                    self.publishedArtworkSongID = nil
+                    self.updateNowPlayingInfo()
                 }
-                MPNowPlayingInfoCenter.default().nowPlayingInfo = info
             }
         }
     }
 
     /// Force refresh NowPlaying artwork (e.g. after scraping updated the cover file).
-    /// Resets lastArtworkFileName so the guard check passes.
+    /// Resets the last artwork song ID so the guard check passes.
     func forceRefreshNowPlayingArtwork() {
-        lastArtworkFileName = nil
+        lastArtworkSongID = nil
         bumpCoverRevision()
         updateNowPlayingArtworkIfNeeded()
     }
@@ -6639,16 +6669,18 @@ final class AudioPlayerService {
     /// cache becomes available without treating it as an explicit replacement.
     func retryNowPlayingArtwork(afterCachingSongID songID: String) {
         guard currentSong?.id == songID else { return }
-        lastArtworkFileName = nil
+        lastArtworkSongID = nil
         updateNowPlayingArtworkIfNeeded()
     }
 
     func updateNowPlayingArtwork(_ image: PlatformImage) {
-        lastArtworkFileName = currentSong?.coverArtFileName
-        let artwork = Self.makeArtwork(from: image)
-        var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
-        info[MPMediaItemPropertyArtwork] = artwork
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        guard let songID = currentSong?.id else { return }
+        lastArtworkSongID = songID
+        publishedArtworkSongID = songID
+        updateNowPlayingInfo(
+            artwork: Self.makeArtwork(from: image),
+            artworkSongID: songID
+        )
     }
 
     /// Creates MPMediaItemArtwork with a non-isolated requestHandler closure.

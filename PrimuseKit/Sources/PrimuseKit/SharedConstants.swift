@@ -2424,6 +2424,25 @@ public enum NowPlayingArtworkFallbackPolicy {
     }
 }
 
+/// Prevents artwork published for one item from being attached to the next
+/// item while its own image is still loading. Some Bluetooth accessories only
+/// sample artwork when the rest of the track metadata changes, so carrying the
+/// previous image into that snapshot makes the display lag by one track.
+public enum NowPlayingArtworkPublicationPolicy {
+    public static func shouldReuseArtwork(
+        ownedBy artworkSongID: String?,
+        for currentSongID: String?
+    ) -> Bool {
+        guard let artworkSongID,
+              !artworkSongID.isEmpty,
+              let currentSongID,
+              !currentSongID.isEmpty else {
+            return false
+        }
+        return artworkSongID == currentSongID
+    }
+}
+
 /// Validates the non-query portion of an OAuth callback URL.
 ///
 /// Providers that redirect straight back to the app must return the registered
