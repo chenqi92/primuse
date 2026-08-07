@@ -106,13 +106,17 @@ actor SynologySource: MusicSourceConnector {
                         message: String(localized: "password_required_title")
                     )
                 }
-                throw SourceError.connectionFailed("missing password")
+                throw SourceConnectionTerminalError(message: String(localized: "password_required_title"))
             case .temporarilyUnavailable(let status):
                 plog("⏳ SynologySource '\(sourceID)' connect deferred: credential temporarily unavailable status=\(status)")
-                throw SourceError.connectionFailed("credential temporarily unavailable")
+                throw SourceConnectionTerminalError(
+                    message: String(localized: "credential_temporarily_unavailable")
+                )
             case .failed(let status):
                 plog("⛔ SynologySource '\(sourceID)' connect aborted: credential read failed status=\(status)")
-                throw SourceError.connectionFailed("credential read failed")
+                throw SourceConnectionTerminalError(
+                    message: String(localized: "credential_read_failed")
+                )
             }
 
             let result = await api.login(
@@ -129,9 +133,10 @@ actor SynologySource: MusicSourceConnector {
                         SourceAuthAlert.report(sourceID: sourceID, message: msg)
                     }
                 }
-                throw result.needs2FA
-                    ? SourceError.authenticationFailed
-                    : SourceError.connectionFailed(msg)
+                if result.needs2FA || result.errorCode != nil {
+                    throw SourceConnectionTerminalError(message: msg)
+                }
+                throw result.underlyingError ?? SourceError.connectionFailed(msg)
             }
             await MainActor.run {
                 SourceAuthAlert.clear(sourceID: sourceID)

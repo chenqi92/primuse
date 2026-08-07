@@ -173,6 +173,13 @@ struct ConnectorDirectoryBrowserView: View {
         }
     }
 
+    private func promptTransportTrust(for error: Error) async -> Bool {
+        if case TrustedHTTPTransportError.permissionRequired(let host) = error {
+            return await promptInsecureHTTPTrust(host: host)
+        }
+        return await promptSSLTrust(for: error)
+    }
+
     private var directoryList: some View {
         let directories = items.filter(\.isDirectory)
         let selectableRootPath = SourceDirectorySelectionPolicy.selectableRootPath(
@@ -285,7 +292,7 @@ struct ConnectorDirectoryBrowserView: View {
                 isLoading = false
             } catch {
                 guard !Task.isCancelled, requestPath == currentPath else { return }
-                let trusted = await promptSSLTrust(for: error)
+                let trusted = await promptTransportTrust(for: error)
                 guard !Task.isCancelled, requestPath == currentPath else { return }
                 if trusted {
                     do {

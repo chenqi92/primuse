@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import Network
 
 // MARK: - Source Categories
 
@@ -311,6 +312,46 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         }
     }
 
+    /// Address-backed sources whose service can legitimately expose different
+    /// LAN and Internet endpoints. Cloud accounts, discovery-only sources and
+    /// unpublished vendor placeholders keep their existing single-entry flow.
+    public var supportsAdaptiveConnections: Bool {
+        switch self {
+        case .synology, .qnap, .ugreen, .webdav, .smb, .ftp, .sftp, .nfs, .s3,
+             .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic,
+             .fnMusic, .daoliyu:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// HTTP service prefixes may differ when the public route is exposed by a
+    /// reverse proxy. Filesystem roots and shares remain source-wide because a
+    /// song path must keep the same identity whichever route is active.
+    public var supportsEndpointSpecificPath: Bool {
+        switch self {
+        case .synology, .qnap, .ugreen, .webdav, .jellyfin, .emby, .plex,
+             .subsonic, .navidrome, .airsonic, .gonic,
+             .fnMusic, .daoliyu:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Connection URLs that may include a route-specific HTTP prefix. S3 is
+    /// intentionally separate from `supportsEndpointSpecificPath`: its legacy
+    /// `basePath` stores the bucket, while a reverse-proxy prefix belongs to
+    /// the LAN/public endpoint itself.
+    public var supportsEndpointPathPrefix: Bool {
+        supportsEndpointSpecificPath || self == .s3
+    }
+
+    public var supportsVendorRemoteAccess: Bool {
+        self == .synology || self == .fnMusic
+    }
+
     public var isCloudDrive: Bool {
         category == .cloudDrive
     }
@@ -546,6 +587,221 @@ public enum NFSVersion: String, Codable, Sendable, CaseIterable {
     }
 }
 
+// MARK: - Adaptive connection routes
+
+/// User intent for choosing between saved LAN and remote routes. Automatic is
+/// deliberately deterministic: LAN first, then the selected remote method.
+public enum SourceConnectionPreference: String, Codable, Sendable, CaseIterable {
+    case automatic
+    case localOnly
+    case remoteOnly
+}
+
+/// Synology QuickConnect and Feiniu FN Connect are remote discovery/relay
+/// methods, not ordinary URLs. Only one remote method is active at a time, but
+/// both the direct endpoint and vendor identifier remain persisted.
+public enum SourceRemoteAccessMode: String, Codable, Sendable, CaseIterable {
+    case direct
+    case vendor
+}
+
+/// A complete address entry. Port and transport belong to the endpoint rather
+/// than the source so a LAN service port and a public reverse-proxy port never
+/// overwrite each other. `pathPrefix` is used only by HTTP-style source types.
+public struct SourceConnectionEndpoint: Codable, Hashable, Sendable {
+    public var host: String
+    public var port: Int
+    public var useSsl: Bool
+    public var pathPrefix: String?
+
+    public init(host: String, port: Int, useSsl: Bool, pathPrefix: String? = nil) {
+        self.host = host
+        self.port = port
+        self.useSsl = useSsl
+        self.pathPrefix = pathPrefix
+    }
+
+    /// Canonicalizes a full URL or `host:port` entry into the fields consumed
+    /// by every connector. A URL's explicit scheme, port and path win over the
+    /// adjacent form controls; this keeps reverse-proxy URLs working in older
+    /// resolvers that only understand a host plus a separate base path.
+    public var normalized: SourceConnectionEndpoint {
+        let address = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard address.isEmpty == false else { return self }
+
+        let components: URLComponents? = {
+            if address.contains("://") {
+                return URLComponents(string: address)
+            }
+            return URLComponents(string: "http://\(address)")
+        }()
+        guard let parsedHost = components?.host, parsedHost.isEmpty == false else {
+            var copy = self
+            copy.host = address
+            copy.pathPrefix = Self.normalizedPath(pathPrefix)
+            return copy
+        }
+
+        let explicitScheme = address.contains("://")
+            ? components?.scheme?.lowercased()
+            : nil
+        let normalizedSSL: Bool
+        switch explicitScheme {
+        case "https", "wss", "ftps": normalizedSSL = true
+        case "http", "ws", "ftp": normalizedSSL = false
+        default: normalizedSSL = useSsl
+        }
+
+        let urlPath = Self.normalizedPath(components?.percentEncodedPath.removingPercentEncoding)
+        return SourceConnectionEndpoint(
+            host: parsedHost,
+            port: components?.port ?? port,
+            useSsl: normalizedSSL,
+            pathPrefix: urlPath ?? Self.normalizedPath(pathPrefix)
+        )
+    }
+
+    public var isUsable: Bool {
+        let endpoint = normalized
+        return endpoint.host.isEmpty == false && (1...65_535).contains(endpoint.port)
+    }
+
+    private static func normalizedPath(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              trimmed.isEmpty == false,
+              trimmed != "/" else {
+            return nil
+        }
+        return trimmed.hasPrefix("/") ? trimmed : "/\(trimmed)"
+    }
+}
+
+/// Persisted multi-route configuration. Empty inactive fields are retained so
+/// switching between a public URL and QuickConnect/FN Connect is lossless.
+public struct SourceConnectionConfiguration: Codable, Hashable, Sendable {
+    public var preference: SourceConnectionPreference
+    public var localEndpoint: SourceConnectionEndpoint?
+    public var publicEndpoint: SourceConnectionEndpoint?
+    public var remoteAccessMode: SourceRemoteAccessMode
+    public var vendorIdentifier: String?
+
+    public init(
+        preference: SourceConnectionPreference = .automatic,
+        localEndpoint: SourceConnectionEndpoint? = nil,
+        publicEndpoint: SourceConnectionEndpoint? = nil,
+        remoteAccessMode: SourceRemoteAccessMode = .direct,
+        vendorIdentifier: String? = nil
+    ) {
+        self.preference = preference
+        self.localEndpoint = localEndpoint
+        self.publicEndpoint = publicEndpoint
+        self.remoteAccessMode = remoteAccessMode
+        self.vendorIdentifier = vendorIdentifier
+    }
+}
+
+public enum SourceConnectionCandidateKind: String, Codable, Hashable, Sendable {
+    case localAddress
+    case publicAddress
+    case vendorRemote
+}
+
+/// Runtime-only candidate produced from a persisted configuration.
+public struct SourceConnectionCandidate: Hashable, Sendable, Identifiable {
+    public let kind: SourceConnectionCandidateKind
+    public let endpoint: SourceConnectionEndpoint?
+    public let vendorIdentifier: String?
+
+    public init(
+        kind: SourceConnectionCandidateKind,
+        endpoint: SourceConnectionEndpoint? = nil,
+        vendorIdentifier: String? = nil
+    ) {
+        self.kind = kind
+        self.endpoint = endpoint
+        self.vendorIdentifier = vendorIdentifier
+    }
+
+    public var id: String { kind.rawValue }
+}
+
+/// Device-local route memory shared by scanners and stream resolvers. It never
+/// enters source JSON or CloudKit; a network-path change invalidates it so the
+/// next request can prefer a newly available LAN route again.
+public actor SourceConnectionRuntime {
+    public static let shared = SourceConnectionRuntime()
+
+    private var activeKinds: [String: SourceConnectionCandidateKind] = [:]
+    private var generation: UInt64 = 0
+
+    public init() {
+        _ = SourceConnectionNetworkObserver.shared
+    }
+
+    public func orderedCandidates(for source: MusicSource) -> [SourceConnectionCandidate] {
+        let candidates = source.connectionCandidates
+        guard let activeKind = activeKinds[source.id],
+              let activeIndex = candidates.firstIndex(where: { $0.kind == activeKind }),
+              activeIndex > 0 else {
+            return candidates
+        }
+        var ordered = candidates
+        let active = ordered.remove(at: activeIndex)
+        ordered.insert(active, at: 0)
+        return ordered
+    }
+
+    public func activeKind(for sourceID: String) -> SourceConnectionCandidateKind? {
+        activeKinds[sourceID]
+    }
+
+    public func record(_ kind: SourceConnectionCandidateKind, for sourceID: String) {
+        activeKinds[sourceID] = kind
+    }
+
+    public func invalidate(sourceID: String) {
+        activeKinds.removeValue(forKey: sourceID)
+    }
+
+    public func invalidateAll() {
+        activeKinds.removeAll()
+        generation &+= 1
+    }
+
+    public func routeGeneration() -> UInt64 {
+        generation
+    }
+}
+
+private final class SourceConnectionNetworkObserver: @unchecked Sendable {
+    static let shared = SourceConnectionNetworkObserver()
+
+    private let monitor = NWPathMonitor()
+    private let queue = DispatchQueue(label: "com.primuse.connection-routes.network")
+    private let lock = NSLock()
+    private var receivedInitialPath = false
+
+    private init() {
+        monitor.pathUpdateHandler = { [weak self] path in
+            self?.handle(path)
+        }
+        monitor.start(queue: queue)
+    }
+
+    private func handle(_: NWPath) {
+        lock.lock()
+        let shouldInvalidate = receivedInitialPath
+        receivedInitialPath = true
+        lock.unlock()
+
+        // NWPathMonitor invokes this handler for path changes. Do not collapse
+        // two Wi-Fi paths merely because both are unmetered IPv4: moving from
+        // one WLAN to another must make the next operation probe LAN first.
+        guard shouldInvalidate else { return }
+        Task { await SourceConnectionRuntime.shared.invalidateAll() }
+    }
+}
+
 // MARK: - Music Source Entity
 
 public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
@@ -563,6 +819,9 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
     /// direct address so sources created before FN Connect support never change
     /// transport behavior after an upgrade.
     public var fnMusicConnectionMode: FnMusicConnectionMode?
+    /// Optional adaptive routing configuration. A missing value means a legacy
+    /// single-route record and is projected without changing its behavior.
+    public var connectionConfiguration: SourceConnectionConfiguration?
     public var username: String?
     // Password stored in Keychain
     public var basePath: String?
@@ -601,6 +860,7 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
         useSsl: Bool? = nil,
         synologyConnectionMode: SynologyConnectionMode? = nil,
         fnMusicConnectionMode: FnMusicConnectionMode? = nil,
+        connectionConfiguration: SourceConnectionConfiguration? = nil,
         username: String? = nil,
         basePath: String? = nil,
         shareName: String? = nil,
@@ -629,6 +889,7 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
         self.useSsl = resolvedUseSSL
         self.synologyConnectionMode = synologyConnectionMode
         self.fnMusicConnectionMode = fnMusicConnectionMode
+        self.connectionConfiguration = connectionConfiguration
         self.username = username
         self.basePath = basePath
         self.shareName = shareName
@@ -669,6 +930,10 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
             FnMusicConnectionMode.self,
             forKey: .fnMusicConnectionMode
         )
+        self.connectionConfiguration = try c.decodeIfPresent(
+            SourceConnectionConfiguration.self,
+            forKey: .connectionConfiguration
+        )
         self.username = try c.decodeIfPresent(String.self, forKey: .username)
         self.basePath = try c.decodeIfPresent(String.self, forKey: .basePath)
         self.shareName = try c.decodeIfPresent(String.self, forKey: .shareName)
@@ -707,6 +972,212 @@ public extension MusicSource {
     var effectiveFnMusicConnectionMode: FnMusicConnectionMode {
         if let fnMusicConnectionMode { return fnMusicConnectionMode }
         return .address
+    }
+
+    /// Explicit multi-route data when present; otherwise a compatibility view
+    /// over the legacy host/port fields. Legacy direct hosts are classified only
+    /// to choose a UI slot — with one candidate their actual behavior is exact.
+    var effectiveConnectionConfiguration: SourceConnectionConfiguration? {
+        guard type.supportsAdaptiveConnections else { return nil }
+        if let connectionConfiguration { return connectionConfiguration }
+
+        let trimmedHost = host?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard trimmedHost.isEmpty == false else {
+            return SourceConnectionConfiguration()
+        }
+
+        if type == .synology, effectiveSynologyConnectionMode == .quickConnect {
+            return SourceConnectionConfiguration(
+                remoteAccessMode: .vendor,
+                vendorIdentifier: trimmedHost
+            )
+        }
+        if type == .fnMusic, effectiveFnMusicConnectionMode == .fnConnect {
+            return SourceConnectionConfiguration(
+                remoteAccessMode: .vendor,
+                vendorIdentifier: trimmedHost
+            )
+        }
+
+        let endpoint = SourceConnectionEndpoint(
+            host: trimmedHost,
+            port: port ?? type.defaultPort(useSsl: useSsl),
+            useSsl: useSsl,
+            pathPrefix: type.supportsEndpointSpecificPath ? basePath : nil
+        ).normalized
+        if Self.isLikelyLocalEndpoint(trimmedHost) {
+            return SourceConnectionConfiguration(localEndpoint: endpoint)
+        }
+        return SourceConnectionConfiguration(publicEndpoint: endpoint)
+    }
+
+    /// Ordered candidates for a connection attempt. Explicit local-only and
+    /// remote-only choices are strict; an inactive saved route is never used
+    /// as an implicit fallback.
+    var connectionCandidates: [SourceConnectionCandidate] {
+        guard let configuration = effectiveConnectionConfiguration else { return [] }
+
+        let local = configuration.localEndpoint.flatMap { endpoint in
+            let normalized = endpoint.normalized
+            return normalized.isUsable
+                ? SourceConnectionCandidate(kind: .localAddress, endpoint: normalized)
+                : nil
+        }
+
+        let remote: SourceConnectionCandidate?
+        if configuration.remoteAccessMode == .vendor, type.supportsVendorRemoteAccess {
+            let identifier = configuration.vendorIdentifier?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            remote = identifier.isEmpty
+                ? nil
+                : SourceConnectionCandidate(kind: .vendorRemote, vendorIdentifier: identifier)
+        } else {
+            remote = configuration.publicEndpoint.flatMap { endpoint in
+                let normalized = endpoint.normalized
+                return normalized.isUsable
+                    ? SourceConnectionCandidate(kind: .publicAddress, endpoint: normalized)
+                    : nil
+            }
+        }
+
+        let preferred: [SourceConnectionCandidate]
+        switch configuration.preference {
+        case .automatic:
+            preferred = [local, remote].compactMap { $0 }
+        case .localOnly:
+            preferred = [local].compactMap { $0 }
+        case .remoteOnly:
+            preferred = [remote].compactMap { $0 }
+        }
+        return preferred
+    }
+
+    /// Applies one candidate to the legacy fields consumed by existing source
+    /// connectors and stream resolvers. The full configuration stays attached.
+    func applyingConnectionCandidate(_ candidate: SourceConnectionCandidate) -> MusicSource {
+        var projected = self
+        switch candidate.kind {
+        case .localAddress, .publicAddress:
+            guard let endpoint = candidate.endpoint else { return projected }
+            if (type == .synology || type == .qnap || type == .ugreen || type == .s3),
+               endpoint.pathPrefix != nil {
+                projected.host = Self.addressEmbeddingPath(for: endpoint)
+            } else {
+                projected.host = endpoint.host.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            projected.port = endpoint.port
+            projected.useSsl = endpoint.useSsl
+            if type.supportsEndpointSpecificPath {
+                projected.basePath = endpoint.pathPrefix
+            }
+            if type == .synology { projected.synologyConnectionMode = .address }
+            if type == .fnMusic { projected.fnMusicConnectionMode = .address }
+        case .vendorRemote:
+            guard let identifier = candidate.vendorIdentifier else { return projected }
+            projected.host = identifier
+            projected.port = type.defaultPort(useSsl: true)
+            projected.useSsl = true
+            if type == .synology {
+                projected.synologyConnectionMode = .quickConnect
+            } else if type == .fnMusic {
+                projected.fnMusicConnectionMode = .fnConnect
+                projected.basePath = nil
+            }
+        }
+        return projected
+    }
+
+    /// Keeps legacy consumers functional by mirroring the first enabled route
+    /// into host/port/useSsl while retaining every configured route.
+    func projectingPreferredConnectionForLegacy() -> MusicSource {
+        guard let candidate = connectionCandidates.first else { return self }
+        return applyingConnectionCandidate(candidate)
+    }
+
+    /// Compact user-facing summary of the currently enabled routes. Each
+    /// endpoint always includes its own port so different LAN/WAN mappings are
+    /// visible without opening the edit form.
+    var connectionSummary: String? {
+        guard connectionConfiguration != nil else {
+            guard let host = host?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  host.isEmpty == false else {
+                return nil
+            }
+            guard let port, port > 0 else { return host }
+            return Self.endpointDescription(
+                SourceConnectionEndpoint(
+                    host: host,
+                    port: port,
+                    useSsl: useSsl,
+                    pathPrefix: basePath
+                )
+            )
+        }
+
+        let parts = connectionCandidates.compactMap { candidate -> String? in
+            switch candidate.kind {
+            case .localAddress:
+                guard let endpoint = candidate.endpoint else { return nil }
+                return "\(PMString("source_connection_local")) \(Self.endpointDescription(endpoint))"
+            case .publicAddress:
+                guard let endpoint = candidate.endpoint else { return nil }
+                return "\(PMString("source_connection_public_direct")) \(Self.endpointDescription(endpoint))"
+            case .vendorRemote:
+                guard let identifier = candidate.vendorIdentifier else { return nil }
+                let label = type == .synology
+                    ? PMString("synology_connection_quickconnect")
+                    : PMString("fnmusic_connection_fnconnect")
+                return "\(label) \(identifier)"
+            }
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    private static func endpointDescription(_ endpoint: SourceConnectionEndpoint) -> String {
+        let normalized = endpoint.normalized
+        return endpointDescription(
+            host: normalized.host,
+            port: normalized.port,
+            pathPrefix: normalized.pathPrefix
+        )
+    }
+
+    private static func endpointDescription(
+        host: String,
+        port: Int,
+        pathPrefix: String?
+    ) -> String {
+        let hostPart = host.contains(":") && host.hasPrefix("[") == false
+            ? "[\(host)]"
+            : host
+        let path = pathPrefix?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let normalizedPath = path.isEmpty || path == "/"
+            ? ""
+            : (path.hasPrefix("/") ? path : "/\(path)")
+        return "\(hostPart):\(port)\(normalizedPath)"
+    }
+
+    private static func addressEmbeddingPath(for endpoint: SourceConnectionEndpoint) -> String {
+        let endpoint = endpoint.normalized
+        var components = URLComponents()
+        components.scheme = endpoint.useSsl ? "https" : "http"
+        components.host = endpoint.host
+        components.port = endpoint.port
+        components.path = endpoint.pathPrefix ?? ""
+        return components.url?.absoluteString ?? endpoint.host
+    }
+
+    private static func isLikelyLocalEndpoint(_ rawHost: String) -> Bool {
+        let host: String
+        if let components = URLComponents(string: rawHost), let parsedHost = components.host {
+            host = parsedHost
+        } else if let components = URLComponents(string: "http://\(rawHost)"),
+                  let parsedHost = components.host {
+            host = parsedHost
+        } else {
+            host = rawHost
+        }
+        return InsecureHTTPHostPolicy.isLocalNetworkHost(host)
     }
 }
 

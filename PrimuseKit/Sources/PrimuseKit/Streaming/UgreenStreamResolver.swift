@@ -102,14 +102,15 @@ public actor UgreenStreamResolver: StreamResolver {
     // MARK: - 纯函数(可单测)
 
     static func baseURL(host: String, port: Int?, useSsl: Bool) -> URL? {
-        var h = host.trimmingCharacters(in: .whitespaces)
-        guard !h.isEmpty else { return nil }
-        var scheme = useSsl ? "https" : "http"
-        if let r = h.range(of: "://") { scheme = String(h[..<r.lowerBound]).lowercased(); h = String(h[r.upperBound...]) }
-        if let slash = h.firstIndex(of: "/") { h = String(h[..<slash]) }
-        var hostPort = h
-        if let port, port > 0, !h.contains(":") { hostPort = "\(h):\(port)" }
-        return URL(string: "\(scheme)://\(hostPort)")
+        let address = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard address.isEmpty == false else { return nil }
+        var components = address.contains("://")
+            ? URLComponents(string: address)
+            : URLComponents(string: "\(useSsl ? "https" : "http")://\(address)")
+        if components?.port == nil, let port, port > 0 {
+            components?.port = port
+        }
+        return components?.url
     }
 
     static func downloadURL(base: URL, path: String, token: String) -> URL? {

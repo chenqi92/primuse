@@ -48,7 +48,7 @@ actor UgreenSource: MusicSourceConnector {
             await MainActor.run {
                 SourceAuthAlert.report(sourceID: sourceID, message: String(localized: "auth_missing_password"))
             }
-            throw SourceError.connectionFailed("missing password")
+            throw SourceConnectionTerminalError(message: String(localized: "auth_missing_password"))
         }
 
         // In-flight login dedupe: 并发 connect() 全部 await 同一个 login Task,
@@ -64,8 +64,10 @@ actor UgreenSource: MusicSourceConnector {
                 await MainActor.run {
                     SourceAuthAlert.report(sourceID: sourceID, message: msg)
                 }
-                throw r.needs2FA ? SourceError.authenticationFailed
-                                 : SourceError.connectionFailed(msg)
+                if let underlyingError = r.underlyingError {
+                    throw underlyingError
+                }
+                throw SourceConnectionTerminalError(message: msg)
             }
             await MainActor.run {
                 SourceAuthAlert.clear(sourceID: sourceID)

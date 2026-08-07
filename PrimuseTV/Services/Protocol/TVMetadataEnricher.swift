@@ -39,7 +39,11 @@ enum TVMetadataEnricher {
     /// 实际读取逻辑(被带超时的 `enrich` 包裹)。
     private static func enrichCore(song: Song, source: MusicSource,
                                    credential: SourceCredential?, siblings: [TVDirEntry]) async -> Song {
-        guard let reader = SMBByteReader(source: source, filePath: song.filePath, credential: credential) else {
+        guard let reader = TVPlaybackCoordinator.makeDirectReader(
+            source: source,
+            song: song,
+            credential: credential
+        ) else {
             return song
         }
         if song.isStreamDescriptor {
@@ -200,7 +204,11 @@ enum TVMetadataEnricher {
             if let lrc = siblings.first(where: { !$0.isDir
                 && ($0.name as NSString).pathExtension.lowercased() == "lrc"
                 && ($0.name as NSString).deletingPathExtension.lowercased() == stem }),
-               let reader = SMBByteReader(source: source, filePath: lrc.path, credential: credential),
+               let reader = TVPlaybackCoordinator.makeDirectReader(
+                   source: source,
+                   filePath: lrc.path,
+                   credential: credential
+               ),
                let size = try? await reader.contentLength(), size > 0, size < 512 * 1024,
                let data = try? await reader.read(offset: 0, length: size),
                let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) {

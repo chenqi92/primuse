@@ -64,7 +64,12 @@ public struct S3StreamResolver: StreamResolver {
 
         let scheme = source.useSsl ? "https" : "http"
         let host = Self.host(from: endpoint, port: source.port, scheme: scheme)
-        let canonicalURI = "/\(bucket)/\(key)"
+        let endpointPrefix = Self.pathPrefix(from: endpoint, scheme: scheme)
+        let canonicalURI = Self.canonicalObjectPath(
+            endpointPrefix: endpointPrefix,
+            bucket: bucket,
+            key: key
+        )
         let correctedDate = S3ClockSkewPolicy.correctedDate(for: source.id)
         let (amzDate, dateStamp) = Self.timestamps(correctedDate)
 
@@ -169,6 +174,32 @@ public struct S3StreamResolver: StreamResolver {
         if let range = fallback.range(of: "://") { fallback = String(fallback[range.upperBound...]) }
         if let slash = fallback.firstIndex(of: "/") { fallback = String(fallback[..<slash]) }
         return fallback
+    }
+
+    /// A reverse proxy may expose an S3-compatible service below a path while
+    /// the source-wide `basePath` remains the bucket. The prefix participates
+    /// in SigV4's canonical URI and therefore must not be discarded.
+    static func pathPrefix(from endpoint: String, scheme: String = "https") -> String? {
+        let trimmed = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty == false else { return nil }
+        let candidate = trimmed.contains("://") ? trimmed : "\(scheme)://\(trimmed)"
+        guard let components = URLComponents(string: candidate) else { return nil }
+        let decoded = components.percentEncodedPath.removingPercentEncoding
+            ?? components.path
+        let normalized = decoded.trimmingCharacters(in: CharacterSet(charactersIn: " /"))
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    static func canonicalObjectPath(
+        endpointPrefix: String?,
+        bucket: String,
+        key: String
+    ) -> String {
+        let components = [endpointPrefix, bucket, key]
+            .compactMap { $0 }
+            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " /")) }
+            .filter { $0.isEmpty == false }
+        return "/" + components.joined(separator: "/")
     }
 
     static func timestamps(_ date: Date) -> (amzDate: String, dateStamp: String) {

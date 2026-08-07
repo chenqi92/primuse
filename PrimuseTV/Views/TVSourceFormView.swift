@@ -170,6 +170,13 @@ struct TVSourceFormView: View {
     @State private var host = ""
     @State private var portText = ""
     @State private var useSsl = false
+    @State private var publicHost = ""
+    @State private var publicPortText = ""
+    @State private var publicUseSsl = true
+    @State private var localPathPrefix = ""
+    @State private var publicPathPrefix = ""
+    @State private var vendorIdentifier = ""
+    @State private var connectionPreference: SourceConnectionPreference = .automatic
     @State private var synologyConnectionMode: SynologyConnectionMode = .quickConnect
     @State private var fnMusicConnectionMode: FnMusicConnectionMode = .fnConnect
     @State private var username = ""
@@ -182,20 +189,63 @@ struct TVSourceFormView: View {
     @State private var saveFailed = false
 
     private var showsSSL: Bool { type.category == .mediaServer || type.category == .nas || type == .webdav }
+    private var supportsAdaptiveConnections: Bool { type.supportsAdaptiveConnections }
     private var showsAuth: Bool { type != .nfs }
     private var validatedPort: Int? {
         let trimmed = portText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let value = Int(trimmed), (1...65_535).contains(value) else { return nil }
         return value
     }
+    private var validatedPublicPort: Int? {
+        let trimmed = publicPortText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let value = Int(trimmed), (1...65_535).contains(value) else { return nil }
+        return value
+    }
+    private var remoteUsesVendor: Bool {
+        if type == .synology { return synologyConnectionMode == .quickConnect }
+        if type == .fnMusic { return fnMusicConnectionMode == .fnConnect }
+        return false
+    }
+    private var localEndpointIsValid: Bool {
+        !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && validatedPort != nil
+    }
+    private var publicEndpointIsValid: Bool {
+        !publicHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && validatedPublicPort != nil
+    }
+    private var vendorIdentifierIsValid: Bool {
+        let value = vendorIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        if type == .synology { return SynologyQuickConnectResolver.isValidQuickConnectID(value) }
+        if type == .fnMusic { return FnConnectResolver.isValidFNID(value) }
+        return false
+    }
+    private var activeRemoteEndpointIsValid: Bool {
+        remoteUsesVendor ? vendorIdentifierIsValid : publicEndpointIsValid
+    }
+    private var adaptiveConnectionIsValid: Bool {
+        let localConfigured = !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let publicConfigured = !publicHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let vendorConfigured = !vendorIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if localConfigured && validatedPort == nil { return false }
+        if !remoteUsesVendor, publicConfigured && validatedPublicPort == nil { return false }
+        if remoteUsesVendor, vendorConfigured && !vendorIdentifierIsValid { return false }
+
+        switch connectionPreference {
+        case .automatic: return localEndpointIsValid || activeRemoteEndpointIsValid
+        case .localOnly: return localEndpointIsValid
+        case .remoteOnly: return activeRemoteEndpointIsValid
+        }
+    }
     private var canSave: Bool {
-        let connectionIsValid = !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasName = !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let legacyConnectionIsValid = !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && ((type == .synology && synologyConnectionMode == .quickConnect)
                 ? SynologyQuickConnectResolver.isValidQuickConnectID(host)
                 : ((type == .fnMusic && fnMusicConnectionMode == .fnConnect)
                     ? FnConnectResolver.isValidFNID(host)
                     : validatedPort != nil))
+        let connectionIsValid = hasName
+            && (supportsAdaptiveConnections ? adaptiveConnectionIsValid : legacyConnectionIsValid)
         guard connectionIsValid else { return false }
         if type == .fnMusic || type == .daoliyu {
             guard !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -251,15 +301,30 @@ struct TVSourceFormView: View {
         }
         .onAppear(perform: prefill)
         .onChange(of: useSsl) { oldValue, newValue in
-            updateDefaultPortForSSLChange(from: oldValue, to: newValue)
+            updateDefaultPortForSSLChange(
+                port: $portText,
+                from: oldValue,
+                to: newValue
+            )
+        }
+        .onChange(of: publicUseSsl) { oldValue, newValue in
+            updateDefaultPortForSSLChange(
+                port: $publicPortText,
+                from: oldValue,
+                to: newValue
+            )
         }
         .onChange(of: synologyConnectionMode) { _, newValue in
-            guard type == .synology, newValue == .quickConnect else { return }
+            guard !supportsAdaptiveConnections,
+                  type == .synology,
+                  newValue == .quickConnect else { return }
             useSsl = true
             portText = String(MusicSourceType.synology.defaultPort(useSsl: true))
         }
         .onChange(of: fnMusicConnectionMode) { _, newValue in
-            guard type == .fnMusic, newValue == .fnConnect else { return }
+            guard !supportsAdaptiveConnections,
+                  type == .fnMusic,
+                  newValue == .fnConnect else { return }
             useSsl = true
         }
         .alert(PMString("ext.tv.sources.cred.saveFailedTitle"), isPresented: $saveFailed) {
@@ -269,13 +334,17 @@ struct TVSourceFormView: View {
         }
     }
 
-    private func updateDefaultPortForSSLChange(from oldValue: Bool, to newValue: Bool) {
+    private func updateDefaultPortForSSLChange(
+        port: Binding<String>,
+        from oldValue: Bool,
+        to newValue: Bool
+    ) {
         let oldDefault = type.defaultPort(useSsl: oldValue)
         let newDefault = type.defaultPort(useSsl: newValue)
         guard oldDefault != newDefault else { return }
-        let trimmed = portText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = port.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.isEmpty || trimmed == String(oldDefault) else { return }
-        portText = String(newDefault)
+        port.wrappedValue = String(newDefault)
     }
 
     private var leftFields: some View {
@@ -299,49 +368,42 @@ struct TVSourceFormView: View {
             .padding(.bottom, 8)
 
             TVFormField(label: PMString("ext.tv.sources.form.name"), text: $name, autofocus: true)
-            if type == .synology {
-                Picker(PMString("synology_connection_method"), selection: $synologyConnectionMode) {
-                    Text(PMString("synology_connection_quickconnect"))
-                        .tag(SynologyConnectionMode.quickConnect)
-                    Text(PMString("synology_connection_address"))
-                        .tag(SynologyConnectionMode.address)
-                }
-                .pickerStyle(.segmented)
-                .frame(maxWidth: 720)
-            }
-            if type == .fnMusic {
-                Picker(PMString("fnmusic_connection_method"), selection: $fnMusicConnectionMode) {
-                    Text(PMString("fnmusic_connection_fnconnect"))
-                        .tag(FnMusicConnectionMode.fnConnect)
-                    Text(PMString("fnmusic_connection_address"))
-                        .tag(FnMusicConnectionMode.address)
-                }
-                .pickerStyle(.segmented)
-                .frame(maxWidth: 720)
-            }
-            TVFormField(label: connectionAddressLabel, text: $host, mono: true)
-            if type == .synology, synologyConnectionMode == .quickConnect {
-                Text(PMString("synology_quickconnect_hint"))
-                    .font(.system(size: 16))
-                    .foregroundStyle(TVColor.textFaint)
-                    .frame(maxWidth: 720, alignment: .leading)
-            } else if type == .fnMusic, fnMusicConnectionMode == .fnConnect {
-                Text(PMString("fnmusic_fnconnect_hint"))
-                    .font(.system(size: 16))
-                    .foregroundStyle(TVColor.textFaint)
-                    .frame(maxWidth: 720, alignment: .leading)
+            if supportsAdaptiveConnections {
+                adaptiveConnectionFields
             } else {
-                TVFormField(label: PMString("ext.tv.sources.form.port"), text: $portText, mono: true)
-            }
-            if showsSSL
-                && !(type == .synology && synologyConnectionMode == .quickConnect)
-                && !(type == .fnMusic && fnMusicConnectionMode == .fnConnect) {
-                Toggle(isOn: $useSsl) {
-                    Label(PMString("ext.tv.sources.form.useSSL"), systemImage: "lock.shield")
-                        .font(.system(size: 21, weight: .medium)).foregroundStyle(TVColor.text)
+                if type == .synology {
+                    Picker(PMString("synology_connection_method"), selection: $synologyConnectionMode) {
+                        Text(PMString("synology_connection_quickconnect"))
+                            .tag(SynologyConnectionMode.quickConnect)
+                        Text(PMString("synology_connection_address"))
+                            .tag(SynologyConnectionMode.address)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 720)
                 }
-                .padding(.horizontal, 22).padding(.vertical, 14).frame(maxWidth: 720, alignment: .leading)
-                .background(TVColor.surfaceSubtle, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                if type == .fnMusic {
+                    Picker(PMString("fnmusic_connection_method"), selection: $fnMusicConnectionMode) {
+                        Text(PMString("fnmusic_connection_fnconnect"))
+                            .tag(FnMusicConnectionMode.fnConnect)
+                        Text(PMString("fnmusic_connection_address"))
+                            .tag(FnMusicConnectionMode.address)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 720)
+                }
+                TVFormField(label: connectionAddressLabel, text: $host, mono: true)
+                if type == .synology, synologyConnectionMode == .quickConnect {
+                    connectionHint("synology_quickconnect_hint")
+                } else if type == .fnMusic, fnMusicConnectionMode == .fnConnect {
+                    connectionHint("fnmusic_fnconnect_hint")
+                } else {
+                    TVFormField(label: PMString("ext.tv.sources.form.port"), text: $portText, mono: true)
+                }
+                if showsSSL
+                    && !(type == .synology && synologyConnectionMode == .quickConnect)
+                    && !(type == .fnMusic && fnMusicConnectionMode == .fnConnect) {
+                    connectionSSLToggle(isOn: $useSsl)
+                }
             }
             if showsAuth {
                 if type.supportsAnonymous {
@@ -378,7 +440,7 @@ struct TVSourceFormView: View {
                     }
                 }
             }
-            if type != .fnMusic {
+            if type != .fnMusic && !type.supportsEndpointSpecificPath {
                 TVFormField(label: pathLabel, text: $pathText, mono: true)
             }
 
@@ -390,6 +452,109 @@ struct TVSourceFormView: View {
             .padding(.top, 4)
         }
         .frame(maxWidth: 760, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var adaptiveConnectionFields: some View {
+        Picker(PMString("source_connection_preference"), selection: $connectionPreference) {
+            Text(PMString("source_connection_automatic"))
+                .tag(SourceConnectionPreference.automatic)
+            Text(PMString("source_connection_local_only"))
+                .tag(SourceConnectionPreference.localOnly)
+            Text(PMString("source_connection_remote_only"))
+                .tag(SourceConnectionPreference.remoteOnly)
+        }
+        .pickerStyle(.segmented)
+        .frame(maxWidth: 720)
+
+        if connectionPreference == .automatic {
+            connectionHint("source_connection_automatic_hint")
+        }
+
+        TVEyebrow(text: PMString("source_connection_local"))
+        TVFormField(label: PMString("source_connection_local_address"), text: $host, mono: true)
+        TVFormField(label: PMString("source_connection_local_port"), text: $portText, mono: true)
+        if showsSSL { connectionSSLToggle(isOn: $useSsl) }
+        if type.supportsEndpointPathPrefix {
+            TVFormField(
+                label: PMString("source_connection_path_prefix"),
+                text: $localPathPrefix,
+                mono: true
+            )
+        }
+        connectionHint("source_connection_local_hint")
+
+        TVEyebrow(text: PMString("source_connection_remote"))
+        if type == .synology {
+            Picker(PMString("source_connection_remote_method"), selection: $synologyConnectionMode) {
+                Text(PMString("source_connection_public_direct"))
+                    .tag(SynologyConnectionMode.address)
+                Text(PMString("synology_connection_quickconnect"))
+                    .tag(SynologyConnectionMode.quickConnect)
+            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 720)
+        } else if type == .fnMusic {
+            Picker(PMString("source_connection_remote_method"), selection: $fnMusicConnectionMode) {
+                Text(PMString("source_connection_public_direct"))
+                    .tag(FnMusicConnectionMode.address)
+                Text(PMString("fnmusic_connection_fnconnect"))
+                    .tag(FnMusicConnectionMode.fnConnect)
+            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 720)
+        }
+
+        if remoteUsesVendor {
+            TVFormField(
+                label: PMString(type == .synology ? "synology_quickconnect_id" : "fnmusic_fnid"),
+                text: $vendorIdentifier,
+                mono: true
+            )
+            connectionHint(type == .synology ? "synology_quickconnect_hint" : "fnmusic_fnconnect_hint")
+        } else {
+            TVFormField(
+                label: PMString("source_connection_public_address"),
+                text: $publicHost,
+                mono: true
+            )
+            TVFormField(
+                label: PMString("source_connection_public_port"),
+                text: $publicPortText,
+                mono: true
+            )
+            if showsSSL { connectionSSLToggle(isOn: $publicUseSsl) }
+            if type.supportsEndpointPathPrefix {
+                TVFormField(
+                    label: PMString("source_connection_path_prefix"),
+                    text: $publicPathPrefix,
+                    mono: true
+                )
+            }
+            connectionHint("source_connection_public_hint")
+        }
+    }
+
+    private func connectionHint(_ key: String) -> some View {
+        Text(PMString(key))
+            .font(.system(size: 16))
+            .foregroundStyle(TVColor.textFaint)
+            .frame(maxWidth: 720, alignment: .leading)
+    }
+
+    private func connectionSSLToggle(isOn: Binding<Bool>) -> some View {
+        Toggle(isOn: isOn) {
+            Label(PMString("ext.tv.sources.form.useSSL"), systemImage: "lock.shield")
+                .font(.system(size: 21, weight: .medium))
+                .foregroundStyle(TVColor.text)
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 14)
+        .frame(maxWidth: 720, alignment: .leading)
+        .background(
+            TVColor.surfaceSubtle,
+            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+        )
     }
 
     private var rightPanel: some View {
@@ -445,14 +610,50 @@ struct TVSourceFormView: View {
     }
 
     private func prefill() {
+        useSsl = type.defaultSSL
+        portText = String(type.defaultPort(useSsl: useSsl))
+        publicUseSsl = showsSSL ? true : type.defaultSSL
+        publicPortText = String(type.defaultPort(useSsl: publicUseSsl))
+
         if let e = editing {
-            name = e.name; host = e.host ?? ""; portText = String(e.port ?? type.defaultPort)
-            useSsl = e.useSsl; username = e.username ?? ""
-            if type == .synology {
-                synologyConnectionMode = e.effectiveSynologyConnectionMode
-            }
-            if type == .fnMusic {
-                fnMusicConnectionMode = e.effectiveFnMusicConnectionMode
+            name = e.name
+            username = e.username ?? ""
+            if supportsAdaptiveConnections {
+                let configuration = e.effectiveConnectionConfiguration
+                    ?? SourceConnectionConfiguration()
+                connectionPreference = configuration.preference
+                if let endpoint = configuration.localEndpoint {
+                    host = endpoint.host
+                    portText = String(endpoint.port)
+                    useSsl = endpoint.useSsl
+                    localPathPrefix = endpoint.pathPrefix ?? ""
+                }
+                if let endpoint = configuration.publicEndpoint {
+                    publicHost = endpoint.host
+                    publicPortText = String(endpoint.port)
+                    publicUseSsl = endpoint.useSsl
+                    publicPathPrefix = endpoint.pathPrefix ?? ""
+                }
+                vendorIdentifier = configuration.vendorIdentifier ?? ""
+                if type == .synology {
+                    synologyConnectionMode = configuration.remoteAccessMode == .vendor
+                        ? .quickConnect
+                        : .address
+                } else if type == .fnMusic {
+                    fnMusicConnectionMode = configuration.remoteAccessMode == .vendor
+                        ? .fnConnect
+                        : .address
+                }
+            } else {
+                host = e.host ?? ""
+                portText = String(e.port ?? type.defaultPort)
+                useSsl = e.useSsl
+                if type == .synology {
+                    synologyConnectionMode = e.effectiveSynologyConnectionMode
+                }
+                if type == .fnMusic {
+                    fnMusicConnectionMode = e.effectiveFnMusicConnectionMode
+                }
             }
             useGuestAccess = type.supportsAnonymous && e.authType == .none
             switch type {
@@ -507,19 +708,26 @@ struct TVSourceFormView: View {
 
         var src = editing ?? MusicSource(name: trimmedName, type: type)
         src.name = trimmedName
-        if type == .synology, synologyConnectionMode == .quickConnect {
-            src.host = SynologyQuickConnectResolver.quickConnectID(from: trimmedHost)
-        } else if type == .fnMusic, fnMusicConnectionMode == .fnConnect {
-            src.host = FnConnectResolver.fnID(from: trimmedHost)
+        if supportsAdaptiveConnections {
+            src.connectionConfiguration = adaptiveConnectionConfiguration()
+            src.synologyConnectionMode = type == .synology ? synologyConnectionMode : nil
+            src.fnMusicConnectionMode = type == .fnMusic ? fnMusicConnectionMode : nil
+            src = src.projectingPreferredConnectionForLegacy()
         } else {
-            src.host = trimmedHost
+            if type == .synology, synologyConnectionMode == .quickConnect {
+                src.host = SynologyQuickConnectResolver.quickConnectID(from: trimmedHost)
+            } else if type == .fnMusic, fnMusicConnectionMode == .fnConnect {
+                src.host = FnConnectResolver.fnID(from: trimmedHost)
+            } else {
+                src.host = trimmedHost
+            }
+            let usesResolvedConnection = (type == .synology && synologyConnectionMode == .quickConnect)
+                || (type == .fnMusic && fnMusicConnectionMode == .fnConnect)
+            src.port = usesResolvedConnection ? type.defaultPort(useSsl: true) : validatedPort
+            src.useSsl = usesResolvedConnection ? true : (showsSSL ? useSsl : type.defaultSSL)
+            src.synologyConnectionMode = type == .synology ? synologyConnectionMode : nil
+            src.fnMusicConnectionMode = type == .fnMusic ? fnMusicConnectionMode : nil
         }
-        let usesResolvedConnection = (type == .synology && synologyConnectionMode == .quickConnect)
-            || (type == .fnMusic && fnMusicConnectionMode == .fnConnect)
-        src.port = usesResolvedConnection ? type.defaultPort(useSsl: true) : validatedPort
-        src.useSsl = usesResolvedConnection ? true : (showsSSL ? useSsl : type.defaultSSL)
-        src.synologyConnectionMode = type == .synology ? synologyConnectionMode : nil
-        src.fnMusicConnectionMode = type == .fnMusic ? fnMusicConnectionMode : nil
         if showsAuth {
             src.username = useGuestAccess ? nil : (trimmedUser.isEmpty ? nil : trimmedUser)
             src.authType = useGuestAccess ? .none : .password
@@ -530,12 +738,65 @@ struct TVSourceFormView: View {
         case .smb: src.shareName = trimmedPath.isEmpty ? nil : trimmedPath
         case .nfs: src.exportPath = trimmedPath.isEmpty ? nil : trimmedPath
         default:
-            src.basePath = type == .fnMusic && fnMusicConnectionMode == .fnConnect
-                ? nil
-                : (trimmedPath.isEmpty ? nil : trimmedPath)
+            if !type.supportsEndpointSpecificPath {
+                src.basePath = type == .fnMusic && fnMusicConnectionMode == .fnConnect
+                    ? nil
+                    : (trimmedPath.isEmpty ? nil : trimmedPath)
+            }
         }
         src.modifiedAt = Date()
         return src
+    }
+
+    private func adaptiveConnectionConfiguration() -> SourceConnectionConfiguration {
+        let localAddress = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        let publicAddress = publicHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        let localEndpoint = localAddress.isEmpty ? nil : validatedPort.map {
+            SourceConnectionEndpoint(
+                host: localAddress,
+                port: $0,
+                useSsl: useSsl,
+                pathPrefix: type.supportsEndpointPathPrefix
+                    ? normalizedPath(localPathPrefix)
+                    : nil
+            ).normalized
+        }
+        let publicEndpoint = publicAddress.isEmpty ? nil : validatedPublicPort.map {
+            SourceConnectionEndpoint(
+                host: publicAddress,
+                port: $0,
+                useSsl: publicUseSsl,
+                pathPrefix: type.supportsEndpointPathPrefix
+                    ? normalizedPath(publicPathPrefix)
+                    : nil
+            ).normalized
+        }
+
+        let rawVendorID = vendorIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedVendorID: String?
+        if rawVendorID.isEmpty {
+            normalizedVendorID = nil
+        } else if type == .synology {
+            normalizedVendorID = SynologyQuickConnectResolver.quickConnectID(from: rawVendorID)
+                ?? rawVendorID
+        } else if type == .fnMusic {
+            normalizedVendorID = FnConnectResolver.fnID(from: rawVendorID) ?? rawVendorID
+        } else {
+            normalizedVendorID = nil
+        }
+
+        return SourceConnectionConfiguration(
+            preference: connectionPreference,
+            localEndpoint: localEndpoint,
+            publicEndpoint: publicEndpoint,
+            remoteAccessMode: remoteUsesVendor ? .vendor : .direct,
+            vendorIdentifier: normalizedVendorID
+        )
+    }
+
+    private func normalizedPath(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func save() {

@@ -24,6 +24,7 @@ actor QnapAPI {
         var sid: String?
         var needs2FA: Bool
         var errorMessage: String?
+        var underlyingError: (any Error)?
     }
 
     func login(account: String, password: String, otpCode: String? = nil) async -> LoginResult {
@@ -89,7 +90,12 @@ actor QnapAPI {
             if text.contains("need_otp") { return LoginResult(success: false, needs2FA: true) }
             return LoginResult(success: false, needs2FA: false, errorMessage: "Login failed")
         } catch {
-            return LoginResult(success: false, needs2FA: false, errorMessage: error.localizedDescription)
+            return LoginResult(
+                success: false,
+                needs2FA: false,
+                errorMessage: error.localizedDescription,
+                underlyingError: error
+            )
         }
     }
 

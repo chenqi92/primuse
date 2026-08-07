@@ -3,7 +3,7 @@ import Foundation
 import FilesProvider
 import PrimuseKit
 
-actor WebDAVSource: MusicSourceConnector {
+actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector {
     let sourceID: String
     private let host: String
     private let port: Int?

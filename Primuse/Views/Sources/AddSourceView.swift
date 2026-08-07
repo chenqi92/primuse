@@ -7,7 +7,8 @@ import AppKit
 // MARK: - Focus Fields
 
 enum SourceFormField: Hashable {
-    case name, host, port, basePath, shareName, exportPath, username, password, sshKey
+    case name, host, port, publicHost, publicPort, vendorIdentifier
+    case basePath, publicBasePath, shareName, exportPath, username, password, sshKey
 }
 
 // MARK: - Add / Edit Source View
@@ -24,6 +25,13 @@ struct AddSourceView: View {
     @State private var host = ""
     @State private var port = ""
     @State private var useSsl = false
+    @State private var publicHost = ""
+    @State private var publicPort = ""
+    @State private var publicUseSsl = true
+    @State private var localPathPrefix = ""
+    @State private var publicBasePath = ""
+    @State private var vendorIdentifier = ""
+    @State private var connectionPreference: SourceConnectionPreference = .automatic
     @State private var synologyConnectionMode: SynologyConnectionMode = .quickConnect
     @State private var fnMusicConnectionMode: FnMusicConnectionMode = .fnConnect
     @State private var username = ""
@@ -51,24 +59,80 @@ struct AddSourceView: View {
 
     private var isEditing: Bool { editingSource != nil }
     private var supportsAPIKeyAuth: Bool { [.jellyfin, .emby, .plex].contains(sourceType) }
+    private var supportsAdaptiveConnections: Bool { sourceType.supportsAdaptiveConnections }
+    private var supportsSSLToggle: Bool {
+        ![MusicSourceType.smb, .ftp, .sftp, .nfs].contains(sourceType)
+    }
     private var validatedPort: Int? {
         let trimmed = port.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let value = Int(trimmed), (1...65_535).contains(value) else { return nil }
         return value
+    }
+    private var validatedPublicPort: Int? {
+        let trimmed = publicPort.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let value = Int(trimmed), (1...65_535).contains(value) else { return nil }
+        return value
+    }
+    private var remoteUsesVendor: Bool {
+        if sourceType == .synology { return synologyConnectionMode == .quickConnect }
+        if sourceType == .fnMusic { return fnMusicConnectionMode == .fnConnect }
+        return false
+    }
+    private var localEndpointIsConfigured: Bool {
+        host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
+    private var publicEndpointIsConfigured: Bool {
+        publicHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
+    private var vendorIdentifierIsConfigured: Bool {
+        vendorIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
+    private var localEndpointIsValid: Bool {
+        localEndpointIsConfigured && validatedPort != nil
+    }
+    private var publicEndpointIsValid: Bool {
+        publicEndpointIsConfigured && validatedPublicPort != nil
+    }
+    private var vendorIdentifierIsValid: Bool {
+        let value = vendorIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        if sourceType == .synology { return SynologyQuickConnectResolver.isValidQuickConnectID(value) }
+        if sourceType == .fnMusic { return FnConnectResolver.isValidFNID(value) }
+        return false
+    }
+    private var activeRemoteEndpointIsValid: Bool {
+        remoteUsesVendor ? vendorIdentifierIsValid : publicEndpointIsValid
+    }
+    private var adaptiveConnectionIsValid: Bool {
+        if localEndpointIsConfigured && validatedPort == nil { return false }
+        if !remoteUsesVendor, publicEndpointIsConfigured && validatedPublicPort == nil { return false }
+        if remoteUsesVendor, vendorIdentifierIsConfigured && !vendorIdentifierIsValid { return false }
+
+        switch connectionPreference {
+        case .automatic:
+            return localEndpointIsValid || activeRemoteEndpointIsValid
+        case .localOnly:
+            return localEndpointIsValid
+        case .remoteOnly:
+            return activeRemoteEndpointIsValid
+        }
     }
     private var canSave: Bool {
         if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return false
         }
         if sourceType.requiresHost {
-            let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmedHost.isEmpty else { return false }
-            if sourceType == .synology, synologyConnectionMode == .quickConnect {
-                guard SynologyQuickConnectResolver.isValidQuickConnectID(trimmedHost) else { return false }
-            } else if sourceType == .fnMusic, fnMusicConnectionMode == .fnConnect {
-                guard FnConnectResolver.isValidFNID(trimmedHost) else { return false }
-            } else if validatedPort == nil {
-                return false
+            if supportsAdaptiveConnections {
+                guard adaptiveConnectionIsValid else { return false }
+            } else {
+                let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmedHost.isEmpty else { return false }
+                if sourceType == .synology, synologyConnectionMode == .quickConnect {
+                    guard SynologyQuickConnectResolver.isValidQuickConnectID(trimmedHost) else { return false }
+                } else if sourceType == .fnMusic, fnMusicConnectionMode == .fnConnect {
+                    guard FnConnectResolver.isValidFNID(trimmedHost) else { return false }
+                } else if validatedPort == nil {
+                    return false
+                }
             }
         }
 
@@ -122,15 +186,30 @@ struct AddSourceView: View {
             #endif
         }
         .onChange(of: useSsl) { oldValue, newValue in
-            updateDefaultPortForSSLChange(from: oldValue, to: newValue)
+            updateDefaultPortForSSLChange(
+                port: $port,
+                from: oldValue,
+                to: newValue
+            )
+        }
+        .onChange(of: publicUseSsl) { oldValue, newValue in
+            updateDefaultPortForSSLChange(
+                port: $publicPort,
+                from: oldValue,
+                to: newValue
+            )
         }
         .onChange(of: synologyConnectionMode) { _, newValue in
-            guard sourceType == .synology, newValue == .quickConnect else { return }
+            guard !supportsAdaptiveConnections,
+                  sourceType == .synology,
+                  newValue == .quickConnect else { return }
             useSsl = true
             port = String(MusicSourceType.synology.defaultPort(useSsl: true))
         }
         .onChange(of: fnMusicConnectionMode) { _, newValue in
-            guard sourceType == .fnMusic, newValue == .fnConnect else { return }
+            guard !supportsAdaptiveConnections,
+                  sourceType == .fnMusic,
+                  newValue == .fnConnect else { return }
             useSsl = true
         }
         .alert(String(localized: "credential_save_failed_title"), isPresented: $showCredentialSaveError) {
@@ -151,13 +230,17 @@ struct AddSourceView: View {
     /// Follow HTTP's 80/443 defaults only while the field still contains the
     /// previous automatic value. A user-entered custom port (for example
     /// MinIO's 9000 or WebDAV 8443) must never be overwritten by the toggle.
-    private func updateDefaultPortForSSLChange(from oldValue: Bool, to newValue: Bool) {
+    private func updateDefaultPortForSSLChange(
+        port: Binding<String>,
+        from oldValue: Bool,
+        to newValue: Bool
+    ) {
         let oldDefault = sourceType.defaultPort(useSsl: oldValue)
         let newDefault = sourceType.defaultPort(useSsl: newValue)
         guard oldDefault != newDefault else { return }
-        let trimmed = port.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = port.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.isEmpty || trimmed == String(oldDefault) else { return }
-        port = String(newDefault)
+        port.wrappedValue = String(newDefault)
     }
 
     private var connectionHostLabel: LocalizedStringKey {
@@ -297,36 +380,40 @@ struct AddSourceView: View {
         }
 
         if sourceType.requiresHost {
-            macSection("connection_info") {
-                if sourceType == .synology {
-                    macCustomRow("synology_connection_method") {
-                        synologyConnectionModePicker
-                            .frame(maxWidth: 320)
-                    }
-                    macTextRow(connectionHostLabel, text: $host, focus: .host)
-                    if synologyConnectionMode == .quickConnect {
-                        macInfoRow("synology_quickconnect_hint")
+            if supportsAdaptiveConnections {
+                macAdaptiveConnectionSections
+            } else {
+                macSection("connection_info") {
+                    if sourceType == .synology {
+                        macCustomRow("synology_connection_method") {
+                            synologyConnectionModePicker
+                                .frame(maxWidth: 320)
+                        }
+                        macTextRow(connectionHostLabel, text: $host, focus: .host)
+                        if synologyConnectionMode == .quickConnect {
+                            macInfoRow("synology_quickconnect_hint")
+                        } else {
+                            macTextRow("port", text: $port, focus: .port, width: 120)
+                            macToggleRow("use_ssl", isOn: $useSsl)
+                        }
+                    } else if sourceType == .fnMusic {
+                        macCustomRow("fnmusic_connection_method") {
+                            fnMusicConnectionModePicker
+                                .frame(maxWidth: 320)
+                        }
+                        macTextRow(connectionHostLabel, text: $host, focus: .host)
+                        if fnMusicConnectionMode == .fnConnect {
+                            macInfoRow("fnmusic_fnconnect_hint")
+                        } else {
+                            macTextRow("port", text: $port, focus: .port, width: 120)
+                            macToggleRow("use_ssl", isOn: $useSsl)
+                        }
                     } else {
+                        macTextRow("host_address", text: $host, focus: .host)
                         macTextRow("port", text: $port, focus: .port, width: 120)
-                        macToggleRow("use_ssl", isOn: $useSsl)
-                    }
-                } else if sourceType == .fnMusic {
-                    macCustomRow("fnmusic_connection_method") {
-                        fnMusicConnectionModePicker
-                            .frame(maxWidth: 320)
-                    }
-                    macTextRow(connectionHostLabel, text: $host, focus: .host)
-                    if fnMusicConnectionMode == .fnConnect {
-                        macInfoRow("fnmusic_fnconnect_hint")
-                    } else {
-                        macTextRow("port", text: $port, focus: .port, width: 120)
-                        macToggleRow("use_ssl", isOn: $useSsl)
-                    }
-                } else {
-                    macTextRow("host_address", text: $host, focus: .host)
-                    macTextRow("port", text: $port, focus: .port, width: 120)
-                    if ![MusicSourceType.smb, .ftp, .sftp, .nfs].contains(sourceType) {
-                        macToggleRow("use_ssl", isOn: $useSsl)
+                        if supportsSSLToggle {
+                            macToggleRow("use_ssl", isOn: $useSsl)
+                        }
                     }
                 }
             }
@@ -411,6 +498,7 @@ struct AddSourceView: View {
 
         macSection("advanced") {
             if sourceType.isServerLibrary
+                && !sourceType.supportsEndpointSpecificPath
                 && !(sourceType == .fnMusic && fnMusicConnectionMode == .fnConnect) {
                 macTextRow(
                     sourceType == .fnMusic
@@ -451,8 +539,10 @@ struct AddSourceView: View {
                 macTextRow("share_name", text: $shareName, focus: .shareName)
             }
         case .webdav:
-            macSection("webdav_config") {
-                macTextRow("base_path_hint", text: $basePath, focus: .basePath)
+            if !supportsAdaptiveConnections {
+                macSection("webdav_config") {
+                    macTextRow("base_path_hint", text: $basePath, focus: .basePath)
+                }
             }
         case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic:
             EmptyView()
@@ -508,7 +598,6 @@ struct AddSourceView: View {
             }
         case .s3:
             macSection("S3") {
-                macTextRow("Endpoint", text: $host, focus: .host)
                 macTextRow("Region", text: $basePath)
                 macTextRow("Bucket", text: $shareName, focus: .shareName)
                 macTextRow("Access Key", text: $username, focus: .username)
@@ -517,7 +606,6 @@ struct AddSourceView: View {
                         .focused($focusedField, equals: .password)
                         .frame(maxWidth: 280)
                 }
-                macToggleRow("use_ssl", isOn: $useSsl)
             }
         case .drime:
             macSection("drime_token_section") {
@@ -562,6 +650,92 @@ struct AddSourceView: View {
             }
         default:
             EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private var macAdaptiveConnectionSections: some View {
+        macSection("source_connection_strategy") {
+            macCustomRow("source_connection_preference") {
+                Picker("", selection: $connectionPreference) {
+                    Text("source_connection_automatic").tag(SourceConnectionPreference.automatic)
+                    Text("source_connection_local_only").tag(SourceConnectionPreference.localOnly)
+                    Text("source_connection_remote_only").tag(SourceConnectionPreference.remoteOnly)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(maxWidth: 360)
+            }
+            if connectionPreference == .automatic {
+                macInfoRow("source_connection_automatic_hint")
+            }
+        }
+
+        macSection("source_connection_local") {
+            macTextRow("source_connection_local_address", text: $host, focus: .host)
+            macTextRow("source_connection_local_port", text: $port, focus: .port, width: 120)
+            if supportsSSLToggle {
+                macToggleRow("use_ssl", isOn: $useSsl)
+            }
+            if sourceType.supportsEndpointPathPrefix {
+                macTextRow(
+                    "source_connection_path_prefix",
+                    text: $localPathPrefix,
+                    focus: .basePath
+                )
+            }
+            macInfoRow("source_connection_local_hint")
+        }
+
+        macSection("source_connection_remote") {
+            if sourceType == .synology {
+                macCustomRow("source_connection_remote_method") {
+                    Picker("", selection: $synologyConnectionMode) {
+                        Text("source_connection_public_direct").tag(SynologyConnectionMode.address)
+                        Text("synology_connection_quickconnect").tag(SynologyConnectionMode.quickConnect)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(maxWidth: 320)
+                }
+            } else if sourceType == .fnMusic {
+                macCustomRow("source_connection_remote_method") {
+                    Picker("", selection: $fnMusicConnectionMode) {
+                        Text("source_connection_public_direct").tag(FnMusicConnectionMode.address)
+                        Text("fnmusic_connection_fnconnect").tag(FnMusicConnectionMode.fnConnect)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(maxWidth: 320)
+                }
+            }
+
+            if remoteUsesVendor {
+                macTextRow(
+                    sourceType == .synology ? "synology_quickconnect_id" : "fnmusic_fnid",
+                    text: $vendorIdentifier,
+                    focus: .vendorIdentifier
+                )
+                macInfoRow(
+                    sourceType == .synology
+                        ? "synology_quickconnect_hint"
+                        : "fnmusic_fnconnect_hint"
+                )
+            } else {
+                macTextRow("source_connection_public_address", text: $publicHost, focus: .publicHost)
+                macTextRow("source_connection_public_port", text: $publicPort, focus: .publicPort, width: 120)
+                if supportsSSLToggle {
+                    macToggleRow("use_ssl", isOn: $publicUseSsl)
+                }
+                if sourceType.supportsEndpointPathPrefix {
+                    macTextRow(
+                        "source_connection_path_prefix",
+                        text: $publicBasePath,
+                        focus: .publicBasePath
+                    )
+                }
+                macInfoRow("source_connection_public_hint")
+            }
         }
     }
 
@@ -661,45 +835,49 @@ struct AddSourceView: View {
         }
 
         if sourceType.requiresHost {
-            Section("connection_info") {
-                if sourceType == .synology {
-                    Picker("synology_connection_method", selection: $synologyConnectionMode) {
-                        synologyConnectionModeOptions
+            if supportsAdaptiveConnections {
+                adaptiveConnectionFormSections
+            } else {
+                Section("connection_info") {
+                    if sourceType == .synology {
+                        Picker("synology_connection_method", selection: $synologyConnectionMode) {
+                            synologyConnectionModeOptions
+                        }
+                        .pickerStyle(.segmented)
                     }
-                    .pickerStyle(.segmented)
-                }
-                if sourceType == .fnMusic {
-                    Picker("fnmusic_connection_method", selection: $fnMusicConnectionMode) {
-                        fnMusicConnectionModeOptions
+                    if sourceType == .fnMusic {
+                        Picker("fnmusic_connection_method", selection: $fnMusicConnectionMode) {
+                            fnMusicConnectionModeOptions
+                        }
+                        .pickerStyle(.segmented)
                     }
-                    .pickerStyle(.segmented)
-                }
-                TextField(connectionHostLabel, text: $host)
-                    .focused($focusedField, equals: .host)
-                    .keyboardType(.URL)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-                    .submitLabel(.next)
-                    .onSubmit {
-                        focusedField = (sourceType == .synology && synologyConnectionMode == .quickConnect)
-                            || (sourceType == .fnMusic && fnMusicConnectionMode == .fnConnect)
-                            ? .username
-                            : .port
-                    }
-                if sourceType == .synology, synologyConnectionMode == .quickConnect {
-                    Text("synology_quickconnect_hint")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else if sourceType == .fnMusic, fnMusicConnectionMode == .fnConnect {
-                    Text("fnmusic_fnconnect_hint")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    TextField("port", text: $port)
-                        .focused($focusedField, equals: .port)
-                        .keyboardType(.numberPad)
-                    if ![MusicSourceType.smb, .ftp, .sftp, .nfs].contains(sourceType) {
-                        Toggle("use_ssl", isOn: $useSsl)
+                    TextField(connectionHostLabel, text: $host)
+                        .focused($focusedField, equals: .host)
+                        .keyboardType(.URL)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .submitLabel(.next)
+                        .onSubmit {
+                            focusedField = (sourceType == .synology && synologyConnectionMode == .quickConnect)
+                                || (sourceType == .fnMusic && fnMusicConnectionMode == .fnConnect)
+                                ? .username
+                                : .port
+                        }
+                    if sourceType == .synology, synologyConnectionMode == .quickConnect {
+                        Text("synology_quickconnect_hint")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else if sourceType == .fnMusic, fnMusicConnectionMode == .fnConnect {
+                        Text("fnmusic_fnconnect_hint")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        TextField("port", text: $port)
+                            .focused($focusedField, equals: .port)
+                            .keyboardType(.numberPad)
+                        if supportsSSLToggle {
+                            Toggle("use_ssl", isOn: $useSsl)
+                        }
                     }
                 }
             }
@@ -777,6 +955,7 @@ struct AddSourceView: View {
 
         Section("advanced") {
             if sourceType.isServerLibrary
+                && !sourceType.supportsEndpointSpecificPath
                 && !(sourceType == .fnMusic && fnMusicConnectionMode == .fnConnect) {
                 TextField(
                     sourceType == .fnMusic
@@ -808,6 +987,107 @@ struct AddSourceView: View {
         }
     }
 
+    @ViewBuilder
+    private var adaptiveConnectionFormSections: some View {
+        Section("source_connection_strategy") {
+            Picker("source_connection_preference", selection: $connectionPreference) {
+                Text("source_connection_automatic").tag(SourceConnectionPreference.automatic)
+                Text("source_connection_local_only").tag(SourceConnectionPreference.localOnly)
+                Text("source_connection_remote_only").tag(SourceConnectionPreference.remoteOnly)
+            }
+            .pickerStyle(.segmented)
+
+            if connectionPreference == .automatic {
+                Text("source_connection_automatic_hint")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+
+        Section("source_connection_local") {
+            TextField("source_connection_local_address", text: $host)
+                .focused($focusedField, equals: .host)
+                .keyboardType(.URL)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                .submitLabel(.next)
+                .onSubmit { focusedField = .port }
+            TextField("source_connection_local_port", text: $port)
+                .focused($focusedField, equals: .port)
+                .keyboardType(.numberPad)
+            if supportsSSLToggle {
+                Toggle("use_ssl", isOn: $useSsl)
+            }
+            if sourceType.supportsEndpointPathPrefix {
+                TextField("source_connection_path_prefix", text: $localPathPrefix)
+                    .focused($focusedField, equals: .basePath)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+            }
+            Text("source_connection_local_hint")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+
+        Section("source_connection_remote") {
+            if sourceType == .synology {
+                Picker("source_connection_remote_method", selection: $synologyConnectionMode) {
+                    Text("source_connection_public_direct").tag(SynologyConnectionMode.address)
+                    Text("synology_connection_quickconnect").tag(SynologyConnectionMode.quickConnect)
+                }
+                .pickerStyle(.segmented)
+            } else if sourceType == .fnMusic {
+                Picker("source_connection_remote_method", selection: $fnMusicConnectionMode) {
+                    Text("source_connection_public_direct").tag(FnMusicConnectionMode.address)
+                    Text("fnmusic_connection_fnconnect").tag(FnMusicConnectionMode.fnConnect)
+                }
+                .pickerStyle(.segmented)
+            }
+
+            if remoteUsesVendor {
+                TextField(
+                    sourceType == .synology ? "synology_quickconnect_id" : "fnmusic_fnid",
+                    text: $vendorIdentifier
+                )
+                .focused($focusedField, equals: .vendorIdentifier)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                if sourceType == .synology {
+                    Text("synology_quickconnect_hint")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("fnmusic_fnconnect_hint")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                TextField("source_connection_public_address", text: $publicHost)
+                    .focused($focusedField, equals: .publicHost)
+                    .keyboardType(.URL)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .submitLabel(.next)
+                    .onSubmit { focusedField = .publicPort }
+                TextField("source_connection_public_port", text: $publicPort)
+                    .focused($focusedField, equals: .publicPort)
+                    .keyboardType(.numberPad)
+                if supportsSSLToggle {
+                    Toggle("use_ssl", isOn: $publicUseSsl)
+                }
+                if sourceType.supportsEndpointPathPrefix {
+                    TextField("source_connection_path_prefix", text: $publicBasePath)
+                        .focused($focusedField, equals: .publicBasePath)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                }
+                Text("source_connection_public_hint")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
     // MARK: - Type-specific
 
     @ViewBuilder
@@ -821,11 +1101,13 @@ struct AddSourceView: View {
                     .onSubmit { focusedField = .username }
             }
         case .webdav:
-            Section("webdav_config") {
-                TextField("base_path_hint", text: $basePath)
-                    .focused($focusedField, equals: .basePath)
-                    .autocorrectionDisabled().submitLabel(.next)
-                    .onSubmit { focusedField = .username }
+            if !supportsAdaptiveConnections {
+                Section("webdav_config") {
+                    TextField("base_path_hint", text: $basePath)
+                        .focused($focusedField, equals: .basePath)
+                        .autocorrectionDisabled().submitLabel(.next)
+                        .onSubmit { focusedField = .username }
+                }
             }
         case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic:
             EmptyView()
@@ -879,10 +1161,6 @@ struct AddSourceView: View {
             }
         case .s3:
             Section("S3") {
-                TextField("Endpoint", text: $host, prompt: Text("s3.amazonaws.com"))
-                    .focused($focusedField, equals: .host)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
                 TextField("Region", text: $basePath, prompt: Text("us-east-1"))
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
@@ -896,7 +1174,6 @@ struct AddSourceView: View {
                     .textInputAutocapitalization(.never)
                 RevealableSecureField(title: "Secret Key", text: $password)
                     .focused($focusedField, equals: .password)
-                Toggle("use_ssl", isOn: $useSsl)
             }
         case .drime:
             Section("drime_token_section") {
@@ -949,16 +1226,34 @@ struct AddSourceView: View {
 
     private func initializeFields() {
         guard !isInitialized else { return }
+        useSsl = sourceType.defaultSSL
+        port = "\(sourceType.defaultPort(useSsl: useSsl))"
+        publicUseSsl = supportsSSLToggle ? true : sourceType.defaultSSL
+        publicPort = "\(sourceType.defaultPort(useSsl: publicUseSsl))"
+
         if let s = editingSource {
-            name = s.name; host = s.host ?? ""; port = "\(s.port ?? sourceType.defaultPort)"
-            useSsl = s.useSsl; username = s.username ?? ""; basePath = s.basePath ?? ""
-            if sourceType == .synology {
-                synologyConnectionMode = s.effectiveSynologyConnectionMode
-            }
-            if sourceType == .fnMusic {
-                fnMusicConnectionMode = s.effectiveFnMusicConnectionMode
+            name = s.name
+            username = s.username ?? ""
+            basePath = s.basePath ?? ""
+            if supportsAdaptiveConnections {
+                loadAdaptiveConnectionFields(from: s)
+            } else {
+                host = s.host ?? ""
+                port = "\(s.port ?? sourceType.defaultPort)"
+                useSsl = s.useSsl
+                basePath = s.basePath ?? ""
+                if sourceType == .synology {
+                    synologyConnectionMode = s.effectiveSynologyConnectionMode
+                }
+                if sourceType == .fnMusic {
+                    fnMusicConnectionMode = s.effectiveFnMusicConnectionMode
+                }
             }
             shareName = s.shareName ?? ""; exportPath = s.exportPath ?? ""
+            if sourceType == .s3 {
+                basePath = s.s3Region ?? "us-east-1"
+                shareName = s.basePath ?? ""
+            }
             authType = s.authType; autoConnect = s.autoConnect; rememberDevice = s.rememberDevice
             // 兼容旧版“账号密码都留空即匿名”的来源记录。旧记录的 authType
             // 仍可能是 password；迁移成显式访客模式后才能正确清理/忽略旧凭据。
@@ -977,6 +1272,7 @@ struct AddSourceView: View {
             host = device.host
             port = "\(device.port)"
             useSsl = device.preferredUseSsl ?? sourceType.defaultSSL
+            connectionPreference = .automatic
             if sourceType == .synology {
                 synologyConnectionMode = .address
             }
@@ -990,16 +1286,15 @@ struct AddSourceView: View {
             }
         } else {
             name = sourceType.displayName
-            useSsl = sourceType.defaultSSL
-            port = "\(sourceType.defaultPort(useSsl: useSsl))"
+            if sourceType == .s3 {
+                basePath = "us-east-1"
+                publicHost = "s3.amazonaws.com"
+            }
             if sourceType == .synology {
                 synologyConnectionMode = .quickConnect
-                useSsl = true
-                port = "\(sourceType.defaultPort(useSsl: true))"
             }
             if sourceType == .fnMusic {
                 fnMusicConnectionMode = .fnConnect
-                useSsl = true
             }
             if sourceType == .plex {
                 authType = .apiKey
@@ -1008,6 +1303,44 @@ struct AddSourceView: View {
             }
         }
         isInitialized = true
+    }
+
+    private func loadAdaptiveConnectionFields(from source: MusicSource) {
+        let configuration = source.effectiveConnectionConfiguration
+            ?? SourceConnectionConfiguration()
+        connectionPreference = configuration.preference
+
+        if let endpoint = configuration.localEndpoint {
+            host = endpoint.host
+            port = String(endpoint.port)
+            useSsl = endpoint.useSsl
+            if sourceType.supportsEndpointPathPrefix {
+                localPathPrefix = endpoint.pathPrefix ?? ""
+            }
+        } else {
+            host = ""
+            if !sourceType.supportsEndpointSpecificPath {
+                basePath = source.basePath ?? ""
+            }
+        }
+
+        if let endpoint = configuration.publicEndpoint {
+            publicHost = endpoint.host
+            publicPort = String(endpoint.port)
+            publicUseSsl = endpoint.useSsl
+            publicBasePath = endpoint.pathPrefix ?? ""
+        }
+        vendorIdentifier = configuration.vendorIdentifier ?? ""
+
+        if sourceType == .synology {
+            synologyConnectionMode = configuration.remoteAccessMode == .vendor
+                ? .quickConnect
+                : .address
+        } else if sourceType == .fnMusic {
+            fnMusicConnectionMode = configuration.remoteAccessMode == .vendor
+                ? .fnConnect
+                : .address
+        }
     }
 
     private func saveSource() {
@@ -1031,6 +1364,7 @@ struct AddSourceView: View {
         let finalBasePath: String?
         let finalShareName: String?
         let finalUsername: String?
+        let adaptiveConfiguration = makeAdaptiveConnectionConfiguration()
         var extraConfig = editingSource?.extraConfig
 
         if sourceType == .s3 {
@@ -1047,6 +1381,18 @@ struct AddSourceView: View {
             finalBasePath = basePath.isEmpty ? nil : basePath
             finalShareName = nil
             finalUsername = sourceType == .drime ? nil : (username.isEmpty ? nil : username)  // client_id
+        } else if supportsAdaptiveConnections {
+            finalHost = nil
+            if sourceType.supportsEndpointSpecificPath {
+                finalBasePath = adaptiveConfiguration?.localEndpoint?.pathPrefix
+                    ?? adaptiveConfiguration?.publicEndpoint?.pathPrefix
+            } else {
+                finalBasePath = basePath.isEmpty ? nil : basePath
+            }
+            finalShareName = shareName.isEmpty ? nil : shareName
+            finalUsername = sourceType.requiresCredentials && authType != .apiKey && authType != .none
+                ? (username.isEmpty ? nil : username)
+                : nil
         } else {
             if sourceType == .synology, synologyConnectionMode == .quickConnect {
                 finalHost = SynologyQuickConnectResolver.quickConnectID(from: host)
@@ -1065,22 +1411,27 @@ struct AddSourceView: View {
                 : nil
         }
 
-        let source = MusicSource(
+        var source = MusicSource(
             id: editingSource?.id ?? UUID().uuidString,
             name: name, type: sourceType,
             host: finalHost,
-            port: sourceType.requiresHost
+            port: supportsAdaptiveConnections
+                ? nil
+                : (sourceType.requiresHost
                 ? ((sourceType == .synology && synologyConnectionMode == .quickConnect)
                     || (sourceType == .fnMusic && fnMusicConnectionMode == .fnConnect)
                     ? sourceType.defaultPort(useSsl: true)
                     : validatedPort)
-                : nil,
-            useSsl: (sourceType == .synology && synologyConnectionMode == .quickConnect)
+                : nil),
+            useSsl: supportsAdaptiveConnections
+                ? useSsl
+                : ((sourceType == .synology && synologyConnectionMode == .quickConnect)
                 || (sourceType == .fnMusic && fnMusicConnectionMode == .fnConnect)
                 ? true
-                : useSsl,
+                : useSsl),
             synologyConnectionMode: sourceType == .synology ? synologyConnectionMode : nil,
             fnMusicConnectionMode: sourceType == .fnMusic ? fnMusicConnectionMode : nil,
+            connectionConfiguration: adaptiveConfiguration,
             username: finalUsername,
             basePath: finalBasePath,
             shareName: finalShareName,
@@ -1100,6 +1451,9 @@ struct AddSourceView: View {
             deletedAt: editingSource?.deletedAt,
             cloudAccountID: editingSource?.cloudAccountID
         )
+        if supportsAdaptiveConnections {
+            source = source.projectingPreferredConnectionForLegacy()
+        }
 
         // Save credentials
         if sourceType == .drime {
@@ -1187,6 +1541,62 @@ struct AddSourceView: View {
 
         onSave(source)
         dismiss()
+    }
+
+    private func makeAdaptiveConnectionConfiguration() -> SourceConnectionConfiguration? {
+        guard supportsAdaptiveConnections else { return nil }
+
+        let localHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        let remoteHost = publicHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        let localEndpoint = localHost.isEmpty ? nil : validatedPort.map {
+            SourceConnectionEndpoint(
+                host: localHost,
+                port: $0,
+                useSsl: useSsl,
+                pathPrefix: sourceType.supportsEndpointPathPrefix
+                    ? normalizedOptionalPath(localPathPrefix)
+                    : nil
+            ).normalized
+        }
+        let publicEndpoint = remoteHost.isEmpty ? nil : validatedPublicPort.map {
+            SourceConnectionEndpoint(
+                host: remoteHost,
+                port: $0,
+                useSsl: publicUseSsl,
+                pathPrefix: sourceType.supportsEndpointPathPrefix
+                    ? normalizedOptionalPath(publicBasePath)
+                    : nil
+            ).normalized
+        }
+
+        let rawVendorIdentifier = vendorIdentifier
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedVendorIdentifier: String?
+        if rawVendorIdentifier.isEmpty {
+            normalizedVendorIdentifier = nil
+        } else if sourceType == .synology {
+            normalizedVendorIdentifier = SynologyQuickConnectResolver.quickConnectID(
+                from: rawVendorIdentifier
+            ) ?? rawVendorIdentifier
+        } else if sourceType == .fnMusic {
+            normalizedVendorIdentifier = FnConnectResolver.fnID(from: rawVendorIdentifier)
+                ?? rawVendorIdentifier
+        } else {
+            normalizedVendorIdentifier = nil
+        }
+
+        return SourceConnectionConfiguration(
+            preference: connectionPreference,
+            localEndpoint: localEndpoint,
+            publicEndpoint: publicEndpoint,
+            remoteAccessMode: remoteUsesVendor ? .vendor : .direct,
+            vendorIdentifier: normalizedVendorIdentifier
+        )
+    }
+
+    private func normalizedOptionalPath(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private var credentialEditHint: LocalizedStringKey {

@@ -444,6 +444,13 @@ protocol SongScanningConnector: MusicSourceConnector {
     func scanSongs(from path: String) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error>
 }
 
+/// Resolves an OpenList `.strm` source-relative target against the connector's
+/// configured WebDAV origin. Keeping this as a capability preserves the
+/// behavior when WebDAV is wrapped by adaptive route selection.
+protocol OpenListSTRMResolvingConnector: MusicSourceConnector {
+    func openListSTRMURL(for reference: String) async throws -> URL?
+}
+
 /// Lets local and mounted-file connectors compare cheap fingerprints before
 /// opening media for tag or FFmpeg inspection.
 protocol ExistingSongAwareScanningConnector: SongScanningConnector {

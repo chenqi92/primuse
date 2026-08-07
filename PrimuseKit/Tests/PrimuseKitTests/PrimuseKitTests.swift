@@ -271,3 +271,256 @@ import Testing
     )
     #expect(restored.port == 14_445)
 }
+
+@Test func adaptiveConnectionRoutesPreferLANAndPreserveEndpointPorts() throws {
+    let configuration = SourceConnectionConfiguration(
+        localEndpoint: SourceConnectionEndpoint(
+            host: "192.168.10.20",
+            port: 8096,
+            useSsl: false,
+            pathPrefix: "/jellyfin"
+        ),
+        publicEndpoint: SourceConnectionEndpoint(
+            host: "media.example.com",
+            port: 443,
+            useSsl: true,
+            pathPrefix: "/media"
+        )
+    )
+    let source = MusicSource(
+        name: "Jellyfin",
+        type: .jellyfin,
+        connectionConfiguration: configuration,
+        username: "listener"
+    )
+
+    #expect(source.connectionCandidates.map(\.kind) == [.localAddress, .publicAddress])
+
+    let local = source.applyingConnectionCandidate(source.connectionCandidates[0])
+    #expect(local.host == "192.168.10.20")
+    #expect(local.port == 8096)
+    #expect(local.useSsl == false)
+    #expect(local.basePath == "/jellyfin")
+
+    let remote = source.applyingConnectionCandidate(source.connectionCandidates[1])
+    #expect(remote.host == "media.example.com")
+    #expect(remote.port == 443)
+    #expect(remote.useSsl)
+    #expect(remote.basePath == "/media")
+
+    let restored = try JSONDecoder().decode(
+        MusicSource.self,
+        from: JSONEncoder().encode(source)
+    )
+    #expect(restored.connectionConfiguration == configuration)
+}
+
+@Test func vendorRemoteSelectionRetainsDirectAddressAndLegacyProjection() {
+    let configuration = SourceConnectionConfiguration(
+        localEndpoint: SourceConnectionEndpoint(
+            host: "nas.local",
+            port: 5001,
+            useSsl: true
+        ),
+        publicEndpoint: SourceConnectionEndpoint(
+            host: "nas.example.com",
+            port: 5443,
+            useSsl: true
+        ),
+        remoteAccessMode: .vendor,
+        vendorIdentifier: "family-nas"
+    )
+    let source = MusicSource(
+        name: "Synology",
+        type: .synology,
+        connectionConfiguration: configuration
+    )
+
+    #expect(source.connectionCandidates.map(\.kind) == [.localAddress, .vendorRemote])
+    let remote = source.applyingConnectionCandidate(source.connectionCandidates[1])
+    #expect(remote.host == "family-nas")
+    #expect(remote.effectiveSynologyConnectionMode == .quickConnect)
+    #expect(remote.connectionConfiguration?.publicEndpoint?.host == "nas.example.com")
+
+    let legacy = source.projectingPreferredConnectionForLegacy()
+    #expect(legacy.host == "nas.local")
+    #expect(legacy.effectiveSynologyConnectionMode == .address)
+    #expect(legacy.connectionConfiguration?.vendorIdentifier == "family-nas")
+}
+
+@Test func adaptiveConnectionPreferenceCanSelectOneRouteWithoutDeletingTheOther() {
+    let local = SourceConnectionEndpoint(host: "10.0.0.8", port: 4533, useSsl: false)
+    let remote = SourceConnectionEndpoint(host: "music.example.com", port: 443, useSsl: true)
+    var configuration = SourceConnectionConfiguration(
+        preference: .remoteOnly,
+        localEndpoint: local,
+        publicEndpoint: remote
+    )
+    var source = MusicSource(
+        name: "Navidrome",
+        type: .navidrome,
+        connectionConfiguration: configuration
+    )
+
+    #expect(source.connectionCandidates.map(\.kind) == [.publicAddress])
+    #expect(source.connectionConfiguration?.localEndpoint == local)
+
+    configuration.preference = .localOnly
+    source.connectionConfiguration = configuration
+    #expect(source.connectionCandidates.map(\.kind) == [.localAddress])
+    #expect(source.connectionConfiguration?.publicEndpoint == remote)
+}
+
+@Test func adaptiveConnectionPreferencesNeverEnableAnInactiveFallback() {
+    let remote = SourceConnectionEndpoint(
+        host: "music.example.com",
+        port: 443,
+        useSsl: true
+    )
+    let source = MusicSource(
+        name: "Remote-only saved value",
+        type: .navidrome,
+        connectionConfiguration: SourceConnectionConfiguration(
+            preference: .localOnly,
+            localEndpoint: nil,
+            publicEndpoint: remote
+        )
+    )
+
+    #expect(source.connectionCandidates.isEmpty)
+    #expect(source.connectionConfiguration?.publicEndpoint == remote)
+}
+
+@Test func reverseProxyURLNormalizesSchemePortAndPathForEveryResolver() {
+    let endpoint = SourceConnectionEndpoint(
+        host: "https://music.example.com:8443/reverse/music",
+        port: 8096,
+        useSsl: false,
+        pathPrefix: "/stale-prefix"
+    )
+    let normalized = endpoint.normalized
+    #expect(normalized.host == "music.example.com")
+    #expect(normalized.port == 8443)
+    #expect(normalized.useSsl)
+    #expect(normalized.pathPrefix == "/reverse/music")
+
+    let source = MusicSource(
+        name: "Jellyfin proxy",
+        type: .jellyfin,
+        connectionConfiguration: SourceConnectionConfiguration(
+            preference: .remoteOnly,
+            publicEndpoint: endpoint
+        )
+    )
+    let projected = source.projectingPreferredConnectionForLegacy()
+    #expect(projected.host == "music.example.com")
+    #expect(projected.port == 8443)
+    #expect(projected.useSsl)
+    #expect(projected.basePath == "/reverse/music")
+    #expect(source.connectionSummary?.contains("music.example.com:8443/reverse/music") == true)
+
+    let synology = MusicSource(
+        name: "Synology proxy",
+        type: .synology,
+        connectionConfiguration: SourceConnectionConfiguration(
+            preference: .remoteOnly,
+            publicEndpoint: SourceConnectionEndpoint(
+                host: "nas.example.com",
+                port: 5443,
+                useSsl: true,
+                pathPrefix: "/dsm"
+            )
+        )
+    ).projectingPreferredConnectionForLegacy()
+    #expect(synology.host == "https://nas.example.com:5443/dsm")
+    #expect(synology.port == 5443)
+    #expect(synology.basePath == "/dsm")
+}
+
+@Test func legacyConnectionRecordsKeepTheirOriginalSingleRoute() {
+    let local = MusicSource(
+        name: "WebDAV",
+        type: .webdav,
+        host: "192.168.1.9",
+        port: 8080,
+        useSsl: false,
+        basePath: "/dav/music"
+    )
+    #expect(local.connectionConfiguration == nil)
+    #expect(local.connectionCandidates.map(\.kind) == [.localAddress])
+    let projectedLocal = local.applyingConnectionCandidate(local.connectionCandidates[0])
+    #expect(projectedLocal.host == local.host)
+    #expect(projectedLocal.port == local.port)
+    #expect(projectedLocal.basePath == local.basePath)
+
+    let quickConnect = MusicSource(
+        name: "Synology",
+        type: .synology,
+        host: "family-nas",
+        synologyConnectionMode: .quickConnect
+    )
+    #expect(quickConnect.connectionCandidates.map(\.kind) == [.vendorRemote])
+    #expect(
+        quickConnect.applyingConnectionCandidate(quickConnect.connectionCandidates[0])
+            .effectiveSynologyConnectionMode == .quickConnect
+    )
+}
+
+@Test func s3AdaptiveEndpointKeepsProxyPrefixSeparateFromBucket() {
+    let source = MusicSource(
+        name: "MinIO",
+        type: .s3,
+        connectionConfiguration: SourceConnectionConfiguration(
+            preference: .remoteOnly,
+            publicEndpoint: SourceConnectionEndpoint(
+                host: "https://minio.example.com:9443/s3-proxy",
+                port: 443,
+                useSsl: true
+            )
+        ),
+        basePath: "music"
+    ).projectingPreferredConnectionForLegacy()
+
+    #expect(source.host == "https://minio.example.com:9443/s3-proxy")
+    #expect(source.port == 9443)
+    #expect(source.basePath == "music")
+}
+
+@Test func everyImplementedAddressBackedNASCanUseAdaptiveRoutes() {
+    #expect(MusicSourceType.synology.supportsAdaptiveConnections)
+    #expect(MusicSourceType.qnap.supportsAdaptiveConnections)
+    #expect(MusicSourceType.ugreen.supportsAdaptiveConnections)
+    #expect(MusicSourceType.fnos.supportsAdaptiveConnections == false)
+}
+
+@Test func adaptiveRuntimeRemembersFallbackUntilTheNetworkRouteChanges() async {
+    let source = MusicSource(
+        id: "route-memory",
+        name: "WebDAV",
+        type: .webdav,
+        connectionConfiguration: SourceConnectionConfiguration(
+            localEndpoint: SourceConnectionEndpoint(
+                host: "192.168.1.20",
+                port: 8080,
+                useSsl: false
+            ),
+            publicEndpoint: SourceConnectionEndpoint(
+                host: "dav.example.com",
+                port: 443,
+                useSsl: true
+            )
+        )
+    )
+    let runtime = SourceConnectionRuntime()
+
+    #expect(await runtime.orderedCandidates(for: source).map(\.kind)
+            == [.localAddress, .publicAddress])
+    await runtime.record(.publicAddress, for: source.id)
+    #expect(await runtime.orderedCandidates(for: source).map(\.kind)
+            == [.publicAddress, .localAddress])
+    let generation = await runtime.routeGeneration()
+    await runtime.invalidateAll()
+    #expect(await runtime.routeGeneration() == generation + 1)
+    #expect(await runtime.orderedCandidates(for: source).map(\.kind)
+            == [.localAddress, .publicAddress])
+}

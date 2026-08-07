@@ -7,22 +7,14 @@ struct MediaServerBrowserView: View {
 
     private let connector: any MusicSourceConnector
 
-    init(source: MusicSource, selectedDirectories: Binding<[String]>) {
+    init(
+        source: MusicSource,
+        connector: any MusicSourceConnector,
+        selectedDirectories: Binding<[String]>
+    ) {
         self.source = source
         self._selectedDirectories = selectedDirectories
-        self.connector = credentialProtectedConnector(for: source) { secret in
-            MediaServerSource(
-                sourceID: source.id,
-                kind: MediaServerSource.Kind(sourceType: source.type)!,
-                host: source.host ?? "",
-                port: source.port,
-                useSsl: source.useSsl,
-                basePath: source.basePath,
-                username: source.username ?? "",
-                secret: secret,
-                authType: source.authType
-            )
-        }
+        self.connector = connector
     }
 
     var body: some View {

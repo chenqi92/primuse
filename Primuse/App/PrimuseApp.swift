@@ -845,6 +845,14 @@ struct PrimuseApp: App {
                 .onChange(of: NetworkMonitor.shared.isOnUnmeteredNetwork) { _, onWifi in
                     if onWifi { metadataBackfill.start() }
                 }
+                .onChange(of: NetworkMonitor.shared.pathGeneration) { _, _ in
+                    Task {
+                        await sourceManager.resetAdaptiveConnectionRoutes()
+                        for source in sourcesStore.sources where source.type == .synology {
+                            scanService.removeSynologyAPI(for: source.id)
+                        }
+                    }
+                }
                 .onReceive(NotificationCenter.default.publisher(for: .primuseSourceAuthFailed)) { note in
                     guard let id = note.userInfo?["sourceID"] as? String,
                           let src = sourcesStore.source(id: id) else { return }

@@ -343,7 +343,10 @@ struct SourcesContentView: View {
                     }
                     HStack(spacing: 4) {
                         Text(source.type.displayName)
-                        if let host = source.host, !host.isEmpty { Text("·"); Text(host) }
+                        if let summary = source.connectionSummary {
+                            Text("·")
+                            Text(summary).lineLimit(1).truncationMode(.middle)
+                        }
                     }
                     .font(.caption).foregroundStyle(.secondary)
                     if source.type.isAwaitingPublicAPI {
@@ -1015,28 +1018,44 @@ struct SourcesContentView: View {
     }
 
     private func explicitHTTPTrustTarget(for source: MusicSource) -> String? {
-        let usesHTTP: Bool
-        switch source.type {
-        case .qnap, .ugreen, .fnos, .webdav, .s3,
-             .jellyfin, .emby, .plex,
-             .subsonic, .navidrome, .airsonic, .gonic,
-             .daoliyu:
-            usesHTTP = true
-        case .fnMusic:
-            usesHTTP = source.effectiveFnMusicConnectionMode == .address
-        default:
-            usesHTTP = false
+        let routedSources: [MusicSource]
+        if source.connectionConfiguration != nil {
+            routedSources = source.connectionCandidates.map {
+                source.applyingConnectionCandidate($0)
+            }
+        } else {
+            routedSources = [source]
         }
-        guard usesHTTP,
-              let url = NetworkURLBuilder.baseURL(
-                  host: source.host ?? "",
-                  scheme: source.useSsl ? "https" : "http",
-                  port: source.port
-              ),
-              TrustedHTTPTransport.requiresPlainSocket(for: url) else {
-            return nil
+
+        for routedSource in routedSources {
+            let usesHTTP: Bool
+            switch routedSource.type {
+            case .synology:
+                usesHTTP = routedSource.effectiveSynologyConnectionMode == .address
+            case .qnap, .ugreen, .fnos, .webdav, .s3,
+                 .jellyfin, .emby, .plex,
+                 .subsonic, .navidrome, .airsonic, .gonic,
+                 .daoliyu:
+                usesHTTP = true
+            case .fnMusic:
+                usesHTTP = routedSource.effectiveFnMusicConnectionMode == .address
+            default:
+                usesHTTP = false
+            }
+            guard usesHTTP,
+                  let url = NetworkURLBuilder.baseURL(
+                      host: routedSource.host ?? "",
+                      scheme: routedSource.useSsl ? "https" : "http",
+                      port: routedSource.port
+                  ),
+                  TrustedHTTPTransport.requiresPlainSocket(for: url),
+                  let target = TrustedHTTPTransport.trustTarget(for: url),
+                  !SSLTrustStore.shared.allowsInsecureHTTP(domain: target) else {
+                continue
+            }
+            return target
         }
-        return TrustedHTTPTransport.trustTarget(for: url)
+        return nil
     }
 
     private func sourceCacheEstimate(for songs: [Song]) -> SourceCacheEstimate {
@@ -1300,15 +1319,35 @@ struct SourcesContentView: View {
                 }
             )
         case .smb:
-            SMBBrowserView(source: source, selectedDirectories: selectedDirectories)
+            SMBBrowserView(
+                source: source,
+                connector: sourceManager.connector(for: source),
+                selectedDirectories: selectedDirectories
+            )
         case .webdav:
-            WebDAVBrowserView(source: source, selectedDirectories: selectedDirectories)
+            WebDAVBrowserView(
+                source: source,
+                connector: sourceManager.connector(for: source),
+                selectedDirectories: selectedDirectories
+            )
         case .ftp:
-            FTPBrowserView(source: source, selectedDirectories: selectedDirectories)
+            FTPBrowserView(
+                source: source,
+                connector: sourceManager.connector(for: source),
+                selectedDirectories: selectedDirectories
+            )
         case .sftp:
-            SFTPBrowserView(source: source, selectedDirectories: selectedDirectories)
+            SFTPBrowserView(
+                source: source,
+                connector: sourceManager.connector(for: source),
+                selectedDirectories: selectedDirectories
+            )
         case .nfs:
-            NFSBrowserView(source: source, selectedDirectories: selectedDirectories)
+            NFSBrowserView(
+                source: source,
+                connector: sourceManager.connector(for: source),
+                selectedDirectories: selectedDirectories
+            )
         case .upnp:
             UPnPBrowserView(source: source, selectedDirectories: selectedDirectories)
         case .qnap, .ugreen, .fnos, .s3:

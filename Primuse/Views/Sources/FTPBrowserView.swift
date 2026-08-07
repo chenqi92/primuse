@@ -7,20 +7,14 @@ struct FTPBrowserView: View {
 
     private let connector: any MusicSourceConnector
 
-    init(source: MusicSource, selectedDirectories: Binding<[String]>) {
+    init(
+        source: MusicSource,
+        connector: any MusicSourceConnector,
+        selectedDirectories: Binding<[String]>
+    ) {
         self.source = source
         self._selectedDirectories = selectedDirectories
-        self.connector = credentialProtectedConnector(for: source) { password in
-            FTPSource(
-                sourceID: source.id,
-                host: source.host ?? "",
-                port: source.port,
-                basePath: source.basePath,
-                username: source.username ?? "",
-                password: password,
-                encryption: source.ftpEncryption ?? .none
-            )
-        }
+        self.connector = connector
     }
 
     var body: some View {

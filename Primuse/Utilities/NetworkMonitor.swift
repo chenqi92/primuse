@@ -15,6 +15,7 @@ final class NetworkMonitor {
     private(set) var isConstrained: Bool = false // Low Data Mode
     private(set) var isReachable: Bool = false
     private(set) var hasDeterminedPath: Bool = false
+    private(set) var pathGeneration: UInt64 = 0
 
     private let monitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "com.welape.primuse.network-monitor")
@@ -25,10 +26,14 @@ final class NetworkMonitor {
             let expensive = path.isExpensive
             let constrained = path.isConstrained
             Task { @MainActor [weak self] in
-                self?.hasDeterminedPath = true
-                self?.isReachable = reachable
-                self?.isExpensive = expensive
-                self?.isConstrained = constrained
+                guard let self else { return }
+                self.hasDeterminedPath = true
+                self.isReachable = reachable
+                self.isExpensive = expensive
+                self.isConstrained = constrained
+                // The path handler itself is the change signal. Interface-type
+                // summaries cannot distinguish two different Wi-Fi networks.
+                self.pathGeneration &+= 1
             }
         }
         monitor.start(queue: queue)

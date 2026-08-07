@@ -683,3 +683,11 @@ enum SourceError: Error, LocalizedError {
         }
     }
 }
+
+/// A route reached the service but cannot proceed without user action (for
+/// example a rejected password, account lock or required password change).
+/// Adaptive routing must not repeat that login against every saved endpoint.
+struct SourceConnectionTerminalError: Error, LocalizedError, Sendable {
+    let message: String
+    var errorDescription: String? { message }
+}

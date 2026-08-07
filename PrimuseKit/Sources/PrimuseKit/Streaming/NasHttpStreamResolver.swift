@@ -112,17 +112,15 @@ public actor NasHttpStreamResolver: StreamResolver {
     }
 
     static func baseURL(host: String, port: Int?, useSsl: Bool) -> URL? {
-        var host = host.trimmingCharacters(in: .whitespaces)
-        guard !host.isEmpty else { return nil }
-        var scheme = useSsl ? "https" : "http"
-        if let range = host.range(of: "://") {
-            scheme = String(host[..<range.lowerBound]).lowercased()
-            host = String(host[range.upperBound...])
+        let address = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard address.isEmpty == false else { return nil }
+        var components = address.contains("://")
+            ? URLComponents(string: address)
+            : URLComponents(string: "\(useSsl ? "https" : "http")://\(address)")
+        if components?.port == nil, let port, port > 0 {
+            components?.port = port
         }
-        if let slash = host.firstIndex(of: "/") { host = String(host[..<slash]) }
-        var hostPort = host
-        if let port, port > 0, !host.contains(":") { hostPort = "\(host):\(port)" }
-        return URL(string: "\(scheme)://\(hostPort)")
+        return components?.url
     }
 
     static func qnapDownloadURL(base: URL, path: String, sid: String) -> URL? {

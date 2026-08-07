@@ -527,8 +527,8 @@ struct MacSourcesView: View {
     }
 
     private func hostLine(_ source: MusicSource) -> String {
-        if let host = source.host, !host.isEmpty {
-            return "\(source.type.displayName) · \(host)"
+        if let summary = source.connectionSummary {
+            return "\(source.type.displayName) · \(summary)"
         }
         return source.type.displayName
     }
@@ -577,11 +577,36 @@ struct MacSourcesView: View {
                 onSessionReady: { api in scanService.synologyAPIs[source.id] = api },
                 onPasswordSaved: { await sourceManager.refreshConnector(for: source.id) }
             )
-        case .smb: SMBBrowserView(source: source, selectedDirectories: selectedDirectories)
-        case .webdav: WebDAVBrowserView(source: source, selectedDirectories: selectedDirectories)
-        case .ftp: FTPBrowserView(source: source, selectedDirectories: selectedDirectories)
-        case .sftp: SFTPBrowserView(source: source, selectedDirectories: selectedDirectories)
-        case .nfs: NFSBrowserView(source: source, selectedDirectories: selectedDirectories)
+        case .smb:
+            SMBBrowserView(
+                source: source,
+                connector: sourceManager.connector(for: source),
+                selectedDirectories: selectedDirectories
+            )
+        case .webdav:
+            WebDAVBrowserView(
+                source: source,
+                connector: sourceManager.connector(for: source),
+                selectedDirectories: selectedDirectories
+            )
+        case .ftp:
+            FTPBrowserView(
+                source: source,
+                connector: sourceManager.connector(for: source),
+                selectedDirectories: selectedDirectories
+            )
+        case .sftp:
+            SFTPBrowserView(
+                source: source,
+                connector: sourceManager.connector(for: source),
+                selectedDirectories: selectedDirectories
+            )
+        case .nfs:
+            NFSBrowserView(
+                source: source,
+                connector: sourceManager.connector(for: source),
+                selectedDirectories: selectedDirectories
+            )
         case .upnp: UPnPBrowserView(source: source, selectedDirectories: selectedDirectories)
         case .s3:
             // S3 stores region + dir list together in extraConfig; the S3-aware

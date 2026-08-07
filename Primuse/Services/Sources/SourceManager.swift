@@ -296,6 +296,485 @@ private struct SourceDiagnosticAdvice: Sendable {
     let suggestion: String
 }
 
+private struct RoutedConnectorCandidate: Sendable {
+    let kind: SourceConnectionCandidateKind
+    let connector: any MusicSourceConnector
+}
+
+/// Owns route selection for one source. Read operations may move to the next
+/// candidate after a transport failure. Mutations are never replayed because a
+/// lost response cannot prove whether the remote write or deletion took effect.
+private actor SourceConnectionRouter {
+    private let sourceID: String
+    private let candidates: [RoutedConnectorCandidate]
+    private var activeIndex: Int?
+    private var routeGeneration: UInt64?
+
+    init(sourceID: String, candidates: [RoutedConnectorCandidate]) {
+        self.sourceID = sourceID
+        self.candidates = candidates
+    }
+
+    func connect() async throws {
+        _ = try await connectedIndex()
+    }
+
+    func disconnect() async {
+        activeIndex = nil
+        for candidate in candidates {
+            await candidate.connector.disconnect()
+        }
+    }
+
+    func withRead<T: Sendable>(
+        _ operation: @Sendable (any MusicSourceConnector) async throws -> T
+    ) async throws -> T {
+        let initialIndex = try await connectedIndex()
+        do {
+            return try await operation(candidates[initialIndex].connector)
+        } catch {
+            guard Self.canFailOver(after: error) else { throw error }
+            await candidates[initialIndex].connector.disconnect()
+            activeIndex = nil
+            await SourceConnectionRuntime.shared.invalidate(sourceID: sourceID)
+            return try await attemptRead(
+                operation,
+                excluding: [initialIndex],
+                initialError: error
+            )
+        }
+    }
+
+    func withMutation<T: Sendable>(
+        _ operation: @Sendable (any MusicSourceConnector) async throws -> T
+    ) async throws -> T {
+        let index = try await connectedIndex()
+        do {
+            return try await operation(candidates[index].connector)
+        } catch {
+            if Self.canFailOver(after: error) {
+                await candidates[index].connector.disconnect()
+                activeIndex = nil
+                await SourceConnectionRuntime.shared.invalidate(sourceID: sourceID)
+            }
+            throw error
+        }
+    }
+
+    /// AsyncThrowingStream errors occur after the method that created the
+    /// stream has returned, so `withRead` cannot observe them. Never splice a
+    /// second endpoint into a partially-consumed byte or scan stream; simply
+    /// retire the failed route so the caller's next safe retry uses fallback.
+    func noteDeferredReadFailure(_ error: Error) async {
+        guard Self.canFailOver(after: error) else { return }
+        if let activeIndex {
+            await candidates[activeIndex].connector.disconnect()
+        }
+        activeIndex = nil
+        await SourceConnectionRuntime.shared.invalidate(sourceID: sourceID)
+    }
+
+    private func connectedIndex(excluding excluded: Set<Int> = []) async throws -> Int {
+        let currentGeneration = await SourceConnectionRuntime.shared.routeGeneration()
+        if routeGeneration != currentGeneration {
+            activeIndex = nil
+            routeGeneration = currentGeneration
+            for candidate in candidates {
+                await candidate.connector.disconnect()
+            }
+        }
+        let activeKind = await SourceConnectionRuntime.shared.activeKind(for: sourceID)
+        if let activeIndex,
+           let activeKind,
+           candidates[activeIndex].kind != activeKind {
+            await candidates[activeIndex].connector.disconnect()
+            self.activeIndex = nil
+        }
+        if let activeIndex, excluded.contains(activeIndex) == false {
+            return activeIndex
+        }
+
+        var lastError: Error?
+        let orderedIndices = candidates.indices.sorted { lhs, rhs in
+            if candidates[lhs].kind == activeKind { return true }
+            if candidates[rhs].kind == activeKind { return false }
+            return lhs < rhs
+        }
+        for index in orderedIndices where excluded.contains(index) == false {
+            do {
+                try await candidates[index].connector.connect()
+                activeIndex = index
+                await SourceConnectionRuntime.shared.record(
+                    candidates[index].kind,
+                    for: sourceID
+                )
+                return index
+            } catch {
+                lastError = error
+                guard Self.canFailOver(after: error) else { throw error }
+                await candidates[index].connector.disconnect()
+            }
+        }
+        throw lastError ?? SourceError.connectionFailed(
+            String(localized: "source_connection_no_route")
+        )
+    }
+
+    private func attemptRead<T: Sendable>(
+        _ operation: @Sendable (any MusicSourceConnector) async throws -> T,
+        excluding initialExcluded: Set<Int>,
+        initialError: Error
+    ) async throws -> T {
+        var excluded = initialExcluded
+        var lastError = initialError
+
+        while excluded.count < candidates.count {
+            let index: Int
+            do {
+                index = try await connectedIndex(excluding: excluded)
+            } catch {
+                throw error
+            }
+
+            do {
+                return try await operation(candidates[index].connector)
+            } catch {
+                lastError = error
+                guard Self.canFailOver(after: error) else { throw error }
+                await candidates[index].connector.disconnect()
+                activeIndex = nil
+                await SourceConnectionRuntime.shared.invalidate(sourceID: sourceID)
+                excluded.insert(index)
+            }
+        }
+        throw lastError
+    }
+
+    private static func canFailOver(after error: Error) -> Bool {
+        if error is CancellationError { return false }
+        if error is SourceConnectionTerminalError { return false }
+        if let sourceError = error as? SourceError {
+            switch sourceError {
+            case .authenticationFailed, .credentialUnavailable:
+                return false
+            case .pathNotFound, .fileNotFound, .connectionFailed, .timeout:
+                return true
+            }
+        }
+
+        let nsError = error as NSError
+        if nsError.domain == NSPOSIXErrorDomain,
+           [Int(EACCES), Int(EPERM)].contains(nsError.code) {
+            return false
+        }
+        if nsError.domain == NSURLErrorDomain {
+            switch nsError.code {
+            case NSURLErrorUserAuthenticationRequired,
+                 NSURLErrorUserCancelledAuthentication,
+                 NSURLErrorCancelled:
+                return false
+            default:
+                return true
+            }
+        }
+        return true
+    }
+}
+
+private protocol RoutedConnectorProxy: MusicSourceConnector {
+    var routing: SourceConnectionRouter { get }
+    var routedSupportsSidecarWriting: Bool { get }
+    var routedPreferredDeleteBatchSize: Int { get }
+}
+
+private extension RoutedConnectorProxy {
+    var supportsSidecarWriting: Bool { routedSupportsSidecarWriting }
+    var preferredDeleteBatchSize: Int { routedPreferredDeleteBatchSize }
+
+    func connect() async throws { try await routing.connect() }
+    func disconnect() async { await routing.disconnect() }
+
+    func listFiles(at path: String) async throws -> [RemoteFileItem] {
+        try await routing.withRead { try await $0.listFiles(at: path) }
+    }
+
+    func localURL(for path: String) async throws -> URL {
+        try await routing.withRead { try await $0.localURL(for: path) }
+    }
+
+    func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
+        let stream = try await routing.withRead { try await $0.streamData(for: path) }
+        return observingDeferredReadErrors(in: stream)
+    }
+
+    func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
+        let stream = try await routing.withRead { try await $0.scanAudioFiles(from: path) }
+        return observingDeferredReadErrors(in: stream)
+    }
+
+    func scanCueSheets(from path: String) async throws -> AsyncThrowingStream<RemoteCueSheetItem, Error> {
+        let stream = try await routing.withRead { try await $0.scanCueSheets(from: path) }
+        return observingDeferredReadErrors(in: stream)
+    }
+
+    func streamingURL(for path: String) async throws -> URL? {
+        try await routing.withRead { try await $0.streamingURL(for: path) }
+    }
+
+    func imageURL(for path: String) async throws -> URL? {
+        try await routing.withRead { try await $0.imageURL(for: path) }
+    }
+
+    func writeFile(data: Data, to path: String) async throws {
+        try await routing.withMutation { try await $0.writeFile(data: data, to: path) }
+    }
+
+    func writeFile(data: Data, to path: String, priority: RangeFetchPriority) async throws {
+        try await routing.withMutation {
+            try await $0.writeFile(data: data, to: path, priority: priority)
+        }
+    }
+
+    func deleteFile(at path: String) async throws {
+        try await routing.withMutation { try await $0.deleteFile(at: path) }
+    }
+
+    func deleteFiles(at paths: [String]) async throws {
+        try await routing.withMutation { try await $0.deleteFiles(at: paths) }
+    }
+
+    func countAudioFiles(in path: String) async throws -> Int {
+        try await routing.withRead { try await $0.countAudioFiles(in: path) }
+    }
+
+    func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+        try await routing.withRead {
+            try await $0.fetchRange(path: path, offset: offset, length: length)
+        }
+    }
+
+    func fetchRange(
+        path: String,
+        offset: Int64,
+        length: Int64,
+        priority: RangeFetchPriority
+    ) async throws -> Data {
+        try await routing.withRead {
+            try await $0.fetchRange(
+                path: path,
+                offset: offset,
+                length: length,
+                priority: priority
+            )
+        }
+    }
+
+    func fetchMetadataRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+        try await routing.withRead {
+            try await $0.fetchMetadataRange(path: path, offset: offset, length: length)
+        }
+    }
+
+    func prefetchMetadata(paths: [String]) async {
+        _ = try? await routing.withRead { connector in
+            await connector.prefetchMetadata(paths: paths)
+        }
+    }
+
+    func observingDeferredReadErrors<Element: Sendable>(
+        in stream: AsyncThrowingStream<Element, Error>
+    ) -> AsyncThrowingStream<Element, Error> {
+        let routing = routing
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    for try await element in stream {
+                        try Task.checkCancellation()
+                        continuation.yield(element)
+                    }
+                    continuation.finish()
+                } catch {
+                    await routing.noteDeferredReadFailure(error)
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { @Sendable _ in task.cancel() }
+        }
+    }
+}
+
+private struct RoutedMusicSourceConnector: RoutedConnectorProxy, OpenListSTRMResolvingConnector {
+    let sourceID: String
+    let routing: SourceConnectionRouter
+    let routedSupportsSidecarWriting: Bool
+    let routedPreferredDeleteBatchSize: Int
+
+    func openListSTRMURL(for reference: String) async throws -> URL? {
+        try await routing.withRead { connector in
+            guard let resolver = connector as? any OpenListSTRMResolvingConnector else {
+                return nil
+            }
+            return try await resolver.openListSTRMURL(for: reference)
+        }
+    }
+}
+
+private struct RoutedSubsonicConnector: RoutedConnectorProxy, SongScanningConnector,
+    ServerScrobblingConnector, ServerLyricsConnector {
+    let sourceID: String
+    let routing: SourceConnectionRouter
+    let routedSupportsSidecarWriting: Bool
+    let routedPreferredDeleteBatchSize: Int
+
+    func scanSongs(from path: String) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error> {
+        let stream = try await routing.withRead { connector in
+            guard let scanner = connector as? any SongScanningConnector else {
+                throw SourceError.connectionFailed("Song scanner unavailable")
+            }
+            return try await scanner.scanSongs(from: path)
+        }
+        return observingDeferredReadErrors(in: stream)
+    }
+
+    func scrobble(songPath: String, submission: Bool) async {
+        _ = try? await routing.withMutation { connector in
+            guard let reporter = connector as? any ServerScrobblingConnector else { return }
+            await reporter.scrobble(songPath: songPath, submission: submission)
+        }
+    }
+
+    func fetchServerLyrics(for path: String) async -> String? {
+        try? await routing.withRead { connector in
+            guard let provider = connector as? any ServerLyricsConnector else { return nil }
+            return await provider.fetchServerLyrics(for: path)
+        }
+    }
+}
+
+private struct RoutedFnMusicConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
+    ServerScrobblingConnector, ServerLyricsConnector {
+    let sourceID: String
+    let routing: SourceConnectionRouter
+    let routedSupportsSidecarWriting: Bool
+    let routedPreferredDeleteBatchSize: Int
+
+    func scanSongs(from path: String) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error> {
+        let stream = try await routing.withRead { connector in
+            guard let scanner = connector as? any SongScanningConnector else {
+                throw SourceError.connectionFailed("Song scanner unavailable")
+            }
+            return try await scanner.scanSongs(from: path)
+        }
+        return observingDeferredReadErrors(in: stream)
+    }
+
+    func scrobble(songPath: String, submission: Bool) async {
+        _ = try? await routing.withMutation { connector in
+            guard let reporter = connector as? any ServerScrobblingConnector else { return }
+            await reporter.scrobble(songPath: songPath, submission: submission)
+        }
+    }
+
+    func fetchServerLyrics(for path: String) async -> String? {
+        try? await routing.withRead { connector in
+            guard let provider = connector as? any ServerLyricsConnector else { return nil }
+            return await provider.fetchServerLyrics(for: path)
+        }
+    }
+}
+
+private struct RoutedDaoLiYuConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
+    ServerLyricsConnector {
+    let sourceID: String
+    let routing: SourceConnectionRouter
+    let routedSupportsSidecarWriting: Bool
+    let routedPreferredDeleteBatchSize: Int
+
+    func scanSongs(from path: String) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error> {
+        let stream = try await routing.withRead { connector in
+            guard let scanner = connector as? any SongScanningConnector else {
+                throw SourceError.connectionFailed("Song scanner unavailable")
+            }
+            return try await scanner.scanSongs(from: path)
+        }
+        return observingDeferredReadErrors(in: stream)
+    }
+
+    func fetchServerLyrics(for path: String) async -> String? {
+        try? await routing.withRead { connector in
+            guard let provider = connector as? any ServerLyricsConnector else { return nil }
+            return await provider.fetchServerLyrics(for: path)
+        }
+    }
+}
+
+private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
+    MediaServerWritebackConnector, ServerLyricsConnector {
+    let sourceID: String
+    let routing: SourceConnectionRouter
+    let routedSupportsSidecarWriting: Bool
+    let routedPreferredDeleteBatchSize: Int
+
+    func scanSongs(from path: String) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error> {
+        let stream = try await routing.withRead { connector in
+            guard let scanner = connector as? any SongScanningConnector else {
+                throw SourceError.connectionFailed("Song scanner unavailable")
+            }
+            return try await scanner.scanSongs(from: path)
+        }
+        return observingDeferredReadErrors(in: stream)
+    }
+
+    func writeScrapedMetadata(
+        original: Song,
+        updated: Song,
+        coverData: Data?,
+        lyricsLines: [LyricLine]?,
+        lyricsContent: String?
+    ) async -> MediaServerWritebackResult {
+        do {
+            return try await routing.withMutation { connector in
+                guard let writer = connector as? any MediaServerWritebackConnector else {
+                    throw SourceError.connectionFailed("Metadata writer unavailable")
+                }
+                return await writer.writeScrapedMetadata(
+                    original: original,
+                    updated: updated,
+                    coverData: coverData,
+                    lyricsLines: lyricsLines,
+                    lyricsContent: lyricsContent
+                )
+            }
+        } catch {
+            var result = MediaServerWritebackResult()
+            result.errors = [error.localizedDescription]
+            return result
+        }
+    }
+
+    func removeLyrics(for song: Song) async -> MediaServerWritebackResult {
+        do {
+            return try await routing.withMutation { connector in
+                guard let writer = connector as? any MediaServerWritebackConnector else {
+                    throw SourceError.connectionFailed("Metadata writer unavailable")
+                }
+                return await writer.removeLyrics(for: song)
+            }
+        } catch {
+            var result = MediaServerWritebackResult()
+            result.errors = [error.localizedDescription]
+            return result
+        }
+    }
+
+    func fetchServerLyrics(for path: String) async -> String? {
+        try? await routing.withRead { connector in
+            guard let provider = connector as? any ServerLyricsConnector else { return nil }
+            return await provider.fetchServerLyrics(for: path)
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class SourceManager {
@@ -383,6 +862,85 @@ final class SourceManager {
             return existing
         }
 
+        let connector = routedConnector(for: source)
+        if cache,
+           !(connector is CredentialUnavailableSourceConnector),
+           !(connector is NoAvailableConnectionSourceConnector) {
+            connectors[source.id] = connector
+        }
+        return connector
+    }
+
+    private func routedConnector(for source: MusicSource) -> any MusicSourceConnector {
+        guard source.type.supportsAdaptiveConnections,
+              source.connectionConfiguration != nil else {
+            return directConnector(for: source)
+        }
+
+        let configuredCandidates = source.connectionCandidates
+        guard configuredCandidates.isEmpty == false else {
+            return NoAvailableConnectionSourceConnector(sourceID: source.id)
+        }
+
+        let routedCandidates = configuredCandidates.map { candidate in
+            RoutedConnectorCandidate(
+                kind: candidate.kind,
+                connector: directConnector(for: source.applyingConnectionCandidate(candidate))
+            )
+        }
+        guard routedCandidates.count > 1 else {
+            return routedCandidates[0].connector
+        }
+        if let unavailable = routedCandidates.lazy.map(\.connector).first(where: {
+            $0 is CredentialUnavailableSourceConnector
+        }) {
+            return unavailable
+        }
+
+        let routing = SourceConnectionRouter(sourceID: source.id, candidates: routedCandidates)
+        let supportsSidecarWriting = routedCandidates[0].connector.supportsSidecarWriting
+        let preferredDeleteBatchSize = routedCandidates[0].connector.preferredDeleteBatchSize
+
+        switch source.type {
+        case .jellyfin, .emby, .plex:
+            return RoutedMediaServerConnector(
+                sourceID: source.id,
+                routing: routing,
+                routedSupportsSidecarWriting: supportsSidecarWriting,
+                routedPreferredDeleteBatchSize: preferredDeleteBatchSize
+            )
+        case .subsonic, .navidrome, .airsonic, .gonic:
+            return RoutedSubsonicConnector(
+                sourceID: source.id,
+                routing: routing,
+                routedSupportsSidecarWriting: supportsSidecarWriting,
+                routedPreferredDeleteBatchSize: preferredDeleteBatchSize
+            )
+        case .fnMusic:
+            return RoutedFnMusicConnector(
+                sourceID: source.id,
+                routing: routing,
+                routedSupportsSidecarWriting: supportsSidecarWriting,
+                routedPreferredDeleteBatchSize: preferredDeleteBatchSize
+            )
+        case .daoliyu:
+            return RoutedDaoLiYuConnector(
+                sourceID: source.id,
+                routing: routing,
+                routedSupportsSidecarWriting: supportsSidecarWriting,
+                routedPreferredDeleteBatchSize: preferredDeleteBatchSize
+            )
+        default:
+            return RoutedMusicSourceConnector(
+                sourceID: source.id,
+                routing: routing,
+                routedSupportsSidecarWriting: supportsSidecarWriting,
+                routedPreferredDeleteBatchSize: preferredDeleteBatchSize
+            )
+        }
+    }
+
+    private func directConnector(for source: MusicSource) -> any MusicSourceConnector {
         let connector: any MusicSourceConnector
         switch source.type {
         case .synology:
@@ -590,9 +1148,6 @@ final class SourceManager {
             connector = UnsupportedSourceConnector(sourceID: source.id, sourceType: .appleMusic)
         }
 
-        if cache, !(connector is CredentialUnavailableSourceConnector) {
-            connectors[source.id] = connector
-        }
         return connector
     }
 
@@ -724,7 +1279,11 @@ final class SourceManager {
     ) -> [SourceDiagnosticCheck] {
         var checks: [SourceDiagnosticCheck] = []
 
-        if source.type.requiresHost, trimmed(source.host).isEmpty {
+        let hasUsableConnection = source.type.supportsAdaptiveConnections
+            && source.connectionConfiguration != nil
+            ? source.connectionCandidates.isEmpty == false
+            : trimmed(source.host).isEmpty == false
+        if source.type.requiresHost, hasUsableConnection == false {
             checks.append(SourceDiagnosticCheck(
                 status: .failed,
                 title: String(localized: "source_diag_config_title"),
@@ -1171,7 +1730,7 @@ final class SourceManager {
             guard let path = STRMSourcePathResolver.resolve(reference, relativeTo: song.filePath) else {
                 throw STRMDescriptorError.invalidTarget
             }
-            if let webDAV = connector as? WebDAVSource,
+            if let webDAV = connector as? any OpenListSTRMResolvingConnector,
                let originURL = try await webDAV.openListSTRMURL(for: path) {
                 return .remote(originURL)
             }
@@ -3803,6 +4362,15 @@ final class SourceManager {
     }
 
     private func shouldPreferPlainStreamingForPlayback(source: MusicSource, song: Song) -> Bool {
+        // With more than one enabled endpoint, connector-backed Range reads
+        // keep route failover available after playback has started. A plain
+        // URL would permanently bind the player to whichever route produced
+        // it, so it is used only for single-route configurations (or the
+        // transcoded/unknown-size cases filtered by the caller).
+        if source.connectionConfiguration != nil,
+           source.connectionCandidates.count > 1 {
+            return false
+        }
         if source.type.isMediaServer {
             return !requiresConnectorBackedHTTPTransport(for: source)
         }
@@ -4100,6 +4668,7 @@ final class SourceManager {
     }
 
     func refreshConnector(for sourceID: String) async {
+        await SourceConnectionRuntime.shared.invalidate(sourceID: sourceID)
         if let connector = connectors.removeValue(forKey: sourceID) {
             await connector.disconnect()
         }
@@ -4114,6 +4683,23 @@ final class SourceManager {
 
     func removeConnector(for sourceID: String) async {
         await refreshConnector(for: sourceID)
+    }
+
+    /// A Wi-Fi/cellular/path transition invalidates only adaptive connectors.
+    /// Other stateful sources keep their sessions and avoid needless reconnects.
+    func resetAdaptiveConnectionRoutes() async {
+        await SourceConnectionRuntime.shared.invalidateAll()
+        let routedSourceIDs = connectors.compactMap { sourceID, connector in
+            connector is any RoutedConnectorProxy ? sourceID : nil
+        }
+        for sourceID in routedSourceIDs {
+            if let connector = connectors.removeValue(forKey: sourceID) {
+                await connector.disconnect()
+            }
+            if let sidecar = sidecarConnectors.removeValue(forKey: sourceID) {
+                await sidecar.disconnect()
+            }
+        }
     }
 
     func disconnectAll() async {

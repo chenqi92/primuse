@@ -8,16 +8,14 @@ struct NFSBrowserView: View {
     private let connector: any MusicSourceConnector
     private let initialPath: String
 
-    init(source: MusicSource, selectedDirectories: Binding<[String]>) {
+    init(
+        source: MusicSource,
+        connector: any MusicSourceConnector,
+        selectedDirectories: Binding<[String]>
+    ) {
         self.source = source
         self._selectedDirectories = selectedDirectories
-        self.connector = NFSSource(
-            sourceID: source.id,
-            host: source.host ?? "",
-            port: source.port,
-            exportPath: source.exportPath,
-            nfsVersion: source.nfsVersion ?? .auto
-        )
+        self.connector = connector
 
         if let exportPath = source.exportPath?.trimmingCharacters(in: .whitespacesAndNewlines),
            exportPath.isEmpty == false {

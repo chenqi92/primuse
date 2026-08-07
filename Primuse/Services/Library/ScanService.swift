@@ -210,7 +210,9 @@ final class ScanService {
             // generic connector preflight first can reuse a connector created
             // before the user corrected a bad password, falsely rejecting the
             // scan before that valid session gets a chance to run.
-            if source.type != .synology {
+            let usesDedicatedSynologyScan = source.type == .synology
+                && source.connectionConfiguration == nil
+            if !usesDedicatedSynologyScan {
                 let preflight = await sourceManager.diagnose(source: source, directories: normalizedDirs)
                 guard isCurrentScan(source.id, generation: generation),
                       sourceCanContinue(source.id, sourceStore: sourceStore) else {
@@ -232,8 +234,7 @@ final class ScanService {
 
             scanStates[source.id]?.currentFile = checkpoint?.currentFile ?? ""
 
-            switch source.type {
-            case .synology:
+            if usesDedicatedSynologyScan {
                 await scanSynology(
                     source: source,
                     generation: generation,
@@ -245,12 +246,7 @@ final class ScanService {
                     scraperService: scraperService,
                     checkpoint: checkpoint
                 )
-            case .smb, .webdav, .ftp, .sftp, .nfs, .upnp,
-                 .jellyfin, .emby, .plex,
-                 .subsonic, .navidrome, .airsonic, .gonic,
-                 .qnap, .ugreen, .fnos, .fnMusic, .daoliyu, .s3,
-                 .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .drime, .pan115, .pan123,
-                 .local, .appleMusicLibrary:
+            } else if source.type != .appleMusic {
                 await scanConnectorSource(
                     source: source,
                     generation: generation,
@@ -263,10 +259,9 @@ final class ScanService {
                     mode: mode,
                     checkpoint: checkpoints[source.id] ?? checkpoint
                 )
-            case .appleMusic:
+            } else {
                 // Apple Music 不走文件 scan, 走 AppleMusicLibraryService.sync()
                 // 拉 user library (用户在 Settings 里手动点同步)。这里 noop。
-                break
             }
         }
         activeTasks[source.id] = task
@@ -1313,17 +1308,30 @@ final class ScanService {
         for source: MusicSource,
         directories: [String]
     ) -> String {
-        let components = [
+        var components = [
             source.type.rawValue,
             source.cloudAccountID ?? "",
-            source.host?.lowercased() ?? "",
-            source.port.map(String.init) ?? "",
-            source.useSsl ? "tls" : "plain",
-            source.basePath ?? "",
+            source.connectionConfiguration != nil && source.type.supportsEndpointSpecificPath
+                ? ""
+                : (source.basePath ?? ""),
             source.shareName ?? "",
             source.exportPath ?? "",
             directories.sorted().joined(separator: "\u{1F}"),
         ]
+        if let configuration = source.connectionConfiguration {
+            for endpoint in [configuration.localEndpoint, configuration.publicEndpoint] {
+                let normalized = endpoint?.normalized
+                components.append(normalized?.host.lowercased() ?? "")
+                components.append(normalized?.port.description ?? "")
+                components.append(normalized?.useSsl == true ? "tls" : "plain")
+                components.append(normalized?.pathPrefix ?? "")
+            }
+            components.append(configuration.vendorIdentifier?.lowercased() ?? "")
+        } else {
+            components.append(source.host?.lowercased() ?? "")
+            components.append(source.port.map(String.init) ?? "")
+            components.append(source.useSsl ? "tls" : "plain")
+        }
         let digest = SHA256.hash(data: Data(components.joined(separator: "\u{1E}").utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
     }

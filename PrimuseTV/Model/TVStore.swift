@@ -443,7 +443,7 @@ final class TVStore {
         let (c, _) = Self.tint(s.id)
         return TVSource(id: s.id, name: s.name, type: s.type.rawValue,
                          iconName: s.type.iconName,
-                         host: s.host ?? s.basePath ?? s.type.displayName,
+                         host: s.connectionSummary ?? s.basePath ?? s.type.displayName,
                          status: s.isEnabled ? .connected : .disabled, songs: cnt, color: c,
                          availabilityNote: s.type.isAwaitingPublicAPI ? s.type.subtitle : nil,
                          playability: playability(for: s),
@@ -1221,6 +1221,9 @@ final class TVStore {
     func fnMusicClient(for sourceID: String) -> FnMusicServiceClient? {
         guard let source = sourcesStore.source(id: sourceID), source.type == .fnMusic else {
             return nil
+        }
+        if let active = scanner.cachedFnMusicClient(sourceID: sourceID) {
+            return active
         }
         let credential = TVCredentialStore.credential(for: source, bundle: credentialBundle)
         return scanner.fnMusicClient(source: source, credential: credential)

@@ -43,12 +43,20 @@ actor UgreenAPI {
         var token: String?
         var needs2FA: Bool
         var errorMessage: String?
+        var underlyingError: (any Error)?
 
-        init(success: Bool, token: String? = nil, needs2FA: Bool = false, errorMessage: String? = nil) {
+        init(
+            success: Bool,
+            token: String? = nil,
+            needs2FA: Bool = false,
+            errorMessage: String? = nil,
+            underlyingError: (any Error)? = nil
+        ) {
             self.success = success
             self.token = token
             self.needs2FA = needs2FA
             self.errorMessage = errorMessage
+            self.underlyingError = underlyingError
         }
     }
 
@@ -79,7 +87,11 @@ actor UgreenAPI {
                     )
                 )
             } catch {
-                return LoginResult(success: false, errorMessage: error.localizedDescription)
+                return LoginResult(
+                    success: false,
+                    errorMessage: error.localizedDescription,
+                    underlyingError: error
+                )
             }
         }
     }

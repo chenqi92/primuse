@@ -7,19 +7,14 @@ struct SMBBrowserView: View {
 
     private let connector: any MusicSourceConnector
 
-    init(source: MusicSource, selectedDirectories: Binding<[String]>) {
+    init(
+        source: MusicSource,
+        connector: any MusicSourceConnector,
+        selectedDirectories: Binding<[String]>
+    ) {
         self.source = source
         self._selectedDirectories = selectedDirectories
-        self.connector = credentialProtectedConnector(for: source) { password in
-            SMBSource(
-                sourceID: source.id,
-                host: source.host ?? "",
-                port: source.port ?? 445,
-                sharePath: source.shareName ?? "",
-                username: source.username ?? "",
-                password: password
-            )
-        }
+        self.connector = connector
     }
 
     var body: some View {

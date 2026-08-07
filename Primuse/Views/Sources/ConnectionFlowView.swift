@@ -22,6 +22,8 @@ struct ConnectionFlowView: View {
     @State private var errorMessage = ""
     @State private var rememberDevice = true
     @State private var synologyAPI: SynologyAPI?
+    @State private var activeSynologySource: MusicSource?
+    @State private var activeSynologyCandidateKind: SourceConnectionCandidateKind?
     @State private var rootItems: [SynologyAPI.FileItem] = []
     @FocusState private var otpFocused: Bool
     @FocusState private var passwordFocused: Bool
@@ -214,7 +216,9 @@ struct ConnectionFlowView: View {
             ProgressView().scaleEffect(1.5)
             VStack(spacing: 6) {
                 Text("connecting_to").font(.headline)
-                Text(source.host ?? "").font(.subheadline).foregroundStyle(.secondary)
+                Text(activeSynologySource?.host ?? source.host ?? "")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
             Spacer()
         }
@@ -306,7 +310,7 @@ struct ConnectionFlowView: View {
 
                 VStack(spacing: 6) {
                     Text("password_required_title").font(.title3).fontWeight(.semibold)
-                    Text("\(source.username ?? "") @ \(source.host ?? "")")
+                    Text("\(source.username ?? "") @ \(activeSynologySource?.host ?? source.host ?? "")")
                         .font(.caption).foregroundStyle(.secondary)
                         .monospaced()
                 }
@@ -381,6 +385,8 @@ struct ConnectionFlowView: View {
         otpCode = ""
         passwordInput = ""
         pendingPasswordCandidate = nil
+        activeSynologySource = nil
+        activeSynologyCandidateKind = nil
         rememberDevice = source.rememberDevice
         Task {
             switch source.type {
@@ -390,12 +396,43 @@ struct ConnectionFlowView: View {
         }
     }
 
-    private func connectSynology(otpCode: String?, overridePassword: String? = nil) async {
+    private func connectSynology(
+        otpCode: String?,
+        overridePassword: String? = nil,
+        candidate explicitCandidate: SourceConnectionCandidate? = nil,
+        attemptedKinds: Set<SourceConnectionCandidateKind> = []
+    ) async {
+        let candidate: SourceConnectionCandidate?
+        if let explicitCandidate {
+            candidate = explicitCandidate
+        } else if source.connectionConfiguration != nil {
+            let ordered = await SourceConnectionRuntime.shared.orderedCandidates(for: source)
+            if (otpCode != nil || overridePassword != nil),
+               let activeSynologyCandidateKind,
+               let active = ordered.first(where: { $0.kind == activeSynologyCandidateKind }) {
+                candidate = active
+            } else {
+                candidate = ordered.first(where: { attemptedKinds.contains($0.kind) == false })
+            }
+        } else {
+            candidate = nil
+        }
+
+        if source.connectionConfiguration != nil, candidate == nil {
+            pendingPasswordCandidate = nil
+            errorMessage = String(localized: "source_connection_no_route")
+            withAnimation { step = .failed }
+            return
+        }
+
+        let connectionSource = candidate.map(source.applyingConnectionCandidate) ?? source
+        activeSynologySource = connectionSource
+        activeSynologyCandidateKind = candidate?.kind
         let api = SynologyAPI(
-            host: source.host ?? "",
-            port: source.port ?? 5001,
-            useSsl: source.useSsl,
-            connectionMode: source.effectiveSynologyConnectionMode
+            host: connectionSource.host ?? "",
+            port: connectionSource.port ?? 5001,
+            useSsl: connectionSource.useSsl,
+            connectionMode: connectionSource.effectiveSynologyConnectionMode
         )
         synologyAPI = api
 
@@ -403,9 +440,13 @@ struct ConnectionFlowView: View {
         do {
             baseURL = try await api.resolveBaseURL()
         } catch {
-            pendingPasswordCandidate = nil
-            errorMessage = error.localizedDescription
-            withAnimation { step = .failed }
+            await handleSynologyRouteFailure(
+                error,
+                candidate: candidate,
+                attemptedKinds: attemptedKinds,
+                otpCode: otpCode,
+                overridePassword: overridePassword
+            )
             return
         }
         if
@@ -488,20 +529,35 @@ struct ConnectionFlowView: View {
                 onDeviceTrustSaved?(rememberDevice, result.deviceId)
                 rootItems = shares
                 onSessionReady?(api)
+                if let candidate {
+                    await SourceConnectionRuntime.shared.record(candidate.kind, for: source.id)
+                }
                 withAnimation { step = .browsing }
             } catch {
                 if let domain = SSLTrustStore.sslErrorDomain(from: error) {
                     let trusted = await promptSSLTrust(domain: domain)
                     if trusted {
-                        await connectSynology(otpCode: otpCode, overridePassword: overridePassword)
+                        await connectSynology(
+                            otpCode: otpCode,
+                            overridePassword: overridePassword,
+                            candidate: candidate,
+                            attemptedKinds: attemptedKinds
+                        )
                         return
                     }
                 }
-                pendingPasswordCandidate = nil
-                errorMessage = error.localizedDescription
-                withAnimation { step = .failed }
+                await handleSynologyRouteFailure(
+                    error,
+                    candidate: candidate,
+                    attemptedKinds: attemptedKinds,
+                    otpCode: otpCode,
+                    overridePassword: overridePassword
+                )
             }
         } else if result.needs2FA {
+            if let candidate {
+                await SourceConnectionRuntime.shared.record(candidate.kind, for: source.id)
+            }
             // If OTP was provided and failed, show error but stay on OTP screen
             if let msg = result.errorMessage, otpCode != nil {
                 errorMessage = msg
@@ -514,7 +570,12 @@ struct ConnectionFlowView: View {
                let domain = SSLTrustStore.sslErrorDomain(from: error) {
                 let trusted = await promptSSLTrust(domain: domain)
                 if trusted {
-                    await connectSynology(otpCode: otpCode, overridePassword: overridePassword)
+                    await connectSynology(
+                        otpCode: otpCode,
+                        overridePassword: overridePassword,
+                        candidate: candidate,
+                        attemptedKinds: attemptedKinds
+                    )
                     return
                 }
             }
@@ -530,10 +591,56 @@ struct ConnectionFlowView: View {
                 return
             }
 
+            if result.errorCode == nil {
+                await handleSynologyRouteFailure(
+                    result.underlyingError ?? SourceError.connectionFailed(
+                        result.errorMessage ?? String(localized: "connection_failed")
+                    ),
+                    candidate: candidate,
+                    attemptedKinds: attemptedKinds,
+                    otpCode: otpCode,
+                    overridePassword: overridePassword
+                )
+                return
+            }
+
             pendingPasswordCandidate = nil
             errorMessage = result.errorMessage ?? "Unknown error"
             withAnimation { step = .failed }
         }
+    }
+
+    private func handleSynologyRouteFailure(
+        _ error: Error,
+        candidate: SourceConnectionCandidate?,
+        attemptedKinds: Set<SourceConnectionCandidateKind>,
+        otpCode: String?,
+        overridePassword: String?
+    ) async {
+        guard let candidate, source.connectionConfiguration != nil else {
+            pendingPasswordCandidate = nil
+            errorMessage = error.localizedDescription
+            withAnimation { step = .failed }
+            return
+        }
+
+        var attempted = attemptedKinds
+        attempted.insert(candidate.kind)
+        await SourceConnectionRuntime.shared.invalidate(sourceID: source.id)
+        let ordered = source.connectionCandidates
+        if let next = ordered.first(where: { attempted.contains($0.kind) == false }) {
+            await connectSynology(
+                otpCode: otpCode,
+                overridePassword: overridePassword,
+                candidate: next,
+                attemptedKinds: attempted
+            )
+            return
+        }
+
+        pendingPasswordCandidate = nil
+        errorMessage = error.localizedDescription
+        withAnimation { step = .failed }
     }
 
     private func verifyOTP() {

@@ -513,15 +513,54 @@ final class TVPlaybackCoordinator {
 
     /// 按源类型构造直连协议读取器(非 HTTP)。返回 nil 表示该类型不直连(走 resolveStream)。
     /// 随各协议读取器接通逐步扩充。
-    static func makeDirectReader(source: MusicSource, song: Song,
-                                 credential: SourceCredential?) -> ByteRangeReader? {
+    nonisolated static func makeDirectReader(source: MusicSource, song: Song,
+                                             credential: SourceCredential?) -> ByteRangeReader? {
+        makeDirectReader(
+            source: source,
+            filePath: song.filePath,
+            credential: credential
+        )
+    }
+
+    nonisolated static func makeDirectReader(
+        source: MusicSource,
+        filePath: String,
+        credential: SourceCredential?
+    ) -> ByteRangeReader? {
+        if source.connectionConfiguration != nil {
+            let candidates = source.connectionCandidates.compactMap { candidate -> TVRoutedByteRangeReaderCandidate? in
+                let routedSource = source.applyingConnectionCandidate(candidate)
+                guard let reader = makeSingleDirectReader(
+                    source: routedSource,
+                    filePath: filePath,
+                    credential: credential
+                ) else {
+                    return nil
+                }
+                return TVRoutedByteRangeReaderCandidate(kind: candidate.kind, reader: reader)
+            }
+            guard candidates.isEmpty == false else { return nil }
+            return TVRoutedByteRangeReader(sourceID: source.id, candidates: candidates)
+        }
+        return makeSingleDirectReader(
+            source: source,
+            filePath: filePath,
+            credential: credential
+        )
+    }
+
+    private nonisolated static func makeSingleDirectReader(
+        source: MusicSource,
+        filePath: String,
+        credential: SourceCredential?
+    ) -> ByteRangeReader? {
         switch source.type {
         case .smb:
-            return SMBByteReader(source: source, filePath: song.filePath, credential: credential)
+            return SMBByteReader(source: source, filePath: filePath, credential: credential)
         case .nfs:
-            return NFSByteReader(source: source, filePath: song.filePath)
+            return NFSByteReader(source: source, filePath: filePath)
         case .ftp:
-            return FTPByteReader(source: source, filePath: song.filePath, credential: credential)
+            return FTPByteReader(source: source, filePath: filePath, credential: credential)
         default:
             return nil
         }

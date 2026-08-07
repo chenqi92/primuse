@@ -34,6 +34,14 @@ import Testing
     #expect(S3StreamResolver.host(from: "https://minio.example.com:9000/x") == "minio.example.com:9000")
     #expect(S3StreamResolver.host(from: "minio.example.com", port: 9000) == "minio.example.com:9000")
     #expect(S3StreamResolver.host(from: "s3.amazonaws.com", port: 443) == "s3.amazonaws.com")
+    #expect(S3StreamResolver.pathPrefix(from: "https://minio.example.com:9000/s3-proxy") == "s3-proxy")
+    #expect(
+        S3StreamResolver.canonicalObjectPath(
+            endpointPrefix: "s3-proxy",
+            bucket: "music",
+            key: "artists/song.flac"
+        ) == "/s3-proxy/music/artists/song.flac"
+    )
 }
 
 @Test func s3ClockSkewUsesBoundedServerDateAdjustment() {
@@ -80,6 +88,22 @@ import Testing
     #expect(url.port == 9000)
 }
 
+@Test func s3EndToEndPreservesReverseProxyPrefixWithoutReplacingBucket() async throws {
+    let song = Song(id: "s-proxy", title: "T", fileFormat: .flac,
+                    filePath: "artists/song.flac", sourceID: "src")
+    let source = MusicSource(name: "MinIO Proxy", type: .s3,
+                             host: "https://minio.example.com/s3-proxy",
+                             port: 443, useSsl: true, username: "AKIA", basePath: "music",
+                             extraConfig: #"{"region":"us-east-1"}"#)
+    let url = try await S3StreamResolver().streamURL(
+        for: song,
+        source: source,
+        credential: SourceCredential(password: "secret")
+    )
+    #expect(url.path == "/s3-proxy/music/artists/song.flac")
+    #expect(url.host == "minio.example.com")
+}
+
 // MARK: - Synology FileStation URL 构造
 
 @Test func synologyBaseURL() {
@@ -87,6 +111,13 @@ import Testing
             == "https://nas.local:5001")
     #expect(SynologyStreamResolver.baseURL(host: "http://192.168.1.9", port: 5000, useSsl: false)?.absoluteString
             == "http://192.168.1.9:5000")
+    #expect(
+        SynologyStreamResolver.baseURL(
+            host: "https://nas.example.com:5443/dsm-proxy",
+            port: 5001,
+            useSsl: false
+        )?.absoluteString == "https://nas.example.com:5443/dsm-proxy"
+    )
 }
 
 @Test func synologyDownloadURL() {
@@ -551,6 +582,13 @@ private final class FnMusicRateLimitOnceURLProtocol: URLProtocol, @unchecked Sen
 // MARK: - 绿联 Ugreen(含 RSA 往返验证)
 
 @Test func ugreenURLAndParse() {
+    #expect(
+        UgreenStreamResolver.baseURL(
+            host: "https://ug.example.com:9443/ug-proxy",
+            port: 9999,
+            useSsl: false
+        )?.absoluteString == "https://ug.example.com:9443/ug-proxy"
+    )
     let url = UgreenStreamResolver.downloadURL(base: URL(string: "https://ug.local:9999")!,
                                                path: "/音乐/a b.flac", token: "TKN")
     let s = url?.absoluteString ?? ""
@@ -597,6 +635,20 @@ private final class FnMusicRateLimitOnceURLProtocol: URLProtocol, @unchecked Sen
         (URLComponents(url: fnMusic!, resolvingAgainstBaseURL: false)?.queryItems ?? []).map { ($0.name, $0.value ?? "") })
     #expect(fnMusic?.path == "/music/api/v1/track/stream")
     #expect(f["guid"] == "track-1")
+
+    let proxyBase = NasHttpStreamResolver.baseURL(
+        host: "https://nas.example.com:8443/qnap",
+        port: 8080,
+        useSsl: false
+    )
+    #expect(proxyBase?.absoluteString == "https://nas.example.com:8443/qnap")
+    #expect(
+        NasHttpStreamResolver.qnapDownloadURL(
+            base: proxyBase!,
+            path: "/Music/a.flac",
+            sid: "S2"
+        )?.path == "/qnap/cgi-bin/filemanager/utilRequest.cgi"
+    )
 }
 
 @Test func nasHttpAuthParsing() {

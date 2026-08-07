@@ -18,6 +18,63 @@ protocol TVDirectoryLister: Sendable {
     func list(_ path: String) async throws -> [TVDirEntry]
 }
 
+private struct TVRoutedDirectoryListerCandidate: Sendable {
+    let kind: SourceConnectionCandidateKind
+    let lister: any TVDirectoryLister
+}
+
+/// Directory browsing is read-only, so a failed list operation can safely be
+/// replayed against the next saved route without duplicating a mutation.
+private actor TVRoutedDirectoryLister: TVDirectoryLister {
+    private let sourceID: String
+    private let candidates: [TVRoutedDirectoryListerCandidate]
+    private var activeIndex: Int?
+    private var routeGeneration: UInt64?
+
+    init(sourceID: String, candidates: [TVRoutedDirectoryListerCandidate]) {
+        self.sourceID = sourceID
+        self.candidates = candidates
+    }
+
+    func list(_ path: String) async throws -> [TVDirEntry] {
+        guard candidates.isEmpty == false else { throw TVScanError.connectFailed }
+        let currentGeneration = await SourceConnectionRuntime.shared.routeGeneration()
+        if routeGeneration != currentGeneration {
+            activeIndex = nil
+            routeGeneration = currentGeneration
+        }
+        var lastError: Error = TVScanError.connectFailed
+        let activeKind = await SourceConnectionRuntime.shared.activeKind(for: sourceID)
+        let orderedIndices = candidates.indices.sorted { lhs, rhs in
+            if candidates[lhs].kind == activeKind { return true }
+            if candidates[rhs].kind == activeKind { return false }
+            if lhs == activeIndex { return true }
+            if rhs == activeIndex { return false }
+            return lhs < rhs
+        }
+
+        for index in orderedIndices {
+            do {
+                let entries = try await candidates[index].lister.list(path)
+                activeIndex = index
+                await SourceConnectionRuntime.shared.record(
+                    candidates[index].kind,
+                    for: sourceID
+                )
+                return entries
+            } catch {
+                lastError = error
+                guard TVSourceConnectionFailoverPolicy.allowsRetry(after: error) else {
+                    throw error
+                }
+                activeIndex = nil
+                await SourceConnectionRuntime.shared.invalidate(sourceID: sourceID)
+            }
+        }
+        throw lastError
+    }
+}
+
 /// 飞牛音乐是服务端整库，不提供文件夹树。扫描流程仍需要一个 lister 来完成
 /// 进入页面时的真实连接校验；返回空目录后 UI 会以当前根目录启动整库扫描。
 actor TVFnMusicLister: TVDirectoryLister {
@@ -148,6 +205,24 @@ final class TVSourceScanner {
 
     /// 构造源对应的目录列举器。飞牛音乐没有目录树，lister 只校验真实音乐服务。
     func makeLister(source: MusicSource, credential: SourceCredential?) -> TVDirectoryLister? {
+        if source.connectionConfiguration != nil {
+            let candidates = source.connectionCandidates.compactMap { candidate -> TVRoutedDirectoryListerCandidate? in
+                let routedSource = source.applyingConnectionCandidate(candidate)
+                guard let lister = makeSingleLister(source: routedSource, credential: credential) else {
+                    return nil
+                }
+                return TVRoutedDirectoryListerCandidate(kind: candidate.kind, lister: lister)
+            }
+            guard candidates.isEmpty == false else { return nil }
+            return TVRoutedDirectoryLister(sourceID: source.id, candidates: candidates)
+        }
+        return makeSingleLister(source: source, credential: credential)
+    }
+
+    private func makeSingleLister(
+        source: MusicSource,
+        credential: SourceCredential?
+    ) -> TVDirectoryLister? {
         switch source.type {
         case .smb: return TVSMBLister(source: source, credential: credential)
         case .fnMusic:
@@ -180,7 +255,12 @@ final class TVSourceScanner {
         var seen = Set<String>()
         do {
             if source.type == .fnMusic {
-                let songs = try await scanFnMusic(source: source, credential: credential)
+                let songs = try await withRoutedSource(source) { routedSource in
+                    try await self.scanFnMusic(
+                        source: routedSource,
+                        credential: credential
+                    )
+                }
                 try Task.checkCancellation()
                 indexed = songs.count
                 currentFile = ""
@@ -188,7 +268,12 @@ final class TVSourceScanner {
                 return songs
             }
             if source.type == .daoliyu {
-                let songs = try await scanDaoLiYu(source: source, credential: credential)
+                let songs = try await withRoutedSource(source) { routedSource in
+                    try await self.scanDaoLiYu(
+                        source: routedSource,
+                        credential: credential
+                    )
+                }
                 try Task.checkCancellation()
                 indexed = songs.count
                 currentFile = ""
@@ -236,7 +321,12 @@ final class TVSourceScanner {
         credential: SourceCredential?
     ) async throws -> Int? {
         guard source.type == .fnMusic else { throw TVScanError.unsupported }
-        return try await fnMusicClient(source: source, credential: credential).validateConnection()
+        return try await withRoutedSource(source) { routedSource in
+            try await self.fnMusicClient(
+                source: routedSource,
+                credential: credential
+            ).validateConnection()
+        }
     }
 
     func validateDaoLiYuConnection(
@@ -244,10 +334,40 @@ final class TVSourceScanner {
         credential: SourceCredential?
     ) async throws -> Int {
         guard source.type == .daoliyu else { throw TVScanError.unsupported }
-        return try await DaoLiYuServiceClient(
-            source: source,
-            credential: credential
-        ).validateConnection()
+        return try await withRoutedSource(source) { routedSource in
+            try await DaoLiYuServiceClient(
+                source: routedSource,
+                credential: credential
+            ).validateConnection()
+        }
+    }
+
+    private func withRoutedSource<T: Sendable>(
+        _ source: MusicSource,
+        operation: (MusicSource) async throws -> T
+    ) async throws -> T {
+        guard source.connectionConfiguration != nil else {
+            return try await operation(source)
+        }
+        let candidates = await SourceConnectionRuntime.shared.orderedCandidates(for: source)
+        guard candidates.isEmpty == false else { throw TVScanError.connectFailed }
+
+        var lastError: Error = TVScanError.connectFailed
+        for candidate in candidates {
+            do {
+                let value = try await operation(source.applyingConnectionCandidate(candidate))
+                await SourceConnectionRuntime.shared.record(candidate.kind, for: source.id)
+                return value
+            } catch {
+                lastError = error
+                guard TVSourceConnectionFailoverPolicy.allowsRetry(after: error) else {
+                    throw error
+                }
+                invalidateFnMusicClient(sourceID: source.id)
+                await SourceConnectionRuntime.shared.invalidate(sourceID: source.id)
+            }
+        }
+        throw lastError
     }
 
     /// 源地址或凭据变化后丢弃已登录客户端，避免旧 token 被后续测试或扫描复用。
@@ -422,6 +542,10 @@ final class TVSourceScanner {
             client: client
         )
         return client
+    }
+
+    func cachedFnMusicClient(sourceID: String) -> FnMusicServiceClient? {
+        fnMusicClients[sourceID]?.client
     }
 
     /// 递归遍历:收集每首歌的路径骨架 + 其所在目录的同级文件(供找歌词/封面)。
