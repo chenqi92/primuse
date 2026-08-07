@@ -98,6 +98,12 @@
 "theme_color_orange" = "Orange";
 "theme_color_amber" = "Amber";
 "theme_color_slate" = "Slate";
+"theme_color_custom" = "Custom Color";
+"theme_color_custom_footer" = "Drag to mix any color you like.";
+"theme_color_hue" = "Hue";
+"theme_color_saturation" = "Saturation";
+"theme_color_brightness" = "Brightness";
+"theme_color_hex" = "Value";
 "app_icon" = "App Icon";
 "icon_default" = "Folded Note";
 "icon_appearance_gray" = "Gray";

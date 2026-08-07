@@ -90,6 +90,12 @@
 "theme_color_orange" = "橙色";
 "theme_color_amber" = "琥珀";
 "theme_color_slate" = "石板灰";
+"theme_color_custom" = "自訂顏色";
+"theme_color_custom_footer" = "拖動滑桿調出任意顏色。";
+"theme_color_hue" = "色相";
+"theme_color_saturation" = "飽和度";
+"theme_color_brightness" = "明度";
+"theme_color_hex" = "色值";
 "app_icon" = "App 圖示";
 "icon_default" = "折頁音符";
 "icon_appearance_gray" = "灰色";

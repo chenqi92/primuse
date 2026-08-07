@@ -48,6 +48,46 @@ final class ThemeColorSettings {
 
     static let defaultFixedHex = "147D8A"
 
+    /// HSB working values for the custom picker. Channels are in 0...1.
+    struct HSB {
+        var hue: CGFloat
+        var saturation: CGFloat
+        var brightness: CGFloat
+    }
+
+    /// Parse an HSB value from the stored hex so the picker can reopen at the
+    /// exact position that produced it.
+    static func hsb(fromHex hex: String) -> HSB {
+        let color = Color(hex: hex)
+        var h: CGFloat = 0
+        var s: CGFloat = 0
+        var b: CGFloat = 0
+        var a: CGFloat = 0
+        UIColor(color).getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+        return HSB(hue: h, saturation: s, brightness: b)
+    }
+
+    /// Uppercase six-digit hex for the fixed color, without a leading `#`.
+    static func hex(fromHSB hsb: HSB) -> String {
+        let color = UIColor(
+            hue: hsb.hue,
+            saturation: hsb.saturation,
+            brightness: hsb.brightness,
+            alpha: 1
+        )
+        var r: CGFloat = 0
+        var g: CGFloat = 0
+        var b: CGFloat = 0
+        var a: CGFloat = 0
+        color.getRed(&r, green: &g, blue: &b, alpha: &a)
+        return String(
+            format: "%02X%02X%02X",
+            Int(round(r * 255)),
+            Int(round(g * 255)),
+            Int(round(b * 255))
+        )
+    }
+
     private static let keyMode = "primuse.theme.colorMode"
     private static let keyFixedHex = "primuse.theme.fixedColorHex"
 
@@ -70,9 +110,15 @@ final class ThemeColorSettings {
         let defaults = UserDefaults.standard
         mode = Mode(rawValue: defaults.string(forKey: Self.keyMode) ?? "") ?? .auto
         let persistedHex = defaults.string(forKey: Self.keyFixedHex) ?? Self.defaultFixedHex
-        fixedColorHex = Self.swatches.contains { $0.id == persistedHex }
-            ? persistedHex
-            : Self.defaultFixedHex
+        // Any well-formed hex is valid — the palette is a shortcut, not the
+        // full set of choices, so a custom color must survive relaunches.
+        fixedColorHex = Self.isValidHex(persistedHex) ? persistedHex : Self.defaultFixedHex
+    }
+
+    /// Exactly six hex digits, matching the storage format written by
+    /// `hex(fromHSB:)` and by the palette's swatch identifiers.
+    static func isValidHex(_ hex: String) -> Bool {
+        hex.count == 6 && hex.allSatisfy(\.isHexDigit)
     }
 
     /// Accent to use whenever no cover art is driving the theme: the fixed

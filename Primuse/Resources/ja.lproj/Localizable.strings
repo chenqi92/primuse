@@ -267,6 +267,12 @@
 "theme_color_orange" = "オレンジ";
 "theme_color_amber" = "アンバー";
 "theme_color_slate" = "スレート";
+"theme_color_custom" = "カスタムカラー";
+"theme_color_custom_footer" = "ドラッグして好きな色を作れます。";
+"theme_color_hue" = "色相";
+"theme_color_saturation" = "彩度";
+"theme_color_brightness" = "明度";
+"theme_color_hex" = "カラー値";
 "app_icon" = "App アイコン";
 "icon_default" = "折り返し音符";
 "icon_appearance_gray" = "グレー";

@@ -238,9 +238,11 @@ final class ThemeService {
         return (hue, saturation, brightness)
     }
 
-    func resetToDefault() {
+    /// Pass `animated: false` for continuous updates such as dragging a color
+    /// slider, where the 0.6s crossfade would queue up and lag behind the touch.
+    func resetToDefault(animated: Bool = true) {
         _ = beginArtworkUpdate()
-        applyFallbackTheme()
+        applyFallbackTheme(animated: animated)
     }
 
     @discardableResult
@@ -251,8 +253,16 @@ final class ThemeService {
         return updateGeneration
     }
 
-    private func applyFallbackTheme() {
-        withAnimation(.easeInOut(duration: 0.6)) {
+    private func applyThemeChange(animated: Bool, _ body: () -> Void) {
+        if animated {
+            withAnimation(.easeInOut(duration: 0.6), body)
+        } else {
+            body()
+        }
+    }
+
+    private func applyFallbackTheme(animated: Bool = true) {
+        applyThemeChange(animated: animated) {
             accentColor = baseAccent
             darkAccent = baseDarkAccent
             onAccent = Self.contrastingForeground(for: baseAccent)
@@ -330,12 +340,12 @@ final class ThemeService {
     /// If the theme is currently sitting on the default (no cover art driving
     /// it), the live accent updates immediately too. Otherwise the new base
     /// kicks in next time `resetToDefault` runs.
-    func setBaseAccent(_ tint: Color) {
+    func setBaseAccent(_ tint: Color, animated: Bool = true) {
         let dark = Self.darken(tint, factor: 0.55)
         baseAccent = tint
         baseDarkAccent = dark
         if colorID == "default" {
-            withAnimation(.easeInOut(duration: 0.6)) {
+            applyThemeChange(animated: animated) {
                 accentColor = tint
                 darkAccent = dark
                 onAccent = Self.contrastingForeground(for: tint)

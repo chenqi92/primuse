@@ -266,6 +266,12 @@
 "theme_color_orange" = "Orange";
 "theme_color_amber" = "Bernstein";
 "theme_color_slate" = "Schiefer";
+"theme_color_custom" = "Eigene Farbe";
+"theme_color_custom_footer" = "Zieh die Regler, um eine beliebige Farbe zu mischen.";
+"theme_color_hue" = "Farbton";
+"theme_color_saturation" = "Sättigung";
+"theme_color_brightness" = "Helligkeit";
+"theme_color_hex" = "Farbwert";
 "app_icon" = "App-Symbol";
 "icon_default" = "Gefaltete Note";
 "icon_appearance_gray" = "Grau";

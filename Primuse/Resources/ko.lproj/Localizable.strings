@@ -266,6 +266,12 @@
 "theme_color_orange" = "오렌지";
 "theme_color_amber" = "앰버";
 "theme_color_slate" = "슬레이트";
+"theme_color_custom" = "사용자 색상";
+"theme_color_custom_footer" = "드래그해서 원하는 색을 만들 수 있습니다.";
+"theme_color_hue" = "색상";
+"theme_color_saturation" = "채도";
+"theme_color_brightness" = "명도";
+"theme_color_hex" = "색상 값";
 "app_icon" = "앱 아이콘";
 "icon_default" = "접힌 음표";
 "icon_appearance_gray" = "회색";

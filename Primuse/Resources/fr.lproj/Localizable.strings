@@ -266,6 +266,12 @@
 "theme_color_orange" = "Orange";
 "theme_color_amber" = "Ambre";
 "theme_color_slate" = "Ardoise";
+"theme_color_custom" = "Couleur personnalisée";
+"theme_color_custom_footer" = "Faites glisser pour composer la couleur de votre choix.";
+"theme_color_hue" = "Teinte";
+"theme_color_saturation" = "Saturation";
+"theme_color_brightness" = "Luminosité";
+"theme_color_hex" = "Valeur";
 "app_icon" = "Icône de l'app";
 "icon_default" = "Note pliée";
 "icon_appearance_gray" = "Gris";

@@ -99,6 +99,12 @@
 "theme_color_orange" = "橙色";
 "theme_color_amber" = "琥珀";
 "theme_color_slate" = "石板灰";
+"theme_color_custom" = "自定义颜色";
+"theme_color_custom_footer" = "拖动滑杆调出任意颜色。";
+"theme_color_hue" = "色相";
+"theme_color_saturation" = "饱和度";
+"theme_color_brightness" = "明度";
+"theme_color_hex" = "色值";
 "app_icon" = "应用图标";
 "icon_default" = "折页音符";
 "icon_appearance_gray" = "灰色";
