@@ -30,7 +30,10 @@ struct AppIconSettingsView: View {
         return Button {
             Task {
                 await service.setIcon(option)
-                themeService.setBaseAccent(option.tint)
+                // A theme pinned to a fixed color must not follow the icon.
+                if !ThemeColorSettings.shared.usesFixedColor {
+                    themeService.setBaseAccent(option.tint)
+                }
             }
         } label: {
             VStack(spacing: 8) {

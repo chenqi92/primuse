@@ -141,12 +141,12 @@ final class AppIconService {
     /// picks it up, then ask WidgetKit to refresh timelines now (without this,
     /// the home-screen widget keeps its stale color until iOS happens to wake
     /// it on its own schedule).
+    /// A theme pinned to a fixed color outranks the icon tint, so resolve
+    /// through the theme settings rather than publishing `currentTint` directly.
     private func publishTintToWidget() {
-        let tint = UIColor(currentTint)
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        guard tint.getRed(&r, green: &g, blue: &b, alpha: &a) else { return }
-        BrandTintStore.save(BrandTintStore.RGB(red: Double(r), green: Double(g), blue: Double(b)))
-        WidgetCenter.shared.reloadAllTimelines()
+        ThemeColorSettings.publishBaseAccentToWidget(
+            ThemeColorSettings.shared.baseAccent(iconTint: currentTint)
+        )
     }
 }
 

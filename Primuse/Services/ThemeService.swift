@@ -77,6 +77,11 @@ final class ThemeService {
             applyFallbackTheme()
             return
         }
+        #else
+        guard !ThemeColorSettings.shared.usesFixedColor else {
+            applyFallbackTheme()
+            return
+        }
         #endif
 
         let normalizedFileName = fileName?.trimmingCharacters(in: .whitespacesAndNewlines)

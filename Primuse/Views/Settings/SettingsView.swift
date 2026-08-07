@@ -156,6 +156,12 @@ struct SettingsView: View {
                 Section("appearance") {
                     #if os(iOS)
                     NavigationLink {
+                        ThemeColorSettingsView()
+                    } label: {
+                        Label("theme_color_title", systemImage: "paintpalette")
+                    }
+
+                    NavigationLink {
                         AppIconSettingsView()
                     } label: {
                         Label("app_icon", systemImage: "app.badge")

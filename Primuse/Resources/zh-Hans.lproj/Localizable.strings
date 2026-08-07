@@ -78,6 +78,27 @@
 
 // MARK: - 外观设置
 "appearance" = "外观";
+"theme_color_title" = "主题色";
+"theme_color_current" = "当前主题色";
+"theme_color_mode" = "取色方式";
+"theme_color_mode_auto" = "跟随封面";
+"theme_color_mode_auto_hint" = "主题色随正在播放歌曲的封面自动变化。";
+"theme_color_mode_fixed" = "固定颜色";
+"theme_color_mode_fixed_hint" = "始终使用你在下方选择的颜色。";
+"theme_color_palette" = "色板";
+"theme_color_palette_footer" = "所选颜色会应用到全 App 和小组件，封面不再改变主题色。";
+"theme_color_teal" = "青蓝";
+"theme_color_turquoise" = "松石绿";
+"theme_color_forest" = "森林绿";
+"theme_color_blue" = "蓝色";
+"theme_color_indigo" = "靛蓝";
+"theme_color_purple" = "紫色";
+"theme_color_rose" = "玫红";
+"theme_color_red" = "红色";
+"theme_color_terracotta" = "陶土色";
+"theme_color_orange" = "橙色";
+"theme_color_amber" = "琥珀";
+"theme_color_slate" = "石板灰";
 "app_icon" = "应用图标";
 "icon_default" = "折页音符";
 "icon_appearance_gray" = "灰色";

@@ -102,11 +102,11 @@ final class AppServices {
         self.playbackSettingsStore = playbackSettings
         self.cloudSync = sync
         let theme = ThemeService()
-        // Pull the user's chosen app icon tint into the theme so the in-app
-        // accent matches the icon they picked. Cover-art-derived colors will
-        // override this while a song with artwork plays.
+        // Seed the accent the user configured. Cover-art-derived colors
+        // override it later while a song with artwork plays, unless the theme
+        // is pinned to a fixed color.
         #if os(iOS)
-        theme.setBaseAccent(AppIconService.shared.currentTint)
+        theme.setBaseAccent(ThemeColorSettings.shared.baseAccent)
         #else
         // macOS: 用用户在「外观」里选的品牌色作为 ambient fallback (没封面取色时)。
         theme.setBaseAccent(MacUIPreferences.shared.brandColor)

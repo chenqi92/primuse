@@ -77,6 +77,27 @@
 
 // MARK: - Appearance
 "appearance" = "Appearance";
+"theme_color_title" = "Theme Color";
+"theme_color_current" = "Current Theme Color";
+"theme_color_mode" = "Color Source";
+"theme_color_mode_auto" = "From Cover Art";
+"theme_color_mode_auto_hint" = "The accent follows the playing song's artwork.";
+"theme_color_mode_fixed" = "Fixed Color";
+"theme_color_mode_fixed_hint" = "Always use the color you pick below.";
+"theme_color_palette" = "Palette";
+"theme_color_palette_footer" = "The chosen color is used across the app and in widgets, and cover art no longer changes it.";
+"theme_color_teal" = "Teal";
+"theme_color_turquoise" = "Turquoise";
+"theme_color_forest" = "Forest";
+"theme_color_blue" = "Blue";
+"theme_color_indigo" = "Indigo";
+"theme_color_purple" = "Purple";
+"theme_color_rose" = "Rose";
+"theme_color_red" = "Red";
+"theme_color_terracotta" = "Terracotta";
+"theme_color_orange" = "Orange";
+"theme_color_amber" = "Amber";
+"theme_color_slate" = "Slate";
 "app_icon" = "App Icon";
 "icon_default" = "Folded Note";
 "icon_appearance_gray" = "Gray";
