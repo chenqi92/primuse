@@ -599,30 +599,58 @@ private struct AccessoryRectangularNowPlaying: View {
     let state: PlaybackState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            HStack(spacing: 4) {
-                Image(systemName: state.isLiveStream ? "dot.radiowaves.left.and.right" : (state.isPlaying ? "waveform" : "pause.fill"))
-                    .font(.system(size: 11, weight: .semibold))
-                    .widgetAccentable()
-                Text(state.songTitle ?? PMString("ext.widget.unknownSong"))
-                    .font(.headline)
-                    .lineLimit(1)
-            }
-            Text(state.artistName ?? PMString("ext.widget.unknownArtist"))
-                .font(.caption2)
-                .lineLimit(1)
-            if state.isLiveStream {
-                Text(verbatim: "LIVE")
-                    .font(.caption2.weight(.bold))
-                    .lineLimit(1)
-            } else if let album = state.albumTitle, !album.isEmpty {
-                Text(album)
+        HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 4) {
+                    Image(systemName: state.isLiveStream ? "dot.radiowaves.left.and.right" : (state.isPlaying ? "waveform" : "pause.fill"))
+                        .font(.system(size: 11, weight: .semibold))
+                        .widgetAccentable()
+                    Text(state.songTitle ?? PMString("ext.widget.unknownSong"))
+                        .font(.headline)
+                        .lineLimit(1)
+                }
+                Text(state.artistName ?? PMString("ext.widget.unknownArtist"))
                     .font(.caption2)
                     .lineLimit(1)
+                if state.isLiveStream {
+                    Text(verbatim: "LIVE")
+                        .font(.caption2.weight(.bold))
+                        .lineLimit(1)
+                } else if let album = state.albumTitle, !album.isEmpty {
+                    Text(album)
+                        .font(.caption2)
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            // 直播流不入库, 没有"喜欢"可言。
+            if !state.isLiveStream, state.currentSongID != nil {
+                AccessoryLikeToggle(isLiked: state.isLiked ?? false)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .containerBackground(for: .widget) { Color.clear }
+    }
+}
+
+/// 锁屏 accessory 上的喜欢按钮。
+///
+/// 用 `Toggle` 而不是 `Button`: SwiftUI 会在 `perform()` 跑完前先把心填上
+/// (乐观更新), 点下去即刻有反馈, 不必等唤醒主 app 的往返。intent conform
+/// `AudioPlaybackIntent`, 系统会把 perform() 路由到主 app 进程。
+private struct AccessoryLikeToggle: View {
+    let isLiked: Bool
+
+    var body: some View {
+        Toggle(isOn: isLiked, intent: PrimuseSetLikedIntent(value: !isLiked)) {
+            Image(systemName: isLiked ? "heart.fill" : "heart")
+                .font(.system(size: 15, weight: .semibold))
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .toggleStyle(.button)
+        .buttonStyle(.plain)
+        .widgetAccentable()
+        .accessibilityLabel(PMString(isLiked ? "ext.widget.unlike" : "ext.widget.like"))
     }
 }
 

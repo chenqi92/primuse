@@ -28,6 +28,11 @@ public final class PrimuseIntentBridge {
     /// 返回播单名(用于回话),没找到 / 空播单返回 nil。
     public var playPlaylist: @MainActor (_ name: String) async -> String? = { _ in nil }
     public var shuffleLibrary: @MainActor () async -> Void = {}
+    /// 把当前曲目切换到目标喜欢状态。`desired` 是用户想要的结果 (跟
+    /// `setPlaying` 同一套语义) —— 锁屏 `Toggle` 会乐观地先把心填上再跑
+    /// intent, 所以这里必须对齐到目标状态而不是无条件取反, 否则连点两次
+    /// 会跟 UI 反相。当前没有曲目时什么都不做。
+    public var setLiked: @MainActor (Bool) async -> Void = { _ in }
 
     private init() {}
 }

@@ -32,6 +32,8 @@
 "ext.widget.nowPlaying.eyebrowFormat"      = "Läuft gerade · %@";
 "ext.widget.nowPlaying.playing"            = "Läuft gerade";
 "ext.widget.nowPlaying.paused"             = "Pausiert";
+"ext.widget.like"                          = "Zu Lieblingssongs hinzufügen";
+"ext.widget.unlike"                        = "Aus Lieblingssongs entfernen";
 "ext.widget.nowPlaying.empty.title"        = "Nichts wird abgespielt";
 "ext.widget.nowPlaying.empty.openShort"    = "Primuse öffnen, um fortzufahren";
 "ext.widget.nowPlaying.empty.openMedium"   = "Öffne Primuse, um dort weiterzumachen, wo du aufgehört hast";

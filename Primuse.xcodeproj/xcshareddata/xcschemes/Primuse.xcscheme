@@ -29,20 +29,6 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "5E072160A1B3A61D5EFAF17C"
-               BuildableName = "PrimuseActivityExtension.appex"
-               BlueprintName = "PrimuseActivityExtension"
-               ReferencedContainer = "container:Primuse.xcodeproj">
-            </BuildableReference>
-         </BuildActionEntry>
-         <BuildActionEntry
-            buildForTesting = "YES"
-            buildForRunning = "YES"
-            buildForProfiling = "YES"
-            buildForArchiving = "YES"
-            buildForAnalyzing = "YES">
-            <BuildableReference
-               BuildableIdentifier = "primary"
                BlueprintIdentifier = "FA4505FD14BFFAC74122E1D1"
                BuildableName = "PrimuseKit.framework"
                BlueprintName = "PrimuseKit"

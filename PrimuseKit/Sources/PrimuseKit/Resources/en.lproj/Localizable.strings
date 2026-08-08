@@ -30,6 +30,8 @@
 "ext.widget.nowPlaying.eyebrowFormat"      = "Now Playing · %@";
 "ext.widget.nowPlaying.playing"            = "Now Playing";
 "ext.widget.nowPlaying.paused"             = "Paused";
+"ext.widget.like"                          = "Add to Liked Songs";
+"ext.widget.unlike"                        = "Remove from Liked Songs";
 "ext.widget.nowPlaying.empty.title"        = "Nothing Playing";
 "ext.widget.nowPlaying.empty.openShort"    = "Open Primuse to continue";
 "ext.widget.nowPlaying.empty.openMedium"   = "Open Primuse to pick up where you left off";

@@ -171,6 +171,7 @@ extension CarPlaySceneDelegate: CPTemplateApplicationSceneDelegate {
             self.configureNowPlayingTemplate()
             self.observeLibraryChanges()
             self.observePlayerState()
+            self.observeLikeChanges()
             carplayLog.notice("📱 CarPlay scene fully initialized ✅")
         }
     }
@@ -938,9 +939,9 @@ extension CarPlaySceneDelegate {
         refreshNowPlayingButtons()
     }
 
-    /// Re-renders the shuffle/repeat buttons so their icon reflects the
+    /// Re-renders the shuffle/repeat/like buttons so their icons reflect the
     /// player's current state. Called on first setup and whenever
-    /// shuffleEnabled / repeatMode changes.
+    /// shuffleEnabled / repeatMode / currentSong / 喜欢状态 changes.
     private func refreshNowPlayingButtons() {
         let player = AppServices.shared.playerService
         let template = CPNowPlayingTemplate.shared
@@ -971,7 +972,21 @@ extension CarPlaySceneDelegate {
                 self?.cycleRepeat()
             }
         }
-        template.updateNowPlayingButtons([shuffleButton, repeatButton])
+
+        // 直播流不入库,没有"喜欢"可言 —— 上面的 guard 已经挡掉了。
+        var buttons = [shuffleButton, repeatButton]
+        if let songID = player.currentSong?.id {
+            let liked = AppServices.shared.musicLibrary.isLiked(songID: songID)
+            let likeButton = CPNowPlayingImageButton(
+                image: Self.symbolImage(liked ? "heart.fill" : "heart")
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    self?.toggleLiked()
+                }
+            }
+            buttons.append(likeButton)
+        }
+        template.updateNowPlayingButtons(buttons)
     }
 
     /// Resolves an SF Symbol name to a `UIImage`, returning a 1x1 blank
@@ -983,6 +998,16 @@ extension CarPlaySceneDelegate {
 
     private func toggleShuffle() {
         AppServices.shared.playerService.shuffleEnabled.toggle()
+    }
+
+    /// 喜欢当前曲目。改完库以后要立刻重绘按钮 —— `playlistSongIDs` 是
+    /// private 的, observePlayerState 观察不到它, 靠通知或这里手动刷新。
+    private func toggleLiked() {
+        let player = AppServices.shared.playerService
+        guard let songID = player.currentSong?.id else { return }
+        AppServices.shared.musicLibrary.toggleLiked(songID: songID)
+        player.republishNowPlayingSurfaces()
+        refreshNowPlayingButtons()
     }
 
     private func cycleRepeat() {
@@ -1064,6 +1089,23 @@ extension CarPlaySceneDelegate {
 // MARK: - Live updates (library + player)
 
 extension CarPlaySceneDelegate {
+    /// 心形按钮的状态来自 `MusicLibrary.isLiked`, 底层是 private 的
+    /// `playlistSongIDs` —— `withObservationTracking` 看不见它。所以改从
+    /// 歌单变更通知走: 在手机上、小组件上点喜欢时, 车机的心也要跟着变。
+    private func observeLikeChanges() {
+        NotificationCenter.default.addObserver(
+            forName: .primusePlaylistsDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            let ids = note.userInfo?["ids"] as? [String]
+            guard ids?.contains(MusicLibrary.likedSongsPlaylistID) ?? true else { return }
+            Task { @MainActor [weak self] in
+                self?.refreshNowPlayingButtons()
+            }
+        }
+    }
+
     /// Re-renders the four root list templates whenever the library's
     /// visible collections change. `withObservationTracking` fires once
     /// per change set, so we re-register at the end to keep listening.

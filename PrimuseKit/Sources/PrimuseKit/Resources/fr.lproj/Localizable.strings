@@ -32,6 +32,8 @@
 "ext.widget.nowPlaying.eyebrowFormat"      = "En cours · %@";
 "ext.widget.nowPlaying.playing"            = "En cours de lecture";
 "ext.widget.nowPlaying.paused"             = "En pause";
+"ext.widget.like"                          = "Ajouter aux morceaux aimés";
+"ext.widget.unlike"                        = "Retirer des morceaux aimés";
 "ext.widget.nowPlaying.empty.title"        = "Aucune lecture";
 "ext.widget.nowPlaying.empty.openShort"    = "Ouvrez Primuse pour continuer";
 "ext.widget.nowPlaying.empty.openMedium"   = "Ouvrez Primuse pour reprendre là où vous en étiez";

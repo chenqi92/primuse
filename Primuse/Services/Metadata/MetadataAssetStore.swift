@@ -123,8 +123,8 @@ actor MetadataAssetStore {
     }
 
     /// 公共封面读取入口 — 透明处理 content-addressed redirect 与历史遗留的
-    /// raw JPEG 两种格式。`ThemeService` / `LiveActivityManager` /
-    /// `AudioPlayerService` 等不便走 actor 的同步路径用这个,而不是直接
+    /// raw JPEG 两种格式。`ThemeService` / `AudioPlayerService` 等不便走
+    /// actor 的同步路径用这个,而不是直接
     /// `Data(contentsOf:)` —— 直读会拿到 41 字节 "REDIRECT:..." 字符串,
     /// `UIImage(data:)` 当然会返回 nil。
     nonisolated func readCoverData(named filename: String) -> Data? {

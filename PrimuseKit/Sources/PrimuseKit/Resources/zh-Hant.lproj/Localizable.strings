@@ -29,6 +29,8 @@
 "ext.widget.nowPlaying.eyebrowFormat"      = "正在播放 · %@";
 "ext.widget.nowPlaying.playing"            = "正在播放";
 "ext.widget.nowPlaying.paused"             = "已暫停";
+"ext.widget.like"                          = "添加到我的最愛";
+"ext.widget.unlike"                        = "從我的最愛中移除";
 "ext.widget.nowPlaying.empty.title"        = "尚未播放";
 "ext.widget.nowPlaying.empty.openShort"    = "開啟猿音繼續";
 "ext.widget.nowPlaying.empty.openMedium"   = "開啟猿音繼續上次的旋律";

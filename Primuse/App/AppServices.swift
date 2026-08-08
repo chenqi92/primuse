@@ -224,10 +224,6 @@ final class AppServices {
             (playbackRestoreFinishedAt - auxiliaryServicesFinishedAt) * 1_000,
             (startupFinishedAt - playbackRestoreFinishedAt) * 1_000
         ))
-
-        // 注意: 不在这里接线 Live Activity。PrimuseActivityExtension 的灵动岛 /
-        // 锁屏布局仍是半成品(切歌不更新、杀进程后不消失),激活它比留作未启用
-        // 更糟。Live Activity 作为完整功能另行实现后再接线。
     }
 
     private func rescanLocalImportIfNeeded() {
@@ -657,6 +653,16 @@ final class AppServices {
             guard let first = pool.first else { return }
             player.setQueue(pool, startAt: 0)
             await player.play(song: first, caller: "AppIntent")
+        }
+
+        bridge.setLiked = { desired in
+            guard let songID = player.currentSong?.id else { return }
+            // 对齐到目标状态: 已经是想要的结果就别再 toggle 一次。
+            guard library.isLiked(songID: songID) != desired else { return }
+            library.toggleLiked(songID: songID)
+            // 心的状态同时挂在两个 surface 上, 都要立刻跟上, 否则乐观 UI
+            // 会在下一次刷新时被旧数据打回去。
+            player.republishNowPlayingSurfaces()
         }
     }
 }

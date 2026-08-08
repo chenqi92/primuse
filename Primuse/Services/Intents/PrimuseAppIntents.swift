@@ -75,6 +75,31 @@ struct PrimusePreviousIntent: AudioPlaybackIntent {
     }
 }
 
+// MARK: - Like
+
+/// 锁屏 widget / Live Activity 的喜欢按钮。
+///
+/// 用 `SetValueIntent` 的同款"目标状态"语义而不是纯 toggle: SwiftUI
+/// `Toggle(isOn:intent:)` 会在 `perform()` 跑完前先乐观地把心填上, 所以
+/// intent 必须写入一个确定的目标值。无条件取反的话, 用户连点两次就会跟
+/// 乐观 UI 反相。
+struct PrimuseSetLikedIntent: AudioPlaybackIntent {
+    static let title: LocalizedStringResource = "Set Liked"
+    static let description = IntentDescription("Add or remove the current song from Liked.")
+
+    @Parameter(title: "Liked")
+    var value: Bool
+
+    init() {}
+    init(value: Bool) { self.value = value }
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        await PrimuseIntentBridge.shared.setLiked(value)
+        return .result()
+    }
+}
+
 // MARK: - Play by name
 
 struct PrimusePlaySongIntent: AudioPlaybackIntent {

@@ -32,6 +32,8 @@
 "ext.widget.nowPlaying.eyebrowFormat"      = "再生中 · %@";
 "ext.widget.nowPlaying.playing"            = "再生中";
 "ext.widget.nowPlaying.paused"             = "一時停止中";
+"ext.widget.like"                          = "好きな曲に追加";
+"ext.widget.unlike"                        = "好きな曲から削除";
 "ext.widget.nowPlaying.empty.title"        = "再生していません";
 "ext.widget.nowPlaying.empty.openShort"    = "Primuse を開いて続ける";
 "ext.widget.nowPlaying.empty.openMedium"   = "Primuse を開いて続きから再生しましょう";

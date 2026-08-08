@@ -23,6 +23,11 @@ public struct PlaybackState: Codable, Sendable {
     /// versions before Internet radio support.
     public var playbackKind: PlaybackKind?
     public var radioStationID: String?
+    /// Whether the current song is in the "Liked" system playlist. Optional so
+    /// snapshots written before the lock-screen like button still decode.
+    /// The widget can only render the heart, never resolve it — the library
+    /// lives in the app sandbox, so the app has to publish it here.
+    public var isLiked: Bool?
 
     public init(
         currentSongID: String? = nil,
@@ -37,7 +42,8 @@ public struct PlaybackState: Codable, Sendable {
         duration: TimeInterval = 0,
         queueSongIDs: [String] = [],
         playbackKind: PlaybackKind? = nil,
-        radioStationID: String? = nil
+        radioStationID: String? = nil,
+        isLiked: Bool? = nil
     ) {
         self.currentSongID = currentSongID
         self.songTitle = songTitle
@@ -52,6 +58,7 @@ public struct PlaybackState: Codable, Sendable {
         self.queueSongIDs = queueSongIDs
         self.playbackKind = playbackKind
         self.radioStationID = radioStationID
+        self.isLiked = isLiked
     }
 
     public var isLiveStream: Bool { playbackKind == .liveRadio }

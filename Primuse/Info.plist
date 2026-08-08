@@ -91,8 +91,6 @@
 	<string>Primuse uses headphone motion to keep Spatial Audio anchored while you move your head.</string>
 	<key>NSSiriUsageDescription</key>
 	<string>用 Siri 语音点播、控制猿音播放。</string>
-	<key>NSSupportsLiveActivities</key>
-	<true/>
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>com.welape.yuanyin.nowplaying</string>

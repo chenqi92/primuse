@@ -1240,11 +1240,32 @@ final class AudioPlayerService {
             forName: AVAudioSession.routeChangeNotification,
             object: AVAudioSession.sharedInstance(),
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] note in
+            // userInfo 不是 Sendable, 在 hop 出去之前先取出原始值。
+            let reasonValue = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
             Task { @MainActor [weak self] in
-                self?.forceAudioOnlyIfNeeded()
+                guard let self else { return }
+                if let reasonValue,
+                   AVAudioSession.RouteChangeReason(rawValue: reasonValue) == .oldDeviceUnavailable {
+                    self.handleOutputDeviceDisappeared()
+                }
+                self.forceAudioOnlyIfNeeded()
             }
         }
+    }
+
+    /// 输出设备消失 —— 车机熄火 / 拔耳机 / 蓝牙断开都归这一类。
+    ///
+    /// 系统此时会把路由切到内置扬声器并继续播放, 于是音乐突然从手机公放出来。
+    /// Apple 对这个 reason 的既定做法就是暂停: 用户拔掉设备的动作本身就表示
+    /// "我不想再听了", 而不是"请换个喇叭接着放"。
+    ///
+    /// 用 `pause()` 而不是 `stop()` —— 保留曲目和进度, 重新插上耳机 / 上车后
+    /// 用户按播放就能接着听。
+    private func handleOutputDeviceDisappeared() {
+        guard isPlaying || isLoading else { return }
+        plog("🔌 Output device disappeared (CarPlay/headphones/BT) — pausing instead of falling back to the speaker")
+        pause()
     }
 
     private func forceAudioOnlyIfNeeded() {
@@ -7031,7 +7052,10 @@ final class AudioPlayerService {
             duration: scope.includesProgress ? duration : 0,
             queueSongIDs: isLiveRadio ? [] : queue.map(\.id),
             playbackKind: playbackKind,
-            radioStationID: currentRadioStation?.id
+            radioStationID: currentRadioStation?.id,
+            // 锁屏 widget / Live Activity 只能渲染这颗心, 解析不了 —— 曲库在
+            // 主 app 沙盒里, 必须由这里发布出去。
+            isLiked: currentSong.map { library?.isLiked(songID: $0.id) ?? false }
         )
         state.save()
 
@@ -7041,6 +7065,13 @@ final class AudioPlayerService {
             WidgetCenter.shared.reloadAllTimelines()
         }
         #endif
+    }
+
+    /// 喜欢状态在锁屏 widget 上有一份副本, 从 intent 改完库以后要立刻重新
+    /// 发布, 否则乐观 UI 会被下一次刷新的旧数据打回去。
+    func republishNowPlayingSurfaces() {
+        updateNowPlayingInfo()
+        updatePlaybackState()
     }
 
     /// Writes a cover image to the App Group shared container for Widget rendering.

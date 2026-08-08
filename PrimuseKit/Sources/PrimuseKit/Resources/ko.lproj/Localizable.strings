@@ -32,6 +32,8 @@
 "ext.widget.nowPlaying.eyebrowFormat"      = "재생 중 · %@";
 "ext.widget.nowPlaying.playing"            = "재생 중";
 "ext.widget.nowPlaying.paused"             = "일시 정지됨";
+"ext.widget.like"                          = "좋아하는 음악에 추가";
+"ext.widget.unlike"                        = "보관함에서 제거";
 "ext.widget.nowPlaying.empty.title"        = "재생 중이 아님";
 "ext.widget.nowPlaying.empty.openShort"    = "Primuse를 열어 계속하기";
 "ext.widget.nowPlaying.empty.openMedium"   = "Primuse를 열어 이어서 재생하세요";

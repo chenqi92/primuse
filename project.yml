@@ -55,7 +55,6 @@ schemes:
         Primuse: all
         PrimuseKit: all
         PrimuseWidgetExtension: all
-        PrimuseActivityExtension: all
         # PrimuseWatchWidgets 仅 build 不参与 archive ── 它通过 PrimuseWatchApp
         # 的 embed 嵌入, 跟着 watch app 一起进 archive, 不需要顶层入口。
         # 顶层放它会跟 watch app 一样, 让 archive 退化成 Generic Archive。
@@ -145,7 +144,6 @@ targets:
       - sdk: AppIntents.framework
       - target: PrimuseKit
       - target: PrimuseWidgetExtension
-      - target: PrimuseActivityExtension
       - target: PrimuseWatchApp
         embed: true
     info:
@@ -162,7 +160,6 @@ targets:
           - remote-notification
         BGTaskSchedulerPermittedIdentifiers:
           - com.welape.yuanyin.scan-resume
-        NSSupportsLiveActivities: true
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
@@ -365,36 +362,6 @@ targets:
         TARGETED_DEVICE_FAMILY: "4"
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         CODE_SIGN_ENTITLEMENTS: Config/PrimuseWatchWidgets.entitlements
-
-  PrimuseActivityExtension:
-    type: app-extension
-    platform: iOS
-    sources:
-      - path: PrimuseActivityExtension
-      # 同 PrimuseWidgetExtension: live activity 进程也需要 intent 类型符号。
-      - path: Primuse/Services/Intents/PrimuseAppIntents.swift
-    resources:
-      - path: PrimuseActivityExtension/Resources
-    dependencies:
-      - target: PrimuseKit
-      - sdk: WidgetKit.framework
-      - sdk: SwiftUI.framework
-      - sdk: ActivityKit.framework
-    info:
-      path: PrimuseActivityExtension/Info.plist
-      properties:
-        CFBundleDisplayName: "猿音实时活动"
-        CFBundleShortVersionString: "$(MARKETING_VERSION)"
-        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
-        NSExtension:
-          NSExtensionPointIdentifier: com.apple.widgetkit-extension
-        NSSupportsLiveActivities: true
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.welape.yuanyin.activity
-        SKIP_INSTALL: YES
-        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
-        CODE_SIGN_ENTITLEMENTS: Config/PrimuseActivityExtension.entitlements
 
   PrimuseMac:
     type: application
