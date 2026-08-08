@@ -65,6 +65,7 @@
 		13753B3DF25C5DF4CFD69FDB /* Pan123Source.swift in Sources */ = {isa = PBXBuildFile; fileRef = 309F9BB53ECA9FA54F805457 /* Pan123Source.swift */; };
 		13DD1FC0A9A63C8DD65490E1 /* SourceTypeSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C50B958D5A7FEF1F9E8AD24 /* SourceTypeSelectionView.swift */; };
 		14375ACB8E3CF85D8F284DBB /* AppReviewPromptCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 674035830422263129C5DAB9 /* AppReviewPromptCoordinator.swift */; };
+		14D6F7EBC2C261E3B5E4E679 /* CloudSchemaDeploymentPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02D4DD0E30B07ACFFCFB5570 /* CloudSchemaDeploymentPolicy.swift */; };
 		152D4F76DC785ACF53D9B854 /* AudioVisualizerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEEDF841710389644E89A3A1 /* AudioVisualizerService.swift */; };
 		1534D0AB0F81ED8041B9B75E /* SongListSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A81E711713C594D6D24C5BF /* SongListSnapshot.swift */; };
 		1577AE3DDCA5E24E6C433DFA /* CloudAccountMigrationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 767EFEC3E3EDDF4D07DBB168 /* CloudAccountMigrationService.swift */; };
@@ -893,6 +894,7 @@
 		01A3E8F6656778B940F633F3 /* TVQueueView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVQueueView.swift; sourceTree = "<group>"; };
 		029A35BDC1548EE87EBC6549 /* AppleMusicService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMusicService.swift; sourceTree = "<group>"; };
 		02C67038ECF67BC44982A1C8 /* TimeInterval+Format.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TimeInterval+Format.swift"; sourceTree = "<group>"; };
+		02D4DD0E30B07ACFFCFB5570 /* CloudSchemaDeploymentPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSchemaDeploymentPolicy.swift; sourceTree = "<group>"; };
 		02F0CA17DCBE23FCB6FF6791 /* ArtistListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtistListView.swift; sourceTree = "<group>"; };
 		03F527F89BB056AD3BB3E532 /* LocalImportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalImportService.swift; sourceTree = "<group>"; };
 		041E51884E571993062DF610 /* MacTrustedDomainsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacTrustedDomainsView.swift; sourceTree = "<group>"; };
@@ -2351,6 +2353,7 @@
 				6522627B000671EA9055B5D5 /* BaiduFileManagerBatchResponse.swift */,
 				13DF5DE888D6B46DD9A60F16 /* BaiduPanStreamResolver.swift */,
 				2CE02EE3CFE1DFDF66C66B7B /* CloudDriveStreamResolver.swift */,
+				02D4DD0E30B07ACFFCFB5570 /* CloudSchemaDeploymentPolicy.swift */,
 				2536FC64E50FD6E0FAE8B75B /* CredentialBundle.swift */,
 				49599E6563DECC420DE66CF4 /* DaoLiYuAPIProtocol.swift */,
 				A33B7C9895A3CC7E7CCD3DD0 /* DaoLiYuServiceClient.swift */,
@@ -2780,6 +2783,7 @@
 				67D45D818469B9D73A8AB157 /* BundleToken.swift in Sources */,
 				DE0561DB9A15B686C84CEE8C /* CloudAccount.swift in Sources */,
 				18EF7BC5C1B706CD5A3E761F /* CloudDriveStreamResolver.swift in Sources */,
+				14D6F7EBC2C261E3B5E4E679 /* CloudSchemaDeploymentPolicy.swift in Sources */,
 				EA28DFE79AF807B40A5B91B4 /* CredentialBundle.swift in Sources */,
 				38A135AAC750CAF0DE89773E /* CueSheetParser.swift in Sources */,
 				06145D06EE30908CD141E72E /* DaoLiYuAPIProtocol.swift in Sources */,
