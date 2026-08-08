@@ -29,8 +29,10 @@ actor DaoLiYuSource: RefreshingMetadataSongConnector, ServerLyricsConnector {
             basePath: basePath
         )
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 30
-        configuration.timeoutIntervalForResource = 120
+        // Shared by catalogue scanning and playback, so size it for a full
+        // library walk like the other server sources.
+        configuration.timeoutIntervalForRequest = 60
+        configuration.timeoutIntervalForResource = 600
         configuration.httpMaximumConnectionsPerHost = 4
         configuration.httpCookieStorage = nil
         configuration.urlCredentialStorage = nil

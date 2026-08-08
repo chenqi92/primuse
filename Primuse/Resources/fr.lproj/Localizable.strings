@@ -2417,17 +2417,12 @@
 "ext.tv.certificate.title" = "Confirmer le certificat du serveur";
 "ext.tv.certificate.trust" = "Faire confiance et continuer";
 "ext.tv.certificate.message" = "Le certificat HTTPS de %1$@ n’a pas pu être vérifié. Continuez uniquement s’il s’agit de votre serveur. Une nouvelle confirmation sera demandée si le certificat change.";
-"source_connection_strategy" = "Stratégie de connexion";
-"source_connection_preference" = "Préférence de connexion";
-"source_connection_automatic" = "Automatique";
-"source_connection_local_only" = "Réseau local uniquement";
-"source_connection_remote_only" = "Accès distant uniquement";
-"source_connection_automatic_hint" = "Privilégie l’adresse locale accessible, puis utilise la méthode distante sélectionnée.";
-"source_connection_local" = "Connexion locale";
+"source_connection_intro" = "Saisissez une adresse locale, une adresse distante ou les deux. Si les deux sont enregistrées, Primuse utilise automatiquement celle qui est accessible et la plus rapide.";
+"source_connection_local" = "Local";
+"source_connection_local_optional" = "Adresse locale (facultatif)";
 "source_connection_local_address" = "Adresse locale";
 "source_connection_local_port" = "Port local";
-"source_connection_local_hint" = "Saisissez au moins une connexion locale ou distante. Les deux sont enregistrées séparément.";
-"source_connection_remote" = "Accès distant";
+"source_connection_remote_optional" = "Accès distant (facultatif)";
 "source_connection_remote_method" = "Méthode distante";
 "source_connection_public_direct" = "Adresse publique";
 "source_connection_public_address" = "Adresse publique ou URL de proxy inverse";
@@ -2435,4 +2430,4 @@
 "source_connection_public_hint" = "Une adresse publique et un proxy inverse utilisent la même méthode directe, avec leur propre port et un préfixe de chemin facultatif.";
 "source_connection_path_prefix" = "Préfixe de chemin (facultatif)";
 "source_connection_no_route" = "Aucune adresse de connexion utilisable n’est configurée";
-"rate_on_app_store" = "Noter sur l’App Store";
+"rate_on_app_store" = "Laissez-nous un bon avis";

@@ -323,6 +323,7 @@
 "send_to_tv_error_snapshot_preparation" = "Der lokale Mediathek-Schnappschuss konnte nicht für den Upload vorbereitet werden.";
 "send_to_tv_error_cloud_conflict" = "Der CloudKit-Mediathekdatensatz wurde auf einem anderen Gerät geändert und steht nach dem erneuten Versuch weiterhin in Konflikt.";
 "send_to_tv_error_cloud_upload" = "CloudKit-Upload der Mediathek fehlgeschlagen: %@";
+"send_to_tv_error_cloud_schema" = "Der iCloud-Übertragungskanal ist in dieser Version nicht aktiviert (auf dem Server fehlt „%@“); ein erneuter Versuch hilft nicht. Verwende stattdessen die QR-Code-Direktübertragung auf der Musikquellen-Seite des Apple TV.";
 "send_to_tv_error_source_data" = "Die Musikquellen-Konfiguration konnte nicht gelesen werden: %@";
 "send_to_tv_error_credential_temporary" = "Die Anmeldedaten „%@“ (%@) sind im Schlüsselbund vorübergehend nicht verfügbar (OSStatus %@). Entsperre das Gerät und versuche es erneut.";
 "send_to_tv_error_credential_read" = "Die Anmeldedaten „%@“ (%@) konnten nicht aus dem Schlüsselbund gelesen werden (OSStatus %@).";
@@ -531,17 +532,12 @@
 "ext.tv.http.title" = "Unverschlüsseltes HTTP bestätigen";
 "ext.tv.http.allow" = "Zulassen und fortfahren";
 "ext.tv.http.message" = "%1$@ verwendet unverschlüsseltes HTTP. Fahre nur fort, wenn dies dein Server ist. Die Freigabe gilt nur für dieses Protokoll, diesen Host und diesen Port.";
-"source_connection_strategy" = "Verbindungsstrategie";
-"source_connection_preference" = "Verbindungspräferenz";
-"source_connection_automatic" = "Automatisch";
-"source_connection_local_only" = "Nur LAN";
-"source_connection_remote_only" = "Nur extern";
-"source_connection_automatic_hint" = "Bevorzugt die erreichbare LAN-Adresse und wechselt danach zur ausgewählten externen Methode.";
-"source_connection_local" = "LAN-Verbindung";
+"source_connection_intro" = "Gib eine LAN-Adresse, eine externe Adresse oder beide ein. Sind beide gespeichert, nutzt Primuse automatisch die erreichbare und schnellere Adresse.";
+"source_connection_local" = "LAN";
+"source_connection_local_optional" = "LAN-Adresse (optional)";
 "source_connection_local_address" = "LAN-Adresse";
 "source_connection_local_port" = "LAN-Port";
-"source_connection_local_hint" = "Gib mindestens eine LAN- oder externe Verbindung ein. Beide werden getrennt gespeichert.";
-"source_connection_remote" = "Externer Zugriff";
+"source_connection_remote_optional" = "Externer Zugriff (optional)";
 "source_connection_remote_method" = "Externe Methode";
 "source_connection_public_direct" = "Öffentliche Adresse";
 "source_connection_public_address" = "Öffentliche Adresse oder Reverse-Proxy-URL";
@@ -549,4 +545,4 @@
 "source_connection_public_hint" = "Öffentliche Adresse und Reverse Proxy sind dieselbe direkte Methode, mit eigenem Port und optionalem Pfadpräfix.";
 "source_connection_path_prefix" = "Pfadpräfix (optional)";
 "source_connection_no_route" = "Keine verwendbare Verbindungsadresse konfiguriert";
-"rate_on_app_store" = "Im App Store bewerten";
+"rate_on_app_store" = "Gib uns eine gute Bewertung";

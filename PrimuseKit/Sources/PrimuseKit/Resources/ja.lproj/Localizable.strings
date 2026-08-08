@@ -323,6 +323,7 @@
 "send_to_tv_error_snapshot_preparation" = "ローカルのライブラリスナップショットをアップロード用に準備できませんでした。";
 "send_to_tv_error_cloud_conflict" = "CloudKit のライブラリレコードが別のデバイスで変更され、再試行後も競合しています。";
 "send_to_tv_error_cloud_upload" = "CloudKit へのライブラリアップロードに失敗しました：%@";
+"send_to_tv_error_cloud_schema" = "このリリースでは iCloud 転送チャンネルが有効になっていません（サーバー側に「%@」がありません）。再試行しても解決しません。Apple TV の音楽ソース画面から QR コードの直接転送をご利用ください。";
 "send_to_tv_error_source_data" = "音楽ソースの設定を読み込めませんでした：%@";
 "send_to_tv_error_credential_temporary" = "「%@」の%@はキーチェーンで一時的に利用できません（OSStatus %@）。デバイスのロックを解除して再試行してください。";
 "send_to_tv_error_credential_read" = "「%@」の%@をキーチェーンから読み込めませんでした（OSStatus %@）。";
@@ -531,17 +532,12 @@
 "ext.tv.http.title" = "暗号化されていない HTTP の確認";
 "ext.tv.http.allow" = "許可して続ける";
 "ext.tv.http.message" = "%1$@ は暗号化されていない HTTP を使用しています。ご自身のサーバーである場合のみ続行してください。許可はこのプロトコル、ホスト、ポートにのみ適用されます。";
-"source_connection_strategy" = "接続方法";
-"source_connection_preference" = "接続の優先順位";
-"source_connection_automatic" = "自動";
-"source_connection_local_only" = "LAN のみ";
-"source_connection_remote_only" = "リモートのみ";
-"source_connection_automatic_hint" = "到達可能な LAN アドレスを優先し、失敗した場合は選択したリモート方式に切り替えます。";
-"source_connection_local" = "LAN 接続";
+"source_connection_intro" = "LAN アドレスとリモートアドレスはどちらか一方でも構いません。両方を保存すると、到達可能でより高速な方を自動的に使用します。";
+"source_connection_local" = "LAN";
+"source_connection_local_optional" = "LAN アドレス（任意）";
 "source_connection_local_address" = "LAN アドレス";
 "source_connection_local_port" = "LAN ポート";
-"source_connection_local_hint" = "LAN またはリモート接続を少なくとも 1 つ入力してください。両方の値は個別に保存されます。";
-"source_connection_remote" = "リモートアクセス";
+"source_connection_remote_optional" = "リモートアクセス（任意）";
 "source_connection_remote_method" = "リモート方式";
 "source_connection_public_direct" = "公開アドレス";
 "source_connection_public_address" = "公開アドレスまたはリバースプロキシ URL";
@@ -549,4 +545,4 @@
 "source_connection_public_hint" = "公開アドレスとリバースプロキシは同じ直接接続方式で、個別のポートと任意のパス接頭辞を使用できます。";
 "source_connection_path_prefix" = "パス接頭辞（任意）";
 "source_connection_no_route" = "使用可能な接続アドレスが設定されていません";
-"rate_on_app_store" = "Rate on the App Store";
+"rate_on_app_store" = "Leave a nice review";

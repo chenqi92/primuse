@@ -36,6 +36,7 @@ public enum AppleTVTransferFailure: Error, Sendable, Equatable, LocalizedError {
     case snapshotPreparationFailed
     case cloudConflict
     case cloudUploadFailed(detail: String)
+    case cloudSchemaNotDeployed(gap: CloudSchemaDeploymentPolicy.Gap)
     case sourceDataUnavailable(detail: String)
     case credentialReadFailed(
         sourceName: String,
@@ -59,6 +60,7 @@ public enum AppleTVTransferFailure: Error, Sendable, Equatable, LocalizedError {
         case .snapshotPreparationFailed: return "TV-SNAPSHOT-PREPARE"
         case .cloudConflict: return "TV-ICLOUD-CONFLICT"
         case .cloudUploadFailed: return "TV-ICLOUD-UPLOAD"
+        case .cloudSchemaNotDeployed: return "TV-ICLOUD-SCHEMA"
         case .sourceDataUnavailable: return "TV-SOURCES-READ"
         case .credentialReadFailed: return "TV-CREDENTIAL-READ"
         case .credentialUploadFailed: return "TV-CREDENTIAL-UPLOAD"
@@ -87,6 +89,8 @@ public enum AppleTVTransferFailure: Error, Sendable, Equatable, LocalizedError {
             return PMString("send_to_tv_error_cloud_conflict")
         case .cloudUploadFailed(let detail):
             return PMString("send_to_tv_error_cloud_upload", detail)
+        case .cloudSchemaNotDeployed(let gap):
+            return PMString("send_to_tv_error_cloud_schema", gap.name)
         case .sourceDataUnavailable(let detail):
             return PMString("send_to_tv_error_source_data", detail)
         case let .credentialReadFailed(sourceName, component, status, temporary):

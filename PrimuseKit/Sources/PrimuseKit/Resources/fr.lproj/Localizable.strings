@@ -323,6 +323,7 @@
 "send_to_tv_error_snapshot_preparation" = "L’instantané local de la bibliothèque n’a pas pu être préparé pour l’envoi.";
 "send_to_tv_error_cloud_conflict" = "L’enregistrement CloudKit de la bibliothèque a été modifié sur un autre appareil et reste en conflit après une nouvelle tentative.";
 "send_to_tv_error_cloud_upload" = "Échec de l’envoi de la bibliothèque vers CloudKit : %@";
+"send_to_tv_error_cloud_schema" = "Le canal de transfert iCloud n’est pas activé dans cette version (« %@ » est absent du serveur) ; réessayer ne servira à rien. Utilisez plutôt le transfert direct par QR code depuis la page des sources musicales de l’Apple TV.";
 "send_to_tv_error_source_data" = "Impossible de lire la configuration des sources musicales : %@";
 "send_to_tv_error_credential_temporary" = "L’identifiant « %@ » (%@) est temporairement indisponible dans le trousseau (OSStatus %@). Déverrouillez l’appareil et réessayez.";
 "send_to_tv_error_credential_read" = "Impossible de lire l’identifiant « %@ » (%@) dans le trousseau (OSStatus %@).";
@@ -531,17 +532,12 @@
 "ext.tv.http.title" = "Confirmer le HTTP non chiffré";
 "ext.tv.http.allow" = "Autoriser et continuer";
 "ext.tv.http.message" = "%1$@ utilise une connexion HTTP non chiffrée. Continuez uniquement s’il s’agit de votre serveur. L’autorisation s’applique seulement à ce protocole, cet hôte et ce port.";
-"source_connection_strategy" = "Stratégie de connexion";
-"source_connection_preference" = "Préférence de connexion";
-"source_connection_automatic" = "Automatique";
-"source_connection_local_only" = "Réseau local uniquement";
-"source_connection_remote_only" = "Accès distant uniquement";
-"source_connection_automatic_hint" = "Privilégie l’adresse locale accessible, puis utilise la méthode distante sélectionnée.";
-"source_connection_local" = "Connexion locale";
+"source_connection_intro" = "Saisissez une adresse locale, une adresse distante ou les deux. Si les deux sont enregistrées, Primuse utilise automatiquement celle qui est accessible et la plus rapide.";
+"source_connection_local" = "Local";
+"source_connection_local_optional" = "Adresse locale (facultatif)";
 "source_connection_local_address" = "Adresse locale";
 "source_connection_local_port" = "Port local";
-"source_connection_local_hint" = "Saisissez au moins une connexion locale ou distante. Les deux sont enregistrées séparément.";
-"source_connection_remote" = "Accès distant";
+"source_connection_remote_optional" = "Accès distant (facultatif)";
 "source_connection_remote_method" = "Méthode distante";
 "source_connection_public_direct" = "Adresse publique";
 "source_connection_public_address" = "Adresse publique ou URL de proxy inverse";
@@ -549,4 +545,4 @@
 "source_connection_public_hint" = "Une adresse publique et un proxy inverse utilisent la même méthode directe, avec leur propre port et un préfixe de chemin facultatif.";
 "source_connection_path_prefix" = "Préfixe de chemin (facultatif)";
 "source_connection_no_route" = "Aucune adresse de connexion utilisable n’est configurée";
-"rate_on_app_store" = "Noter sur l’App Store";
+"rate_on_app_store" = "Laissez-nous un bon avis";

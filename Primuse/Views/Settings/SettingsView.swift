@@ -192,10 +192,6 @@ struct SettingsView: View {
 
                     CheckForUpdateRow()
 
-                    Link(destination: PrimuseAppStore.reviewURL) {
-                        Label("rate_on_app_store", systemImage: "star.bubble")
-                    }
-
                     NavigationLink {
                         DiagnosticReportsView(service: AppServices.shared.crashDiagnostics)
                     } label: {
@@ -206,6 +202,10 @@ struct SettingsView: View {
                         LicensesView()
                     } label: {
                         Label("licenses", systemImage: "doc.text")
+                    }
+
+                    Link(destination: PrimuseAppStore.reviewURL) {
+                        Label("rate_on_app_store", systemImage: "star.bubble")
                     }
 
                     Link(destination: URL(string: "https://github.com/chenqi92/primuse")!) {

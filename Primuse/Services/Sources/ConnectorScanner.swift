@@ -4,6 +4,10 @@ import PrimuseKit
 
 actor ConnectorScanner {
     private static let progressYieldStride = 20
+    /// A re-scan that finds nothing new never advances `addedCount`, so a
+    /// stride-only rule would leave the card frozen on its opening update for
+    /// the whole walk. Time-based ticks keep a slow remote scan visibly alive.
+    private static let progressHeartbeatInterval: TimeInterval = 1
 
     private let connector: any MusicSourceConnector
     private let sourceID: String
@@ -265,6 +269,7 @@ actor ConnectorScanner {
                     var successfulDirectoryCount = 0
                     var firstDirectoryError: Error?
                     var syncIndex = usableResumeState?.index ?? [:]
+                    var lastProgressYieldAt = Date()
 
                     if !existingSongs.isEmpty {
                         continuation.yield(
@@ -295,6 +300,19 @@ actor ConnectorScanner {
                                 for try await scannedSong in stream {
                                     try Task.checkCancellation()
                                     encounteredSongIDs.insert(scannedSong.song.id)
+                                    if Date().timeIntervalSince(lastProgressYieldAt)
+                                        >= Self.progressHeartbeatInterval {
+                                        lastProgressYieldAt = Date()
+                                        continuation.yield(
+                                            ScanUpdate(
+                                                scannedCount: scannedCount,
+                                                addedCount: addedCount,
+                                                totalCount: totalCount,
+                                                currentFile: scannedSong.displayName,
+                                                songs: allSongs
+                                            )
+                                        )
+                                    }
                                     if let existing = existingByID[scannedSong.song.id] {
                                         // Same path can either be the same file (skip) or
                                         // a remote replacement (refresh). Decide on size
@@ -335,6 +353,7 @@ actor ConnectorScanner {
                                     // persist a full snapshot. Coalesce progress
                                     // just like the generic file scanner below.
                                     if addedCount % Self.progressYieldStride == 0 {
+                                        lastProgressYieldAt = Date()
                                         continuation.yield(
                                             ScanUpdate(
                                                 scannedCount: scannedCount,
@@ -443,6 +462,20 @@ actor ConnectorScanner {
                                     siblings: siblings
                                 ) else { continue }
                                 try Task.checkCancellation()
+
+                                if Date().timeIntervalSince(lastProgressYieldAt) >= Self.progressHeartbeatInterval {
+                                    lastProgressYieldAt = Date()
+                                    continuation.yield(
+                                        ScanUpdate(
+                                            scannedCount: scannedCount,
+                                            addedCount: addedCount,
+                                            totalCount: totalCount,
+                                            currentFile: item.name,
+                                            songs: allSongs
+                                        )
+                                    )
+                                }
+
                                 let stableKey = item.providerID ?? "path:\(item.path.lowercased())"
                                 let priorEntry = identityBaseline[stableKey]
                                 let preferredSongID: String? = {

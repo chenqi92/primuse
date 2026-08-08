@@ -66,8 +66,11 @@ actor SubsonicSource: SongScanningConnector, ServerScrobblingConnector, ServerLy
         self.token = Self.md5Hex(password + salt)
 
         let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = 20
-        configuration.timeoutIntervalForResource = 120
+        // Matches WebDAV / Synology / S3: a catalogue page is 500 songs of JSON
+        // and a full walk is one request per page, which needs more than a
+        // LAN-sized budget over the public internet.
+        configuration.timeoutIntervalForRequest = 60
+        configuration.timeoutIntervalForResource = 600
         configuration.httpAdditionalHeaders = ["User-Agent": "Primuse/1.0"]
         // 家用 Navidrome 常用自签 HTTPS, 复用全局 SmartSSLDelegate 放行受信任证书。
         self.session = URLSession(

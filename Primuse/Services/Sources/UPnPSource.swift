@@ -17,8 +17,11 @@ actor UPnPSource: SongScanningConnector {
         self.sourceID = sourceID
 
         let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = 15
-        configuration.timeoutIntervalForResource = 60
+        // Browse walks the whole container tree over this one session, so the
+        // budget has to cover a full catalogue enumeration rather than a single
+        // LAN request. Matches Subsonic / WebDAV / MediaServer.
+        configuration.timeoutIntervalForRequest = 60
+        configuration.timeoutIntervalForResource = 600
         configuration.httpAdditionalHeaders = ["User-Agent": "Primuse/1.0"]
         self.session = URLSession(
             configuration: configuration,

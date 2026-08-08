@@ -323,7 +323,7 @@ struct SourcesContentView: View {
         let cacheButtonTitle: LocalizedStringKey = isSourceCacheBusy ? "source_cache_all_loading" : "source_cache_all_short"
 
         return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
                 Image(systemName: source.type.iconName)
                     .font(.title3).foregroundStyle(.white)
                     .frame(width: 38, height: 38)
@@ -342,13 +342,17 @@ struct SourcesContentView: View {
                         }
                     }
                     HStack(spacing: 4) {
-                        Text(source.type.displayName)
+                        Text(source.type.displayName).fixedSize()
                         if let summary = source.connectionSummary {
-                            Text("·")
-                            Text(summary).lineLimit(1).truncationMode(.middle)
+                            Text("·").fixedSize()
+                            Text(summary).truncationMode(.middle)
                         }
                     }
                     .font(.caption).foregroundStyle(.secondary)
+                    // The endpoint can be long enough to wrap onto three lines,
+                    // which pushed the trailing count badge out of alignment.
+                    // Keep the whole line to one row and truncate the URL only.
+                    .lineLimit(1)
                     if source.type.isAwaitingPublicAPI {
                         Label(source.type.subtitle, systemImage: "clock.badge.exclamationmark")
                             .font(.caption2.weight(.medium))
@@ -404,24 +408,27 @@ struct SourcesContentView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     if scan.totalCount > 0 {
                         ProgressView(value: min(scan.progress, 1.0)).tint(.accentColor)
-                    } else {
-                        ProgressView().tint(.accentColor)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    HStack {
-                        Text(scan.isScanning ? scan.currentFile : String(localized: "scan_resume_hint")).lineLimit(1)
-                        Spacer()
-                        if scan.totalCount > 0 {
+                        HStack {
+                            Text(scan.isScanning ? scan.currentFile : String(localized: "scan_resume_hint"))
+                                .lineLimit(1).truncationMode(.middle)
+                            Spacer(minLength: 8)
                             Text("\(scan.scannedCount)/\(scan.totalCount)").monospacedDigit()
-                        } else {
-                            // Show "newly added" instead of "files scanned" — the
-                            // latter implied every file was being reprocessed even
-                            // when ConnectorScanner was just walking known songs.
+                        }
+                        .font(.caption2).foregroundStyle(.secondary)
+                    } else {
+                        // An indeterminate spinner on its own row left the
+                        // trailing count stranded on the next line. Keep the
+                        // spinner, the current file and the count on one row.
+                        HStack(spacing: 8) {
+                            ProgressView().scaleEffect(0.7).tint(.accentColor)
+                            Text(scan.isScanning ? scan.currentFile : String(localized: "scan_resume_hint"))
+                                .lineLimit(1).truncationMode(.middle)
+                            Spacer(minLength: 8)
                             Text(String(format: String(localized: "new_songs_added"), scan.addedCount))
                                 .monospacedDigit()
                         }
+                        .font(.caption2).foregroundStyle(.secondary)
                     }
-                    .font(.caption2).foregroundStyle(.secondary)
                     // 安抚: 让用户明确知道扫描在后台跑, 可以离开当前页面继续用 app。
                     Text("scan_runs_in_background_hint")
                         .font(.caption2)

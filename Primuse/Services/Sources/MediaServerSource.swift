@@ -54,8 +54,10 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         self.deviceID = "primuse-\(sourceID)"
 
         let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = 20
-        configuration.timeoutIntervalForResource = 60
+        // Matches WebDAV / Subsonic / Synology: a catalogue request over the
+        // public internet needs more than a LAN-sized budget.
+        configuration.timeoutIntervalForRequest = 60
+        configuration.timeoutIntervalForResource = 600
         configuration.httpAdditionalHeaders = ["User-Agent": "Primuse/1.0"]
         self.session = URLSession(
             configuration: configuration,

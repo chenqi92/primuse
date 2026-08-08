@@ -29,7 +29,9 @@ actor FnMusicAPI {
         self.usesFNConnect = connectionMode == .fnConnect
 
         let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = 30
+        // Catalogue pages over the public internet outrun a LAN-sized
+        // per-request budget; matches the other server sources.
+        configuration.timeoutIntervalForRequest = 60
         configuration.timeoutIntervalForResource = 600
         configuration.httpMaximumConnectionsPerHost = 8
         configuration.httpAdditionalHeaders = ["User-Agent": "Primuse/1.0"]

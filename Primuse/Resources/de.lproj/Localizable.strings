@@ -2417,17 +2417,12 @@
 "ext.tv.certificate.title" = "Serverzertifikat bestätigen";
 "ext.tv.certificate.trust" = "Vertrauen und fortfahren";
 "ext.tv.certificate.message" = "Das HTTPS-Zertifikat für %1$@ konnte nicht überprüft werden. Fahre nur fort, wenn dies dein Server ist. Wenn sich das Zertifikat ändert, wirst du erneut gefragt.";
-"source_connection_strategy" = "Verbindungsstrategie";
-"source_connection_preference" = "Verbindungspräferenz";
-"source_connection_automatic" = "Automatisch";
-"source_connection_local_only" = "Nur LAN";
-"source_connection_remote_only" = "Nur extern";
-"source_connection_automatic_hint" = "Bevorzugt die erreichbare LAN-Adresse und wechselt danach zur ausgewählten externen Methode.";
-"source_connection_local" = "LAN-Verbindung";
+"source_connection_intro" = "Gib eine LAN-Adresse, eine externe Adresse oder beide ein. Sind beide gespeichert, nutzt Primuse automatisch die erreichbare und schnellere Adresse.";
+"source_connection_local" = "LAN";
+"source_connection_local_optional" = "LAN-Adresse (optional)";
 "source_connection_local_address" = "LAN-Adresse";
 "source_connection_local_port" = "LAN-Port";
-"source_connection_local_hint" = "Gib mindestens eine LAN- oder externe Verbindung ein. Beide werden getrennt gespeichert.";
-"source_connection_remote" = "Externer Zugriff";
+"source_connection_remote_optional" = "Externer Zugriff (optional)";
 "source_connection_remote_method" = "Externe Methode";
 "source_connection_public_direct" = "Öffentliche Adresse";
 "source_connection_public_address" = "Öffentliche Adresse oder Reverse-Proxy-URL";
@@ -2435,4 +2430,4 @@
 "source_connection_public_hint" = "Öffentliche Adresse und Reverse Proxy sind dieselbe direkte Methode, mit eigenem Port und optionalem Pfadpräfix.";
 "source_connection_path_prefix" = "Pfadpräfix (optional)";
 "source_connection_no_route" = "Keine verwendbare Verbindungsadresse konfiguriert";
-"rate_on_app_store" = "Im App Store bewerten";
+"rate_on_app_store" = "Gib uns eine gute Bewertung";

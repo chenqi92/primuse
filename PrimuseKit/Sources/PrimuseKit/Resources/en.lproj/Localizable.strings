@@ -321,6 +321,7 @@
 "send_to_tv_error_snapshot_preparation" = "The local library snapshot could not be prepared for upload.";
 "send_to_tv_error_cloud_conflict" = "The CloudKit library record changed on another device and still conflicted after retrying.";
 "send_to_tv_error_cloud_upload" = "CloudKit library upload failed: %@";
+"send_to_tv_error_cloud_schema" = "The iCloud transfer channel is not enabled in this release (the server is missing “%@”), so retrying will not help. Use the QR-code direct transfer on the Apple TV music sources screen instead.";
 "send_to_tv_error_source_data" = "The music source configuration could not be read: %@";
 "send_to_tv_error_credential_temporary" = "The “%@” %@ is temporarily unavailable in Keychain (OSStatus %@). Unlock the device and try again.";
 "send_to_tv_error_credential_read" = "The “%@” %@ could not be read from Keychain (OSStatus %@).";
@@ -529,17 +530,12 @@
 "ext.tv.http.title" = "Cleartext HTTP Requires Confirmation";
 "ext.tv.http.allow" = "Allow and Continue";
 "ext.tv.http.message" = "%1$@ uses unencrypted HTTP. Continue only if this is your server. Authorization applies only to this scheme, host, and port.";
-"source_connection_strategy" = "Connection Strategy";
-"source_connection_preference" = "Connection Preference";
-"source_connection_automatic" = "Automatic";
-"source_connection_local_only" = "LAN Only";
-"source_connection_remote_only" = "Remote Only";
-"source_connection_automatic_hint" = "Prefer the reachable LAN address, then fall back to the selected remote method.";
-"source_connection_local" = "LAN Connection";
+"source_connection_intro" = "Enter a LAN address, a remote one, or both. With both saved, Primuse uses whichever is reachable and faster.";
+"source_connection_local" = "LAN";
+"source_connection_local_optional" = "LAN Address (Optional)";
 "source_connection_local_address" = "LAN Address";
 "source_connection_local_port" = "LAN Port";
-"source_connection_local_hint" = "Enter at least one LAN or remote connection. Both are saved independently.";
-"source_connection_remote" = "Remote Access";
+"source_connection_remote_optional" = "Remote Access (Optional)";
 "source_connection_remote_method" = "Remote Method";
 "source_connection_public_direct" = "Public Address";
 "source_connection_public_address" = "Public Address or Reverse Proxy URL";
@@ -547,4 +543,4 @@
 "source_connection_public_hint" = "A public address and reverse proxy are the same direct method, with their own port and optional path prefix.";
 "source_connection_path_prefix" = "Path Prefix (Optional)";
 "source_connection_no_route" = "No usable connection address is configured";
-"rate_on_app_store" = "Rate on the App Store";
+"rate_on_app_store" = "Leave a nice review";

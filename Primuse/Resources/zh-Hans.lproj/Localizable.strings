@@ -2521,17 +2521,12 @@
 "ext.tv.certificate.title" = "服务器证书需要确认";
 "ext.tv.certificate.trust" = "信任并继续";
 "ext.tv.certificate.message" = "无法验证 %1$@ 的 HTTPS 证书。仅在确认这是你的服务器后继续；证书变化时会再次询问。";
-"source_connection_strategy" = "连接策略";
-"source_connection_preference" = "连接偏好";
-"source_connection_automatic" = "自动择优";
-"source_connection_local_only" = "仅内网";
-"source_connection_remote_only" = "仅外网";
-"source_connection_automatic_hint" = "优先使用可用的内网地址，无法连接时切换到当前选定的外网方式。";
-"source_connection_local" = "内网直连";
+"source_connection_intro" = "填写内网或外网地址即可，两个都填时会自动选择当前可用且更快的一个。";
+"source_connection_local" = "内网";
+"source_connection_local_optional" = "内网地址（可选）";
 "source_connection_local_address" = "内网地址";
 "source_connection_local_port" = "内网端口";
-"source_connection_local_hint" = "内网和外网至少填写一个；两者会分别保存。";
-"source_connection_remote" = "外网访问";
+"source_connection_remote_optional" = "外网访问（可选）";
 "source_connection_remote_method" = "外网方式";
 "source_connection_public_direct" = "公网直连";
 "source_connection_public_address" = "公网地址或反向代理 URL";
@@ -2539,4 +2534,4 @@
 "source_connection_public_hint" = "公网地址与反向代理属于同一种直连方式，可使用独立端口和路径前缀。";
 "source_connection_path_prefix" = "路径前缀（可选）";
 "source_connection_no_route" = "没有配置可用的连接地址";
-"rate_on_app_store" = "在 App Store 评价";
+"rate_on_app_store" = "给个好评";

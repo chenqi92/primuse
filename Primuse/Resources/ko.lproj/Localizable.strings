@@ -2417,17 +2417,12 @@
 "ext.tv.certificate.title" = "서버 인증서 확인 필요";
 "ext.tv.certificate.trust" = "신뢰하고 계속";
 "ext.tv.certificate.message" = "%1$@의 HTTPS 인증서를 확인할 수 없습니다. 본인의 서버임을 확인한 경우에만 계속하세요. 인증서가 변경되면 다시 확인합니다.";
-"source_connection_strategy" = "연결 전략";
-"source_connection_preference" = "연결 우선순위";
-"source_connection_automatic" = "자동";
-"source_connection_local_only" = "내부망만";
-"source_connection_remote_only" = "외부망만";
-"source_connection_automatic_hint" = "연결 가능한 내부망 주소를 우선 사용하고, 실패하면 선택한 외부 연결 방식으로 전환합니다.";
-"source_connection_local" = "내부망 연결";
+"source_connection_intro" = "내부망 주소나 외부 주소 중 하나만 입력해도 되고, 둘 다 저장하면 연결 가능하고 더 빠른 쪽을 자동으로 사용합니다.";
+"source_connection_local" = "내부망";
+"source_connection_local_optional" = "내부망 주소(선택)";
 "source_connection_local_address" = "내부망 주소";
 "source_connection_local_port" = "내부망 포트";
-"source_connection_local_hint" = "내부망 또는 외부 연결을 하나 이상 입력하세요. 두 값은 별도로 저장됩니다.";
-"source_connection_remote" = "외부 접속";
+"source_connection_remote_optional" = "외부 접속(선택)";
 "source_connection_remote_method" = "외부 연결 방식";
 "source_connection_public_direct" = "공인 주소";
 "source_connection_public_address" = "공인 주소 또는 리버스 프록시 URL";
@@ -2435,4 +2430,4 @@
 "source_connection_public_hint" = "공인 주소와 리버스 프록시는 같은 직접 연결 방식이며, 별도 포트와 선택적 경로 접두사를 사용할 수 있습니다.";
 "source_connection_path_prefix" = "경로 접두사(선택 사항)";
 "source_connection_no_route" = "사용 가능한 연결 주소가 설정되지 않았습니다";
-"rate_on_app_store" = "App Store에서 평가하기";
+"rate_on_app_store" = "좋은 평가 남기기";

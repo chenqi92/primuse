@@ -87,6 +87,34 @@ final class LibrarySnapshotSync: Sendable {
         return "\(nsError.localizedDescription) [\(nsError.domain) \(nsError.code)]"
     }
 
+    /// A production container rejects any record type or field that was never
+    /// deployed from CloudKit Console. Retrying cannot resolve it, so callers
+    /// report the missing schema element rather than the raw CloudKit text.
+    private static func schemaFailure(_ error: Error?) -> AppleTVTransferFailure? {
+        guard let error else { return nil }
+        for candidate in flattenedCloudErrors(error) {
+            let nsError = candidate as NSError
+            if let gap = CloudSchemaDeploymentPolicy.gap(
+                domain: nsError.domain,
+                code: nsError.code,
+                message: nsError.localizedDescription
+            ) {
+                return .cloudSchemaNotDeployed(gap: gap)
+            }
+        }
+        return nil
+    }
+
+    /// `modifyRecords` reports per-record rejections inside a partial failure,
+    /// where the outer error carries `.partialFailure` and the schema rejection
+    /// sits one level below it.
+    private static func flattenedCloudErrors(_ error: Error) -> [Error] {
+        let nsError = error as NSError
+        guard let partial = nsError.userInfo[CKPartialErrorsByItemIDKey]
+            as? [AnyHashable: Error] else { return [error] }
+        return [error] + partial.values
+    }
+
     private enum RecordSaveOutcome {
         case success
         case conflict(CKRecord)
@@ -254,6 +282,9 @@ final class LibrarySnapshotSync: Sendable {
             return .failure(.cloudConflict)
         case .failure(let error):
             plog("LibrarySnapshotSync: upload failed — \(error?.localizedDescription ?? "no per-record result")")
+            if let schemaFailure = Self.schemaFailure(error) {
+                return .failure(schemaFailure)
+            }
             return .failure(.cloudUploadFailed(detail: Self.diagnosticDetail(error)))
         }
         #if !os(tvOS)
@@ -1270,6 +1301,9 @@ final class LibrarySnapshotSync: Sendable {
             ))
         case .failure(let error):
             plog("LibrarySnapshotSync: credential upload failed — \(error?.localizedDescription ?? "no per-record result")")
+            if let schemaFailure = Self.schemaFailure(error) {
+                return .failure(schemaFailure)
+            }
             return .failure(.credentialUploadFailed(detail: Self.diagnosticDetail(error)))
         }
     }
