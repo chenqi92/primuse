@@ -7,6 +7,7 @@ import PrimuseKit
 struct TVSettingsView: View {
     @Environment(TVStore.self) private var store
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     var onNavigate: (TVRoot.Tab) -> Void = { _ in }
     @AppStorage("tvAutoSync") private var autoSync = true
     @AppStorage(TVAppearancePreference.storageKey)
@@ -43,6 +44,9 @@ struct TVSettingsView: View {
                         navRow("music.note", PMString("ext.tv.settings.library"), libraryStat) { go(.library) }
                         navRow("music.note.list", PMString("ext.tv.settings.playlists"), PMString("ext.tv.countOnly", store.playlists.count)) { go(.playlists) }
                         navRow("server.rack", PMString("ext.tv.settings.sources"), PMString("ext.tv.countOnly", store.sources.count)) { go(.sources) }
+                        navRow("star.bubble", PMString("rate_on_app_store"), "App Store", trailing: "arrow.up.right") {
+                            openURL(PrimuseAppStore.reviewURL)
+                        }
                         infoRow("info.circle", PMString("ext.tv.settings.about"), "\(version) (\(build)) · tvOS \(osVersion)")
                     }
                 }

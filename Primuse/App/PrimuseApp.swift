@@ -529,8 +529,10 @@ struct PrimuseApp: App {
             injectServices {
                 #if os(iOS)
                 ContentView()
+                    .automaticAppReviewPrompt()
                 #else
                 MacContentView()
+                    .automaticAppReviewPrompt()
                 #endif
             }
                 .task {

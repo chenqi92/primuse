@@ -4084,15 +4084,19 @@ final class MusicLibrary {
             plog("⚠️ Library snapshot encoding failed: \(error.localizedDescription)")
             return false
         }
+        let shouldPreserveCurrentAsBackup: Bool
         if let currentData = try? Data(contentsOf: url) {
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            if (try? decoder.decode(Snapshot.self, from: currentData)) != nil {
-                try? currentData.write(to: backupURL, options: .atomic)
-            }
+            shouldPreserveCurrentAsBackup = isValidSnapshotData(currentData)
+        } else {
+            shouldPreserveCurrentAsBackup = false
         }
         do {
-            try data.write(to: url, options: .atomic)
+            try AtomicBackupFileWriter.write(
+                data,
+                to: url,
+                backupURL: backupURL,
+                preserveExistingAsBackup: shouldPreserveCurrentAsBackup
+            )
             return true
         } catch {
             plog("⚠️ Library snapshot write failed: \(error.localizedDescription)")

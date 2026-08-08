@@ -2230,3 +2230,4 @@
 "source_connection_public_hint" = "A public address and reverse proxy are the same direct method, with their own port and optional path prefix.";
 "source_connection_path_prefix" = "Path Prefix (Optional)";
 "source_connection_no_route" = "No usable connection address is configured";
+"rate_on_app_store" = "Rate on the App Store";

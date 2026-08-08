@@ -2403,3 +2403,4 @@
 "source_connection_public_hint" = "公開アドレスとリバースプロキシは同じ直接接続方式で、個別のポートと任意のパス接頭辞を使用できます。";
 "source_connection_path_prefix" = "パス接頭辞（任意）";
 "source_connection_no_route" = "使用可能な接続アドレスが設定されていません";
+"rate_on_app_store" = "Rate on the App Store";

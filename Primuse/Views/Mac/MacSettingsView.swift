@@ -4676,6 +4676,12 @@ private struct MacSTAboutView: View {
                     MacUpdateCheckWindowController.shared.show()
                 }
                 aboutUtilityButton(
+                    title: String(localized: "rate_on_app_store"),
+                    systemImage: "star.bubble"
+                ) {
+                    NSWorkspace.shared.open(PrimuseAppStore.reviewURL)
+                }
+                aboutUtilityButton(
                     title: Lz("Open-Source Licenses…"),
                     systemImage: "doc.text"
                 ) {

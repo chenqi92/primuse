@@ -546,3 +546,4 @@
 "source_connection_public_hint" = "公網位址與反向代理屬於同一種直連方式，可使用獨立連接埠和路徑前綴。";
 "source_connection_path_prefix" = "路徑前綴（選填）";
 "source_connection_no_route" = "沒有設定可用的連線位址";
+"rate_on_app_store" = "在 App Store 評分";

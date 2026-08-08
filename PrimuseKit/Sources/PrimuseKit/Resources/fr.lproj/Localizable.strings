@@ -549,3 +549,4 @@
 "source_connection_public_hint" = "Une adresse publique et un proxy inverse utilisent la même méthode directe, avec leur propre port et un préfixe de chemin facultatif.";
 "source_connection_path_prefix" = "Préfixe de chemin (facultatif)";
 "source_connection_no_route" = "Aucune adresse de connexion utilisable n’est configurée";
+"rate_on_app_store" = "Noter sur l’App Store";

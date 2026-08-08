@@ -112,6 +112,7 @@ final class PlayHistoryStore {
         }
         scheduleSave()
         notifyChanged()
+        NotificationCenter.default.post(name: .primuseQualifiedPlaybackDidRecord, object: nil)
     }
 
     func clearAll() {
@@ -333,4 +334,5 @@ final class PlayHistoryStore {
 
 extension Notification.Name {
     static let primuseListeningStatsDidChange = Notification.Name("primuse.listeningStatsDidChange")
+    static let primuseQualifiedPlaybackDidRecord = Notification.Name("primuse.qualifiedPlaybackDidRecord")
 }

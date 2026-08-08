@@ -2402,3 +2402,4 @@
 "source_connection_public_hint" = "공인 주소와 리버스 프록시는 같은 직접 연결 방식이며, 별도 포트와 선택적 경로 접두사를 사용할 수 있습니다.";
 "source_connection_path_prefix" = "경로 접두사(선택 사항)";
 "source_connection_no_route" = "사용 가능한 연결 주소가 설정되지 않았습니다";
+"rate_on_app_store" = "App Store에서 평가하기";

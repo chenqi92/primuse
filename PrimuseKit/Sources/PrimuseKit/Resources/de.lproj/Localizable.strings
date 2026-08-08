@@ -549,3 +549,4 @@
 "source_connection_public_hint" = "Öffentliche Adresse und Reverse Proxy sind dieselbe direkte Methode, mit eigenem Port und optionalem Pfadpräfix.";
 "source_connection_path_prefix" = "Pfadpräfix (optional)";
 "source_connection_no_route" = "Keine verwendbare Verbindungsadresse konfiguriert";
+"rate_on_app_store" = "Im App Store bewerten";
