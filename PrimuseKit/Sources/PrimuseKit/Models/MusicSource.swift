@@ -589,14 +589,6 @@ public enum NFSVersion: String, Codable, Sendable, CaseIterable {
 
 // MARK: - Adaptive connection routes
 
-/// User intent for choosing between saved LAN and remote routes. Automatic is
-/// deliberately deterministic: LAN first, then the selected remote method.
-public enum SourceConnectionPreference: String, Codable, Sendable, CaseIterable {
-    case automatic
-    case localOnly
-    case remoteOnly
-}
-
 /// Synology QuickConnect and Feiniu FN Connect are remote discovery/relay
 /// methods, not ordinary URLs. Only one remote method is active at a time, but
 /// both the direct endpoint and vendor identifier remain persisted.
@@ -676,27 +668,81 @@ public struct SourceConnectionEndpoint: Codable, Hashable, Sendable {
     }
 }
 
-/// Persisted multi-route configuration. Empty inactive fields are retained so
+/// Persisted multi-route configuration. A filled endpoint is a usable route, and
+/// filling both lets the router pick. Empty inactive fields are retained so
 /// switching between a public URL and QuickConnect/FN Connect is lossless.
 public struct SourceConnectionConfiguration: Codable, Hashable, Sendable {
-    public var preference: SourceConnectionPreference
     public var localEndpoint: SourceConnectionEndpoint?
     public var publicEndpoint: SourceConnectionEndpoint?
     public var remoteAccessMode: SourceRemoteAccessMode
     public var vendorIdentifier: String?
 
+    /// Older sources persisted an explicit local-only / remote-only choice.
+    /// It is no longer editable — filling in an address is the choice — but it
+    /// is still decoded and re-encoded so an untouched source keeps its exact
+    /// behavior, and so a peer device on the previous build does not see its
+    /// selection disappear. Cleared on the first save from the new form; drop
+    /// this once the previous build is out of circulation.
+    public private(set) var legacyRouteRestriction: LegacyRouteRestriction?
+
+    public enum LegacyRouteRestriction: String, Codable, Sendable {
+        case localOnly
+        case remoteOnly
+    }
+
     public init(
-        preference: SourceConnectionPreference = .automatic,
         localEndpoint: SourceConnectionEndpoint? = nil,
         publicEndpoint: SourceConnectionEndpoint? = nil,
         remoteAccessMode: SourceRemoteAccessMode = .direct,
         vendorIdentifier: String? = nil
     ) {
-        self.preference = preference
         self.localEndpoint = localEndpoint
         self.publicEndpoint = publicEndpoint
         self.remoteAccessMode = remoteAccessMode
         self.vendorIdentifier = vendorIdentifier
+        self.legacyRouteRestriction = nil
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case localEndpoint, publicEndpoint, remoteAccessMode, vendorIdentifier
+        case preference
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        localEndpoint = try c.decodeIfPresent(SourceConnectionEndpoint.self, forKey: .localEndpoint)
+        publicEndpoint = try c.decodeIfPresent(SourceConnectionEndpoint.self, forKey: .publicEndpoint)
+        remoteAccessMode = try c.decodeIfPresent(
+            SourceRemoteAccessMode.self,
+            forKey: .remoteAccessMode
+        ) ?? .direct
+        vendorIdentifier = try c.decodeIfPresent(String.self, forKey: .vendorIdentifier)
+        // Decoded as a raw String rather than an enum so an unrecognized value
+        // means "no restriction" instead of failing the whole decode.
+        switch try c.decodeIfPresent(String.self, forKey: .preference) {
+        case "localOnly": legacyRouteRestriction = .localOnly
+        case "remoteOnly": legacyRouteRestriction = .remoteOnly
+        default: legacyRouteRestriction = nil
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(localEndpoint, forKey: .localEndpoint)
+        try c.encodeIfPresent(publicEndpoint, forKey: .publicEndpoint)
+        try c.encode(remoteAccessMode, forKey: .remoteAccessMode)
+        try c.encodeIfPresent(vendorIdentifier, forKey: .vendorIdentifier)
+        switch legacyRouteRestriction {
+        case .localOnly: try c.encode("localOnly", forKey: .preference)
+        case .remoteOnly: try c.encode("remoteOnly", forKey: .preference)
+        case nil: break
+        }
+    }
+
+    /// The new form always writes an unrestricted configuration: whatever the
+    /// user left filled in is what gets used.
+    public mutating func clearLegacyRouteRestriction() {
+        legacyRouteRestriction = nil
     }
 }
 
@@ -1011,9 +1057,10 @@ public extension MusicSource {
         return SourceConnectionConfiguration(publicEndpoint: endpoint)
     }
 
-    /// Ordered candidates for a connection attempt. Explicit local-only and
-    /// remote-only choices are strict; an inactive saved route is never used
-    /// as an implicit fallback.
+    /// Ordered candidates for a connection attempt: LAN first, then the
+    /// selected remote method. A configured route is always eligible — filling
+    /// in an address is what enables it. Sources saved before the strategy
+    /// picker was removed keep their recorded restriction until next saved.
     var connectionCandidates: [SourceConnectionCandidate] {
         guard let configuration = effectiveConnectionConfiguration else { return [] }
 
@@ -1040,16 +1087,14 @@ public extension MusicSource {
             }
         }
 
-        let preferred: [SourceConnectionCandidate]
-        switch configuration.preference {
-        case .automatic:
-            preferred = [local, remote].compactMap { $0 }
+        switch configuration.legacyRouteRestriction {
         case .localOnly:
-            preferred = [local].compactMap { $0 }
+            return [local].compactMap { $0 }
         case .remoteOnly:
-            preferred = [remote].compactMap { $0 }
+            return [remote].compactMap { $0 }
+        case nil:
+            return [local, remote].compactMap { $0 }
         }
-        return preferred
     }
 
     /// Applies one candidate to the legacy fields consumed by existing source

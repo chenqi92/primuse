@@ -348,47 +348,129 @@ import Testing
     #expect(legacy.connectionConfiguration?.vendorIdentifier == "family-nas")
 }
 
-@Test func adaptiveConnectionPreferenceCanSelectOneRouteWithoutDeletingTheOther() {
+@Test func fillingOneAddressYieldsThatRouteAndBothYieldsLocalFirst() {
     let local = SourceConnectionEndpoint(host: "10.0.0.8", port: 4533, useSsl: false)
     let remote = SourceConnectionEndpoint(host: "music.example.com", port: 443, useSsl: true)
-    var configuration = SourceConnectionConfiguration(
-        preference: .remoteOnly,
-        localEndpoint: local,
-        publicEndpoint: remote
+
+    let localOnly = MusicSource(
+        name: "LAN only",
+        type: .navidrome,
+        connectionConfiguration: SourceConnectionConfiguration(localEndpoint: local)
     )
-    var source = MusicSource(
+    #expect(localOnly.connectionCandidates.map(\.kind) == [.localAddress])
+
+    let remoteOnly = MusicSource(
+        name: "Remote only",
+        type: .navidrome,
+        connectionConfiguration: SourceConnectionConfiguration(publicEndpoint: remote)
+    )
+    #expect(remoteOnly.connectionCandidates.map(\.kind) == [.publicAddress])
+
+    let both = MusicSource(
+        name: "Both",
+        type: .navidrome,
+        connectionConfiguration: SourceConnectionConfiguration(
+            localEndpoint: local,
+            publicEndpoint: remote
+        )
+    )
+    #expect(both.connectionCandidates.map(\.kind) == [.localAddress, .publicAddress])
+}
+
+@Test func vendorRemoteReplacesPublicEndpointInTheRemoteSlot() throws {
+    let source = MusicSource(
+        name: "Synology",
+        type: .synology,
+        connectionConfiguration: SourceConnectionConfiguration(
+            localEndpoint: SourceConnectionEndpoint(host: "nas.local", port: 5001, useSsl: true),
+            publicEndpoint: SourceConnectionEndpoint(
+                host: "nas.example.com",
+                port: 5443,
+                useSsl: true
+            ),
+            remoteAccessMode: .vendor,
+            vendorIdentifier: "family-nas"
+        )
+    )
+    // Only one remote candidate exists, and the dormant public endpoint must
+    // survive so switching the remote method back is lossless.
+    #expect(source.connectionCandidates.map(\.kind) == [.localAddress, .vendorRemote])
+
+    let encoded = try JSONEncoder().encode(source.connectionConfiguration)
+    let decoded = try JSONDecoder().decode(SourceConnectionConfiguration.self, from: encoded)
+    #expect(decoded.publicEndpoint?.host == "nas.example.com")
+    #expect(decoded.vendorIdentifier == "family-nas")
+}
+
+@Test func legacyPreferenceKeysDecodeWithoutLosingEndpoints() throws {
+    func configuration(preference: String) throws -> SourceConnectionConfiguration {
+        let json = """
+        {
+          "localEndpoint": {"host": "10.0.0.8", "port": 4533, "useSsl": false},
+          "publicEndpoint": {"host": "music.example.com", "port": 443, "useSsl": true},
+          "remoteAccessMode": "direct",
+          "preference": "\(preference)"
+        }
+        """
+        return try JSONDecoder().decode(
+            SourceConnectionConfiguration.self,
+            from: Data(json.utf8)
+        )
+    }
+
+    func candidates(
+        _ configuration: SourceConnectionConfiguration
+    ) -> [SourceConnectionCandidateKind] {
+        MusicSource(
+            name: "Navidrome",
+            type: .navidrome,
+            connectionConfiguration: configuration
+        ).connectionCandidates.map(\.kind)
+    }
+
+    // An untouched source keeps its old behavior, but never loses the address
+    // that behavior was hiding.
+    let localOnly = try configuration(preference: "localOnly")
+    #expect(candidates(localOnly) == [.localAddress])
+    #expect(localOnly.publicEndpoint?.host == "music.example.com")
+
+    let remoteOnly = try configuration(preference: "remoteOnly")
+    #expect(candidates(remoteOnly) == [.publicAddress])
+    #expect(remoteOnly.localEndpoint?.host == "10.0.0.8")
+
+    // "automatic" and anything unrecognized both mean "no restriction".
+    #expect(candidates(try configuration(preference: "automatic"))
+            == [.localAddress, .publicAddress])
+    #expect(candidates(try configuration(preference: "not-a-real-value"))
+            == [.localAddress, .publicAddress])
+}
+
+@Test func savingFromTheFormDropsTheLegacyRestriction() throws {
+    let json = """
+    {
+      "localEndpoint": {"host": "10.0.0.8", "port": 4533, "useSsl": false},
+      "publicEndpoint": {"host": "music.example.com", "port": 443, "useSsl": true},
+      "remoteAccessMode": "direct",
+      "preference": "localOnly"
+    }
+    """
+    var configuration = try JSONDecoder().decode(
+        SourceConnectionConfiguration.self,
+        from: Data(json.utf8)
+    )
+    configuration.clearLegacyRouteRestriction()
+
+    let source = MusicSource(
         name: "Navidrome",
         type: .navidrome,
         connectionConfiguration: configuration
     )
+    #expect(source.connectionCandidates.map(\.kind) == [.localAddress, .publicAddress])
 
-    #expect(source.connectionCandidates.map(\.kind) == [.publicAddress])
-    #expect(source.connectionConfiguration?.localEndpoint == local)
-
-    configuration.preference = .localOnly
-    source.connectionConfiguration = configuration
-    #expect(source.connectionCandidates.map(\.kind) == [.localAddress])
-    #expect(source.connectionConfiguration?.publicEndpoint == remote)
-}
-
-@Test func adaptiveConnectionPreferencesNeverEnableAnInactiveFallback() {
-    let remote = SourceConnectionEndpoint(
-        host: "music.example.com",
-        port: 443,
-        useSsl: true
-    )
-    let source = MusicSource(
-        name: "Remote-only saved value",
-        type: .navidrome,
-        connectionConfiguration: SourceConnectionConfiguration(
-            preference: .localOnly,
-            localEndpoint: nil,
-            publicEndpoint: remote
-        )
-    )
-
-    #expect(source.connectionCandidates.isEmpty)
-    #expect(source.connectionConfiguration?.publicEndpoint == remote)
+    let reencoded = try JSONSerialization.jsonObject(
+        with: try JSONEncoder().encode(configuration)
+    ) as? [String: Any]
+    #expect(reencoded?["preference"] == nil)
 }
 
 @Test func reverseProxyURLNormalizesSchemePortAndPathForEveryResolver() {
@@ -408,7 +490,6 @@ import Testing
         name: "Jellyfin proxy",
         type: .jellyfin,
         connectionConfiguration: SourceConnectionConfiguration(
-            preference: .remoteOnly,
             publicEndpoint: endpoint
         )
     )
@@ -423,7 +504,6 @@ import Testing
         name: "Synology proxy",
         type: .synology,
         connectionConfiguration: SourceConnectionConfiguration(
-            preference: .remoteOnly,
             publicEndpoint: SourceConnectionEndpoint(
                 host: "nas.example.com",
                 port: 5443,
@@ -471,7 +551,6 @@ import Testing
         name: "MinIO",
         type: .s3,
         connectionConfiguration: SourceConnectionConfiguration(
-            preference: .remoteOnly,
             publicEndpoint: SourceConnectionEndpoint(
                 host: "https://minio.example.com:9443/s3-proxy",
                 port: 443,

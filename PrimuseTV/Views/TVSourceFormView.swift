@@ -176,7 +176,6 @@ struct TVSourceFormView: View {
     @State private var localPathPrefix = ""
     @State private var publicPathPrefix = ""
     @State private var vendorIdentifier = ""
-    @State private var connectionPreference: SourceConnectionPreference = .automatic
     @State private var synologyConnectionMode: SynologyConnectionMode = .quickConnect
     @State private var fnMusicConnectionMode: FnMusicConnectionMode = .fnConnect
     @State private var username = ""
@@ -229,12 +228,7 @@ struct TVSourceFormView: View {
         if localConfigured && validatedPort == nil { return false }
         if !remoteUsesVendor, publicConfigured && validatedPublicPort == nil { return false }
         if remoteUsesVendor, vendorConfigured && !vendorIdentifierIsValid { return false }
-
-        switch connectionPreference {
-        case .automatic: return localEndpointIsValid || activeRemoteEndpointIsValid
-        case .localOnly: return localEndpointIsValid
-        case .remoteOnly: return activeRemoteEndpointIsValid
-        }
+        return localEndpointIsValid || activeRemoteEndpointIsValid
     }
     private var canSave: Bool {
         let hasName = !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -456,22 +450,9 @@ struct TVSourceFormView: View {
 
     @ViewBuilder
     private var adaptiveConnectionFields: some View {
-        Picker(PMString("source_connection_preference"), selection: $connectionPreference) {
-            Text(PMString("source_connection_automatic"))
-                .tag(SourceConnectionPreference.automatic)
-            Text(PMString("source_connection_local_only"))
-                .tag(SourceConnectionPreference.localOnly)
-            Text(PMString("source_connection_remote_only"))
-                .tag(SourceConnectionPreference.remoteOnly)
-        }
-        .pickerStyle(.segmented)
-        .frame(maxWidth: 720)
+        connectionHint("source_connection_intro")
 
-        if connectionPreference == .automatic {
-            connectionHint("source_connection_automatic_hint")
-        }
-
-        TVEyebrow(text: PMString("source_connection_local"))
+        TVEyebrow(text: PMString("source_connection_local_optional"))
         TVFormField(label: PMString("source_connection_local_address"), text: $host, mono: true)
         TVFormField(label: PMString("source_connection_local_port"), text: $portText, mono: true)
         if showsSSL { connectionSSLToggle(isOn: $useSsl) }
@@ -482,9 +463,8 @@ struct TVSourceFormView: View {
                 mono: true
             )
         }
-        connectionHint("source_connection_local_hint")
 
-        TVEyebrow(text: PMString("source_connection_remote"))
+        TVEyebrow(text: PMString("source_connection_remote_optional"))
         if type == .synology {
             Picker(PMString("source_connection_remote_method"), selection: $synologyConnectionMode) {
                 Text(PMString("source_connection_public_direct"))
@@ -621,7 +601,6 @@ struct TVSourceFormView: View {
             if supportsAdaptiveConnections {
                 let configuration = e.effectiveConnectionConfiguration
                     ?? SourceConnectionConfiguration()
-                connectionPreference = configuration.preference
                 if let endpoint = configuration.localEndpoint {
                     host = endpoint.host
                     portText = String(endpoint.port)
@@ -786,7 +765,6 @@ struct TVSourceFormView: View {
         }
 
         return SourceConnectionConfiguration(
-            preference: connectionPreference,
             localEndpoint: localEndpoint,
             publicEndpoint: publicEndpoint,
             remoteAccessMode: remoteUsesVendor ? .vendor : .direct,

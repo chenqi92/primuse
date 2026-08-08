@@ -31,7 +31,6 @@ struct AddSourceView: View {
     @State private var localPathPrefix = ""
     @State private var publicBasePath = ""
     @State private var vendorIdentifier = ""
-    @State private var connectionPreference: SourceConnectionPreference = .automatic
     @State private var synologyConnectionMode: SynologyConnectionMode = .quickConnect
     @State private var fnMusicConnectionMode: FnMusicConnectionMode = .fnConnect
     @State private var username = ""
@@ -106,15 +105,9 @@ struct AddSourceView: View {
         if localEndpointIsConfigured && validatedPort == nil { return false }
         if !remoteUsesVendor, publicEndpointIsConfigured && validatedPublicPort == nil { return false }
         if remoteUsesVendor, vendorIdentifierIsConfigured && !vendorIdentifierIsValid { return false }
-
-        switch connectionPreference {
-        case .automatic:
-            return localEndpointIsValid || activeRemoteEndpointIsValid
-        case .localOnly:
-            return localEndpointIsValid
-        case .remoteOnly:
-            return activeRemoteEndpointIsValid
-        }
+        // Filling in either side is enough; both filled simply means the router
+        // gets two routes to choose from.
+        return localEndpointIsValid || activeRemoteEndpointIsValid
     }
     private var canSave: Bool {
         if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -655,23 +648,8 @@ struct AddSourceView: View {
 
     @ViewBuilder
     private var macAdaptiveConnectionSections: some View {
-        macSection("source_connection_strategy") {
-            macCustomRow("source_connection_preference") {
-                Picker("", selection: $connectionPreference) {
-                    Text("source_connection_automatic").tag(SourceConnectionPreference.automatic)
-                    Text("source_connection_local_only").tag(SourceConnectionPreference.localOnly)
-                    Text("source_connection_remote_only").tag(SourceConnectionPreference.remoteOnly)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(maxWidth: 360)
-            }
-            if connectionPreference == .automatic {
-                macInfoRow("source_connection_automatic_hint")
-            }
-        }
-
-        macSection("source_connection_local") {
+        macSection("source_connection_local_optional") {
+            macInfoRow("source_connection_intro")
             macTextRow("source_connection_local_address", text: $host, focus: .host)
             macTextRow("source_connection_local_port", text: $port, focus: .port, width: 120)
             if supportsSSLToggle {
@@ -684,10 +662,9 @@ struct AddSourceView: View {
                     focus: .basePath
                 )
             }
-            macInfoRow("source_connection_local_hint")
         }
 
-        macSection("source_connection_remote") {
+        macSection("source_connection_remote_optional") {
             if sourceType == .synology {
                 macCustomRow("source_connection_remote_method") {
                     Picker("", selection: $synologyConnectionMode) {
@@ -989,22 +966,13 @@ struct AddSourceView: View {
 
     @ViewBuilder
     private var adaptiveConnectionFormSections: some View {
-        Section("source_connection_strategy") {
-            Picker("source_connection_preference", selection: $connectionPreference) {
-                Text("source_connection_automatic").tag(SourceConnectionPreference.automatic)
-                Text("source_connection_local_only").tag(SourceConnectionPreference.localOnly)
-                Text("source_connection_remote_only").tag(SourceConnectionPreference.remoteOnly)
-            }
-            .pickerStyle(.segmented)
-
-            if connectionPreference == .automatic {
-                Text("source_connection_automatic_hint")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+        Section {
+            Text("source_connection_intro")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
 
-        Section("source_connection_local") {
+        Section("source_connection_local_optional") {
             TextField("source_connection_local_address", text: $host)
                 .focused($focusedField, equals: .host)
                 .keyboardType(.URL)
@@ -1024,12 +992,9 @@ struct AddSourceView: View {
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
             }
-            Text("source_connection_local_hint")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
 
-        Section("source_connection_remote") {
+        Section("source_connection_remote_optional") {
             if sourceType == .synology {
                 Picker("source_connection_remote_method", selection: $synologyConnectionMode) {
                     Text("source_connection_public_direct").tag(SynologyConnectionMode.address)
@@ -1272,7 +1237,6 @@ struct AddSourceView: View {
             host = device.host
             port = "\(device.port)"
             useSsl = device.preferredUseSsl ?? sourceType.defaultSSL
-            connectionPreference = .automatic
             if sourceType == .synology {
                 synologyConnectionMode = .address
             }
@@ -1308,7 +1272,6 @@ struct AddSourceView: View {
     private func loadAdaptiveConnectionFields(from source: MusicSource) {
         let configuration = source.effectiveConnectionConfiguration
             ?? SourceConnectionConfiguration()
-        connectionPreference = configuration.preference
 
         if let endpoint = configuration.localEndpoint {
             host = endpoint.host
@@ -1585,8 +1548,9 @@ struct AddSourceView: View {
             normalizedVendorIdentifier = nil
         }
 
+        // A save from this form always writes an unrestricted configuration:
+        // whatever the user left filled in is what gets used.
         return SourceConnectionConfiguration(
-            preference: connectionPreference,
             localEndpoint: localEndpoint,
             publicEndpoint: publicEndpoint,
             remoteAccessMode: remoteUsesVendor ? .vendor : .direct,
