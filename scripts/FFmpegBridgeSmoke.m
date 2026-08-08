@@ -40,6 +40,22 @@ int main(int argc, const char *argv[]) {
                 continue;
             }
 
+            if ([url.pathExtension.lowercaseString isEqualToString:@"wav"]) {
+                NSFileHandle *handle = [NSFileHandle fileHandleForReadingFromURL:url error:&error];
+                NSData *prefix = [handle readDataUpToLength:256 * 1024 error:&error];
+                [handle closeFile];
+                BOOL detectedDTS = prefix && [FFmpegDecoderBridge dataContainsDTSSync:prefix];
+                BOOL decodedAsDTS = [probe.codecName.lowercaseString containsString:@"dts"];
+                if (error || detectedDTS != decodedAsDTS) {
+                    fprintf(stderr, "FAIL WAV content routing %s: detectedDTS=%s codec=%s error=%s\n",
+                            argv[index], detectedDTS ? "yes" : "no",
+                            probe.codecName.UTF8String,
+                            error.localizedDescription.UTF8String ?: "none");
+                    allPassed = NO;
+                    continue;
+                }
+            }
+
             FFmpegDecoderBridge *decoder = [[FFmpegDecoderBridge alloc] initWithURL:url error:&error];
             BOOL foundSignal = NO;
             BOOL reachedEnd = NO;

@@ -22,6 +22,9 @@ trap cleanup EXIT
   -i "$SMOKE_DIR/tone.dts" -c:a copy -f wav "$SMOKE_DIR/tone-dts.wav"
 "$FFMPEG_BIN" -hide_banner -loglevel error \
   -f lavfi -i "sine=frequency=997:duration=1.5:sample_rate=44100" \
+  -ac 2 -c:a pcm_s16le "$SMOKE_DIR/tone-pcm.wav"
+"$FFMPEG_BIN" -hide_banner -loglevel error \
+  -f lavfi -i "sine=frequency=997:duration=1.5:sample_rate=44100" \
   -ac 2 -c:a wmav2 "$SMOKE_DIR/tone.wma"
 "$FFMPEG_BIN" -hide_banner -loglevel error \
   -f lavfi -i "sine=frequency=997:duration=1.5:sample_rate=96000" \
@@ -88,6 +91,7 @@ mkfifo "$SMOKE_DIR/queued-b.dts"
   "$SMOKE_DIR/tone.dts" \
   "$SMOKE_DIR/tone-5.1-center-only.dts" \
   "$SMOKE_DIR/tone-dts.wav" \
+  "$SMOKE_DIR/tone-pcm.wav" \
   "$SMOKE_DIR/tone.wma" \
   "$SMOKE_DIR/tone.flac" \
   "$SMOKE_DIR/tone.aac" \

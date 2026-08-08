@@ -1790,6 +1790,33 @@ final class SourceManager {
         return try await conn.localURL(for: song.filePath)
     }
 
+    /// Resolves a connector URL without selecting the generic Range playback
+    /// scheme. The caller must fully download an HTTP(S) result before decode;
+    /// connectors without a direct URL return their complete local file.
+    func resolveFullDownloadSourceURL(for song: Song) async throws -> URL {
+        if let cached = cachedURL(for: song) {
+            return cached
+        }
+
+        let connector = try await connectorForSong(song)
+        if song.isStreamDescriptor {
+            switch try await resolveSTRMTarget(for: song, connector: connector) {
+            case .remote(let url):
+                return url
+            case .sourcePath(let path):
+                if let streamURL = try await connector.streamingURL(for: path) {
+                    return streamURL
+                }
+                return try await connector.localURL(for: path)
+            }
+        }
+
+        if let streamURL = try await connector.streamingURL(for: song.filePath) {
+            return streamURL
+        }
+        return try await connector.localURL(for: song.filePath)
+    }
+
     func resolveVideoAsset(for song: Song) async throws -> MusicVideoPlaybackAsset? {
         guard let mvPath = normalizedMusicVideoPath(for: song) else { return nil }
 

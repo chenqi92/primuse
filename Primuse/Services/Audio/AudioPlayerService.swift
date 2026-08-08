@@ -2664,6 +2664,18 @@ final class AudioPlayerService {
 
         let isRemoteURL = url.scheme == "http" || url.scheme == "https"
         let isCloudStream = url.scheme == SourceManager.cloudStreamingScheme
+        let remoteWAVProbeOutcome: RemoteWAVPlaybackPolicy.ProbeOutcome?
+        if (isRemoteURL || isCloudStream), song.fileFormat == .wav {
+            remoteWAVProbeOutcome = await probeRemoteWAVPayload(for: song)
+        } else {
+            remoteWAVProbeOutcome = nil
+        }
+        let remoteWAVRequiresCompleteFile = remoteWAVProbeOutcome.map {
+            RemoteWAVPlaybackPolicy.requiresCompleteFile(
+                persistedFormat: song.fileFormat,
+                probeOutcome: $0
+            )
+        } ?? false
 
         let decoderAvailable: Bool
         if isRemoteURL || isCloudStream || nativeDecoder.canDecode(url: url) {
@@ -2698,10 +2710,36 @@ final class AudioPlayerService {
             // an SFBInputSource whose reads go through HTTP Range +
             // sparse-on-disk cache. SFBAudioEngine reads from it like any
             // file and we get instant playback.
+            var completeRemoteWAVLocalURL: URL?
+            if isCloudStream, remoteWAVRequiresCompleteFile,
+               let manager = sourceManager {
+                let completeURL = try await manager.resolveFullDownloadSourceURL(for: song)
+                guard playID == id else { return }
+                if completeURL.scheme == "http" || completeURL.scheme == "https" {
+                    let probeDescription = remoteWAVProbeOutcome.map(String.init(describing:))
+                        ?? "unavailable"
+                    plog("▶️ Decoder: full-download WAV safety path (remote DTS probe: \(probeDescription))")
+                    let cacheURL = playbackSettings.audioCacheEnabled ? manager.cacheURL(for: song) : nil
+                    await playWithStreamingDownload(
+                        song: song,
+                        url: completeURL,
+                        outputFormat: outputFormat,
+                        playID: id,
+                        cacheURL: cacheURL
+                    )
+                    return
+                }
+                completeRemoteWAVLocalURL = completeURL
+            }
+
             let stream: AudioBufferStream
             if isRemoteURL {
-                if FileFormatRouter.requiresCompleteLocalFile(song.fileFormat) {
-                    plog("▶️ Decoder: FFmpeg full-download (custom formats require a local seekable stream)")
+                if FileFormatRouter.requiresCompleteLocalFile(song.fileFormat)
+                    || remoteWAVRequiresCompleteFile {
+                    let reason = remoteWAVRequiresCompleteFile
+                        ? "remote WAV content probe requires safe local routing"
+                        : "custom formats require a local seekable stream"
+                    plog("▶️ Decoder: full-download (\(reason))")
                     let cacheURL = playbackSettings.audioCacheEnabled ? sourceManager?.cacheURL(for: song) : nil
                     await playWithStreamingDownload(song: song, url: url, outputFormat: outputFormat, playID: id, cacheURL: cacheURL)
                     return
@@ -2735,6 +2773,32 @@ final class AudioPlayerService {
                     let cacheURL = playbackSettings.audioCacheEnabled ? sourceManager?.cacheURL(for: song) : nil
                     await playWithStreamingDownload(song: song, url: url, outputFormat: outputFormat, playID: id, cacheURL: cacheURL)
                     return
+                }
+            } else if let completeRemoteWAVLocalURL {
+                let shouldUseFFmpeg: Bool
+                if remoteWAVProbeOutcome == .dts {
+                    shouldUseFFmpeg = true
+                } else {
+                    shouldUseFFmpeg = await usesFFmpegDecoder(
+                        for: song,
+                        url: completeRemoteWAVLocalURL
+                    )
+                }
+                if shouldUseFFmpeg {
+                    activeDecoderKind = .ffmpeg
+                    plog("▶️ Decoder: FFmpeg (reason: complete remote WAV safety path)")
+                    stream = ffmpegDecoder.decode(
+                        from: completeRemoteWAVLocalURL,
+                        outputFormat: outputFormat,
+                        onResolveSourceLength: makeResolveLengthCallback(for: song)
+                    )
+                } else {
+                    plog("▶️ Decoder: NativeDecoder (reason: complete remote PCM WAV after unavailable prefix probe)")
+                    stream = nativeDecoder.decode(
+                        from: completeRemoteWAVLocalURL,
+                        outputFormat: outputFormat,
+                        onResolveSourceLength: makeResolveLengthCallback(for: song)
+                    )
                 }
             } else if isCloudStream, let manager = sourceManager,
                let inputSource = try? await manager.makeStreamingInputSource(
@@ -3478,6 +3542,24 @@ final class AudioPlayerService {
         }
         if nativeDecoder.canDecode(url: url) { return false }
         return await ffmpegCanDecodeOffMain(url)
+    }
+
+    private func probeRemoteWAVPayload(
+        for song: Song
+    ) async -> RemoteWAVPlaybackPolicy.ProbeOutcome {
+        guard let manager = sourceManager else { return .unavailable }
+        do {
+            let prefix = try await manager.fetchMetadataRange(
+                for: song,
+                offset: 0,
+                length: 256 * 1024
+            )
+            guard !prefix.isEmpty else { return .unavailable }
+            return FFmpegAudioDecoder.dataContainsDTSSync(prefix) ? .dts : .pcm
+        } catch {
+            plog("Remote WAV content probe unavailable: \(error.localizedDescription)")
+            return .unavailable
+        }
     }
 
     private func ffmpegCanDecodeOffMain(_ url: URL) async -> Bool {

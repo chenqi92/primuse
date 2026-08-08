@@ -45,6 +45,7 @@ struct TagEditorView: View {
     @State private var lyricsErrorMessage: String?
     @State private var isSaving = false
     @State private var showLyricsDeleteConfirm = false
+    @State private var showLyricsEditor = false
 
     @State private var showResetConfirm = false
     /// 选中但还没保存的新封面。nil 表示"维持原 song.coverArtFileName"。
@@ -98,6 +99,9 @@ struct TagEditorView: View {
             Button(String(localized: "cancel"), role: .cancel) {}
         } message: {
             Text(String(localized: "tag_editor_lyrics_delete_confirm_message"))
+        }
+        .sheet(isPresented: $showLyricsEditor) {
+            LyricsEditorView(song: song, text: $lyricsText)
         }
     }
 
@@ -427,29 +431,55 @@ struct TagEditorView: View {
                 lyricsWritebackStatus
             }
 
-            ZStack(alignment: .topLeading) {
-                TextEditor(text: $lyricsText)
-                    .font(.system(size: 11.5, design: .monospaced))
-                    .scrollContentBackground(.hidden)
-                    .padding(6)
-                    .disabled(lyricsLoading || isSaving)
-                if lyricsLoading {
-                    ProgressView()
-                        .controlSize(.small)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if lyricsText.isEmpty {
-                    Text(String(localized: "tag_editor_lyrics_placeholder"))
-                        .font(.system(size: 11.5, design: .monospaced))
-                        .foregroundStyle(PMColor.textFaint)
-                        .padding(12)
-                        .allowsHitTesting(false)
+            Button {
+                showLyricsEditor = true
+            } label: {
+                HStack(spacing: 10) {
+                    if lyricsLoading {
+                        ProgressView().controlSize(.small)
+                        Text(String(localized: "tag_editor_lyrics_writeback_checking"))
+                            .font(PMFont.caption)
+                            .foregroundStyle(PMColor.textMuted)
+                    } else {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(lyricsSummaryTitle)
+                                .font(PMFont.bodyS)
+                                .foregroundStyle(PMColor.text)
+                            Text(lyricsSummaryDetail)
+                                .font(PMFont.caption)
+                                .foregroundStyle(PMColor.textMuted)
+                        }
+                    }
+                    Spacer()
+                    if !lyricsLoading {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(PMColor.textFaint)
+                    }
                 }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity)
+                .contentShape(.rect)
             }
-            .frame(minHeight: 170)
+            .buttonStyle(.plain)
+            .disabled(lyricsLoading || isSaving)
             .background(PMColor.bgElev, in: .rect(cornerRadius: 6))
             .overlay {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .strokeBorder(hasLyricsChanges ? PMColor.brand.opacity(0.55) : PMColor.dividerStrong, lineWidth: 0.5)
+            }
+
+            if !lyricsLoading, !lyricsPreviewLines.isEmpty {
+                VStack(alignment: .leading, spacing: 1) {
+                    ForEach(Array(lyricsPreviewLines.enumerated()), id: \.offset) { _, line in
+                        Text(line)
+                            .font(.system(size: 10.5, design: .monospaced))
+                            .foregroundStyle(PMColor.textFaint)
+                            .lineLimit(1)
+                    }
+                }
+                .padding(.horizontal, 2)
             }
 
             lyricsEditorControls
@@ -522,23 +552,47 @@ struct TagEditorView: View {
 
     private var lyricsEditorSection: some View {
         Section {
-            ZStack(alignment: .topLeading) {
-                TextEditor(text: $lyricsText)
-                    .font(.system(.body, design: .monospaced))
-                    .frame(minHeight: 180)
-                    .disabled(lyricsLoading || isSaving)
-                if lyricsLoading {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if lyricsText.isEmpty {
-                    Text(String(localized: "tag_editor_lyrics_placeholder"))
-                        .font(.system(.body, design: .monospaced))
-                        .foregroundStyle(.tertiary)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 8)
-                        .allowsHitTesting(false)
+            if lyricsLoading {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(String(localized: "tag_editor_lyrics_writeback_checking"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Button {
+                    showLyricsEditor = true
+                } label: {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(lyricsSummaryTitle)
+                                .foregroundStyle(.primary)
+                            Text(lyricsSummaryDetail)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .disabled(isSaving)
+
+                if !lyricsPreviewLines.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(Array(lyricsPreviewLines.enumerated()), id: \.offset) { _, line in
+                            Text(line)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
+                        }
+                    }
                 }
             }
+
             lyricsEditorControls
             lyricsWritebackStatus
         } header: {
@@ -546,6 +600,40 @@ struct TagEditorView: View {
         } footer: {
             Text(String(localized: "tag_editor_lyrics_format_hint"))
         }
+    }
+
+    /// 摘要区展示前几行,让用户不进编辑器也能确认这首歌到底有没有歌词。
+    private var lyricsPreviewLines: [String] {
+        let nonEmpty = normalizedLyricsText(lyricsText)
+            .components(separatedBy: .newlines)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        return Array(nonEmpty.prefix(3))
+    }
+
+    private var lyricsSummaryTitle: String {
+        normalizedLyricsText(lyricsText).isEmpty
+            ? String(localized: "tag_editor_lyrics_add")
+            : String(localized: "tag_editor_lyrics_edit")
+    }
+
+    private var lyricsSummaryDetail: String {
+        let content = normalizedLyricsText(lyricsText)
+        guard !content.isEmpty else {
+            return String(localized: "tag_editor_lyrics_summary_empty")
+        }
+        let document = LyricsEditorDocument(parsing: content)
+        if document.unstampedCount > 0, document.stampedCount > 0 {
+            return String(
+                format: String(localized: "tag_editor_lyrics_summary_partial"),
+                document.stampedCount,
+                document.lines.count
+            )
+        }
+        return String(
+            format: String(localized: "tag_editor_lyrics_summary_format"),
+            document.lines.count,
+            lyricsFormatLabel(LyricsFormat.detect(content))
+        )
     }
 
     @ViewBuilder
