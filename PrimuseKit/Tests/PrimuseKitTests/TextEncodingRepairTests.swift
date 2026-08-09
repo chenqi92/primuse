@@ -196,6 +196,93 @@ private func mojibake(
     #expect(TextEncodingRepair.decodeID3Text(Data([0x41, 0x42]), encodingByte: 9) == nil)
 }
 
+@Test func rewriteEncodingUsesOwnedLosslessConversion() {
+    let cases: [(String, String.Encoding, [UInt8])] = [
+        ("Björk", .isoLatin1, [0x42, 0x6A, 0xF6, 0x72, 0x6B]),
+        ("Don’t", .windowsCP1252, [0x44, 0x6F, 0x6E, 0x92, 0x74]),
+        ("十年", TextEncodingRepair.gb18030, [0xCA, 0xAE, 0xC4, 0xEA]),
+        ("測試", TextEncodingRepair.big5, [0xB4, 0xFA, 0xB8, 0xD5]),
+        ("君の名", .shiftJIS, [0x8C, 0x4E, 0x82, 0xCC, 0x96, 0xBC]),
+        ("강남", TextEncodingRepair.eucKR, [0xB0, 0xAD, 0xB3, 0xB2]),
+    ]
+
+    for (text, encoding, expected) in cases {
+        #expect(TextEncodingRepair.losslessEncodedData(text, using: encoding) == Data(expected))
+    }
+    #expect(TextEncodingRepair.losslessEncodedData("€", using: .isoLatin1) == nil)
+}
+
+@Test func parsesRewriteFramesDuringConcurrentCancellation() async {
+    // The isolated iOS reproduction uses an encoding-3 TALB frame and an
+    // encoding-1 TCOM frame. Keep the real media heads outside the repository;
+    // these small synthetic frames preserve both decoder/rewrite routes.
+    let mojibake = "Donâ€™t Stop Believinâ€™"
+    let repaired = "Don’t Stop Believin’"
+    let utf8Frame = id3v24TextTag(
+        id: "TALB",
+        encodingByte: 3,
+        payload: Data(mojibake.utf8)
+    )
+    let utf16Frame = id3v24TextTag(
+        id: "TCOM",
+        encodingByte: 1,
+        payload: utf16LEData(mojibake)
+    )
+    let inputs = [utf8Frame, utf16Frame]
+    #expect(ID3TextMetadataParser.parse(utf8Frame)?.albumTitle == repaired)
+
+    for _ in 0..<50 {
+        let completedCount = await withTaskGroup(of: Int.self, returning: Int.self) { group in
+            for worker in 0..<32 {
+                group.addTask {
+                    let parserTask = Task {
+                        _ = ID3TextMetadataParser.parse(inputs[worker % inputs.count])
+                        return 1
+                    }
+                    if worker.isMultiple(of: 3) {
+                        parserTask.cancel()
+                    }
+                    return await parserTask.value
+                }
+            }
+
+            var count = 0
+            for await parsed in group {
+                count += parsed
+            }
+            return count
+        }
+        #expect(completedCount == 32)
+    }
+}
+
+private func id3v24TextTag(id: String, encodingByte: UInt8, payload: Data) -> Data {
+    let frameSize = payload.count + 1
+    let tagSize = 10 + frameSize
+    var tag = Data([
+        0x49, 0x44, 0x33, 0x04, 0x00, 0x00,
+        UInt8((tagSize >> 21) & 0x7F), UInt8((tagSize >> 14) & 0x7F),
+        UInt8((tagSize >> 7) & 0x7F), UInt8(tagSize & 0x7F),
+    ])
+    tag.append(contentsOf: id.utf8)
+    tag.append(contentsOf: [
+        UInt8((frameSize >> 21) & 0x7F), UInt8((frameSize >> 14) & 0x7F),
+        UInt8((frameSize >> 7) & 0x7F), UInt8(frameSize & 0x7F),
+        0x00, 0x00, encodingByte,
+    ])
+    tag.append(payload)
+    return tag
+}
+
+private func utf16LEData(_ text: String) -> Data {
+    var data = Data([0xFF, 0xFE])
+    for codeUnit in text.utf16 {
+        data.append(UInt8(truncatingIfNeeded: codeUnit))
+        data.append(UInt8(truncatingIfNeeded: codeUnit >> 8))
+    }
+    return data
+}
+
 // MARK: - 打分
 
 @Test func scoresCommonHanAboveRareHan() throws {

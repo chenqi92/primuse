@@ -464,6 +464,7 @@ actor SMBSource: MusicSourceConnector {
             throw SourceError.connectionFailed("SMB share not selected")
         }
 
+        try Task.checkCancellation()
         let client = try await ensureServerConnection()
         if connectedShareName == normalizedShareName {
             return client
@@ -478,7 +479,9 @@ actor SMBSource: MusicSourceConnector {
 
         do {
             try await client.connectShare(name: normalizedShareName)
+            try Task.checkCancellation()
         } catch {
+            await invalidateConnection()
             throw mapSMBError(error)
         }
         connectedShareName = normalizedShareName
@@ -493,6 +496,7 @@ actor SMBSource: MusicSourceConnector {
             throw SourceError.connectionFailed("SMB share not selected")
         }
 
+        try Task.checkCancellation()
         let client = try await ensureBackgroundServerConnection()
         if backgroundConnectedShareName == normalizedShareName {
             return client
@@ -503,7 +507,9 @@ actor SMBSource: MusicSourceConnector {
         }
         do {
             try await client.connectShare(name: normalizedShareName)
+            try Task.checkCancellation()
         } catch {
+            await invalidateBackgroundConnection()
             throw mapSMBError(error)
         }
         backgroundConnectedShareName = normalizedShareName
@@ -511,10 +517,14 @@ actor SMBSource: MusicSourceConnector {
     }
 
     private func rawListShares() async throws -> [(name: String, comment: String)] {
+        try Task.checkCancellation()
         let client = try await ensureServerConnection()
         do {
-            return try await client.listShares()
+            let shares = try await client.listShares()
+            try Task.checkCancellation()
+            return shares
         } catch {
+            await invalidateConnection()
             throw mapSMBError(error)
         }
     }
@@ -555,6 +565,9 @@ actor SMBSource: MusicSourceConnector {
         try await withSerializedBackgroundOperation {
             do {
                 return try await block()
+            } catch is CancellationError {
+                await invalidateBackgroundConnection()
+                throw CancellationError()
             } catch {
                 guard Self.isTransientConnectionError(error) else {
                     throw mapSMBError(error)
@@ -564,6 +577,7 @@ actor SMBSource: MusicSourceConnector {
                 do {
                     return try await block()
                 } catch {
+                    await invalidateBackgroundConnection()
                     throw mapSMBError(error)
                 }
             }
@@ -575,6 +589,9 @@ actor SMBSource: MusicSourceConnector {
     ) async throws -> T {
         do {
             return try await block()
+        } catch is CancellationError {
+            await invalidateConnection()
+            throw CancellationError()
         } catch {
             guard Self.isTransientConnectionError(error) else {
                 throw mapSMBError(error)
@@ -584,6 +601,7 @@ actor SMBSource: MusicSourceConnector {
             do {
                 return try await block()
             } catch {
+                await invalidateConnection()
                 throw mapSMBError(error)
             }
         }
@@ -618,6 +636,7 @@ actor SMBSource: MusicSourceConnector {
     }
 
     private nonisolated func mapSMBError(_ error: Error) -> Error {
+        if error is CancellationError { return error }
         if error is SourceError { return error }
         let ns = error as NSError
         if ns.domain == NSPOSIXErrorDomain {

@@ -23,6 +23,36 @@ public enum TextEncodingRepair {
         )
     }
 
+    /// Encode through an owned CFString copy. Some Apple runtimes can abort in
+    /// NSString's encoding bridge when concurrent callers convert Swift-backed
+    /// string storage. Copying the UTF-16 code units first keeps the conversion
+    /// lifetime local and preserves `allowLossyConversion: false` semantics.
+    static func losslessEncodedData(
+        _ text: String,
+        using encoding: String.Encoding
+    ) -> Data? {
+        let cfEncoding = CFStringConvertNSStringEncodingToEncoding(encoding.rawValue)
+        guard cfEncoding != kCFStringEncodingInvalidId else { return nil }
+
+        let codeUnits = Array(text.utf16)
+        guard let ownedString = codeUnits.withUnsafeBufferPointer({ buffer in
+            CFStringCreateWithCharacters(
+                kCFAllocatorDefault,
+                buffer.baseAddress,
+                buffer.count
+            )
+        }),
+        let encoded = CFStringCreateExternalRepresentation(
+            kCFAllocatorDefault,
+            ownedString,
+            cfEncoding,
+            0
+        ) else {
+            return nil
+        }
+        return encoded as Data
+    }
+
     /// kCFStringEncodingGB_18030_2000
     public static let gb18030 = cfEncoding(0x0632)
     /// kCFStringEncodingBig5
@@ -318,7 +348,9 @@ public enum TextEncodingRepair {
         }
 
         private func encodedBytes(of text: String) -> Data? {
-            guard let bytes = text.data(using: source) else { return nil }
+            guard let bytes = TextEncodingRepair.losslessEncodedData(text, using: source) else {
+                return nil
+            }
             guard source == TextEncodingRepair.gb18030 else { return bytes }
 
             // GB18030 能编码全部 Unicode(用 4 字节序列), 所以它作为"错误编码"

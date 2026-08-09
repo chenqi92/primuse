@@ -1181,10 +1181,12 @@ final class SourceManager {
                         message: String(localized: "source_diag_connection_ok")
                     ))
                 } catch {
+                    await connector.disconnect()
                     checks.append(diagnosticCheck(for: error, source: source, title: String(localized: "source_diag_connection_title")))
                     return SourceDiagnosticReport(source: source, startedAt: startedAt, checks: checks)
                 }
             } else {
+                await connector.disconnect()
                 checks.append(diagnosticCheck(for: error, source: source, title: String(localized: "source_diag_connection_title")))
                 return SourceDiagnosticReport(source: source, startedAt: startedAt, checks: checks)
             }
