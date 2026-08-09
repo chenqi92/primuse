@@ -5395,6 +5395,91 @@ final class AudioPlayerService {
         persistPlaybackSession()
     }
 
+    /// Reorder one visible Up Next occurrence by its durable queue-slot UUID.
+    /// The current presentation is resolved again at drop time, so a payload
+    /// consumed by a natural transition or a concurrent queue change is a safe
+    /// no-op. Managed shuffle mutates only the unplayed traversal suffix; the
+    /// canonical queue and the played/current prefix stay untouched.
+    @discardableResult
+    func moveUpcomingQueueEntry(
+        _ dragged: QueueReorderOccurrenceID,
+        over target: QueueReorderOccurrenceID
+    ) -> Bool {
+        let currentUpcoming = upcomingQueueEntries.map {
+            QueueReorderOccurrenceID(
+                queueEntryID: $0.id.queueEntryID,
+                roundOffset: $0.id.roundOffset
+            )
+        }
+        guard let reordered = QueueUpcomingReorderPolicy.reorderedOccurrences(
+            dragging: dragged,
+            over: target,
+            queueEntryIDs: queueEntries.map(\.id),
+            upcomingOccurrences: currentUpcoming
+        ) else { return false }
+
+        let roundOffset = dragged.roundOffset
+        let currentRoundIDs = currentUpcoming
+            .filter { $0.roundOffset == roundOffset }
+            .map(\.queueEntryID)
+        let reorderedRoundIDs = reordered
+            .filter { $0.roundOffset == roundOffset }
+            .map(\.queueEntryID)
+        let rawIndexByID = Dictionary(uniqueKeysWithValues: queueEntries.indices.map {
+            (queueEntries[$0].id, $0)
+        })
+        let reorderedRawIndices = reorderedRoundIDs.compactMap { rawIndexByID[$0] }
+        guard reorderedRawIndices.count == reorderedRoundIDs.count else { return false }
+
+        if usesManagedShuffleOrder {
+            switch roundOffset {
+            case 0:
+                let start = min(max(shufflePosition + 1, 0), shuffledIndices.count)
+                let currentRawIndices = Array(shuffledIndices.dropFirst(start))
+                let actualCurrentRoundIDs = currentRawIndices.compactMap { index in
+                    queueEntries.indices.contains(index) ? queueEntries[index].id : nil
+                }
+                guard actualCurrentRoundIDs == currentRoundIDs,
+                      currentRawIndices.count == reorderedRawIndices.count else { return false }
+                invalidateQueueTransitions()
+                shuffledIndices.replaceSubrange(start..<shuffledIndices.count, with: reorderedRawIndices)
+            case 1:
+                guard repeatMode == .all else { return false }
+                let pending = preparedNextShuffleRound()
+                let actualNextRoundIDs = pending.compactMap { index in
+                    queueEntries.indices.contains(index) ? queueEntries[index].id : nil
+                }
+                guard actualNextRoundIDs == currentRoundIDs,
+                      pending.count == reorderedRawIndices.count else { return false }
+                invalidateQueueTransitions()
+                pendingNextShuffleIndices = reorderedRawIndices
+            default:
+                return false
+            }
+            persistPlaybackSession()
+            if currentSong != nil { prefetchNextSong() }
+            return true
+        }
+
+        // A system-owned Apple Music shuffle cannot be reordered by changing
+        // Primuse's raw mirror. Wait until the canonical managed traversal is
+        // available instead of presenting a successful but ineffective drop.
+        guard !shuffleEnabled, roundOffset == 0,
+              let sourceIndex = rawIndexByID[dragged.queueEntryID],
+              let desiredOffset = reorderedRoundIDs.firstIndex(of: dragged.queueEntryID) else {
+            return false
+        }
+        let upcomingStart = min(max(currentIndex + 1, 0), queueEntries.count)
+        let desiredRawIndex = upcomingStart + desiredOffset
+        guard queueEntries.indices.contains(desiredRawIndex), sourceIndex >= upcomingStart else {
+            return false
+        }
+        let destination = desiredRawIndex > sourceIndex ? desiredRawIndex + 1 : desiredRawIndex
+        moveQueueItems(fromOffsets: IndexSet(integer: sourceIndex), toOffset: destination)
+        if currentSong != nil { prefetchNextSong() }
+        return true
+    }
+
     /// Play the queue entry at a raw `queueEntries` index, keeping the player's
     /// shuffle bookkeeping in sync. The QueueView taps map to raw queue indices;
     /// in shuffle mode `currentIndex` alone isn't enough — `shufflePosition` /

@@ -185,13 +185,11 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
             return
         }
         if session.isReachable {
-            session.sendMessage(message, replyHandler: nil) { [weak self] error in
-                Self.sendErrorHandler(error)
-                Task { @MainActor in
-                    rollback?()
-                    self?.requestCurrentState()
-                }
-            }
+            session.sendMessage(
+                message,
+                replyHandler: nil,
+                errorHandler: Self.makeSendErrorHandler(store: self, rollback: rollback)
+            )
             return
         }
         // iPhone 不可达 ── 控制类指令必须实时, 排队几小时后才执行的暂停 /
@@ -208,10 +206,19 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
         }
     }
 
-    /// 静态 @Sendable 闭包 ── WCSession 在后台 queue 调用 errorHandler,
-    /// 不能捕获 main actor 隔离的 self / store 状态, 否则 Swift 6 会 trap。
-    nonisolated static let sendErrorHandler: @Sendable (Error) -> Void = { error in
-        print("⌚️ sendMessage error: \(error.localizedDescription)")
+    /// WCSession 会在后台 queue 调用 errorHandler。handler 本体必须在
+    /// nonisolated 上下文形成, 再显式切回 MainActor 访问 store 状态。
+    nonisolated private static func makeSendErrorHandler(
+        store: WatchPlayerStore,
+        rollback: (@MainActor @Sendable () -> Void)?
+    ) -> @Sendable (Error) -> Void {
+        { [weak store] error in
+            print("⌚️ sendMessage error: \(error.localizedDescription)")
+            Task { @MainActor in
+                rollback?()
+                store?.requestCurrentState()
+            }
+        }
     }
 
     // MARK: - WCSessionDelegate

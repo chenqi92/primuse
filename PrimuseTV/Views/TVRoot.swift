@@ -1,7 +1,126 @@
+#if os(tvOS) || TV_FOCUS_ROUTING_HARNESS
 #if os(tvOS)
 import SwiftUI
 import PrimuseKit
+#endif
 
+// MARK: - Content focus routing
+
+enum TVContentFocusTab: Equatable, Sendable {
+    case library
+    case nowPlaying
+    case other
+}
+
+enum TVNowPlayingFocusMode: Equatable, Sendable {
+    case empty
+    case liveRadio
+    case song
+}
+
+enum TVNowPlayingFocusTarget: Hashable, Sendable {
+    case previous
+    case liveRadioPrimary
+    case songPrimary
+    case next
+}
+
+enum TVContentFocusTarget: Equatable, Sendable {
+    case libraryDefault
+    case nowPlaying(TVNowPlayingFocusTarget)
+}
+
+struct TVContentFocusRequest: Equatable, Sendable {
+    let id: Int
+    let target: TVContentFocusTarget
+}
+
+enum TVContentFocusRoutingPolicy {
+    static func target(
+        for tab: TVContentFocusTab,
+        nowPlayingMode: TVNowPlayingFocusMode
+    ) -> TVContentFocusTarget? {
+        switch tab {
+        case .library:
+            return .libraryDefault
+        case .nowPlaying:
+            switch nowPlayingMode {
+            case .empty:
+                return nil
+            case .liveRadio:
+                return .nowPlaying(.liveRadioPrimary)
+            case .song:
+                return .nowPlaying(.songPrimary)
+            }
+        case .other:
+            return nil
+        }
+    }
+}
+
+struct TVContentFocusRoutingState: Equatable, Sendable {
+    private(set) var latestRequest: TVContentFocusRequest?
+
+    private var nextRequestID = 0
+    private var keepsContentFocusActive = false
+
+    mutating func moveDown(
+        from tab: TVContentFocusTab,
+        nowPlayingMode: TVNowPlayingFocusMode
+    ) -> TVContentFocusRequest? {
+        guard let target = TVContentFocusRoutingPolicy.target(
+            for: tab,
+            nowPlayingMode: nowPlayingMode
+        ) else {
+            return nil
+        }
+        keepsContentFocusActive = true
+        return issue(target)
+    }
+
+    mutating func contentDidAppear(
+        in tab: TVContentFocusTab,
+        nowPlayingMode: TVNowPlayingFocusMode
+    ) -> TVContentFocusRequest? {
+        reissueIfActive(in: tab, nowPlayingMode: nowPlayingMode)
+    }
+
+    mutating func contentModeDidChange(
+        in tab: TVContentFocusTab,
+        nowPlayingMode: TVNowPlayingFocusMode
+    ) -> TVContentFocusRequest? {
+        reissueIfActive(in: tab, nowPlayingMode: nowPlayingMode)
+    }
+
+    mutating func returnToTabs() {
+        keepsContentFocusActive = false
+        latestRequest = nil
+    }
+
+    private mutating func reissueIfActive(
+        in tab: TVContentFocusTab,
+        nowPlayingMode: TVNowPlayingFocusMode
+    ) -> TVContentFocusRequest? {
+        guard keepsContentFocusActive else { return nil }
+        guard let target = TVContentFocusRoutingPolicy.target(
+            for: tab,
+            nowPlayingMode: nowPlayingMode
+        ) else {
+            latestRequest = nil
+            return nil
+        }
+        return issue(target)
+    }
+
+    private mutating func issue(_ target: TVContentFocusTarget) -> TVContentFocusRequest {
+        nextRequestID &+= 1
+        let request = TVContentFocusRequest(id: nextRequestID, target: target)
+        latestRequest = request
+        return request
+    }
+}
+
+#if os(tvOS)
 #if DEBUG
 /// 模拟器截图路由。环境变量适合首次启动，`-TVScreen <name>`/UserDefaults
 /// 可跨 tvOS 场景恢复稳定生效，避免连续重启时系统复用上一页。
@@ -24,6 +143,8 @@ struct TVRoot: View {
     @State private var showQueue = false
     @State private var showOptions = false
     @State private var libraryFocusRequest = 0
+    @State private var nowPlayingFocusRequest: TVContentFocusRequest?
+    @State private var contentFocusRouting = TVContentFocusRoutingState()
     @State private var tabFocusRequest = 0
     @State private var isTabBarFocused = true
     @State private var certificateTrustStore = TVServerCertificateTrustStore.shared
@@ -45,7 +166,7 @@ struct TVRoot: View {
     var body: some View {
         rootContent
             .modifier(TVReturnToTabsModifier(enabled: !isTabBarFocused) {
-                tabFocusRequest &+= 1
+                returnFocusToTabs()
             })
             .onPlayPauseCommand {
                 guard store.hasNowPlaying else { return }
@@ -103,7 +224,7 @@ struct TVRoot: View {
                 TVTabBar(
                     active: tab,
                     onSelect: { tab = $0 },
-                    onLibraryDown: { libraryFocusRequest &+= 1 },
+                    onContentDown: requestContentFocus,
                     focusRequest: tabFocusRequest,
                     onFocusChanged: { isTabBarFocused = $0 },
                     onSettings: { showSettings = true }
@@ -174,11 +295,66 @@ struct TVRoot: View {
         case .nowPlaying:
             TVNowPlayingView(
                 isTabContent: true,
-                onReturnToTabs: { tabFocusRequest &+= 1 }
+                focusRequest: nowPlayingFocusRequest,
+                onContentAppeared: restoreNowPlayingFocus,
+                onContentModeChanged: retargetNowPlayingFocus,
+                onReturnToTabs: returnFocusToTabs
             )
         case .playlists: TVPlaylistsView(openPlayer: { tab = .nowPlaying })
         case .sources:   TVSourcesView()
         case .search:    TVSearchView(openPlayer: { tab = .nowPlaying })
+        }
+    }
+
+    private var nowPlayingFocusMode: TVNowPlayingFocusMode {
+        guard store.hasNowPlaying else { return .empty }
+        return store.isLiveRadio ? .liveRadio : .song
+    }
+
+    private func requestContentFocus(from tab: Tab) {
+        guard let request = contentFocusRouting.moveDown(
+            from: focusRoutingTab(tab),
+            nowPlayingMode: nowPlayingFocusMode
+        ) else { return }
+        applyContentFocusRequest(request)
+    }
+
+    private func restoreNowPlayingFocus(_ mode: TVNowPlayingFocusMode) {
+        guard let request = contentFocusRouting.contentDidAppear(
+            in: .nowPlaying,
+            nowPlayingMode: mode
+        ) else { return }
+        applyContentFocusRequest(request)
+    }
+
+    private func retargetNowPlayingFocus(_ mode: TVNowPlayingFocusMode) {
+        guard let request = contentFocusRouting.contentModeDidChange(
+            in: .nowPlaying,
+            nowPlayingMode: mode
+        ) else { return }
+        applyContentFocusRequest(request)
+    }
+
+    private func returnFocusToTabs() {
+        contentFocusRouting.returnToTabs()
+        nowPlayingFocusRequest = nil
+        tabFocusRequest &+= 1
+    }
+
+    private func applyContentFocusRequest(_ request: TVContentFocusRequest) {
+        switch request.target {
+        case .libraryDefault:
+            libraryFocusRequest = request.id
+        case .nowPlaying:
+            nowPlayingFocusRequest = request
+        }
+    }
+
+    private func focusRoutingTab(_ tab: Tab) -> TVContentFocusTab {
+        switch tab {
+        case .library: return .library
+        case .nowPlaying: return .nowPlaying
+        default: return .other
         }
     }
 }
@@ -188,7 +364,7 @@ struct TVRoot: View {
 struct TVTabBar: View {
     let active: TVRoot.Tab
     var onSelect: (TVRoot.Tab) -> Void
-    var onLibraryDown: () -> Void
+    var onContentDown: (TVRoot.Tab) -> Void
     var focusRequest: Int
     var onFocusChanged: (Bool) -> Void
     var onSettings: () -> Void
@@ -253,6 +429,11 @@ struct TVTabBar: View {
                         onSelect(item.0)
                     }
                     .focused($focusedTab, equals: item.0)
+                    .onMoveCommand { direction in
+                        if direction == .down {
+                            onContentDown(item.0)
+                        }
+                    }
                 }
             }
             .focusSection()
@@ -262,11 +443,6 @@ struct TVTabBar: View {
             }
             .onChange(of: focusRequest) {
                 focusedTab = active
-            }
-            .onMoveCommand { direction in
-                if direction == .down, focusedTab == .library {
-                    onLibraryDown()
-                }
             }
             .onAppear {
                 #if DEBUG
@@ -466,4 +642,5 @@ struct TVEyebrow: View {
             .foregroundStyle(TVColor.textFaint)
     }
 }
+#endif
 #endif

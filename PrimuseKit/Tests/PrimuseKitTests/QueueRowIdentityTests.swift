@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import PrimuseKit
 
@@ -99,6 +100,161 @@ struct QueuePresentationPolicyTests {
 
         #expect(played.map(\.queueIndex) == [0, 1])
         #expect(upcoming.map(\.queueIndex) == [3])
+    }
+}
+
+@Suite("Queue upcoming reorder")
+struct QueueUpcomingReorderPolicyTests {
+    private let played = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+    private let current = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
+    private let first = UUID(uuidString: "00000000-0000-0000-0000-000000000003")!
+    private let second = UUID(uuidString: "00000000-0000-0000-0000-000000000004")!
+    private let last = UUID(uuidString: "00000000-0000-0000-0000-000000000005")!
+
+    @Test("A distinct bottom entry moves to first Up Next")
+    func bottomToFirst() {
+        let upcoming = occurrences([first, second, last])
+
+        let reordered = QueueUpcomingReorderPolicy.reorderedOccurrences(
+            dragging: occurrence(last),
+            over: occurrence(first),
+            queueEntryIDs: [played, current, first, second, last],
+            upcomingOccurrences: upcoming
+        )
+
+        #expect(reordered?.map(\.queueEntryID) == [last, first, second])
+        #expect(Set(reordered ?? []) == Set(upcoming))
+    }
+
+    @Test("A top entry moves after a lower drop target")
+    func topToBottom() {
+        let upcoming = occurrences([first, second, last])
+
+        let reordered = QueueUpcomingReorderPolicy.reorderedOccurrences(
+            dragging: occurrence(first),
+            over: occurrence(last),
+            queueEntryIDs: [played, current, first, second, last],
+            upcomingOccurrences: upcoming
+        )
+
+        #expect(reordered?.map(\.queueEntryID) == [second, last, first])
+        #expect(Set(reordered ?? []) == Set(upcoming))
+    }
+
+    @Test("Duplicate Song IDs remain distinct queue occurrences")
+    func duplicateSongIDsUseQueueEntryIdentity() {
+        let duplicateSongIDs = [first: "same-song", second: "same-song", last: "other-song"]
+        let upcoming = occurrences([first, second, last])
+
+        let reordered = QueueUpcomingReorderPolicy.reorderedOccurrences(
+            dragging: occurrence(second),
+            over: occurrence(first),
+            queueEntryIDs: [current, first, second, last],
+            upcomingOccurrences: upcoming
+        )
+
+        #expect(reordered?.map(\.queueEntryID) == [second, first, last])
+        #expect(reordered?.compactMap { duplicateSongIDs[$0.queueEntryID] } == [
+            "same-song", "same-song", "other-song"
+        ])
+        #expect(Set(reordered ?? []).count == upcoming.count)
+    }
+
+    @Test("Played and current entries cannot cross into Up Next")
+    func playedAndCurrentAreRejected() {
+        let upcoming = occurrences([first, second, last])
+        let queue = [played, current, first, second, last]
+
+        #expect(QueueUpcomingReorderPolicy.reorderedOccurrences(
+            dragging: occurrence(played),
+            over: occurrence(first),
+            queueEntryIDs: queue,
+            upcomingOccurrences: upcoming
+        ) == nil)
+        #expect(QueueUpcomingReorderPolicy.reorderedOccurrences(
+            dragging: occurrence(current),
+            over: occurrence(first),
+            queueEntryIDs: queue,
+            upcomingOccurrences: upcoming
+        ) == nil)
+    }
+
+    @Test("A natural transition invalidates the consumed drag occurrence")
+    func naturalTransitionRebasesAgainstLatestUpcoming() {
+        let afterTransition = occurrences([second, last])
+        let queue = [played, current, first, second, last]
+
+        #expect(QueueUpcomingReorderPolicy.reorderedOccurrences(
+            dragging: occurrence(first),
+            over: occurrence(second),
+            queueEntryIDs: queue,
+            upcomingOccurrences: afterTransition
+        ) == nil)
+        #expect(QueueUpcomingReorderPolicy.reorderedOccurrences(
+            dragging: occurrence(last),
+            over: occurrence(second),
+            queueEntryIDs: queue,
+            upcomingOccurrences: afterTransition
+        )?.map(\.queueEntryID) == [last, second])
+    }
+
+    @Test("Shuffle traversal order, not raw queue order, drives the move")
+    func shuffleTraversalOrder() {
+        let shuffledUpcoming = occurrences([last, first, second])
+
+        let reordered = QueueUpcomingReorderPolicy.reorderedOccurrences(
+            dragging: occurrence(second),
+            over: occurrence(last),
+            queueEntryIDs: [current, first, second, last],
+            upcomingOccurrences: shuffledUpcoming
+        )
+
+        #expect(reordered?.map(\.queueEntryID) == [second, last, first])
+        #expect(Set(reordered ?? []) == Set(shuffledUpcoming))
+        #expect(!(reordered ?? []).contains(occurrence(current)))
+    }
+
+    @Test("Repeat-all occurrences cannot move across shuffle rounds")
+    func shuffleRoundsStayIndependent() {
+        let currentRoundLast = occurrence(last)
+        let nextRoundFirst = occurrence(first, roundOffset: 1)
+        let upcoming = [currentRoundLast, nextRoundFirst, occurrence(second, roundOffset: 1)]
+
+        #expect(QueueUpcomingReorderPolicy.reorderedOccurrences(
+            dragging: currentRoundLast,
+            over: nextRoundFirst,
+            queueEntryIDs: [current, first, second, last],
+            upcomingOccurrences: upcoming
+        ) == nil)
+    }
+
+    @Test("Malformed and stale payloads safely do nothing")
+    func invalidAndStalePayloads() {
+        #expect(QueueReorderOccurrenceID(dragPayload: "not-a-queue-entry") == nil)
+        #expect(QueueReorderOccurrenceID(dragPayload: "primuse.queue-entry|bad-uuid|0") == nil)
+        #expect(QueueReorderOccurrenceID(dragPayload: occurrence(first).dragPayload) == occurrence(first))
+
+        let stale = UUID(uuidString: "00000000-0000-0000-0000-000000000099")!
+        #expect(QueueUpcomingReorderPolicy.reorderedOccurrences(
+            dragging: occurrence(stale),
+            over: occurrence(first),
+            queueEntryIDs: [current, first, second],
+            upcomingOccurrences: occurrences([first, second])
+        ) == nil)
+        #expect(QueueUpcomingReorderPolicy.reorderedOccurrences(
+            dragging: occurrence(first),
+            over: occurrence(stale),
+            queueEntryIDs: [current, first, second],
+            upcomingOccurrences: occurrences([first, second])
+        ) == nil)
+    }
+
+    private func occurrence(_ id: UUID, roundOffset: Int = 0) -> QueueReorderOccurrenceID {
+        QueueReorderOccurrenceID(queueEntryID: id, roundOffset: roundOffset)
+    }
+
+    private func occurrences(_ ids: [UUID], roundOffset: Int = 0) -> [QueueReorderOccurrenceID] {
+        ids.map { occurrence($0, roundOffset: roundOffset) }
     }
 }
 

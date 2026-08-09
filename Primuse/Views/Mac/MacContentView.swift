@@ -29,12 +29,14 @@ struct MacContentView: View {
     @State private var lyricsScrapeTask: Task<Void, Never>?
     @State private var isScrapingCurrentSongLyrics = false
     @State private var lyricsScrapeAlertMessage: String?
+    @State private var showNoScraperSourceAlert = false
     /// 当前打开的工具弹框 (nil = 没开)。侧栏「工具」区点击设置它, sheet 关掉清空。
     @State private var activeTool: MacTool?
 
     @Environment(\.openWindow) private var openWindow
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicScraperService.self) private var scraperService
+    @Environment(ScraperSettingsStore.self) private var scraperSettings
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(MusicLibrary.self) private var library
     @AppStorage("primuse.hasSeenOnboarding") private var hasSeenOnboarding = false
@@ -165,6 +167,7 @@ struct MacContentView: View {
         } message: {
             Text(lyricsScrapeAlertMessage ?? "")
         }
+        .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
         .task {
             MainWindowOpener.register(openWindow)
             if !hasSeenOnboarding && sourcesStore.sources.isEmpty {
@@ -235,6 +238,14 @@ struct MacContentView: View {
         guard lyricsScrapeTask == nil,
               let displayedSong = player.currentSong else { return }
 
+        scraperSettings.performSingleSongScrapeAction(
+            from: .macNowPlayingAutomaticLyrics,
+            onProceed: { startCurrentSongLyricsScrapeWithEnabledSource(displayedSong) },
+            onRequireSource: { showNoScraperSourceAlert = true }
+        )
+    }
+
+    private func startCurrentSongLyricsScrapeWithEnabledSource(_ displayedSong: Song) {
         isScrapingCurrentSongLyrics = true
         lyricsScrapeTask = Task { @MainActor in
             defer {

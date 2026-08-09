@@ -795,6 +795,12 @@ final class AppServices {
             return String(localized: "intent_scrape_live_radio_unsupported")
         }
         guard let displayedSong = playerService.currentSong else { return nil }
+        guard SingleSongScrapeGatePolicy.decision(
+            for: .appIntent,
+            enabledSourceCount: ScraperSettings.load().enabledSources.count
+        ) == .proceed else {
+            return String(localized: "intent_scrape_no_source")
+        }
 
         if displayedSong.sourceID == AppleMusicLibraryIdentity.sourceID {
             let song = appleMusicLibrary.canonicalLibrarySong(for: displayedSong)

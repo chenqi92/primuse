@@ -92,6 +92,7 @@ struct ContentView: View {
     @State private var searchText = ""
     @State private var showNowPlaying = false
     @State private var libraryDeepLink: LibraryDeepLink?
+    @State private var scraperSettingsRoute = ScraperSettingsRouteState()
     /// 跨年自动弹年度报告的状态。1/1 之后用户首次进 app + 上一年听满 2 个月
     /// 时由 YearlyReportAutoTrigger 触发。
     @State private var autoYearlyReport: YearlyReportData?
@@ -118,7 +119,7 @@ struct ContentView: View {
             }
 
             Tab(String(localized: "settings_title"), systemImage: "gearshape", value: 3) {
-                SettingsView()
+                SettingsView(scraperSettingsRoute: $scraperSettingsRoute)
             }
         }
     }
@@ -212,7 +213,7 @@ struct ContentView: View {
         case .search:
             SearchView(searchText: $searchText)
         case .settings:
-            SettingsView()
+            SettingsView(scraperSettingsRoute: $scraperSettingsRoute)
         }
     }
 
@@ -386,6 +387,16 @@ struct ContentView: View {
         } message: {
             Text("cellular_backfill_message")
         }
+        .environment(\.openScraperSettings, OpenScraperSettingsAction {
+            openScraperSettings()
+        })
+    }
+
+    private func openScraperSettings() {
+        showNowPlaying = false
+        selectedTab = 3
+        sidebarSelection = .settings
+        scraperSettingsRoute.requestMetadataScraping()
     }
 
     /// 当前播放的歌已不在可见库里 (被删 / 源停用 / 重扫描时换了 ID) 时,

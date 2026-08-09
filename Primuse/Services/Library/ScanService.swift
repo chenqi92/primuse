@@ -43,20 +43,6 @@ final class ScanService {
         }
     }
 
-    private struct ScanCheckpoint: Codable, Sendable {
-        var directories: [String]
-        var songs: [Song]
-        var totalCount: Int
-        var currentFile: String
-        var updatedAt: Date
-        /// Nil for checkpoints written by older builds; those safely restart
-        /// from the selected roots.
-        var directoryState: SourceScanResumeState?
-        /// Provider cursor captured before a deep scan. It remains uncommitted
-        /// until both the resumed walk and the library snapshot succeed.
-        var baselineCursors: [String: String]?
-    }
-
     private(set) var scanStates: [String: ScanState] = [:]
     var synologyAPIs: [String: SynologyAPI] = [:]
     private var activeTasks: [String: Task<Void, Never>] = [:]
@@ -74,7 +60,7 @@ final class ScanService {
     /// Serial off-main checkpoint writes. A checkpoint can contain thousands
     /// of Song values, so JSON encoding it on the main actor visibly stalls
     /// scrolling even though scanning itself is asynchronous.
-    private var checkpointWriteTask: Task<Void, Never>?
+    private var checkpointWriteTask: Task<Bool, Never>?
     /// A checkpoint contains the complete accumulated song array. Encoding it
     /// after every 1.5-second library flush keeps a core busy for most of a
     /// large scan even though the work is off-main. Ten-second persistence is
@@ -86,7 +72,7 @@ final class ScanService {
     private var backgroundTaskIDs: [String: UIBackgroundTaskIdentifier] = [:]
     #endif
 
-    private let checkpointURL: URL
+    private let checkpointStore: ScanCheckpointFileStore
     private let syncStateURL: URL
     private let decoder = JSONDecoder()
     private var syncStates: [String: SourceSyncState] = [:]
@@ -95,10 +81,15 @@ final class ScanService {
         let appSupport = fileManager.primuseDirectoryURL(for: .applicationSupportDirectory)
         let directory = appSupport.appendingPathComponent("Primuse", isDirectory: true)
         try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        checkpointURL = directory.appendingPathComponent("scan-checkpoints.json")
+        let resolvedCheckpointURL = directory.appendingPathComponent("scan-checkpoints.json")
+        let loadedCheckpoints = ScanCheckpointFileStore.load(from: resolvedCheckpointURL)
+        checkpointStore = ScanCheckpointFileStore(
+            checkpointURL: resolvedCheckpointURL,
+            initialCheckpoints: loadedCheckpoints
+        )
         syncStateURL = directory.appendingPathComponent("source-sync-states.json")
         decoder.dateDecodingStrategy = .iso8601
-        loadCheckpoints()
+        loadCheckpoints(loadedCheckpoints)
         loadSyncStates()
     }
 
@@ -111,11 +102,12 @@ final class ScanService {
         scraperService: MusicScraperService? = nil
     ) {
         guard activeTasks[source.id] == nil else { return }
-        guard source.isEnabled, !source.isDeleted else {
+        guard !source.isDeleted else {
             removeCheckpoint(for: source.id)
             scanStates[source.id] = nil
             return
         }
+        guard source.isEnabled else { return }
 
         // 整库来源没有额外的目录选择步骤。Local 已由用户选择的 basePath
         // 确定范围；媒体服务器与 Apple Music Library 也天然是完整资料库。
@@ -180,6 +172,22 @@ final class ScanService {
             hasPendingWork: true
         )
 
+        // Make the scan intent durable before diagnose/login/connect can issue
+        // network I/O. Existing progress for the same scope wins unchanged;
+        // FnMusic receives only a restart-from-page-1 intent, never a partial
+        // catalogue. Apple Music uses its separate library sync path.
+        let initialCheckpointWrite: Task<Bool, Never>?
+        if source.type == .appleMusic {
+            initialCheckpointWrite = nil
+        } else {
+            checkpoints[source.id] = ScanCheckpointPreparationPolicy.preparingCheckpoint(
+                existing: checkpoint,
+                directories: normalizedDirs,
+                mode: mode
+            )
+            initialCheckpointWrite = persistCheckpoints(force: true)
+        }
+
         beginBackgroundTask(for: source.id)
 
         scanGenerations[source.id, default: 0] += 1
@@ -197,7 +205,26 @@ final class ScanService {
                 }
             }
 
-            guard sourceCanContinue(source.id, sourceStore: sourceStore) else {
+            if let initialCheckpointWrite,
+               await initialCheckpointWrite.value == false {
+                guard !Task.isCancelled,
+                      isCurrentScan(source.id, generation: generation),
+                      sourceCanContinue(source.id, sourceStore: sourceStore) else { return }
+                recordScanFailure(
+                    sourceID: source.id,
+                    message: sourceManager.scanFailureMessage(
+                        for: SourceError.connectionFailed("Unable to persist scan checkpoint"),
+                        source: source
+                    ),
+                    scannedCount: resumeCount,
+                    totalCount: resumeTotal
+                )
+                return
+            }
+
+            guard !Task.isCancelled,
+                  isCurrentScan(source.id, generation: generation),
+                  sourceCanContinue(source.id, sourceStore: sourceStore) else {
                 if isCurrentScan(source.id, generation: generation) {
                     scanStates[source.id] = nil
                 }
@@ -232,7 +259,9 @@ final class ScanService {
                 }
             }
 
-            scanStates[source.id]?.currentFile = checkpoint?.currentFile ?? ""
+            scanStates[source.id]?.currentFile = checkpoints[source.id]?.currentFile
+                ?? checkpoint?.currentFile
+                ?? ""
 
             if usesDedicatedSynologyScan {
                 await scanSynology(
@@ -244,7 +273,7 @@ final class ScanService {
                     library: library,
                     sourceStore: sourceStore,
                     scraperService: scraperService,
-                    checkpoint: checkpoint
+                    checkpoint: checkpoints[source.id] ?? checkpoint
                 )
             } else if source.type != .appleMusic {
                 await scanConnectorSource(
@@ -333,10 +362,23 @@ final class ScanService {
         sourceStore: SourcesStore,
         scraperService: MusicScraperService?
     ) {
-        for (sourceID, state) in scanStates where state.canResume {
-            guard activeTasks[sourceID] == nil,
-                  let source = sourceStore.source(id: sourceID),
-                  source.isEnabled, !source.isDeleted else { continue }
+        for (sourceID, state) in Array(scanStates) where state.canResume {
+            guard activeTasks[sourceID] == nil else { continue }
+            let source = sourceStore.source(id: sourceID)
+            switch ScanCheckpointSourcePolicy.disposition(
+                sourceExists: source != nil,
+                isEnabled: source?.isEnabled ?? false,
+                isDeleted: source?.isDeleted ?? true
+            ) {
+            case .discard:
+                removeCheckpoint(for: sourceID)
+                continue
+            case .retain:
+                continue
+            case .resume:
+                break
+            }
+            guard let source else { continue }
             // Apple Music Library 扫描会触发 ITLibrary 初始化,弹出"访问其他
             // App 数据"的 macOS Sandbox 授权对话框。它是读本地 iTunes 数据库
             // 的全量枚举,没有"接着上次扫到一半的位置"这种增量语义,checkpoint
@@ -705,6 +747,7 @@ final class ScanService {
             // Synology doesn't go through CloudPlaybackSource — skip prewarm sweep.
             try await completeScan(
                 sourceID: source.id,
+                generation: generation,
                 songs: lastSongs,
                 library: library,
                 sourceStore: sourceStore,
@@ -795,7 +838,9 @@ final class ScanService {
         }
 
         let scopeFingerprint = Self.scopeFingerprint(for: source, directories: directories)
-        if checkpoint == nil,
+        let quickOnly = checkpoint?.isQuickOnly == true
+            || (checkpoint == nil && mode == .quick)
+        if checkpoint?.permitsNativeQuickSync != false,
            mode != .deep,
            let incremental = connector as? any IncrementalMusicSourceConnector,
            let state = syncStates[source.id],
@@ -817,16 +862,12 @@ final class ScanService {
                 ) {
                     return
                 }
-                if mode == .quick {
-                    var deepRequiredState = state
-                    deepRequiredState.requiresDeepScan = true
-                    try await persistSyncState(deepRequiredState)
-                    scanStates[source.id] = nil
-                    return
-                }
             } catch is CancellationError {
                 if isCurrentScan(source.id, generation: generation) {
-                    scanStates[source.id] = ScanState(isScanning: false)
+                    var state = scanStates[source.id] ?? ScanState()
+                    state.isScanning = false
+                    state.hasPendingWork = checkpoints[source.id] != nil
+                    scanStates[source.id] = state
                 }
                 return
             } catch {
@@ -839,6 +880,39 @@ final class ScanService {
             }
         }
 
+        if quickOnly {
+            do {
+                if var deepRequiredState = syncStates[source.id] {
+                    deepRequiredState.requiresDeepScan = true
+                    try await persistSyncState(deepRequiredState)
+                }
+                try await clearCheckpointAndWait(for: source.id)
+                guard isCurrentScan(source.id, generation: generation) else { return }
+                scanStates[source.id] = nil
+            } catch {
+                guard isCurrentScan(source.id, generation: generation) else { return }
+                recordScanFailure(
+                    sourceID: source.id,
+                    message: sourceManager.scanFailureMessage(for: error, source: source)
+                )
+            }
+            return
+        }
+
+        do {
+            // From this point onward the operation is a full walk. Persist the
+            // promotion so an explicit deep scan or an automatic deep fallback
+            // cannot turn back into a provider quick sync after cold launch.
+            try await promoteCheckpointToFullScanAndWait(for: source.id)
+        } catch {
+            guard isCurrentScan(source.id, generation: generation) else { return }
+            recordScanFailure(
+                sourceID: source.id,
+                message: sourceManager.scanFailureMessage(for: error, source: source)
+            )
+            return
+        }
+
         var baselineCursors = checkpoint?.baselineCursors ?? [:]
         if baselineCursors.isEmpty,
            let incremental = connector as? any IncrementalMusicSourceConnector {
@@ -848,6 +922,21 @@ final class ScanService {
                 // The full scan is still useful. Mark the state for another
                 // deep scan rather than claiming native incremental coverage.
                 plog("⚠️ Unable to capture incremental baseline for \(source.name): \(error.localizedDescription)")
+            }
+        }
+        if !baselineCursors.isEmpty {
+            do {
+                try await persistBaselineCursorsAndWait(
+                    baselineCursors,
+                    sourceID: source.id
+                )
+            } catch {
+                guard isCurrentScan(source.id, generation: generation) else { return }
+                recordScanFailure(
+                    sourceID: source.id,
+                    message: sourceManager.scanFailureMessage(for: error, source: source)
+                )
+                return
             }
         }
         let nextScanEpoch = (syncStates[source.id]?.scanEpoch ?? 0) + 1
@@ -945,6 +1034,7 @@ final class ScanService {
             )
             try await completeScan(
                 sourceID: source.id,
+                generation: generation,
                 songs: lastSongs,
                 library: library,
                 sourceStore: sourceStore,
@@ -1054,8 +1144,10 @@ final class ScanService {
                 $0.songCount = acceptedCount
                 $0.lastScannedAt = Date()
             }
-            checkpoints[source.id] = nil
-            persistCheckpoints(force: true)
+            try await clearCheckpointAndWait(for: source.id)
+            guard isCurrentScan(source.id, generation: generation) else {
+                throw CancellationError()
+            }
             scanStates[source.id] = nil
             return true
         }
@@ -1086,6 +1178,7 @@ final class ScanService {
         )
         try await completeScan(
             sourceID: source.id,
+            generation: generation,
             songs: result.songs,
             library: library,
             sourceStore: sourceStore,
@@ -1098,6 +1191,7 @@ final class ScanService {
 
     private func completeScan(
         sourceID: String,
+        generation: Int,
         songs: [Song],
         library: MusicLibrary,
         sourceStore: SourcesStore,
@@ -1105,12 +1199,21 @@ final class ScanService {
         sourceManager: SourceManager? = nil,
         syncState: SourceSyncState? = nil
     ) async throws {
+        guard isCurrentScan(sourceID, generation: generation) else {
+            throw CancellationError()
+        }
         library.addSongs(songs, affectedSourceIDs: Set([sourceID]))
         guard case .success = await library.persistIncrementalNowAndWait() else {
             throw SourceError.connectionFailed("Unable to persist the music library")
         }
+        guard isCurrentScan(sourceID, generation: generation) else {
+            throw CancellationError()
+        }
         if let syncState {
             try await persistSyncState(syncState)
+        }
+        guard isCurrentScan(sourceID, generation: generation) else {
+            throw CancellationError()
         }
         // Use the post-tombstone count from the library, not the raw scan
         // count — otherwise a deleted-then-rescanned song shows as still
@@ -1131,8 +1234,10 @@ final class ScanService {
         // scanStates, `canResume` would read true forever (totalCount is
         // always 0 since we removed Phase 1 counting) and the UI would
         // show "click to resume scan" on a finished source.
-        checkpoints[sourceID] = nil
-        persistCheckpoints(force: true)
+        try await clearCheckpointAndWait(for: sourceID)
+        guard isCurrentScan(sourceID, generation: generation) else {
+            throw CancellationError()
+        }
         scanStates[sourceID] = nil
     }
 
@@ -1174,6 +1279,7 @@ final class ScanService {
         var state = scanStates[sourceID] ?? ScanState()
         state.isScanning = false
         state.failureMessage = message
+        state.hasPendingWork = checkpoints[sourceID] != nil
         if let scannedCount {
             state.scannedCount = scannedCount
         }
@@ -1183,13 +1289,7 @@ final class ScanService {
         scanStates[sourceID] = state
     }
 
-    private func loadCheckpoints() {
-        guard let data = try? Data(contentsOf: checkpointURL),
-              let decoded = try? decoder.decode([String: ScanCheckpoint].self, from: data) else {
-            checkpoints = [:]
-            return
-        }
-
+    private func loadCheckpoints(_ decoded: [String: ScanCheckpoint]) {
         checkpoints = decoded
         for (sourceID, checkpoint) in decoded {
             scanStates[sourceID] = ScanState(
@@ -1243,42 +1343,98 @@ final class ScanService {
         directoryState: SourceScanResumeState? = nil,
         baselineCursors: [String: String]? = nil
     ) {
+        let existing = checkpoints[sourceID]
         checkpoints[sourceID] = ScanCheckpoint(
+            phase: .scanning,
+            intent: existing?.intent ?? .fullScan,
             directories: normalizedDirectories(directories),
             songs: songs,
             totalCount: totalCount,
             currentFile: currentFile,
             updatedAt: Date(),
-            directoryState: directoryState,
-            baselineCursors: baselineCursors
+            directoryState: directoryState ?? existing?.directoryState,
+            baselineCursors: baselineCursors ?? existing?.baselineCursors
         )
         persistCheckpoints()
     }
 
-    private func persistCheckpoints(force: Bool = false) {
+    @discardableResult
+    private func persistCheckpoints(force: Bool = false) -> Task<Bool, Never>? {
         let now = Date()
         guard force
                 || now.timeIntervalSince(lastCheckpointPersistenceAt)
-                    >= Self.checkpointPersistenceInterval else { return }
+                    >= Self.checkpointPersistenceInterval else { return nil }
         lastCheckpointPersistenceAt = now
         let snapshot = checkpoints
-        let url = checkpointURL
+        let store = checkpointStore
         let previous = checkpointWriteTask
-        checkpointWriteTask = Task.detached(priority: .utility) {
-            await previous?.value
-            Self.writeCheckpoints(snapshot, to: url)
+        let writeTask = Task.detached(priority: .utility) {
+            _ = await previous?.value
+            do {
+                try await store.replace(with: snapshot)
+                return true
+            } catch {
+                plog("⛔ Scan checkpoint persistence failed: \(error.localizedDescription)")
+                return false
+            }
+        }
+        checkpointWriteTask = writeTask
+        return writeTask
+    }
+
+    private func waitForCheckpointPersistence(force: Bool = true) async throws {
+        guard let writeTask = persistCheckpoints(force: force) else { return }
+        guard await writeTask.value else {
+            throw SourceError.connectionFailed("Unable to persist scan checkpoint")
         }
     }
 
-    private nonisolated static func writeCheckpoints(
-        _ checkpoints: [String: ScanCheckpoint],
-        to url: URL
-    ) {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
-        guard let data = try? encoder.encode(checkpoints) else { return }
-        try? data.write(to: url, options: .atomic)
+    private func clearCheckpointAndWait(for sourceID: String) async throws {
+        let previous = checkpoints[sourceID]
+        checkpoints[sourceID] = nil
+        do {
+            try await waitForCheckpointPersistence()
+        } catch {
+            if checkpoints[sourceID] == nil, let previous {
+                checkpoints[sourceID] = previous
+            }
+            throw error
+        }
+    }
+
+    private func promoteCheckpointToFullScanAndWait(for sourceID: String) async throws {
+        guard let previous = checkpoints[sourceID] else { return }
+        let promoted = previous.promotedToFullScan()
+        guard promoted != previous else { return }
+        checkpoints[sourceID] = promoted
+        do {
+            try await waitForCheckpointPersistence()
+        } catch {
+            if checkpoints[sourceID] == promoted {
+                checkpoints[sourceID] = previous
+            }
+            throw error
+        }
+    }
+
+    private func persistBaselineCursorsAndWait(
+        _ baselineCursors: [String: String],
+        sourceID: String
+    ) async throws {
+        guard var updated = checkpoints[sourceID],
+              updated.baselineCursors != baselineCursors else { return }
+        let previous = updated
+        updated.baselineCursors = baselineCursors
+        updated.updatedAt = Date()
+        checkpoints[sourceID] = updated
+        do {
+            try await waitForCheckpointPersistence()
+        } catch {
+            if checkpoints[sourceID] == updated {
+                checkpoints[sourceID] = previous
+            }
+            throw error
+        }
     }
 
     private func beginBackgroundTask(for sourceID: String) {

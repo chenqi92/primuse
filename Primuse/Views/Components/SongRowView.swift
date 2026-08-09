@@ -5,6 +5,7 @@ struct SongRowView: View {
     @Environment(SourceManager.self) private var sourceManager
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
+    @Environment(ScraperSettingsStore.self) private var scraperSettings
     /// Used only inside `deleteSong` (not read in `body`) so it doesn't
     /// register as a body-time observation dependency. Keeping this as
     /// `@Environment` lets us update the source badge count without
@@ -31,6 +32,7 @@ struct SongRowView: View {
     var backfillFailed: Bool = false
 
     @State private var showScrapeOptions = false
+    @State private var showNoScraperSourceAlert = false
     @State private var showAddToPlaylist = false
     @State private var showSongInfo = false
     @State private var showDeleteConfirm = false
@@ -156,7 +158,7 @@ struct SongRowView: View {
                     // Group 1: Actions
                     Section {
                         Button {
-                            showScrapeOptions = true
+                            requestScrape(from: .songRowActionMenu)
                         } label: {
                             Label(String(localized: "scrape_song"), systemImage: "wand.and.stars")
                         }
@@ -258,7 +260,7 @@ struct SongRowView: View {
             // Group 1: Actions
             Section {
                 Button {
-                    showScrapeOptions = true
+                    requestScrape(from: .songRowContextMenu)
                 } label: {
                     Label(String(localized: "scrape_song"), systemImage: "wand.and.stars")
                 }
@@ -371,6 +373,15 @@ struct SongRowView: View {
         } message: {
             Text(deleteErrorMessage ?? "")
         }
+        .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
+    }
+
+    private func requestScrape(from entryPoint: SingleSongScrapeEntryPoint) {
+        scraperSettings.performSingleSongScrapeAction(
+            from: entryPoint,
+            onProceed: { showScrapeOptions = true },
+            onRequireSource: { showNoScraperSourceAlert = true }
+        )
     }
 
     private var supportsOfflineAudioCache: Bool {

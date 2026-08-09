@@ -453,6 +453,10 @@ final class MusicScraperService {
         song: Song,
         in library: MusicLibrary
     ) async -> (song: Song, lyrics: [LyricLine]?) {
+        guard ScraperAvailability.hasEnabledSource else {
+            plog("MusicScraperService: no enabled scraper source, lyrics-only scrape aborted")
+            return (song, nil)
+        }
         let fetched = await fetchOnlineLyrics(
             title: song.title,
             artist: song.artistName,

@@ -97,6 +97,7 @@ struct NowPlayingView: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(MusicScraperService.self) private var scraperService
+    @Environment(ScraperSettingsStore.self) private var scraperSettings
     @Environment(SourceManager.self) private var sourceManager
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(PlaybackSettingsStore.self) private var playbackSettings
@@ -122,6 +123,7 @@ struct NowPlayingView: View {
     @State private var lyricsLoadRevision: UInt = 0
     @State private var isScrapingCurrentSong = false
     @State private var scrapeAlertMessage: String?
+    @State private var showNoScraperSourceAlert = false
     /// Freeze the canonical song identity used by the scrape sheet. MusicKit
     /// can temporarily expose a catalog ID while the library row uses an
     /// `i.*` ID; reading `player.currentSong` again inside the sheet could then
@@ -503,6 +505,7 @@ struct NowPlayingView: View {
         } message: {
             Text(deleteErrorMessage ?? "")
         }
+        .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
         .onChange(of: lyricsFontScale) { _, _ in
             CloudKVSSync.shared.markChanged(key: CloudKVSKey.lyricsFontScale)
         }
@@ -2096,6 +2099,14 @@ struct NowPlayingView: View {
         guard let displayedSong = player.currentSong else { return }
         guard !isScrapingCurrentSong else { return }
 
+        scraperSettings.performSingleSongScrapeAction(
+            from: .nowPlayingOptions,
+            onProceed: { openScrapeForCurrentSongWithEnabledSource(displayedSong) },
+            onRequireSource: { showNoScraperSourceAlert = true }
+        )
+    }
+
+    private func openScrapeForCurrentSongWithEnabledSource(_ displayedSong: Song) {
         guard displayedSong.sourceID == AppleMusicLibraryIdentity.sourceID else {
             scrapeTargetSong = displayedSong
             return
@@ -2130,6 +2141,14 @@ struct NowPlayingView: View {
         guard let displayedSong = player.currentSong,
               !isScrapingCurrentSong else { return }
 
+        scraperSettings.performSingleSongScrapeAction(
+            from: .nowPlayingAutomaticLyrics,
+            onProceed: { startAutomaticLyricsScrapeWithEnabledSource(displayedSong) },
+            onRequireSource: { showNoScraperSourceAlert = true }
+        )
+    }
+
+    private func startAutomaticLyricsScrapeWithEnabledSource(_ displayedSong: Song) {
         // Invalidate an in-flight Tier 3 lookup for this same song before the
         // scraper starts. Otherwise that older request can finish after the
         // freshly scraped cache write and replace the new lyrics.

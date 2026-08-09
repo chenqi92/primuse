@@ -16,6 +16,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(MusicScraperService.self) private var scraperService
+    @Environment(ScraperSettingsStore.self) private var scraperSettings
     @Environment(SourceManager.self) private var sourceManager
     @Environment(SourcesStore.self) private var sourcesStore
 
@@ -23,6 +24,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
 
     @State private var showAddToPlaylist = false
     @State private var showScrapeOptions = false
+    @State private var showNoScraperSourceAlert = false
     @State private var showSongInfo = false
     @State private var showTagEditor = false
     @State private var lyricsEditorTargetSong: Song?
@@ -116,6 +118,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                                     set: { if !$0 { scrapeAlertMessage = nil } })) {
             Button("done", role: .cancel) {}
         } message: { Text(scrapeAlertMessage ?? "") }
+        .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
         .alert(String(localized: "delete_song"), isPresented: $showDeleteConfirm) {
             Button(String(localized: "cancel"), role: .cancel) {}
             Button(String(localized: "delete"), role: .destructive) { deleteCurrentSong() }
@@ -225,7 +228,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             }
             menuRow(title: "scrape_song", symbol: "wand.and.stars",
                     disabled: player.currentSong == nil || isScrapingCurrentSong) {
-                showScrapeOptions = true
+                requestScrapeOptions()
             }
             divider()
             menuRow(title: "song_info", symbol: "info.circle",
@@ -429,6 +432,14 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         case .all: player.repeatMode = .one
         case .one: player.repeatMode = .off
         }
+    }
+
+    private func requestScrapeOptions() {
+        scraperSettings.performSingleSongScrapeAction(
+            from: .macPlayerMenu,
+            onProceed: { showScrapeOptions = true },
+            onRequireSource: { showNoScraperSourceAlert = true }
+        )
     }
 
     private func deleteCurrentSong() {

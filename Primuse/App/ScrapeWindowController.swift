@@ -95,12 +95,16 @@ final class ScrapeWindowController: NSObject, NSWindowDelegate {
 final class SettingsWindowController: NSObject, NSWindowDelegate {
     static let shared = SettingsWindowController()
 
+    private let navigation = MacSettingsNavigationModel()
     private var window: NSWindow?
 
     private override init() { super.init() }
 
     /// 打开设置窗口 (Cmd+, / 菜单触发)。已开则置前。
-    func show() {
+    func show(tab: MacSettingsTab? = nil) {
+        if let tab {
+            navigation.tab = tab
+        }
         if let win = window {
             NSApp.activate(ignoringOtherApps: true)
             win.makeKeyAndOrderFront(nil)
@@ -127,7 +131,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         win.setFrameAutosaveName("PrimuseSettings")
         win.isReleasedWhenClosed = false
         win.contentViewController = NSHostingController(
-            rootView: MacSettingsView().applyPrimuseEnvironments()
+            rootView: MacSettingsView(navigation: navigation).applyPrimuseEnvironments()
         )
         win.delegate = self
         self.window = win

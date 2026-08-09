@@ -11,6 +11,7 @@ struct MacQueuePanel: View {
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
+    @State private var dropTarget: QueueReorderOccurrenceID?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -80,7 +81,13 @@ struct MacQueuePanel: View {
                     if !upNextEntries.isEmpty {
                         queueSection(title: "up_next") {
                             ForEach(upNextEntries) { entry in
-                                queueRow(entry: entry.entry, draggable: true)
+                                queueRow(
+                                    entry: entry.entry,
+                                    reorderID: QueueReorderOccurrenceID(
+                                        queueEntryID: entry.id.queueEntryID,
+                                        roundOffset: entry.id.roundOffset
+                                    )
+                                )
                             }
                         }
                     }
@@ -132,18 +139,26 @@ struct MacQueuePanel: View {
         }
     }
 
+    @ViewBuilder
     private func queueRow(entry: QueueEntry,
                           displayedSong: Song? = nil,
                           isPlaying: Bool = false,
                           dimmed: Bool = false,
-                          draggable: Bool = false) -> some View {
+                          reorderID: QueueReorderOccurrenceID? = nil) -> some View {
         let song = displayedSong ?? entry.song
-        return HStack(spacing: 8) {
-            if draggable {
+        let accessibilityLabel = [song.title, song.artistName]
+            .compactMap { $0?.isEmpty == false ? $0 : nil }
+            .joined(separator: ", ")
+        let row = HStack(spacing: 8) {
+            if let reorderID {
                 Image(systemName: "line.3.horizontal")
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(PMColor.textFaint)
                     .frame(width: 14)
+                    .contentShape(Rectangle())
+                    .draggable(reorderID.dragPayload)
+                    .help(Text("reorder"))
+                    .accessibilityHidden(true)
             } else {
                 Color.clear.frame(width: 14)
             }
@@ -178,10 +193,44 @@ struct MacQueuePanel: View {
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 5)
-        .background(isPlaying ? PMColor.rowHover : Color.clear, in: .rect(cornerRadius: 6))
+        .background(
+            isPlaying || dropTarget == reorderID ? PMColor.rowHover : Color.clear,
+            in: .rect(cornerRadius: 6)
+        )
         .opacity(dimmed ? 0.52 : 1)
         .contentShape(Rectangle())
         .onTapGesture { playEntry(entry) }
+
+        if let reorderID {
+            row
+                // Pointer dragging starts on the visible handle so it cannot
+                // compete with the row's tap-to-play gesture. The complete row
+                // remains the drop target and exposes keyboard/VoiceOver moves.
+                .dropDestination(for: String.self) { payloads, _ in
+                    guard let payload = payloads.first,
+                          let dragged = QueueReorderOccurrenceID(dragPayload: payload) else {
+                        return false
+                    }
+                    return player.moveUpcomingQueueEntry(dragged, over: reorderID)
+                } isTargeted: { isTargeted in
+                    if isTargeted {
+                        dropTarget = reorderID
+                    } else if dropTarget == reorderID {
+                        dropTarget = nil
+                    }
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text(verbatim: accessibilityLabel))
+                .accessibilityValue(Text(verbatim: song.duration.formattedDuration))
+                .accessibilityHint(Text("reorder"))
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction { playEntry(entry) }
+                .accessibilityAdjustableAction { direction in
+                    moveEntry(reorderID, direction: direction)
+                }
+        } else {
+            row
+        }
     }
 
     private var footer: some View {
@@ -220,6 +269,33 @@ struct MacQueuePanel: View {
         // The queue may be reordered between rendering and tapping, and the
         // same Song may legitimately appear in more than one slot.
         Task { await player.playFromQueue(at: index) }
+    }
+
+    private func moveEntry(
+        _ entryID: QueueReorderOccurrenceID,
+        direction: AccessibilityAdjustmentDirection
+    ) {
+        let sameRound = player.upcomingQueueEntries.compactMap { entry -> QueueReorderOccurrenceID? in
+            guard entry.id.roundOffset == entryID.roundOffset else { return nil }
+            return QueueReorderOccurrenceID(
+                queueEntryID: entry.id.queueEntryID,
+                roundOffset: entry.id.roundOffset
+            )
+        }
+        guard let index = sameRound.firstIndex(of: entryID) else { return }
+
+        let targetIndex: Int
+        switch direction {
+        case .decrement:
+            guard index > sameRound.startIndex else { return }
+            targetIndex = sameRound.index(before: index)
+        case .increment:
+            guard sameRound.index(after: index) < sameRound.endIndex else { return }
+            targetIndex = sameRound.index(after: index)
+        @unknown default:
+            return
+        }
+        player.moveUpcomingQueueEntry(entryID, over: sameRound[targetIndex])
     }
 
     private func clearPlayed(uptoIndex: Int) {

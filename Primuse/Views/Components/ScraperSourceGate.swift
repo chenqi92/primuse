@@ -1,12 +1,35 @@
 import SwiftUI
+import PrimuseKit
 #if os(macOS)
 import AppKit
 #endif
 
-extension Notification.Name {
-    /// 请求跳到「刮削源」设置页。iOS 由 ContentView 切到设置 tab 并 push,
-    /// macOS 由 SettingsWindowController 打开设置窗口并选中刮削分页。
-    static let primuseOpenScraperSettings = Notification.Name("primuse.openScraperSettings")
+struct OpenScraperSettingsAction: Sendable {
+    private let handler: @MainActor @Sendable () -> Void
+
+    init(_ handler: @escaping @MainActor @Sendable () -> Void) {
+        self.handler = handler
+    }
+
+    @MainActor
+    func callAsFunction() {
+        handler()
+    }
+}
+
+private struct OpenScraperSettingsActionKey: EnvironmentKey {
+    static let defaultValue = OpenScraperSettingsAction {
+        #if os(macOS)
+        SettingsWindowController.shared.show(tab: .scrape)
+        #endif
+    }
+}
+
+extension EnvironmentValues {
+    var openScraperSettings: OpenScraperSettingsAction {
+        get { self[OpenScraperSettingsActionKey.self] }
+        set { self[OpenScraperSettingsActionKey.self] = newValue }
+    }
 }
 
 /// 刮削源可用性判断的单一出口。UI 用 `ScraperSettingsStore` 做响应式判断,
@@ -16,27 +39,33 @@ enum ScraperAvailability {
     nonisolated static var hasEnabledSource: Bool {
         !ScraperSettings.load().enabledSources.isEmpty
     }
-
-    @MainActor
-    static func openScraperSettings() {
-        #if os(macOS)
-        SettingsWindowController.shared.show()
-        #endif
-        NotificationCenter.default.post(name: .primuseOpenScraperSettings, object: nil)
-    }
 }
 
 extension ScraperSettingsStore {
     var hasEnabledSource: Bool { !enabledSources.isEmpty }
+
+    func performSingleSongScrapeAction(
+        from entryPoint: SingleSongScrapeEntryPoint,
+        onProceed: () -> Void,
+        onRequireSource: () -> Void
+    ) {
+        SingleSongScrapeGatePolicy.perform(
+            from: entryPoint,
+            enabledSourceCount: enabledSources.count,
+            onProceed: onProceed,
+            onRequireSource: onRequireSource
+        )
+    }
 }
 
 private struct ScraperSourceRequiredAlert: ViewModifier {
     @Binding var isPresented: Bool
+    @Environment(\.openScraperSettings) private var openScraperSettings
 
     func body(content: Content) -> some View {
         content.alert("scraper_no_source_title", isPresented: $isPresented) {
             Button("scraper_no_source_open_settings") {
-                ScraperAvailability.openScraperSettings()
+                openScraperSettings()
             }
             Button("cancel", role: .cancel) {}
         } message: {

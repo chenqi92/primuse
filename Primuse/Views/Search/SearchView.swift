@@ -848,6 +848,13 @@ struct SearchView: View {
                             isPlaying: player.currentSong?.id == result.song.id,
                             context: SongRowView.context(for: result.song, sourcesStore: sourcesStore, backfill: backfill)
                         )
+                        // Keep playback taps on the view that owns the context menu.
+                        // An ancestor gesture otherwise becomes the List cell's
+                        // competing hit target and prevents the row's long press.
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            playSong(result.song, lyricsHint: result.lyricSnippet, matchKind: result.matchKind)
+                        }
                         if result.matchKind == .lyrics, let snippet = result.lyricSnippet {
                             // 歌词命中: 把命中的句子(含上下文)展开, 让用户一眼看到为什么命中。
                             VStack(alignment: .leading, spacing: 3) {
@@ -866,11 +873,11 @@ struct SearchView: View {
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                             .padding(.leading, 54)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                playSong(result.song, lyricsHint: snippet, matchKind: result.matchKind)
+                            }
                         }
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        playSong(result.song, lyricsHint: result.lyricSnippet, matchKind: result.matchKind)
                     }
                 }
             } header: {

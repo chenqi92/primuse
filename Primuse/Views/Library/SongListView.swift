@@ -1086,14 +1086,22 @@ struct SongListView: View {
 
     private func openScrapeWindow(for song: Song) {
         let song = latestSong(song)
-        ScrapeWindowController.shared.show(song: song) { updated in
-            CachedArtworkView.invalidateCache(for: updated.id)
-            if let oldRef = song.coverArtFileName {
-                CachedArtworkView.invalidateCache(for: oldRef)
+        scraperSettings.performSingleSongScrapeAction(
+            from: .macSongListContextMenu,
+            onProceed: {
+                ScrapeWindowController.shared.show(song: song) { updated in
+                    CachedArtworkView.invalidateCache(for: updated.id)
+                    if let oldRef = song.coverArtFileName {
+                        CachedArtworkView.invalidateCache(for: oldRef)
+                    }
+                    player.syncSongMetadata(updated)
+                    player.forceRefreshNowPlayingArtwork()
+                }
+            },
+            onRequireSource: {
+                showNoScraperSourceAlert = true
             }
-            player.syncSongMetadata(updated)
-            player.forceRefreshNowPlayingArtwork()
-        }
+        )
     }
 
     private var listMoreMenu: AnyView {

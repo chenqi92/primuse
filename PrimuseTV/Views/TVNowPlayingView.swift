@@ -12,11 +12,15 @@ struct TVNowPlayingView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var isTabContent = false
+    var focusRequest: TVContentFocusRequest?
+    var onContentAppeared: (TVNowPlayingFocusMode) -> Void = { _ in }
+    var onContentModeChanged: (TVNowPlayingFocusMode) -> Void = { _ in }
     var onReturnToTabs: () -> Void = {}
 
     @State private var showQueue = false
     @State private var showOptions = false
     @Namespace private var playerFocus
+    @FocusState private var focusedTransport: TVNowPlayingFocusTarget?
 
     var body: some View {
         ZStack {
@@ -28,6 +32,18 @@ struct TVNowPlayingView: View {
             } else {
                 dismiss()
             }
+        }
+        .onAppear {
+            onContentAppeared(focusMode)
+        }
+        .task(id: focusRequest?.id) {
+            guard let request = focusRequest else { return }
+            await Task.yield()
+            guard !Task.isCancelled, focusRequest == request else { return }
+            applyFocusRequest(request)
+        }
+        .onChange(of: focusMode) { _, mode in
+            onContentModeChanged(mode)
         }
         .fullScreenCover(isPresented: $showQueue) { TVQueueView().environment(store) }
         .fullScreenCover(isPresented: $showOptions) { TVOptionsView().environment(store) }
@@ -130,28 +146,29 @@ struct TVNowPlayingView: View {
                     Spacer(minLength: 34)
 
                     HStack(spacing: 18) {
-                        TVRoundBtn(
+                        focusedRoundButton(
                             icon: "backward.fill",
                             size: 76,
-                            primary: false
+                            target: .previous
                         ) {
                             store.previous()
                         }
                         .disabled(store.radioStations.count < 2)
 
-                        TVRoundBtn(
+                        focusedRoundButton(
                             icon: radioConnectionIsActive ? "stop.fill" : "play.fill",
                             size: 96,
-                            primary: true
+                            primary: true,
+                            target: .liveRadioPrimary
                         ) {
                             store.togglePlayPause()
                         }
                         .prefersDefaultFocus(true, in: playerFocus)
 
-                        TVRoundBtn(
+                        focusedRoundButton(
                             icon: "forward.fill",
                             size: 76,
-                            primary: false
+                            target: .next
                         ) {
                             store.next()
                         }
@@ -174,6 +191,56 @@ struct TVNowPlayingView: View {
 
     private var radioConnectionIsActive: Bool {
         store.engine.status == .loading || store.engine.status == .playing
+    }
+
+    private var focusMode: TVNowPlayingFocusMode {
+        guard store.hasNowPlaying else { return .empty }
+        return store.isLiveRadio ? .liveRadio : .song
+    }
+
+    private func applyFocusRequest(_ request: TVContentFocusRequest?) {
+        guard let request,
+              request.target == TVContentFocusRoutingPolicy.target(
+                  for: .nowPlaying,
+                  nowPlayingMode: focusMode
+              ),
+              case let .nowPlaying(target) = request.target else {
+            return
+        }
+        focusedTransport = target
+    }
+
+    private func focusedRoundButton(
+        icon: String,
+        size: CGFloat,
+        primary: Bool = false,
+        immersiveDark: Bool = false,
+        target: TVNowPlayingFocusTarget,
+        action: @escaping () -> Void
+    ) -> some View {
+        let focused = focusedTransport == target
+        return Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: size * 0.4, weight: .semibold))
+                .foregroundStyle(primary
+                                 ? (immersiveDark ? Color(hex: "#1f1c19") : TVColor.onBrand)
+                                 : (immersiveDark ? Color.white : TVColor.text))
+                .frame(width: size, height: size)
+                .background(primary
+                            ? AnyShapeStyle(immersiveDark ? Color.white : TVColor.brand)
+                            : AnyShapeStyle(immersiveDark ? Color.white.opacity(0.14) : TVColor.surfaceStrong),
+                            in: Circle())
+                .tvFocusRing(
+                    focused,
+                    radius: size / 2,
+                    accent: immersiveDark ? Color.white : TVColor.focusRing,
+                    scale: 1.14,
+                    lift: 8
+                )
+        }
+        .buttonStyle(TVBareButtonStyle())
+        .focused($focusedTransport, equals: target)
+        .focusEffectDisabled()
     }
 
     // MARK: 左列
@@ -295,12 +362,27 @@ struct TVNowPlayingView: View {
                            active: store.isMusicVideoModeEnabled,
                            immersiveDark: immersiveDark) { store.toggleMusicVideoMode() }
             }
-            TVRoundBtn(icon: "backward.fill", size: 64, immersiveDark: immersiveDark) { store.previous() }
-            TVRoundBtn(icon: store.isPlaying ? "pause.fill" : "play.fill", size: 92,
-                       primary: true, immersiveDark: immersiveDark) { store.togglePlayPause() }
+            focusedRoundButton(
+                icon: "backward.fill",
+                size: 64,
+                immersiveDark: immersiveDark,
+                target: .previous
+            ) { store.previous() }
+            focusedRoundButton(
+                icon: store.isPlaying ? "pause.fill" : "play.fill",
+                size: 92,
+                primary: true,
+                immersiveDark: immersiveDark,
+                target: .songPrimary
+            ) { store.togglePlayPause() }
                 // 进入播放页默认聚焦播放/暂停键,避免落在进度条上误触快进快退。
                 .prefersDefaultFocus(true, in: playerFocus)
-            TVRoundBtn(icon: "forward.fill", size: 64, immersiveDark: immersiveDark) { store.next() }
+            focusedRoundButton(
+                icon: "forward.fill",
+                size: 64,
+                immersiveDark: immersiveDark,
+                target: .next
+            ) { store.next() }
             TVRoundBtn(icon: store.repeatMode == .one ? "repeat.1" : "repeat", size: 64,
                        active: store.repeatMode != .off,
                        immersiveDark: immersiveDark) { store.cycleRepeatMode() }

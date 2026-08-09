@@ -9,6 +9,12 @@ import AppKit
 #endif
 
 struct SettingsView: View {
+    @Binding private var scraperSettingsRoute: ScraperSettingsRouteState
+
+    init(scraperSettingsRoute: Binding<ScraperSettingsRouteState> = .constant(.init())) {
+        _scraperSettingsRoute = scraperSettingsRoute
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -217,6 +223,12 @@ struct SettingsView: View {
             }
             .navigationTitle("settings_title")
             .toolbarTitleDisplayMode(.inlineLarge)
+            .navigationDestination(isPresented: Binding(
+                get: { scraperSettingsRoute.isMetadataScrapingPresented },
+                set: { scraperSettingsRoute.setMetadataScrapingPresented($0) }
+            )) {
+                MetadataScrapingView()
+            }
         }
     }
 }

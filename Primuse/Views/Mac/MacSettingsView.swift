@@ -9,76 +9,85 @@ import PrimuseKit
 /// macOS settings window rebuilt against `design/猿音/scenes/settings.jsx`.
 /// The window chrome, sidebar, and every ST-* page use the same custom row
 /// system as the design instead of embedding the older grouped Forms.
-struct MacSettingsView: View {
-    private enum Tab: String, Hashable, CaseIterable, Identifiable {
-        case playback, equalizer, effects, scrape, lyrics
-        case appleMusic, widgets, cloud, theme, deleted, ssl, about
+enum MacSettingsTab: String, Hashable, CaseIterable, Identifiable {
+    case playback, equalizer, effects, scrape, lyrics
+    case appleMusic, widgets, cloud, theme, deleted, ssl, about
 
-        var id: String { rawValue }
+    var id: String { rawValue }
 
-        var title: String {
-            switch self {
-            case .playback: return Lz("Playback")
-            case .equalizer: return Lz("Equalizer")
-            case .effects: return Lz("Audio Effects")
-            case .scrape: return Lz("Metadata Scraping")
-            case .lyrics: return Lz("Lyrics Translation")
-            case .appleMusic: return "Apple Music"
-            case .widgets: return Lz("Widgets")
-            case .cloud: return "iCloud"
-            case .theme: return Lz("Appearance")
-            case .deleted: return Lz("Recently Deleted")
-            case .ssl: return Lz("Trusted Domains")
-            case .about: return Lz("About")
-            }
-        }
-
-        var icon: String {
-            switch self {
-            case .playback: return "play.circle"
-            case .equalizer: return "slider.horizontal.3"
-            case .effects: return "waveform.badge.plus"
-            case .scrape: return "tag"
-            case .lyrics: return "character.bubble"
-            case .appleMusic: return "music.note"
-            case .widgets: return "rectangle.grid.2x2"
-            case .cloud: return "icloud"
-            case .theme: return "sun.max"
-            case .deleted: return "trash"
-            case .ssl: return "lock.shield"
-            case .about: return "info.circle"
-            }
-        }
-
-        var spec: String {
-            switch self {
-            case .playback: return "ST-01"
-            case .equalizer: return "ST-02"
-            case .effects: return "ST-03"
-            case .scrape: return "ST-04"
-            case .lyrics: return "ST-05"
-            case .appleMusic: return "ST-06"
-            case .widgets: return "ST-07"
-            case .cloud: return "ST-08"
-            case .theme: return "ST-12"
-            case .deleted: return "ST-09"
-            case .ssl: return "ST-10"
-            case .about: return "ST-11"
-            }
+    var title: String {
+        switch self {
+        case .playback: return Lz("Playback")
+        case .equalizer: return Lz("Equalizer")
+        case .effects: return Lz("Audio Effects")
+        case .scrape: return Lz("Metadata Scraping")
+        case .lyrics: return Lz("Lyrics Translation")
+        case .appleMusic: return "Apple Music"
+        case .widgets: return Lz("Widgets")
+        case .cloud: return "iCloud"
+        case .theme: return Lz("Appearance")
+        case .deleted: return Lz("Recently Deleted")
+        case .ssl: return Lz("Trusted Domains")
+        case .about: return Lz("About")
         }
     }
 
-    @State private var tab: Tab = .playback
+    var icon: String {
+        switch self {
+        case .playback: return "play.circle"
+        case .equalizer: return "slider.horizontal.3"
+        case .effects: return "waveform.badge.plus"
+        case .scrape: return "tag"
+        case .lyrics: return "character.bubble"
+        case .appleMusic: return "music.note"
+        case .widgets: return "rectangle.grid.2x2"
+        case .cloud: return "icloud"
+        case .theme: return "sun.max"
+        case .deleted: return "trash"
+        case .ssl: return "lock.shield"
+        case .about: return "info.circle"
+        }
+    }
+
+    var spec: String {
+        switch self {
+        case .playback: return "ST-01"
+        case .equalizer: return "ST-02"
+        case .effects: return "ST-03"
+        case .scrape: return "ST-04"
+        case .lyrics: return "ST-05"
+        case .appleMusic: return "ST-06"
+        case .widgets: return "ST-07"
+        case .cloud: return "ST-08"
+        case .theme: return "ST-12"
+        case .deleted: return "ST-09"
+        case .ssl: return "ST-10"
+        case .about: return "ST-11"
+        }
+    }
+}
+
+@MainActor
+@Observable
+final class MacSettingsNavigationModel {
+    var tab: MacSettingsTab = .playback
+}
+
+struct MacSettingsView: View {
+    let navigation: MacSettingsNavigationModel
+
     @State private var sidebarFilter = ""
 
-    private func selectTab(_ newTab: Tab) {
-        tab = newTab
+    private var tab: MacSettingsTab { navigation.tab }
+
+    private func selectTab(_ newTab: MacSettingsTab) {
+        navigation.tab = newTab
     }
 
-    private var filteredTabs: [Tab] {
+    private var filteredTabs: [MacSettingsTab] {
         let query = sidebarFilter.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return Tab.allCases }
-        return Tab.allCases.filter {
+        guard !query.isEmpty else { return MacSettingsTab.allCases }
+        return MacSettingsTab.allCases.filter {
             $0.title.localizedCaseInsensitiveContains(query)
             || $0.spec.localizedCaseInsensitiveContains(query)
         }
@@ -175,7 +184,7 @@ struct MacSettingsView: View {
         }
     }
 
-    private func sidebarItem(_ item: Tab) -> some View {
+    private func sidebarItem(_ item: MacSettingsTab) -> some View {
         let selected = item == tab
         return Button { selectTab(item) } label: {
             HStack(spacing: 10) {
