@@ -3,6 +3,28 @@ import PrimuseKit
 
 #if os(iOS)
 import Intents
+
+/// `INPreferences` raises an Objective-C exception when the process lacks the
+/// Siri entitlement. Simulator QA builds are commonly linker-signed without
+/// entitlements, so every caller must pass through this boundary instead of
+/// querying `INPreferences` directly.
+enum SiriAuthorizationRuntime {
+    static var status: INSiriAuthorizationStatus {
+        #if targetEnvironment(simulator)
+        .restricted
+        #else
+        INPreferences.siriAuthorizationStatus()
+        #endif
+    }
+
+    static func request(_ completion: @escaping (INSiriAuthorizationStatus) -> Void) {
+        #if targetEnvironment(simulator)
+        completion(.restricted)
+        #else
+        INPreferences.requestSiriAuthorization(completion)
+        #endif
+    }
+}
 #endif
 
 /// Donates only explicit song selections from Primuse's UI. Siri-triggered,
@@ -12,7 +34,7 @@ import Intents
 enum SiriMediaInteractionDonor {
     static func donate(song: Song) {
         #if os(iOS)
-        guard INPreferences.siriAuthorizationStatus() == .authorized else { return }
+        guard SiriAuthorizationRuntime.status == .authorized else { return }
 
         let item = INMediaItem(
             identifier: song.id,

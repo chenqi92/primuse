@@ -51,5 +51,8 @@ extension Notification.Name {
     /// 跳到「歌单」总览 (删除当前歌单后用)。主容器同时会清掉详情栈, 避免栈里
     /// 还压着刚删掉那张歌单的空详情。
     static let primuseSelectPlaylists = Notification.Name("primuse.route.playlists")
+    /// 跳到侧栏的「电台」项。首页电台分区的「全部」用它 —— 侧栏本来就有这一项,
+    /// push 一个带返回键的新页面等于同一个目的地有两条路径。
+    static let primuseSelectRadio = Notification.Name("primuse.route.radio")
 }
 #endif

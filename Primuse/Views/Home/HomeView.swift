@@ -499,12 +499,22 @@ struct HomeView: View {
 
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 6) {
-                        Circle()
-                            .fill(.red)
-                            .frame(width: 7, height: 7)
-                        Text("LIVE")
-                            .font(.caption2.weight(.bold))
-                            .tracking(0.8)
+                        // 只有真在播才亮红点 LIVE。无条件亮着的话，没播放时
+                        // 卡片也在说"正在直播"，跟底部播放条自相矛盾。
+                        if isPlaying {
+                            Circle()
+                                .fill(.red)
+                                .frame(width: 7, height: 7)
+                            Text("LIVE")
+                                .font(.caption2.weight(.bold))
+                                .tracking(0.8)
+                        } else {
+                            Image(systemName: "radio")
+                                .font(.system(size: 10, weight: .semibold))
+                            Text("radio_title")
+                                .font(.caption2.weight(.bold))
+                                .tracking(0.8)
+                        }
                         Spacer()
                         Text("\(currentIndex + 1) / \(stations.count)")
                             .font(.caption.monospacedDigit())
@@ -788,7 +798,7 @@ struct HomeView: View {
                         cornerRadius: 16
                     )
 
-                    Text(isPlaying ? "LIVE" : String(localized: "home_radio_wall_badge"))
+                    Text(isPlaying ? "LIVE" : String(localized: "radio_title"))
                         .font(.system(size: 9.5, weight: .bold))
                         .tracking(0.8)
                         .foregroundStyle(isPlaying ? .white : .white.opacity(0.85))
@@ -2337,13 +2347,6 @@ struct HomeView: View {
                 action: { switchToSettingsTab?() }
             )
             .padding(.horizontal, 24)
-
-            NavigationLink {
-                RadioStationsView()
-            } label: {
-                Label("radio_title", systemImage: "radio.fill")
-            }
-            .buttonStyle(.bordered)
             Spacer()
         }.frame(maxWidth: .infinity)
     }

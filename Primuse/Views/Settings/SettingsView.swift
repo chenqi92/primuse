@@ -131,7 +131,7 @@ struct SettingsView: View {
                         Label("playback_settings", systemImage: "play.circle")
                     }
 
-                    #if os(iOS)
+                    #if os(iOS) && !targetEnvironment(simulator)
                     NavigationLink {
                         SiriSettingsView()
                     } label: {

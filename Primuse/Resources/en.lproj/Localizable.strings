@@ -2357,3 +2357,7 @@
 /* MARK: - Lyrics editor entry / radio selection */
 "lyrics_editor_menu" = "Edit Lyrics";
 "radio_manage_selected %lld" = "%lld Selected";
+
+/* MARK: - Radio bottom bar */
+"radio_buffering" = "BUFFERING";
+"radio_connected_for" = "Connected for";

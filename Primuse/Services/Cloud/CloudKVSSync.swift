@@ -23,7 +23,7 @@ final class CloudKVSSync {
     /// names the key that changed.
     static let externalChangeNotification = Notification.Name("primuse.cloudkvs.externalChange")
 
-    private let kvs = NSUbiquitousKeyValueStore.default
+    private var kvs: NSUbiquitousKeyValueStore?
     private let defaults = UserDefaults.standard
     private var registrations: [String: () -> Void] = [:]
     // Set on the main thread via the observer block; read only in deinit, where
@@ -32,6 +32,12 @@ final class CloudKVSSync {
     private nonisolated(unsafe) var observerToken: NSObjectProtocol?
 
     private init() {
+        // Match the CloudKit boundary: linker-signed simulator and ad-hoc Mac
+        // builds have no KVS store identifier, and touching `.default` there
+        // is a system-level client error. Local UserDefaults still work.
+        guard CloudKitRuntime.canCreateContainer else { return }
+        let kvs = NSUbiquitousKeyValueStore.default
+        self.kvs = kvs
         observerToken = NotificationCenter.default.addObserver(
             forName: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
             object: kvs,
@@ -60,7 +66,9 @@ final class CloudKVSSync {
     /// device updates the key.
     func register(key: String, reload: @escaping () -> Void) {
         registrations[key] = reload
-        pullIfNewer(key: key)
+        if kvs != nil {
+            pullIfNewer(key: key)
+        }
         reload()
     }
 
@@ -69,7 +77,7 @@ final class CloudKVSSync {
     /// UserDefaults — we read it back from defaults rather than taking it as a
     /// parameter so callers don't have to think about types.
     func markChanged(key: String) {
-        guard CloudSyncChannel.isEnabled(.settings) else { return }
+        guard CloudSyncChannel.isEnabled(.settings), let kvs else { return }
         // Keep the existing timestamp field for on-disk compatibility, but use
         // it as a Lamport-style revision. A device whose wall clock is ahead can
         // no longer permanently dominate other devices: every edit advances
@@ -130,7 +138,8 @@ final class CloudKVSSync {
     }
 
     private func remoteVersion(for key: String) -> (revision: Double, writer: String) {
-        (kvs.double(forKey: timestampKey(for: key)), kvs.string(forKey: writerKey(for: key)) ?? "")
+        guard let kvs else { return (0, "") }
+        return (kvs.double(forKey: timestampKey(for: key)), kvs.string(forKey: writerKey(for: key)) ?? "")
     }
 
     private func localVersion(for key: String) -> (revision: Double, writer: String) {
@@ -155,6 +164,7 @@ final class CloudKVSSync {
         forKey key: String,
         remoteVersion: (revision: Double, writer: String)
     ) {
+        guard let kvs else { return }
         guard let value = kvs.object(forKey: key) else {
             defaults.removeObject(forKey: key)
             defaults.set(remoteVersion.revision, forKey: timestampKey(for: key))

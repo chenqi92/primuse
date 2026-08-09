@@ -252,6 +252,46 @@ private struct MacSTRadioView: View {
     @State private var showingBatchAdd = false
     @State private var editingStation: RadioStation?
 
+    /// 次级按钮。`.bordered` 会渲染成系统蓝，跟这套赤陶色主题对不上 ——
+    /// 设置页其它分区都是自绘 + PM token，这里保持一致。
+    private func macSecondaryButton(
+        _ titleKey: String.LocalizationValue,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(String(localized: titleKey))
+                .font(PMFont.bodyM)
+                .foregroundStyle(PMColor.text)
+                .frame(height: 26)
+                .padding(.horizontal, 14)
+                .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.s))
+                .overlay {
+                    RoundedRectangle(cornerRadius: PMRadius.s, style: .continuous)
+                        .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                }
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// 排序/编辑用的小图标按钮。
+    private func macIconButton(
+        _ symbol: String,
+        help: String,
+        disabled: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(disabled ? PMColor.textFaint : PMColor.text)
+                .frame(width: 22, height: 22)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .help(help)
+    }
+
     var body: some View {
         Group {
             MacSTSection(String(localized: "radio_title")) {
@@ -264,24 +304,29 @@ private struct MacSTRadioView: View {
                             : nil,
                         divider: false
                     ) {
-                        Button(String(localized: "radio_add")) { showingNewStation = true }
-                            .buttonStyle(.borderedProminent)
+                        Button { showingNewStation = true } label: {
+                            Text("radio_add")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(height: 26)
+                                .padding(.horizontal, 14)
+                                .background(PMColor.brand, in: .rect(cornerRadius: PMRadius.s))
+                        }
+                        .buttonStyle(.plain)
                     }
 
                     MacSTRow(
                         String(localized: "radio_batch_add_title"),
                         hint: String(localized: "radio_batch_paste_hint")
                     ) {
-                        Button(String(localized: "radio_batch_add_title")) { showingBatchAdd = true }
-                            .buttonStyle(.bordered)
+                        macSecondaryButton("radio_batch_add_title") { showingBatchAdd = true }
                     }
 
                     if !store.stations.isEmpty {
                         MacSTRow(String(localized: "radio_priority_sort_by_name")) {
-                            Button(String(localized: "radio_priority_sort_by_name")) {
+                            macSecondaryButton("radio_priority_sort_by_name") {
                                 store.sortStationsByName()
                             }
-                            .buttonStyle(.bordered)
                         }
                     }
                 }
@@ -304,31 +349,31 @@ private struct MacSTRadioView: View {
                                         .font(.system(size: 11).monospacedDigit())
                                         .foregroundStyle(PMColor.textFaint)
                                         .frame(width: 26, alignment: .trailing)
-                                    Button {
+
+                                    // `.borderless` 的图标按钮会取系统强调色(蓝),
+                                    // 跟这套赤陶主题冲突 —— 显式给 PM 文本色。
+                                    macIconButton(
+                                        "pencil",
+                                        help: String(localized: "edit")
+                                    ) {
                                         editingStation = station
-                                    } label: {
-                                        Image(systemName: "pencil")
                                     }
-                                    .buttonStyle(.borderless)
-                                    .help(String(localized: "edit"))
 
-                                    Button {
+                                    macIconButton(
+                                        "arrow.up",
+                                        help: String(localized: "radio_priority_move_up"),
+                                        disabled: index == 0
+                                    ) {
                                         store.moveStation(id: station.id, by: -1)
-                                    } label: {
-                                        Image(systemName: "arrow.up")
                                     }
-                                    .buttonStyle(.borderless)
-                                    .disabled(index == 0)
-                                    .help(String(localized: "radio_priority_move_up"))
 
-                                    Button {
+                                    macIconButton(
+                                        "arrow.down",
+                                        help: String(localized: "radio_priority_move_down"),
+                                        disabled: index == store.stations.count - 1
+                                    ) {
                                         store.moveStation(id: station.id, by: 1)
-                                    } label: {
-                                        Image(systemName: "arrow.down")
                                     }
-                                    .buttonStyle(.borderless)
-                                    .disabled(index == store.stations.count - 1)
-                                    .help(String(localized: "radio_priority_move_down"))
                                 }
                             }
                         }

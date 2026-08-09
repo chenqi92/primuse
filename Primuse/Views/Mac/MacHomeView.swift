@@ -445,19 +445,6 @@ struct MacHomeView: View {
         .shadow(color: .black.opacity(0.45), radius: 8, y: 4)
     }
 
-    private var selectedRadioStation: RadioStation? {
-        let stations = radioStationsStore.stations
-        if let selectedRadioID,
-           let selected = stations.first(where: { $0.id == selectedRadioID }) {
-            return selected
-        }
-        if let current = player.currentRadioStation,
-           stations.contains(where: { $0.id == current.id }) {
-            return current
-        }
-        return stations.first
-    }
-
     private var radioSpotlightSection: some View {
         VStack(alignment: .leading, spacing: PMSpace.s10) {
             HStack {
@@ -465,19 +452,20 @@ struct MacHomeView: View {
                     .font(.system(size: 20, weight: .bold))
                     .foregroundStyle(PMColor.text)
                 Spacer()
-                NavigationLink("home_section_view_all") {
-                    MacRadioStationsView()
+                // 切侧栏的「电台」项，而不是 push 一个带返回键的新页面 ——
+                // 侧栏已经有这个目的地了，push 会让同一个页面有两条路径、
+                // 两种退出方式(返回键 vs 点侧栏)。
+                Button("home_section_view_all") {
+                    NotificationCenter.default.post(name: .primuseSelectRadio, object: nil)
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: 12.5, weight: .semibold))
                 .foregroundStyle(PMColor.brand)
             }
 
-            if let station = selectedRadioStation {
-                radioSpotlightCard(station)
-            } else {
-                NavigationLink {
-                    MacRadioStationsView()
+            if radioStationsStore.stations.isEmpty {
+                Button {
+                    NotificationCenter.default.post(name: .primuseSelectRadio, object: nil)
                 } label: {
                     HStack(spacing: PMSpace.l24) {
                         Image(systemName: "radio.fill")
@@ -499,6 +487,8 @@ struct MacHomeView: View {
                     .background(radioSpotlightGradient, in: RoundedRectangle(cornerRadius: PMRadius.xl))
                 }
                 .buttonStyle(.plain)
+            } else {
+                radioStationGrid
             }
         }
         .onChange(of: player.currentRadioStation?.id) { _, stationID in
@@ -508,83 +498,109 @@ struct MacHomeView: View {
         }
     }
 
-    private func radioSpotlightCard(_ station: RadioStation) -> some View {
-        let stations = radioStationsStore.stations
-        let index = stations.firstIndex(where: { $0.id == station.id }) ?? 0
-        let isCurrent = player.currentRadioStation?.id == station.id
-        let isPlaying = isCurrent && (player.isPlaying || player.isLoading)
-
-        return HStack(spacing: PMSpace.xxl) {
-            RadioStationArtworkView(station: station, size: 124, cornerRadius: PMRadius.l)
-                .shadow(color: .black.opacity(0.28), radius: 12, y: 6)
-
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 7) {
-                    Circle().fill(.red).frame(width: 7, height: 7)
-                    Text("LIVE")
-                        .font(.system(size: 10.5, weight: .bold))
-                        .tracking(1)
-                    Text("\(index + 1) / \(stations.count)")
-                        .font(.system(size: 11).monospacedDigit())
-                        .foregroundStyle(.white.opacity(0.66))
-                }
-                Text(station.name)
-                    .font(.system(size: 25, weight: .bold))
-                    .lineLimit(1)
-                Text(isCurrent ? (player.radioMetadataTitle ?? station.playbackSubtitle) : station.playbackSubtitle)
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(.white.opacity(0.74))
-                    .lineLimit(2)
-
-                HStack(spacing: 10) {
-                    radioSpotlightButton("chevron.left", accessibilityKey: "radio_previous_station") {
-                        selectRadio(relativeTo: station, offset: -1)
-                    }
-                    .disabled(stations.count < 2)
-
-                    Button {
-                        toggleRadio(station)
-                    } label: {
-                        Image(systemName: isPlaying ? "stop.fill" : "play.fill")
-                            .font(.system(size: 15, weight: .bold))
-                            .frame(width: 40, height: 40)
-                            .foregroundStyle(PMColor.brand)
-                            .background(.white, in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(isPlaying ? "radio_stop" : "play")
-
-                    radioSpotlightButton("chevron.right", accessibilityKey: "radio_next_station") {
-                        selectRadio(relativeTo: station, offset: 1)
-                    }
-                    .disabled(stations.count < 2)
-                }
-                .padding(.top, 4)
+    /// 电台改成固定宽度的卡片网格。原来是一张 `maxWidth: .infinity` 的横幅，
+    /// 内容只占左边一小块，窗口越宽右边空出的渐变越大。网格跟下面的
+    /// 「资料库健康度 / 音乐源状态」一致：卡宽固定，宽窗口自动多排几列。
+    private var radioStationGrid: some View {
+        LazyVGrid(
+            // 下限给到 200 —— 电台名普遍比歌名长(常带频率/地区后缀)，
+            // 再窄就只能显示三四个字加省略号了。
+            columns: [GridItem(.adaptive(minimum: 200, maximum: 260), spacing: PMSpace.m14)],
+            alignment: .leading,
+            spacing: PMSpace.m14
+        ) {
+            ForEach(radioStationsStore.stations) { station in
+                radioStationTile(station)
             }
-            Spacer(minLength: 0)
-        }
-        .padding(PMSpace.l24)
-        .frame(maxWidth: .infinity, minHeight: 172, alignment: .leading)
-        .foregroundStyle(.white)
-        .background(radioSpotlightGradient, in: RoundedRectangle(cornerRadius: PMRadius.xl))
-        .overlay {
-            RoundedRectangle(cornerRadius: PMRadius.xl)
-                .strokeBorder(.white.opacity(0.1), lineWidth: 0.5)
         }
     }
 
-    private func radioSpotlightButton(
-        _ systemImage: String,
-        accessibilityKey: LocalizedStringKey,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .frame(width: 34, height: 34)
-                .background(.white.opacity(0.14), in: Circle())
+    private func radioStationTile(_ station: RadioStation) -> some View {
+        let isCurrent = player.currentRadioStation?.id == station.id
+        let isPlaying = isCurrent && (player.isPlaying || player.isLoading)
+
+        return Button {
+            selectedRadioID = station.id
+            toggleRadio(station)
+        } label: {
+            VStack(alignment: .leading, spacing: PMSpace.s10) {
+                // 不能用 `RadioStationArtworkView` —— 它内部写死了
+                // `.frame(width: size, height: size)`，塞进这种「宽度自适应、
+                // 高度固定」的横幅槽位里不会被压缩，会向两侧溢出后被裁掉，
+                // 视觉上就是卡片之间没有缝、连成一片。这里自己铺封面。
+                radioTileArtwork(station)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 96)
+                    .clipShape(RoundedRectangle(cornerRadius: PMRadius.m10, style: .continuous))
+                    .overlay(alignment: .topLeading) {
+                        radioTileBadge(isPlaying: isPlaying)
+                            .padding(PMSpace.s)
+                    }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(station.name)
+                        .font(PMFont.cardTitleS)
+                        .foregroundStyle(PMColor.text)
+                        .lineLimit(1)
+
+                    Text(isCurrent
+                         ? (player.radioMetadataTitle ?? station.playbackSubtitle)
+                         : station.playbackSubtitle)
+                        .font(PMFont.caption)
+                        .foregroundStyle(isCurrent ? PMColor.brand : PMColor.textMuted)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(PMSpace.s10)
+            .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(accessibilityKey)
+        .pmCard(cornerRadius: PMRadius.l14)
+        .overlay {
+            RoundedRectangle(cornerRadius: PMRadius.l14, style: .continuous)
+                .strokeBorder(isCurrent ? PMColor.brand.opacity(0.55) : .clear, lineWidth: 1)
+        }
+    }
+
+    /// 台标铺满槽位。有 logo 就 `scaledToFill` 裁切，没有就用渐变占位 ——
+    /// 两种情况都不带固定 frame，交给外层决定尺寸。
+    @ViewBuilder
+    private func radioTileArtwork(_ station: RadioStation) -> some View {
+        if let data = station.logoData, let image = NSImage(data: data) {
+            Image(nsImage: image)
+                .resizable()
+                .scaledToFill()
+        } else {
+            ZStack {
+                radioSpotlightGradient
+                Image(systemName: "radio.fill")
+                    .font(.system(size: 30, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.92))
+            }
+        }
+    }
+
+    /// 只有真在播才亮红点 LIVE —— 无条件亮着的话，没播放时卡片也在说
+    /// "正在直播"，跟底部播放条自相矛盾。
+    @ViewBuilder
+    private func radioTileBadge(isPlaying: Bool) -> some View {
+        HStack(spacing: 5) {
+            if isPlaying {
+                Circle().fill(.red).frame(width: 6, height: 6)
+                Text("LIVE")
+            } else {
+                Image(systemName: "radio")
+                    .font(.system(size: 9, weight: .semibold))
+                Text("radio_title")
+            }
+        }
+        .font(.system(size: 9.5, weight: .bold))
+        .tracking(0.8)
+        .foregroundStyle(.white)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(.black.opacity(0.38), in: Capsule())
     }
 
     private var radioSpotlightGradient: LinearGradient {
@@ -593,13 +609,6 @@ struct MacHomeView: View {
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
-    }
-
-    private func selectRadio(relativeTo station: RadioStation, offset: Int) {
-        let stations = radioStationsStore.stations
-        guard stations.count > 1,
-              let index = stations.firstIndex(where: { $0.id == station.id }) else { return }
-        selectedRadioID = stations[(index + offset + stations.count) % stations.count].id
     }
 
     private func toggleRadio(_ station: RadioStation) {

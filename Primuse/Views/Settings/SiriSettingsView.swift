@@ -4,7 +4,7 @@ import SwiftUI
 import UIKit
 
 struct SiriSettingsView: View {
-    @State private var authorizationStatus = INPreferences.siriAuthorizationStatus()
+    @State private var authorizationStatus = SiriAuthorizationRuntime.status
 
     var body: some View {
         Form {
@@ -42,7 +42,7 @@ struct SiriSettingsView: View {
         .navigationTitle("Siri")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
-            authorizationStatus = INPreferences.siriAuthorizationStatus()
+            authorizationStatus = SiriAuthorizationRuntime.status
         }
     }
 
@@ -79,7 +79,7 @@ struct SiriSettingsView: View {
     }
 
     private func requestAuthorization() {
-        INPreferences.requestSiriAuthorization { status in
+        SiriAuthorizationRuntime.request { status in
             Task { @MainActor in
                 authorizationStatus = status
             }

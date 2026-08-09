@@ -2506,3 +2506,7 @@
 /* MARK: - 歌詞編輯入口 / 電台多選 */
 "lyrics_editor_menu" = "編輯歌詞";
 "radio_manage_selected %lld" = "已選 %lld 項";
+
+/* MARK: - 電台底欄 */
+"radio_buffering" = "緩衝中";
+"radio_connected_for" = "已連線時長";

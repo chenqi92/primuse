@@ -2530,3 +2530,7 @@
 /* MARK: - Lyrics editor / radio selection */
 "lyrics_editor_menu" = "歌詞を編集";
 "radio_manage_selected %lld" = "%lld 件選択";
+
+/* MARK: - Radio bottom bar */
+"radio_buffering" = "バッファ中";
+"radio_connected_for" = "接続時間";

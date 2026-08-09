@@ -2529,3 +2529,7 @@
 /* MARK: - Éditeur de paroles / sélection radio */
 "lyrics_editor_menu" = "Modifier les paroles";
 "radio_manage_selected %lld" = "%lld sélectionnées";
+
+/* MARK: - Barre radio */
+"radio_buffering" = "MISE EN CACHE";
+"radio_connected_for" = "Connecté depuis";

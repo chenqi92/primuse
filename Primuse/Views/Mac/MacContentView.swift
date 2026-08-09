@@ -193,6 +193,9 @@ struct MacContentView: View {
             // 回到首页, 而不是再跳那个不稳定的总览页。
             selectRoute(.home)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .primuseSelectRadio)) { _ in
+            selectRoute(.section(.radio))
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in
             isWindowFullScreen = true
             savedSidebarCollapsed = sidebarCollapsed

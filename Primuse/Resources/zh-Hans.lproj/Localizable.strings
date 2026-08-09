@@ -2633,3 +2633,7 @@
 /* MARK: - 歌词编辑入口 / 电台多选 */
 "lyrics_editor_menu" = "编辑歌词";
 "radio_manage_selected %lld" = "已选 %lld 项";
+
+/* MARK: - 电台底栏 */
+"radio_buffering" = "缓冲中";
+"radio_connected_for" = "已连接时长";

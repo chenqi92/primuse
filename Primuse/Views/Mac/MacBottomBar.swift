@@ -316,18 +316,63 @@ private struct MacBottomBarProgress: View {
     @Environment(AudioPlayerService.self) private var player
     @State private var dragValue: Double?
 
+    /// 电台态的中间列。直播流没有时长也没法拖拽，硬套音乐那套
+    /// 「时间 — 进度条 — 剩余」只会留下一条空槽；这里换成实时频谱 +
+    /// 连接状态 + 已连时长，宽度也收窄到内容需要的尺寸。
+    private var radioStatusLine: some View {
+        let isBuffering = player.isLoading
+        let isActive = player.isPlaying && !isBuffering
+
+        return HStack(spacing: PMSpace.s10) {
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(isActive ? Color.red : PMColor.textFaint)
+                    .frame(width: 6, height: 6)
+                Text(isBuffering ? "radio_buffering" : "LIVE")
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(0.8)
+                    .foregroundStyle(isActive ? PMColor.brand : PMColor.textMuted)
+            }
+
+            if isActive {
+                MacRadioLevelBars()
+            }
+
+            if let detail = streamDetail {
+                Text(detail)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(PMColor.textFaint)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            Text(player.currentTime.formattedDuration)
+                .font(.system(size: 10.5, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(PMColor.textFaint)
+                .help(Text("radio_connected_for"))
+        }
+        .frame(maxWidth: 340)
+    }
+
+    /// 「128 kbps · MP3」。仅在左栏正显示曲目元数据时才补 —— 没有元数据时
+    /// 左栏回落显示的就是 `playbackSubtitle`(同样是码率/格式)，再显示一遍就重了。
+    private var streamDetail: String? {
+        guard player.radioMetadataTitle?.isEmpty == false else { return nil }
+        var parts: [String] = []
+        if let bitRate = player.radioBitRate, bitRate > 0 {
+            parts.append("\(bitRate / 1_000) kbps")
+        }
+        if player.radioStreamFormat != .automatic {
+            parts.append(player.radioStreamFormat.displayName)
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
     var body: some View {
         if player.isLiveRadio {
-            HStack(spacing: 8) {
-                Circle().fill(.red).frame(width: 7, height: 7)
-                Text("LIVE").font(.system(size: 10.5, weight: .bold))
-                Spacer()
-                Text(player.currentTime.formattedDuration)
-                    .font(.system(size: 10.5, design: .monospaced))
-                    .monospacedDigit()
-            }
-            .foregroundStyle(PMColor.textMuted)
-            .frame(maxWidth: 560)
+            radioStatusLine
         } else {
         let current = dragValue ?? player.currentTime
         let duration = max(player.duration, 0.001)
@@ -426,6 +471,37 @@ private struct Scrubber: View {
 
 /// 没有点击行为的纯展示 icon — 给 PlayerMoreMenu 当 label 用 (PlayerMoreMenu
 /// 自己接管点击)。复用 PMRoundBtn 的视觉但不要 button。
+/// 电台态的律动条。**装饰性动画，不是真实频谱** —— 直播流走 `AVPlayer`，
+/// 拿不到 `AudioVisualizerService` 依赖的 `AVAudioEngine` tap，所以这里只
+/// 用固定相位差的正弦摆动表示「正在出声」。仅在真的在播时才挂起来(调用方
+/// 已用 `isActive` 判过)，不会在暂停/缓冲时空跳。
+private struct MacRadioLevelBars: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var phase = false
+
+    private let heights: [CGFloat] = [5, 11, 7, 13, 8]
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 2) {
+            ForEach(Array(heights.enumerated()), id: \.offset) { index, height in
+                Capsule()
+                    .fill(PMColor.brand.opacity(0.75))
+                    .frame(width: 2, height: phase ? height : height * 0.4)
+                    .animation(
+                        reduceMotion
+                            ? nil
+                            : .easeInOut(duration: 0.42 + Double(index) * 0.07)
+                                .repeatForever(autoreverses: true),
+                        value: phase
+                    )
+            }
+        }
+        .frame(height: 14)
+        .accessibilityHidden(true)
+        .onAppear { phase = true }
+    }
+}
+
 private struct PMRoundBtnIcon: View {
     var icon: String
     var help: LocalizedStringKey

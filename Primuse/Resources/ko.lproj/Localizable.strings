@@ -2529,3 +2529,7 @@
 /* MARK: - Lyrics editor / radio selection */
 "lyrics_editor_menu" = "가사 편집";
 "radio_manage_selected %lld" = "%lld개 선택됨";
+
+/* MARK: - Radio bottom bar */
+"radio_buffering" = "버퍼링 중";
+"radio_connected_for" = "연결 시간";

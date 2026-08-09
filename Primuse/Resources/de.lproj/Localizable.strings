@@ -2529,3 +2529,7 @@
 /* MARK: - Songtext-Editor / Radioauswahl */
 "lyrics_editor_menu" = "Songtext bearbeiten";
 "radio_manage_selected %lld" = "%lld ausgewählt";
+
+/* MARK: - Radio-Leiste */
+"radio_buffering" = "PUFFERT";
+"radio_connected_for" = "Verbunden seit";
