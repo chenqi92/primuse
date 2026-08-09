@@ -893,14 +893,13 @@ struct HomeView: View {
             NavigationLink {
                 RadioStationsView()
             } label: {
-                Label("radio_manage", systemImage: "radio")
-                    .font(.subheadline.weight(.semibold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
+                Text("radio_manage")
+                    .fontWeight(.medium)
+                    .padding(.horizontal, 22)
+                    .padding(.vertical, 10)
             }
             .buttonStyle(.borderedProminent)
             .clipShape(Capsule())
-            .padding(.horizontal, 40)
             .padding(.top, 4)
 
             Spacer()
