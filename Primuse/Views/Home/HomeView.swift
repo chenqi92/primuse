@@ -728,21 +728,25 @@ struct HomeView: View {
             }
             .padding(.horizontal, 20)
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(alignment: .top, spacing: 14) {
-                    ForEach(stations) { station in
-                        radioWallCard(station)
-                    }
-                    radioWallAddCard
+            // 竖屏手机纵向有的是空间，横向反而最窄。原来做成横滑一排，
+            // 结果是下面大片留白、电台却挤在一条窄带里还看不全名字。
+            // 改成网格：跟着宽度排 2 列(大屏 3 列)，向下自然延伸。
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 150, maximum: 220), spacing: 14)],
+                alignment: .leading,
+                spacing: 16
+            ) {
+                ForEach(stations) { station in
+                    radioWallCard(station)
                 }
-                .padding(.horizontal, 20)
+                radioWallAddCard
             }
+            .padding(.horizontal, 20)
         }
     }
 
-    /// 电台墙的尺寸基准。封面是正方形，下面固定留两行文字的高度 ——
-    /// 「批量添加」卡跟着用同一套值，两种卡的顶边和底边才对得齐。
-    private static let radioWallArtSize: CGFloat = 132
+    /// 卡片宽度交给网格算，这里只固定文字区高度 —— 台名长短不一，
+    /// 不固定的话同一行的卡底边会参差。
     private static let radioWallCaptionHeight: CGFloat = 38
 
     private var radioWallAddCard: some View {
@@ -759,7 +763,8 @@ struct HomeView: View {
                         .multilineTextAlignment(.center)
                 }
                 .foregroundStyle(.secondary)
-                .frame(width: Self.radioWallArtSize, height: Self.radioWallArtSize)
+                .frame(maxWidth: .infinity)
+                .aspectRatio(1, contentMode: .fill)
                 .background {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(homeCardSurface)
@@ -776,7 +781,6 @@ struct HomeView: View {
                 Color.clear
                     .frame(height: Self.radioWallCaptionHeight)
             }
-            .frame(width: Self.radioWallArtSize)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
@@ -791,31 +795,32 @@ struct HomeView: View {
             toggleHomeRadio(station)
         } label: {
             VStack(alignment: .leading, spacing: 8) {
-                ZStack(alignment: .topLeading) {
-                    RadioStationArtworkView(
-                        station: station,
-                        size: Self.radioWallArtSize,
-                        cornerRadius: 16
-                    )
+                // 封面跟着列宽走，不再写死 132pt —— 网格的列宽由可用宽度算出，
+                // 固定尺寸会撑不满或溢出。`RadioStationArtworkView` 内部带固定
+                // frame，所以这里自己铺。
+                radioWallArtwork(station)
+                    .frame(maxWidth: .infinity)
+                    .aspectRatio(1, contentMode: .fill)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay(alignment: .topLeading) {
+                        Text(isPlaying ? "LIVE" : String(localized: "radio_title"))
+                            .font(.system(size: 9.5, weight: .bold))
+                            .tracking(0.8)
+                            .foregroundStyle(isPlaying ? .white : .white.opacity(0.85))
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(
+                                (isPlaying ? Color.red.opacity(0.9) : Color.black.opacity(0.35)),
+                                in: RoundedRectangle(cornerRadius: 5)
+                            )
+                            .padding(9)
+                    }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(isCurrent ? Color.accentColor : .clear, lineWidth: 2)
+                    }
 
-                    Text(isPlaying ? "LIVE" : String(localized: "radio_title"))
-                        .font(.system(size: 9.5, weight: .bold))
-                        .tracking(0.8)
-                        .foregroundStyle(isPlaying ? .white : .white.opacity(0.85))
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(
-                            (isPlaying ? Color.red.opacity(0.9) : Color.black.opacity(0.35)),
-                            in: RoundedRectangle(cornerRadius: 5)
-                        )
-                        .padding(9)
-                }
-                .overlay {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(isCurrent ? Color.accentColor : .clear, lineWidth: 2)
-                }
-
-                // 名字长短不一，固定文字区高度让整排卡底边齐平。
+                // 名字长短不一，固定文字区高度让同一行的卡底边齐平。
                 VStack(alignment: .leading, spacing: 3) {
                     Text(station.name)
                         .font(.subheadline.weight(.medium))
@@ -830,15 +835,37 @@ struct HomeView: View {
                         .lineLimit(1)
                 }
                 .frame(
-                    width: Self.radioWallArtSize,
-                    height: Self.radioWallCaptionHeight,
+                    maxWidth: .infinity,
+                    minHeight: Self.radioWallCaptionHeight,
+                    maxHeight: Self.radioWallCaptionHeight,
                     alignment: .topLeading
                 )
             }
-            .frame(width: Self.radioWallArtSize)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
+    }
+
+    /// 台标铺满槽位。跟 Mac 侧同样的理由：`RadioStationArtworkView` 写死了
+    /// 正方形 frame，压不进「宽度自适应」的槽位。
+    @ViewBuilder
+    private func radioWallArtwork(_ station: RadioStation) -> some View {
+        if let data = station.logoData, let image = PlatformImage(data: data) {
+            Image(platformImage: image)
+                .resizable()
+                .scaledToFill()
+        } else {
+            ZStack {
+                LinearGradient(
+                    colors: [.purple.opacity(0.85), .blue.opacity(0.7)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                Image(systemName: "radio.fill")
+                    .font(.system(size: 34, weight: .medium))
+                    .foregroundStyle(.white)
+            }
+        }
     }
 
     private var radioModeEmptyState: some View {
